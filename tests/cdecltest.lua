@@ -1,6 +1,5 @@
 local testAssert = require("nupp.test")
 local cdecl = require("nupp.compiler.cinterop.cdecl")
-local ffi = require("ffi")
 
 local M = {}
 
@@ -62,23 +61,6 @@ function M.targetDefinitionsCompletePreludeForwardDeclarations()
     testAssert.equal(#parsed.structs, 1)
     testAssert.equal(parsed.structs[1].name, "NuppCdeclForwardTarget")
     testAssert.equal(parsed.structs[1].fields[1].name, "value")
-end
-
-function M.registryEntriesBeyondTheOldCeilingAreVisible()
-    local padding = {}
-    for index = 1, 4100 do
-        padding[index] = ("struct NuppCdeclPadding%d { int value; };"):format(index)
-    end
-    ffi.cdef(table.concat(padding, "\n"))
-    assert(
-        tonumber(ffi.typeof("struct NuppCdeclPadding4100")) > 8192,
-        "the fixture reaches beyond the former registry ceiling"
-    )
-
-    local parsed, err = cdecl.inspect("int nuppCdeclAfterPadding(int value);")
-    assert(parsed, err)
-    testAssert.equal(#parsed.functions, 1)
-    testAssert.equal(parsed.functions[1].name, "nuppCdeclAfterPadding")
 end
 
 function M.enumMembersComeBackInDeclarationOrder()
@@ -158,7 +140,8 @@ function M.membersWithoutANameAreCountedNotDropped()
     end
     testAssert.equal(byName.NuppCdeclAnonMember.anonymous, 1, "anonymous members")
     testAssert.equal(#byName.NuppCdeclAnonMember.fields, 2, "named fields")
-    testAssert.equal(byName.NuppCdeclAnonMember.size, ffi.sizeof("struct NuppCdeclAnonMember"))
+    -- the union aligns to its double, so `after` follows it at 16
+    testAssert.equal(byName.NuppCdeclAnonMember.size, 24)
     testAssert.equal(byName.NuppCdeclPadding.unnamed, 2, "unnamed bitfields")
     testAssert.equal(byName.NuppCdeclPadding.fields[2].bitPos, 0, "b starts the unit the zero-width field opened")
     testAssert.equal(byName.NuppCdeclPadding.fields[2].offset, 4)

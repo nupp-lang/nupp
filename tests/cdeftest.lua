@@ -2,10 +2,10 @@ local testAssert = require("nupp.test")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
-local windows = require("ffi").os == "Windows"
-local hostOs = require("ffi").os
+local windows = package.config:sub(1, 1) == "\\"
+local darwin = (require("nupp.compiler.targetlayout").hostKey() or ""):find("apple-darwin", 1, true) ~= nil
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
 -- One environment for the whole suite.
@@ -20,9 +20,8 @@ local function compile(src)
     local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors" .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
     local diags = check.check(result, "test.nupp", sharedEnv)
-    local code, genDiags = gen.generate(result, "test")
 
-    return code, diags, genDiags
+    return result, diags
 end
 
 local function diagsOf(src)
@@ -38,7 +37,7 @@ end
 local assertClean = assertions.check(diagsOf, function(src) return "expected clean check:\n" .. src end)
 
 local function run(src)
-    local code, diags, genDiags = compile(src)
+    local result, diags = compile(src)
     local messages = {}
     for _, diagnostic in ipairs(diags) do
         messages[#messages + 1] = diagnostic.code .. ":" .. diagnostic.line .. ": " .. diagnostic.msg
@@ -50,13 +49,8 @@ local function run(src)
             #messages > 0 and (":\n" .. table.concat(messages, "\n") .. "\n--- source ---\n" .. src) or ""
         )
     )
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@cdeftest")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk()
+    return program.run(result, "cdeftest")
 end
 
 local M = {}
@@ -70,7 +64,7 @@ function M.cdefFunctionTyping()
     testAssert.equal((diagsOf("cdef function bad2(): {[string]: number}")), "NUPP2203:1")
 end
 
-function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
+function M.countedPointerCallsCheckAgainstSpans()
     local source = table.concat(
         {
             "local spans = require('nupp.mem.span')",
@@ -96,14 +90,6 @@ function M.countedPointersBuildOneCheckedWrapperOverThePhysicalBinding()
         "\n"
     )
     assertClean(source)
-    local code, diags, genDiags = compile(source)
-    testAssert.equal(#diags, 0)
-    testAssert.equal(#genDiags, 0)
-    assert(code:find("positions.count~=velocities.count", 1, true), code)
-    assert(code:find("positions:ref()", 1, true), code)
-    assert(code:find("velocities:ref()", 1, true), code)
-    assert(code:find("__nuppFfi.C.counted_integrate", 1, true), code)
-    assert(not code:find("if positions.count==0", 1, true), "zero count must still call C:\n" .. code)
 end
 
 function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
@@ -113,9 +99,9 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-    local suffix = hostOs == "OSX" and ".dylib" or ".so"
+    local suffix = darwin and ".dylib" or ".so"
     local library = dir .. "/libcounted_pointer" .. suffix
-    local shared = hostOs == "OSX" and "-dynamiclib" or "-shared"
+    local shared = darwin and "-dynamiclib" or "-shared"
     local fixture = HERE .. "/fixtures/counted_pointer.c"
     local built = os.execute(
         ("clang -std=c11 -O2 -Wall -Wextra -Werror -fPIC %s '%s' -o '%s'"):format(shared, fixture, library)
@@ -124,7 +110,6 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
 
     local declaration = table.concat(
         {
-            "local spans = require('nupp.mem.span')",
             "cdef function counted_pointer_reset() from\"" .. library .. "\"",
             "cdef function counted_pointer_call_count(): uint64 from\"" .. library .. "\"",
             "cdef function counted_pointer_transform(",
@@ -141,51 +126,64 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     )
     local source = declaration .. "\n" .. table.concat(
         {
-            "local input = ffi.new<int32[6]>()",
-            "local output = ffi.new<int32[6]>()",
-            "for i = 0, 5 do input[i] = (i + 1) as int32 end",
+            "local array = require('nupp.mem.array')",
+            "local input = array.scalar(array.int32, 6)",
+            "local output = array.scalar(array.int32, 6)",
+            "do",
+            "   local values = input:write()",
+            "   for i = 1, 6 do values[i] = i as int32 end",
+            "   nupp.drop(values)",
+            "end",
             "counted_pointer_reset()",
             "do",
-            "   local writer = spans.writeCarray(output, 6)",
+            "   local writer = output:write()",
             "   do",
             "      local parts = writer:splitAt(1)",
-            "      local readable = spans.fromCarray(input, 6):slice(2, 6)",
+            "      local readable = input:read():slice(2, 6)",
             "      counted_pointer_transform(parts.right, readable)",
             "   end",
             "   nupp.drop(writer)",
             "end",
             "local offsetFirst: int32, offsetLast: int32",
             "do",
-            "   local transformed = spans.fromCarray(output, 6)",
+            "   local transformed = output:read()",
             "   offsetFirst, offsetLast = transformed[2], transformed[6]",
             "end",
             "local transformCalls = counted_pointer_call_count()",
             "counted_pointer_reset()",
             "do",
-            "   local emptyOutput = spans.writeCarray(output, 0)",
-            "   local emptyInput = spans.fromCarray(input, 0)",
-            "   counted_pointer_transform(emptyOutput, emptyInput)",
-            "   nupp.drop(emptyOutput)",
+            "   local writer = output:write()",
+            "   do",
+            "      local emptyOutput = writer:slice(1, 0)",
+            "      local emptyInput = input:read():slice(1, 0)",
+            "      counted_pointer_transform(emptyOutput, emptyInput)",
+            "      nupp.drop(emptyOutput)",
+            "   end",
+            "   nupp.drop(writer)",
             "end",
             "local zeroCalls = counted_pointer_call_count()",
             "counted_pointer_reset()",
             "do",
-            "   local independentOutput = spans.writeCarray(output, 3)",
-            "   local independentInput = spans.fromCarray(input, 5)",
-            "   counted_pointer_independent(independentOutput, independentInput)",
-            "   nupp.drop(independentOutput)",
+            "   local writer = output:write()",
+            "   do",
+            "      local independentOutput = writer:slice(1, 3)",
+            "      local independentInput = input:read():slice(1, 5)",
+            "      counted_pointer_independent(independentOutput, independentInput)",
+            "      nupp.drop(independentOutput)",
+            "   end",
+            "   nupp.drop(writer)",
             "end",
             "local outputCount: int32, inputCount: int32, inputFirst: int32",
             "do",
-            "   local independent = spans.fromCarray(output, 3)",
+            "   local independent = output:read()",
             "   outputCount, inputCount, inputFirst = independent[1], independent[2], independent[3]",
             "end",
-            "local sharedStorage = ffi.new<int32[2]>()",
-            "local sharedOutput = ffi.new<int32[2]>()",
-            "sharedStorage[0], sharedStorage[1] = 7 as int32, 8 as int32",
+            "local sharedStorage = array.scalar(array.int32, 2)",
+            "local sharedOutput = array.scalar(array.int32, 2)",
             "do",
-            "   local sourceWriter = spans.writeCarray(sharedStorage, 2)",
-            "   local destinationWriter = spans.writeCarray(sharedOutput, 2)",
+            "   local sourceWriter = sharedStorage:write()",
+            "   sourceWriter[1], sourceWriter[2] = 7 as int32, 8 as int32",
+            "   local destinationWriter = sharedOutput:write()",
             "   do",
             "      local sourceReader = sourceWriter:shared()",
             "      counted_pointer_transform(destinationWriter, sourceReader)",
@@ -193,16 +191,28 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "   nupp.drop(destinationWriter)",
             "   nupp.drop(sourceWriter)",
             "end",
-            "local sharedRead = spans.fromCarray(sharedOutput, 2)",
+            "local sharedRead = sharedOutput:read()",
+            "local unequalOutput = array.scalar(array.int32, 1)",
+            "local unequalInput = array.scalar(array.int32, 2)",
+            "counted_pointer_reset()",
+            "local unequalOk: boolean",
+            "do",
+            "   local shortOutput = unequalOutput:write()",
+            "   local longInput = unequalInput:read()",
+            "   unequalOk = pcall(counted_pointer_transform, shortOutput, longInput)",
+            "   nupp.drop(shortOutput)",
+            "end",
+            "local unequalCalls = counted_pointer_call_count()",
             "return offsetFirst, offsetLast, transformCalls, zeroCalls,",
-            "   outputCount, inputCount, inputFirst, sharedRead[1], sharedRead[2]",
+            "   outputCount, inputCount, inputFirst, sharedRead[1], sharedRead[2], unequalOk, unequalCalls",
         },
         "\n"
     )
 
-    local ok, a, b, calls, zeroCalls, outputCount, inputCount, inputFirst, sharedFirst, sharedLast = pcall(run, source)
+    local ok, a, b, calls, zeroCalls, outputCount, inputCount, inputFirst, sharedFirst, sharedLast, unequalOk, unequalCalls =
+        pcall(run, source)
+    os.execute("rm -rf '" .. dir .. "'")
     if not ok then
-        os.execute("rm -rf '" .. dir .. "'")
         error(a, 0)
     end
     testAssert.equal(tonumber(a), 12, "sliced input starts at its adjusted pointer")
@@ -214,22 +224,8 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     testAssert.equal(tonumber(inputFirst), 1, "independent read pointer reaches C")
     testAssert.equal(tonumber(sharedFirst), 17, "a shared downgrade is accepted as const input")
     testAssert.equal(tonumber(sharedLast), 18, "shared downgrade preserves its full range")
-
-    local transform = run(declaration .. "\nreturn counted_pointer_transform")
-    local spans = require("nupp.mem.span")
-    local ffi = require("ffi")
-    local output = ffi.new("int32_t[1]")
-    local input = ffi.new("int32_t[2]")
-    local shortOutput = spans.writeCarray(output, 1)
-    local longInput = spans.fromCarray(input, 2)
-    local reset = ffi.load(library).counted_pointer_reset
-    local callCount = ffi.load(library).counted_pointer_call_count
-    reset()
-    local unequalOk = pcall(transform, shortOutput, longInput)
     testAssert.equal(unequalOk, false, "unequal shared counts raise before C")
-    testAssert.equal(tonumber(callCount()), 0, "unequal shared counts never enter C")
-    shortOutput:drop()
-    os.execute("rm -rf '" .. dir .. "'")
+    testAssert.equal(tonumber(unequalCalls), 0, "unequal shared counts never enter C")
 end
 
 function M.countedPointersRejectContractsTheyCannotLowerSafely()
@@ -255,14 +251,7 @@ function M.spanAbiAnnotationWasRemoved()
 end
 
 function M.cdefCallbackParameter()
-    local source = "cdef function each(fn: function(int32), n: int32)"
-    assertClean(source)
-    local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "callback signature generates cleanly")
-    assert(
-        code:find("void each(void (*)(int32_t), int32_t);", 1, true),
-        "function type lowers to a C callback pointer:\n" .. code
-    )
+    assertClean("cdef function each(fn: function(int32), n: int32)")
 end
 
 function M.nullableCallbacksWorkInEveryCDeclaratorPosition()
@@ -277,13 +266,6 @@ function M.nullableCallbacksWorkInEveryCDeclaratorPosition()
         "\n"
     )
     assertClean(source)
-    local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "nullable callback declarations generate cleanly")
-    assert(code:find("void (*callback)(int32_t);", 1, true), "callback field lowers to a function pointer:\n" .. code)
-    assert(
-        code:find("void (*callback_get(void))(int32_t);", 1, true),
-        "callback result lowers to a function pointer:\n" .. code
-    )
 end
 
 function M.fixedArrayFieldsKeepTheirCDeclaratorOrder()
@@ -292,13 +274,6 @@ function M.fixedArrayFieldsKeepTheirCDeclaratorOrder()
         "\n"
     )
     assertClean(source)
-    local code, _, genDiags = compile(source)
-    testAssert.equal(#genDiags, 0, "fixed arrays generate cleanly")
-    assert(code:find("int32_t values[4];", 1, true), "array field name precedes its bound:\n" .. code)
-    assert(
-        code:find("void (*callbacks[2])(int32_t);", 1, true),
-        "array-of-callback declarator nests correctly:\n" .. code
-    )
 end
 
 function M.cdefStructTyping()
@@ -338,31 +313,6 @@ function M.cdefStructTyping()
     assertClean("cdef struct entry\n   name: cstring\n   next: entry*?\nend")
     testAssert.equal((diagsOf("local struct S\n   name: cstring\nend")), "NUPP2201:2")
     testAssert.equal((diagsOf("cdef struct S\n   t: {number}\nend")), "NUPP2203:2")
-end
-
-function M.cdefBindingsAndHelpersUseConstWherePossible()
-    local code, diags, genDiags = compile(
-        table.concat(
-            {
-                "cdef struct timeval",
-                "   tv_sec: int64",
-                "end",
-                "cdef function clock_gettime(clock: int32, value: timeval*): int32",
-            },
-            "\n"
-        )
-    )
-    testAssert.equal(#diags, 0, "check diagnostics")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    assert(code:find("const timeval = __nuppFfi.typeof", 1, true), code)
-    assert(code:find("const clock_gettime = __nuppFfi.C.clock_gettime", 1, true), code)
-
-    local libraryCode = compile("cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'")
-    assert(libraryCode:find("const __nuppLibCache", 1, true), libraryCode)
-    assert(libraryCode:find("__nuppLibraryRoots", 1, true), libraryCode)
-    assert(libraryCode:find("__nuppLibRoots[l] = true", 1, true), libraryCode)
-    assert(libraryCode:find("const function __nuppLib", 1, true), libraryCode)
-    assert(libraryCode:find("local l = __nuppLibCache[n]", 1, true), libraryCode)
 end
 
 -- Ownership is optional on a C return, and what it wraps still has to be a C
@@ -550,27 +500,16 @@ function M.ownIsStaticAndDropIsExplicit()
 end
 
 function M.fromClauseBindsNamedLibrary()
-    -- symbols resolve through a cached ffi.load instead of the default
-    -- namespace; zlib is not linked into the luajit binary
+    -- symbols resolve through the named library instead of the default
+    -- namespace; zlib is not linked into the runtime
     local declaration = windows and "cdef function GetCurrentProcessId(): uint32 from 'kernel32'"
         or "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'"
-    local library = windows and "kernel32" or "z"
     assertClean(declaration)
-    local code = compile(declaration)
-    assert(code:find("__nuppLib('" .. library .. "')", 1, true), "binds through ffi.load:\n" .. code)
-    assert(code:find("__nuppLibCache", 1, true), "load is cached")
-    -- and it actually calls the library
     if windows then
         assert(run(declaration .. "\nreturn GetCurrentProcessId()") > 0)
     else
         testAssert.equal(run(table.concat({declaration, "return tonumber(crc32(0, 'hello, world', 12))",}, "\n")), 4289425978)
     end
-end
-
-function M.defaultNamespaceStillUsedWithoutFrom()
-    local code = compile("cdef function getpid(): int32")
-    assert(code:find("__nuppFfi.C.getpid", 1, true), "no library named: default namespace:\n" .. code)
-    assert(not code:find("__nuppLib(", 1, true), "no ffi.load emitted")
 end
 
 function M.levelZeroCdefNameUntouched()

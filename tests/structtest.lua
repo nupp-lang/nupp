@@ -2,20 +2,21 @@ local testAssert = require("nupp.test")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
+local targetLayout = require("nupp.compiler.targetlayout")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- Full pipeline: parse, check (for reified hints), generate.
-local function compile(src)
-    local result = parser.parse(src, "test.nupp")
+-- Parse and check, keeping the checked tree for running it.
+local function compile(src, file)
+    file = file or "test.nupp"
+    local result = parser.parse(src, file)
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.nupp", env)
-    local code, genDiags = gen.generate(result, "test")
+    local diags = check.check(result, file, env)
 
-    return code, diags, genDiags
+    return result, diags
 end
 
 local function diagsOf(src)
@@ -30,17 +31,16 @@ end
 
 local assertClean = assertions.check(diagsOf, function(src) return "expected clean check:\n" .. src end)
 
--- Compile a clean program and execute it.
+-- Compile a clean program and execute it. Each program is its own module, so
+-- the structs two programs declare under one name stay distinct declarations.
+local programs = 0
 local function run(src)
-    local code, diags, genDiags = compile(src)
+    programs = programs + 1
+    local name = "struct_test_" .. programs
+    local result, diags = compile(src, name .. ".nupp")
     testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@struct_test")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk()
+    return program.run(result, name)
 end
 
 local VEC = "local struct Vec2\n   x: float\n   y: float\nend\n"
@@ -107,15 +107,6 @@ function M.structConstructionUsesTrailingFieldDefaults()
         "\n"
     )
     testAssert.equal(run(src), 21)
-end
-
-function M.generatedStructBindingsAreConst()
-    local code, diags, genDiags = compile(VEC .. "return Vec2")
-    testAssert.equal(#diags, 0, "check diagnostics")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    assert(code:find("const __nuppMt_Vec2", 1, true), code)
-    assert(code:find("const Vec2 = __nuppFfi.metatype", 1, true), code)
-    assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
 end
 
 function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
@@ -240,14 +231,6 @@ function M.structFieldAccessChecked()
     assertClean(VEC .. "local v = new Vec2()\nlocal x: number = v.x")
 end
 
-function M.lineCountInvariantWithStructs()
-    local src = VEC .. "local v: Vec2\nreturn v.x"
-    local code = compile(src)
-    local _, srcN = src:gsub("\n", "")
-    local _, codeN = code:gsub("\n", "")
-    testAssert.equal(codeN, srcN + 1, "line count changed:\n" .. code)
-end
-
 -- A field may state a bit width, which is the C bitfield it lowers to. Twenty-three
 -- booleans cost twenty-three bytes; twenty-three one-bit booleans cost four.
 local FLAGS = [[local struct Marks
@@ -257,11 +240,6 @@ local FLAGS = [[local struct Marks
    breakOp: boolean : 1
 end
 ]]
-
-function M.bitWidthReachesTheCdecl()
-    local code = compile(FLAGS .. "local m: Marks\nreturn m.offset")
-    assert(code:find("missing : 1", 1, true), "the width belongs in the emitted cdecl:\n" .. code)
-end
 
 function M.bitWidthKeepsTheDeclaredType()
     -- a one-bit boolean reads back true, not 1: packing changes the layout only
@@ -289,13 +267,18 @@ MANY[#MANY + 1] = "end\n"
 MANYPACKED[#MANYPACKED + 1] = "end\n"
 
 function M.bitWidthPacks()
-    local wide = compile(table.concat(MANY) .. "local w: Wide")
-    local packed = compile(table.concat(MANYPACKED) .. "local p: Packed")
-    local ffi = require("ffi")
+    -- The layout the compiler gives the declaration for a fixed target.
+    local function sizeOf(src)
+        local result = compile(src)
+        local declared = result.root.blocks[1].stats[1]
+        local layout, why = targetLayout.of(declared.resolvedType, "aarch64-apple-darwin")
+        assert(layout, why)
 
-    local function sizeOf(code)
-        return ffi.sizeof(ffi.typeof(code:match('typeof%("(struct { [^"]*})"')))
+        return layout.size
     end
+
+    local wide = table.concat(MANY) .. "local w: Wide"
+    local packed = table.concat(MANYPACKED) .. "local p: Packed"
 
     local wideSize, packedSize = sizeOf(wide), sizeOf(packed)
     assert(packedSize < wideSize, ("23 one-bit fields should pack: %d vs %d bytes"):format(packedSize, wideSize))
@@ -348,27 +331,10 @@ function M.structConstructorRunsUnderNew()
     testAssert.equal(y, 2, "a field default is seeded before the body")
 end
 
-function M.structConstructorReturnsTheCdata()
-    local isCdata, sizeMatches = run(
-        SCALED .. table.concat(
-            {
-                "",
-                "local s = new S(4)",
-                "local ffi = require(\"ffi\")",
-                "return type(s) == \"cdata\", ffi.sizeof(s) == ffi.sizeof(S)",
-            },
-            "\n"
-        )
-    )
-    testAssert.equal(isCdata, true, "the constructor hands back the ctype's allocation")
-    testAssert.equal(sizeMatches, true, "and it is an instance of that struct")
-end
-
-function M.structConstructorAttachesToTheMetatypeIndex()
-    local code = compile(SCALED .. "\nreturn new S(1)")
-    assert(code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = S() self.y = 2", 1, true), code)
-    assert(code:find("S .__nuppCtor1 ( 1 )", 1, true), code)
-    assert(not code:find("setmetatable", 1, true), "a struct constructor allocates no table")
+function M.structConstructorReturnsTheInstance()
+    local isInstance, x = run(SCALED .. "\nlocal s: any = new S(4)\nreturn s is S, s.x")
+    testAssert.equal(isInstance, true, "the constructor hands back an instance of that struct")
+    testAssert.equal(x, 8, "the one its body initialized")
 end
 
 function M.dottedStructConstructorReachesItsMetatable()

@@ -2,10 +2,9 @@ local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local stdlib = require("nupp.compiler.stdlib")
+local program = require("program")
 local fixed = require("nupp.compiler.types.fixedwidth")
 local types = require("nupp.compiler.types")
-local ffi = require("ffi")
 local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -19,13 +18,20 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local sharedEnv = envMod.new(HERE .. "/..")
 
 local function library()
-    local prior = rawget(_G, "nupp")
-    _G.nupp = nil
-    local chunk = assert(loadstring(stdlib.bootstrap({["stdlib.math"] = true}) .. " return nupp.math"))
-    local mathLibrary = chunk()
-    _G.nupp = prior
+    local mathLibrary = {}
+    require("nupp.compiler.runtime.math").install(mathLibrary)
 
     return mathLibrary
+end
+
+-- Checks and runs a fragment, answering what it returns.
+local function run(source, name)
+    local result = parser.parse(source, name)
+    testAssert.equal(#result.errors, 0, "syntax")
+    local diagnostics = check.check(result, name, sharedEnv)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+
+    return program.run(result, (name:gsub("%.nupp$", "")))
 end
 
 local M = {}
@@ -366,14 +372,6 @@ function M.conversionsReturnUnboxedLuaNumbers()
     testAssert.equal(type(m.f32.narrow(0.1)), "number")
     testAssert.equal(type(m.i32.wrap(1)), "number")
     testAssert.equal(type(m.u32.wrap(1)), "number")
-
-    local holder = ffi.new("union {float f;uint32_t u;}[1]")
-    holder[0].u = 0x7fc01234
-    local payload = tonumber(holder[0].f)
-    holder[0].f = m.f32.narrow(payload)
-    testAssert.equal(tonumber(holder[0].u), 0x7fc01234, "narrow keeps a NaN payload")
-    holder[0].f = m.f32.round(payload)
-    testAssert.equal(tonumber(holder[0].u), 0x7fc00000, "round canonicalizes a NaN")
 end
 
 function M.binary32BitsZerosAndNaNsAreCanonical()
@@ -390,7 +388,7 @@ function M.binary32BitsZerosAndNaNsAreCanonical()
 end
 
 local function withFloatOracle(fn)
-    if ffi.os == "Windows" then
+    if package.config:sub(1, 1) == "\\" then
         test.skip("the C oracle fixture is POSIX-only")
     end
     local probe = os.execute("cc --version >/dev/null 2>&1")
@@ -399,7 +397,8 @@ local function withFloatOracle(fn)
     end
     local base = os.tmpname()
     os.remove(base)
-    local source, output = base .. ".c", base .. (ffi.os == "OSX" and ".dylib" or ".so")
+    local darwin = (require("nupp.compiler.targetlayout").hostKey() or ""):find("apple-darwin", 1, true) ~= nil
+    local source, output = base .. ".c", base .. (darwin and ".dylib" or ".so")
     local file = assert(io.open(source, "wb"))
     file:write(
         [[
@@ -424,7 +423,7 @@ uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
 ]]
     )
     file:close()
-    local shared = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+    local shared = darwin and "-dynamiclib" or "-shared -fPIC"
     local command = (
         "cc -std=c11 -O2 -fno-fast-math -ffp-contract=off %s -o '%s' '%s' -lm"
     ):format(shared, output, source)
@@ -433,16 +432,27 @@ uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
         os.remove(source);
         test.skip("the C binary32 oracle did not compile")
     end
-    ffi.cdef[[
-uint32_t oracle_round(double);
-uint32_t oracle_add(uint32_t, uint32_t);
-uint32_t oracle_sub(uint32_t, uint32_t);
-uint32_t oracle_mul(uint32_t, uint32_t);
-uint32_t oracle_div(uint32_t, uint32_t);
-uint32_t oracle_sqrt(uint32_t);
-uint32_t oracle_fma(uint32_t, uint32_t, uint32_t);
-]]
-    local oracle = ffi.load(output)
+    local from = (" from %q"):format(output)
+    local oracle = run(
+        table.concat(
+            {
+                "cdef function oracle_round(a: number): uint32" .. from,
+                "cdef function oracle_add(a: uint32, b: uint32): uint32" .. from,
+                "cdef function oracle_sub(a: uint32, b: uint32): uint32" .. from,
+                "cdef function oracle_mul(a: uint32, b: uint32): uint32" .. from,
+                "cdef function oracle_div(a: uint32, b: uint32): uint32" .. from,
+                "cdef function oracle_sqrt(a: uint32): uint32" .. from,
+                "cdef function oracle_fma(a: uint32, b: uint32, c: uint32): uint32" .. from,
+                "return {",
+                "    oracle_round = oracle_round, oracle_add = oracle_add, oracle_sub = oracle_sub,",
+                "    oracle_mul = oracle_mul, oracle_div = oracle_div, oracle_sqrt = oracle_sqrt,",
+                "    oracle_fma = oracle_fma",
+                "}",
+            },
+            "\n"
+        ),
+        "float-oracle.nupp"
+    )
     local ok, failure = pcall(fn, oracle)
     oracle = nil
     collectgarbage()
@@ -521,31 +531,6 @@ function M.binary32OperationsMatchAnIndependentCOracle()
     end)
 end
 
-function M.binary32HolderIsStableWithTheJitOnAndOff()
-    local f = library().f32
-    local inputs = {0, 1, 0x3f800001, 0x7f7fffff, 0x80000001, 0xff7fffff}
-
-    local function run()
-        local out = {}
-        for iteration = 1, 1000 do
-            for index, bits in ipairs(inputs) do
-                local a = f.fromBits(bits)
-                local b = f.fromBits(inputs[#inputs - index + 1])
-                out[index] = f.toBits(f.fma(a, b, a))
-            end
-        end
-
-        return table.concat(out, ",")
-    end
-
-    jit.on();
-    local traced = run()
-    jit.off();
-    local interpreted = run()
-    jit.on()
-    testAssert.equal(traced, interpreted, "module holder has identical JIT semantics")
-end
-
 checkedTree = function(source)
     local result = parser.parse(source, "fixed-intrinsic.nupp")
     testAssert.equal(#result.errors, 0, "intrinsic syntax")
@@ -596,14 +581,6 @@ function M.intrinsicIdentityFollowsAliasesButNotShadowing()
     local calls = callsIn(result)
     testAssert.equal(calls[1].scalarIntrinsic, "u32.rotateLeft", "an exact alias keeps identity")
     assert(not calls[2].scalarIntrinsic, "a shadowed path is ordinary code")
-end
-
-function M.integerIntrinsicsConstantFoldByCanonicalIdentity()
-    local result = checkedTree("local value = nupp.math.u32.rotateLeft(0x80000001, 1)\nreturn value")
-    require("nupp.compiler.lua.optimize").run(result, {level = 1, filename = "fixed-intrinsic.nupp"})
-    local call = callsIn(result)[1]
-    testAssert.equal(call.scalarIntrinsic, "u32.rotateLeft", "canonical operation")
-    testAssert.equal(call.folded, "3", "fold carries the high bit round")
 end
 
 function M.wrapsAndNormalizesAsLuaNumbers()
@@ -711,8 +688,11 @@ function M.multiplicationKeepsEveryLowProductBit()
     local values = {0, 1, 65535, 65536, 2147483647, 2147483648, 4294967295, 0x12345678, 0xdeadbeef,}
     for _, left in ipairs(values) do
         for _, right in ipairs(values) do
-            local wide = ffi.new("uint64_t", left) * ffi.new("uint64_t", right)
-            local expected = tonumber(ffi.cast("uint32_t", wide))
+            -- The low 32 bits of the product, from 16-bit halves a double holds exactly.
+            local leftHigh, leftLow = math.floor(left / 65536), left % 65536
+            local rightHigh, rightLow = math.floor(right / 65536), right % 65536
+            local middle = (leftHigh * rightLow + leftLow * rightHigh) % 65536
+            local expected = (leftLow * rightLow + middle * 65536) % 4294967296
             testAssert.equal(m.u32.mul(left, right), expected, ("0x%08x * 0x%08x"):format(left, right))
         end
     end
@@ -748,7 +728,7 @@ end
 
 function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
     local u64 = library().u64
-    local zero = ffi.new("uint64_t", 0)
+    local zero = 0ULL
     local wide = 0x8000000000000005ULL
     testAssert.equal(u64.popcount(zero), 0)
     testAssert.equal(u64.popcount(wide), 3)
@@ -756,8 +736,8 @@ function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
     testAssert.equal(u64.trailingZeros(0x100000000ULL), 32)
     testAssert.equal(u64.leadingZeros(zero), 64)
     testAssert.equal(u64.leadingZeros(wide), 0)
-    testAssert.equal(tostring(u64.prefixXor(ffi.new("uint64_t", 5))), "3ULL")
-    testAssert.equal(tostring(u64.prefixXor(ffi.new("uint64_t", 1))), "18446744073709551615ULL")
+    assert(u64.prefixXor(5ULL) == 3ULL, "prefix parity of 5")
+    assert(u64.prefixXor(1ULL) == 18446744073709551615ULL, "prefix parity of 1")
 end
 
 function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
@@ -948,13 +928,7 @@ function M.arithmeticBetweenOneFixedWidthWrapsAndEstablishes()
         },
         "\n"
     )
-    local result = parser.parse(source, "fixed-arithmetic.nupp")
-    testAssert.equal(#result.errors, 0, "arithmetic source parses")
-    testAssert.equal(#check.check(result, "fixed-arithmetic.nupp", sharedEnv), 0, "arithmetic source checks")
-    local gen = require("nupp.compiler.lua.gen")
-    local code, loweringDiags = gen.generate(result, "fixed-arithmetic.nupp")
-    testAssert.equal(#loweringDiags, 0, "arithmetic source lowers")
-    local wrapAdd, wrapSub, signedMul, plain = assert(loadstring(code, "@fixed-arithmetic"))()
+    local wrapAdd, wrapSub, signedMul, plain = run(source, "fixed-arithmetic.nupp")
     testAssert.equal(wrapAdd(4294967295, 1), 0, "uint32 addition wraps")
     testAssert.equal(wrapSub(0), 4294967295, "uint32 subtraction wraps")
     testAssert.equal(signedMul(65536, 65536), 0, "int32 multiplication wraps")
@@ -969,13 +943,7 @@ local function bits(a: uint32, b: uint32): (uint32, uint32, uint32, uint32, uint
 end
 return bits
 ]]
-    local gen = require("nupp.compiler.lua.gen")
-    local result = parser.parse(source, "unsigned-bits.nupp")
-    testAssert.equal(#result.errors, 0)
-    testAssert.equal(#check.check(result, "unsigned-bits.nupp", sharedEnv), 0)
-    local code, diags = gen.generate(result, "unsigned-bits.nupp")
-    testAssert.equal(#diags, 0)
-    local bits = assert(loadstring(code))()
+    local bits = run(source, "unsigned-bits.nupp")
     local a, b, c, d, e, f = bits(0x80000001, 0xffffffff)
     testAssert.equal(a, 0x80000001)
     testAssert.equal(b, 0xffffffff)

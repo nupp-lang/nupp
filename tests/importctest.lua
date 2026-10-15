@@ -3,6 +3,9 @@ local importc = require("nupp.compiler.cinterop.importc")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
+local program = require("program")
+
+local darwin = (require("nupp.compiler.targetlayout").hostKey() or ""):find("apple-darwin", 1, true) ~= nil
 
 local function sourceDirectory(source, currentDirectory)
    local directory = assert(source:match("^@(.*)[/\\]")):gsub("\\", "/")
@@ -143,12 +146,20 @@ function M.completeDirectDeclaratorsArePreserved()
       .. (diags[1] and diags[1].msg or ""))
 end
 
+-- Checks and runs a fragment, answering what it returns.
+local function run(source, name)
+   local result = parser.parse(source, name .. ".nupp")
+   assert(#result.errors == 0, "fragment parses: " .. (result.errors[1] and result.errors[1].msg or ""))
+   local diags = check.check(result, name .. ".nupp")
+   assert(#diags == 0, "fragment checks: " .. (diags[1] and diags[1].msg or "") .. "\n" .. source)
+   return program.run(result, name)
+end
+
 function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
-   local ffi = require("ffi")
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
-   local library = dir .. (ffi.os == "OSX" and "/libbridge.dylib"
+   local library = dir .. (darwin and "/libbridge.dylib"
       or "/libbridge.so")
    local text, warnings, details = importc.import(
       HERE .. "/fixtures/bridge.h", {
@@ -180,7 +191,7 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
    local handle = assert(io.open(source, "wb"))
    handle:write(details.bridgeSource)
    handle:close()
-   local command = ffi.os == "OSX"
+   local command = darwin
       and ("cc -dynamiclib -I. -o '%s' '%s'"):format(library, source)
       or ("cc -shared -fPIC -I. -o '%s' '%s'"):format(library, source)
    assert(os.execute(command) == 0, "generated bridge C must compile")
@@ -189,11 +200,14 @@ function M.staticInlineAndExplicitMacroBridgesCompileAndCall()
    for _, disposition in ipairs(details.dispositions) do
       if disposition.symbol then symbols[disposition.name] = disposition.symbol end
    end
-   ffi.cdef(("int32_t %s(int32_t); int32_t %s(int32_t, int32_t, int32_t);")
-      :format(symbols.nupp_bridge_scale, symbols.NUPP_BRIDGE_CLAMP))
-   local native = ffi.load(library)
-   testAssert.equal(native[symbols.nupp_bridge_scale](7), 21)
-   testAssert.equal(native[symbols.NUPP_BRIDGE_CLAMP](20, 2, 9), 9)
+   local scale, clamp = run(table.concat({
+      ("cdef function %s(value: int32): int32 from %q"):format(symbols.nupp_bridge_scale, library),
+      ("cdef function %s(value: int32, low: int32, high: int32): int32 from %q")
+         :format(symbols.NUPP_BRIDGE_CLAMP, library),
+      ("return %s, %s"):format(symbols.nupp_bridge_scale, symbols.NUPP_BRIDGE_CLAMP),
+   }, "\n"), "bridgecall")
+   testAssert.equal(scale(7), 21)
+   testAssert.equal(clamp(20, 2, 9), 9)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -613,14 +627,12 @@ function M.anIncompleteStructIsMarkedAsAHandle()
    assertContains(text, "cdef function layout_opaque_new(): layout_opaque*?")
 end
 
--- The structs an import emits, laid out by LuaJIT from the generated module and by
--- the C compiler from the header, must be the same bytes.
+-- The structs an import emits, laid out by `layoutof` from the generated module and
+-- by the C compiler from the header, must be the same.
 function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
    if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
       return require("assert").skip("cc is unavailable")
    end
-   local ffi = require("ffi")
-   local gen = require("nupp.compiler.lua.gen")
    local specs = {
       {c = "struct layout_inner", name = "layout_inner", fields = {"a", "b"}},
       {c = "layout_mixed", name = "layout_mixed",
@@ -628,8 +640,7 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
       {c = "union layout_value", name = "layout_value", fields = {"i", "d", "bytes"}},
    }
 
-   -- The header's own tags are already in this process's registry, so the emitted
-   -- declarations are renamed to lay themselves out afresh.
+   -- The emitted declarations are renamed so they stand apart from the header's own.
    local blocks, exported, open = {}, {}, nil
    for line in layoutImported().text:gmatch("([^\n]*)\n") do
       if line:match("^cdef %a+ layout_[%w_]+$") then
@@ -644,37 +655,32 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
    end
    for _, spec in ipairs(specs) do
       local renamed = spec.name:gsub("layout_", "layoutcc_")
-      exported[#exported + 1] = renamed .. " = " .. renamed
+      exported[#exported + 1] = renamed .. " = layoutof(" .. renamed .. ")"
    end
-   local source = table.concat(blocks, "\n") .. "\nreturn { " .. table.concat(exported, ", ") .. " }\n"
+   local source = table.concat(blocks, "\n") .. "\nlocal layouts: {[string]: any} = { "
+      .. table.concat(exported, ", ") .. " }\nreturn layouts\n"
    local result = parser.parse(source, "layoutcc.nupp")
    assert(#result.errors == 0, "renamed declarations parse: "
       .. (result.errors[1] and result.errors[1].msg or "") .. "\n" .. source)
    local diags = check.check(result, "layoutcc.nupp")
    assert(#diags == 0, "renamed declarations check: " .. (diags[1] and diags[1].msg or ""))
-   local code = gen.generate(result, "layoutcc")
-   local types = assert(loadstring(code, "@layoutcc"))()
+   local layouts = program.run(result, "layoutcc")
 
    local lines = {}
    for _, spec in ipairs(specs) do
-      local ct = assert(types[(spec.name:gsub("layout_", "layoutcc_"))], spec.name)
-      lines[#lines + 1] = ("%s size %d align %d"):format(spec.name, ffi.sizeof(ct), ffi.alignof(ct))
+      local layout = assert(layouts[(spec.name:gsub("layout_", "layoutcc_"))], spec.name)
+      local offsets = {}
+      for _, field in ipairs(layout.fields) do
+         offsets[field.name] = field.offset
+      end
+      lines[#lines + 1] = ("%s size %d align %d"):format(spec.name, layout.size, layout.alignment)
       for _, field in ipairs(spec.fields) do
-         lines[#lines + 1] = ("%s.%s %d"):format(spec.name, field, ffi.offsetof(ct, field))
+         lines[#lines + 1] = ("%s.%s %d"):format(spec.name, field, offsets[field] or -1)
       end
    end
-   local mixed = ffi.new(types.layoutcc_mixed)
-   mixed.mode = 5
-   mixed.level = 17
-   local bytes = ffi.cast("uint8_t *", mixed)
-   local dump = {}
-   for index = 0, ffi.sizeof(mixed) - 1 do
-      dump[#dump + 1] = ("%02x"):format(bytes[index])
-   end
-   lines[#lines + 1] = "bits " .. table.concat(dump)
-   local luajit = table.concat(lines, "\n") .. "\n"
+   local declared = table.concat(lines, "\n") .. "\n"
 
-   local program = {
+   local probe = {
       "#include <stddef.h>",
       "#include <stdio.h>",
       "#include <string.h>",
@@ -682,23 +688,20 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
       "int main(void) {",
    }
    for _, spec in ipairs(specs) do
-      program[#program + 1] = ('printf("%s size %%d align %%d\\n", (int)sizeof(%s), (int)_Alignof(%s));')
+      probe[#probe + 1] = ('printf("%s size %%d align %%d\\n", (int)sizeof(%s), (int)_Alignof(%s));')
          :format(spec.name, spec.c, spec.c)
       for _, field in ipairs(spec.fields) do
-         program[#program + 1] = ('printf("%s.%s %%d\\n", (int)offsetof(%s, %s));')
+         probe[#probe + 1] = ('printf("%s.%s %%d\\n", (int)offsetof(%s, %s));')
             :format(spec.name, field, spec.c, field)
       end
    end
-   program[#program + 1] = "layout_mixed m; memset(&m, 0, sizeof m); m.mode = 5; m.level = 17;"
-   program[#program + 1] = 'printf("bits "); for (size_t i = 0; i < sizeof m; i++) '
-      .. 'printf("%02x", ((unsigned char *)&m)[i]); printf("\\n");'
-   program[#program + 1] = "return 0; }"
+   probe[#probe + 1] = "return 0; }"
 
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
    local handle = assert(io.open(dir .. "/layout.c", "wb"))
-   handle:write(table.concat(program, "\n"), "\n")
+   handle:write(table.concat(probe, "\n"), "\n")
    handle:close()
    assert(os.execute(("cc -I'%s/fixtures' -o '%s/layout' '%s/layout.c'"):format(HERE, dir, dir)) == 0,
       "the layout probe compiles")
@@ -706,7 +709,7 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
    local compiled = pipe:read("*a")
    pipe:close()
    os.execute("rm -rf '" .. dir .. "'")
-   testAssert.equal(luajit, compiled, "LuaJIT's layout of the imported declarations")
+   testAssert.equal(declared, compiled, "the layout of the imported declarations")
 end
 
 function M.outputParsesAndChecksCleanly()

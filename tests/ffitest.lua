@@ -3,7 +3,6 @@ local testAssert = require("nupp.test")
 -- type they are given, rather than collapsing to any.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -20,21 +19,6 @@ local function diagsOf(src)
     end
 
     return table.concat(out, " ")
-end
-
-local function run(src)
-    local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.nupp", env)
-    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen: " .. (genDiags[1] and genDiags[1].msg or ""))
-    local chunk, err = loadstring(code, "@ffitest")
-    if not chunk then
-        error("does not load: " .. tostring(err) .. "\n" .. code, 2)
-    end
-
-    return chunk()
 end
 
 local M = {}
@@ -120,60 +104,6 @@ function M.comparisonChainsStillParse()
     -- ordinary Lua everywhere else
     testAssert.equal(diagsOf("local a, b, c = 1, 2, 3\nprint(a < b > c)"), "NUPP2003")
     testAssert.equal(diagsOf("local t = {new = 1}\nlocal a, b = 1, 2\nprint(t.new < a > b)"), "NUPP2003")
-end
-
-function M.intrinsicsRunAtRuntime()
-    testAssert.equal(run(P .. table.concat({"", "local p = ffi.new<P>()", "p.x = 3", "p.y = 4", "return p.x + p.y",}, "\n")), 7)
-    -- a struct's size is its layout, not a table's
-    testAssert.equal(run(P .. "\nreturn ffi.sizeof<P>()"), 8)
-    testAssert.equal(run(P .. "\nlocal p = ffi.new<P>()\nreturn ffi.istype<P>(p)"), true)
-    testAssert.equal(run(P .. "\nreturn ffi.istype<P>(42)"), false)
-end
-
-function M.builtinTypesUseTheirCSpelling()
-    local result = parser.parse(P .. "\nlocal p = ffi.new<P>()\nlocal r = ffi.cast<voidptr>(p)", "test")
-    check.check(result, "test.nupp", env)
-    local code = gen.generate(result, "test")
-    assert(code:find("__nuppFfi.new(P", 1, true), "a declared struct is already a ctype:\n" .. code)
-    assert(code:find('__nuppFfi.cast("void *"', 1, true), "a builtin is named by its C spelling:\n" .. code)
-end
-
--- Viewing a string as a C array is how the build's digest reads eight bytes at
--- a time. The checker already typed it; the generator had no spelling for it.
-function M.castToACArrayIsAPointerCast()
-    local function codeFor(src)
-        local result = parser.parse(src, "test.nupp")
-        check.check(result, "test.nupp", env)
-        return gen.generate(result, "test")
-    end
-
-    -- The string is bound first: a pointer into a temporary outlives it, and
-    -- the ownership checker says so (NUPP2501).
-    local code = codeFor('local s = "abcdefgh"\nlocal w = ffi.cast<const uint64[?]>(s)')
-    -- Not `uint64_t[?]`: LuaJIT refuses a cast to a variable-length array, and
-    -- a pointer is what indexing the result wants anyway.
-    assert(code:find('__nuppFfi.cast("const uint64_t *"', 1, true), "a C array cast is a pointer cast:\n" .. code)
-    local fixed = codeFor('local s = "abcdefgh"\nlocal w = ffi.cast<uint32[4]>(s)')
-    assert(
-        fixed:find('__nuppFfi.cast("uint32_t *"', 1, true),
-        "a fixed C array casts to its element pointer too:\n" .. fixed
-    )
-    -- Away from a cast, an array keeps the spelling C gives it.
-    local allocated = codeFor("local w = ffi.sizeof<uint64[4]>()")
-    assert(
-        allocated:find('__nuppFfi.sizeof("uint64_t[4]"', 1, true),
-        "an array spells as an array everywhere else:\n" .. allocated
-    )
-    testAssert.equal(
-        run(
-            table.concat(
-                {'local s = "ABC"', 'local w = ffi.cast<const uint8[?]>(s)', '@unsafe do return w[1] end',},
-                "\n"
-            )
-        ),
-        66
-    )
-    testAssert.equal(run("return ffi.sizeof<uint64[4]>()"), 32)
 end
 
 -- `ffi.C` is typed from what the checked file declared, not from what the
@@ -299,42 +229,6 @@ function M.ffiLoadCarriesTheSameNamespace()
     )
 end
 
-function M.aStandardFacilityDoesNotDisplaceAFilesOwnDeclarations()
-    -- Initializing an FFI-backed facility runs a large `ffi.cdef` in this
-    -- process. Nothing about that may change what a file's own `ffi.C` holds.
-    local stdlib = require("nupp.compiler.stdlib")
-    local previous = rawget(_G, "nupp")
-    _G.nupp = nil
-    local ok = pcall(function()
-        assert(loadstring(stdlib.bootstrap({["stdlib.io"] = true})))()
-        local buffer = require("nupp.io").newBuffer("probe")
-        return buffer:length()
-    end)
-    _G.nupp = previous
-    assert(ok, "the facility initialized")
-
-    testAssert.equal(
-        diagsOf(
-            table.concat(
-                {
-                    'local ffi = require("ffi")',
-                    'pcall(ffi.cdef, "int nuppIsattyProbe(int);")',
-                    "local n: integer = ffi.C.nuppIsattyProbe(1)",
-                },
-                "\n"
-            )
-        ),
-        "",
-        "the file still sees what it declared"
-    )
-
-    testAssert.equal(
-        diagsOf(table.concat({'local ffi = require("ffi")', "local n: integer = ffi.C.nuppBytesLength(1)",}, "\n")),
-        "NUPP2004",
-        "and does not see the facility's bindings"
-    )
-end
-
 function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
     -- "unsigned char *" and "uint8_t *" name the bytes of a value, not text
     local V = P .. "\nlocal ffi = require('ffi')\nlocal v = new P(1.0, 2.0)\n"
@@ -359,7 +253,6 @@ function M.unsignedBytePointerCastsAreIndexableUnderUnsafe()
     testAssert.equal(diagsOf(V .. "local raw = ffi.cast('unsigned char*', v)\n@unsafe do\n   raw[0] = 300\nend"), "NUPP2001")
     -- a plain char pointer is still text
     testAssert.equal(diagsOf(V .. "local text = ffi.cast('const char*', v)\nlocal s: cstring = text"), "")
-    testAssert.equal(run(V .. "local raw = ffi.cast('uint8_t*', v)\n@unsafe do return raw[3] + raw[7] end"), 127)
 end
 
 return M

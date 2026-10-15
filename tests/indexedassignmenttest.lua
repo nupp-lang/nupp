@@ -1,27 +1,23 @@
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local env = require("nupp.compiler.project.env").new(".")
 
-local function compile(source, optimized)
+local function compile(source)
     local parsed = parser.parse(source, "indexedassignment.nupp")
     assert(#parsed.errors == 0, "fixture parse failure")
     local diagnostics = check.check(parsed, "indexedassignment.nupp", env)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    if optimized then
-        require("nupp.compiler.lua.optimize").run(parsed, {level = 1})
-    end
-    local code, generated = gen.generate(parsed, "indexedassignment")
-    assert(#generated == 0, generated[1] and generated[1].msg)
 
-    return assert(loadstring(code, "@indexedassignment"))(), code
+    return program.run(parsed, "indexedassignment")
 end
 
 local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
+local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
 local function apply(exclusive values: span.WriteSpan<number>, trace: {number}): number
@@ -48,20 +44,19 @@ local function apply(exclusive values: span.WriteSpan<number>, trace: {number}):
     key, values[key] = u32.wrap(2), 9
     return first * 100 + values[u32.wrap(1)] * 10 + values[u32.wrap(2)]
 end
-return apply
+local function run(trace: {number}): number
+    const storage = array.scalar(array.number, 2)
+    const values = storage:write()
+    const result = apply(values, trace)
+    nupp.drop(values)
+    return result
+end
+return run
 ]]
     do
-        local apply = compile(source)
-        local trace, data = {}, {0, 0}
-        local view = {
-            get = function(_, i)
-                return data[i]
-            end,
-            set = function(_, i, value)
-                data[i] = value
-            end,
-        }
-        assert(apply(view, trace) == 398, "aliased stores and tuple expansion")
+        local run = compile(source)
+        local trace = {}
+        assert(run(trace) == 398, "aliased stores and tuple expansion")
         assert(table.concat(trace, ",") == "1,2,3,4", "target indices precede RHS evaluations")
     end
 end
@@ -106,11 +101,12 @@ return apply
     end
 end
 
-function M.optimizedVirtualViewsKeepSimultaneousStores()
+function M.simultaneousStoresOnAWritableSpan()
     local source = [[
-local span = require("nupp.mem.span")
-local function apply(exclusive storage: number[?]): number
-    const values = span.writeCarray(storage, 2)
+local array = require("nupp.mem.array")
+local function apply(): number
+    const storage = array.scalar(array.number, 2)
+    const values = storage:write()
     values[1], values[2] = 3, 4
     values[1], values[1] = values[2], values[1]
     local result = values[1] * 10 + values[2]
@@ -119,14 +115,7 @@ local function apply(exclusive storage: number[?]): number
 end
 return apply
 ]]
-    local ffi = require("ffi")
-    for _, optimized in ipairs({false, true}) do
-        local apply, code = compile(source, optimized)
-        if optimized then
-            assert(not code:find(".writeCarray(", 1, true), "exercise the virtual view path")
-        end
-        assert(apply(ffi.new("double[2]")) == 44, "virtual view aliased store semantics")
-    end
+    assert(compile(source)() == 44, "aliased store semantics")
 end
 
 function M.temporaryStructFieldReceiversRemainRefused()
@@ -164,6 +153,7 @@ end
 
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
+local array = require("nupp.mem.array")
 local span = require("nupp.mem.span")
 local u32 = nupp.math.u32
 local struct Cell value: number end
@@ -178,20 +168,19 @@ local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): n
     end
     values[index(1)].value, values[index(2)].value = value(3), value(4)
 end
-return apply
+local function run(trace: {number}): number
+    const storage = array.newArray(new Cell(0), 1)
+    const values = storage:write()
+    apply(values, trace)
+    nupp.drop(values)
+    return storage:read()[1].value
+end
+return run
 ]]
     do
-        local apply = compile(source)
-        local trace, row, reads = {}, {value = 0}, 0
-        local view = {
-            getMut = function()
-                reads = reads + 1;
-                return row
-            end
-        }
-        apply(view, trace)
-        assert(row.value == 3, "leftmost aliased field wins")
-        assert(reads == 2, "each mutable row receiver is evaluated once")
+        local run = compile(source)
+        local trace = {}
+        assert(run(trace) == 3, "leftmost aliased field wins")
         assert(table.concat(trace, ",") == "1,2,3,4", "field index/RHS order")
     end
 end

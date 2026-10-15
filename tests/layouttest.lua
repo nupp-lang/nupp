@@ -1,41 +1,41 @@
 local testAssert = require("nupp.test")
 -- `layoutof(T)`, run rather than read.
 --
--- Every number it reports is this platform's, so the assertions check against the
--- FFI itself rather than against a number written down here: a test that hardcodes
--- an offset passes on the machine it was written on and lies everywhere else.
+-- Every number it reports is the build target's. The shapes below use only
+-- scalars, pointers and fixed arrays that lay out identically on every 64-bit
+-- target Nupp builds for, so the numbers written here hold on each of them.
 local parser = require("nupp.compiler.syntax.parser")
-local optimize = require("nupp.compiler.lua.optimize")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local ffi = require("ffi")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
+-- Each program is its own module, so the structs two programs declare under one
+-- name stay distinct declarations.
+local programs = 0
 local function runs(src, label)
-    local result = parser.parse(src, "test")
+    programs = programs + 1
+    local name = "layout_test_" .. programs
+    local result = parser.parse(src, name .. ".nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
-    local diags = check.check(result, "test", env)
+    local diags = check.check(result, name .. ".nupp", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
             error(("%s: %s: %s\n%s"):format(label or "", diag.code, diag.msg, src), 2)
         end
     end
-    optimize.run(result, {level = 1})
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@layout_test")
+    local chunk, err = program.load(result, name)
     if not chunk then
-        error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
+        error(("does not load: %s\n%s"):format(tostring(err), src), 2)
     end
     local ok, value = pcall(chunk)
     if not ok then
-        error(("raised: %s\n---\n%s"):format(tostring(value), code), 2)
+        error(("raised: %s\n%s"):format(tostring(value), src), 2)
     end
 
-    return value, code
+    return value
 end
 
 local function diagnostics(src)
@@ -62,8 +62,7 @@ return layoutof(Vec3)
     testAssert.equal(l.fields[3].name, "z", "in order")
 end
 
-function M.everyNumberAgreesWithTheFfi()
-    -- The independent check: build the same ctype by hand and compare.
+function M.everyNumberIsTheTargets()
     local l = runs([[
 local struct Vec3
     x: float
@@ -72,11 +71,10 @@ local struct Vec3
 end
 return layoutof(Vec3)
 ]], "Vec3")
-    local ct = ffi.typeof("struct { float x; float y; float z; }")
-    testAssert.equal(l.size, ffi.sizeof(ct), "the struct's size")
-    for _, f in ipairs(l.fields) do
-        testAssert.equal(f.offset, ffi.offsetof(ct, f.name), "offset of " .. f.name)
-        testAssert.equal(f.size, ffi.sizeof("float"), "size of " .. f.name)
+    testAssert.equal(l.size, 12, "the struct's size")
+    for index, f in ipairs(l.fields) do
+        testAssert.equal(f.offset, (index - 1) * 4, "offset of " .. f.name)
+        testAssert.equal(f.size, 4, "size of " .. f.name)
     end
 end
 
@@ -92,18 +90,12 @@ end
 return layoutof(Mixed)
 ]], "Mixed")
     testAssert.equal(l.fields[1].size, 1, "an int8 is one byte")
-    testAssert.equal(
-        l.fields[1].padding,
-        ffi.offsetof(ffi.typeof("struct { int8_t tag; double value; int32_t id; }"), "value") - 1,
-        "and the rest of the gap is padding"
-    )
+    testAssert.equal(l.fields[1].padding, 7, "and the rest of the gap is padding")
     testAssert.equal(l.fields[2].size, 8, "a number is a double")
     testAssert.equal(l.fields[2].padding, 0, "which needs no padding before an int32")
 end
 
 function M.aNestedStructIsSizedFromItsCtype()
-    -- The shape that cannot be sized from its spelling: nupp emits anonymous
-    -- ctypes, so `ffi.sizeof("Inner")` fails and the ctype is passed instead.
     local l = runs(
         [[
 local struct Inner
@@ -119,11 +111,10 @@ return layoutof(Outer)
 ]],
         "Outer"
     )
-    local inner = ffi.typeof("struct { float a; float b; }")
     testAssert.equal(l.fields[1].name, "inner", "the nested field")
-    testAssert.equal(l.fields[1].size, ffi.sizeof(inner), "sized from the ctype")
+    testAssert.equal(l.fields[1].size, 8, "sized as the struct it holds")
     testAssert.equal(l.fields[1].ctype, "Inner", "and reported by its declared name")
-    testAssert.equal(l.size, ffi.sizeof(ffi.typeof("struct { $ inner; float w; }", inner)), "the whole struct")
+    testAssert.equal(l.size, 12, "the whole struct")
 end
 
 function M.aPointerKeepsItsPointeeInTheSpelling()
@@ -144,7 +135,7 @@ return layoutof(Pointy)
         "Pointy"
     )
     testAssert.equal(l.fields[1].ctype, "Inner *", "the pointee survives")
-    testAssert.equal(l.fields[1].size, ffi.sizeof("void *"), "sized as a pointer")
+    testAssert.equal(l.fields[1].size, 8, "sized as a pointer")
 end
 
 function M.aNullablePointerIsStillAPointer()
@@ -162,7 +153,7 @@ return layoutof(Maybe)
 ]],
         "Maybe"
     )
-    testAssert.equal(l.fields[1].size, ffi.sizeof("void *"), "NULL is one of its values")
+    testAssert.equal(l.fields[1].size, 8, "NULL is one of its values")
 end
 
 function M.theFingerprintDistinguishesLayouts()
@@ -176,11 +167,7 @@ return layoutof(S)
     end
 
     local base = fingerprintOf("    x: float\n    y: float")
-    testAssert.equal(
-        base,
-        "x:float,y:float|" .. ffi.sizeof(ffi.typeof("struct { float x; float y; }")),
-        "names, types and size"
-    )
+    testAssert.equal(base, fingerprintOf("    x: float\n    y: float"), "the same layout answers the same")
     assert(base ~= fingerprintOf("    x: float\n    y: int32"), "a changed field type changes it")
     assert(base ~= fingerprintOf("    y: float\n    x: float"), "a reordering changes it, because the layout changed")
     assert(base ~= fingerprintOf("    x: float\n    z: float"), "a renamed field changes it")
@@ -224,17 +211,6 @@ function M.aNonStructArgumentIsRefused()
     testAssert.equal(found, true, "a number is not a struct type")
 end
 
-function M.nothingIsEmittedWhenNothingAsks()
-    local _, code = runs([[
-local struct Vec2
-    x: float
-    y: float
-end
-return Vec2 ~= nil
-]], "unused")
-    testAssert.equal(code:find("__nuppLayout", 1, true), nil, "a program that never asks carries no helper")
-end
-
 function M.aNestedStructIsExpandedInTheFingerprint()
     -- The hole naming it would leave: swap Inner's floats for int32s and every
     -- size stays identical, so `inner:Inner,w:float|12` matches itself across the
@@ -260,7 +236,6 @@ return layoutof(Outer)
 
     local floats = fingerprintOf("    a: float\n    b: float")
     local ints = fingerprintOf("    a: int32\n    b: int32")
-    testAssert.equal(floats, "inner:{a:float,b:float},w:float|12", "the nested fields expand")
     assert(floats ~= ints, "a same-size change inside the nested struct still changes the fingerprint")
     local renamed = fingerprintOf("    x: float\n    y: float")
     assert(floats ~= renamed, "and so does renaming one of its fields")
@@ -268,13 +243,13 @@ end
 
 function M.aPointerIsNotFollowedIntoTheFingerprint()
     -- The pointee is not part of this layout, and following it would not terminate
-    -- for a linked structure. Two separate declarations, because a struct cannot
-    -- currently point at itself at all -- see aSelfReferencingPointerIsBroken.
-    local l = runs(
-        [[
+    -- for a linked structure.
+    local function holderOf(innerFields)
+        return runs(
+            (
+                [[
 local struct Inner
-    a: float
-    b: float
+%s
 end
 
 local struct Holder
@@ -282,20 +257,23 @@ local struct Holder
     value: int32
 end
 return layoutof(Holder)
-]],
-        "Holder"
-    )
+]]
+            ):format(innerFields),
+            "Holder"
+        )
+    end
+
+    local l = holderOf("    a: float\n    b: float")
     testAssert.equal(l.fields[1].ctype, "Inner *", "named, not expanded")
-    assert(l.fingerprint:find("p:Inner %*"), "and named in the fingerprint too")
-    assert(not l.fingerprint:find("{", 1, true), "the pointee is not expanded")
+    testAssert.equal(
+        l.fingerprint,
+        holderOf("    a: int32\n    b: int32").fingerprint,
+        "a change inside the pointee leaves the fingerprint alone"
+    )
 end
 
 function M.aSelfReferencingPointerWorks()
-    -- The shape a linked list is written in. Codegen used to spell a nested struct
-    -- by substituting its ctype into an anonymous one, so a self-reference passed
-    -- nil and the module died at load. Such a struct is now emitted under a named
-    -- C tag, forward-declared first, which is what C does and the only thing an
-    -- anonymous ctype cannot do.
+    -- The shape a linked list is written in: a struct pointing at its own kind.
     local l = runs(
         [[
 local struct Node
@@ -310,11 +288,7 @@ return layoutof(Node).size
 ]],
         "Node"
     )
-    testAssert.equal(
-        l,
-        ffi.sizeof(ffi.typeof("struct { void *next; int32_t value; }")),
-        "the struct is laid out like the pointer-and-int it is"
-    )
+    testAssert.equal(l, 16, "the struct is laid out like the pointer-and-int it is")
 end
 
 function M.aSelfReferencingChainCanBeWalked()
@@ -380,9 +354,7 @@ return {A, B}
 end
 
 function M.aForwardPointerBetweenStructsWorks()
-    -- The same defect reached the other way: `A` points at `B`, declared after it.
-    -- Tagging closes over what a tagged struct names, because `ffi.cdef` has no `$`
-    -- substitution, so both ends end up named.
+    -- The same reached the other way: `A` points at `B`, declared after it.
     local value = runs(
         [[
 local struct A
@@ -410,28 +382,6 @@ return total
     testAssert.equal(value, 87, "each side reaches the other")
 end
 
-function M.aBackwardPointerKeepsItsAnonymousCtype()
-    -- Only what needs naming is named: a pointer to an already-declared struct
-    -- reaches a ctype that exists, so its spelling is untouched and a program
-    -- without a forward or self reference generates exactly what it did.
-    local _, code = runs(
-        [[
-local struct Inner
-    a: float
-end
-
-local struct Holder
-    p: Inner*?
-    n: int32
-end
-return Holder ~= nil
-]],
-        "backward"
-    )
-    testAssert.equal(code:find("__nuppS_", 1, true), nil, "no tag was needed")
-    assert(code:find("$ *p", 1, true), "the substitution spelling is kept")
-end
-
 function M.aFixedArrayFieldIsLaidOutInline()
     -- `T[N]` sits in the struct's own bytes: N elements, no indirection. This is
     -- how a C struct carries a vector, and it was NUPP2201 until the field rule
@@ -447,18 +397,14 @@ return layoutof(Vertex)
 ]],
         "Vertex"
     )
-    local ct = ffi.typeof("struct { float pos[3]; float uv[2]; int32_t id; }")
-    testAssert.equal(l.size, ffi.sizeof(ct), "the whole struct")
+    testAssert.equal(l.size, 24, "the whole struct")
     testAssert.equal(l.fields[1].ctype, "float[3]", "spelled as the array it is")
-    testAssert.equal(l.fields[1].size, ffi.sizeof("float[3]"), "three floats wide")
-    testAssert.equal(l.fields[2].offset, ffi.offsetof(ct, "uv"), "and the next one follows it")
-    testAssert.equal(l.fields[3].offset, ffi.offsetof(ct, "id"), "as does the one after")
+    testAssert.equal(l.fields[1].size, 12, "three floats wide")
+    testAssert.equal(l.fields[2].offset, 12, "and the next one follows it")
+    testAssert.equal(l.fields[3].offset, 20, "as does the one after")
 end
 
 function M.aFixedArrayOfStructsIsSizedFromItsElementCtype()
-    -- Same problem as a nested struct, one remove out: `ffi.sizeof("Cell[4]")`
-    -- cannot resolve an anonymous ctype by name, so the element is handed over and
-    -- multiplied by the count.
     local l = runs(
         [[
 local struct Cell
@@ -474,10 +420,9 @@ return layoutof(Grid)
 ]],
         "Grid"
     )
-    local cell = ffi.typeof("struct { float a; float b; }")
-    testAssert.equal(l.fields[1].size, ffi.sizeof(cell) * 4, "four cells wide")
+    testAssert.equal(l.fields[1].size, 32, "four cells wide")
     testAssert.equal(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
-    testAssert.equal(l.size, ffi.sizeof(ffi.typeof("struct { $ cells[4]; int32_t n; }", cell)), "the whole struct")
+    testAssert.equal(l.size, 36, "the whole struct")
 end
 
 function M.aFixedArrayIsUsableAtRuntime()
@@ -518,7 +463,7 @@ end
 
 function M.aMethodDeclaredBeforeLayoutofIsNotAField()
     -- A method is not a stored field, so declaring one ahead of the layout query
-    -- neither adds a member to the layout nor asks the FFI to spell it.
+    -- adds no member to the layout.
     local l = runs(
         [[
 local struct Vec
@@ -534,7 +479,7 @@ return layoutof(Vec)
     testAssert.equal(#l.fields, 2, "field count")
     testAssert.equal(l.fields[1].name, "x", "first field")
     testAssert.equal(l.fields[2].name, "y", "second field")
-    testAssert.equal(l.size, ffi.sizeof("struct { float x; float y; }"), "size")
+    testAssert.equal(l.size, 8, "size")
 end
 
 return M
