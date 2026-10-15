@@ -186,6 +186,16 @@ impl ValueTable {
     }
     pub fn len(&self) -> usize { self.len as usize }
     pub fn capacity(&self) -> usize { self.cap as usize }
+    /// Sets to nil the value of every live entry `f` selects. The keys keep
+    /// their entries, as a key whose value becomes nil always does here.
+    pub fn clear_where(&mut self, mut f: impl FnMut(Value, Value) -> bool) {
+        if self.ptr.is_null() { return; }
+        for k in 0..self.cap as usize {
+            let (kb, vb) = unsafe { (*self.ptr.add(2 * k), *self.ptr.add(2 * k + 1)) };
+            if kb == VT_EMPTY || vb == Value::NIL.0 { continue; }
+            if f(Value(kb), Value(vb)) { unsafe { *self.ptr.add(2 * k + 1) = Value::NIL.0; } }
+        }
+    }
 }
 impl Drop for ValueTable { fn drop(&mut self) { self.free(); } }
 impl Default for ValueTable { fn default() -> ValueTable { ValueTable::new() } }
@@ -425,9 +435,19 @@ pub struct Heap {
     /// 1 while marking: the threaded core reads it to decide whether a store
     /// needs the barrier's slow path.
     pub marking: u8,
+    /// Tables this cycle scanned under a weak `__mode`, with the mode's bits
+    /// (`WEAK_KEYS`, `WEAK_VALUES`); their dead entries are cleared when
+    /// marking ends, before the sweep frees the referents.
+    weak: Vec<(NonNull<Header>, u8)>,
+    /// The interned `"__mode"` key's bits for this cycle, or nil's bits when
+    /// no such string exists (so no metatable can name a mode).
+    mode_key: u64,
     #[cfg(feature = "allocation-metrics")]
     metrics: Option<crate::allocation_metrics::Handle>,
 }
+
+const WEAK_KEYS: u8 = 1;
+const WEAK_VALUES: u8 = 2;
 
 thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as usize >= size) }
@@ -435,7 +455,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0,
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY,
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -783,7 +803,70 @@ impl Heap {
         self.phase = Phase::Marking;
         self.marking = 1;
         self.stats.cycles += 1;
+        self.weak.clear();
+        // Looked up before marking begins, so the lookup greys nothing; a
+        // metatable naming `__mode` holds the string, so it stays alive and
+        // keeps these bits for the cycle.
+        self.mode_key = self.interned.get(&b"__mode"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
         self.mark_roots(roots);
+    }
+
+    /// The weak mode a table's metatable declares (Lua 5.1: `__mode` holding
+    /// `k`, `v` or both), or 0.
+    fn weak_mode(&self, h: &Header) -> u8 {
+        if self.mode_key == VT_EMPTY { return 0; }
+        let Some(meta) = h.table_ref().meta.as_obj() else { return 0 };
+        let m = unsafe { &*meta.as_ptr() };
+        let key = Value(self.mode_key);
+        // A metatable built by a constructor may be a record of the shape the
+        // constructor inferred, `__mode` one of its slots.
+        let mode = match m.kind {
+            KIND_TABLE => m.table_ref().hash.get(&key).copied(),
+            KIND_RECORD => match self.shapes[m.shape() as usize].slot_of(key) {
+                Some(i) => m.slots().get(i).copied(),
+                None => m.record_extra_ref().as_ref().and_then(|extra| extra.get(&key).copied()),
+            },
+            _ => None,
+        };
+        let Some(mode) = mode.and_then(|v| v.as_obj()) else { return 0 };
+        let mode = unsafe { &*mode.as_ptr() };
+        if !mode.is_stringish() { return 0; }
+        let text: &[u8] = if mode.kind == KIND_STR { mode.bytes() } else {
+            let s = mode.slice();
+            match s.source.as_obj() { Some(src) => { let b = unsafe { (*src.as_ptr()).bytes() }; &b[s.off as usize..(s.off + s.len) as usize] } None => return 0 }
+        };
+        let mut bits = 0;
+        if text.contains(&b'k') { bits |= WEAK_KEYS; }
+        if text.contains(&b'v') { bits |= WEAK_VALUES; }
+        bits
+    }
+
+    /// Whether a weak entry may drop `v`: an object other than a string or
+    /// a boxed integer, which Lua treats as values that are never collected
+    /// out of a weak table.
+    #[inline]
+    fn clearable(v: Value) -> Option<NonNull<Header>> {
+        let p = v.as_obj()?;
+        match unsafe { (*p.as_ptr()).kind } { KIND_STR | KIND_SLICE | KIND_INTEGER => None, _ => Some(p) }
+    }
+
+    /// Drops every weak entry whose weak side is still white. Runs once
+    /// marking has finished, so white here means unreachable but for weak
+    /// references; the sweep that follows frees those objects.
+    fn clear_weak(&mut self) {
+        let dead = |v: Value| Self::clearable(v).is_some_and(|p| unsafe { (*p.as_ptr()).color == COLOR_WHITE });
+        for (p, mode) in std::mem::take(&mut self.weak) {
+            let h = unsafe { &mut *p.as_ptr() };
+            if h.kind != KIND_TABLE { continue; }
+            let t = h.table();
+            if mode & WEAK_VALUES != 0 {
+                let mut changed = false;
+                for v in t.array.iter_mut() { if dead(*v) { *v = Value::NIL; changed = true; } }
+                if changed { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } }
+            }
+            t.hash.clear_where(|k, v| (mode & WEAK_KEYS != 0 && dead(k)) || (mode & WEAK_VALUES != 0 && dead(v)));
+            h.refresh();
+        }
     }
 
     /// Whether `p` addresses a live object: a slot of a chunk on a slot
@@ -837,8 +920,12 @@ impl Heap {
     }
 
     fn scan(&mut self, p: NonNull<Header>) {
-        let gray = &mut self.gray;
         let h = unsafe { &*p.as_ptr() };
+        if h.kind == KIND_TABLE && h.table_ref().meta != Value::NIL {
+            let mode = self.weak_mode(h);
+            if mode != 0 { self.scan_weak(p, mode); return; }
+        }
+        let gray = &mut self.gray;
         #[cfg(feature = "allocation-metrics")]
         let mut children = 0u64;
         Self::each_child(h, &mut |v| {
@@ -847,6 +934,24 @@ impl Heap {
             if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); } } } });
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.scanned_objects += 1; m.child_slots += children; }
+        unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
+    }
+
+    /// A weak table's strong references: its metatable, every string or
+    /// boxed integer, and the side of each entry its mode leaves strong. The
+    /// table is remembered so `clear_weak` can drop what dies.
+    fn scan_weak(&mut self, p: NonNull<Header>, mode: u8) {
+        let gray = &mut self.gray;
+        let mut mark = |v: Value| { if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); } } } };
+        let t = unsafe { (*p.as_ptr()).table_ref() };
+        let (weak_k, weak_v) = (mode & WEAK_KEYS != 0, mode & WEAK_VALUES != 0);
+        for &v in &t.array { if !weak_v || Self::clearable(v).is_none() { mark(v); } }
+        for (k, v) in t.hash.iter() {
+            if !weak_k || Self::clearable(*k).is_none() { mark(*k); }
+            if !weak_v || Self::clearable(*v).is_none() { mark(*v); }
+        }
+        mark(t.meta);
+        self.weak.push((p, mode));
         unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
     }
 
@@ -863,6 +968,7 @@ impl Heap {
                     if budget == 0 { return; }
                     self.mark_roots(roots);
                     if !self.gray.is_empty() { continue; }
+                    self.clear_weak();
                     self.phase = Phase::Sweeping;
                     self.marking = 0;
                     self.sweep_chunk = 0; self.sweep_slot = 0; self.sweep_large = 0;

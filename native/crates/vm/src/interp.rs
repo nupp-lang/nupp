@@ -460,6 +460,9 @@ pub struct Interp {
     pub frame_entries: Vec<u64>,
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
+    /// Value registers live across each pc (live-in and live-out), by
+    /// function, computed on the first explicit collection that needs them.
+    dead_register_maps: std::collections::HashMap<u32, Vec<crate::verify::RegSet>>,
     // Transient handoff from native frame helpers; never part of a snapshot.
     pub(crate) native_task: usize,
     pub(crate) native_exit: Option<Step>,
@@ -560,7 +563,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1204,6 +1207,40 @@ impl Interp {
     pub fn release(&mut self, h: usize) { self.registered[h] = Value::NIL; }
     pub fn full_cycle(&mut self) { self.heap.full_cycle(roots!(self)) }
     pub fn check_oracle(&self) { self.heap.check_oracle(roots!(self)) }
+    /// Nils every value register no instruction can read again in the
+    /// frames of the task calling an explicit `collectgarbage("collect")`.
+    /// Registers are not reused across temporaries and a new frame does not
+    /// clear its window, so a value the program dropped long ago would
+    /// otherwise stay reachable from a dead register; Lua scans only the
+    /// live part of its stack, and a program observing a weak table after a
+    /// full collection depends on that. Each frame's saved pc is exact here:
+    /// the interpreters note it before every operation that reaches Rust and
+    /// every call saves its caller's. Compiled callers have no frame and
+    /// clear nothing.
+    pub(crate) fn clear_dead_registers(&mut self) {
+        let Some(tid) = self.caller_task() else { return };
+        let Some(task) = self.tasks.get(tid) else { return };
+        if task.state == State::Done || task.stack.is_empty() { return; }
+        let mut s = task.cur;
+        loop {
+            let h0 = self.tasks[tid].stack[s];
+            let (fid, next) = ((h0 & 0xffff_ffff) as u32, (h0 >> 32) as usize);
+            if (fid as usize) < self.funcs.len() && next >= 1 && next <= self.funcs[fid as usize].code.len() {
+                if !self.dead_register_maps.contains_key(&fid) {
+                    let (live_in, live_out) = crate::verify::liveness(&self.funcs[fid as usize]);
+                    let map = live_in.iter().zip(&live_out).map(|(a, b)| a[0].union(&b[0])).collect();
+                    self.dead_register_maps.insert(fid, map);
+                }
+                let live = self.dead_register_maps[&fid][next - 1];
+                let n = (self.funcs[fid as usize].nregs as usize + 1).min(256);
+                let stack = &mut self.tasks[tid].stack;
+                for r in 0..n { if !live.contains(r as u8) { stack[s + HDR + r] = Value::NIL.0; } }
+            }
+            let caller = (self.tasks[tid].stack[s + 1] & 0xffff_ffff) as u32;
+            if caller == NONE { break; }
+            s = caller as usize;
+        }
+    }
 
     // ---- objects ----------------------------------------------------------
 

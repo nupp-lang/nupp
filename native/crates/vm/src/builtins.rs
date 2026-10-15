@@ -871,7 +871,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 std::str::from_utf8(it.bytes_of(mode)).unwrap_or("")
             };
             return match mode {
-                "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
+                "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.clear_dead_registers(); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
                 "count" => outs![Value::num(it.heap.live_bytes as f64 / 1024.0)],
                 "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
                 "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
