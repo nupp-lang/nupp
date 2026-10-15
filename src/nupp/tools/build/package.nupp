@@ -584,21 +584,23 @@ end
 --- What a VM program image is reused under: everything its emission reads that
 --- can differ between two builds of the same target. The modules' sources, the
 --- VM's own library and declarations that replace some of them, the resources
---- carried as `nupp.embedded`, and the compiler image doing the lowering, since a
---- new compiler may lower the same source differently. Nil when any of those
---- cannot be named, which is a build that emits afresh.
+--- carried as `nupp.embedded`, and the compiler doing the lowering, since a new
+--- compiler may lower the same source differently. Nil when any of those cannot
+--- be named, which is a build that emits afresh.
+---
+--- The compiler is named the way every store names it, by
+--- `fingerprint.graphFingerprint`: on the VM the digest of the image the running
+--- compiler started from, which the runtime answers without reading the image
+--- file again, and which is the compiler that actually lowers here even when
+--- `NUPP_VM_CLI_IMAGE` names another or nothing.
 local function programKey(mainName: string, embedded: string?, modules: {[string]: any}?): string?
-    local compilerImage = os.getenv("NUPP_VM_CLI_IMAGE")
     local compilerRoot = require("nupp.compiler.project.env").compilerRoot()
-    if modules == nil or compilerImage == nil or compilerRoot == nil then
+    if modules == nil or compilerRoot == nil then
         return nil
     end
-    local digest = require("nupp.compiler.project.fingerprint").contentDigest(true)
-    local image = fs.readFile(compilerImage)
-    if image == nil then
-        return nil
-    end
-    local parts: {string} = {"vm-program/1", mainName, digest(embedded or ""), digest(image)}
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local digest = fingerprint.contentDigest(true)
+    local parts: {string} = {"vm-program/2", mainName, digest(embedded or ""), fingerprint.graphFingerprint(digest)}
     local names: {string} = {}
     for name in pairs(modules) do
         names[#names + 1] = name
