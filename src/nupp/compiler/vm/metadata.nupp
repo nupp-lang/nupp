@@ -301,6 +301,11 @@ end
 
 local function path(text)
     local result
+    -- A declaration another module owns is spelled `require("module").Name`.
+    local module, rest = text:match('^require%("([^"]+)"%)%.(.+)$')
+    if module then
+        result, text = required(module), rest
+    end
     for member in text:gmatch("[^.]+") do
         result = result and field(result, member) or name(member)
     end
@@ -380,11 +385,16 @@ function metadata.declaration(declaration, identity)
     local nominal = declaration.resolvedType
     constructors(declaration, identity, statements)
     local reflect = field(field(name("_G"), "nupp"), "__reflect")
-    if nominal and (nominal.runtimeReflectionNeeded or recipe and recipe.data and recipe.data.json) then
-        local reflection = require("nupp.compiler.reflection")
+    -- Derived members read the reflection runtime (Debug renders through
+    -- `nupp.reflect.runtime`); on LuaJIT an earlier chunk has always installed
+    -- it, but an image installs what its own declarations use.
+    if nominal and (nominal.runtimeReflectionNeeded or recipe) then
         statements[#statements + 1] = invoke(field(required("nupp.compiler.runtime.reflect"), "install"), {
             field(name("_G"), "nupp")
         })
+    end
+    if nominal and (nominal.runtimeReflectionNeeded or recipe and recipe.data and recipe.data.json) then
+        local reflection = require("nupp.compiler.reflection")
         statements[#statements + 1] = invoke(field(reflect, "register"), {
             identity,
             data(reflection.describe(nominal, nominal.runtimePath or nominal.name)),
@@ -457,11 +467,27 @@ function metadata.declaration(declaration, identity)
         elseif value.kind == "constant" then
             return data(value.value)
         elseif value.kind == "witness" then
-            assert(
+            local subject = assert(
                 declaration.deriveWitnesses and declaration.deriveWitnesses[value.witnessIndex],
                 "missing derived type witness"
             )
-            return path(assert(value.runtimePath))
+            -- The witness carries its reflection blueprint with it, registered
+            -- on first use, as the Lua generator's `ensure` does.
+            local reflection = require("nupp.compiler.reflection")
+            local describe = node("funcExpr", {
+                body = body({}, {
+                    node("returnStmt", {
+                        exprs = {
+                            data(reflection.describe(subject, subject.runtimePath or subject.name)),
+                            data(reflection.runtimeReferences(subject))
+                        }
+                    })
+                })
+            })
+            return call(field(field(field(name("_G"), "nupp"), "__reflect"), "ensure"), {
+                path(assert(value.runtimePath)),
+                describe
+            })
         elseif value.kind == "array" then
             local fields = {}
             for _, item in ipairs(value.values or {}) do

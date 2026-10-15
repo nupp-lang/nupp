@@ -414,7 +414,10 @@ function compile.image(path: string, env: table, moduleName: string?, collected:
         end,
         function(_: string, _: string): table
             return tree
-        end
+        end,
+        nil,
+        nil,
+        (env as any).layoutTarget or require("nupp.compiler.targetlayout").hostKey()
     )
 end
 

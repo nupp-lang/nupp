@@ -56,7 +56,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 let t = it.new_table(); it.handles.push(t);
                 let modified = info.modified.and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
                 for (key, value) in [("size", Value::num(info.size as f64)), ("modified", Value::num(modified)), ("readOnly", Value::boolean(info.read_only))] { let k = it.intern(key); it.set_index(t, k, value); }
-                let k = it.intern("kind"); let v = it.intern(kind(info.kind)); it.set_index(t, k, v);
+                let v = it.intern(kind(info.kind)); it.handles.push(v); let k = it.intern("kind"); it.set_index(t, k, v);
                 it.close_scope(scope);
                 let mut o = Outs::new(); o.push(t); o
             }
@@ -74,8 +74,8 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 let list = it.new_table(); it.handles.push(list);
                 for (i, entry) in entries.iter().enumerate() {
                     let e = it.new_table(); it.handles.push(e);
-                    let k = it.intern("name"); let v = it.new_string_bytes(&entry.name); it.set_index(e, k, v);
-                    let k = it.intern("kind"); let v = it.intern(kind(entry.kind)); it.set_index(e, k, v);
+                    let v = it.new_string_bytes(&entry.name); it.handles.push(v); let k = it.intern("name"); it.set_index(e, k, v);
+                    let v = it.intern(kind(entry.kind)); it.handles.push(v); let k = it.intern("kind"); it.set_index(e, k, v);
                     it.set_index(list, Value::num((i + 1) as f64), e);
                 }
                 it.close_scope(scope);

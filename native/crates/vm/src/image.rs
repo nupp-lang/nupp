@@ -33,11 +33,12 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                     if let Some((n, f)) = p.strip_prefix("method:").and_then(|m| m.split_once('=')) { pending_methods.push((shape_ids.len() as u32, n.to_string(), f.parse().unwrap())); continue; }
                     let (n, t) = p.split_once(':').ok_or(format!("line {ln}: slot"))?;
                     let nv = it.intern(n); it.handles.push(nv); names.push(nv);
-                    types.push(match t { "num" => SlotTy::Num, "str" => SlotTy::Str, "bool" => SlotTy::Bool, t if t.starts_with("rec:") => SlotTy::Record(shape_ids[t[4..].parse::<usize>().unwrap()]), _ => SlotTy::Any });
+                    types.push(match t { "num" => SlotTy::Num, "str" => SlotTy::Str, "bool" => SlotTy::Bool, t if t.starts_with("rec:") => match shape_ids.get(t[4..].parse::<usize>().map_err(|_| format!("line {ln}: record slot"))?) { Some(&id) => SlotTy::Record(id), None => SlotTy::Any }, _ => SlotTy::Any });
                 }
                 let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| {
-                    let shape = &it.heap.shapes[id as usize];
-                    shape.names == names && shape.types == types
+                    // Slot types are hints two images can infer differently;
+                    // the layout is the names, in order.
+                    it.heap.shapes[id as usize].names == names
                 });
                 let id = existing.unwrap_or_else(|| it.heap.shape(parts[2], &names, &types));
                 if let (None, Some(key)) = (existing, identity) { it.heap.shape_identities.insert(key, id); }

@@ -360,7 +360,9 @@ fn prepare_impl(
     let name = OPERATIONS[op as usize];
     let arg = |i: usize| args.get(i).copied().unwrap_or(Value::NIL);
     let local = |i: usize| locals.get(i).copied().flatten();
-    let s = if name == "species" {
+    // `species.lanes` reaches here with the species's witness, as `species`
+    // does: the lowering names the element, not the species value.
+    let s = if name == "species" || (name == "lanes" && local(0).is_none() && witness(vm, arg(0)).is_some()) {
         if witness(vm, arg(0)) != Some(kind) {
             vm.err("SIMD species requires the checked scalar storage witness");
         }

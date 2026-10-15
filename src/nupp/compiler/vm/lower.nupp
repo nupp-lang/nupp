@@ -124,7 +124,7 @@ function lower.emit(
         end
         if tag == "nominal" then
             local shape = shapeOfNominal(t) or foreignShape(t)
-            if shape and not shape.physical then
+            if shape and shape.id and not shape.physical then
                 return "rec:" .. shape.id
             end
         end
@@ -232,23 +232,27 @@ function lower.emit(
     -- A record another image declares: its shape is rebuilt from the checked
     -- type in the order `declareShape` gives it, under the same identity, so
     -- the loader resolves both images to one shape and one method table.
+    -- The module a nominal type was declared in, which a type restored from
+    -- another module's interface keeps only in its runtime declaration key.
+    local function declaringModule(t)
+        return t.moduleName
+            or type(t.runtimeDeclarationKey) == "string" and t.runtimeDeclarationKey:match("^(%S+)")
+            or nil
+    end
+
     foreignShape = function(t)
-        if t.declKind ~= "record"
-            or type(t.fieldOrder) ~= "table"
-            or not t.moduleName
-            or t.moduleName == currentModule
-        then
+        local owner = declaringModule(t)
+        if t.declKind ~= "record" or type(t.fieldOrder) ~= "table" or not owner or owner == currentModule then
             return nil
         end
         local name = (t.name or ""):match("([%w_]+)$") or ""
-        local shape = {id = #shapeOrder, name = name, slots = {}, slotIndex = {}, module = t.moduleName}
-        shapes[name] = shapes[name] or {}
-        table.insert(shapes[name], shape)
+        -- Registered before its slots (a record may hold itself) but numbered
+        -- after them, so a slot never names a shape the image declares later.
+        local shape = {name = name, slots = {}, slotIndex = {}, module = owner}
         shapesByNominal[t] = shape
         if t.declarationKey then
             shapesByNominal[t.declarationKey] = shape
         end
-        shapeOrder[#shapeOrder + 1] = shape
         local byname = type(t.byname) == "table" and t.byname or {}
         local methods = type(t.methodEntries) == "table" and t.methodEntries or {}
         for _, fname in ipairs(t.fieldOrder) do
@@ -266,6 +270,10 @@ function lower.emit(
             shape.slotIndex[fname] = #shape.slots
             shape.slots[#shape.slots + 1] = {name = fname, ty = slotTy(byname[fname])}
         end
+        shape.id = #shapeOrder
+        shapes[name] = shapes[name] or {}
+        table.insert(shapes[name], shape)
+        shapeOrder[#shapeOrder + 1] = shape
 
         return shape
     end
@@ -279,7 +287,14 @@ function lower.emit(
             if ty.declKind == "interface" then
                 return nil
             end
-            return shapeOfNominal(ty) or shapeByBareName((ty.name or ""):match("([%w_]+)$") or "") or foreignShape(ty)
+            local bare = shapeByBareName((ty.name or ""):match("([%w_]+)$") or "")
+            -- A bare name settles only within the type's own module: another
+            -- module's record of the same name is a different shape.
+            local owner = declaringModule(ty)
+            if bare and owner and bare.module ~= owner then
+                bare = nil
+            end
+            return shapeOfNominal(ty) or bare or foreignShape(ty)
         end
     end
 
@@ -3461,11 +3476,29 @@ function lower.emit(
             -- declared above every temporary the condition used.
             local mark = f.nregs
             for _, clause in ipairs(node.clauses) do
-                local branch, bop, c = condBranch(f, clause.cond)
-                f.nregs = math.max(mark, f.declTop or 0)
-                block(f, clause.body)
-                exits[#exits + 1] = f:op("Jmp", 0)
-                f:patch(branch, bop, c, f:offset(branch, f:here()))
+                if clause.binding then
+                    -- `if NAME = EXPR then`: the arm is taken when the value is
+                    -- not nil, with NAME bound to it for that arm.
+                    local value = exprAs(f, clause.cond, "v")
+                    local absent, present = f:reg(), f:reg()
+                    f:op("Nil", absent)
+                    f:op("Ne", present, value, absent)
+                    local branch = f:op("JmpIfNot", present, 0)
+                    f:push()
+                    local reg, cell = f:declare(tokText(clause.binding), "v")
+                    f:op(cell and "NewCell" or "Move", reg, value)
+                    block(f, clause.body)
+                    f:pop()
+                    f.nregs = math.max(mark, f.declTop or 0)
+                    exits[#exits + 1] = f:op("Jmp", 0)
+                    f:patch(branch, "JmpIfNot", present, f:offset(branch, f:here()))
+                else
+                    local branch, bop, c = condBranch(f, clause.cond)
+                    f.nregs = math.max(mark, f.declTop or 0)
+                    block(f, clause.body)
+                    exits[#exits + 1] = f:op("Jmp", 0)
+                    f:patch(branch, bop, c, f:offset(branch, f:here()))
+                end
             end
             if node.elseClause then
                 block(f, node.elseClause.body or node.elseClause)
@@ -4620,6 +4653,20 @@ function lower.emit(
                 chunk:op("NewRecord", chunk.exportsReg, moduleShape.id)
             else
                 chunk:op("NewTableN", chunk.exportsReg, 0, 0)
+            end
+            -- A module that requires itself gets the exports it is still
+            -- filling, as Lua code publishing its table early would.
+            local selfRequired = false
+            for _, entry in ipairs(deps) do
+                selfRequired = selfRequired or entry == name
+            end
+            if selfRequired then
+                local package, loaded, key = chunk:reg(), chunk:reg(), chunk:reg()
+                chunk:op("Require", package, chunk:const("str", "package"))
+                chunk:op("GetField", loaded, package, chunk:const("str", "loaded"))
+                chunk:op("K", key, chunk:const("str", name))
+                chunk:op("SetIdx", loaded, key, chunk.exportsReg)
+                chunk.nregs = chunk.nregs - 3
             end
             for _, fname in ipairs(exportedFns) do
                 local r, cell = chunk:declare(fname, "v")

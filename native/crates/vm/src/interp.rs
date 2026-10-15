@@ -1073,7 +1073,7 @@ impl Interp {
         let vm_files = table_of(self, &["nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary"]);
         self.loaded.insert("nupp.vm.files".into(), vm_files);
         let luautf8 = table_of(self, &["utf8.char", "utf8.lower", "utf8.upper", "utf8.len", "utf8.codepoint", "utf8.sub"]);
-        let k = self.intern("charpattern"); let v = self.new_string_bytes(b"[\x00-\x7F\xC2-\xFD][\x80-\xBF]*"); self.set_index(luautf8, k, v);
+        let v = self.new_string_bytes(b"[\x00-\x7F\xC2-\xFD][\x80-\xBF]*"); let vh = self.register(v); let k = self.intern("charpattern"); self.set_index(luautf8, k, v); self.release(vh);
         self.loaded.insert("lua-utf8".into(), luautf8);
         crate::simd::install(self);
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);

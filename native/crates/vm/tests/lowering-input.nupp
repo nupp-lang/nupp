@@ -160,6 +160,25 @@ function api.run(): number
         + one() == 60
     )
 
+    -- `if NAME = EXPR then` binds NAME for its arm, taken when the value is
+    -- not nil: false takes it, nil falls through to the next clause.
+    local maybe: number? = 5
+    local falsy: boolean? = false
+    local absentValue: number? = nil
+    local seen = 0
+    if bound = maybe then
+        seen = bound + 1
+    end
+    if flag = falsy then
+        seen = seen + (flag and 100 or 10)
+    end
+    if missing = absentValue then
+        seen = seen + missing
+    elseif again = maybe then
+        seen = seen + again * 1000
+    end
+    assert(seen == 5016, seen)
+
     return t.x + #tostring(why) + receiver:value()
 end
 
