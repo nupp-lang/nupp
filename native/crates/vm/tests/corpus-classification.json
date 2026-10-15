@@ -321,9 +321,9 @@
     },
     {
       "suite": "bulkcolumntest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,ffi,string.buffer,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested bulk-copying LuaJIT cdata columns with string.buffer:putcdata and ffi.copy; the VM has no cdata, and layoutof strides are covered by layouttest"
     },
     {
       "suite": "bundleddeclstest",
@@ -423,9 +423,9 @@
     },
     {
       "suite": "concatbuffertest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,string.buffer,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested the Lua optimizer's OPT-5 concat-buffer pass and its remarks, deleted with the optimizer"
     },
     {
       "suite": "conststrtest",
@@ -801,9 +801,9 @@
     },
     {
       "suite": "loweringinvarianttest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested the Lua generator's inventory of functions built inside loops, a LuaJIT trace concern"
     },
     {
       "suite": "lspclitest",
@@ -909,15 +909,15 @@
     },
     {
       "suite": "optimizeprograms",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "helper of optimizetest and passpermutationtest, deleted with them"
     },
     {
       "suite": "optimizetest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,env,debug-hooks,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested the Lua optimizer's passes, presizing, remarks and level agreement, deleted with the optimizer"
     },
     {
       "suite": "orexittest",
@@ -975,9 +975,9 @@
     },
     {
       "suite": "passpermutationtest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "checked that every subset of the Lua optimizer's passes agrees, deleted with the optimizer"
     },
     {
       "suite": "pathtest",
@@ -1179,9 +1179,9 @@
     },
     {
       "suite": "sharedbytestest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "tested nupp.mem.sharedbytes, whose blocks came from the LuaJIT engine host through ffi; the VM has no sharedbytes provider"
     },
     {
       "suite": "simdequivalencedrivertest",
@@ -1209,9 +1209,9 @@
     },
     {
       "suite": "simdlanetest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested the Lua generator's one-lane simd.lane routing of a preferred species, which has its real width on the VM; simdfixedlanestest covers the width-independent behavior"
     },
     {
       "suite": "simdmapinventorytest",
