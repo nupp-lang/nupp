@@ -70,6 +70,11 @@ pub const NAMES: &[&str] = &[
     "nhttp.clientCreate", "nhttp.clientRelease", "nhttp.clientPending", "nhttp.clientSend", "nhttp.clientPoll",
     "nhttp.transferCancel", "nhttp.transferRelease", "nhttp.transferOffer", "nhttp.transferHead", "nhttp.transferTakeBody", "nhttp.bodyArm", "nhttp.bodyRead",
     "nuri.parse",
+    // LuaJIT's string.buffer (`crate::strbuf::BUILTINS`, in that order).
+    "sbuf.new", "sbuf.encode", "sbuf.decode",
+    "sbuf.put", "sbuf.putf", "sbuf.get", "sbuf.tostring", "sbuf.reset", "sbuf.free", "sbuf.skip", "sbuf.set",
+    "sbuf.bencode", "sbuf.bdecode", "sbuf.putcdata", "sbuf.ref", "sbuf.reserve", "sbuf.commit",
+    "sbuf.__len", "sbuf.__tostring", "sbuf.__concat",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -525,6 +530,7 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 enum Special {
     Plain,
     Lpeg,
+    Sbuf,
     OsExit,
     DebugTraceback,
     ErrorSite,
@@ -574,6 +580,7 @@ fn special_of(id: u32) -> Special {
 fn classify(name: &str) -> Special {
     if name.starts_with("foreign.") { return Special::Foreign; }
     if name.starts_with("lpeg.") { return Special::Lpeg; }
+    if name.starts_with("sbuf.") { return Special::Sbuf; }
     if name.starts_with("tasks.vm") { return Special::TasksVm; }
     if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
     if name == "io.popen" { return Special::IoPopen; }
@@ -628,6 +635,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             return crate::foreign::call(it, name, args);
         }
         Special::Lpeg => return crate::lpeg::call(it, NAMES[id as usize], args),
+        Special::Sbuf => return crate::strbuf::call(it, NAMES[id as usize], args),
         Special::TasksVm => {
             let name = NAMES[id as usize];
             return match crate::task_api::call(it, 0, name, args) {

@@ -60,5 +60,7 @@ mod coroutines;
 
 mod lpeg;
 
+mod strbuf;
+
 #[cfg(feature = "c-headers")]
 pub mod cdecl;

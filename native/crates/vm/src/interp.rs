@@ -1146,6 +1146,7 @@ impl Interp {
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         crate::supervision::install(self);
         crate::lpeg::install(self);
+        crate::strbuf::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
         { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); 
@@ -1626,6 +1627,19 @@ impl Interp {
         self.heap.account_resize(before, h.external_bytes());
     }
     pub fn concat(&mut self, x: Value, y: Value) -> Value {
+        // An operand that is neither a string nor a number concatenates
+        // through `__concat`, the left operand's first, as Lua's does.
+        let plain = |it: &Interp, v: Value| it.is_stringish(v) || crate::numeric::is_numeric(v);
+        if !plain(self, x) || !plain(self, y) {
+            let handler = if plain(self, x) { Value::NIL } else { self.meta_field(x, "__concat") };
+            let handler = if handler == Value::NIL && !plain(self, y) { self.meta_field(y, "__concat") } else { handler };
+            if handler != Value::NIL {
+                let scope = self.open_scope(); self.handles.extend_from_slice(&[x, y, handler]);
+                let v = self.call_value(handler, &[x, y]).first().copied().unwrap_or(Value::NIL);
+                self.close_scope(scope);
+                return v;
+            }
+        }
         let mut joined: Vec<u8> = Vec::new();
         for v in [x, y] { if let Some(i) = crate::numeric::integer(v) { joined.extend_from_slice(i.magnitude().to_string().as_bytes()); } else if v.is_num() { joined.extend_from_slice(crate::builtins::num_text(v.as_num()).as_bytes()); } else if self.is_stringish(v) { joined.extend_from_slice(self.bytes_of(v)); } else { self.err("concatenate a non-string") } }
         self.string_of(&joined)

@@ -83,8 +83,8 @@ local function runtime(): any
         target.host == "native" and rawget(_G, "__nuppBrowser") == nil,
         "native persistence requires a native LuaJIT host"
     )
-    local ok, jit = pcall(_G.require, "jit")
-    assert(ok and type(jit) == "table", "native persistence requires LuaJIT")
+    -- The format is string.buffer's serialization, which LuaJIT and the VM
+    -- both provide; the VM's speaks LuaJIT's bytes.
     local loaded, buffer = pcall(_G.require, "string.buffer")
     assert(loaded, "native persistence requires LuaJIT string.buffer")
 

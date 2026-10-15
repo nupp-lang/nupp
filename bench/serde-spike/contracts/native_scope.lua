@@ -34,8 +34,8 @@ local binding = {
     end
 }
 _G.require = function(name)
-    if name == "jit" then
-        error("no LuaJIT on this target")
+    if name == "string.buffer" then
+        error("no string.buffer on this target")
     end
     return original(name)
 end
