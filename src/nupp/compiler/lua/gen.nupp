@@ -4781,7 +4781,8 @@ function gen.generate(
             ownerCleanups = {},
             statementOwners = stat.statementCleanupOwners,
         }
-        local body: any = {kind = "block", stats = {stat}}
+        -- Whatever emitted the statement already counted it.
+        local body: any = {kind = "block", stats = {stat}, coverageCounted = true}
         body[1] = stat
         local region: any = {
             kind = "cleanupRegion",
@@ -5623,7 +5624,7 @@ function gen.generate(
         end
         if coverageOn and kind == "block" then
             for _, child in ipairs(x) do
-                if coverageStatement(child) then
+                if coverageStatement(child) and not x.coverageCounted then
                     coverageHit("statement", child)
                 end
                 emit(child)
