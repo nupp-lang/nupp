@@ -340,6 +340,8 @@ function compile.image(path: string, env: table, moduleName: string?, collected:
     end
     local name = moduleName or "main"
     local tree = (result as any).root as table
+    -- What the module publishes decides which records its witnesses link.
+    tree.vmModuleExports = (result as any).moduleExports
 
     return require("nupp.compiler.vm.lower").emit(
         name,

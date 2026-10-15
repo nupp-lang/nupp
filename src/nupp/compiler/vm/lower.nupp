@@ -1531,6 +1531,55 @@ function lower.emit(
                 return
             end
         end
+        -- A record's metatable is its declaration, as on LuaJIT, where a record
+        -- is a table stamped with it. A VM record carries its declaration on its
+        -- shape instead, so a record with no explicit metatable reads it there.
+        -- A table with no metatable has no `__index` either: the read is raw.
+        local metatableArgs = node.kind == "call"
+            and not node.vmPlainMetatable
+            and node.obj
+            and node.obj.kind == "name"
+            and tokText(node.obj.token) == "getmetatable"
+            and not f:binding("getmetatable")
+            and node.args
+            and not node.args.loweredArgs
+            and node.args.exprs
+        if metatableArgs
+            and #metatableArgs == 1
+            and not all
+            and not multiCall(metatableArgs[1])
+            and metatableArgs[1].kind ~= "vararg"
+        then
+            local value = exprAs(f, metatableArgs[1], "v")
+            emitCall(
+                f,
+                {
+                    kind = "call",
+                    vmPlainMetatable = true,
+                    obj = node.obj,
+                    args = {exprs = {{kind = "vmRegister", reg = value}}}
+                },
+                dst,
+                nres,
+                all
+            )
+            local test, empty = f:reg(), f:reg()
+            f:op("Nil", empty)
+            f:op("Eq", test, dst, empty)
+            local present = f:op("JmpIfNot", test, 0)
+            local callee, base, argument = f:reg(), f:reg(), f:reg()
+            f:op("K", callee, f:const("builtin", "type"))
+            f:op("Move", argument, value)
+            f:op("CallDyn", callee, base, 1)
+            local tableName = f:reg()
+            f:op("K", tableName, f:const("str", "table"))
+            f:op("Eq", test, base, tableName)
+            local untabled = f:op("JmpIfNot", test, 0)
+            f:op("GetField", dst, value, f:const("str", "\0nupp:recordType"))
+            f:patch(present, "JmpIfNot", test, f:offset(present, f:here()))
+            f:patch(untabled, "JmpIfNot", test, f:offset(untabled, f:here()))
+            return
+        end
         if node.carrayElem then
             local descriptor = exprAs(f, structDescriptor(node.carrayElem), "v")
             local count = exprAs(f, node.args.exprs[2], "v")

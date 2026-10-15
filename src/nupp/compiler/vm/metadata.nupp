@@ -525,9 +525,170 @@ function metadata.declaration(declaration, identity)
     return statements
 end
 
+-- Type witnesses, as the Lua generator's witness plan places them: a value
+-- of type `Type<R>` carries R's reflection blueprint, registered on first use,
+-- and every record a witness reaches is linked to the declarations its fields
+-- name so `nupp.reflect.runtimeType` can find them.
+local function witnesses(root)
+    local plan = require("nupp.compiler.lua.typewitness").collect(root, root.vmModuleExports)
+    if next(plan.values) == nil and #plan.ordered == 0 then
+        return {}
+    end
+    local reflection = require("nupp.compiler.reflection")
+    local reflect = field(field(name("_G"), "nupp"), "__reflect")
+    local descriptions = {}
+
+    local function describe(subject)
+        -- The description is computed once; each site gets its own nodes.
+        local found = descriptions[subject]
+        if not found then
+            found = {
+                reflection.describe(subject, subject.runtimePath or subject.name),
+                reflection.runtimeReferences(subject)
+            }
+            descriptions[subject] = found
+        end
+
+        return node("funcExpr", {body = body({}, {node("returnStmt", {exprs = {data(found[1]), data(found[2])}})})})
+    end
+
+    local function wrap(value, subject)
+        local ensured = call(field(reflect, "ensure"), {value, describe(subject)})
+        if value.kind ~= "name" then
+            return ensured
+        end
+
+        -- Reading a name again runs no user code, and once the blueprint is
+        -- known the witness costs a lookup rather than a closure. Each read
+        -- is its own node: analysis visits a node once.
+        local function again()
+            local copy = {}
+            for key, item in pairs(value) do
+                copy[key] = item
+            end
+
+            return copy
+        end
+
+        return node("paren", {
+            expr = node("binop", {
+                op = {text = "or"},
+                lhs = node("binop", {
+                    op = {text = "and"},
+                    lhs = call(field(reflect, "known"), {again()}),
+                    rhs = again()
+                }),
+                rhs = ensured
+            })
+        })
+    end
+
+    -- Replace each witnessed value where its parent holds it, leaving the
+    -- checked node itself as it was. A wrapper is never revisited, so the
+    -- value inside it stays unwrapped; its own children are visited directly.
+    local seen, replaced = {}, {}
+    local replace
+
+    local function substitute(value)
+        local result = replaced[value]
+        if not result then
+            result = wrap(value, plan.values[value])
+            replaced[value] = result
+            seen[result] = true
+            replace(value)
+        end
+
+        return result
+    end
+
+    replace = function(current)
+        if type(current) ~= "table" or seen[current] then
+            return
+        end
+        seen[current] = true
+        for key, child in pairs(current) do
+            if type(child) == "table" and plan.values[child] then
+                current[key] = substitute(child)
+            elseif type(child) == "table" and not child.kind and key ~= "token" then
+                for index, item in ipairs(child) do
+                    if type(item) == "table" and plan.values[item] then
+                        child[index] = substitute(item)
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(current) do
+            replace(child)
+        end
+        replace(current.foldedExpression)
+    end
+    replace(root)
+
+    -- Each block holding a witnessed declaration opens with its cells; a
+    -- module-level one is the shared cell other modules' references find.
+    local groups = 0
+    for _, item in ipairs(plan.ordered) do
+        local group = item.group
+        if not group.vmName then
+            groups = groups + 1
+            group.vmName = "\0witness:" .. groups
+            local cells = {}
+            for index, member in ipairs(group.items) do
+                local key = member.type.runtimeDeclarationKey or member.type.declarationKey
+                local cell
+                if member.top and key then
+                    cell = call(field(reflect, "declaration"), {data(key)})
+                else
+                    cell = data({key = key})
+                end
+                cells[index] = node("fieldItem", {value = cell})
+            end
+            local opening = node("localStmt", {
+                names = {{text = group.vmName}},
+                exprs = {
+                    node("tableExpr", {
+                        fields = cells
+                    })
+                }
+            })
+            local block = item.block
+            table.insert(block.stats, 1, opening)
+            table.insert(block, 1, opening)
+        end
+    end
+
+    local function cell(member)
+        return node("bracketIndex", {obj = name(member.group.vmName), expr = data(member.slot)})
+    end
+
+    local links = {}
+    for _, item in ipairs(plan.ordered) do
+        local targets = {}
+        for _, target in ipairs(item.targets) do
+            local value = target.localTarget and cell(target.localTarget) or call(field(reflect, "reference"), {
+                data(target.key),
+                data(target.module)
+            })
+            targets[#targets + 1] = node("fieldItem", {value = value})
+        end
+        links[item.node] = function(identity)
+            return invoke(field(reflect, "link"), {identity, cell(item), node("tableExpr", {fields = targets})})
+        end
+    end
+
+    -- The witness runtime precedes everything, the cells included.
+    local install = invoke(field(required("nupp.compiler.runtime.typewitness"), "install"), {field(name("_G"), "nupp")})
+    local rootBlock = root.blocks[1]
+    table.insert(rootBlock.stats, 1, install)
+    table.insert(rootBlock, 1, install)
+
+    return links
+end
+
 function metadata.expand(root)
     local seen = {}
     local managed = false
+    local links = witnesses(root)
 
     local function replaceCall(current, replacement)
         for index = #current, 1, -1 do
@@ -586,6 +747,9 @@ function metadata.expand(root)
             end
             identity = identity and field(identity, current.name.text) or name(current.name.text)
             current.vmMetadata = metadata.declaration(current, identity)
+            if links[current] then
+                current.vmMetadata[#current.vmMetadata + 1] = links[current](identity)
+            end
             for _, statement in ipairs(current.vmMetadata) do
                 current[#current + 1] = statement
             end

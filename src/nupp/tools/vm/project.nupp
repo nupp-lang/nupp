@@ -163,6 +163,8 @@ function project.emit(
                     )
                 end
             end
+            -- What the module publishes decides which records its witnesses link.
+            (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
 
             return parsed.root
         end,
