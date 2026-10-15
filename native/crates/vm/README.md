@@ -2062,3 +2062,88 @@ Measured on a linked AOT CLI against LuaJIT's C module: scanning 0.8 MB
 1.0 ms against 1.1, splitting it into a 120 000-entry table 6.8 ms against
 5.4, a `Cs` substitution over it 10.5 ms against 8.9, and a 1.7 MB JSON
 grammar with folds and table captures 34 ms against 33.
+
+## Runtime semantics LuaJIT programs rely on (2026-10-15)
+
+Six gaps the serde contracts and ordinary Lua programs ran into, closed in
+the runtime rather than worked around in the programs.
+
+**Weak tables.** A table whose metatable names `__mode` is scanned weakly:
+the collector marks its metatable, its strong side and every string or boxed
+integer in it (Lua treats those as values), remembers the table, and when
+marking ends, before the sweep, clears each entry whose weak side is still
+white. A key keeps its slot with a nil value, as any key set to nil does
+here. No ephemerons, as in LuaJIT. A metatable a constructor built as a
+record names its mode in a slot, so `{__mode = "k"}` in a typed module works
+too. The serde cache-scope contracts then still failed, for a VM reason:
+registers are not reused across temporaries and a new frame does not clear
+its window, so a dropped value stayed reachable from a dead register for the
+life of the function. An explicit `collectgarbage("collect")` therefore first
+nils every value register the liveness pass says no instruction reads again,
+in each frame of the calling task. Each frame's saved pc is exact there (both
+interpreters note it before anything reaches Rust, and every call saves its
+caller's); a compiled ordinary caller has no frame and clears nothing.
+Automatic collection is unchanged and stays conservative.
+
+**`string.buffer`** is native (`src/strbuf.rs`): the FIFO buffer userdata
+with `put`, `putf`, `get`, `tostring`, `reset`, `free`, `skip`, `set`,
+`encode`, `decode`, `#`, `tostring()` and `..`, and module `new`, `encode`
+and `decode`. The serializer reads and writes LuaJIT 2.1's bytes (checked
+against LuaJIT's own output), so either runtime decodes what the other wrote;
+a table's array part is written from index 1 and its hash part in insertion
+order, and exact 64-bit integers use the int64/uint64 tags LuaJIT gives
+cdata. Error messages are LuaJIT's. Refused: the FFI pointer methods (`ref`,
+`reserve`, `commit`, `putcdata`), serialization dictionaries, and
+lightuserdata tags on decode. The VM's `text.buffer` provider is this buffer
+now, and `nupp.serde.native` asks for `string.buffer` rather than for LuaJIT.
+Concatenation dispatches `__concat`.
+
+**Suspending inside `pcall`.** The PCall opcode already left a protected
+record a park could cross, but a Lua chunk reaches `pcall` as a global, so
+its calls went through the builtin, which runs the callee on a scratch task
+that cannot park: `time.sleep` inside `pcall` in a spawned task blocked the
+process. Under the frame driver a dynamic call of the `pcall` or `xpcall`
+builtin now takes the opcode's path. xpcall's handler rides in the protected
+record, rooted with it; a checkpoint writes it after the record, flagged by
+bit 31 of the caller word, so older checkpoints read unchanged. The handler
+runs at the raise, before cleanups unwind. `pcall(pcall, f)` still nests on
+the builtin: two records over one callee frame could not settle in order.
+
+**Metatables.** `getmetatable` answers a record's declaration (kept on its
+shape, `\0nupp:recordType`) when the record has none of its own, and a
+metatable's `__metatable` in its place; the lowering's inline fallback is
+gone, since Lua chunks never reached it. Strings share a metatable whose
+`__index` is the string library, so a function a program adds to `string` is
+a method. A record's methods dispatch through its shape, but a program can
+replace one on the declaration (a contract wraps one to count calls): the
+declaration is marked when a shape names it, and a store to it replaces the
+method the shape dispatches.
+
+**Runtime errors** read as LuaJIT's, positioned from the line table:
+`errors.lua:7: attempt to index field 'a' (a nil value)`, and the same for
+calls, arithmetic, concatenation, length and comparison; a nil or NaN table
+key raises. An operand is named when the instruction that loaded it, on the
+same source line, was a global or field read or a method lookup. Images carry
+no local or upvalue names, so those read "a nil value", LuaJIT's unnamed form.
+Arithmetic converts numeric strings. A frame running compiled code has no
+exact pc between boundary operations, so its errors carry no position rather
+than a wrong one. Library argument errors still carry the `runtime error:`
+prefix.
+
+Not done: `error(msg, 2)` positions under an ordinary compiled caller. The CLI
+runs every image through frame entries, where the caller's frame and pc
+exist and level 2 already answers as LuaJIT does; only the unscheduled
+`nupp-vm run` path uses ordinary entries, and naming its callers needs
+return-address to pc maps in the code maps. `workerstartuptest` exercises
+LuaJIT's `nupp.workers.native` C module directly; the VM's workers are its
+own (`scope:fork`), so the suite is LuaJIT-host specific like `bctest`.
+
+The serde contracts that failed on these, `codec_cache_scope.lua`,
+`document_cache_scope.lua`, `debug_scope.lua`, `native_scope.lua`,
+`transport_scope.lua`, `native.nupp`, `native_owned.nupp` and
+`ergonomics.nupp`, pass on a linked runtime with a root image from these
+sources.
+
+Tests: `tests/weak_tables.rs`, `string_buffer.rs`,
+`protected_suspension.rs`, `getmetatable.rs` and `error_wording.rs`, under
+collector stress on the Rust loop, the threaded core and scheduled frames.
