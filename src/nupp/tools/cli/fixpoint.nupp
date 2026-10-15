@@ -33,6 +33,12 @@ local REPORT_SCHEMA = {
     required = {"ok", "kind", "diagnostics"},
 }
 
+-- Whether this checkout is one the VM compiler image is emitted from.
+local function selfHosting(): boolean
+    local config = require("nupp.tools.build.project").loadManifest(".")
+    return config ~= nil and (config as any).selfHost ~= nil
+end
+
 local function run(options: any): integer
     local positional: {string} = {}
     if #positional > 0 then
@@ -52,9 +58,11 @@ local function run(options: any): integer
     local code: integer
     if values.binary then
         code = project.binaryFixpoint(".", {result = asJson and result or nil, diagnostics = collected})
-    elseif rawget(_G, "__nupp_load_image") and not values.emitStage0 then
+    elseif rawget(_G, "__nupp_load_image") and not values.emitStage0 and selfHosting() then
         -- A VM-hosted compiler's claim is about its root image, which it emits
-        -- itself; the LuaJIT one starts from the pinned stage zero below.
+        -- itself; the LuaJIT one starts from the pinned stage zero below. Anything
+        -- else, a project that is not a compiler included, takes the path below
+        -- and the diagnostics it reports.
         local found = require("nupp.tools.vm.fixpoint").run(
             require("nupp.compiler.fs").absolute("."),
             "build/vm-fixpoint",
@@ -76,6 +84,13 @@ local function run(options: any): integer
             )
         else
             io.stderr:write("nupp: VM fixpoint failed: ", tostring(found.reason), "\n")
+        end
+        if asJson and not found.ok then
+            diagnostics[
+                #diagnostics + 1
+            ] = require(
+                "nupp.tools.cli.report"
+            ).runDiagnostic("NUPP0004", "nupp: VM fixpoint failed: " .. tostring(found.reason))
         end
     else
         code = project.fixpoint(".", {
