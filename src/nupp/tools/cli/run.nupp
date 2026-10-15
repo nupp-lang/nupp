@@ -16,7 +16,18 @@ local usageError = errors.forCommand("run")
 local cliModule = require("nupp.cli")
 
 local function configureGpuCosts(path: string?): (boolean, string?)
-    local ok, problem = pcall(require("nupp.runtime.provider.nativegpu").costsOutput, path)
+    local loaded, provider = pcall(require, "nupp.runtime.provider.nativegpu")
+    if not loaded then
+        -- A host with no GPU provider runs no GPU operation, so the record of
+        -- them is the empty one a CPU-only program writes anywhere else.
+        if path == nil then
+            return true, nil
+        end
+        local written, writeErr = require("nupp.compiler.fs").writeFile(path, "")
+        return written ~= nil, written == nil and tostring(writeErr) or nil
+    end
+    local ok, problem = pcall((provider as any).costsOutput, path)
+
     return ok, not ok and tostring(problem) or nil
 end
 
