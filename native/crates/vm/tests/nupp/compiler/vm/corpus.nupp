@@ -30,6 +30,10 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     for name in suites:gmatch("[^,]+") do
         extras[#extras + 1] = name
     end
+    -- The `@aot` check loads its backend by name, out of the module graph, and
+    -- the root image carries it only because `nupp build` requires it.
+    extras[#extras + 1] = "nupp.compiler.aot.compile"
+    extras[#extras + 1] = "nupp.compiler.aot.target"
 
     return lower.emit(
         "corpus-runner",

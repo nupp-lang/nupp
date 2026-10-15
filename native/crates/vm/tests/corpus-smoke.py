@@ -59,7 +59,11 @@ selected = [row for row in classification["suites"]
 if args.suite:
     assert set(args.suite) == {row["suite"] for row in selected}, "suite not in the classification"
 assert selected, "no suites selected"
-env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(root), PATH="")
+# The development rock tree is on the path the way `bin/nupp` puts it there for
+# the Lua test runner: lunamark and scintillua are what the doc suites load.
+rocks = root / ".rocks" / "share" / "lua" / "5.1"
+env = dict(os.environ, NO_JIT="1", NUPP_CHECK_JOBS="1", NUPP_COMPILER_ROOT=str(root), PATH="",
+           LUA_PATH="%s/?.lua;%s/?/init.lua;%s" % (rocks, rocks, os.environ.get("LUA_PATH", ";")))
 for key in ("EMIT_SURVEY", "EMIT_STUBS", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "JIT_EAGER_FRAMES"):
     env.pop(key, None)
 if args.cli_image:
