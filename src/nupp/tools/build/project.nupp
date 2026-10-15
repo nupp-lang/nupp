@@ -718,13 +718,17 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
     end
     -- A compiler on the VM lowers a VM program's image from source itself, so
-    -- for one the modules phase only checks: generating and specializing Lua
-    -- that nothing runs was most of such a build, and all of a reused one.
-    local vmProgramBuild = not opts.checkOnly
+    -- the Lua this phase generates for one is never run, and specializing it
+    -- re-checked every module of a fully reused build (~380 s for the test
+    -- runner). The phase still runs: it stages the resources the image carries.
+    if not opts.checkOnly
         and target.kind == "binary"
         and target.stub == "nupp"
         and selectedPlatform == nil
         and rawget(_G, "__nupp_load_image") ~= nil
+    then
+        (target as any)._skipConstSpecialization = true
+    end
     local result, buildErr = buildModules(
         root,
         outDir,
@@ -732,7 +736,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         target,
         oldState,
         newState,
-        opts.checkOnly or vmProgramBuild,
+        opts.checkOnly,
         opts.stats,
         opts.diagnostics,
         checkState,
