@@ -1458,9 +1458,11 @@ dependencies = [
  "libffi",
  "libloading",
  "mimalloc",
+ "nupp-native-abi",
  "nupp-native-checksum",
  "nupp-native-compression",
  "nupp-native-files",
+ "nupp-native-http",
  "nupp-native-net",
  "nupp-native-platform",
  "nupp-native-process",
@@ -1468,6 +1470,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tikv-jemallocator",
+ "url",
 ]
 
 [[package]]

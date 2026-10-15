@@ -94,6 +94,29 @@ int32_t nuppNativeHttpClientPoll(
 local ffi = native.ffi
 const C = native.C
 
+-- The readiness pump the HTTP provider suspends through: the one every native
+-- family shares, reached here so that a runtime supplying its own transport
+-- supplies its pump beside it.
+
+--- The suspension priority of every native family's readiness source.
+export const READINESS_PRIORITY = native.READINESS_PRIORITY
+
+--- Snapshots the readiness generation, unless one is already waiting.
+export function snapshot(): nil
+    native.snapshot()
+end
+
+--- Sleeps until any native family reports a change since the snapshot, or
+--- `waitMs` passes.
+export function sleep(waitMs: integer): integer
+    return native.sleep(waitMs)
+end
+
+--- A readiness pump, as the poll and wait of a suspension source.
+export function pump(check: function(): integer): (function(): integer, function(integer): integer)
+    return native.pump(check)
+end
+
 -- Immediate ABI statuses: a client refusing admission, and a query or copy
 -- whose output needs more room.
 const ABI_CAPACITY = 2

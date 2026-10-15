@@ -1,0 +1,494 @@
+@!internal
+
+module nupp.io.http.internal.transport
+
+--[[
+The VM's native HTTP transport: the same clients and transfers as the LuaJIT
+module of this name, written over the VM's `nupp.vm.http` primitives rather than
+the native library's C ABI, with the readiness pump `nupp.vm.net` shares among
+every native family.
+]]
+
+const time = require("nupp.time")
+
+export interface NativeTransfer
+    onHead: function(self: NativeTransfer, wake: function()): function()
+    onBody: function(self: NativeTransfer, wake: function()): function()
+    onUpload: function(self: NativeTransfer, wake: function()): function()
+    -- The version is the wire number, 10, 11 or 20, rather than the text form.
+    -- `http.Version` is derived from it at the one place a caller sees a response.
+    head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
+    cancel: @nosuspend function(self: NativeTransfer): nil
+    close: @nosuspend function(self: NativeTransfer): nil
+    offer: function(self: NativeTransfer, value: any, count: integer?): string
+    finishUpload: function(self: NativeTransfer): string
+    takeBody: function(self: NativeTransfer): (boolean?, string?)
+    bodyRead: function(self: NativeTransfer, count: integer): (string, any?, string?)
+end
+
+export interface NativeClient
+    poll: function(self: NativeClient): integer
+    onAdmission: function(self: NativeClient, wake: function()): function()
+    now: function(self: NativeClient): number
+    send: function(self: NativeClient, descriptor: any): (NativeTransfer?, string?, boolean?)
+    pending: function(self: NativeClient): integer
+    close: @nosuspend function(self: NativeClient): nil
+end
+
+const host = require("nupp.vm.http")
+const readiness = require("nupp.vm.net")
+
+-- Which of a transfer's waiters a readiness event should wake. A bit set, because one
+-- event commonly moves more than one of them.
+const TOKEN_HEADERS = 1
+const TOKEN_BODY = 2
+const TOKEN_UPLOAD = 4
+const TOKEN_FAILED = 8
+
+-- How a request body is supplied.
+export const BODY_INLINE = 1
+export const BODY_UPLOAD = 2
+export const BODY_FILE = 3
+
+-- What offering upload bytes answers.
+const UPLOAD_BACKPRESSURE = 0
+const UPLOAD_ACCEPTED = 1
+
+----------------------------------------------------------------------------
+-- The readiness pump
+----------------------------------------------------------------------------
+
+--- The suspension priority of every native family's readiness source.
+export const READINESS_PRIORITY = 20
+
+--- Snapshots the readiness generation every native family shares, unless one
+--- is already waiting to be slept from.
+export function snapshot(): nil
+    readiness.snapshot()
+end
+
+--- Sleeps until any native family reports a change since the snapshot, or
+--- `waitMs` passes. Without a snapshot it takes one and returns at once.
+export function sleep(waitMs: integer): integer
+    readiness.sleep(waitMs)
+
+    return 0
+end
+
+--- A readiness pump, as the poll and wait of a suspension source.
+export function pump(check: function(): integer): (function(): integer, function(integer): integer)
+    return function(): integer
+        readiness.snapshot()
+
+        return check()
+    end, sleep
+end
+
+----------------------------------------------------------------------------
+-- Waiters
+----------------------------------------------------------------------------
+
+--- Wakes everything waiting on a channel.
+---
+--- Backwards, because a woken waiter may add itself again and appending while
+--- iterating forwards would wake the new one in the same pass. Every waiter is
+--- called even when one raises; the caller re-raises the first failure after it
+--- has drained every ready channel.
+local function dispatch(self: any, field: string): (integer, any?)
+    local waiters = self[field]
+    if waiters == nil then
+        return 0, nil
+    end
+    self[field] = nil
+    local count = #waiters
+    local failure: any = nil
+    for index = count, 1, -1 do
+        local ok, problem = pcall(waiters[index])
+        if not ok and failure == nil then
+            failure = problem
+        end
+    end
+
+    return count, failure
+end
+
+--- Wakes the longest-waiting one, and only that one.
+---
+--- Admission is one-at-a-time: waking every waiter when a single slot opened would
+--- have all of them retry and all but one fail.
+local function dispatchOne(self: any, field: string): integer
+    local waiters = self[field]
+    if waiters == nil or #waiters == 0 then
+        return 0
+    end
+    local wake = table.remove(waiters, 1)
+    if #waiters == 0 then
+        self[field] = nil
+    end
+    wake()
+
+    return 1
+end
+
+--- Adds a waiter and returns a function that when called removes the waiter.
+---
+--- The forget is idempotent, because a waiter that has already been woken will still
+--- have its scope leave and call this.
+local function addWaiter(self: any, field: string, wake: function()): function()
+    local waiters = self[field]
+    if waiters == nil then
+        waiters = {}
+        self[field] = waiters
+    end
+    waiters[#waiters + 1] = wake
+    local active = true
+
+    return function(): nil
+        if not active then
+            return
+        end
+        active = false
+        for index = 1, #waiters do
+            if waiters[index] == wake then
+                table.remove(waiters, index)
+                break
+            end
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- A transfer in flight
+----------------------------------------------------------------------------
+
+--- A request in flight.
+---
+--- `_client` is deliberately loose: the client's own record names this one, so typing
+--- the back-pointer would have the two name each other.
+local record Transfer is NativeTransfer
+    _client: any
+    _handle: integer?
+    _body: integer?
+    _closed: boolean
+    _headWaiters: {function()}?
+    _bodyWaiters: {function()}?
+    _uploadWaiters: {function()}?
+
+    --- Wakes whatever this event moved, and returns how many waiters that was.
+    --- @raises any whatever a woken waiter raised first, after every ready channel
+    ---     is drained
+    function _ready(self: Transfer, tokens: integer): integer
+        local moved: integer = 0
+        local failure: any = nil
+        local count: integer
+        local problem: any
+        -- A failure is reported as the headers arriving, because that is where the
+        -- caller is waiting and the head call is what will report it.
+        if bit.band(tokens, TOKEN_HEADERS + TOKEN_FAILED) ~= 0 then
+            count, problem = dispatch(self, "_headWaiters")
+            moved = moved + count
+            failure = problem
+        end
+        if bit.band(tokens, TOKEN_BODY) ~= 0 then
+            count, problem = dispatch(self, "_bodyWaiters")
+            moved = moved + count
+            if problem ~= nil and failure == nil then
+                failure = problem
+            end
+        end
+        if bit.band(tokens, TOKEN_UPLOAD) ~= 0 then
+            count, problem = dispatch(self, "_uploadWaiters")
+            moved = moved + count
+            if problem ~= nil and failure == nil then
+                failure = problem
+            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
+        end
+
+        return moved
+    end
+
+    function onHead(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_headWaiters", wake)
+    end
+
+    function onBody(self: Transfer, wake: function()): function()
+        local forget = addWaiter(self, "_bodyWaiters", wake)
+        -- Arming is what tells the native transport somebody is waiting on body bytes;
+        -- without it a body that is already complete never produces another readiness
+        -- event.
+        const body = self._body
+        if body ~= nil then
+            host.bodyArm(body)
+        end
+
+        return forget
+    end
+
+    function onUpload(self: Transfer, wake: function()): function()
+        return addWaiter(self, "_uploadWaiters", wake)
+    end
+
+    function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
+        const handle = self._handle
+        if handle == nil then
+            return "failed", nil, nil, nil, nil, "the transfer is closed"
+        end
+
+        return host.transferHead(handle)
+    end
+
+    function offer(self: Transfer, value: any, count: integer?): string
+        local bytes = value as string
+        local length = count or #bytes
+        if length < 0 or length > #bytes then
+            error("nupp: HTTP upload offer is outside its bytes", 2)
+        end
+        const handle = self._handle
+        if handle == nil then
+            return "closed"
+        end
+        local answer = host.transferOffer(handle, bytes, length, false)
+        if answer == UPLOAD_ACCEPTED then
+            return "accepted"
+        end
+        if answer == UPLOAD_BACKPRESSURE then
+            return "backpressure"
+        end
+
+        return "closed"
+    end
+
+    function finishUpload(self: Transfer): string
+        const handle = self._handle
+        if handle ~= nil and host.transferOffer(handle, nil, 0, true) == UPLOAD_ACCEPTED then
+            return "accepted"
+        end
+
+        return "closed"
+    end
+
+    function takeBody(self: Transfer): (boolean?, string?)
+        if self._body == nil then
+            const handle = self._handle
+            if handle == nil then
+                return nil, "the transfer is closed"
+            end
+            local body, problem = host.transferTakeBody(handle)
+            if body == nil then
+                return nil, problem
+            end
+            self._body = body
+        end
+
+        return true, nil
+    end
+
+    --- Reads body bytes as a string.
+    function bodyRead(self: Transfer, count: integer): (string, any?, string?)
+        const body = self._body
+        if body == nil then
+            return "closed", nil, "the body is closed"
+        end
+
+        return host.bodyRead(body, count)
+    end
+
+    function cancel(self: Transfer): nil
+        const handle = self._handle
+        if handle ~= nil then
+            host.transferCancel(handle)
+        end
+    end
+
+    --- Releases the transfer and its body. A transfer with no body taken is
+    --- cancelled by its release, because the native transport keeps producing
+    --- for one that was not.
+    function close(self: Transfer): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        const handle = self._handle
+        if handle ~= nil then
+            self._client._byHandle[handle] = nil
+        end
+        const body = self._body
+        if body ~= nil then
+            self._body = nil
+            self._client._byHandle[body] = nil
+            host.transferRelease(body)
+        end
+        self._handle = nil
+        if handle ~= nil then
+            host.transferRelease(handle)
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- The native client
+----------------------------------------------------------------------------
+
+--- A connection pool, and the transfers it is carrying.
+local record Client is NativeClient
+    _handle: integer
+    _closed: boolean
+
+    --- Every live transfer, keyed by every handle a readiness event may name it by:
+    --- its request, and its body once taken.
+    _byHandle: {[integer]: Transfer}
+
+    _admissionWaiters: {function()}?
+    _maxPending: integer
+    _ready: {integer}
+
+    function onAdmission(self: Client, wake: function()): function()
+        if self._closed or host.clientPending(self._handle) < self._maxPending then
+            wake()
+
+            return function(): nil
+            end
+        end
+
+        return addWaiter(self, "_admissionWaiters", wake)
+    end
+
+    function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
+        local body: string? = nil
+        if descriptor.bodyKind == BODY_INLINE or descriptor.bodyKind == BODY_FILE then
+            -- Inline bytes, or the path the native transport opens for itself.
+            body = descriptor.body as string
+        end
+        local handle, problem, capacity = host.clientSend(
+            self._handle,
+            descriptor.uri:toString(),
+            descriptor.method,
+            descriptor.headers or {},
+            body,
+            descriptor.bodyKind,
+            descriptor.bodyLength,
+            descriptor.timeoutMs,
+            descriptor.stallTimeoutMs,
+            descriptor.maxBytes,
+            descriptor.insecure and true or false
+        )
+        if handle == nil then
+            return nil, problem, capacity
+        end
+        local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
+        self._byHandle[handle] = transfer
+
+        return transfer, nil, nil
+    end
+
+    --- Collects readiness events and wakes what they moved, without blocking.
+    ---
+    --- A wake is run under `pcall` so that one waiter raising still lets every event
+    --- in the batch wake its waiters. The first raise is kept and re-raised at the end.
+    --- @raises any whatever a woken waiter raised first, once the whole batch has
+    ---     been dispatched
+    function poll(self: Client): integer
+        local moved: integer = 0
+        local count, problem = host.clientPoll(self._handle, self._ready)
+        if count == nil then
+            error("nupp: " .. (problem or "HTTP poll failed"), 2)
+        end
+        local failure: any = nil
+        for index = 1, count do
+            local transfer = self._byHandle[self._ready[2 * index - 1]]
+            local tokens = self._ready[2 * index]
+            if transfer ~= nil then
+                local ok, raised = pcall(function(): nil
+                    moved = moved + transfer:_ready(tokens)
+                end)
+                if not ok and failure == nil then
+                    failure = raised
+                end
+            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
+        end
+        if self._admissionWaiters ~= nil and host.clientPending(self._handle) < self._maxPending then
+            moved = moved + dispatchOne(self, "_admissionWaiters")
+        end
+
+        return moved
+    end
+
+    function pending(self: Client): integer
+        if self._closed then
+            return 0
+        end
+
+        return host.clientPending(self._handle)
+    end
+
+    -- A request deadline is comparable with a process deadline and with a task
+    -- deadline because all three read this one clock.
+    function now(self: Client): number
+        return time.now()
+    end
+
+    --- Closes every transfer still in flight, then the pool.
+    --- @raises any whatever an admission waiter raised first, after every resource
+    ---     is closed
+    function close(self: Client): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        local _, failure = dispatch(self, "_admissionWaiters")
+        local transfers: {Transfer} = {}
+        local seen: {[Transfer]: boolean} = {}
+        for _, transfer in pairs(self._byHandle) do
+            if not seen[transfer] then
+                seen[transfer] = true
+                transfers[#transfers + 1] = transfer
+            end
+        end
+        for index = 1, #transfers do
+            transfers[index]:close()
+        end
+        host.clientRelease(self._handle)
+        if failure ~= nil then
+            error(failure, 0)
+        end
+    end
+end
+
+--- Opens a connection pool.
+export function newClient(options: any): (NativeClient?, string?)
+    -- Three proxy modes rather than two: unset means take the environment's, and empty
+    -- means deliberately none, which is not the same answer.
+    local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
+    local handle, problem = host.clientCreate(
+        options.connectTimeoutMs,
+        options.maxRedirects,
+        options.maxPendingRequests,
+        options.maxConnections,
+        options.maxConnectionsPerHost,
+        options.compressed and true or false,
+        next(options.insecureHosts) ~= nil,
+        proxyMode,
+        options.proxy or "",
+        options.noProxy ~= nil,
+        options.noProxy or "",
+        options.proxyCredentials or ""
+    )
+    if handle == nil then
+        return nil, problem
+    end
+
+    return new Client(
+        _handle = handle,
+        _closed = false,
+        _byHandle = {},
+        _admissionWaiters = nil,
+        _maxPending = options.maxPendingRequests,
+        _ready = {}
+    ), nil
+end

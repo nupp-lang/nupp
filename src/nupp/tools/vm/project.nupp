@@ -40,8 +40,15 @@ local HOST_MODULES: {
     ["nupp.vm.files"] = true,
     ["nupp.vm.compression"] = true,
     ["nupp.vm.net"] = true,
+    ["nupp.vm.http"] = true,
+    ["nupp.vm.uri"] = true,
     ["nupp.digest.internal.sha256"] = true,
 }
+
+-- Providers the source tree spells once for both runtimes: they reach the
+-- native library only through modules the VM replaces beneath them, so the
+-- VM takes them where it would otherwise take only its own.
+local PORTABLE_PROVIDERS: {[string]: boolean} = {["nupp.runtime.provider.nativehttp"] = true}
 
 --- Where an image finds `name`, the rule every VM image builder shares: the
 --- VM's own implementations first, the modules the VM supplies left to run
@@ -51,6 +58,9 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
     if soft then
         local path = envMod.findRuntimeModulePath(env as any, name)
         local vmLib = compilerRoot .. "/native/crates/vm/lib/"
+        if PORTABLE_PROVIDERS[name] then
+            return path
+        end
         return path ~= nil and path:sub(1, #vmLib) == vmLib and path or nil
     end
     if name == "nupp.vm.taskScope" then

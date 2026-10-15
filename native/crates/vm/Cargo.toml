@@ -50,6 +50,9 @@ nupp-native-files = { path = "../files" }
 nupp-native-compression = { path = "../compression" }
 nupp-native-net = { path = "../net" }
 nupp-native-tls = { path = "../tls" }
+nupp-native-http = { path = "../http" }
+nupp-native-abi = { path = "../abi" }
+url = "2.5"
 nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }
 cranelift-frontend = { version = "0.135", optional = true }

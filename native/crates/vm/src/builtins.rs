@@ -67,6 +67,9 @@ pub const NAMES: &[&str] = &[
     "nnet.address", "nnet.noDelay", "nnet.keepAlive", "nnet.closeStream",
     "nnet.bindDatagram", "nnet.datagramPort", "nnet.receive", "nnet.sendTo", "nnet.broadcast", "nnet.multicastTtl", "nnet.multicastLoop", "nnet.membership", "nnet.closeDatagram",
     "nnet.tlsWrap", "nnet.tlsHandshake", "nnet.tlsRead", "nnet.tlsWrite", "nnet.tlsFlushed", "nnet.tlsCloseNotify", "nnet.tlsConnected", "nnet.tlsVerified", "nnet.tlsResumed", "nnet.tlsProtocol", "nnet.tlsDestroy",
+    "nhttp.clientCreate", "nhttp.clientRelease", "nhttp.clientPending", "nhttp.clientSend", "nhttp.clientPoll",
+    "nhttp.transferCancel", "nhttp.transferRelease", "nhttp.transferOffer", "nhttp.transferHead", "nhttp.transferTakeBody", "nhttp.bodyArm", "nhttp.bodyRead",
+    "nuri.parse",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -594,7 +597,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -947,6 +950,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
             if name.starts_with("ncompression.") { return crate::ncompression::call(it, name, args); }
             if name.starts_with("nnet.") { return crate::nnet::call(it, name, args); }
+            if name.starts_with("nhttp.") { return crate::nhttp::call(it, name, args); }
+            if *name == "nuri.parse" { return crate::nhttp::parse_uri(it, args); }
             if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }

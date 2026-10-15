@@ -1,0 +1,35 @@
+@!internal
+module nupp.runtime.provider.nativeuri
+
+--[[
+The VM's native URI parser for `host.uri` API 1: the same parse as the LuaJIT
+provider, over the VM's `nupp.vm.uri` primitive rather than the native
+library's C ABI. Absent components stay distinct from present empty strings,
+and parsing errors return `nil, message`.
+]]
+
+local contracts = require("nupp.io.uri.spi")
+const host = require("nupp.vm.uri")
+
+local function parse(text: string): (contracts.UriParts?, string?)
+    local raw, problem = host.parse(text)
+    if raw == nil then
+        return nil, problem
+    end
+
+    return new contracts.UriParts(
+        text = raw.text,
+        scheme = raw.scheme,
+        authority = raw.authority,
+        username = raw.username,
+        password = raw.password,
+        host = raw.host,
+        path = raw.path,
+        query = raw.query,
+        fragment = raw.fragment,
+        port = raw.port
+    )
+end
+
+local checked: contracts.Provider = {parse = parse}
+export = checked

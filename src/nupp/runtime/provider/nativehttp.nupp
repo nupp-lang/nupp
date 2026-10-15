@@ -33,7 +33,6 @@ local http = {}
 local redirectState: any = setmetatable({}, {__mode = "k"})
 
 const transport = require("nupp.io.http.internal.transport")
-const native = require("nupp.runtime.native")
 local type NativeTransfer = transport.NativeTransfer
 local type NativeClient = transport.NativeClient
 const newClient = transport.newClient
@@ -846,9 +845,9 @@ record http.Client is BodyClient, contracts.Client
             -- Snapshot, drain, and sleep on the shared readiness generation only when
             -- nothing settled, so an event between the drain and the sleep still wakes
             -- it.
-            native.snapshot()
+            transport.snapshot()
             if self._native:poll() == 0 and waitMs > 0 then
-                native.sleep(waitMs)
+                transport.sleep(waitMs)
                 self._native:poll()
             end
         end
@@ -866,8 +865,8 @@ function http.Client._retainSource(self: http.Client, context: suspension.Contex
         -- shares, so its waits sleep on that and drain the events when it moves.
         self._source = suspension.source(
             "nupp-http",
-            native.READINESS_PRIORITY,
-            native.pump(function(): integer
+            transport.READINESS_PRIORITY,
+            transport.pump(function(): integer
                 return backend:poll()
             end)
         )

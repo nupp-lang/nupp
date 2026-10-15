@@ -26,6 +26,7 @@ pub mod fileio;
 pub mod nfiles;
 pub mod ncompression;
 pub mod nnet;
+pub mod nhttp;
 pub mod utf8lib;
 mod temporary;
 mod process;
