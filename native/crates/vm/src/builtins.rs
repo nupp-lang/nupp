@@ -51,6 +51,7 @@ pub const NAMES: &[&str] = &[
     "files.lines",
     "files.readerRead", "files.readerClose",
     "error.site",
+    "utf8.char", "utf8.lower", "utf8.upper", "utf8.len", "utf8.codepoint", "utf8.sub",
     "nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary",
     // LPeg (`crate::lpeg::BUILTINS`, in that order).
     "lpeg.ptree", "lpeg.pcode", "lpeg.match", "lpeg.B", "lpeg.V", "lpeg.C", "lpeg.Cc", "lpeg.Cmt", "lpeg.Cb", "lpeg.Carg", "lpeg.Cp", "lpeg.Cs", "lpeg.Ct", "lpeg.Cf", "lpeg.Cg",
@@ -583,7 +584,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -934,6 +935,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             }
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
+            if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
         }

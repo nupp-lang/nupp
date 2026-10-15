@@ -40,7 +40,16 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
         exit 1
     fi
     NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
-    export NUPP_COMPILER_ROOT
+    # The development rock tree's Lua modules (lunamark, scintillua) are found
+    # the way the LuaJIT path below finds them; the VM loads no C modules.
+    if [ "${NUPP_LAUNCHER_ROCKS_ROOT:-}" != "$ROOT" ]; then
+        . "$ROOT/scripts/rocks.sh"
+        link_development_rocks "$ROOT"
+        NUPP_LAUNCHER_ROCKS_ROOT=$ROOT
+        export NUPP_LAUNCHER_ROCKS_ROOT
+    fi
+    LUA_PATH="$ROOT/.rocks/share/lua/5.1/?.lua;$ROOT/.rocks/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
+    export NUPP_COMPILER_ROOT LUA_PATH
     exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" nupp.tools.vm.root "$@"
 fi
 LUA_ROOT="$ROOT"

@@ -2386,6 +2386,9 @@ function lower.emit(
             end
         elseif k == "binop" then
             local op = tokText(node.op)
+            -- The result lands in `dst`, allocated before the operands, so every
+            -- register they take is dead once the operation is emitted.
+            local operandMark, operandFloatMark = f.nregs, f.nfregs
             if op == "and" or op == "or" then
                 exprAs(f, node.lhs, "v", dst)
                 local branch = f:op(op == "and" and "JmpIfNot" or "JmpIf", dst, 0)
@@ -2449,6 +2452,8 @@ function lower.emit(
                     f:op(name, dst, a, b)
                 end
             end
+            f.nregs = math.max(operandMark, f.declTop or 0)
+            f.nfregs = math.max(operandFloatMark, f.fdeclTop or 0)
         elseif k == "unop" then
             local op = tokText(node.op)
             local a = exprAs(f, node.operand, "v")

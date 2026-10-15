@@ -1072,6 +1072,9 @@ impl Interp {
         self.loaded.insert("nupp.vm.process".into(), process);
         let vm_files = table_of(self, &["nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary"]);
         self.loaded.insert("nupp.vm.files".into(), vm_files);
+        let luautf8 = table_of(self, &["utf8.char", "utf8.lower", "utf8.upper", "utf8.len", "utf8.codepoint", "utf8.sub"]);
+        let k = self.intern("charpattern"); let v = self.new_string_bytes(b"[\x00-\x7F\xC2-\xFD][\x80-\xBF]*"); self.set_index(luautf8, k, v);
+        self.loaded.insert("lua-utf8".into(), luautf8);
         crate::simd::install(self);
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
         self.loaded.insert("nupp.cli.internal.terminalhost".into(), terminal);
@@ -1122,7 +1125,12 @@ impl Interp {
         crate::lpeg::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
-        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); let v = self.intern(""); let vh = self.register(v); for name in ["path", "cpath"] { let k = self.intern(name); self.set_index(package, k, v); } self.release(vh); }
+        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); 
+          // Lua's search paths: LUA_PATH and LUA_CPATH, where `;;` stands for the default.
+          for (name, variable, default) in [("path", "LUA_PATH", "./?.lua;./?/init.lua"), ("cpath", "LUA_CPATH", "./?.so")] {
+              let text = std::env::var(variable).map(|v| v.replace(";;", &format!(";{default};"))).unwrap_or_else(|_| default.to_string());
+              let v = self.heap_new_string(&text); let vh = self.register(v); let k = self.intern(name); self.set_index(package, k, v); self.release(vh);
+          } }
         { let loaders = self.new_table(); self.registered.push(loaders);
           for (i, name) in ["package.preloadLoader", "package.imageLoader"].iter().enumerate() { self.set_index(loaders, Value::num(i as f64 + 1.0), Value::builtin(crate::builtins::id_of(name).unwrap())); }
           let k = self.intern("loaders"); self.set_index(package, k, loaders);

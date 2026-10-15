@@ -32,7 +32,7 @@ function api.run(): number
     local _, blamed = pcall(function(): never
         blames()
     end)
-    assert(blamed == "caller" or tostring(blamed):find(":31: caller$"), blamed)
+    assert(blamed == "caller" or tostring(blamed):find(":33: caller$"), blamed)
 
     -- An open receiver looks up its method through __index.
     local prototype = {}
@@ -91,6 +91,74 @@ function api.run(): number
     -- Non-UTF-8 literals stay distinct constants, and tostring keeps bytes.
     assert(("\128"):byte() == 128 and ("\255"):byte() == 255)
     assert(tostring("\128") == "\128" and #tostring("\255") == 1)
+
+    -- A long operator chain reuses its operands' registers, call windows included.
+    local function one(): number
+        return 1
+    end
+
+    assert(
+        one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one()
+        + one() == 60
+    )
 
     return t.x + #tostring(why) + receiver:value()
 end

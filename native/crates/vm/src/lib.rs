@@ -24,6 +24,7 @@ mod clock;
 mod datetime;
 pub mod fileio;
 pub mod nfiles;
+pub mod utf8lib;
 mod temporary;
 mod process;
 mod stdio;
