@@ -200,7 +200,8 @@ local tempStem = rawTmpname()
 os.remove(tempStem)
 local processSalt
 -- This process, for a lock to name its holder by, and the question a waiter asks
--- of that name. Both stay nil without FFI, where a lock is judged by age alone.
+-- of that name. Both stay nil without FFI outside the VM, where a lock is judged
+-- by age alone.
 local processId, processAlive = nil, nil
 do
     local stateSalt = tostring({}):match("0x(%x+)") or tostring(os.clock())
@@ -253,10 +254,26 @@ do
         end
         processSalt = tostring(processId) .. "-" .. stateSalt
     else
-        -- Official Lua already reserves a process-distinct temporary name on
-        -- the platforms where the portable compiler runs. Retain a state-local
-        -- discriminator as a second boundary when FFI is unavailable.
-        processSalt = stateSalt .. "-" .. tostring(os.time())
+        -- The VM has no FFI but names its own process, and on POSIX a shell
+        -- answers whether another one is still running.
+        local named, hostpid = false, nil
+        if rawget(_G, "__nupp_load_image") then
+            named, hostpid = pcall(require, "nupp.compiler.hostpid")
+        end
+        if named then
+            processId = tonumber(hostpid.get())
+            if package.config:sub(1, 1) ~= "\\" then
+                processAlive = function(pid)
+                    return os.execute(("kill -0 %d 2>/dev/null || ps -p %d >/dev/null 2>&1"):format(pid, pid)) == 0
+                end
+            end
+            processSalt = tostring(processId) .. "-" .. stateSalt
+        else
+            -- Official Lua already reserves a process-distinct temporary name on
+            -- the platforms where the portable compiler runs. Retain a state-local
+            -- discriminator as a second boundary when FFI is unavailable.
+            processSalt = stateSalt .. "-" .. tostring(os.time())
+        end
     end
 end
 local shardSalt = ((os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0") .. "-" .. processSalt
@@ -1037,6 +1054,22 @@ do
         capture = function(run)
             local ok, problem = pcall(run)
             return ok, problem, "", ""
+        end
+        -- The VM has no FFI either, but a POSIX shell's noclobber redirect is an
+        -- exclusive create, and the VM's clock can pause.
+        if rawget(_G, "__nupp_load_image") and package.config:sub(1, 1) ~= "\\" then
+            exclusiveCreate = function(path)
+                local stamp = tostring(os.time()) .. (processId and " " .. processId or "")
+                local quoted = "'" .. path:gsub("'", "'\\''") .. "'"
+
+                return os.execute(("set -C; printf '%%s\\n' '%s' > %s 2>/dev/null"):format(stamp, quoted)) == 0
+            end
+            local clocked, clock = pcall(require, "nupp.vm.clock")
+            if clocked then
+                pauseBriefly = function()
+                    clock.sleep(20)
+                end
+            end
         end
     end
 end
@@ -2386,9 +2419,6 @@ local PROCESS_ISOLATED = {
     runtimereflectiontest = true,
     serdetest = true,
     typeleveltest = true,
-    -- Imports cheadertest as a fixture; its top level asks the shell for an
-    -- absolute checkout path on hosts where debug information is relative.
-    hotreloadguaranteetest = true,
     projectlinktest = true,
     spipackagetest = true,
     spitest = true,
