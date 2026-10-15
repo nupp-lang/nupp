@@ -2395,13 +2395,21 @@ function lower.emit(
         if k == "number" then
             f:op("K", dst, f:const("num", tonumber(tokText(node.token))))
         elseif k == "string" then
+            -- Decoded by the lexer's rules rather than by `loadstring`, which on
+            -- the VM compiles a chunk holding this same literal and so never
+            -- returns for one its fast path cannot read.
             local raw = tokText(node.token)
             local value = raw
-            if raw:sub(1, 1) == '"' or raw:sub(1, 1) == "'" then
-                value = assert(loadstring("return " .. raw), "literal " .. raw)()
-            end
-            if raw:sub(1, 1) == "[" then
-                value = assert(loadstring("return " .. raw))()
+            local first = raw:sub(1, 1)
+            if first == '"' or first == "'" then
+                value = assert(require("nupp.compiler.syntax.lexer").stringValue(raw), "literal " .. raw)
+            elseif first == "[" then
+                local equals = assert(raw:match("^%[(=*)%["), "literal " .. raw)
+                local body = raw:sub(#equals + 3, #raw - #equals - 2)
+                -- Lua reads each of \n, \r, \r\n and \n\r in a long string as one
+                -- newline, and drops the newline that follows the opener.
+                body = body:gsub("\r\n", "\n"):gsub("\n\r", "\n"):gsub("\r", "\n")
+                value = body:sub(1, 1) == "\n" and body:sub(2) or body
             end
             f:op("K", dst, f:const("str", value))
         elseif k == "dedentString" then
