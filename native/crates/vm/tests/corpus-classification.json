@@ -699,15 +699,15 @@
     },
     {
       "suite": "hotreloadguaranteetest",
-      "class": "portable",
+      "class": "retired",
       "facilities": "-",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "indexed the hot-reload documentation's promises to hotreloadtest and the --watch cases; hot reload goes with the generator"
     },
     {
       "suite": "hotreloadtest",
-      "class": "port-required",
+      "class": "retired",
       "facilities": "load,ffi,jit,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "tested the Lua generator's watch and patch modes (nupp.tools.hotsession builds on nupp.compiler.lua.gen); the VM lowering has no hot-reload mode, so hot reload goes with the generator"
     },
     {
       "suite": "httpnativetest",
