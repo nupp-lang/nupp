@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 -- `nupp build` and `nupp run` over multi-file projects, driven through the
--- real binary so the CLI, the runtime loader, and the generator are all in
--- the loop.
+-- real binary so the CLI, the runtime loader, and the program a build stamps are
+-- all in the loop.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
     local p = assert(io.popen("pwd"))
@@ -54,11 +54,11 @@ local function exists(path)
     return false
 end
 
-local function read(path)
-    local file = assert(io.open(path, "rb"))
-    local contents = file:read("*a")
-    file:close()
-    return contents
+-- A manifest whose default target is a program binary named `app`, stamped in
+-- `build/`, with `fields` spliced into the target.
+local function binaryManifest(fields)
+    return ('return {include = {"."}, build = {default = "app", targets = {app = {\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, %s\n}}}}\n'):format(fields or "")
 end
 
 local M = {}
@@ -68,38 +68,29 @@ function M.bundleResourcesPreserveEveryByte()
     for byte = 0, 255 do
         bytes[#bytes + 1] = string.char(byte)
     end
-    local packaging = require("nupp.tools.build.package")
-    for _, payload in ipairs({"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}) do
-        local dir = tempProject({
-            ["data.bin"] = payload,
-            ["build/data.bin"] = payload,
-            ["build/main.lua"] = 'return package.preload["nupp.embedded"]()["/data.bin"]\n',
-        })
-        local text = assert(
-            packaging.bundleText(
-                dir,
-                {},
-                {
-                    kind = "bundle",
-                    outDir = "build",
-                    entries = {"main"},
-                    resources = {{source = "data.bin", output = "data.bin"}},
-                },
-                nil,
-                {main = {output = dir .. "/build/main.lua"}},
-                false
-            )
-        )
-        assert(not text:find("\026", 1, true), "a Windows text loader must not truncate the bundle at Ctrl-Z")
-        local original = package.preload["nupp.embedded"]
-        local ok, restored = pcall(function()
-            return assert(loadstring(text))()
-        end)
-        package.preload["nupp.embedded"] = original
-        os.execute("rm -rf '" .. dir .. "'")
-        assert(ok, restored)
-        testAssert.equal(restored, payload, "bundled resources preserve binary bytes and line endings")
+    local payloads = {"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}
+    local files = {
+        ["nupp.lua"] = binaryManifest(
+            'resources = {{source = "1.bin", output = "1.bin"}, {source = "2.bin", output = "2.bin"},'
+            .. ' {source = "3.bin", output = "3.bin"}},'
+        ),
+        [
+            "main.nupp"
+        ] = 'local embedded = require("nupp.embedded") as {[string]: string}\n'
+        .. 'local args = rawget(_G, "arg") as {[integer]: string}\n'
+        .. 'io.write(embedded["/" .. assert(args[1]) .. ".bin"])\n',
+    }
+    for index, payload in ipairs(payloads) do
+        files[index .. ".bin"] = payload
     end
+    local dir = tempProject(files)
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    testAssert.equal(out, "", "the resource program builds: " .. out)
+    for index, payload in ipairs(payloads) do
+        local ran = captureJson(("cd '%s' && ./build/app %d"):format(dir, index))
+        testAssert.equal(ran, payload, "bundled resources preserve binary bytes and line endings")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 local LIB = table.concat(
@@ -110,48 +101,37 @@ local LIB = table.concat(
 local APP = table.concat({"local lib = require('lib')", "print(lib.double(21))",}, "\n")
 
 function M.buildEmitsTheDependencyClosure()
-    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
-    local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
+    local dir = tempProject({["nupp.lua"] = binaryManifest(), ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
     testAssert.equal(out, "", "build is quiet on success: " .. out)
-    assert(exists(dir .. "/build/main.lua"), "entry compiled")
+    assert(exists(dir .. "/build/app"), "the program is stamped")
     assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
-    assert(exists(dir .. "/build/lib.lua"), "required module compiled too")
-    assert(exists(dir .. "/build/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
-    -- and the result runs on plain LuaJIT, with no toolchain present
-    local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua;;' luajit build/main.lua"):format(dir))
+    -- and the result runs with the module it requires, with no toolchain present
+    local ran = capture(("cd '%s' && ./build/app"):format(dir))
     testAssert.equal(ran, "42\n", "built output runs standalone")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.buildCarriesThePublicTestModule()
     local dir = tempProject({
-        ["nupp.lua"] = [[
-return {
-   include = {"src"},
-   build = {outDir = "build", entries = {"main"}},
-}
-]],
-        ["src/main.nupp"] = [[
+        ["nupp.lua"] = binaryManifest(),
+        ["main.nupp"] = [[
 local test = require("nupp.test")
 test.equal(42, 42)
-return true
 ]],
     })
     local out = capture(("cd %q && %q build"):format(dir, NUPP))
     testAssert.equal(out, "", "the public assertion module builds: " .. out)
-    assert(exists(dir .. "/build/nupp/test.lua"), "the compiler-carried assertion module is linked into the project")
-    local ran = capture(
-        ("cd %q && LUA_PATH='./build/?.lua;;' luajit -e " .. "%q"):format(dir, "assert(require('main'))")
-    )
-    testAssert.equal(ran, "", "the linked assertion module runs under plain LuaJIT")
+    local ran = capture(("cd %q && ./build/app && echo passed"):format(dir))
+    testAssert.equal(ran, "passed\n", "the linked assertion module runs in the program")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.explicitBuildCreatesItsOutputDirectory()
-    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["main.nupp"] = "return 42\n",})
-    local out = capture(("cd '%s' && '%s' build -o nested/out main.nupp"):format(dir, NUPP))
+    local dir = tempProject({["nupp.lua"] = binaryManifest(), ["main.nupp"] = "return 42\n",})
+    local out = capture(("cd '%s' && '%s' build -o nested/out"):format(dir, NUPP))
     testAssert.equal(out, "", "explicit build creates its output directory: " .. out)
-    assert(exists(dir .. "/nested/out/main.lua"), "explicit build writes beneath the requested directory")
+    assert(exists(dir .. "/nested/out/app"), "explicit build writes beneath the requested directory")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -165,9 +145,10 @@ return {
    build = {
       targets = {
          app = {
-            kind = "bundle",
+            kind = "binary",
+            stub = "nupp",
             outDir = "build/default",
-            output = "build/default/application.lua",
+            output = "build/default/application",
             entries = {"main"},
             resources = {{source = "asset.txt", output = "asset.txt"}},
          },
@@ -186,39 +167,8 @@ print(embedded["/asset.txt"])
     })
     local out = capture(("cd %q && %q build --output alternate"):format(dir, NUPP))
     testAssert.equal(out, "", "project output override builds a resource bundle")
-    local ran = capture(("cd %q && luajit alternate/application.lua"):format(dir))
+    local ran = capture(("cd %q && ./alternate/application"):format(dir))
     testAssert.equal(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["a/init.nupp"] = "return {name = 'a'}\n",
-        ["b/init.nupp"] = "return {name = 'b'}\n",
-        [
-            "main.nupp"
-        ] = table.concat(
-            {"local a = require('a.init')", "local b = require('b.init')", "return a.name .. b.name", "",},
-            "\n"
-        ),
-    })
-    local out = captureJson(("cd %q && %q build --json -o out ./main.nupp main.nupp"):format(dir, NUPP))
-    local report = json.decode(out)
-    assert(report.ok, "the explicit dependency build succeeds: " .. out)
-    assert(
-        #report.written == 4,
-        "the normalized entry, its dependencies and ownership runtime are each emitted once: " .. out
-    )
-    assert(exists(dir .. "/out/main.lua"), "the normalized entry has one output")
-    assert(
-        exists(dir .. "/out/a/init.lua") and exists(dir .. "/out/b/init.lua"),
-        "same-named dependencies retain their module directories"
-    )
-    local ran = capture(
-        ("cd %q && LUA_PATH='./out/?.lua;;' luajit -e %q"):format(dir, "assert(require('main') == 'ab')")
-    )
-    testAssert.equal(ran, "", "the mirrored output tree is directly requireable")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -244,19 +194,6 @@ function M.buildReportsErrorsInDependencies()
     })
     local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
     assert(out:find("NUPP2002", 1, true), "a type error inside a dependency is reported: " .. out)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.declarationFilesEmitNoArtifact()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["shape.d.nupp"] = "local area: function(r: number): number\n" .. "return {area = area}\n",
-        ["main.nupp"] = "local shape = require('shape')\n" .. "local n: number = shape.area(2)\nreturn n\n",
-    })
-    local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
-    testAssert.equal(out, "", "declaration-backed build succeeds: " .. out)
-    assert(exists(dir .. "/build/main.lua"), "entry compiled")
-    assert(not exists(dir .. "/build/shape.lua"), "a declaration file describes an interface and emits nothing")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -698,34 +635,10 @@ return {
    build = {
       outDir = "build",
       default = "app",
-      targets = { app = {} },
+      targets = { app = {kind = "binary", stub = "nupp", entries = {"app.main"}} },
    },
 }
 ]]
-
-function M.modulesBuildNeedsNoEntry()
-    local dir = tempProject({
-        ["nupp.lua"] = SOURCE_SET_MANIFEST,
-        ["src/app/first.nupp"] = "return 'first'\n",
-        ["src/app/second.nupp"] = "return 'second'\n",
-    })
-    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
-    assert(exists(dir .. "/build/app/first.lua"), "an entryless modules build compiles the first source: " .. out)
-    assert(exists(dir .. "/build/app/second.lua"), "an entryless modules build compiles the second source: " .. out)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.compilesModulesNothingRequires()
-    local dir = tempProject({
-        ["nupp.lua"] = SOURCE_SET_MANIFEST,
-        ["src/app/main.nupp"] = "print('main')\n",
-        -- Required by nothing at all.
-        ["src/app/orphan.nupp"] = "local orphan = {}\nreturn orphan\n",
-    })
-    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
-    assert(exists(dir .. "/build/app/orphan.lua"), "a module nothing requires is still compiled: " .. out)
-    os.execute("rm -rf '" .. dir .. "'")
-end
 
 -- The one that used to fail in front of a user rather than at build time.
 function M.aComputedRequireFindsItsModule()
@@ -742,8 +655,10 @@ function M.aComputedRequireFindsItsModule()
             "src/app/plugin.nupp"
         ] = "local plugin = {}\n\nfunction plugin.hi(): string\n" .. '    return "found"\nend\n\nreturn plugin\n',
     })
-    assert(select(1, capture(("cd '%s' && '%s' build"):format(dir, NUPP))))
-    assert(exists(dir .. "/build/app/plugin.lua"), "the module named only by a computed require is in the build")
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    testAssert.equal(out, "", "the program builds: " .. out)
+    local built = capture(("cd '%s' && ./build/app"):format(dir))
+    assert(built:find("found", 1, true), "the module named only by a computed require is in the build: " .. built)
     local ran = capture(("cd '%s' && '%s' run src/app/main.nupp"):format(dir, NUPP))
     assert(ran:find("found", 1, true), "and the program finds it at run time: " .. ran)
     os.execute("rm -rf '" .. dir .. "'")
@@ -773,7 +688,7 @@ function M.targetSourcesSelectARecursiveModuleSet()
 return {
    include = {"src"},
    build = {targets = {app = {
-      kind = "modules", entries = {"app.main"}, sources = {"src/app"},
+      kind = "binary", stub = "nupp", entries = {"app.main"}, sources = {"src/app"},
    }}},
 }
 ]],
@@ -786,12 +701,6 @@ return {
     })
     local out = capture(("cd '%s' && '%s' build --target app"):format(dir, NUPP))
     testAssert.equal(out, "", "a scoped target ignores source outside its set: " .. out)
-    assert(
-        exists(dir .. "/build/app/plugin.lua"),
-        "a recursively selected module is compiled even when nothing requires it"
-    )
-    assert(exists(dir .. "/build/shared/answer.lua"), "a static dependency outside the selected directory is compiled")
-    assert(not exists(dir .. "/build/other/orphan.lua"), "unselected and unreachable source is absent")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -823,31 +732,6 @@ function M.targetSourcesRejectEmptyAndEscapingSelections()
     os.execute("rm -rf '" .. escaping .. "'")
 end
 
--- An optimized build plans const specialization by checking the modules it emits.
--- A project with no const-generic function has nothing to plan, so a warm optimized
--- build of one checks no module at all.
-function M.warmOptimizedBuildWithNothingToSpecializeChecksNothing()
-    -- Enough checking that a module which was checked shows among the slowest.
-    local lines = {"local lib = {}"}
-    for index = 1, 300 do
-        lines[#lines + 1] = ("function lib.f%d(value: number): number return value * %d end"):format(index, index)
-    end
-    lines[#lines + 1] = "return lib"
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["lib.nupp"] = table.concat(lines, "\n") .. "\n",
-        ["main.nupp"] = 'local lib = require("lib")\nprint(lib.f2(21))\n',
-    })
-    local build = ("cd '%s' && NUPP_CHECK_JOBS=1 '%s' build -O2 --json"):format(dir, NUPP)
-    local first = require("testjson").decode(captureJson(build))
-    assert(first.ok, "the cold optimized build succeeds")
-    local warm = require("testjson").decode(captureJson(build))
-    assert(warm.ok, "the warm optimized build succeeds")
-    assert(warm.timing.compiledModules == 0, "the warm build compiles nothing")
-    assert(#warm.timing.slowest == 0, "the warm build checked " .. require("testjson").encode(warm.timing.slowest))
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 function M.jsonBuildReportsColdAndWarmDeriveObservations()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include = {"."}}\n',
@@ -873,7 +757,6 @@ return new Model()
         json.generatedMembers == 1 and json.canonicalBytes > 0 and json.renderedBytes > 0,
         "build observations expose bounded generation facts"
     )
-    local coldBytes = read(dir .. "/build/model.lua")
 
     local second = require(
         "testjson"
@@ -887,136 +770,6 @@ return new Model()
         )
         testAssert.equal(second.derives[index].canonicalBytes, observation.canonicalBytes, "cached/cold derive size")
     end
-    testAssert.equal(read(dir .. "/build/model.lua"), coldBytes, "cached and cold derived output bytes")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
-function M.manifestBuildWritesColdAndWarmOptimizerAccounts()
-    local dir = tempProject({
-        ["nupp.lua"] = [[return {include = {"src"}, build = {
-   outDir = "build", entries = {"main"}, optimize = 1,
-}}]],
-        ["src/main.nupp"] = [[
-local function main()
-    return {answer = 42}
-end
-return main()
-]],
-    })
-    local command = ("cd %q && %q build --remarks-out"):format(dir, NUPP)
-    local firstOut = capture(command)
-    testAssert.equal(firstOut, "", "cold manifest build writes its optimizer account: " .. firstOut)
-    local first = json.decode(read(dir .. "/build/remarks.json"))
-    testAssert.equal(first.executionProfile.optLevel, 1, "the target's resolved level is recorded")
-    assert(#first.allocationSites >= 2, "the target's closure and table are accounted for")
-
-    local secondOut = capture(command)
-    testAssert.equal(secondOut, "", "warm manifest build writes its optimizer account: " .. secondOut)
-    local second = json.decode(read(dir .. "/build/remarks.json"))
-    testAssert.equal(#second.allocationSites, #first.allocationSites, "warm build preserves allocation account")
-    testAssert.equal(#second.remarks, #first.remarks, "warm build preserves optimizer remarks")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
-        ["src/main.nupp"] = 'local other = require("other")\nlocal t = {}\nt.a = 1\nt.b = 2\nreturn t, other',
-        ["src/other.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
-    })
-    local output = capture(
-        (
-            "cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"
-        ):format(dir, NUPP)
-    )
-    assert(not output:find("src/other.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
-    assert(
-        not exists(dir .. "/src/main.lua") and not exists(dir .. "/src/other.lua"),
-        "inspection creates no source neighbors"
-    )
-    local record = json.decode(read(dir .. "/build/remarks.json"))
-    assert(#record.remarks > 0, "selected workload has optimizer decisions")
-    for _, remark in ipairs(record.remarks) do
-        testAssert.equal(remark.file, "src/main.nupp", "machine remarks obey file filter")
-        assert(remark.status == "fired" or remark.status == "declined", "decision has status")
-        testAssert.equal(remark.hotness, "unknown", "static remarks do not invent hotness")
-    end
-    local manifestCommand = (
-        "cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp"
-    ):format(dir, NUPP)
-    for attempt = 1, 2 do
-        local manifestOut = capture(manifestCommand)
-        assert(
-            manifestOut:find("src/main.nupp:", 1, true),
-            "cold and warm builds replay selected remarks: " .. manifestOut
-        )
-        assert(
-            not manifestOut:find("src/other.nupp:", 1, true),
-            "manifest filter excludes dependencies: " .. manifestOut
-        )
-    end
-    output = capture(
-        ("cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"):format(dir, NUPP)
-    )
-    assert(output:find("optimizer unavailable at -O0", 1, true), "default tier is explained: " .. output)
-    record = json.decode(read(dir .. "/build/remarks.json"))
-    testAssert.equal(record.remarks[1].status, "unavailable", "disabled optimizer is machine-readable")
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.remarksOutTakesAnAttachedPath()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {entries = {"main"}, optimize = 1}}',
-        ["src/main.nupp"] = 'local t = {}\nt.a = 1\nt.b = 2\nreturn t',
-    })
-    local output = capture(("cd %q && %q build -O1 --remarks-out=account.json src/main.nupp"):format(dir, NUPP))
-    testAssert.equal(output, "", "a named remarks path builds quietly: " .. output)
-    local record = json.decode(read(dir .. "/account.json"))
-    testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
-    assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
-    local refused = capture(
-        (
-            "cd %q && %q build --remarks-file src/main.nupp src/main.nupp 2>&1; echo \"__exit__:$?\""
-        ):format(dir, NUPP)
-    )
-    assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
-    os.execute("rm -rf " .. string.format("%q", dir))
-end
-
-function M.privateImportedBodiesInvalidateEmissionAcrossDiskBuilds()
-    local provider = "local M = {} function M.scale(value: number): number return value * 2 end return M"
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}',
-        ["dep.nupp"] = provider,
-        [
-            "main.nupp"
-        ] = 'local D = require("dep") local function work(value: number): number return D.scale(value) end return work',
-        ["unrelated.nupp"] = 'return 17',
-    })
-    local command = ("cd '%s' && NUPP_CHECK_JOBS=1 '%s' build -O1 --json"):format(dir, NUPP)
-
-    local function build()
-        local report = json.decode(captureJson(command))
-        assert(report.ok, json.encode(report))
-        return report
-    end
-
-    local first = build()
-    assert(first.timing.optimizerFacts.consumed > 0, "fact dependencies are observable")
-    assert(first.timing.optimizerFacts.families.inlineBody > 0, "private body is observed")
-    local code = read(dir .. "/build/main.lua")
-    assert(code:find("value * 2", 1, true), code)
-    local warm = build()
-    assert(warm.timing.compiledModules == 0, "a disk-warm build does no checking")
-    local file = assert(io.open(dir .. "/dep.nupp", "w"))
-    file:write((provider:gsub("value %* 2", "value * 3")));
-    file:close()
-    build()
-    local changed = read(dir .. "/build/main.lua")
-    assert(changed:find("value * 3", 1, true), "body observation invalidates emission: " .. changed)
-    os.execute("rm -rf '" .. dir .. "/build/cache'")
-    build()
-    testAssert.equal(read(dir .. "/build/main.lua"), changed, "cache deletion preserves generated code")
     os.execute("rm -rf '" .. dir .. "'")
 end
 

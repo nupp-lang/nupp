@@ -1,10 +1,8 @@
 -- The public HTTP state machine joined to the real native provider and a loopback
--- HTTP/1.1 peer. This covers the FFI ABI and the two suspension-driver modes in
--- addition to the provider's byte paths.
+-- HTTP/1.1 peer. This covers the two suspension-driver modes in addition to the
+-- provider's byte paths.
 local test = require("assert")
 local native = require("nupp.compiler.native")
-local stdlib = require("nupp.compiler.stdlib")
-local nativeStage = require("nupp.tools.build.native")
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
 local tasks = require("nupp.tasks")
@@ -12,8 +10,7 @@ local tasks = require("nupp.tasks")
 local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local root, http, buffers, process, files, port, server
-local priorPreload, priorLoaded, unavailable
+local root, http, buffers, process, files, port, server, unavailable
 
 local function startProcess(options)
     return assert(process.spawn(options))
@@ -57,44 +54,11 @@ local function startServer()
     return nil, "the loopback server did not become ready"
 end
 
--- A suite cannot set an environment variable for its own process, so substitute
--- each staged provider path into its loader before the public modules are loaded.
-local function preloadProvider(module, variable, libraryPath)
-    local found = assert(package.searchpath(module, package.path), module .. " is not on the path")
-    local text = assert(io.open(found, "rb")):read("*a"):gsub('os%.getenv%("' .. variable .. '"%)', function()
-        return ("%q"):format(libraryPath)
-    end)
-    package.loaded[module] = nil
-    package.preload[module] = assert(loadstring(text, "@" .. module))
-end
-
 function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
 
-    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
-    if not libraryPath then
-        local staged, problem = nativeStage.build(root, "out", {
-            ["native.http"] = true,
-            ["native.process"] = true,
-            ["native.uri"] = true,
-            -- Files as well, so a body can be transferred into a checked file writer.
-            -- This is the only test path that needs both native facilities together.
-            ["native.files"] = true,
-        })
-        if not staged then
-            unavailable = tostring(problem)
-            return
-        end
-        libraryPath = root .. "/out/lib/nupp_native"
-    end
-
-    local effects = native.expand({["native.http"] = true, ["native.process"] = true, ["native.files"] = true,})
-    priorPreload = package.preload["nupp.runtime.native"]
-    priorLoaded = package.loaded["nupp.runtime.native"]
-    preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
-    assert(loadstring(stdlib.bootstrap(effects)))()
     process = require("nupp.io.process")
     http = require("nupp.io.http")
     buffers = require("nupp.io")
@@ -106,8 +70,6 @@ function M.afterAll()
     if server then
         server:close()
     end
-    package.preload["nupp.runtime.native"] = priorPreload
-    package.loaded["nupp.runtime.native"] = priorLoaded
     if root then
         os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
         os.execute("rm -rf '" .. root .. "'")
@@ -577,60 +539,6 @@ function M.aTecsStyleHandlerOnlyNeedsNonblockingHostPolls()
     client:close()
 end
 
--- A host that sleeps on the one native readiness generation between passes, the way
--- an embedding event loop would: snapshot, drive the sources, and when nothing moved,
--- wait from the snapshot. Activity the waiting family reports has to end that wait;
--- a wait that ran to its timeout means the family never advanced the generation.
-local function generationHost()
-    local ffi = require("ffi")
-    local C = require("nupp.runtime.native").C
-    local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
-    return {
-        canPark = function()
-            return true
-        end,
-        shutdown = function()
-        end,
-        park = function(_self, waiting, cancel)
-            local sleeps = 0
-            while not waiting:ready() do
-                assert(C.nuppNativePoll(seen) == 0)
-                if suspension.poll() == 0 and not waiting:ready() then
-                    sleeps = sleeps + 1
-                    assert(C.nuppNativeWait(seen[0], 10000, found) == 0)
-                    if found[0] == seen[0] or sleeps > 1000 then
-                        cancel()
-                        error(waiting.operation .. " never advanced the readiness generation", 0)
-                    end
-                end
-            end
-        end,
-    }
-end
-
-function M.oneReadinessGenerationWakesHttpProcessAndFileWaiters()
-    local client = ready()
-    local installation = suspensionHost.install(generationHost())
-    local ok, problem = pcall(function()
-        local response = assert(client:send({url = endpoint("/small")}))
-        test.equal(response.body:read(64), "small response\n")
-        response:close()
-
-        local child = startProcess({args = {"/bin/sh", "-c", "sleep 0.1"}, stdin = "null", stdout = "null"})
-        test.equal(child:wait().exitCode, 0)
-        child:close()
-
-        local path = root .. "/readiness.txt"
-        local handle = assert(io.open(path, "wb"))
-        handle:write("settled")
-        handle:close()
-        test.equal(assert(files.read(path)), "settled")
-    end)
-    installation:close()
-    client:close()
-    assert(ok, problem)
-end
-
 function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
     if unavailable then
         test.skip("the HTTP provider is unavailable: " .. unavailable)
@@ -682,7 +590,6 @@ function M.thePublicModuleAndNativeProviderHaveSeparateFeatureDependencies()
     local expanded = native.expand({["native.http"] = true})
     assert(expanded["runtime.suspension"])
     assert(expanded["stdlib.io"])
-    assert(not stdlib.bootstrap(expanded):find("nuppNativeHttpClientCreate", 1, true))
 end
 
 return M

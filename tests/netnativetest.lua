@@ -10,6 +10,9 @@ local io_ = require("nupp.io")
 local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local HOST = require("nupp.compiler.targetlayout").hostKey() or ""
+local WINDOWS = package.config:sub(1, 1) == "\\"
+local MACOS = HOST:find("apple-darwin", 1, true) ~= nil
 
 -- A listener, a connection to it, and the connection it accepted.
 local function pair()
@@ -301,7 +304,7 @@ end
 
 -- A socket path under the system temporary directory, unique to this run.
 local function socketPath(label)
-   if jit.os == "Windows" then
+   if WINDOWS then
       test.skip("Unix domain sockets are unavailable on Windows")
    end
    local base = os.getenv("TMPDIR") or "/tmp/"
@@ -712,13 +715,13 @@ end
 
 -- A link-local IPv6 address this machine holds, as `address%interface`, or nil.
 local function linkLocalAddress()
-   local command = jit.os == "OSX" and "ifconfig lo0 inet6 2>/dev/null"
+   local command = MACOS and "ifconfig lo0 inet6 2>/dev/null"
       or "ip -o -6 addr show scope link 2>/dev/null"
    local pipe = io.popen(command)
    if not pipe then return nil end
    local text = pipe:read("*a")
    pipe:close()
-   if jit.os == "OSX" then
+   if MACOS then
       return text:find("fe80::1%lo0", 1, true) and "fe80::1%lo0" or nil
    end
    local interface, address = text:match("%d+:%s+(%S+)%s+inet6%s+(fe80:[%x:]+)")
@@ -744,47 +747,6 @@ function M.aLinkLocalPeerCanBeAnswered()
    buffer:close()
    b:close()
    a:close()
-end
-
-function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
-   -- The embedding shape: snapshot the one native readiness generation, drive the
-   -- sources, and when nothing moved, wait from the snapshot. A wait that ran to its
-   -- timeout means the network never advanced the generation the host sleeps on.
-   local ffi = require("ffi")
-   local suspension = require("nupp.suspension")
-   local suspensionHost = require("nupp.suspension.host")
-   local C = require("nupp.runtime.native").C
-   local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
-   local sleeps = 0
-   local host = {
-      park = function(_self, waiting, cancel)
-         while not waiting:ready() do
-            assert(C.nuppNativePoll(seen) == 0)
-            if suspension.poll() == 0 and not waiting:ready() then
-               sleeps = sleeps + 1
-               assert(C.nuppNativeWait(seen[0], 10000, found) == 0)
-               if found[0] == seen[0] or sleeps > 1000 then
-                  cancel()
-                  error(waiting.operation .. " never advanced the readiness generation", 0)
-               end
-            end
-         end
-      end,
-   }
-   local installation = suspensionHost.install(host)
-   local ok, problem = pcall(function()
-      local listener, client, served = pair()
-      assert(client:write("ping"), "the client writes")
-      testAssert.equal(assert(served:read(4)), "ping", "and the server reads it")
-      client:close()
-      served:close()
-      listener:close()
-   end)
-   installation:close()
-   assert(ok, problem)
-   -- A loopback connect completes on the provider's executor, never inside the
-   -- call, so the host always sleeps at least once and the network wakes it.
-   assert(sleeps > 0, "the host slept on the generation")
 end
 
 return M

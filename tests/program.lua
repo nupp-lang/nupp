@@ -16,11 +16,13 @@ function program.image(result, name, path, listing)
     local tree = result.root
     tree.vmModuleExports = result.moduleExports
 
+    -- Structs are laid out for the machine running the fragment, as `nupp run`
+    -- lays them out.
     return lower.emit(name, {}, function(candidate)
         return candidate == name and (path or name .. ".nupp") or nil
     end, function()
         return tree
-    end, nil, listing)
+    end, nil, listing, require("nupp.compiler.targetlayout").hostKey())
 end
 
 -- A fragment's own `require` of a module the running image does not carry

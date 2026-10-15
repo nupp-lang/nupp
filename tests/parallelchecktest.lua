@@ -719,8 +719,9 @@ function M.anInterruptedCheckLeavesNoWorkers()
     if package.config:sub(1, 1) == "\\" then
         return
     end
-    local ffi = require("ffi")
-    pcall(ffi.cdef, "int kill(int, int);")
+    local function kill(signal, pid)
+        return os.execute(("kill -%d -- %d 2>/dev/null"):format(signal, pid))
+    end
     local lookup = assert(io.popen("command -v perl"))
     local perl = lookup:read("*l")
     lookup:close()
@@ -767,7 +768,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(time.now() < deadline, "parallel workers did not begin a request")
         time.sleep(10)
     end
-    testAssert.equal(ffi.C.kill(-child.pid, 2), 0, "send SIGINT")
+    testAssert.equal(kill(2, -child.pid), 0, "send SIGINT")
     local exit = child:wait()
     local said = ""
     while true do
@@ -787,10 +788,10 @@ function M.anInterruptedCheckLeavesNoWorkers()
 
     deadline = time.now() + 60000
     for pid in pairs(pids) do
-        while ffi.C.kill(pid, 0) == 0 and time.now() < deadline do
+        while kill(0, pid) == 0 and time.now() < deadline do
             time.sleep(10)
         end
-        assert(ffi.C.kill(pid, 0) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
+        assert(kill(0, pid) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
     end
 
     assert(require("nupp.io.files").remove(directory, true))

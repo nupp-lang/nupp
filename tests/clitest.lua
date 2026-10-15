@@ -650,13 +650,6 @@ return game
         "every field offset is asserted"
     )
 
-    local generated, built = captureAt(dir, "build --json")
-    assert(built, "the ordinary module builds: " .. generated)
-    local lua = assert(io.open(dir .. "/build/game.lua", "rb")):read("*a")
-    assert(
-        lua:find('cdef, "void integrate(void *, float, bool);"', 1, true),
-        "the same checked signature erases only the physical FFI pointer slot"
-    )
     assert(
         os.execute(("cd '%s' && cc -std=c11 -fsyntax-only game.h"):format(dir)) == 0,
         "an independent C compiler accepts the exported header"
@@ -666,41 +659,6 @@ return game
         "an independent C++ compiler accepts the exported header"
     )
 
-    -- What remains calls the C implementation through the module's own cdef,
-    -- which finds the symbol because a POSIX load can publish it globally.
-    -- Windows resolves an FFI symbol out of a fixed set of modules instead, so
-    -- the header and the erased signature are as far as this goes there.
-    if jit.os == "Windows" then
-        os.execute("rm -rf '" .. dir .. "'")
-        require("assert").skip("a globally loaded shared library is POSIX-only")
-    end
-
-    local c = assert(io.open(dir .. "/game.c", "wb"))
-    c:write(
-        [[#include "game.h"
-void integrate(nupp_4_game_8_Position *position, float dt, bool enabled) {
-    if (enabled) position->x += dt;
-    position->y = position->x * 2.0f;
-}
-]]
-    )
-    c:close()
-    local library = dir .. (jit.os == "OSX" and "/libgame.dylib" or "/libgame.so")
-    local shared = jit.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-    assert(
-        os.execute(("cd '%s' && cc -std=c11 %s -o '%s' game.c"):format(dir, shared, library)) == 0,
-        "the independent typed C implementation compiles"
-    )
-    local loaded = require("ffi").load(library, true)
-    local priorPath = package.path
-    package.path = dir .. "/build/?.lua;" .. package.path
-    package.loaded.game = nil
-    local game = require("game")
-    assert(game.run() == 3, "typed ordinary-struct storage crosses the erased FFI slot")
-    package.loaded.game = nil
-    package.path = priorPath
-    loaded = nil
-    collectgarbage()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -890,13 +848,28 @@ function M.lintsUsesDefaultsOutsideAConfiguredProject()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A probe run as a program in a child process, with every compiler module the
+-- launcher itself loaded forgotten first, so what the probe requires is all that
+-- is loaded.
+local function probeOutput(probe)
+    local script = os.tmpname() .. ".lua"
+    local file = assert(io.open(script, "wb"))
+    file:write(
+        "for name in pairs(package.loaded) do\n"
+        .. "   if name:match('^nupp%.') then package.loaded[name] = nil end\n"
+        .. "end\n"
+        .. probe
+    )
+    file:close()
+    local out = captureAt(HERE .. "/..", "run '" .. script .. "'")
+    os.remove(script)
+    return out
+end
+
 -- The registry's contract is that naming a command loads its grammar and nothing
 -- heavier; the compiler it needs is required inside `run`. Checked in a fresh
--- interpreter, since this process has long since loaded everything.
+-- process, since this one has long since loaded everything.
 function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
-    local runtimePipe = assert(io.popen(("'%s/../scripts/toolchain' luajit"):format(HERE)))
-    local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
-    runtimePipe:close()
     local probe = (
         [[
 package.path = %q
@@ -911,21 +884,11 @@ end
 print("done")
 ]]
     ):format(package.path)
-    local script = os.tmpname()
-    local file = assert(io.open(script, "wb"))
-    file:write(probe)
-    file:close()
-    local pipe = assert(io.popen(("'%s' '%s' 2>&1"):format(runtime, script)))
-    local out = pipe:read("*a")
-    pipe:close()
-    os.remove(script)
+    local out = probeOutput(probe)
     assert(out == "done\n", "requiring a command module loads its grammar, not the compiler:\n" .. out)
 end
 
 function M.projectLoadingDoesNotLoadCodeGeneration()
-    local runtimePipe = assert(io.popen(("'%s/../scripts/toolchain' luajit"):format(HERE)))
-    local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
-    runtimePipe:close()
     local probe = (
         [[
 package.path = %q
@@ -941,14 +904,7 @@ end
 print("done")
 ]]
     ):format(package.path)
-    local script = os.tmpname()
-    local file = assert(io.open(script, "wb"))
-    file:write(probe)
-    file:close()
-    local pipe = assert(io.popen(("'%s' '%s' 2>&1"):format(runtime, script)))
-    local out = pipe:read("*a")
-    pipe:close()
-    os.remove(script)
+    local out = probeOutput(probe)
     assert(out == "done\n", "project checking loads code generation:\n" .. out)
 end
 
