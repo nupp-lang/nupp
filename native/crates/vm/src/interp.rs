@@ -998,7 +998,7 @@ impl Interp {
             self.close_scope(scope); std::panic::panic_any(crate::builtins::LuaError(msg.0));
         }
         self.handles.push(loader);
-        if !self.loading_modules.insert(name.to_string()) { self.err(&format!("loop loading module '{name}'")); }
+        if !self.loading_modules.insert(name.to_string()) { self.err(&format!("loop or previous error loading module '{name}'")); }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(loader, &[key])));
         self.loading_modules.remove(name);
         let outs = match result { Ok(outs) => outs, Err(error) => { self.close_scope(scope); std::panic::resume_unwind(error) } };
@@ -1083,7 +1083,7 @@ impl Interp {
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn", "table.clone", "table.clear"]);
-        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp"]);
+        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp", "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename", "os.exit"]);
         let io = table_of(self, &["io.type", "io.lines", "io.write", "io.open", "io.read", "io.popen", "io.flush"]);
@@ -1754,6 +1754,24 @@ impl Interp {
     /// The function and source line `skip` interpreted frames above the
     /// builtin's caller, read from the frame chain and the line table. A
     /// compiled caller keeps no chain, so it answers nothing.
+    /// `debug.getinfo(level)`'s frame: level 1 is the function that called the
+    /// builtin, each further level its caller. `Err` past the last frame; `Ok`
+    /// with no line or function where the caller is compiled and keeps no frame.
+    pub(crate) fn frame_at_level(&self, level: usize) -> Result<(Option<usize>, u32, Value), ()> {
+        let Some(tid) = self.caller_task() else { return if level <= 1 { Ok((self.caller_function(), 0, Value::NIL)) } else { Err(()) } };
+        let t = &self.tasks[tid];
+        if t.stack.is_empty() { return Err(()); }
+        let mut s = t.cur;
+        for _ in 1..level.max(1) {
+            let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
+            if caller == NONE { return Err(()); }
+            s = caller as usize;
+        }
+        let h0 = t.stack[s];
+        let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
+        let line = self.funcs.get(fid).and_then(|f| f.debug.get(pc.saturating_sub(1))).map(|d| d.0).unwrap_or(0);
+        Ok((Some(fid), line, Value(t.stack[s + 2])))
+    }
     pub(crate) fn caller_line(&self, skip: usize) -> Option<(usize, u32)> {
         let tid = self.caller_task()?;
         let t = &self.tasks[tid];

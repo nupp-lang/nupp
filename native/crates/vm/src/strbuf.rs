@@ -321,7 +321,12 @@ fn dispatch(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 return out;
             }
             for (i, &n) in args.iter().enumerate().skip(1) {
-                let n = if n == Value::NIL { usize::MAX } else { number_arg(it, n, i + 1, "get").max(0.0) as usize };
+                let n = if n == Value::NIL { usize::MAX } else {
+                    let count = number_arg(it, n, i + 1, "get");
+                    // LuaJIT refuses a negative count, after any earlier ones were taken.
+                    if count < 0.0 { fail(it, &format!("bad argument #{} to '?' (number out of range)", i + 1)); }
+                    count as usize
+                };
                 let piece = buffer(it, this, "get").consume(n);
                 let s = it.string_of(&piece);
                 it.handles.push(s);
@@ -337,7 +342,9 @@ fn dispatch(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "free" => { let b = buffer(it, this, "free"); b.data = Vec::new(); b.read = 0; account(it, this); one(this) }
         "skip" => {
             buffer(it, this, "skip");
-            let n = number_arg(it, arg(1), 2, "skip").max(0.0) as usize;
+            let n = number_arg(it, arg(1), 2, "skip");
+            if n < 0.0 { fail(it, "bad argument #2 to '?' (number out of range)"); }
+            let n = n as usize;
             let b = buffer(it, this, "skip");
             let n = n.min(b.data.len() - b.read);
             b.advance(n);

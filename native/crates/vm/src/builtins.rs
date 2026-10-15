@@ -79,6 +79,7 @@ pub const NAMES: &[&str] = &[
     "vm.imageIdentity",
     "vm.imageModules",
     "foreign.load", "foreign.invokeCallback", "foreign.string",
+    "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -635,10 +636,48 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
-        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
+        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
+
+thread_local! {
+    // Lua's math.random state: per thread, as each worker VM runs on its own.
+    static RANDOM_STATE: std::cell::Cell<u64> = const { std::cell::Cell::new(0x9e37_79b9_7f4a_7c15) };
+}
+
+/// `math.random` and `math.randomseed` with Lua 5.1's argument rules, over
+/// SplitMix64: `random()` in [0, 1), `random(m)` in [1, m], `random(m, n)`
+/// in [m, n].
+fn random(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
+    if name == "math.randomseed" {
+        let seed = crate::numeric::double(it, arg(args, 0));
+        RANDOM_STATE.with(|s| s.set((seed as i64 as u64) ^ seed.to_bits() ^ 0x9e37_79b9_7f4a_7c15));
+        return Outs::new();
+    }
+    let bits = RANDOM_STATE.with(|s| {
+        let next = s.get().wrapping_add(0x9e37_79b9_7f4a_7c15);
+        s.set(next);
+        let mut z = next;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    });
+    let unit = (bits >> 11) as f64 / (1u64 << 53) as f64;
+    let (low, high) = match args.len() {
+        0 => return outs![Value::num(unit)],
+        1 => (1.0, crate::numeric::double(it, arg(args, 0)).floor()),
+        2 => (crate::numeric::double(it, arg(args, 0)).floor(), crate::numeric::double(it, arg(args, 1)).floor()),
+        _ => it.err("wrong number of arguments to 'random'"),
+    };
+    if low > high { it.err("bad argument to 'random' (interval is empty)"); }
+    outs![Value::num((unit * (high - low + 1.0)).floor() + low)]
+}
+
+/// LuaJIT BitOp's normalization of a number to a 32-bit word: rounded to
+/// nearest with ties to even (it adds 2^52 + 2^51 and keeps the low word),
+/// not truncated.
+fn tobit(x: f64) -> i32 { (x + 6755399441055744.0).to_bits() as u32 as i32 }
 
 pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
     // Supervision is synchronous, including affine cleanup invoked directly
@@ -1001,6 +1040,16 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 };
                 return outs![Value::num(v)];
             }
+            if *name == "math.random" || *name == "math.randomseed" { return random(it, name, args); }
+            if matches!(*name, "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow") {
+                let a = crate::numeric::double(it, arg(args, 0));
+                let v = match *name {
+                    "math.cosh" => a.cosh(), "math.sinh" => a.sinh(), "math.tanh" => a.tanh(),
+                    "math.deg" => a.to_degrees(), "math.rad" => a.to_radians(), "math.log10" => a.log10(),
+                    _ => a.powf(crate::numeric::double(it, arg(args, 1))),
+                };
+                return outs![Value::num(v)];
+            }
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
             if name.starts_with("ncompression.") { return crate::ncompression::call(it, name, args); }
@@ -1217,15 +1266,16 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
         N_35 => { let t = arg(args, 0); it.set_metatable(t, arg(args, 1)); outs![t] }
         N_36 => outs![it.getmetatable_value(arg(args, 0))],
-        // The bit library: 32-bit two's complement, as LuaJIT's.
-        38 => { let mut r: i32 = -1; for a in args { r &= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
-        39 => { let mut r: i32 = 0; for a in args { r |= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
-        40 => { let mut r: i32 = 0; for a in args { r ^= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
-        41 => outs![Value::num(!(arg(args, 0).as_num() as i64 as i32) as f64)],
-        42 => outs![Value::num(((arg(args, 0).as_num() as i64 as i32).wrapping_shl(arg(args, 1).as_num() as u32)) as f64)],
-        43 => outs![Value::num(((arg(args, 0).as_num() as i64 as u32).wrapping_shr(arg(args, 1).as_num() as u32) as i32) as f64)],
-        44 => outs![Value::num(((arg(args, 0).as_num() as i64 as i32).wrapping_shr(arg(args, 1).as_num() as u32)) as f64)],
-        45 => outs![Value::num((arg(args, 0).as_num() as i64 as i32) as f64)],
+        // The bit library: 32-bit two's complement, as LuaJIT's, operands
+        // normalized by `tobit`.
+        38 => { let mut r: i32 = -1; for a in args { r &= tobit(a.as_num()); } outs![Value::num(r as f64)] }
+        39 => { let mut r: i32 = 0; for a in args { r |= tobit(a.as_num()); } outs![Value::num(r as f64)] }
+        40 => { let mut r: i32 = 0; for a in args { r ^= tobit(a.as_num()); } outs![Value::num(r as f64)] }
+        41 => outs![Value::num(!(tobit(arg(args, 0).as_num())) as f64)],
+        42 => outs![Value::num(((tobit(arg(args, 0).as_num())).wrapping_shl((tobit(arg(args, 1).as_num()) as u32 & 31))) as f64)],
+        43 => outs![Value::num(((tobit(arg(args, 0).as_num()) as u32).wrapping_shr((tobit(arg(args, 1).as_num()) as u32 & 31)) as i32) as f64)],
+        44 => outs![Value::num(((tobit(arg(args, 0).as_num())).wrapping_shr((tobit(arg(args, 1).as_num()) as u32 & 31))) as f64)],
+        45 => outs![Value::num((tobit(arg(args, 0).as_num())) as f64)],
         46 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); match std::env::var(&name) { Ok(v) => outs![it.heap_new_string(&v)], Err(_) => outs![Value::NIL] } }
         47 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t)] }
         48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t.floor())] }
@@ -1330,11 +1380,24 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         70 => crate::process::execute(it, args),
         72 => crate::stdio::read(it, arg(args, 0)),
         52 => {
-            // A builtin pushes no frame; resolve its scoped task or native caller.
+            // `debug.getinfo(level | function, what)`. A builtin pushes no frame, so
+            // level 1 is its caller; past the outermost frame the answer is nil.
+            // A function argument is described by its own chunk.
+            let target = arg(args, 0);
+            let (fid, line, func) = if target.is_num() {
+                match it.frame_at_level(target.as_num().max(1.0) as usize) { Ok(found) => found, Err(()) => return outs![Value::NIL] }
+            } else if let Some(fid) = target.as_func().map(|f| f as usize).or_else(|| target.as_obj().filter(|p| unsafe { (*p.as_ptr()).kind } == crate::heap::KIND_CLOSURE).map(|p| unsafe { (*p.as_ptr()).fid() } as usize)) {
+                (Some(fid), 0, target)
+            } else {
+                (it.caller_function(), 0, Value::NIL)
+            };
             // Every loaded chunk shares a module name, so the function's own path
             // comes first; the module's is what an image without one names.
-            let source = { let fid = it.caller_function(); let own = fid.and_then(|f| it.funcs[f].path.as_ref().map(|p| p.to_string())); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); own.or_else(|| it.module_paths.get(&module).cloned()).map(|p| if p.starts_with('=') || p.starts_with('@') { p } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
-            let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); } it.release(h); outs![t]
+            let source = { let own = fid.and_then(|f| it.funcs[f].path.as_ref().map(|p| p.to_string())); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); own.or_else(|| it.module_paths.get(&module).cloned()).map(|p| if p.starts_with('=') || p.starts_with('@') { p } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
+            let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); }
+            if line != 0 { let k = it.intern("currentline"); it.set_index(t, k, Value::num(line as f64)); }
+            if func != Value::NIL { let k = it.intern("func"); it.set_index(t, k, func); }
+            it.release(h); outs![t]
         }
         other => panic!("runtime error: builtin {} not implemented", NAMES[other as usize]),
     }
