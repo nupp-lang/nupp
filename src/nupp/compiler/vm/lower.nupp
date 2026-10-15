@@ -1643,7 +1643,7 @@ function lower.emit(
                         return value and -value
                     end
                     if n and n.kind == "number" then
-                        local value = tonumber(tokText(n.token):gsub("_", ""):gsub("[uUlL]+$", ""))
+                        local value = tonumber((tokText(n.token):gsub("_", ""):gsub("[uUlL]+$", "")))
                         if value and math.abs(value) < 9007199254740992 and value % 1 == 0 then
                             return value
                         end
