@@ -445,6 +445,48 @@ jobs:
           path: release/nupp-stage0-*.lua.gz
           if-no-files-found: error
 
+  # The VM stage zero: the root CLI image the VM fixpoint verified, which a cold
+  # checkout runs on a runtime built from its own sources (`scripts/toolchain
+  # stage0-image`, `scripts/vm-cli build --seed-image`). It is platform-free
+  # text, so one runner composes it. The VM CLI it starts from is seeded by the
+  # LuaJIT stage zero until an image is pinned.
+  stage-zero-image:
+    name: VM stage-zero image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Build pinned host dependencies
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Build the VM CLI from these sources
+        shell: bash
+        run: python3 scripts/vm-cli build
+
+      # The digest is of the image inside the archive, which is what a checkout
+      # verifies, and is printed for the pin bump that follows the release.
+      - name: Verify the VM fixpoint and compose the stage-zero image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          label=${GITHUB_REF_NAME:-untagged}
+          name="nupp-stage0-${label//\//-}.image"
+          ./bin/nupp fixpoint --emit-stage0 "release/$name"
+          printf 'STAGE0_IMAGE_SHA256 for this release: %s\n' \
+            "$(sha256sum "release/$name" | cut -d' ' -f1)"
+          gzip -9 -n "release/$name"
+
+      - name: Upload the stage-zero image
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-stage0-image
+          path: release/nupp-stage0-*.image.gz
+          if-no-files-found: error
+
   catalog:
     name: Assemble the next stub catalog
     needs:
@@ -600,6 +642,7 @@ jobs:
       - build-unix
       - build-windows
       - stage-zero
+      - stage-zero-image
       - catalog
       - verify-cross-unix
       - verify-cross-windows
