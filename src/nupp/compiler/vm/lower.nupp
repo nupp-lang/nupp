@@ -12,31 +12,47 @@ type lower.CoverageRequest = {
     manifests: {[string]: any}
 }
 
---- The module an instrumented image carries for its counters: the recorder the Lua
---- generator writes into each instrumented file, installed once into
---- `_G.__nuppCoverage` and shared by every module and image in the process.
+--- The module an instrumented image carries for its counters. It installs the
+--- recorder the Lua generator writes into each instrumented file, once, into
+--- `_G.__nuppCoverage`, shared by every module and image in the process, and
+--- answers the table one file's counts are kept in. An instrumented function
+--- asks for that table once on entry and counts in it directly: a call per
+--- statement made a covered run on the interpreter twelve times slower.
 const COVERAGE_RUNTIME = "nupp.runtime.coveragecounter"
 
 const COVERAGE_RUNTIME_SOURCE = [[
-local c = _G.__nuppCoverage
-if not c then
-    c = {hits = {}}
-    function c.hit(p, i)
-        local f = c.hits[p] or {}
-        c.hits[p] = f
-        local k = tostring(i)
-        f[k] = (f[k] or 0) + 1
+local function install()
+    local c = _G.__nuppCoverage
+    if not c then
+        c = {hits = {}}
+        function c.hit(p, i)
+            local f = c.hits[p] or {}
+            c.hits[p] = f
+            local k = tostring(i)
+            f[k] = (f[k] or 0) + 1
+        end
+        function c.branch(p, i, v)
+            local f = c.hits[p] or {}
+            c.hits[p] = f
+            local k = tostring(i) .. (v and ":true" or ":false")
+            f[k] = (f[k] or 0) + 1
+            return v
+        end
+        _G.__nuppCoverage = c
     end
-    function c.branch(p, i, v)
-        local f = c.hits[p] or {}
-        c.hits[p] = f
-        local k = tostring(i) .. (v and ":true" or ":false")
-        f[k] = (f[k] or 0) + 1
-        return v
-    end
-    _G.__nuppCoverage = c
+    return c
 end
-return c
+install()
+local function counters(p)
+    local hits = install().hits
+    local f = hits[p]
+    if not f then
+        f = {}
+        hits[p] = f
+    end
+    return f
+end
+return {counters = counters}
 ]]
 
 --- Emit the module graph rooted at `entryName`, including explicitly named
@@ -547,40 +563,79 @@ function lower.emit(
     end
 
     -- Coverage ---------------------------------------------------------------------
-    -- The sites of the module being lowered, when it is instrumented. A probe is a
-    -- call through `_G.__nuppCoverage`, as the Lua generator writes it, in registers
-    -- no later instruction reads.
+    -- The sites of the module being lowered, when it is instrumented. A function
+    -- of such a module holds its file's counts table in a register it loads on
+    -- entry, and a site adds one to its key there, the key the Lua generator's
+    -- recorder uses: the site's number, and for a branch the outcome after it.
     local covered = nil
 
-    local function probe(f, method, id, value)
-        local mark = f.nregs
-        local globals, recorder = f:reg(), f:reg()
-        f:op("Require", globals, f:const("str", "_G"))
-        f:op("GetField", recorder, globals, f:const("str", "__nuppCoverage"))
-        local callee, base = f:reg(), f:reg()
-        local path, site = f:reg(), f:reg()
-        f:op("GetField", callee, recorder, f:const("str", method))
-        f:op("K", path, f:const("str", covered.manifest.path))
-        f:op("K", site, f:const("num", id))
-        if value then
-            f:op("Move", f:reg(), value)
+    -- The register holding the counts table. The load is put in front of the
+    -- function once its body is lowered, as the capture loads are.
+    local function coverageCounts(f)
+        if not f.coverageCounts then
+            local r = f:reg()
+            f.declTop = math.max(f.declTop or 0, r + 1)
+            f.coverageCounts = r
         end
-        f:op("CallDyn", callee, base, value and 3 or 2)
+
+        return f.coverageCounts
+    end
+
+    local function count(f, key)
+        local counts = coverageCounts(f)
+        local mark = f.nregs
+        local n, one = f:reg(), f:reg()
+        local name = f:const("str", key)
+        f:op("GetField", n, counts, name)
+        local present = f:op("JmpIf", n, 0)
+        f:op("K", n, f:const("num", 0))
+        f:patch(present, "JmpIf", n, f:offset(present, f:here()))
+        f:op("K", one, f:const("num", 1))
+        f:op("Add", n, n, one)
+        f:op("SetField", counts, name, n)
         f.nregs = mark
+    end
+
+    -- Loads the counts table on entry, once the body has asked for it.
+    local function loadCoverageCounts(f)
+        if not f.coverageCounts then
+            return
+        end
+        local callee, base, path = f:reg(), f:reg(), f:reg()
+        local line = f.code[1] and f.code[1].line
+        local prologue: {
+            table
+        } = {
+            {"Require", callee, f:const("str", COVERAGE_RUNTIME)},
+            {"GetField", callee, callee, f:const("str", "counters")},
+            {"K", path, f:const("str", covered.manifest.path)},
+            {"CallDyn", callee, base, 1},
+            {"Move", f.coverageCounts, base},
+        }
+        for i = #prologue, 1, -1 do
+            prologue[i].line = line
+            table.insert(f.code, 1, prologue[i])
+        end
     end
 
     local function coverStatement(f, node)
         local id = covered and covered.statements[node]
         if id then
             f.curLine = nodeLine(node) or f.curLine
-            probe(f, "hit", id)
+            count(f, tostring(id))
         end
     end
 
+    -- Counts the outcome `value` took, by Lua truthiness.
     local function coverBranch(f, node, value)
         local id = covered and covered.branches[node]
         if id then
-            probe(f, "branch", id, value)
+            local falseJump = f:op("JmpIfNot", value, 0)
+            count(f, id .. ":true")
+            local done = f:op("Jmp", 0)
+            f:patch(falseJump, "JmpIfNot", value, f:offset(falseJump, f:here()))
+            count(f, id .. ":false")
+            f:patch(done, "Jmp", f:offset(done, f:here()))
         end
     end
 
@@ -4726,7 +4781,7 @@ function lower.emit(
         local entered = covered and covered.functions[funcbody]
         if entered then
             f.curLine = nodeLine(funcbody) or f.curLine
-            probe(f, "hit", entered)
+            count(f, tostring(entered))
         end
         -- EMIT_SURVEY=1 keeps going past a construct the emitter lacks: the body
         -- becomes a stub and the failure is tallied, so one run over a module
@@ -4765,6 +4820,7 @@ function lower.emit(
         for i = #loads, 1, -1 do
             table.insert(f.code, 1, loads[i])
         end
+        loadCoverageCounts(f)
     end
 
     -- Modules ----------------------------------------------------------------------
@@ -4977,12 +5033,6 @@ function lower.emit(
                 end
             end
         end
-        if covered then
-            -- The counters exist before the first probe can run.
-            local counters = chunk:reg()
-            chunk:op("Require", counters, chunk:const("str", COVERAGE_RUNTIME))
-            chunk.nregs = chunk.nregs - 1
-        end
         if os.getenv("EMIT_SURVEY") then
             local ok, err = pcall(block, chunk, rootNode.blocks[1]);
             if not ok then
@@ -5009,6 +5059,7 @@ function lower.emit(
                 chunk:op("RetNil")
             end
         end
+        loadCoverageCounts(chunk)
         modules[name] = chunk
         moduleOrder[#moduleOrder + 1] = name
         covered = nil
