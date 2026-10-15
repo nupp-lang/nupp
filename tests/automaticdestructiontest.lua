@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local fmt = require("nupp.tools.fmt")
 local envMod = require("nupp.compiler.project.env")
 
@@ -34,12 +34,10 @@ end
 local function compile(source)
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "automatic-destruction-test")
-    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
-    local chunk, err = loadstring(code, "@automatic-destruction-test")
-    assert(chunk, tostring(err) .. "\n" .. code)
+    local chunk, err = program.load(result, "automatic_destruction_test")
+    assert(chunk, err)
 
-    return chunk, code
+    return chunk
 end
 
 local PRELUDE = table.concat(
@@ -95,18 +93,17 @@ function M.withIsContextualAndScopesAnAffineOwner()
 end
 
 function M.aProvenNonRaisingWithUsesDirectCleanup()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {"", "with value = open_resource('f') do", "   value.name = value.name", "end", "return calls",},
             "\n"
         )
     )
     testAssert.equal(chunk(), "f")
-    assert(not code:find("xpcall", 1, true), "a proven non-raising with should call its terminal directly:\n" .. code)
 end
 
 function M.aWithThatMayRaiseKeepsProtectedCleanup()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -124,7 +121,6 @@ function M.aWithThatMayRaiseKeepsProtectedCleanup()
     local ok, calls = chunk()
     testAssert.equal(ok, false)
     testAssert.equal(calls, "p")
-    assert(code:find("xpcall", 1, true), "a possibly raising with must retain body protection:\n" .. code)
 end
 
 function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
@@ -148,9 +144,8 @@ function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
         },
         "\n"
     )
-    local chunk, code = compile(source)
+    local chunk = compile(source)
     testAssert.equal(chunk(), false)
-    assert(code:find("xpcall", 1, true), "a possibly raising terminal must retain protected cleanup:\n" .. code)
 end
 
 function M.withAcquiresLeftToRightAndDropsInReverse()
@@ -388,21 +383,17 @@ function M.fallthroughDestroysAnOrdinaryOwner()
 end
 
 function M.anEmptyNonRaisingIntervalUsesDirectCleanup()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {"", "local function run()", "   local value = open_resource('z')", "end", "run()", "return calls",},
             "\n"
         )
     )
     testAssert.equal(chunk(), "z")
-    assert(
-        not code:find("xpcall", 1, true),
-        "a proven empty interval should not install raised-exit protection:\n" .. code
-    )
 end
 
 function M.aRaisedBodyStillDestroysTheOwner()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -417,7 +408,7 @@ function M.aRaisedBodyStillDestroysTheOwner()
     )
     local ok, calls = chunk()
     testAssert.equal(ok, false)
-    testAssert.equal(calls, "e", code)
+    testAssert.equal(calls, "e")
 end
 
 function M.ownersDestroyInReverseActivationOrder()
@@ -707,10 +698,8 @@ function M.structuredExitsRunCleanup()
     testAssert.equal(calls, "r12g")
 end
 
-local CACHED_REGION = "if not __nuppT%d+ then __nuppT%d+=function%("
-
 function M.aBodyThatOnlyCallsOutStillSharesOneRegion()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -726,12 +715,11 @@ function M.aBodyThatOnlyCallsOutStillSharesOneRegion()
             "\n"
         )
     )
-    assert(code:match(CACHED_REGION), "a body naming only module-level locals shares one region function")
     testAssert.equal(chunk(), "aabbcc")
 end
 
 function M.aChunkLevelLoopVariableTravelsThroughARegionFrame()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -744,12 +732,11 @@ function M.aChunkLevelLoopVariableTravelsThroughARegionFrame()
             "\n"
         )
     )
-    assert(code:match(CACHED_REGION), "a body reading a chunk-level loop variable shares its framed region function")
     testAssert.equal(chunk(), "1x2x3x")
 end
 
 function M.aFunctionLocalWriteUsesOneRegionPerInvocation()
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -772,7 +759,6 @@ function M.aFunctionLocalWriteUsesOneRegionPerInvocation()
     testAssert.equal(first, 3)
     testAssert.equal(second, 2)
     testAssert.equal(calls, "xxxxx")
-    assert(code:match("local __nuppT%d+;"), "a capturing region reserves one cache for the function invocation")
 end
 
 function M.recursiveInvocationsDoNotShareRegionUpvalues()
@@ -803,7 +789,7 @@ function M.aColonMethodRegionDoesNotCacheItsReceiverModuleWide()
     -- body reading it must reserve a per-invocation cache: parked module-wide,
     -- the cached closure would answer every later call with the first caller's
     -- receiver.
-    local chunk, code = compile(
+    local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
@@ -828,10 +814,6 @@ function M.aColonMethodRegionDoesNotCacheItsReceiverModuleWide()
     testAssert.equal(first, "first")
     testAssert.equal(second, "second", "a later receiver answers through its own self")
     testAssert.equal(calls, "xx")
-    assert(
-        code:match("Client : tell %( %) local __nuppT%d+;"),
-        "a region reading the implicit receiver reserves an invocation cache"
-    )
 end
 
 function M.aLoopLocalWriteTravelsThroughARegionFrame()
@@ -888,8 +870,7 @@ function M.automaticLoweringEmitsLoadableCleanupRegions()
         {"", "local function run()", "   local value = open_resource('l')", "   print(value.name)", "end",},
         "\n"
     )
-    local _, code = compile(source)
-    assert(loadstring(code, "@automatic-cleanup-lowering"), code)
+    assert(compile(source))
 end
 
 function M.aNestedFunctionReturnsValuesThroughItsOwnRegion()

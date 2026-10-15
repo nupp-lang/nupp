@@ -96,13 +96,14 @@ function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
     end)
     test.matches(nanError, "value%.value")
 
-    local ffi = require("ffi")
-    local pointer = ffi.new("int[1]")
-    test.deepEqual({pointer = pointer}, {pointer = pointer})
-    local pointerError = test.raises(function()
-        test.deepEqual({pointer = ffi.new("int[1]")}, {pointer = ffi.new("int[1]")})
+    -- A userdata leaf compares by identity: an LPeg pattern is one on every host.
+    local lpeg = require("lpeg")
+    local pattern = lpeg.P(1)
+    test.deepEqual({pattern = pattern}, {pattern = pattern})
+    local patternError = test.raises(function()
+        test.deepEqual({pattern = lpeg.P(1)}, {pattern = lpeg.P(1)})
     end)
-    test.matches(pointerError, "value%.pointer")
+    test.matches(patternError, "value%.pattern")
 
     local key = {}
     local keyError = test.raises(function()

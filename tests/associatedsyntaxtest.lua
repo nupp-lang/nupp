@@ -6,7 +6,7 @@ local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
 local fmt = require("nupp.tools.fmt")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -166,8 +166,8 @@ function M.formattingIsCanonicalAndIdempotent()
 end
 
 -- Erasure. An associated declaration is a fact for the checker and nothing at all at
--- run time, so the generated Lua has to be what the same program without them
--- generates -- byte for byte, not merely equivalent.
+-- run time, so the image has to be what the same program without them lowers
+-- to -- byte for byte, not merely equivalent.
 function M.associatedDeclarationsEraseCompletely()
    local function generate(src)
       local result = parser.parse(src, "test.nupp")
@@ -175,9 +175,7 @@ function M.associatedDeclarationsEraseCompletely()
          .. (result.errors[1] and result.errors[1].msg or ""))
       env.loaded = {}
       check.check(result, "test.nupp", env)
-      local code, genDiags = gen.generate(result, "test")
-      testAssert.equal(#genDiags, 0, "gen diagnostics")
-      return code
+      return program.image(result, "test")
    end
 
    local lines = {
@@ -194,8 +192,8 @@ function M.associatedDeclarationsEraseCompletely()
       "",
       "return Lines",
    }
-   -- The control keeps every other line where it was, because generated Lua follows
-   -- its source's lines: removing them outright would compare two different layouts
+   -- The control keeps every other line where it was, because an image's line
+   -- table follows its source's lines: removing them outright would compare two different layouts
    -- and prove nothing about erasure.
    local blanked = {}
    for j, line in ipairs(lines) do

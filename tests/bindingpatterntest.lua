@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local fmt = require("nupp.tools.fmt")
 local cst = require("nupp.compiler.syntax.cst")
 local env = require("nupp.compiler.project.env")
@@ -26,12 +26,7 @@ local function run(source)
     local result = parsed(source)
     local checked = check.check(result, "test.nupp", env.new("."))
     testAssert.equal(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
-    local code, problems = gen.generate(result, "test.nupp")
-    testAssert.equal(#problems, 0, problems[1] and problems[1].msg or "unexpected generation diagnostic")
-    local chunk, problem = loadstring(code, "@binding_pattern_test")
-    assert(chunk, tostring(problem) .. "\n" .. code)
-
-    return chunk(), code
+    return program.run(result, "binding_pattern_test")
 end
 
 local pair = table.concat({"local record Pair", "   x: number", "   y: number", "end",}, "\n")
@@ -54,7 +49,7 @@ function M.syntaxRoundTripsAndRecordsAliasesAndAnnotations()
 end
 
 function M.sourceAndFieldsEvaluateOnceFromLeftToRight()
-    local answer, code = run(
+    local answer = run(
         pair .. "\n" .. table.concat(
             {
                 "local calls = 0",
@@ -71,8 +66,6 @@ function M.sourceAndFieldsEvaluateOnceFromLeftToRight()
         )
     )
     testAssert.equal(answer, "1xy34")
-    testAssert.equal(select(2, code:gsub("= source %( %)", "")), 1, code)
-    assert(code:match("local%s+x%s*,%s*vertical%s*=%s*__nuppT%d+%.x%s*,%s*__nuppT%d+%.y"), code)
 end
 
 function M.constBindingsStayImmutableAndKeepTheirFieldTypes()

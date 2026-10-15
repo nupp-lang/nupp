@@ -1292,9 +1292,13 @@ if engine == "vm" and not wanted and not queueDir then
             end
         end
     end
+    local named = {}
+    for _, name in ipairs(chosen) do
+        named[name] = true
+    end
     local kept = {}
     for _, info in ipairs(suites) do
-        if classified[info.name] then
+        if classified[info.name] and not named[info.name] then
             deferredSuites[#deferredSuites + 1] = {name = info.name, class = classified[info.name]}
         else
             kept[#kept + 1] = info
