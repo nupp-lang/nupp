@@ -3985,6 +3985,42 @@ function lower.emit(
                 end
             end
             markLibraryLocals(f, names, exprs)
+        elseif (k == "assignStmt" and #node.targets == 1 or k == "compoundAssign")
+            and (
+                (node.targets and node.targets[1] or node.target).kind == "safeIndex"
+                or (node.targets and node.targets[1] or node.target).kind == "safeBracket"
+            )
+        then
+            -- `o?.name = v` and `o?.[key] op= v`: when `o` is nil the store and its
+            -- value are both skipped; otherwise it is the plain store into `o`.
+            local target = node.targets and node.targets[1] or node.target
+            local o = f:reg()
+            exprAs(f, target.obj, "v", o)
+            local none, present = f:reg(), f:reg()
+            f:op("Nil", none)
+            f:op("Ne", present, o, none)
+            local skip = f:op("JmpIfNot", present, 0)
+            local holder = {kind = "vmRegister", reg = o, inferredType = target.obj.inferredType}
+            local plain = target.kind == "safeIndex"
+                and {
+                    kind = "dotIndex",
+                    obj = holder,
+                    name = target.name,
+                    overloadMember = target.overloadMember,
+                    inferredType = target.inferredType,
+                }
+                or {kind = "bracketIndex", obj = holder, expr = target.expr, inferredType = target.inferredType}
+            local rewritten = {}
+            for key, value in pairs(node) do
+                rewritten[key] = value
+            end
+            if node.targets then
+                rewritten.targets = {plain}
+            else
+                rewritten.target = plain
+            end
+            stmt(f, rewritten)
+            f:patch(skip, "JmpIfNot", present, f:offset(skip, f:here()))
         elseif k == "assignStmt" then
             local targets, exprs = node.targets, node.exprs
             if #targets == 1 and #exprs == 1 then
