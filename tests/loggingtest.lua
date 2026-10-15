@@ -1,6 +1,6 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local stdlib = require("nupp.compiler.stdlib")
@@ -8,17 +8,24 @@ local stdlib = require("nupp.compiler.stdlib")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- Check, then generate under the module name a logged line should carry.
-local function compile(src, moduleName)
+-- Check, then lower under the module name a logged line should carry.
+local function checked(src, moduleName)
     local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check diagnostics")
     result.moduleName = moduleName or "test"
-    local code, generated = gen.generate(result, moduleName or "test")
-    testAssert.equal(#generated, 0, "gen diagnostics")
 
-    return code
+    return result
+end
+
+-- The VM image a module lowers to.
+local function compile(src, moduleName)
+    return program.image(checked(src, moduleName), moduleName or "test")
+end
+
+local function run(src, moduleName)
+    return program.run(checked(src, moduleName), moduleName or "test")
 end
 
 local function codesOf(src)
@@ -87,57 +94,53 @@ function M.levelNamesAreCheckedAtTheCallSite()
     )
 end
 
--- The lowered site, as severity, line and the expression built for the message. The
--- binding it reaches through is a reserved name, so it is matched rather than spelled.
-local function loweredSite(code)
-    local severity, line, rest = code:match("if __nupp%w*%.on%[(%d)%] then __nupp%w*%.emit%((%d),(%d+),")
-    if not severity then
-        return nil
-    end
-    local message = code:match("%.emit%(%d,%d+,(.-)%) end")
+-- What a module logged at `level`, as recorded lines, and what it returned.
+local function logged(src, level)
+    local log = runtime()
+    local lines, sink = recorder()
+    log.setSink(sink)
+    log.setLevel(level or "debug")
+    local answer = run(src, "amb")
+    log.setLevel("warn")
 
-    return tonumber(severity), tonumber(rest), message
+    return lines, answer
 end
 
 function M.aStatementCallWithALiteralFormatIsLowered()
-    local code = compile("nupp.log.error('id %d', 3)", "amb")
-    local severity, line, message = loweredSite(code)
-    testAssert.equal(severity, 1, "the level test stands at the call site")
-    testAssert.equal(line, 1, "the line is a constant")
-    assert(message:find("string.format", 1, true) ~= nil, "the message is built at the site")
-    assert(
-        code:find('require("nupp.log").forModule("amb")', 1, true) ~= nil,
-        "the module name is named once, in the prologue"
-    )
-end
-
-function M.aFormatWithNoArgumentsSkipsStringFormat()
-    local code = compile("nupp.log.warn('plain')", "amb")
-    local severity, _, message = loweredSite(code)
-    testAssert.equal(severity, 2, "the call was lowered")
-    testAssert.equal(message:find("string.format", 1, true), nil, "nothing to interpolate means nothing to call")
-    assert(message:find("plain", 1, true) ~= nil, "the literal is passed straight through")
+    local lines = logged("nupp.log.error('id %d', 3)")
+    testAssert.equal(#lines, 1, "the site emitted")
+    testAssert.equal(lines[1].level, 1, "at its own severity")
+    testAssert.equal(lines[1].line, 1, "the line is a constant")
+    testAssert.equal(lines[1].module, "amb", "the module name is the compiled module's")
+    testAssert.equal(lines[1].message, "id 3", "the message is built at the site")
 end
 
 function M.aDebugDirectiveLowersInsideTheLevelGuard()
-    local code = compile(
-        table.concat(
-            {"@derive(nupp.derive.Debug)", "local record Value end", "nupp.log.debug('value=%?', new Value())",},
-            "\n"
-        ),
-        "amb"
+    local src = table.concat(
+        {
+            "local renders = 0",
+            "local record Value",
+            "    function debug(self): string",
+            "        renders += 1",
+            "        return 'v'",
+            "    end",
+            "end",
+            "nupp.log.debug('value=%?', new Value())",
+            "return renders",
+        },
+        "\n"
     )
-    local guard = assert(code:find("if __nupp", 1, true), "the enabled guard is present")
-    local call = assert(code:find("__nuppFormat", guard, true), "formatting happens in the guard")
-    assert(guard < call, "debug formatting is lazy")
-    assert(
-        code:find('string.format("value=%s",__nuppA1:debug())', 1, true) ~= nil,
-        "the shared helper rewrites %? to %s and calls debug"
-    )
+    local lines, renders = logged(src, "warn")
+    testAssert.equal(#lines, 0, "a filtered site reaches no sink")
+    testAssert.equal(renders, 0, "debug formatting is lazy")
+
+    lines, renders = logged(src, "debug")
+    testAssert.equal(renders, 1, "an admitted site renders once")
+    testAssert.equal(lines[1].message, "value=v", "%? formats what debug returned")
 end
 
 function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
-    local code = compile(
+    local direct, method = run(
         table.concat(
             {
                 "@derive(nupp.derive.Debug)",
@@ -151,92 +154,71 @@ function M.debugDirectivesRunThroughDirectAndMethodFormattingCalls()
         ),
         "amb"
     )
-    local chunk, why = loadstring(code, "@debug-format")
-    assert(chunk ~= nil, why)
-    local direct, method = chunk()
     testAssert.equal(direct, 'direct=Value { name = "ready" }')
     testAssert.equal(method, 'method=Value { name = "ready" }')
 end
 
 function M.eachSeverityCarriesItsOwnIndex()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
-        local severity = loweredSite(compile(("nupp.log.%s('m')"):format(name), "amb"))
-        testAssert.equal(severity, index, name .. " tests its own level")
+        local lines = logged(("nupp.log.%s('m')"):format(name))
+        testAssert.equal(lines[1].level, index, name .. " tests its own level")
     end
 end
 
--- Logging is an ordinary module, so the view is reached through `require` and there
--- is no installer to be ordered against. What used to be an ordering rule is now
--- Lua's own module loading.
-function M.theLoggingViewIsBoundThroughRequire()
-    local code = compile("nupp.log.warn('m')", "amb")
-    assert(code:find('require("nupp.log").forModule(', 1, true) ~= nil, "the module view is bound through require")
-    testAssert.equal(
-        code:find('rawset(__nupp,"log"', 1, true),
-        nil,
-        "and nothing installs a logging table into the ambient one"
-    )
-end
-
--- The guard is what lowering produces, so its absence is what says a site kept its
--- ordinary call. A module reaching `nupp.log` at all still requires it, whether or
--- not any of its sites were lowered.
-local function isLowered(code)
-    return loweredSite(code) ~= nil
+-- A form that keeps its ordinary call logs the same line with the module shown as
+-- `?`, and evaluates its arguments.
+local function assertOrdinaryCall(src, message, why)
+    local lines = logged(src)
+    testAssert.equal(#lines, 1, why .. ": the call emitted")
+    testAssert.equal(lines[1].module, "?", why)
+    testAssert.equal(lines[1].message, message, why .. ": with its message")
 end
 
 function M.whatIsNotLoweredStaysAnOrdinaryCall()
-    assert(
-        not isLowered(compile("local f = 'id %d'\nnupp.log.error(f, 3)", "amb")),
-        "a computed format has nothing to fold"
-    )
+    assertOrdinaryCall("local f = 'id %d'\nnupp.log.error(f, 3)", "id 3", "a computed format has nothing to fold")
+    assertOrdinaryCall("local f = nupp.log.error\nf('id %d', 3)", "id 3", "reading the function is not calling it")
 
-    assert(
-        not isLowered(compile("local f = nupp.log.error\nf('id %d', 3)", "amb")),
-        "reading the function is not calling it"
-    )
+    local lines, ok = logged("local ok = nupp.log.enabled('warn')\nreturn ok")
+    testAssert.equal(ok, true, "a call in value position keeps its value")
+    testAssert.equal(#lines, 0, "and logs nothing")
 
-    assert(
-        not isLowered(compile("local ok = nupp.log.enabled('warn')", "amb")),
-        "a call in value position keeps its value"
-    )
-
-    local valueCall = compile(
+    assertOrdinaryCall(
         table.concat(
             {
-                "@derive(nupp.derive.Debug)",
-                "local record Value end",
+                "local record Value",
+                "    function debug(self): string return 'v' end",
+                "end",
                 "local ignored = nupp.log.debug('value=%?', new Value())",
             },
             "\n"
         ),
-        "amb"
+        "value=v",
+        "a severity call in value position keeps its call"
     )
-    assert(not isLowered(valueCall), "a severity call in value position keeps its call")
-    assert(valueCall:find(".debug", 1, true) ~= nil, "and is not replaced by a formatting expression")
 
-    assert(
-        not isLowered(
-            compile(
-                table.concat(
-                    {"local nupp = {log = {error = function(m: string): nil print(m) end}}", "nupp.log.error('m')",},
-                    "\n"
-                ),
-                "amb"
-            )
-        ),
-        "a local called nupp is the one that was written"
+    local reached, answer = logged(
+        table.concat(
+            {
+                "local seen = ''",
+                "local nupp = {log = {error = function(m: string): nil seen = m end}}",
+                "nupp.log.error('m')",
+                "return seen",
+            },
+            "\n"
+        )
     )
+    testAssert.equal(answer, "m", "a local called nupp is the one that was written")
+    testAssert.equal(#reached, 0, "and the logger is not reached")
 end
 
 function M.aNamedArgumentKeepsTheOrdinaryCall()
     -- Named arguments are positional only after the adjustment the ordinary call path
     -- performs, and lowering goes around it.
-    assert(not isLowered(compile("nupp.log.error(fmt = 'plain')", "amb")), "a named argument keeps its call")
+    assertOrdinaryCall("nupp.log.error(fmt = 'plain')", "plain", "a named argument keeps its call")
 end
 
 function M.aPluckedArgumentKeepsTheOrdinaryCall()
-    local code = compile(
+    assertOrdinaryCall(
         table.concat(
             {
                 "local record Message",
@@ -247,9 +229,9 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
             },
             "\n"
         ),
-        "amb"
+        "plain",
+        "a plucked argument keeps its call"
     )
-    assert(not isLowered(code), "a plucked argument keeps its call")
 end
 
 function M.aLoweredSiteDoesNotEvaluateAFilteredArgument()
@@ -529,9 +511,6 @@ end
 function M.theLoggingViewLandsOnlyInModulesThatLog()
     local without = compile("local m = {}\nreturn m", "amb")
     testAssert.equal(without:find("nupp.log", 1, true), nil, "a module that never logs requires no logging module")
-
-    local with = compile("nupp.log.warn('m')", "amb")
-    assert(with:find('require("nupp.log")', 1, true) ~= nil, "and a module that logs requires it once")
 end
 
 -- Every call written through the `nupp.log` path runs from a generated module rather
@@ -542,7 +521,7 @@ function M.everyPathCallRunsFromAModule()
     local log = runtime()
     local saved = {sink = log.sink(), formatter = log.formatter(), stamp = log.timestampFormat()}
     log.setLevel("warn")
-    local code = compile(
+    local module = run(
         table.concat(
             {
                 "return function(sink: nupp.log.Sink): {any}",
@@ -574,9 +553,7 @@ function M.everyPathCallRunsFromAModule()
         "amb"
     )
     local lines, sink = recorder()
-    local chunk, why = loadstring(code, "@path-calls")
-    assert(chunk ~= nil, why)
-    local answers = chunk()(sink)
+    local answers = module(sink)
     log.setSink(saved.sink)
     log.setFormatter(saved.formatter)
     log.setTimestampFormat(saved.stamp)

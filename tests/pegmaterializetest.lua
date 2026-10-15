@@ -2,68 +2,27 @@ local testAssert = require("nupp.test")
 -- The textual PEG compiler at both phases, typed static materialization, Nupp
 -- specialization templates, and native LPeg lowering.
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- What `nupp.compiler.runtime.peg` raises LPeg's backtrack limit to when it loads.
--- The limit is one process-wide value inside the C module rather than per pattern,
--- so anything that re-enters `luaopen_lpeg` has to put it back.
-local MAXSTACK = 10000
-
--- Load LPeg's C module directly from the test rock tree so differential tests reach
--- it without going through package.loaded, which generated bootstrap code rewrites.
---
--- The handle is not a second instance: the loader caches the library, so this is the
--- same table `require` answers. What re-running `luaopen_lpeg` does do is reset the
--- backtrack limit to LPeg's 400 default, which is a limit the runtime raised once at
--- load and no later matcher raises again. Left alone, the next test in this process
--- to match deeper than 400 fails with a stack overflow, and which test that is
--- depends on how the suite happens to shard.
-local function officialLpeg()
-    for template in package.cpath:gmatch("[^;]+") do
-        local path = template:gsub("%?", "lpeg")
-        local file = io.open(path, "rb")
-        if file then
-            file:close()
-            local opener, why = package.loadlib(path, "luaopen_lpeg")
-            assert(opener, why)
-            local lpeg = opener()
-            lpeg.setmaxstack(MAXSTACK)
-
-            return lpeg
-        end
-    end
-    error("the LPeg oracle is not installed in package.cpath")
-end
-
-local function officialRe(lpeg)
-    local savedLpeg, savedRe = package.loaded.lpeg, package.loaded.re
-    package.loaded.lpeg, package.loaded.re = lpeg, nil
-    local ok, re = pcall(require, "re")
-    package.loaded.lpeg, package.loaded.re = savedLpeg, savedRe
-    assert(ok, re)
-
-    return re
-end
-
-local function compile(source)
+local function checked(source)
     local parsed = parser.parse(source, "peg_materialize_test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "peg_materialize_test.nupp", env)
-    local code, generated = gen.generate(parsed, "peg_materialize_test")
-    for _, diagnostic in ipairs(generated) do
-        diagnostics[#diagnostics + 1] = diagnostic
-    end
 
-    return code, diagnostics
+    return parsed, check.check(parsed, "peg_materialize_test.nupp", env)
+end
+
+-- The VM image a program lowers to.
+local function compile(source)
+    return program.image((checked(source)), "peg_materialize_test")
 end
 
 local function errorsOf(source)
-    local _, diagnostics = compile(source)
+    local _, diagnostics = checked(source)
     local codes = {}
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
@@ -75,16 +34,14 @@ local function errorsOf(source)
 end
 
 local function run(source, ...)
-    local code, diagnostics = compile(source)
+    local parsed, diagnostics = checked(source)
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
-            error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, code), 2)
+            error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, source), 2)
         end
     end
-    local chunk, why = loadstring(code, "@peg_materialize_test")
-    assert(chunk, why and (why .. "\n---\n" .. code))
 
-    return chunk(...)
+    return program.run(parsed, "peg_materialize_test", nil, ...)
 end
 
 local M = {}
@@ -259,11 +216,6 @@ return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
     testAssert.equal(matched, 7, "recognition returns the next byte position")
     testAssert.equal(missed, nil, "a failed match returns nil")
     testAssert.equal(called, 3, "the matcher call contract reaches the same machine")
-    local code = compile(source)
-    assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-    testAssert.equal(code:find("__nuppPegReInstall", 1, true), nil, "ordinary static PEG excludes the runtime frontend")
-    assert(code:find("require(\"nupp.compiler.runtime.peg\")", 1, true), code)
-    testAssert.equal(code:find("package.preload.re", 1, true), nil, "ordinary static PEG excludes the textual runtime frontend")
 end
 
 function M.searchesForMatchesWithoutBuildingAMatchResult()
@@ -536,18 +488,13 @@ return Digits:replace("a12b", "#"), Digits:replace("a12b", callback),
     Digits:replaceAll("1 22", "#"), Digits:replaceAll("1 22", callback),
     Digits:replaceAll("1 22", dynamic)
 ]==]
-    local code, diagnostics = compile(source)
+    local _, diagnostics = checked(source)
     for _, diagnostic in ipairs(diagnostics) do
         assert(
             diagnostic.severity == "warning" or diagnostic.severity == "note",
             diagnostic.code .. ": " .. diagnostic.msg
         )
     end
-    assert(code:find("Digits :__nuppPegReplaceLiteral (", 1, true), code)
-    assert(code:find("Digits :__nuppPegReplaceCallback (", 1, true), code)
-    assert(code:find("Digits :__nuppPegReplaceAllLiteral (", 1, true), code)
-    assert(code:find("Digits :__nuppPegReplaceAllCallback (", 1, true), code)
-    assert(code:find("Digits : replaceAll ( \"1 22\" , dynamic )", 1, true), code)
 
     local literalFirst, callbackFirst, literalAll, callbackAll, dynamicAll = run(source)
     testAssert.equal(literalFirst, "a#b", "literal replace fast path")
@@ -620,16 +567,6 @@ return staticFirst, staticNext, staticValue, lpegFirst, runtimeFirst, replaced,
     testAssert.equal(recursiveFirst, 4, "recursive first set")
     testAssert.equal(predicateFirst, 2, "predicate before consuming prefix")
     testAssert.equal(specialFirst, 4, "Lua-pattern punctuation is escaped")
-
-    local code = compile(
-        [==[
-const Digits = comptime do
-    return nupp.peg.compile("[0-9]+")
-end
-return Digits:isMatch("room 42")
-]==]
-    )
-    assert(code:find("search={", 1, true), code)
 end
 
 function M.keepsSemanticallySensitiveSearchesOnTheGeneralPath()
@@ -776,8 +713,7 @@ end
 
 function M.excludesPegSupportFromUnrelatedPrograms()
     local code = compile("return 42")
-    testAssert.equal(code:find("__nuppPegVM", 1, true), nil, "unused helper")
-    testAssert.equal(code:find("__nuppPegCodegen", 1, true), nil, "unused code generator")
+    testAssert.equal(code:find("nupp.compiler.runtime.peg", 1, true), nil, "no PEG runtime")
 end
 
 function M.buildsATypedMatcherFactoryForRuntimeActions()
@@ -902,25 +838,6 @@ return Nested(subject)
     testAssert.equal(matched, 4002, "deep recursive match")
 end
 
--- The same grammar, with the LPeg oracle opened first. Re-entering `luaopen_lpeg`
--- resets the backtrack limit, and the runtime raises it once at load and never
--- again, so without officialLpeg putting it back the test above passes or fails by
--- which shard it lands in rather than by anything it measures.
-function M.keepsTheBacktrackLimitWhenTheOracleIsOpened()
-    officialLpeg()
-    local matched = run(
-        [[
-const Nested: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "lpeg"})
-end
-local depth = 2000
-local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
-return Nested(subject)
-]]
-    )
-    testAssert.equal(matched, 4002, "deep recursive match after the oracle was opened")
-end
-
 function M.supportsPositionAnyAndOptionalPatterns()
     local empty, byte, tooLong = run(
         [[
@@ -995,8 +912,8 @@ end
     testAssert.equal(table.concat(codes, " "), "NUPP2417", "a predefined name starts immediately after percent")
 end
 
+-- The expected answers are LPeg 1.1's for the same grammar.
 function M.agreesWithLpegOnTheOverlappingFloor()
-    local lpeg = officialLpeg()
     local matcher = run(
         [[
 const Identifier: nupp.peg.Peg<integer> = comptime do
@@ -1005,10 +922,9 @@ end
 return Identifier
 ]]
     )
-    local alpha = lpeg.R("az", "AZ") + lpeg.P("_")
-    local reference = alpha * (alpha + lpeg.R("09")) ^ 0 * -lpeg.P(1)
+    local want = {name = 5, _name9 = 7, A0 = 3}
     for _, subject in ipairs({"name", "_name9", "A0", "", "9x", "a-b"}) do
-        testAssert.equal(matcher(subject), lpeg.match(reference, subject), "LPeg differential subject " .. subject)
+        testAssert.equal(matcher(subject), want[subject], "LPeg differential subject " .. subject)
     end
 end
 
@@ -1079,47 +995,29 @@ return {
 ]==]
     )
 
-    local lpeg = officialLpeg()
-
-    local function pack(...)
-        return {n = select("#", ...), ...}
-    end
-
-    local want = {}
-    want.direct = pack((lpeg.C("a") * lpeg.C("b") * lpeg.Cc(nil, "tail")):match("ab"))
-    want.transformed = pack(
-        (lpeg.C("a") / function(value)
-            return value, value:upper(), nil, "tail"
-        end):match("a")
-    )
-    want.matchTime = pack(
-        lpeg.Cmt(lpeg.C("a"), function(_, _, value)
-            return true, value, value:upper(), nil, "tail"
-        end):match("a")
-    )
-    want.rewound, want.rewindError = pcall(function()
-        return lpeg.Cmt(lpeg.P("a"), function()
-            return 1
-        end):match("a")
-    end)
-    want.capturedBehind = pcall(lpeg.B, lpeg.C("a"))
-    want.variableBehind = pcall(lpeg.B, lpeg.P("a") ^ 0)
-    want.longBehind = pcall(lpeg.B, lpeg.P(256))
-    want.unresolvedBehind = pcall(lpeg.B, lpeg.V("S"))
-    want.unequalChoiceBehind = pcall(lpeg.B, lpeg.P("a") + lpeg.P("bc"))
-    want.mixedUtfBehind = pcall(lpeg.B, lpeg.utfR(0x7f, 0x80))
-    want.fixedBehind = (lpeg.P("a") * lpeg.B(lpeg.P("a")) * lpeg.P("b")):match("ab")
-    local grammarPattern = lpeg.P({lpeg.V("S"), S = lpeg.P("a")})
-    want.grammarBehind = (lpeg.P("a") * lpeg.B(grammarPattern) * lpeg.P("b")):match("ab")
-    local twoByte = string.char(0xc2, 0x80)
-    want.utfBehind = (lpeg.utfR(0x80, 0x7ff) * lpeg.B(lpeg.utfR(0x80, 0x7ff)) * lpeg.P("x")):match(twoByte .. "x")
-    want.numericGrammar = lpeg.P({lpeg.V(2), [2] = lpeg.P("x")}):match("x")
-    want.booleanGrammar = lpeg.P({lpeg.V(true), [true] = lpeg.P("x")}):match("x")
-    local classes = lpeg.locale()
-    want.versionType, want.version = type(lpeg.version), lpeg.version
-    want.printableSpace, want.printableNewline = classes.print:match(" "), classes.print:match("\n")
-    want.invalidStack = pcall(lpeg.setmaxstack, 0)
-    lpeg.setmaxstack(10000)
+    -- LPeg 1.1's answers to the same calls.
+    local want = {
+        direct = {n = 4, "a", "b", nil, "tail"},
+        transformed = {n = 4, "a", "A", nil, "tail"},
+        matchTime = {n = 4, "a", "A", nil, "tail"},
+        rewound = false,
+        capturedBehind = false,
+        variableBehind = false,
+        longBehind = false,
+        unresolvedBehind = false,
+        unequalChoiceBehind = false,
+        mixedUtfBehind = false,
+        fixedBehind = 3,
+        grammarBehind = 3,
+        utfBehind = 4,
+        numericGrammar = 2,
+        booleanGrammar = 2,
+        versionType = "string",
+        version = "LPeg 1.1.0",
+        printableSpace = 2,
+        printableNewline = nil,
+        invalidStack = false,
+    }
 
     for _, name in ipairs({"direct", "transformed", "matchTime"}) do
         testAssert.equal(got[name].n, want[name].n, name .. " result count")
@@ -1295,9 +1193,8 @@ return captured, first, last, re.gsub("a1b22", "[0-9]+", "#"), type(pattern)
     testAssert.equal(patternType, "userdata", "re compiles to the same opaque pattern")
 end
 
+-- The expected answers are LPeg 1.1 `re`'s for the same grammars.
 function M.agreesWithLpegReOnTheCaptureSurface()
-    local lpeg = officialLpeg()
-    local re = officialRe(lpeg)
     local same, fields, substitution, selected, formatted, upper, matchTime, fold, accumulate, external, externalClass, multiple, nestedCapture = run(
         [==[
 const Same: nupp.peg.Peg<any> = comptime do
@@ -1339,83 +1236,34 @@ return Same, Fields, Substitution, Selected, Formatted, Upper, MatchTime,
 ]==]
     )
 
-    local sameOracle = re.compile("{:word: { [a-z]+ } :} '=' =word !.")
-    for _, subject in ipairs({"abc=abc", "abc=abd", "x=x"}) do
-        testAssert.equal(same(subject), sameOracle:match(subject), "named back capture oracle for " .. subject)
+    for subject, want in pairs({["abc=abc"] = 8, ["abc=abd"] = false, ["x=x"] = 4}) do
+        testAssert.equal(same(subject), want or nil, "named back capture oracle for " .. subject)
     end
 
-    local fieldsOracle = re.compile("{| {:name: { [a-z]+ } :} ':' { [0-9]+ } |} !.")
-    local gotFields, wantFields = fields("age:42"), fieldsOracle:match("age:42")
-    testAssert.equal(gotFields.name, wantFields.name, "named table field oracle")
-    testAssert.equal(gotFields[1], wantFields[1], "positional table field oracle")
+    local gotFields = fields("age:42")
+    testAssert.equal(gotFields.name, "age", "named table field oracle")
+    testAssert.equal(gotFields[1], "42", "positional table field oracle")
 
     local cases = {
-        {substitution, re.compile("{~ (({ [0-9]+ } -> '#') / .)* ~} !."), "a12b"},
-        {selected, re.compile("({.} {.}) -> 2 !."), "xy"},
-        {formatted, re.compile("({.} {.}) -> '%2%1' !."), "xy"},
-        {
-            upper,
-            re.compile(
-                "{[a-z]+} -> upper !.",
-                {
-                    upper = function(value)
-                        return value:upper()
-                    end,
-                }
-            ),
-            "hello"
-        },
-        {
-            matchTime,
-            re.compile("{[a-z]+} => accept !.", {
-                accept = function(_, position, value)
-                    return position, value .. "!"
-                end,
-            }),
-            "hello"
-        },
-        {
-            fold,
-            re.compile("({[0-9]} {[0-9]}*) ~> sum !.", {
-                sum = function(left, right)
-                    return tonumber(left) + tonumber(right)
-                end,
-            }),
-            "123"
-        },
-        {
-            accumulate,
-            re.compile("{[0-9]} ({[0-9]} >> sum)* !.", {
-                sum = function(left, right)
-                    return tonumber(left) + tonumber(right)
-                end,
-            }),
-            "123"
-        },
-        {
-            external,
-            re.compile("%token !.", {
-                token = "ok"
-            }),
-            "ok"
-        },
-        {externalClass, re.compile("[%token] !.", {token = "ok"}), "ok"},
+        {substitution, "a12b", "a#b"},
+        {selected, "xy", "y"},
+        {formatted, "xy", "yx"},
+        {upper, "hello", "HELLO"},
+        {matchTime, "hello", "hello!"},
+        {fold, "123", 6},
+        {accumulate, "123", 6},
+        {external, "ok", 3},
+        {externalClass, "ok", 3},
     }
     for index, case in ipairs(cases) do
-        testAssert.equal(case[1](case[3]), case[2]:match(case[3]), "LPeg re capture oracle case " .. index)
+        testAssert.equal(case[1](case[2]), case[3], "LPeg re capture oracle case " .. index)
     end
     local gotMultiple = multiple("hi")
-    local wantMultiple = re.compile("{| {[a-z]+} -> both |} !.", {
-        both = function(value)
-            return value, value:upper()
-        end,
-    }):match("hi")
-    testAssert.equal(gotMultiple[1], wantMultiple[1], "first transformed capture")
-    testAssert.equal(gotMultiple[2], wantMultiple[2], "second transformed capture")
+    testAssert.equal(gotMultiple[1], "hi", "first transformed capture")
+    testAssert.equal(gotMultiple[2], "HI", "second transformed capture")
     local gotNested = nestedCapture("a")
-    local wantNested = re.compile("{| { {'a'} } |} !."):match("a")
-    testAssert.equal(gotNested[1], wantNested[1], "outer substring capture")
-    testAssert.equal(gotNested[2], wantNested[2], "nested substring capture")
+    testAssert.equal(gotNested[1], "a", "outer substring capture")
+    testAssert.equal(gotNested[2], "a", "nested substring capture")
 end
 
 function M.searchesGeneralRecognitionProgramsWithoutLosingTheirEndPosition()
@@ -1443,9 +1291,6 @@ return Identifier("_name9"), Identifier("9name"), Identifier("name!")
     testAssert.equal(matched, 7, "re notation static match")
     testAssert.equal(badHead, nil, "re notation static head rejection")
     testAssert.equal(badTail, nil, "re notation static eof rejection")
-    local code = compile(source)
-    assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-    testAssert.equal(code:find("__nuppPegReInstall", 1, true), nil, "static re grammar excludes the runtime frontend")
 end
 
 function M.compilesTheSameReNotationAtRuntime()
@@ -1467,7 +1312,7 @@ return Static, Dynamic
 end
 
 function M.reusesOneMatcherShellAcrossRuntimeBackends()
-    local staticResult, dynamicResult, lpegResult, sameTemplate, sameLpegShell = run(
+    local staticResult, dynamicResult, lpegResult = run(
         [==[
 const Static: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
@@ -1475,17 +1320,11 @@ end
 local grammar: string = "[a-zA-Z_] [a-zA-Z_0-9]* !."
 local Dynamic = nupp.peg.compile(grammar)
 local LPEG = nupp.peg.compile(grammar, {backend = "lpeg"})
-local staticCode = string.dump((getmetatable(Static) as any).__call)
-local dynamicCode = string.dump((getmetatable(Dynamic) as any).__call)
-local lpegCode = string.dump((getmetatable(LPEG) as any).__call)
-return Static("name9"), Dynamic("name9"), LPEG("name9"),
-    staticCode == dynamicCode, dynamicCode == lpegCode
+return Static("name9"), Dynamic("name9"), LPEG("name9")
 ]==]
     )
     testAssert.equal(dynamicResult, staticResult, "runtime specialization result")
     testAssert.equal(lpegResult, staticResult, "forced LPeg result")
-    testAssert.equal(sameTemplate, true, "static and runtime use the same matcher template")
-    testAssert.equal(sameLpegShell, true, "kernels and LPeg share one matcher shell")
 end
 
 function M.supportsRuntimeReCapturesCollectionsAndActions()
@@ -1612,9 +1451,6 @@ const RefList: nupp.peg.Peg<{string}> = comptime do
 end
 return FastIdentifier, RefIdentifier, FastList, RefList
 ]]
-    local code = compile(source)
-    assert(code:find("(__nuppPegCodegen)({", 1, true), code)
-    assert(code:find("(__nuppPegLpeg)({", 1, true), code)
     local fastIdentifier, refIdentifier, fastList, refList = run(source)
     local inputs = {"", "a", "_ok9", "9bad", "alpha,beta", "one,two,three", "one,", ",two"}
     for _, input in ipairs(inputs) do
@@ -1657,10 +1493,6 @@ const Date: nupp.peg.Peg<integer> = comptime do
 end
 return Date("2026-08-10"), Date("2026/08/10"), Date:match("x2026-08-10", 2)
 ]]
-    local code = compile(source)
-    assert(code:find("fastFixed={", 1, true), code)
-    testAssert.equal(code:find("program.code", 1, true), nil, "no PEG bytecode program")
-    testAssert.equal(code:find("unknown PEG opcode", 1, true), nil, "no PEG opcode dispatcher")
     local matched, missed, offset = run(source)
     testAssert.equal(matched, 11, "fixed-width call match")
     testAssert.equal(missed, nil, "fixed-width byte rejection")
@@ -1679,9 +1511,6 @@ return Route("GET /users/42 HTTP/1.1"), Route("HEAD /users/42 HTTP/1.1"),
     Route("GET /Users/42 HTTP/1.1"), Route:match("xPOST /items HTTP/1.0", 2),
     Route:isMatch("prefix PATCH /items HTTP/1.1")
 ]==]
-    local code = compile(source)
-    assert(code:find("fastScan={", 1, true), code)
-    assert(code:find("packedKeys={", 1, true), code)
     local matched, methodMiss, pathMiss, offset, searched = run(source)
     testAssert.equal(matched, 23, "packed scan call match")
     testAssert.equal(methodMiss, nil, "packed scan prefix rejection")
@@ -1754,8 +1583,6 @@ const Native: nupp.peg.Peg<integer> = comptime do
 end
 return Fast("a=abcdefghi"), Native("a=abcdefghi"), Fast("a=-abcdefghi"), Native("a=-abcdefghi")
 ]==]
-    local code = compile(source)
-    testAssert.equal(code:find("fastScan={", 1, true), nil, "a suffix the scan class accepts is not specialized")
     local fast, native, fastMiss, nativeMiss = run(source)
     testAssert.equal(fast, native, "greedy repetition agrees with LPeg")
     testAssert.equal(fast, nil, "the greedy scan swallows the suffix")

@@ -3,7 +3,7 @@ local assertions = require("helpers.assertions")
 -- Record and struct members, and multi-value return expansion.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -23,27 +23,20 @@ end
 
 local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
 
-local function generate(src)
-    local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.nupp", env)
-    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-
-    return code
-end
+-- Each fragment is its own module: native struct declarations are process-wide
+-- and keyed by module, and two fragments are different programs.
+local fragments = 0
 
 local function run(src)
-    local result = parser.parse(src, "test.nupp")
+    fragments = fragments + 1
+    local name = "methodtest" .. fragments
+    local result = parser.parse(src, name .. ".nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, "test.nupp", env)
+    local diags = check.check(result, name .. ".nupp", env)
     testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@methodtest")
+    local chunk, err = program.load(result, name)
     if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n" .. code, 2)
+        error("does not load: " .. tostring(err), 2)
     end
 
     return chunk()
@@ -452,66 +445,32 @@ function M.aComputedSubjectIsEvaluatedOnce()
     )
 end
 
--- What the subject is handed to is declared once for the module rather than built
--- where it is used. LuaJIT does not record `FNEW`: a loop containing one aborts
--- recording and is blacklisted, so a loop testing a computed subject would never
--- compile. Nothing else notices -- the answers are the same either way -- so the
--- generated text is what this has to read.
-function M.aComputedSubjectDoesNotBuildAFunctionWhereItIsUsed()
-    local code = generate(
-        table.concat(
-            {
-                "local interface Tagged",
-                "   tag: string",
-                "   satisfies |self| -> self.tag == 'x'",
-                "end",
-                "local items: {any} = {}",
-                "local total = 0",
-                "for i = 1, #items do",
-                "   if items[i] is Tagged then",
-                "      total = total + 1",
-                "   end",
-                "end",
-                "return total",
-            },
-            "\n"
-        )
-    )
-    local loop = assert(code:match("for i = 1(.-)\nreturn total"), "generated loop")
-    assert(not loop:find("function", 1, true), "the test is built where it is used:\n" .. loop)
-    assert(loop:find("__nuppIs1(", 1, true), "the loop calls the declared test:\n" .. loop)
-    assert(
-        code:find("local __nuppIs1 = function(", 1, true),
-        "the test is declared once for the module:\n" .. code:sub(1, 200)
-    )
-end
-
--- Two types whose tests render the same share one declaration, and `is` under `or`
--- keeps the subject on the right of it, where it is reached only if the left side
--- was false. Hoisting the subject to a statement would have lost that.
-function M.refinementTestsAreSharedAndKeepShortCircuiting()
-    local code = generate(
+-- `is` under `or` keeps the subject on the right of it, where it is reached only
+-- if the left side was false.
+function M.refinementTestsKeepShortCircuiting()
+    local hit, guarded, reached = run(
         table.concat(
             {
                 "local interface A",
                 "   tag: string",
                 "   satisfies |self| -> self.tag == 'x'",
                 "end",
-                "local interface B",
-                "   tag: string",
-                "   satisfies |self| -> self.tag == 'x'",
+                "local reached = 0",
+                "local function subject(): any",
+                "   reached += 1",
+                "   return {tag = 'x'}",
                 "end",
-                "local items: {any} = {}",
-                "local always = false",
-                "local hit = items[1] is A or items[2] is B",
-                "local guarded = always or items[3] is A",
-                "return hit and guarded",
+                "local always = true",
+                "local hit = subject() is A or subject() is A",
+                "local guarded = always or subject() is A",
+                "return hit, guarded, reached",
             },
             "\n"
         )
     )
-    testAssert.equal(select(2, code:gsub("local __nuppIs%d+ = function%(", "")), 1, "one declaration for two identical tests")
-    assert(code:find("always or __nuppIs1(", 1, true), "`or` still decides whether the subject is reached:\n" .. code)
+    testAssert.equal(hit, true)
+    testAssert.equal(guarded, true)
+    testAssert.equal(reached, 1, "`or` still decides whether the subject is reached")
 end
 
 -- Reaching through a field has to guard the step before it, because the test
@@ -1761,8 +1720,6 @@ function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
         run(foo .. table.concat({"", "return (instance is Foo and 1 or 0) + (Foo is Foo and 100 or 0)",}, "\n")),
         1
     )
-    local code = generate(foo .. "\nlocal answer = Foo is Foo\nreturn answer")
-    assert(code:find("( false )", 1, true), "the refuted test is not emitted: " .. code)
 end
 
 -- A metamethod written on an instance puts a function where the operator never

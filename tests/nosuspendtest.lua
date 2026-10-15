@@ -3,9 +3,9 @@ local testAssert = require("nupp.test")
 --
 -- Lexical, static, and erased. What is asserted here is the verdict and the erasure:
 -- a call that may suspend is refused, one that provably cannot is silent, and the
--- generated code is the same either way because the region has no run-time component.
+-- program is the same either way because the region has no run-time component.
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -314,22 +314,12 @@ function M.nestsAndEnds()
 end
 
 function M.erasesToAPlainBlock()
-    local src = QUIET .. "@nosuspend do\n    quiet()\nend\n"
+    local src = "local calls = 0\nlocal function quiet(): nil\n    calls += 1\nend\n"
+        .. "@nosuspend do\n    quiet()\nend\nreturn calls\n"
     local _, _, result = diagnose(src)
-    local code = gen.generate(result, "test")
-    testAssert.equal(code:find("nosuspend", 1, true), nil, "nothing of the region survives: " .. code)
-    assert(code:find("do", 1, true) ~= nil, "the block remains: " .. code)
-
-    local function lines(text)
-        local n = 1
-        for _ in text:gmatch("\n") do
-            n = n + 1
-        end
-
-        return n
-    end
-
-    testAssert.equal(lines(code), lines(src), "and the line count holds")
+    local image = program.image(result, "test")
+    testAssert.equal(image:find("nosuspend", 1, true), nil, "nothing of the region survives")
+    testAssert.equal(program.run(result, "test"), 1, "the block remains")
 end
 
 function M.staysAName()
@@ -479,28 +469,10 @@ function M.aHandleRegionInstallsAndRestores()
     for _, diag in ipairs(diags) do
         assert(diag.severity == "warning" or diag.severity == "note", "it checks: " .. diag.code .. " " .. diag.msg)
     end
-    local code = gen.generate(result, "test")
-    assert(code:find("install", 1, true) ~= nil, "it elaborates to installing a handler: " .. code)
-    assert(code:find("__nuppV:close()", 1, true) ~= nil, "and to closing it: " .. code)
-    testAssert.equal(code:find("handle suspension", 1, true), nil, "with nothing of the construct surviving: " .. code)
-end
-
-function M.aHandleRegionPreservesTheLineCount()
-    local src = "local h = {park = function() end}\nwith installation = require('nupp.suspension.host').install(h) do\n"
-        .. "    local n = 1\n    print(n)\nend\n"
-    local _, _, result = diagnose(src)
-    local code = gen.generate(result, "test")
-
-    local function lines(text)
-        local n = 1
-        for _ in text:gmatch("\n") do
-            n = n + 1
-        end
-
-        return n
-    end
-
-    testAssert.equal(lines(code), lines(src), "attribution holds: " .. code)
+    local before, inside, after = program.run(result, "test")
+    testAssert.equal(before, false, "no handler before the region")
+    testAssert.equal(inside, true, "it installs a handler")
+    testAssert.equal(after, false, "and closes it")
 end
 
 local function runGenerated(src)
@@ -511,11 +483,7 @@ local function runGenerated(src)
             "source checks before execution: " .. diag.code .. " " .. diag.msg
         )
     end
-    local code = gen.generate(result, "test")
-    local chunk, problem = loadstring(code, "@handled-exit")
-    assert(chunk ~= nil, "generated Lua loads: " .. tostring(problem) .. "\n" .. code)
-
-    return chunk()
+    return program.run(result, "handled_exit")
 end
 
 function M.aReturnLeavesAHandleRegionAfterReleasingIt()

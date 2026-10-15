@@ -2,28 +2,28 @@ local testAssert = require("nupp.test")
 -- First-class record type witnesses and lazy runtime descriptors.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function compile(source)
+local function checked(source)
     local parsed = parser.parse(source, "runtime_reflection.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "runtime_reflection.nupp", env)
     testAssert.equal(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
-    local code, generated = gen.generate(parsed, "runtime_reflection")
-    testAssert.equal(#generated, 0, "generation diagnostics")
 
-    return code
+    return parsed
+end
+
+-- The VM image a fragment lowers to.
+local function compile(source)
+    return program.image(checked(source), "runtime_reflection")
 end
 
 local function run(source)
-    local code = compile(source)
-    local chunk, why = loadstring(code, "@runtime_reflection")
-    assert(chunk, why and (why .. "\n---\n" .. code))
-    return chunk(), code
+    return program.run(checked(source), "runtime_reflection")
 end
 
 local M = {}
@@ -57,7 +57,7 @@ return {construction = description.types[description.root].construction as unkno
 end
 
 function M.recordsExposeTypeWitnessesAndLazyDescriptors()
-    local result, code = run(
+    local result = run(
         [[
 local record User
     id: integer
@@ -82,7 +82,6 @@ return {
     testAssert.equal(result.cached, true, "reflect cache")
     testAssert.equal(result.name, "User", "descriptor name")
     testAssert.equal(result.field, "id", "descriptor fields")
-    assert(code:find("_G.nupp.__reflect.register", 1, true), code)
 end
 
 function M.doesNotEmitReflectionForUnusedRecords()
@@ -95,7 +94,7 @@ local quiet = new Quiet(value = 1)
 return quiet.value
 ]]
     )
-    testAssert.equal(code:find("_G.nupp.__reflect", 1, true), nil, "unused reflection runtime")
+    testAssert.equal(code:find("__reflect", 1, true), nil, "unused reflection runtime")
 end
 
 function M.extensionsAreTypedAndLazy()
@@ -314,8 +313,7 @@ return {same = first == second, field = first.fields[1].name}
 end
 
 function M.identityAndMetatableUsesDoNotCarryDescriptors()
-    local result, code = run(
-        [[
+    local source = [[
 local record User
     name: string
 end
@@ -324,9 +322,8 @@ local Alias = User;
 local value = new User(name = "a")
 return getmetatable(value) == Alias and User == (Alias as any)
 ]]
-    )
-    testAssert.equal(result, true)
-    testAssert.equal(code:find("__reflect", 1, true), nil)
+    testAssert.equal(run(source), true)
+    testAssert.equal(compile(source):find("__reflect", 1, true), nil)
 end
 
 return M

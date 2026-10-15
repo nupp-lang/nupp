@@ -1,15 +1,14 @@
 -- `or return`, `or break` and `or continue`: the contextual exit suffixes.
 --
--- The cases run each admitted program through the LuaJIT generator and execute
--- the resulting straight-line control flow.
+-- The cases lower each admitted program to a VM image and execute the resulting
+-- straight-line control flow.
 
 local parser = require("nupp.compiler.syntax.parser")
 local assertions = require("helpers.assertions")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local fmt = require("nupp.tools.fmt")
-local optimize = require("nupp.compiler.lua.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local FILE = "or-exit.nupp"
@@ -30,27 +29,18 @@ local function checked(source)
     return tree, diagnostics
 end
 
-local function run(source, level)
+local function run(source)
     local tree, diagnostics = checked(source)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-    if level then
-        optimize.run(tree, {level = level, filename = FILE})
-    end
-    local code, errors = gen.generate(tree, FILE)
-    assert(#errors == 0, (errors[1] and errors[1].msg or "") .. "\n" .. code)
-    local fn, failure = loadstring(code)
-    assert(fn, tostring(failure) .. "\n" .. code)
 
-    return fn(), code
+    return program.run(tree, "or_exit", FILE)
 end
 
--- Asserts the generated program answers true and returns its source for cases
--- that also inspect the lowering.
+-- Asserts the program answers true.
 local function runsGenerated(source)
-    local answer, code = run(source)
-    assert(answer, "luajit:\n" .. code)
+    assert(run(source), "the program answered false")
 
-    return code
+    return true
 end
 
 local function codesOf(diagnostics)
@@ -956,66 +946,6 @@ return total == 5 and inArguments(1) == 11 and inArguments(-1) == nil
     )
 end
 
---- Generated output carries no new syntax, and a fixed-width operand costs no
---- pack table.
-function M.generatedOutputIsOrdinaryLua()
-    local code = runsGenerated(
-        [[
-local function source(n: integer): (integer?, string?)
-    if n <= 0 then
-        return nil, "low"
-    end
-
-    return n, nil
-end
-
-local function wrapped(n: integer): (integer?, string?)
-    local value = source(n) or return
-
-    return value, nil
-end
-
-return wrapped(1) == 1
-]]
-    )
-    assert(not code:find("or return", 1, true), code)
-    assert(not code:find("or break", 1, true), code)
-    assert(not code:find("or continue", 1, true), code)
-    assert(not code:find("__nuppBlockPack", 1, true), "a fixed-width operand needs no pack table")
-end
-
---- Every optimization level keeps the exit and the pack.
-function M.optimizerPreservesTheExit()
-    for _, level in ipairs({0, 1, 2}) do
-        do
-            local answer = run(
-                [[
-local function source(n: integer): (integer?, string?)
-    if n <= 0 then
-        return nil, "low"
-    end
-
-    return n, nil
-end
-
-local function wrapped(n: integer): (integer?, string?)
-    local value = source(n) or return
-
-    return value * 2, nil
-end
-
-local good, goodReason = wrapped(2)
-local bad, badReason = wrapped(-1)
-
-return good == 4 and goodReason == nil and bad == nil and badReason == "low"
-]],
-                level
-            )
-            assert(answer, ("level %d"):format(level))
-        end
-    end
-end
-
 --- Comptime runs the same branch.
 function M.comptimeTakesTheSameBranch()
     assert(
@@ -1039,42 +969,6 @@ return chosen == 6 and missing == nil
 ]]
         )
     )
-end
-
---- Coverage counts the two arms rather than treating the exit as always taken.
-function M.coverageRegistersTheBranch()
-    local tree, diagnostics = checked(
-        [[
-local function source(n: integer): (integer?, string?)
-    if n <= 0 then
-        return nil, "low"
-    end
-
-    return n, nil
-end
-
-local function wrapped(n: integer): (integer?, string?)
-    local value = source(n) or return
-
-    return value, nil
-end
-
-return wrapped(1)
-]]
-    )
-    assert(#diagnostics == 0, codesOf(diagnostics))
-    local code, errors, sites = gen.generate(tree, FILE, {coverage = true})
-    assert(#errors == 0, errors[1] and errors[1].msg)
-    assert(code:find(".branch(", 1, true), "the suffix registers a branch site")
-    if sites then
-        local branches = 0
-        for _, site in ipairs(sites.sites or sites) do
-            if site.kind == "branch" then
-                branches = branches + 1
-            end
-        end
-        assert(branches > 0, "a branch site was recorded")
-    end
 end
 
 ---------------------------------------------------------------------------

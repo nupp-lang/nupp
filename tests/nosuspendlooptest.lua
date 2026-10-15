@@ -1,5 +1,5 @@
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -63,12 +63,11 @@ function M.loopBodyCleanup()
 end
 
 function M.annotationErases()
-    local source = "@nosuspend\nfor index = 1, 3 do\n    print(index)\nend\n"
+    local source = "local total = 0\n@nosuspend\nfor index = 1, 3 do\n    total += index\nend\nreturn total\n"
     local refusals, result = diagnose(source)
     assert(#refusals == 0)
-    local code = gen.generate(result, "test")
     assert(
-        not code:find("nosuspend", 1, true) and code:find("for index", 1, true),
+        not program.image(result, "test"):find("nosuspend", 1, true) and program.run(result, "test") == 6,
         "the annotation is erased without removing the loop"
     )
 end

@@ -1,6 +1,6 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local env = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
@@ -14,9 +14,7 @@ local function verify(contract, provider)
     assert(#tree.errors == 0, tree.errors[1] and tree.errors[1].msg)
     local diagnostics = check.check(tree, path, env.new(HERE .. "/.."))
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-    local code, errors = gen.generate(tree, path)
-    assert(#errors == 0, errors[1] and errors[1].msg)
-    local suite = assert(loadstring(code, "@" .. path))()
+    local suite = program.run(tree, "contract_" .. contract, path)
     local ok, problem = suite.test(require(provider))
     assert(ok, provider .. ": " .. tostring(problem))
 end

@@ -2,7 +2,7 @@ local testAssert = require("nupp.test")
 -- Nil-coalescing and compound assignment: semantics, not just syntax.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -20,11 +20,9 @@ local function run(src, tolerate)
       if d.code ~= tolerate and d.code ~= "NUPP2106" then diags[#diags + 1] = d end
    end
    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
-   local code, genDiags = gen.generate(result, "test")
-   testAssert.equal(#genDiags, 0, "gen diagnostics")
-   local chunk, err = loadstring(code, "@optest")
+   local chunk, err = program.load(result, "optest")
    if not chunk then
-      error("does not load: " .. tostring(err) .. "\n" .. code, 2)
+      error("does not load: " .. tostring(err), 2)
    end
    return chunk()
 end
