@@ -252,7 +252,8 @@ end
 --- back to the whole compiler: an unrelated runtime plugin must not erase every narrow
 --- compiler stamp.
 type fingerprint.ModuleGraph = {
-    --- Module name -> the file it lives in, relative to the tree root.
+    --- Module name -> the file it lives in, relative to the tree root; on the VM,
+    --- where the modules live in one image, the module's own name.
     files: {[string]: string},
 
     --- Module name -> the modules it requires.
@@ -436,56 +437,58 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
     return names, false, declared
 end
 
---- Reads the graph of the running compiler, or nil when it cannot be had.
+--- The graph of the VM image the compiler is running from, as the runtime
+--- describes it, or nil when the runtime cannot.
 ---
---- `cacheDir` is where the answer is kept between commands. Computing it lexes the
---- whole built tree, which is a tenth of a second and far too much to spend on every
---- command; the store makes it once per compiler. Passing no directory computes it in
---- this process, which is what a caller with nowhere to write does. `readOnly` reads
---- a kept graph but never writes one, for a process that must not publish to stores
---- another process owns.
-local function moduleGraph(
-    cacheDir: string?,
-    digest: function(string): string,
-    readOnly: boolean?
-): fingerprint.ModuleGraph?
-    if graphAttempted and (graphMemo == nil or cacheDir == nil or graphStoredIn[cacheDir]) then
-        return graphMemo
-    end
-    graphAttempted = true
-    local dir = compilerDir()
-    -- A bundled compiler is one file with every module inside it, so there is no
-    -- graph to read and nothing narrower than the whole of it to stamp with.
-    if bundled() then
+--- Read off the image rather than the sources beside it, for the reason
+--- `vmImageIdentity` gives: an installed image may be older than the checkout,
+--- and a stamp computed from newer sources would have that image trust, and
+--- write, answers under the new code's name. Each module's digest is of its
+--- lowered code with every image-wide index made stable, so an edit to one
+--- module moves no other module's digest. Its edges are its literal requires,
+--- the modules whose code it names, and what an `@requires-dynamically` marker
+--- declares, and a computed require is accounted the way `requiredBy` accounts
+--- one, so the two graphs follow one rule.
+---
+--- A runtime without the description answers nil, and every subsystem falls
+--- back to the image's identity.
+local function vmModuleGraph(): fingerprint.ModuleGraph?
+    local describe: any = rawget(_G, "__nupp_image_modules")
+    if describe == nil then
         return nil
     end
-    -- `<root>/nupp/compiler` is where this file is, so the tree the module names are
-    -- relative to is two directories above it.
-    local root = dirname(dirname(dir))
-    local store = nil
-    if cacheDir then
-        if not readOnly then
-            graphStoredIn[cacheDir] = true
-        end
-        store = require(
-            "nupp.compiler.project.store"
-        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. graphFingerprint(digest))
-        local stored = store.value
-        if validGraph(stored) then
-            graphMemo = stored as fingerprint.ModuleGraph
-
-            return graphMemo
-        end
-        -- Computed already by a caller with nowhere to keep it.
-        if graphMemo ~= nil then
-            if not readOnly then
-                store.set(graphMemo)
-                store.save()
+    local ok, described = pcall(describe)
+    if not ok
+        or type(described) ~= "table"
+        or type(described.digests) ~= "table"
+        or type(described.edges) ~= "table"
+        or type(described.unknown) ~= "table"
+    then
+        return nil
+    end
+    local graph: fingerprint.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
+    for name, digest in pairs(described.digests) do
+        if type(name) == "string" and type(digest) == "string" then
+            graph.files[name] = name
+            graph.digests[name] = digest
+            graph.unknown[name] = described.unknown[name] == true
+            local edges: {string} = {}
+            local listed: any = described.edges[name]
+            if type(listed) == "table" then
+                for index, required in ipairs(listed) do
+                    edges[index] = required
+                end
             end
-
-            return graphMemo
+            graph.edges[name] = edges
         end
     end
+
+    return validGraph(graph) and graph or nil
+end
+
+--- The graph of the built tree under `root`: every module's file, its digest, and
+--- what `requiredBy` reads it to require.
+local function treeModuleGraph(root: string, digest: function(string): string): fingerprint.ModuleGraph
     local graph: fingerprint.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
     local sources: {[string]: string} = {}
     -- Under `nupp/` rather than the whole tree the compiler was found in. Every module
@@ -533,6 +536,71 @@ local function moduleGraph(
         table.sort(edges)
         graph.edges[name] = edges
     end
+
+    return graph
+end
+
+--- Reads the graph of the running compiler, or nil when it cannot be had.
+---
+--- `cacheDir` is where the answer is kept between commands. Computing it lexes the
+--- whole built tree, which is a tenth of a second and far too much to spend on every
+--- command; the store makes it once per compiler. Passing no directory computes it in
+--- this process, which is what a caller with nowhere to write does. `readOnly` reads
+--- a kept graph but never writes one, for a process that must not publish to stores
+--- another process owns.
+local function moduleGraph(
+    cacheDir: string?,
+    digest: function(string): string,
+    readOnly: boolean?
+): fingerprint.ModuleGraph?
+    if graphAttempted and (graphMemo == nil or cacheDir == nil or graphStoredIn[cacheDir]) then
+        return graphMemo
+    end
+    graphAttempted = true
+    local dir = compilerDir()
+    -- A bundled compiler is one file with every module inside it, so there is no
+    -- graph to read and nothing narrower than the whole of it to stamp with --
+    -- unless it is a VM image whose runtime can describe the modules it holds.
+    local image = bundled() and vmImageIdentity() ~= nil
+    if bundled() and not (image and rawget(_G, "__nupp_image_modules") ~= nil) then
+        return nil
+    end
+    -- `<root>/nupp/compiler` is where this file is, so the tree the module names are
+    -- relative to is two directories above it.
+    local root = dirname(dirname(dir))
+    local store = nil
+    if cacheDir then
+        if not readOnly then
+            graphStoredIn[cacheDir] = true
+        end
+        store = require(
+            "nupp.compiler.project.store"
+        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. graphFingerprint(digest))
+        local stored = store.value
+        if validGraph(stored) then
+            graphMemo = stored as fingerprint.ModuleGraph
+
+            return graphMemo
+        end
+        -- Computed already by a caller with nowhere to keep it.
+        if graphMemo ~= nil then
+            if not readOnly then
+                store.set(graphMemo)
+                store.save()
+            end
+
+            return graphMemo
+        end
+    end
+    local graph: fingerprint.ModuleGraph? = nil
+    if image then
+        graph = vmModuleGraph()
+    else
+        graph = treeModuleGraph(root, digest)
+    end
+    if graph == nil then
+        return nil
+    end
     graphMemo = graph
     if store and not readOnly then
         store.set(graph)
@@ -574,7 +642,8 @@ local subsystemMemo: {[string]: string} = {}
 --- code an answer actually came from.
 ---
 --- Falls back to the whole compiler whenever the graph cannot be read, whenever a named
---- module is not in it, and for a bundled compiler, which is one file. Every fallback
+--- module is not in it, and for a bundled compiler, which is one file. On the VM the
+--- graph is the running image's, and the whole compiler is that image. Every fallback
 --- costs work that turns out to have been unnecessary and none of them changes an
 --- answer.
 ---

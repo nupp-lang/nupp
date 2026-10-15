@@ -279,22 +279,36 @@ function M.aCheckThatReportedSomethingIsNotKept()
 end
 
 -- What the stamp is on the VM: the running image. Loaded under a chunk name that
--- makes the module believe it is running from an image, as it does on the VM.
-local function vmFingerprint(identity)
+-- makes the module believe it is running from an image, as it does on the VM, with
+-- the runtime's answers in place of the runtime: `identity` for the whole image and
+-- `describe`, when given, for its modules. `ask` receives the fresh module.
+local function onTheVm(identity, describe, ask)
     local source = assert(read(ROOT .. "/build/nupp/compiler/project/fingerprint.lua"))
     local chunk = assert(loadstring(source, "@" .. ROOT .. "/src/nupp/compiler/project/fingerprint.nupp"))
-    local saved = {rawget(_G, "__nupp_load_image"), rawget(_G, "__nupp_image_identity")}
+    local names = {"__nupp_load_image", "__nupp_image_identity", "__nupp_image_modules"}
+    local saved = {}
+    for index, name in ipairs(names) do
+        saved[index] = rawget(_G, name)
+    end
     rawset(_G, "__nupp_load_image", function() end)
     rawset(_G, "__nupp_image_identity", identity and function()
         return identity
     end or nil)
-    local ok, stamp = pcall(function()
-        return chunk().toolFingerprint()
+    rawset(_G, "__nupp_image_modules", describe)
+    local ok, answer = pcall(function()
+        return ask(chunk())
     end)
-    rawset(_G, "__nupp_load_image", saved[1])
-    rawset(_G, "__nupp_image_identity", saved[2])
-    assert(ok, tostring(stamp))
-    return stamp
+    for index, name in ipairs(names) do
+        rawset(_G, name, saved[index])
+    end
+    assert(ok, tostring(answer))
+    return answer
+end
+
+local function vmFingerprint(identity)
+    return onTheVm(identity, nil, function(fingerprint)
+        return fingerprint.toolFingerprint()
+    end)
 end
 
 function M.onTheVmTheCompilerIsStampedWithItsImage()
@@ -303,6 +317,94 @@ function M.onTheVmTheCompilerIsStampedWithItsImage()
     assert(vmFingerprint("b") ~= first, "another image is another stamp")
     -- A runtime that cannot name its image shares a stamp with nobody.
     assert(vmFingerprint(nil) ~= vmFingerprint(nil), "an unidentified image must not reuse stamps")
+end
+
+-- An image as `vm.imageModules` describes one: the module build reaches the
+-- checker, and a command reaches the module build. `digests` overrides a module's
+-- digest, which is what rebuilding the image after an edit to it does.
+local function describing(digests, unknown)
+    return function()
+        local graph = {
+            digests = {
+                ["nupp.tools.cli.explain"] = "explain",
+                ["nupp.tools.build.modules"] = "modules",
+                ["nupp.compiler.check"] = "check",
+                ["nupp.compiler.types"] = "types",
+            },
+            edges = {
+                ["nupp.tools.cli.explain"] = {"nupp.tools.build.modules"},
+                ["nupp.tools.build.modules"] = {"nupp.compiler.check"},
+                ["nupp.compiler.check"] = {"nupp.compiler.types"},
+                ["nupp.compiler.types"] = {},
+            },
+            unknown = {},
+        }
+        for name in pairs(graph.digests) do
+            graph.digests[name] = (digests or {})[name] or graph.digests[name]
+            graph.unknown[name] = (unknown or {})[name] == true
+        end
+        return graph
+    end
+end
+
+-- The stamp the module build's records are kept under, on an image described by
+-- `describe` whose whole identity is `identity`.
+local function recordStamp(identity, describe)
+    return onTheVm(identity, describe, function(fingerprint)
+        return fingerprint.subsystemFingerprint({"nupp.tools.build.modules"})
+    end)
+end
+
+-- Stores a record under the stamp one image gives and asks whether the next image
+-- still finds it, the way a check's records are kept between two CLIs.
+local function survives(first, second)
+    local store = require("nupp.compiler.project.store")
+    local dir = tempProject({})
+    local path = dir .. "/checks.buf"
+    local written = store.openValue(path, recordStamp("first image", first))
+    written.set({checked = true})
+    written.save()
+    local found = store.openValue(path, recordStamp("second image", second)).value
+    remove(dir)
+    return found ~= nil and found.checked == true
+end
+
+function M.anImageEditOutsideTheCheckerKeepsCheckRecords()
+    assert(survives(describing(), describing({["nupp.tools.cli.explain"] = "explain, edited"})),
+        "a command's edit went cold")
+end
+
+function M.anImageEditToTheCheckerDiscardsCheckRecords()
+    assert(not survives(describing(), describing({["nupp.compiler.types"] = "types, edited"})),
+        "a record outlived the checker that wrote it")
+    assert(not survives(describing(), describing({["nupp.tools.build.modules"] = "modules, edited"})),
+        "a record outlived the module build that wrote it")
+end
+
+function M.aRuntimeThatCannotDescribeItsImageStampsWithTheWholeImage()
+    assert(recordStamp("a", nil) == vmFingerprint("a"), "the narrow stamp needs the description")
+    assert(recordStamp("a", nil) ~= recordStamp("b", nil), "any image edit is a new stamp")
+    assert(not survives(nil, nil), "two images shared a stamp without a description")
+    -- A description that is not one is the same as none.
+    local broken = function()
+        return {digests = {["nupp.compiler.check"] = "check"}, edges = {["nupp.compiler.check"] = {"absent"}}, unknown = {}}
+    end
+    assert(recordStamp("a", broken) == vmFingerprint("a"), "a broken description was believed")
+    assert(recordStamp("a", function()
+        error("no image")
+    end) == vmFingerprint("a"), "a failing description was believed")
+end
+
+-- A module that loads what its edges do not name could be running any code in the
+-- image, so a subsystem reaching it is stamped with all of it.
+function M.anIncompleteReachFallsBackToTheWholeImage()
+    local incomplete = describing(nil, {["nupp.compiler.check"] = true})
+    assert(recordStamp("a", incomplete) == vmFingerprint("a"), "an incomplete reach was narrowed")
+    -- What does not reach it stays narrow.
+    local typesOnly = onTheVm("a", incomplete, function(fingerprint)
+        return fingerprint.subsystemFingerprint({"nupp.compiler.types"})
+    end)
+    assert(typesOnly ~= vmFingerprint("a"), "an unrelated incomplete module widened the stamp")
 end
 
 return M
