@@ -3982,6 +3982,10 @@ function lower.emit(
 
     stmt = function(f, node)
         local k = node.kind
+        -- A comptime helper ran while compiling; the program never sees it.
+        if (k == "localFuncStmt" or k == "funcStmt") and (node.comptimeFunction or node.comptimeTok) then
+            return
+        end
         if k == "localStmt" and node.pattern then
             -- `local {x, y as v} = source`: the source is read once, then each
             -- selected field in order. A `type` selection binds nothing at run time.
