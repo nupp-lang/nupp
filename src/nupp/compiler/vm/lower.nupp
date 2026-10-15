@@ -308,13 +308,24 @@ function lower.emit(
 
     foreignShape = function(t)
         local owner = declaringModule(t)
-        if t.declKind ~= "record" or type(t.fieldOrder) ~= "table" or not owner or owner == currentModule then
+        if (t.declKind ~= "record" and t.declKind ~= "struct")
+            or type(t.fieldOrder) ~= "table"
+            or not owner
+            or owner == currentModule
+        then
             return nil
         end
         local name = (t.name or ""):match("([%w_]+)$") or ""
         -- Registered before its slots (a record may hold itself) but numbered
         -- after them, so a slot never names a shape the image declares later.
         local shape = {name = name, slots = {}, slotIndex = {}, module = owner}
+        if t.declKind == "struct" then
+            -- Laid out from its type, as its own module lays out its declaration.
+            shape.physical = true
+            shape.layout = require(
+                "nupp.compiler.vm.metadata"
+            ).structLayout({resolvedType = t, name = {text = name}}, layoutTarget)
+        end
         shapesByNominal[t] = shape
         if t.declarationKey then
             shapesByNominal[t.declarationKey] = shape
@@ -2072,6 +2083,20 @@ function lower.emit(
         finish(base)
     end
 
+    -- An owned temporary loaned for one statement closes when that statement
+    -- completes: its cleanups are deferred here, where the call's first result
+    -- lands, and `stmtReclaim` unwinds to before the statement.
+    local emitCallBody = emitCall
+    emitCall = function(f, node, dst, nres, all)
+        emitCallBody(f, node, dst, nres, all)
+        local owner = node.statementOwner
+        if owner and #(owner.cleanups or {}) > 0 then
+            for i = #owner.cleanups, 1, -1 do
+                deferCleanup(f, dst, owner.cleanups[i])
+            end
+        end
+    end
+
     local function wideOperation(f, name, args, dst)
         dst = dst or f:reg()
         local callee = f:reg()
@@ -2903,10 +2928,22 @@ function lower.emit(
             else
                 local shape = shapeOf(node.obj.inferredType)
                 local o = exprAs(f, node.obj, "v")
-                if shape and not shape.physical and shape.slotIndex[fname] then
-                    f:op("GetSlot", dst, o, shape.slotIndex[fname], shape.id)
+                local slot = shape and not shape.physical and shape.slotIndex[fname]
+                if slot then
+                    f:op("GetSlot", dst, o, slot, shape.id)
                 else
                     f:op("GetField", dst, o, f:const("str", fname))
+                end
+                if node.fieldTake then
+                    -- A field taken out of a record whose own cleanup closes it
+                    -- leaves nil behind, so that cleanup finds nothing to close twice.
+                    local none = f:reg()
+                    f:op("Nil", none)
+                    if slot then
+                        f:op("SetSlot", o, slot, none, shape.id)
+                    else
+                        f:op("SetField", o, f:const("str", fname), none)
+                    end
                 end
             end
         elseif k == "bracketIndex" then
@@ -4549,7 +4586,12 @@ function lower.emit(
         f.curStmt = s
         f.curLine = nodeLine(s) or f.curLine
         local mark, fmark = f.nregs, f.nfregs
+        local statementDepth = f.cleanupDepth or 0
         stmt(f, s)
+        if s.statementCleanupOwners and (f.cleanupDepth or 0) > statementDepth then
+            f:op("Unwind", statementDepth)
+            f.cleanupDepth = statementDepth
+        end
         if s.kind == "localStmt" then
             for index = 1, #(s.names or {}) do
                 local owner = s.automaticOwners and s.automaticOwners[index]
