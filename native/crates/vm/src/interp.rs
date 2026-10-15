@@ -2172,11 +2172,14 @@ impl Interp {
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let name = unsafe { *consts.add(k as usize) };
         if self.metatable_of(r!(t)) != Value::NIL { let v = self.index(r!(t), name); r!(d) = v; return; }
+        // A string's fields are the string library's, as Lua's string metatable has them.
+        if self.is_stringish(r!(t)) { let lib = self.loaded.get("string").copied().unwrap_or(Value::NIL); r!(d) = if lib == Value::NIL { Value::NIL } else { self.get_index(lib, name) }; return; }
         let h = hdr!(self, r!(t), &format!("field {} of a non-object", String::from_utf8_lossy(self.bytes_of(name))));
         let v = match h.kind {
             KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
             // Stored fields keep the shape probe; absent fields may be methods.
-            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) => h.slots()[i], None => self.index(r!(t), name) } }
+            // An empty slot may still name a method the record assigns later.
+            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) if h.slots()[i] != Value::NIL => h.slots()[i], _ => self.index(r!(t), name) } }
             _ => self.err(&format!("field {} of a non-object ({})", String::from_utf8_lossy(self.bytes_of(name)), Heap::describe(h))),
         };
         r!(d) = v;

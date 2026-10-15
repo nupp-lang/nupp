@@ -1017,6 +1017,10 @@ function lower.emit(
     emitIs = function(f, node, dst)
         dst = dst or f:reg()
         local t = node.type
+        -- The record a test names, seen through an ownership wrapper (a Closeable
+        -- record resolves to one) and declared here or in another image.
+        local targetShape = not node.provenStatically and not node.refutedStatically and shapeOf(node.typeTestTarget)
+            or nil
 
         local function typeTest(prim)
             local call = {
@@ -1053,9 +1057,9 @@ function lower.emit(
             exprAs(f, node.expr, "v", value)
             f:op("CallDyn", callee, base, 1)
             f:op("Move", dst, base)
-        elseif shapeOfNominal(node.typeTestTarget) then
+        elseif targetShape then
             local value = exprAs(f, node.expr, "v")
-            shapeTest(f, shapeOfNominal(node.typeTestTarget), value, dst)
+            shapeTest(f, targetShape, value, dst)
         elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
             typeTest(IS_TYPE[t.base.text])
         elseif t.primitiveTest then
