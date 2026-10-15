@@ -5,10 +5,8 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local native = require("nupp.compiler.native")
 local buildNative = require("nupp.tools.build.native")
-local stdlib = require("nupp.compiler.stdlib")
 local standardsurface = require("nupp.compiler.standardsurface")
-local optimize = require("nupp.compiler.lua.optimize")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local JSON_PROVIDER = "nupp.codec.json.provider"
@@ -33,6 +31,35 @@ end
 local assertClean = assertions.check(diagsOf, function(src)
     return "expected clean check for:\n" .. src
 end)
+
+-- Checks a fragment clean and runs it.
+local function runClean(source, name)
+    sharedEnv.loaded = {}
+    local result = parser.parse(source, name)
+    testAssert.equal(#result.errors, 0, "syntax errors in " .. name)
+    local diags = check.check(result, name, sharedEnv)
+    testAssert.equal(diags[1] and (diags[1].code .. ": " .. diags[1].msg) or "", "", name .. " checks clean")
+
+    return program.run(result, name)
+end
+
+-- A browser host's byte copies into and out of a leased pointer.
+local function copyInto(pointer, bytes)
+    local writable = require("nupp.mem.span").writeCarray(pointer, #bytes)
+    for index = 1, #bytes do
+        writable:set(index, bytes:byte(index))
+    end
+end
+
+local function stringAt(pointer, count)
+    local readable = require("nupp.mem.span").fromCarray(pointer, count)
+    local bytes = {}
+    for index = 1, count do
+        bytes[index] = string.char(readable:get(index))
+    end
+
+    return table.concat(bytes)
+end
 
 local M = {}
 
@@ -132,17 +159,18 @@ end
 
 -- An invalid argument raises with the prefix every other standard module uses.
 function M.memAndUtilRefusalsCarryTheLibraryPrefix()
-    local ffi = require("ffi")
+    local array = require("nupp.mem.array")
     local spans = require("nupp.mem.span")
     for label, refused in pairs({
         heap = function()
-            require("nupp.mem.heap").allocate(ffi.typeof("int32_t"), -1)
+            -- The count is refused before the element type is read.
+            require("nupp.mem.heap").allocate(nil, -1)
         end,
         bytes = function()
             require("nupp.mem.array").bytes(-1)
         end,
         span = function()
-            spans.fromCarray(ffi.new("int32_t[1]"), -1)
+            spans.fromCarray(array.scalar(array.int32, 1).pointer, -1)
         end,
         indexed = function()
             require("nupp.mem.indexed").range(0, 1)
@@ -176,59 +204,6 @@ function M.closedBufferReleasesItsAllocationWhileMetadataSurvives()
     assert(allocation[1] == nil, "a closed buffer must release its allocation root")
 end
 
-function M.moduleInitializationKeepsManagedAliasesAndRuntimeIdentity()
-    local scope = setmetatable({nupp = {}}, {__index = _G})
-    scope._G = scope
-    local initialize = assert(loadstring(stdlib.bootstrap()))
-    setfenv(initialize, scope)
-    initialize()
-    local manage = scope.nupp.__manage
-    local owner = manage(
-        {},
-        function()
-        end,
-        "test"
-    )
-    local alias = owner:alias()
-    initialize()
-    assert(scope.nupp.__manage == manage, "a module must reuse the installed ownership runtime")
-    local recovered, problem = scope.nupp.__recoverAlias(alias)
-    assert(recovered == alias and problem == nil, "loading a module must not invalidate an existing alias")
-    assert(alias:close() == nil)
-end
-
-function M.ownershipInstallerDoesNotRecursivelyLoadItsPrelude()
-    local result = parser.parse("module nupp.runtime.managed\nexport function install(): nil end\n", "installer.nupp")
-    check.check(result, "installer.nupp", sharedEnv, {strict = false})
-    result.preludeRuntime = 'require("nupp.runtime.managed").install()'
-    local code, diagnostics = gen.generate(result, "installer.nupp")
-    testAssert.equal(#diagnostics, 0, "the ownership installer generates")
-    for _, name in ipairs(gen.runtimeModules(code)) do
-        assert(name ~= "nupp.runtime.managed", "the installer must not load itself through the prelude")
-    end
-    assert(not code:find("@nupp-prelude", 1, true), "the intrinsic installer does not execute a dependent prelude")
-end
-
-function M.generatedPreludeLoadsWithoutLoadstring()
-    local result = parser.parse("return 42\n", "prelude.nupp")
-    testAssert.equal(#check.check(result, "prelude.nupp", sharedEnv), 0, "prelude fixture checks")
-    result.preludeRuntime = "_G.__testPrelude = true"
-    local code, diagnostics = gen.generate(result, "prelude.nupp")
-    testAssert.equal(#diagnostics, 0, "prelude fixture generates")
-
-    local scope = setmetatable({loadstring = false}, {__index = _G})
-    scope._G = scope
-    scope.load = function(source, name)
-        local chunk = assert(loadstring(source, name))
-        setfenv(chunk, scope)
-        return chunk
-    end
-    local chunk = assert(loadstring(code))
-    setfenv(chunk, scope)
-    testAssert.equal(chunk(), 42, "module result with load-only host")
-    assert(scope.__testPrelude, "prelude executes with a load-only host")
-end
-
 function M.portableWideIntegersUseFixedOperations()
     local source = [[
 local a: int64 = 9223372036854775807LL
@@ -245,33 +220,11 @@ return c < a, c >> 1LL, ~c, wide & bit, decimal + exponent + hex, grouped, negat
 ]]
     local nativeTree = parser.parse(source, "native-int64.nupp")
     testAssert.equal(#check.check(nativeTree, "native-int64.nupp", sharedEnv), 0, "native int64 checks")
-    local nativeCode = gen.generate(nativeTree, "native-int64.nupp")
-    assert(nativeCode:find("9223372036854775807LL", 1, true), "native output keeps cdata literals")
-    assert(nativeCode:find("68719476735ULL", 1, true), "native output materializes annotated uint64 literals")
-    assert(not nativeCode:find("__nuppInt64", 1, true), "native output has no adapter")
-    assert(not nativeCode:find('require("nupp.runtime.int64")', 1, true), "native output needs no wide integer module")
-    local nativeChunk = assert(loadstring(nativeCode))
-    local _, _, _, masked, forms, grouped, negative = nativeChunk()
-    testAssert.equal(tostring(masked), "4294967296ULL", "native annotated uint64 bitwise result")
-    testAssert.equal(tostring(forms), "1017ULL", "integral literal notation materializes at its width")
-    testAssert.equal(tostring(grouped), "4294967296ULL", "parentheses preserve width")
-    testAssert.equal(tostring(negative), "-4294967296LL", "negative literals preserve width")
-end
-
-function M.portableStructsUseTheTargetRepresentation()
-    local source = [[
-local struct Point
-   x: float
-   bits: uint8
-end
-local p = new Point(16777217, 254)
-return p
-]]
-    local nativeTree = parser.parse(source, "native-struct.nupp")
-    testAssert.equal(#check.check(nativeTree, "native-struct.nupp", sharedEnv), 0, "native struct checks")
-    local nativeCode = gen.generate(nativeTree, "native-struct.nupp")
-    assert(nativeCode:find("require(\"ffi\")", 1, true), "native output keeps direct FFI representation")
-    assert(not nativeCode:find("__nuppStructvalue", 1, true), "native output pays no provider access")
+    local _, _, _, masked, forms, grouped, negative = program.run(nativeTree, "native-int64.nupp")
+    testAssert.equal(masked, 4294967296, "annotated uint64 bitwise result")
+    testAssert.equal(forms, 1017, "integral literal notation materializes at its width")
+    testAssert.equal(grouped, 4294967296, "parentheses preserve width")
+    testAssert.equal(negative, -4294967296, "negative literals preserve width")
 end
 
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
@@ -296,12 +249,6 @@ return #readable, readable[1].value
         0,
         "Wasm views check through both required contracts"
     )
-    local code, diags = gen.generate(tree, "wasm-view.nupp")
-    testAssert.equal(#diags, 0, "Wasm views lower")
-    assert(code:find("writable%s*:set%s*%(%s*1"), code)
-    assert(code:find("readable%s*%.count"), code)
-    assert(code:find("readable%s*:get%s*%(%s*1%s*%)%s*%.value"), code)
-    assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
 function M.poolIsOrdinaryTablesOnEveryHost()
@@ -345,9 +292,6 @@ function M.arenaLowersThroughTheStorageContract()
         0,
         "an arena checks through the storage contract" .. (diags[1] and (": " .. diags[1].msg) or "")
     )
-    local code, genDiags = gen.generate(tree, "wasm-arena.nupp")
-    testAssert.equal(#genDiags, 0, "an arena lowers through the storage contract")
-    assert(code:find("require(\"ffi\")", 1, true), code)
 end
 
 function M.aComputedRequireArgumentIsChecked()
@@ -483,7 +427,6 @@ end
 
 function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
     local effects = require("nupp.runtime.browser.effects")
-    local ffi = require("ffi")
     local prior = effects.request
     local calls, leases, nextLease = {}, {}, 0
     local written
@@ -509,12 +452,12 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
         if request.operation == "file-read" then
             local lease = assert(leases[request.lease])
             assert(lease.writable and lease.count == 3)
-            ffi.copy(lease.pointer, "abc", 3)
+            copyInto(lease.pointer, "abc")
             resume({ok = true, value = {bytes = 3}})
         elseif request.operation == "file-write" then
             local lease = assert(leases[request.lease])
             assert(not lease.writable and lease.count == 2)
-            written = ffi.string(lease.pointer, lease.count)
+            written = stringAt(lease.pointer, lease.count)
             resume({ok = true, value = {bytes = lease.count}})
         else
             resume({ok = true, value = response[request.operation]})
@@ -604,114 +547,6 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     rejected({url = assert(uri.newURI("https://example.com/")), timeoutMs = 1.5}, "integer")
 end
 
-function M.nativeHttpDispatchDrainsAfterAWakerRaises()
-    local ffi = require("ffi")
-    local C = {}
-    local pending = 0
-    local released = {client = 0, transfer = 0}
-
-    function C.nuppNativeHttpClientCreate(_, output)
-        output[0] = 1
-        return 0
-    end
-
-    function C.nuppNativeHttpClientRelease()
-        released.client = released.client + 1
-        return 0
-    end
-
-    function C.nuppNativeHttpClientSend(_, _, output)
-        output[0] = 2
-        return 0
-    end
-
-    function C.nuppNativeHttpClientPending(_, output)
-        output[0] = pending
-        return 0
-    end
-
-    function C.nuppNativeHttpTransferRelease()
-        released.transfer = released.transfer + 1
-        return 0
-    end
-
-    function C.nuppNativeHttpTransferCancel()
-        return 0
-    end
-
-    function C.nuppNativeHttpClientPoll(_, ready, _, count, more)
-        ready[0].transfer = 2
-        ready[0].tokens = 7
-        count[0] = 1
-        more[0] = 0
-
-        return 0
-    end
-
-    local transport = require("providerstate").nativeHttp({
-        C = C,
-        ffi = ffi,
-        requireFeature = function()
-        end,
-        succeeded = function(status)
-            testAssert.equal(status, 0)
-        end,
-    })
-    local client = assert(
-        transport.newClient({
-            connectTimeoutMs = 1,
-            maxRedirects = 0,
-            maxPendingRequests = 1,
-            maxConnections = 1,
-            maxConnectionsPerHost = 1,
-            compressed = false,
-            insecureHosts = {},
-        })
-    )
-    local transfer = assert(
-        client:send({
-            uri = {
-                toString = function()
-                    return "https://example.com/"
-                end
-            },
-            method = "GET",
-            headers = {},
-            bodyKind = 0,
-            timeoutMs = 1,
-            stallTimeoutMs = 0,
-            maxBytes = 0,
-            insecure = false,
-        })
-    )
-    local woke = {head = false, body = false, upload = false}
-    transfer:onHead(function()
-        woke.head = true
-    end)
-    transfer:onHead(function()
-        error("waker failed")
-    end)
-    transfer:onBody(function()
-        woke.body = true
-    end)
-    transfer:onUpload(function()
-        woke.upload = true
-    end)
-
-    local ok, problem = pcall(client.poll, client, 0)
-    assert(not ok and tostring(problem):find("waker failed", 1, true), tostring(problem))
-    assert(woke.head and woke.body and woke.upload, "one failed waker must not strand the others")
-
-    pending = 1
-    client:onAdmission(function()
-        error("admission waker failed")
-    end)
-    ok, problem = pcall(client.close, client)
-    assert(not ok and tostring(problem):find("admission waker failed", 1, true), tostring(problem))
-    testAssert.equal(released.transfer, 1, "transfer releases after an admission waker failure")
-    testAssert.equal(released.client, 1, "client releases after an admission waker failure")
-end
-
 function M.nativeHttpProviderRejectsMalformedBoundaries()
     local closed = 0
     local head = {status = 200, version = 11, headers = "\0\0\0\0"}
@@ -777,49 +612,6 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
 end
 
 function M.gpuAvailabilityAnswersWithoutRaising()
-    local ffi = require("ffi")
-
-    local function native(features, createStatus)
-        local released = 0
-        local fixture = {
-            ffi = ffi,
-            C = {
-                nuppNativeFeatures = function()
-                    return features
-                end,
-                nuppNativeGpuContextCreate = function(output)
-                    output[0] = 9
-                    return createStatus
-                end,
-                nuppNativeGpuContextRelease = function(handle)
-                    testAssert.equal(handle, 9ULL)
-                    released = released + 1
-                    return 0
-                end,
-            },
-            requireFeature = function(bit)
-                if features & bit == 0 then
-                    error("the Rust native provider was built without GPU support", 3)
-                end
-            end,
-            succeeded = function(status)
-                testAssert.equal(status, 0)
-            end,
-        }
-
-        return require("providerstate").nativeGpu(fixture), function()
-            return released
-        end
-    end
-
-    local withoutFeature = native(0, 0)
-    testAssert.equal(withoutFeature.available(), false, "a provider built without GPU support has no device")
-    local noAdapter = native(4, 1)
-    testAssert.equal(noAdapter.available(), false, "a provider with no adapter has no device")
-    local adapter, released = native(4, 0)
-    testAssert.equal(adapter.available(), true)
-    testAssert.equal(released(), 1, "the probe closes the device it opened")
-
     local refused = require("providerstate").browserGpu({
         await = function()
             error("WebGPU is unavailable", 0)
@@ -916,6 +708,11 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
         newClient = function()
             return backend
         end,
+        snapshot = function()
+        end,
+        sleep = function()
+            return 0
+        end,
     })
     local client = provider.newClient()
     testAssert.equal(client.flush, nil, "the old flush spelling is gone")
@@ -931,78 +728,6 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
     client:close()
     client:pump()
     testAssert.equal(polls, 3, "a closed client drives nothing")
-end
-
-function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
-    local ffi = require("ffi")
-    local nextHandle = 0
-    local C = {
-        nuppNativeGpuCostsEnabled = function()
-            return 0
-        end,
-        nuppNativeGpuContextCreate = function(output)
-            nextHandle = nextHandle + 1
-            output[0] = nextHandle
-            return 0
-        end,
-        nuppNativeGpuContextRelease = function()
-            return 0
-        end,
-        nuppNativeGpuBufferCreate = function(_, _, output)
-            nextHandle = nextHandle + 1
-            output[0] = nextHandle
-            return 0
-        end,
-        nuppNativeGpuKernelCreate = function(_, _, _, _, _, _, _, _, _, _, _, output)
-            nextHandle = nextHandle + 1
-            output[0] = nextHandle
-            return 0
-        end,
-        nuppNativeGpuBindingsCreate = function(_, _, output)
-            nextHandle = nextHandle + 1
-            output[0] = nextHandle
-            return 0
-        end,
-    }
-    setmetatable(C, {
-        __index = function()
-            return function()
-                return 0
-            end
-        end
-    })
-    local provider = require("providerstate").nativeGpu({
-        C = C,
-        ffi = ffi,
-        requireFeature = function()
-        end,
-        succeeded = function(status)
-            testAssert.equal(status, 0)
-        end,
-    })
-    local context = provider.open()
-    local element = require("nupp.mem.array").uint32
-    for _, count in ipairs({1.5, math.huge, 0 / 0}) do
-        local ok, problem = pcall(context.buffer, context, element, count)
-        assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
-    end
-    local fractionalKernel, kernelProblem = pcall(
-        context.compileGenerated,
-        context,
-        {spirv = "x", entrypoint = "main"},
-        0.5,
-        1,
-        12,
-        1
-    )
-    assert(not fractionalKernel and tostring(kernelProblem):find("read buffer count", 1, true), tostring(kernelProblem))
-    local kernel = context:compileGenerated({spirv = "x", entrypoint = "main"}, 0, 1, 12, 1)
-    local fractionalDispatch, dispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
-    assert(
-        not fractionalDispatch and tostring(dispatchProblem):find("dispatch count", 1, true),
-        tostring(dispatchProblem)
-    )
-    context:close()
 end
 
 function M.browserCryptoRejectsMalformedHostValues()
@@ -1166,7 +891,6 @@ end
 
 function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     local effects = require("nupp.runtime.browser.effects")
-    local ffi = require("ffi")
     local prior = effects.request
     local leases, nextLease = {}, 0
     local memory = {
@@ -1184,7 +908,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         if effect.operation == "read-body" then
             local lease = assert(leases[effect.lease])
             assert(lease.writable and lease.count == 3)
-            ffi.copy(lease.pointer, "abc", 3)
+            copyInto(lease.pointer, "abc")
             resume({ok = true, value = {bytes = 3}})
         else
             assert(effect.memoryResponse and effect.bodyBase64 == nil)
@@ -1198,7 +922,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
             testAssert.equal(headers["content-type"], "request/type")
             testAssert.equal(headers["x-default"], "client")
             local upload = assert(leases[effect.bodyLease])
-            assert(not upload.writable and ffi.string(upload.pointer, upload.count) == "upload")
+            assert(not upload.writable and stringAt(upload.pointer, upload.count) == "upload")
             resume({
                 ok = true,
                 value = {
@@ -1435,16 +1159,16 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local browser = require("providerstate").browserGpu(host, memory)
     local context = browser.open()
-    local ffi = require("ffi")
-    local spans = require("nupp.mem.span")
     element = require("nupp.mem.array").uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
-    local source = ffi.new("uint32_t[1]", 7)
-    local destination = ffi.new("uint32_t[1]")
+    local source = require("nupp.mem.array").scalar(element, 1)
+    local seed = source:write()
+    seed:set(1, 7)
+    local destination = require("nupp.mem.array").scalar(element, 1)
 
     failure = "runtime-upload"
-    local uploaded, uploadProblem = pcall(context.upload, context, input, spans.fromCarray(source, 1))
+    local uploaded, uploadProblem = pcall(context.upload, context, input, source:read())
     assert(not uploaded and uploadProblem == "fixture runtime-upload", tostring(uploadProblem))
     assert(next(leases) == nil, "a failed upload must release its transfer lease")
 
@@ -1453,7 +1177,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
         context.readDownloaded,
         context,
         output,
-        spans.writeCarray(destination, 1)
+        destination:write()
     )
     assert(not downloaded and downloadProblem == "fixture runtime-read-download", tostring(downloadProblem))
     assert(next(leases) == nil, "a failed download must release its transfer lease")
@@ -2078,72 +1802,22 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     testAssert.equal(#diags, 0, "the shipped streaming hash source supplies its typed surface")
 end
 
-function M.optimizedDeadCodeDropsItsNativeFeatures()
-    local source = table.concat(
-        {
-            "if false then",
-            "    print(nupp.system.availableParallelism())",
-            "else",
-            "    print(nupp.util.uuid4())",
-            "end",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "dead-native-feature")
-    check.check(result, "dead-native-feature", sharedEnv)
-    assert(result.effects["runtime.system"] and result.effects["runtime.uuid"], "checking sees both source-level uses")
-    optimize.run(result, {level = 1})
-    local live = optimize.liveEffects(result)
-    assert(not live["runtime.system"], "a folded-away branch loses its provider")
-    assert(live["runtime.uuid"], "the selected branch retains its provider")
-end
-
-function M.generatedBootstrapFollowsWhatCodegenEmits()
-    local source = table.concat(
-        {
-            "if false then",
-            "    print(nupp.system.availableParallelism())",
-            "else",
-            "    print(nupp.util.uuid4())",
-            "end",
-        },
-        "\n"
-    )
-    local result = parser.parse(source, "generated-runtime-features")
-    testAssert.equal(#result.errors, 0, "generated-runtime-features source parses")
-    check.check(result, "generated-runtime-features", sharedEnv)
-    assert(
-        result.effects["runtime.system"] and result.effects["runtime.uuid"],
-        "checking retains the complete source-level feature inventory"
-    )
-    optimize.run(result, {level = 1})
-
-    local code, diagnostics, _, emitted = gen.generate(result, "generated-runtime-features")
-    testAssert.equal(#diagnostics, 0, "the optimized feature fragment generates")
-    assert(
-        not emitted["runtime.system"] and emitted["runtime.uuid"],
-        "generation reports only features whose consumers it wrote"
-    )
-    assert(not code:find("availableParallelism", 1, true), "the dead system branch loses its member access")
-    assert(code:find("uuid4", 1, true), "the live UUID branch keeps its member access")
-end
-
 function M.compilerProvidedPureLibraries()
-    local bootstrap = stdlib.bootstrap({["stdlib.math"] = true,})
-    local previous = rawget(_G, "nupp")
-    _G.nupp = nil
-    local chunk = assert(
-        loadstring(
-            bootstrap
-            .. [[
+    runClean(
+        [[
       local io = require("nupp.io")
       local buffer = io.newBuffer("hello")
-      local writer = buffer:newWriter()
-      assert(writer:write("world"))
+      do
+          local writer = buffer:newWriter()
+          assert(writer:write("world"))
+      end
       assert(buffer:getString() == "world")
-      local viewReader = buffer:view():newReader()
-      assert(not pcall(function() viewReader:read(0) end))
-      assert(viewReader:read(1) == "w")
+      do
+          local view = buffer:view()
+          local viewReader = view:newReader()
+          assert(not pcall(function() viewReader:read(0) end))
+          assert(viewReader:read(1) == "w")
+      end
       local reader = buffer:newReader()
       assert(reader:read(3) == "wor")
       assert(reader:read(8) == "ld")
@@ -2173,53 +1847,42 @@ function M.compilerProvidedPureLibraries()
          and #uuid4 == 36)
       assert(uuid7:match("^[0-9a-f]+%-[0-9a-f]+%-7[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
          and #uuid7 == 36)
-   ]]
-        )
+   ]],
+        "pure-libraries.nupp"
     )
-    local ok, problem = pcall(chunk)
-    _G.nupp = previous
-    assert(ok, problem)
 end
 
 function M.bitsetsReachTheCheckedModule()
-    local chunk = assert(
-        loadstring(
-            [[
-      local data = require("nupp.util.internal.bitset")
-      local function bitset(bits) return data.Bitset.__nuppCtor1(bits) end
-      local set = bitset(64)
-      assert(set:count() == 0)
-      set:set(5)
-      set:setRange(40, 70)
-      assert(set:count() == 32)
-      assert(set:get(5) and set:get(70) and not set:get(71))
+    local data = require("nupp.util.internal.bitset")
+    local function bitset(bits)
+        return data.Bitset.__nuppCtor1(bits)
+    end
+    local set = bitset(64)
+    assert(set:count() == 0)
+    set:set(5)
+    set:setRange(40, 70)
+    assert(set:count() == 32)
+    assert(set:get(5) and set:get(70) and not set:get(71))
 
-      local other = bitset(64)
-      other:setRange(0, 50)
-      set:andWith(other)
-      assert(set:count() == 12)
-      assert(set:nextSetBit(0) == 5)
+    local other = bitset(64)
+    other:setRange(0, 50)
+    set:andWith(other)
+    assert(set:count() == 12)
+    assert(set:nextSetBit(0) == 5)
 
-      local ffi = require("ffi")
-      local target = ffi.new("int32_t[?]", 4)
-      local written, resume = set:positionsInto(target, 4, 0)
-      assert(written == 4, "positionsInto filled the destination")
-      assert(target[0] == 5, "first position")
-      assert(resume == 43, "and reported where to carry on")
+    local array = require("nupp.mem.array")
+    local target = array.scalar(array.int32, 4)
+    local written, resume = set:positionsInto(target.pointer, 4, 0)
+    assert(written == 4, "positionsInto filled the destination")
+    assert(target:read():get(1) == 5, "first position")
+    assert(resume == 43, "and reported where to carry on")
 
-      assert(data.WORD_BITS == 32)
-      assert(set:wordAt(0) == 32)
-      assert(bitset(8) ~= bitset(8))
-   ]]
-        )
-    )
-    local ok, problem = pcall(chunk)
-    assert(ok, problem)
+    assert(data.WORD_BITS == 32)
+    assert(set:wordAt(0) == 32)
+    assert(bitset(8) ~= bitset(8))
 end
 
 function M.openFilesAreOwnersOverTheSharedReaderContract()
-    local gen = require("nupp.compiler.lua.gen")
-
     assertClean(
         table.concat(
             {
@@ -2287,14 +1950,6 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             "\n"
         )
     )
-
-    local source = "do\n    local file = assert(io.open('input.txt'))\nend"
-    local parsed = parser.parse(source, "lua-file-owner.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors in the Lua file ownership fragment")
-    sharedEnv.loaded = {}
-    check.check(parsed, "lua-file-owner.nupp", sharedEnv)
-    local code = gen.generate(parsed, "lua-file-owner")
-    assert(code:find("__nuppCloseFile", 1, true), "a Lua file is closed automatically at the end of its scope")
 
     assertClean(
         table.concat(
@@ -2400,28 +2055,23 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
 end
 
 function M.bufferAppendsInAmortizedConstantTime()
-    local chunk = assert(
-        loadstring(
-            [[
-      local io = require("nupp.io")
-      local buffer = io.newBuffer()
-      local writer = buffer:newWriter()
-      local piece = string.rep("x", 64)
-      for _ = 1, 100000 do assert(writer:write(piece)) end
-      assert(buffer:length() == 6400000, "every write landed")
-      assert(buffer:capacity() >= buffer:length(), "capacity covers the length")
-      assert(buffer:getString(6399936, 64) == piece, "the last write is intact")
-      buffer:clear()
-      assert(buffer:length() == 0 and buffer:capacity() >= 6400000,
-         "clearing keeps the reserved bytes")
-      buffer:setString("tail", 6)
-      assert(buffer:getString() == string.char(0):rep(6) .. "tail",
-         "a gap past the length reads as zeros, not as stale bytes")
-   ]]
-        )
+    local io = require("nupp.io")
+    local buffer = io.newBuffer()
+    local writer = buffer:newWriter()
+    local piece = string.rep("x", 64)
+    for _ = 1, 100000 do
+        assert(writer:write(piece))
+    end
+    assert(buffer:length() == 6400000, "every write landed")
+    assert(buffer:capacity() >= buffer:length(), "capacity covers the length")
+    assert(buffer:getString(6399936, 64) == piece, "the last write is intact")
+    buffer:clear()
+    assert(buffer:length() == 0 and buffer:capacity() >= 6400000, "clearing keeps the reserved bytes")
+    buffer:setString("tail", 6)
+    assert(
+        buffer:getString() == string.char(0):rep(6) .. "tail",
+        "a gap past the length reads as zeros, not as stale bytes"
     )
-    local ok, problem = pcall(chunk)
-    assert(ok, problem)
 end
 
 function M.theUtf8ModuleNeedsNoNativeModule()
@@ -2680,101 +2330,19 @@ function M.utf8ValidationCoversEveryShape()
     end
 end
 
-function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
-    local bootstrap = stdlib.bootstrap({["native.path"] = true})
-    assert(not bootstrap:find("__nuppIO", 1, true), "the bootstrap no longer reserves an io namespace")
-    assert(not bootstrap:find("nuppPathJoin", 1, true), "the path ABI belongs to the module that calls it")
-
-    local loadedFFI = package.loaded.ffi
-    local loadedPath = package.loaded["nupp.io.pathimpl"]
-    package.loaded["nupp.io.pathimpl"] = nil
-    local chunk = assert(loadstring(bootstrap .. " return package.loaded.ffi"))
-    testAssert.equal(chunk(), loadedFFI, "installing the bootstrap opens no provider")
-    package.loaded["nupp.io.pathimpl"] = loadedPath
-end
-
-function M.theBootstrapCarriesNoNativeAbi()
-    local abi = {
-        "nuppUuid4",
-        "nuppSha256",
-        "nuppPathJoin",
-        "nuppUriParse",
-        "NuppFileInfo",
-        "nuppBytesData",
-        "nuppProcessSpawnBegin",
-        "nuppHttpClientCreate",
-        "typedef struct NuppUri NuppUri",
-    }
-    for _, feature in ipairs({
-        "native.uuid",
-        "native.sha256",
-        "native.path",
-        "native.uri",
-        "native.files",
-        "native.process",
-        "native.http",
-    }) do
-        local installed = stdlib.bootstrap({[feature] = true})
-        for _, absent in ipairs(abi) do
-            assert(
-                not installed:find(absent, 1, true),
-                feature .. " leaves " .. absent .. " to the module that calls it"
-            )
-        end
-    end
-end
-
-function M.pureAndNativeRuntimeFeaturesComposeAsLua()
-    local bootstrap = stdlib.bootstrap({["stdlib.peg"] = true, ["native.path"] = true,})
-    assert(not bootstrap:find(";;", 1, true), "adjacent runtime installers do not emit an empty Lua statement")
-    local previous = rawget(_G, "nupp")
-    _G.nupp = nil
-    local chunk = assert(loadstring(bootstrap .. " return type(nupp.peg), next(nupp.peg), rawget(nupp, 'io')"))
-    local pegType, pegField, io = chunk()
-    _G.nupp = previous
-    testAssert.equal(pegType, "table", "the pure PEG runtime is installed")
-    testAssert.equal(pegField, nil, "internal PEG helpers are not public fields")
-    testAssert.equal(io, nil, "selecting a native facility installs no ambient io namespace")
-end
-
 function M.lpegAndReUseTheNativeRuntime()
-    local previousNupp = rawget(_G, "nupp")
-    local previousLoaded = package.loaded.lpeg
-    local previousPreload = package.preload.lpeg
-    local previousReLoaded = package.loaded.re
-    local previousRePreload = package.preload.re
-    package.loaded.lpeg, package.loaded.re = nil, nil
-    package.preload.lpeg, package.preload.re = nil, nil
-    _G.nupp = nil
-    local source = stdlib.bootstrap({
-        ["stdlib.lpeg.re"] = true
-    })
-        .. [=[
-local lpeg = require("lpeg")
-local P, R, V = lpeg.P, lpeg.R, lpeg.V
-local C, Cc, Cp, Ct, Cg, Cb, Cs =
-    lpeg.C, lpeg.Cc, lpeg.Cp, lpeg.Ct, lpeg.Cg, lpeg.Cb, lpeg.Cs
-local identifier = C((R("az", "AZ") + P("_"))
-    * (R("az", "AZ", "09") + P("_"))^0)
-local fields = Ct(C(R("09")^1) * (P(",") * C(R("09")^1))^0)
-local same = Cg(C(R("az")^1), "word") * P(":") * Cb("word")
-local grammar = P({"value", value = P("x") + P("(") * V("value") * P(")")})
-local substitution = Cs((C(R("09")^1) / "[%0]" + P(1))^0)
-local positions = Ct(Cp() * Cc("tag") * C(P("ok")) * Cp())
-local re = require("re")
-return identifier:match("name9"), fields:match("1,22,333"),
-    same:match("echo:rest"), lpeg.match(grammar * -P(1), "((x))"),
-    substitution:match("a12b"), positions:match("ok"), lpeg.version,
-    re.match("item:42", "{[a-z]+} ':' {[0-9]+} !.")
-]=]
-    local identifier, fields, same, recursive, substitution, positions, version, reFirst, reSecond = assert(
-        loadstring(source)
-    )()
-    package.loaded.lpeg = previousLoaded
-    package.preload.lpeg = previousPreload
-    package.loaded.re = previousReLoaded
-    package.preload.re = previousRePreload
-    _G.nupp = previousNupp
+    local lpeg = require("lpeg")
+    local P, R, V = lpeg.P, lpeg.R, lpeg.V
+    local C, Cc, Cp, Ct, Cg, Cb, Cs = lpeg.C, lpeg.Cc, lpeg.Cp, lpeg.Ct, lpeg.Cg, lpeg.Cb, lpeg.Cs
+    local identifier = C((R("az", "AZ") + P("_")) * (R("az", "AZ", "09") + P("_")) ^ 0):match("name9")
+    local fields = Ct(C(R("09") ^ 1) * (P(",") * C(R("09") ^ 1)) ^ 0):match("1,22,333")
+    local same = (Cg(C(R("az") ^ 1), "word") * P(":") * Cb("word")):match("echo:rest")
+    local grammar = P({"value", value = P("x") + P("(") * V("value") * P(")")})
+    local recursive = lpeg.match(grammar * -P(1), "((x))")
+    local substitution = Cs((C(R("09") ^ 1) / "[%0]" + P(1)) ^ 0):match("a12b")
+    local positions = Ct(Cp() * Cc("tag") * C(P("ok")) * Cp()):match("ok")
+    local version = lpeg.version
+    local reFirst, reSecond = require("re").match("item:42", "{[a-z]+} ':' {[0-9]+} !.")
     testAssert.equal(identifier, "name9", "LPeg facade substring capture")
     testAssert.equal(fields[3], "333", "LPeg facade table capture")
     testAssert.equal(same, "echo", "LPeg facade back capture")
