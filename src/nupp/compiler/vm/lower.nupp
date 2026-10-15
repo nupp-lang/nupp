@@ -4181,6 +4181,72 @@ function lower.emit(
             if node.stat then
                 stmt(f, node.stat)
             end
+        elseif k == "callStmt" and node.expr and node.expr.logIntrinsic then
+            -- `nupp.log.<severity>(...)` as a statement: the level test stands at the
+            -- site, so a filtered line evaluates none of its arguments, and the
+            -- module and line are constants handed to the module's view.
+            local call = node.expr
+            local severity = call.logIntrinsic
+            local line = nodeLine(call) or 0
+            local exprs = call.args and call.args.exprs or {}
+
+            local function value(register)
+                return {kind = "vmRegister", reg = register}
+            end
+
+            local function number(n)
+                return {kind = "number", token = {text = tostring(n)}}
+            end
+
+            local logModule, forModule, moduleName = f:reg(), f:reg(), f:reg()
+            f:op("Require", logModule, f:const("str", "nupp.log"))
+            f:op("GetField", forModule, logModule, f:const("str", "forModule"))
+            f:op("K", moduleName, f:const("str", currentModule or "?"))
+            local view = exprAs(
+                f,
+                {kind = "call", obj = value(forModule), args = {kind = "args", exprs = {value(moduleName)}}},
+                "v"
+            )
+            local on = f:reg()
+            f:op("GetField", on, view, f:const("str", "on"))
+            local enabled = exprAs(f, {kind = "bracketIndex", obj = value(on), expr = number(severity)}, "v")
+            local skip = f:op("JmpIfNot", enabled, 0)
+            local message
+            if call.logFormatIntrinsic then
+                local plan = call.logFormatIntrinsic
+                message = exprAs(
+                    f,
+                    {
+                        kind = "call",
+                        obj = value(on),
+                        args = {kind = "args", exprs = exprs},
+                        formatIntrinsic = {
+                            format = plan.format,
+                            debugArguments = plan.debugArguments,
+                            argumentOffset = 1
+                        },
+                    },
+                    "v"
+                )
+            elseif #exprs > 1 then
+                local values = {}
+                for index, argument in ipairs(exprs) do
+                    values[index] = exprAs(f, argument, "v")
+                end
+                message = builtinRegisters(f, "string.format", values)
+            else
+                message = exprAs(f, exprs[1], "v")
+            end
+            exprAs(
+                f,
+                {
+                    kind = "call",
+                    obj = {kind = "dotIndex", obj = value(view), name = {text = "emit"}},
+                    args = {kind = "args", exprs = {number(severity), number(line), value(message)}},
+                },
+                "v"
+            )
+            f:patch(skip, "JmpIfNot", enabled, f:offset(skip, f:here()))
         elseif k == "callStmt" then
             expr(f, node.expr, nil, "v")
         elseif k == "returnStmt" then
