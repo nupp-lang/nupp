@@ -3873,6 +3873,17 @@ else
         ):format(total, passed, skipped, notExecutedCount, failed, duration)
         or ("%d tests, %d passed, %d skipped, %d failed (%.1fms)"):format(total, passed, skipped, failed, duration)
     io.write("\n" .. paint(failed == 0 and "1;32" or "1;31", summary) .. "\n")
+    if engine == "vm" and #shard == 0 and not queueDir then
+        -- Which engine ran the run, and what it left to the other one by name, so
+        -- a green line on the VM never reads as the LuaJIT-only suites passing.
+        local names = {}
+        for _, deferred in ipairs(deferredSuites) do
+            names[#names + 1] = deferred.name
+        end
+        io.write(("Engine: vm%s\n"):format(
+            #names > 0 and ("; %d left to LuaJIT (tests/run): %s"):format(#names, table.concat(names, " ")) or ""
+        ))
+    end
     if timingRows > 0 and #suiteRecords > 0 then
         io.write(timingReport())
     end
