@@ -1212,6 +1212,8 @@ impl Interp {
         self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.loadImage").unwrap()));
         let k = self.intern("__nupp_image_identity");
         self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.imageIdentity").unwrap()));
+        let k = self.intern("__nupp_image_modules");
+        self.set_index(g, k, Value::builtin(crate::builtins::id_of("vm.imageModules").unwrap()));
         let k = self.intern("_G"); self.set_index(g, k, g);
         for (name, t) in [("bit", bit), ("string", string), ("table", table), ("math", math), ("os", os), ("io", io), ("package", package), ("debug", debug), ("_G", g)] { self.loaded.insert(name.to_string(), t); let k = self.intern(name); self.set_index(self.loaded_table, k, t); }
         for (name, value) in self.loaded.clone() { let k = self.intern(&name); self.set_index(self.loaded_table, k, value); }

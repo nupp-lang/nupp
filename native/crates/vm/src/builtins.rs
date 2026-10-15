@@ -77,6 +77,7 @@ pub const NAMES: &[&str] = &[
     "sbuf.__len", "sbuf.__tostring", "sbuf.__concat",
     // Appended last so every earlier id, which linked objects carry, keeps its value.
     "vm.imageIdentity",
+    "vm.imageModules",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -580,6 +581,7 @@ enum Special {
     PackageImageloader,
     VmLoadimage,
     VmImageidentity,
+    VmImagemodules,
     Tail,
 }
 static SPECIAL: std::sync::OnceLock<Vec<Special>> = std::sync::OnceLock::new();
@@ -630,6 +632,7 @@ fn classify(name: &str) -> Special {
     if name == "package.imageLoader" { return Special::PackageImageloader; }
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
+    if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
@@ -841,6 +844,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 _ => None,
             };
             return match digest { Some(digest) => outs![it.new_string_bytes(&digest)], None => outs![Value::NIL] };
+        }
+        Special::VmImagemodules => {
+            // Per module of that same image: the digest of its lowered code and
+            // what it reaches, so a stamp can name only the code an answer came from.
+            return outs![crate::image_modules::tables(it)];
         }
         Special::UuidUuid4 => {
             let name = NAMES[id as usize];
