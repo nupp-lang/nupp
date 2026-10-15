@@ -8,7 +8,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import re
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 PACKAGES = ROOT / ".nupp/vm-cli"
@@ -139,15 +141,94 @@ def status():
     }, indent=2))
 
 
+def root_extras():
+    """The extras list `nupp.tools.vm.project.ROOT_EXTRAS` spells, read from source so
+    a seed image older than that constant can still be asked for the same image."""
+    text = (ROOT / "src/nupp/tools/vm/project.nupp").read_text()
+    block = re.search(r"project\.ROOT_EXTRAS = (.*?)\n\n", text, re.S)
+    if not block:
+        raise ValueError("cannot find project.ROOT_EXTRAS")
+    return "".join(re.findall(r'"([^"]*)"', block.group(1)))
+
+
+def run_step(command, env=None, what=""):
+    started = time.time()
+    result = subprocess.run(command, cwd=ROOT, env=env)
+    if result.returncode:
+        raise ValueError(f"{what or command[0]} failed with status {result.returncode}")
+    print(f"vm-cli: {what} took {time.time() - started:.0f}s", file=sys.stderr)
+
+
+def cargo(features, target, extra_env=None, default_features=True):
+    env = dict(os.environ, CARGO_TARGET_DIR=str(target), **(extra_env or {}))
+    command = ["cargo", "build", "--offline", "--release", "-p", "nupp-vm"]
+    if not default_features:
+        command.append("--no-default-features")
+    if features:
+        command += ["--features", features]
+    run_step(command, env, "cargo " + (features or "default"))
+    return target / "release" / "nupp-vm"
+
+
+def build(args):
+    """Emit the root CLI image from this checkout, link its compiled code into a
+    runtime, and install the pair. The image is lowered by the installed VM CLI
+    when there is one (`--seed vm`), or by the LuaJIT-built compiler, which the
+    launcher builds from the pinned stage zero when needed (`--seed luajit`)."""
+    out = ROOT / "build/vm-cli"
+    out.mkdir(parents=True, exist_ok=True)
+    target = ROOT / "build/rust/target"
+    image = out / "compiler.image"
+    image.unlink(missing_ok=True)
+    seed = args.seed or ("vm" if (PACKAGES / "current").exists() else "luajit")
+    if seed == "vm":
+        seed_image = selected() / "compiler.image"
+        plain = cargo(None, target)
+        shutil.copyfile(plain, out / "plain-runtime")
+        (out / "plain-runtime").chmod(0o755)
+        env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT))
+        for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"):
+            env.pop(name, None)
+        run_step([str(out / "plain-runtime"), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
+                  "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "VM-hosted root emit")
+    else:
+        env = dict(os.environ, NUPP_ENGINE="luajit")
+        env.pop("NUPP_VM_CLI_IMAGE", None)
+        run_step([str(ROOT / "bin/nupp"), "run", "native/crates/vm/emit/root.lua", str(ROOT), str(image)], env,
+                 "LuaJIT-hosted root emit")
+    if not image.is_file():
+        raise ValueError("the root emit wrote no image")
+    if args.no_aot:
+        runtime = cargo(None, target)
+    else:
+        aot_tool = cargo("aot", target)
+        shutil.copyfile(aot_tool, out / "aot-tool")
+        (out / "aot-tool").chmod(0o755)
+        obj = out / "compiler.o"
+        run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
+        # The object is read by the build script, which does not see a changed
+        # file behind an unchanged variable.
+        (ROOT / "native/crates/vm/src/lib.rs").touch()
+        runtime = cargo("aot-linked,c-headers,compression,net,http", target, {"NUPP_AOT_OBJECT": str(obj)},
+                        default_features=False)
+    shutil.copyfile(runtime, out / "runtime")
+    (out / "runtime").chmod(0o755)
+    args.runtime, args.image = out / "runtime", image
+    install(args)
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 commands = parser.add_subparsers(dest="command", required=True)
 command = commands.add_parser("install", help="verify and atomically select a runtime and full root CLI image")
 command.add_argument("--runtime", type=Path, required=True)
 command.add_argument("--image", type=Path, required=True)
 commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
+command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
+command.add_argument("--seed", choices=["vm", "luajit"], help="compiler that lowers the image (default: installed VM CLI, else LuaJIT)")
+command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
 args = parser.parse_args()
 try:
-    install(args) if args.command == "install" else status()
+    {"install": install, "status": lambda _: status(), "build": build}[args.command](args)
 except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
     print(f"nupp: {error}", file=sys.stderr)
     sys.exit(1)

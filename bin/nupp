@@ -14,7 +14,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
 # Pin the selected immutable generation in the environment before any child can
 # start, so replacing `current` cannot mix compiler generations in one command.
-if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
+# NUPP_ENGINE=luajit skips it, which is how `scripts/vm-cli build --seed luajit`
+# reaches the LuaJIT-built compiler in a checkout that has both.
+if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then
     VM_GENERATION=$(cat "$ROOT/.nupp/vm-cli/current") || exit 1
     case "$VM_GENERATION" in
         ""|*[!0-9a-f]*) echo "nupp: invalid VM CLI package selection; run scripts/vm-cli install" >&2; exit 1 ;;

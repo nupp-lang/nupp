@@ -106,7 +106,7 @@ local function emitProject(
     reached: {[string]: boolean}?
 ): string
     if not hostBootstrap then
-        triviaarena.install(tableProvider)
+        triviaarena.installDefault(tableProvider)
     end
     chunks.install()
     local env = envMod.new(root, {
@@ -201,7 +201,7 @@ function project.emit(
     inspection: table?
 ): string
     if not hostBootstrap then
-        triviaarena.install(tableProvider)
+        triviaarena.installDefault(tableProvider)
     end
     chunks.install()
     local config: table = {include = names(includes or "src")}

@@ -38,6 +38,17 @@ function triviaarena.install(provider: Provider): nil
     selected = provider
 end
 
+--- Selects `provider` unless the host already chose one, whose choice stands:
+--- any provider answers the same records, so a tool running inside another
+--- compiler's process takes that compiler's arena.
+---
+--- @param provider the arena to use when nothing is selected yet
+function triviaarena.installDefault(provider: Provider): nil
+    if selected == nil then
+        selected = provider
+    end
+end
+
 -- The name is a parameter so closure discovery treats the require as computed, the way
 -- `nupp.compiler.project.env` reaches its own host services. Concatenating two literals
 -- at the call read as computed only until something folded them back into one: the
