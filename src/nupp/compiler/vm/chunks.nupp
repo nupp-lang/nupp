@@ -33,7 +33,9 @@ function chunks.install(): boolean
 
     local environments: any = setmetatable({}, {__mode = "k"})
 
-    local function compileChunk(source: string, filename: string?): (any, string?)
+    -- `mode` and `env` follow LuaJIT's `load(chunk, name, mode, env)`: only
+    -- text is ever loaded here, and `env` stands in for a later `setfenv`.
+    local function compileChunk(source: string, filename: string?, _: string?, env: table?): (any, string?)
         local path = filename or "=(loadstring)"
         local tree = parser.parse(source, path)
         if #tree.errors > 0 then
@@ -42,7 +44,7 @@ function chunks.install(): boolean
         -- The Lua backend loads generated text to validate its syntax. Native
         -- lowering is needed only if the returned function is actually called.
         local compiled = nil
-        local context = {value = _G}
+        local context = {value = env or _G}
 
         local function prepare()
             if not compiled then
@@ -74,7 +76,7 @@ function chunks.install(): boolean
     end)
 
     rawset(_G, "__nupp_compile_chunk", compileChunk)
-    rawset(_G, "loadfile", function(path: string): (any, string?)
+    rawset(_G, "loadfile", function(path: string, mode: string?, env: table?): (any, string?)
         local file, problem = io.open(path, "rb")
         if not file then
             return nil, problem
@@ -84,7 +86,7 @@ function chunks.install(): boolean
 
         -- Lua names a file's chunk `@path`, which its errors print as given.
 
-        return compileChunk(source, "@" .. path)
+        return compileChunk(source, "@" .. path, mode, env)
     end)
 
     rawset(_G, "dofile", function(path: string): any
