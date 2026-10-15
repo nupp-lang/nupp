@@ -2687,7 +2687,7 @@ function lower.emit(
             local raw = tokText(node.token)
             local value = raw
             local first = raw:sub(1, 1)
-            if first == '"' or first == "'" then
+            if first == '"' or first == "'" or first == "`" then
                 value = assert(require("nupp.compiler.syntax.lexer").stringValue(raw), "literal " .. raw)
             elseif first == "[" then
                 local equals = assert(raw:match("^%[(=*)%["), "literal " .. raw)
@@ -2698,6 +2698,42 @@ function lower.emit(
                 value = body:sub(1, 1) == "\n" and body:sub(2) or body
             end
             f:op("K", dst, f:const("str", value))
+        elseif k == "istring" then
+            -- `text ${value} text`: each literal piece as written, each value
+            -- through the `tostring` builtin (never a local of that name), joined
+            -- left to right.
+            local started = false
+            local mark = f.nregs
+            for _, child in ipairs(node) do
+                local piece = nil
+                if child.kind == "istringOpen" or child.kind == "istringMid" then
+                    piece = tokText(child):sub(2, -3)
+                elseif child.kind == "istringClose" then
+                    piece = tokText(child):sub(2, -2)
+                end
+                local value = nil
+                if piece ~= nil then
+                    if #piece > 0 then
+                        local lexer = require("nupp.compiler.syntax.lexer")
+                        value = f:reg()
+                        f:op("K", value, f:const("str", assert(lexer.stringValue("`" .. piece .. "`"), piece)))
+                    end
+                elseif type(child) == "table" and child.kind then
+                    value = builtinRegisters(f, "tostring", {exprAs(f, child, "v")})
+                end
+                if value then
+                    if started then
+                        f:op("Concat", dst, dst, value)
+                    else
+                        f:op("Move", dst, value)
+                        started = true
+                    end
+                    f.nregs = math.max(mark, f.declTop or 0)
+                end
+            end
+            if not started then
+                f:op("K", dst, f:const("str", ""))
+            end
         elseif k == "dedentString" then
             local lexer = require("nupp.compiler.syntax.lexer")
             f:op("K", dst, f:const("str", lexer.dedentLongString(tokText(node.token))))
@@ -3182,7 +3218,24 @@ function lower.emit(
 
     local plainExpr = expr
 
+    -- A `comptime` block the checker ran stands for its value, which the checker
+    -- quotes as a Lua expression of plain data; that expression is lowered instead.
+    local function comptimeExpression(node)
+        local parsed = node.vmComptimeExpression
+        if not parsed then
+            local result = require("nupp.compiler.syntax.parser").parse("return " .. node.comptimeValue, "=comptime")
+            assert(#result.errors == 0, "comptime value does not parse: " .. tostring(node.comptimeValue))
+            parsed = (result.root.blocks[1].stats[1] as any).exprs[1]
+            node.vmComptimeExpression = parsed
+        end
+
+        return parsed
+    end
+
     expr = function(f, node, dst, want)
+        if node.comptimeValue then
+            return plainExpr(f, comptimeExpression(node), dst, want)
+        end
         local r, class = plainExpr(f, node, dst, want)
         if node.automaticOwnerMove and node.kind ~= "paren" and node.kind ~= "castExpr" then
             local move = node.automaticOwnerMove
