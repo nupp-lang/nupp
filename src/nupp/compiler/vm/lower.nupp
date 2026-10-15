@@ -2020,6 +2020,34 @@ function lower.emit(
         local lastArg = args0[#args0]
         local slack = lastArg and multiCall(lastArg) and 8 or 0
         if node.kind == "methodCall" then
+            -- Lua reads the method before the arguments run. A record's method is
+            -- its shape's, but a dynamic receiver's field can be replaced by an
+            -- argument, so it is read first unless every argument is inert.
+            local inert = true
+            for _, argument in ipairs(node.args and node.args.exprs or {}) do
+                local kind = argument.kind
+                inert = inert
+                    and (
+                        kind == "number"
+                        or kind == "string"
+                        or kind == "name"
+                        or kind == "nil"
+                        or kind == "nilExpr"
+                        or kind == "trueExpr"
+                        or kind == "falseExpr"
+                        or kind == "vmRegister"
+                    )
+            end
+            if not inert and not shapeOf(node.obj.inferredType) and not node.trailingCallableMember then
+                local receiver = exprAs(f, node.obj, "v")
+                local method = f:reg()
+                f:op("GetField", method, receiver, f:const("str", node.overloadMember or tokText(node.name)))
+                local base = math.max(dst, f.nregs)
+                local base2, nargs = callInto(f, node, base, receiver)
+                f:op("CallDyn", method, base2, nargs)
+                finish(base2)
+                return
+            end
             -- Otherwise the window is placed above the receiver once it exists.
             local base, o
             if top then
@@ -3615,26 +3643,38 @@ function lower.emit(
 
     -- An assignment evaluates its targets' tables and keys left to right before
     -- any value, as Lua does: `t()[k()] = v()` calls t, k, then v.
-    local function prepareTarget(f, target, plainKey)
+    -- `held` copies each into a register of its own, for a multiple assignment
+    -- whose values may rebind the locals a target names.
+    local function prepareTarget(f, target, plainKey, held)
+        local function evaluate(node, class)
+            if not held then
+                return exprAs(f, node, class)
+            end
+            local r = class == "v" and f:reg() or f:freg()
+            exprAs(f, node, class, r)
+
+            return r
+        end
+
         -- A struct-of-arrays row is addressed through its view and index,
         -- which the store evaluates.
         if soaField(target) or target.kind == "bracketIndex" and target.soaRow then
             return nil
         end
         if target.kind == "dotIndex" then
-            return {o = exprAs(f, target.obj, "v")}
+            return {o = evaluate(target.obj, "v")}
         elseif target.kind == "bracketIndex"
             and not (target.indexedAccess and target.indexedAccess.adapter == "span")
         then
-            local o = exprAs(f, target.obj, "v")
+            local o = evaluate(target.obj, "v")
             if plainKey then
-                return {o = o, i = exprAs(f, target.expr, "v"), class = "v"}
+                return {o = o, i = evaluate(target.expr, "v"), class = "v"}
             elseif isIntegerish(target.expr) then
-                return {o = o, i = exprAs(f, target.expr, "i"), class = "i"}
+                return {o = o, i = evaluate(target.expr, "i"), class = "i"}
             elseif isNumeric(target.expr.inferredType) then
-                return {o = o, i = exprAs(f, target.expr, "f"), class = "f"}
+                return {o = o, i = evaluate(target.expr, "f"), class = "f"}
             end
-            return {o = o, i = exprAs(f, target.expr, "v"), class = "v"}
+            return {o = o, i = evaluate(target.expr, "v"), class = "v"}
         end
 
         return nil
@@ -4070,7 +4110,7 @@ function lower.emit(
             end
             local prepared = {}
             for i, target in ipairs(targets) do
-                prepared[i] = prepareTarget(f, target) or false
+                prepared[i] = prepareTarget(f, target, false, true) or false
             end
             local base = f.nregs
             exprsInto(f, exprs, #targets, base)
@@ -4376,8 +4416,11 @@ function lower.emit(
             end
             loopContinue(f)
             -- The condition still sees the body's owners; they close after it,
-            -- on the way out and on the way round alike.
+            -- on the way out and on the way round alike. A `break` or `continue`
+            -- written in it is outside the body, so it belongs to the enclosing loop.
+            local own = table.remove(f.breaks)
             local c = exprAs(f, node.cond, "v")
+            f.breaks[#f.breaks + 1] = own
             if (f.cleanupDepth or 0) > depth then
                 f:op("Unwind", depth)
                 f.cleanupDepth = depth
