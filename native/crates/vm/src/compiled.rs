@@ -380,7 +380,7 @@ fn j_arith_slow_impl(a: u64, b: u64, op: u64) -> u64 {
     let _hp = enter_helper!();
     let it = ctx(); let (x, y) = (V(a), V(b));
     if matches!(op, 3 | 4) && !(crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y)) {
-        return V::boolean(if op == 3 { it.bytes_of(x) < it.bytes_of(y) } else { it.bytes_of(x) <= it.bytes_of(y) }).0;
+        return it.order(x, y, op == 4).0;
     }
     crate::numeric::binary(it, x, y, ["add", "sub", "mul", "lt", "le", "div", "mod", "idiv"][op as usize], None).0
 }

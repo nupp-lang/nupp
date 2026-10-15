@@ -1,0 +1,17 @@
+@!internal
+
+module nupp.runtime.provider.nativebuffer
+
+--[[
+The VM's `text.buffer` provider: the portable piece buffer, served under the
+name the [](nupp.text) facade asks for. LuaJIT's `string.buffer` has no VM
+counterpart yet; a native byte buffer replaces this when one exists.
+]]
+
+local tablebuffer = require("nupp.runtime.provider.tablebuffer")
+local {type Buffer} = require("nupp.text.internal.buffer")
+
+--- Creates an empty FIFO byte buffer; both arguments are accepted and ignored.
+export function new(size: (integer | table)?, options: table?): Buffer
+    return tablebuffer.new(size, options)
+end

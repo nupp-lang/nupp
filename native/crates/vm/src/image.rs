@@ -27,14 +27,20 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
         let parts: Vec<&str> = split(line);
         match parts[0] {
             "shape" => {
-                let mut names = Vec::new(); let mut types = Vec::new();
+                let mut names = Vec::new(); let mut types = Vec::new(); let mut identity = None;
                 for p in &parts[3..] {
+                    if let Some(key) = p.strip_prefix("identity=") { identity = Some(key.to_string()); continue; }
                     if let Some((n, f)) = p.strip_prefix("method:").and_then(|m| m.split_once('=')) { pending_methods.push((shape_ids.len() as u32, n.to_string(), f.parse().unwrap())); continue; }
                     let (n, t) = p.split_once(':').ok_or(format!("line {ln}: slot"))?;
                     let nv = it.intern(n); it.handles.push(nv); names.push(nv);
                     types.push(match t { "num" => SlotTy::Num, "str" => SlotTy::Str, "bool" => SlotTy::Bool, t if t.starts_with("rec:") => SlotTy::Record(shape_ids[t[4..].parse::<usize>().unwrap()]), _ => SlotTy::Any });
                 }
-                let id = it.heap.shape(parts[2], &names, &types);
+                let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| {
+                    let shape = &it.heap.shapes[id as usize];
+                    shape.names == names && shape.types == types
+                });
+                let id = existing.unwrap_or_else(|| it.heap.shape(parts[2], &names, &types));
+                if let (None, Some(key)) = (existing, identity) { it.heap.shape_identities.insert(key, id); }
                 shape_ids.push(id);
             }
             "function" => {

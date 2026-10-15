@@ -1,0 +1,27 @@
+@!internal
+
+module nupp.runtime.provider.nativepath
+
+--[[
+The VM's native environment for `host.path` API 1: the separator, the working
+directory and canonicalization, over the VM's `nupp.vm.files` primitives.
+Lexical path operations stay in [](nupp.io.path.pathtext).
+]]
+
+const host = require("nupp.vm.files")
+
+local provider = {}
+
+function provider.separator(): string
+    return package.config:sub(1, 1)
+end
+
+function provider.currentDirectory(): (string?, string?)
+    return host.currentDirectory()
+end
+
+function provider.canonicalize(path: string): (string?, string?)
+    return host.canonicalize(path)
+end
+
+export = provider

@@ -386,6 +386,8 @@ pub struct Interp {
     pub(crate) foreign: crate::foreign::State,
     pub(crate) physical_fields: crate::storage::PhysicalCache,
     pub native_files: std::collections::HashMap<Value, std::fs::File>,
+    /// Files the standard library's provider opened through `nfiles.open`.
+    pub nfiles: crate::nfiles::Files,
     pub heap: Heap,
     /// The host services, once started.
     pub host: Option<crate::host::Host>,
@@ -545,12 +547,19 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
+    pub fn new() -> Interp { Interp { native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
     pub fn intern_bytes(&mut self, s: &[u8]) -> Value { self.heap.intern_bytes(s, roots!(self)) }
-    pub fn err(&self, msg: &str) -> ! { panic!("runtime error: {msg}") }
+    pub fn err(&self, msg: &str) -> ! {
+        // The frame chain where the VM raises, before any handler unwinds it.
+        if std::env::var_os("TRACE_ERRORS").is_some() {
+            eprintln!("raising: {msg}");
+            if let Some(tid) = self.caller_task() { eprint!("{}", self.backtrace(tid)); }
+        }
+        panic!("runtime error: {msg}")
+    }
 
     // ---- tasks and frames -------------------------------------------------
 
@@ -1055,14 +1064,12 @@ impl Interp {
             }
         }
         let debug = table_of(self, &["debug.getinfo", "debug.traceback"]);
-        // The file-system minimum behind `nupp.io.files` and `nupp.io.path`, as
-        // modules: a `require` finds them before the image's.
+        // Host primitives the VM's standard-library providers are written over.
         let process = table_of(self, &["process.spawn", "process.poll", "process.kill", "process.read", "process.write", "process.closeStream", "process.reap", "process.waitReady"]);
         self.loaded.insert("nupp.vm.process".into(), process);
-        let files = table_of(self, &["files.info", "files.isDirectory", "files.list", "files.createDirectory", "files.exists", "files.isFile", "files.remove", "files.glob", "files.read", "files.write", "files.createTemporaryFile", "files.createTemporaryDirectory", "files.lines"]);
+        let vm_files = table_of(self, &["nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary"]);
+        self.loaded.insert("nupp.vm.files".into(), vm_files);
         crate::simd::install(self);
-        let path = table_of(self, &["path.currentDirectory", "path.newPath"]);
-        for (name, t) in [("nupp.io.files", files), ("nupp.io.path", path)] { self.loaded.insert(name.to_string(), t); }
         let terminal = table_of(self, &["terminal.isTerminal", "terminal.columns"]);
         self.loaded.insert("nupp.cli.internal.terminalhost".into(), terminal);
         let clock = table_of(self, &["clock.now"]);
@@ -1565,6 +1572,25 @@ impl Interp {
         let line = self.funcs.get(fid)?.debug.get(pc.saturating_sub(1))?.0;
         Some((fid, line))
     }
+    /// `x < y` (or `x <= y`) past the number fast path: strings by their
+    /// bytes, then the shared `__lt`/`__le` handler as Lua 5.1 finds it, with
+    /// `a <= b` falling back to `not (b < a)`.
+    pub fn order(&mut self, x: Value, y: Value, or_equal: bool) -> Value {
+        if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { return crate::numeric::binary(self, x, y, if or_equal { "le" } else { "lt" }, None); }
+        if self.is_stringish(x) && self.is_stringish(y) {
+            let (a, b) = (self.bytes_of(x), self.bytes_of(y));
+            return Value::boolean(if or_equal { a <= b } else { a < b });
+        }
+        let handler = |it: &mut Interp, name: &str| { let h = it.meta_field(x, name); if h != Value::NIL && h == it.meta_field(y, name) { h } else { Value::NIL } };
+        let direct = handler(self, if or_equal { "__le" } else { "__lt" });
+        if direct != Value::NIL { return Value::boolean(self.call_value(direct, &[x, y]).first().is_some_and(|v| v.truthy())); }
+        if or_equal {
+            let swapped = handler(self, "__lt");
+            if swapped != Value::NIL { return Value::boolean(!self.call_value(swapped, &[y, x]).first().is_some_and(|v| v.truthy())); }
+        }
+        let (a, b) = (crate::builtins::type_name(self, x), crate::builtins::type_name(self, y));
+        if a == b { self.err(&format!("attempt to compare two {a} values")) } else { self.err(&format!("attempt to compare {a} with {b}")) }
+    }
     /// The task a builtin was called from, when an interpreted task called it.
     pub(crate) fn caller_task(&self) -> Option<usize> {
         match self.caller.get() { Some(Caller::Task(tid)) => Some(tid), _ => None }
@@ -1714,8 +1740,8 @@ impl Interp {
                     Op::Add(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "add", None); }
                     Op::Sub(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "sub", None); }
                     Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mul", None); }
-                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "lt", None) } else { Value::boolean(self.bytes_of(x) < self.bytes_of(y)) }; }
-                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "le", None) } else { Value::boolean(self.bytes_of(x) <= self.bytes_of(y)) }; }
+                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "lt", None) } else { self.order(x, y, false) }; }
+                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "le", None) } else { self.order(x, y, true) }; }
                     Op::Pow(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "pow", None); }
                     Op::IDiv(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "idiv", None); }
                     Op::IXor(d, a, b) => ir!(d) = ir!(a) ^ ir!(b),

@@ -23,6 +23,7 @@ pub mod builtins;
 mod clock;
 mod datetime;
 pub mod fileio;
+pub mod nfiles;
 mod temporary;
 mod process;
 mod stdio;

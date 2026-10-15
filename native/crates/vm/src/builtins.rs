@@ -51,6 +51,7 @@ pub const NAMES: &[&str] = &[
     "files.lines",
     "files.readerRead", "files.readerClose",
     "error.site",
+    "nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -422,26 +423,36 @@ fn bytes_ref<'a>(it: &'a Interp, v: Value, scratch: &'a mut Vec<u8>) -> &'a [u8]
     if v.is_num() { *scratch = num_text(v.as_num()).into_bytes(); return scratch; }
     it.bytes_of(v)
 }
-pub fn num_text(n: f64) -> String { if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { let s = format!("{:.14}", n); let s = s.trim_end_matches('0').trim_end_matches('.').to_string(); s } }
-// `%g` selects fixed or scientific notation from the rounded exponent.
-// Explicit precision is also the portable image writer's round-trip format.
-fn general_number(n: f64, precision: usize) -> String {
-    let precision = precision.max(1);
-    if !n.is_finite() { return n.to_string(); }
-    let scientific = format!("{:.*e}", precision - 1, n);
-    let (mantissa, exponent) = scientific.split_once('e').unwrap();
-    let exponent: i32 = exponent.parse().unwrap();
-    let trim = |s: String| if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
-    if exponent < -4 || exponent >= precision as i32 {
-        format!("{}e{:+03}", trim(mantissa.to_string()), exponent)
-    } else {
-        trim(format!("{:.*}", (precision as i32 - 1 - exponent).max(0) as usize, n))
+/// Lua's number text: `%.14g`, which integers below 1e14 print as written.
+pub fn num_text(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 1e14 && !(n == 0.0 && n.is_sign_negative()) { return format!("{}", n as i64); }
+    String::from_utf8(c_format(".14", b'g', CArg::F(n))).unwrap_or_default()
+}
+/// One C conversion, as LuaJIT's `string.format` makes it: `spec` is the
+/// flags, width and precision between `%` and the conversion.
+#[derive(Clone, Copy)]
+pub enum CArg { F(f64), I(i64), U(u64) }
+pub fn c_format(spec: &str, conv: u8, value: CArg) -> Vec<u8> {
+    let length = match value { CArg::F(_) => "", _ => "ll" };
+    let format = std::ffi::CString::new(format!("%{spec}{length}{}", conv as char)).unwrap();
+    let mut buffer = vec![0u8; 128];
+    loop {
+        let written = unsafe { match value {
+            CArg::F(x) => libc::snprintf(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len(), format.as_ptr(), x),
+            CArg::I(x) => libc::snprintf(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len(), format.as_ptr(), x as libc::c_longlong),
+            CArg::U(x) => libc::snprintf(buffer.as_mut_ptr() as *mut libc::c_char, buffer.len(), format.as_ptr(), x as libc::c_ulonglong),
+        } };
+        if written < 0 { return Vec::new(); }
+        if (written as usize) < buffer.len() { buffer.truncate(written as usize); return buffer; }
+        buffer.resize(written as usize + 1, 0);
     }
 }
+// `%g` selects fixed or scientific notation from the rounded exponent.
+// Explicit precision is also the portable image writer's round-trip format.
 fn str_of(it: &mut Interp, b: &[u8]) -> Value { it.string_of(b) }
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if v.is_num() { v.as_num() as i64 } else { default } }
-fn type_name(it: &Interp, v: Value) -> &'static str {
+pub(crate) fn type_name(it: &Interp, v: Value) -> &'static str {
     if crate::coroutines::is_coroutine(it,v) {return "thread";}
     if crate::numeric::is_numeric(v) { return "number"; }
     if crate::storage::is_native(v) { return "cdata"; }
@@ -566,7 +577,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -915,6 +926,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 return outs![Value::num(v)];
             }
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
+            if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }
         }
@@ -951,7 +963,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 // A plain search borrows the subject; nothing is copied.
                 let mut scratch = Vec::new(); let s = bytes_ref(it, arg(args, 0), &mut scratch); let n = s.len() as i64;
                 let mut init = int(args, 2, 1); if init < 0 { init += n + 1; } if init < 1 { init = 1; }
-                if init > n + 1 { return outs![Value::NIL]; }
+                if init > n + 1 { init = n + 1; }
                 let start = (init - 1) as usize;
                 if pat.is_empty() { return outs![Value::num(init as f64), Value::num((init - 1) as f64)]; }
                 let hit = if pat.len() == 1 { s[start..].iter().position(|&c| c == pat[0]) } else { s[start..].windows(pat.len()).position(|w| w == &pat[..]) };
@@ -959,7 +971,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             } else {
                 let s = bytes_of(it, arg(args, 0)); let n = s.len() as i64;
                 let mut init = int(args, 2, 1); if init < 0 { init += n + 1; } if init < 1 { init = 1; }
-                if init > n + 1 { return outs![Value::NIL]; }
+                if init > n + 1 { init = n + 1; }
                 match pattern::find(&s, &pat, (init - 1) as usize) {
                     Some((a, b, caps)) => {
                         let scope = it.open_scope();
@@ -1020,17 +1032,32 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 let spec = String::from_utf8_lossy(&fmt[start..i]).to_string(); let conv = fmt[i]; i += 1;
                 let v = arg(args, ai); ai += 1;
                 let (width, zero, left, prec) = parse_spec(&spec);
+                // Numeric conversions are C's, flags and all; the rest pad here.
+                let integer = |it: &mut Interp, v: Value| crate::numeric::integer(v).map(|i| i.bits as i64).unwrap_or_else(|| crate::numeric::double(it, v) as i64);
+                let numeric: Option<Vec<u8>> = match conv {
+                    b'd' | b'i' => Some(match crate::numeric::integer(v) { Some(i) if i.unsigned => c_format(&spec, b'u', CArg::U(i.bits)), _ => c_format(&spec, b'd', CArg::I(integer(it, v))) }),
+                    b'u' | b'x' | b'X' | b'o' => Some(c_format(&spec, conv, CArg::U(crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| crate::numeric::double(it, v) as i64 as u64)))),
+                    b'f' | b'F' | b'e' | b'E' | b'g' | b'G' | b'a' | b'A' => Some(c_format(&spec, conv, CArg::F(crate::numeric::double(it, v)))),
+                    _ => None,
+                };
+                if let Some(text) = numeric { out.extend_from_slice(&text); continue; }
                 let body: Vec<u8> = match conv {
                     b's' => { let t = tostring(it, v); match prec { Some(p) => t[..t.len().min(p)].to_vec(), None => t } }
-                    b'd' | b'i' => crate::numeric::integer(v).map(|i| i.magnitude().to_string()).unwrap_or_else(|| format!("{}", v.as_num() as i64)).into_bytes(),
-                    b'u' => format!("{}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as u64)).into_bytes(),
-                    b'x' => format!("{:x}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
-                    b'X' => format!("{:X}", crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| v.as_num() as i64 as u64)).into_bytes(),
-                    b'f' => format!("{:.*}", prec.unwrap_or(6), crate::numeric::double(it, v)).into_bytes(),
-                    b'g' => general_number(crate::numeric::double(it, v), prec.unwrap_or(6)).into_bytes(),
-                    b'q' => { let t = bytes_of(it, v); let mut q = vec![b'"']; for &c in &t { match c { b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\n"), b'\r' => q.extend_from_slice(b"\\r"), c if c < 32 || c == 127 => q.extend_from_slice(format!("\\{c:03}").as_bytes()), c => q.push(c) } } q.push(b'"'); q }
+                    // LuaJIT's spelling: a newline continues the literal, a
+                    // control byte is its decimal code, three digits before a digit.
+                    b'q' => {
+                        let t = bytes_of(it, v); let mut q = vec![b'"'];
+                        for (k, &c) in t.iter().enumerate() {
+                            match c {
+                                b'"' => q.extend_from_slice(b"\\\""), b'\\' => q.extend_from_slice(b"\\\\"), b'\n' => q.extend_from_slice(b"\\\n"),
+                                c if c < 32 || c == 127 => { let digit = t.get(k + 1).is_some_and(|d| d.is_ascii_digit()); q.extend_from_slice(if digit { format!("\\{c:03}") } else { format!("\\{c}") }.as_bytes()) }
+                                c => q.push(c),
+                            }
+                        }
+                        q.push(b'"'); q
+                    }
                     b'c' => vec![v.as_num() as u8],
-                    other => panic!("runtime error: string.format conversion %{}", other as char),
+                    other => panic!("runtime error: invalid option '%{}' to 'format'", other as char),
                 };
                 let pad = width.saturating_sub(body.len());
                 if left { out.extend_from_slice(&body); out.extend(std::iter::repeat(b' ').take(pad)); }
@@ -1052,7 +1079,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             Outs::new()
         }
         N_14 => {
-            let t = arg(args, 0); let n = it.array_len(t) as i64; if n == 0 { return outs![Value::NIL]; }
+            let t = arg(args, 0); let n = it.array_len(t) as i64; if n == 0 { return Outs::new(); }
             let pos = int(args, 1, n); let v = it.get_index(t, Value::num(pos as f64));
             for k in pos..n { let x = it.get_index(t, Value::num((k + 1) as f64)); it.set_index(t, Value::num(k as f64), x); }
             it.set_index(t, Value::num(n as f64), Value::NIL); it.pop_array(t);
@@ -1079,7 +1106,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
         N_26 => { let v = arg(args, 0); if it.kind_of(v) == Some(crate::heap::KIND_STR) { return outs![v]; } let s = tostring(it, v); outs![it.string_of(&s)] }
-        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { if let Some(h) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) { i64::from_str_radix(h, 16).ok().map(|x| x as f64) } else { s.parse::<f64>().ok() } } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
+        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) }; lua_number(body).map(|x| if negative { -x } else { x }) } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
         N_30 => { let n = arg(args, 0); if !n.is_num() { return outs![Value::num((args.len() - 1) as f64)]; } let i = n.as_num() as i64; if i < 0 { args[(args.len() as i64 + i) as usize..].iter().copied().collect() } else { args[(i as usize).min(args.len())..].iter().copied().collect() } }
@@ -1293,6 +1320,33 @@ pub mod pattern {
                 }
                 b')' => { let idx = st.caps.iter().rposition(|c| c.1.is_none()).expect("unmatched )"); st.caps[idx].1 = Some(si); let r = do_match(st, si, pi + 1); if r.is_none() { st.caps[idx].1 = None; } return r; }
                 b'$' if pi + 1 == p.len() => return if si == s.len() { Some(si) } else { None },
+                // `%bxy`: a balanced run from x to its matching y.
+                b'%' if p.get(pi + 1) == Some(&b'b') => {
+                    let (open, close) = match (p.get(pi + 2), p.get(pi + 3)) { (Some(&o), Some(&c)) => (o, c), _ => panic!("runtime error: missing arguments to '%b'") };
+                    if si >= s.len() || s[si] != open { return None; }
+                    let mut depth = 1; let mut i = si + 1;
+                    while i < s.len() { if s[i] == close { depth -= 1; if depth == 0 { break; } } else if s[i] == open { depth += 1; } i += 1; }
+                    if i >= s.len() { return None; }
+                    si = i + 1; pi += 4; continue;
+                }
+                // `%f[set]`: the position where the previous byte is outside
+                // the set and the next is inside it; the ends read as `\0`.
+                b'%' if p.get(pi + 1) == Some(&b'f') => {
+                    if p.get(pi + 2) != Some(&b'[') { panic!("runtime error: missing '[' after '%f' in pattern"); }
+                    let end = item_end(p, pi + 2);
+                    let prev = if si == 0 { 0 } else { s[si - 1] };
+                    let next = if si < s.len() { s[si] } else { 0 };
+                    if single(prev, p, pi + 2, end) || !single(next, p, pi + 2, end) { return None; }
+                    pi = end; continue;
+                }
+                // `%1`..`%9`: the text a closed capture matched, again.
+                b'%' if p.get(pi + 1).is_some_and(|c| (b'1'..=b'9').contains(c)) => {
+                    let k = (p[pi + 1] - b'1') as usize;
+                    let (a, e) = match st.caps.get(k) { Some(&(a, Some(e))) if e != usize::MAX => (a, e), _ => panic!("runtime error: invalid capture index %{}", k + 1) };
+                    let len = e - a;
+                    if si + len > s.len() || s[si..si + len] != s[a..e] { return None; }
+                    si += len; pi += 2; continue;
+                }
                 _ => {
                     let end = item_end(p, pi);
                     let m = si < s.len() && single(s[si], p, pi, end);

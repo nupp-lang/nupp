@@ -400,6 +400,9 @@ pub struct Heap {
     /// Freed objects stay as tombstones.
     pub quarantine: bool,
     pub shapes: Vec<Shape>,
+    /// Shapes by the declaration they were emitted for, so a record type that
+    /// several images name loads as one shape and keeps one method table.
+    pub shape_identities: HashMap<String, u32>,
     interned: HashMap<Box<[u8]>, NonNull<Header>, BuildHasherDefault<StrHasher>>,
     integers: HashMap<(bool, u64), NonNull<Header>>,
     pub stats: Stats,
@@ -420,7 +423,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0,
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0,
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }

@@ -52,7 +52,7 @@ fn filesystem_host_creates_and_removes_without_following_links() {
         fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
     }
     fn call(it: &mut Interp, name: &str, path: &Path, recursive: Value) -> Vec<Value> {
-        let module = it.require("nupp.io.files");
+        let module = it.require("nupp.vm.files");
         let key = it.intern(name);
         let function = it.get_index(module, key);
         let path = it.heap_new_string(&path.to_string_lossy());
