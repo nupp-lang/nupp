@@ -200,10 +200,14 @@ local function fixturePath()
     return "coverage-fixture/sample.nupp"
 end
 
+local checkEnv = nil
+
 -- A fresh check of `path` as module `name`: each backend annotates the tree it
--- lowers, so neither is handed one the other has been over.
+-- lowers, so neither is handed one the other has been over. The environment is
+-- shared, so what the module imports is checked once.
 local function checked(path, name)
-    local env = require("nupp.compiler.project.env").new(ROOT)
+    checkEnv = checkEnv or require("nupp.compiler.project.env").new(ROOT)
+    local env = checkEnv
     local collected = {}
     local source = path == fixturePath() and FIXTURE or nil
     local result = require("nupp.tools.cli.compile").check(path, env, {moduleName = name}, collected, source)
@@ -259,10 +263,11 @@ function M.vmLoweringNumbersTheSitesTheGeneratorNumbers()
     test.equal(manifests.sample.path, path)
     sameSites(manifests.sample.sites, manifest.sites, "fixture")
     -- And a module written for its own sake rather than for this test.
-    local real = ROOT .. "/src/nupp/tools/coverage.nupp"
-    local _, realManifests = lowered(real, "nupp.tools.coverage", true)
-    local _, realManifest = generated(real, "nupp.tools.coverage")
-    sameSites(realManifests["nupp.tools.coverage"].sites, realManifest.sites, "nupp.tools.coverage")
+    local real = ROOT .. "/src/nupp/compiler/switchplan.nupp"
+    local _, realManifests = lowered(real, "nupp.compiler.switchplan", true)
+    local _, realManifest = generated(real, "nupp.compiler.switchplan")
+    assert(#realManifest.sites > 100, "the module has sites to compare")
+    sameSites(realManifests["nupp.compiler.switchplan"].sites, realManifest.sites, "nupp.compiler.switchplan")
 end
 
 function M.anUninstrumentedImageIsUnchanged()
@@ -310,6 +315,9 @@ local function vmImageCountsWhatTheGeneratedLuaCounts()
         return rawget(_G, "__nupp_load_image")(image)().run()
     end)
     local code = generated(path, "sample")
+    -- The generated prelude installs the managed runtime, which a corpus image
+    -- carries only when something names it.
+    require("nupp.runtime.managed")
     local luaResult, luaHits = countedRun(function()
         return assert(loadstring(code, "@" .. path))().run()
     end)
