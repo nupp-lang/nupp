@@ -44,8 +44,13 @@ local record Tasks
     open: function(limit: integer?, timeoutMs: number?): affine(Scope)
     run: function<R...>(scoped body: function(borrows scope: Scope): R...): R...
         & function<R...>(limit: integer?, timeoutMs: number?, scoped body: function(borrows scope: Scope): R...): R...
-    gather: function<T>(bodies: {function(): T}): ({T?}, {any})
-    race: function<T>(bodies: {function(): T}): (T?, integer?)
+    -- The implementation is `nupp.tasks` itself (`nupp.vm.taskScope`), so
+    -- these keep its contracts: borrowed bodies, or owned ones it calls or
+    -- drops exactly once.
+    gather: function<T>(scoped bodies: {function(): T}): ({T?}, {any})
+        & function<T>(takes bodies: {function(): T}): ({T?}, {any})
+    race: function<T>(scoped bodies: {function(): T}): (T?, integer?)
+        & function<T>(takes bodies: {function(): T}): (T?, integer?)
     familyOpen: function(): affine(Scope)
     familyAwait: function(borrows scope: Scope, race: boolean): (any, any)
     checkpoint: function(): nil
