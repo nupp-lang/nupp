@@ -2426,6 +2426,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
     if checkOnly then
+        -- A build that only checks, a VM program's, still keys its image on what
+        -- it checked.
+        if checkState == nil then
+            local checked = {}
+            for _, name in ipairs(order) do
+                checked[name] = records[name]
+            end
+            newState.modules = checked
+        end
         return {
             outputs = {},
             materializations = materializations,
