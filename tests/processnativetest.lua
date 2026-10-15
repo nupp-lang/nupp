@@ -1,50 +1,18 @@
 -- The public process state machine joined to the real native provider.
 --
--- The fake-backed suite proves policy. This suite reaches the launcher's provider (or
--- builds one when run outside the launcher) through the same generated bootstrap a
--- program receives, so it proves the private binding, ABI, blocking readiness and real
+-- The fake-backed suite proves policy. This suite reaches the runtime's own process
+-- provider, as a program does, so it proves the binding, blocking readiness and real
 -- child lifecycle together.
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
-local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 
-local root, process, buffers, priorPreload, priorLoaded
-local unavailable
+local process, buffers
 
 local function startProcess(options)
     return process.spawn(options)
-end
-
-local function temporaryRoot()
-    local base = os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
-    base = base:gsub("\\", "/")
-    -- Suite shards start in the same second with the same random seed. Include
-    -- a per-process address so one shard cannot remove another shard's root.
-    local unique = tostring({}):match("(%x+)$") or "0"
-
-    return (
-        base:gsub("/$", "")
-    ) .. "/nupp-process-test-" .. tostring(os.time()) .. "-" .. unique .. "-" .. tostring(math.random(1, 1e9))
-end
-
--- The library the provider opens is chosen by `nupp.runtime.native`, which reads
--- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
--- environment variable for its own process, so it preloads that module with the
--- lookup already answered -- the same substitution this made against the bootstrap
--- string back when the loader was generated into it.
-local function preloadProvider(libraryPath)
-    local found = assert(
-        package.searchpath("nupp.runtime.native", package.path),
-        "nupp.runtime.native is not on the path"
-    )
-    local text = assert(io.open(found, "rb")):read("*a"):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
-        return ("%q"):format(libraryPath)
-    end)
-    package.loaded["nupp.runtime.native"] = nil
-    package.preload["nupp.runtime.native"] = assert(loadstring(text, "@nupp.runtime.native"))
 end
 
 local SHELL = os.getenv("NUPP_TEST_SH") or "/bin/sh"
@@ -54,41 +22,11 @@ local function shell(command)
 end
 
 function M.beforeAll()
-    math.randomseed(os.time())
-    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
-    if not libraryPath then
-        root = temporaryRoot()
-        os.execute("mkdir -p '" .. root .. "'")
-        local staged, problem = nativeStage.build(root, "out", {["native.process"] = true})
-        if not staged then
-            unavailable = tostring(problem)
-            return
-        end
-        libraryPath = root .. "/out/lib/nupp_native"
-    end
-
-    priorPreload = package.preload["nupp.runtime.native"]
-    priorLoaded = package.loaded["nupp.runtime.native"]
-    preloadProvider(libraryPath)
-    assert(loadstring(stdlib.bootstrap({["native.process"] = true, ["stdlib.io"] = true,})))()
     process = require("nupp.io.process")
     buffers = require("nupp.io")
 end
 
-function M.afterAll()
-    package.preload["nupp.runtime.native"] = priorPreload
-    package.loaded["nupp.runtime.native"] = priorLoaded
-    if root then
-        os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
-        os.execute("rm -rf '" .. root .. "'")
-    end
-end
-
 local function ready()
-    if unavailable then
-        test.skip("the process provider did not build: " .. unavailable)
-    end
-
     return process
 end
 
