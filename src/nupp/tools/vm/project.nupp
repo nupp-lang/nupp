@@ -207,15 +207,19 @@ local function emitProject(
             if carried and carried[name] and not soft then
                 return "=(" .. name .. ")"
             end
-            if sources and sources[name] then
-                return sources[name]
-            end
             local facility = FACILITIES[name]
             if reached and facility and not soft then
                 reached[facility] = true
             end
+            -- What the project's roots resolve wins, so the VM's own spelling of a
+            -- standard module stays the one carried; a build's generated module is
+            -- found through the path the build recorded.
+            local found = project.resolve(env, compilerRoot, name, soft)
+            if found == nil and sources and sources[name] then
+                return sources[name]
+            end
 
-            return project.resolve(env, compilerRoot, name, soft)
+            return found
         end,
         function(name: string, path: string): table
             if cache then
@@ -364,9 +368,14 @@ function project.program(
     local extras: {string} = embedded and {"nupp.embedded"} or {}
     local sources: {[string]: string} = {}
     local names: {string} = {}
+    -- The project's own modules and what its build generated: the standard
+    -- library a build compiled beside them is reached by name as usual.
+    local prefix = root:gsub("/$", "") .. "/"
     for name, record in pairs(modules or {}) do
         local path = type(record) == "table" and (record as any).sourcePath or nil
-        if type(path) == "string" and name ~= entry then
+        local own = type(path) == "string"
+            and ((path as string):sub(1, #prefix) == prefix or (path as string):sub(1, 1) ~= "/")
+        if own and name ~= entry then
             names[#names + 1] = name
             sources[name] = path as string
         end
