@@ -1338,6 +1338,17 @@ impl Interp {
         }
         false
     }
+    /// `x == y` as Lua sees it: value equality, then for two tables or two
+    /// userdata the `__eq` handler both share (Lua 5.1), called with both.
+    pub fn lua_equal(&mut self, x: Value, y: Value) -> bool {
+        if self.values_equal(x, y) { return true; }
+        if x.as_obj().is_none() || y.as_obj().is_none() || self.is_stringish(x) || self.is_stringish(y) { return false; }
+        let kind = crate::builtins::type_name(self, x);
+        if kind != crate::builtins::type_name(self, y) || (kind != "table" && kind != "userdata") { return false; }
+        let handler = self.meta_field(x, "__eq");
+        if handler == Value::NIL || handler != self.meta_field(y, "__eq") { return false; }
+        self.call_value(handler, &[x, y]).first().is_some_and(|v| v.truthy())
+    }
     /// A table key by content: a slice or an uninterned string is looked up
     /// as the interned string with those bytes, or none, in which case the
     /// key is absent.
@@ -2021,8 +2032,8 @@ impl Interp {
                     Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mod", None); }
                     Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "div", None); }
                     Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
-                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.values_equal(x, y)) }
-                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.values_equal(x, y)) }
+                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.lua_equal(x, y)) }
+                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.lua_equal(x, y)) }
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
                     Op::Neg(d, a) => { let x = r!(a); r!(d) = crate::numeric::negate(self, x); }
                     Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }

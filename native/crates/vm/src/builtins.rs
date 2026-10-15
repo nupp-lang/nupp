@@ -1210,7 +1210,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let mut out = std::io::stdout().lock(); out.write_all(&line).unwrap(); out.flush().unwrap();
             Outs::new()
         }
-        N_32 => outs![Value::boolean(arg(args, 0) == arg(args, 1))],
+        // Raw equality is still value equality: NaN is unequal to itself, and
+        // numbers and strings compare by value whatever their representation.
+        N_32 => outs![Value::boolean(it.values_equal(arg(args, 0), arg(args, 1)))],
         N_33 => { let v = it.get_index(arg(args, 0), arg(args, 1)); outs![v] }
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
         N_35 => { let t = arg(args, 0); it.set_metatable(t, arg(args, 1)); outs![t] }
@@ -1329,7 +1331,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         72 => crate::stdio::read(it, arg(args, 0)),
         52 => {
             // A builtin pushes no frame; resolve its scoped task or native caller.
-            let source = { let fid = it.caller_function(); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); it.module_paths.get(&module).map(|p| if p.starts_with('=') || p.starts_with('@') { p.clone() } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
+            // Every loaded chunk shares a module name, so the function's own path
+            // comes first; the module's is what an image without one names.
+            let source = { let fid = it.caller_function(); let own = fid.and_then(|f| it.funcs[f].path.as_ref().map(|p| p.to_string())); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); own.or_else(|| it.module_paths.get(&module).cloned()).map(|p| if p.starts_with('=') || p.starts_with('@') { p } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
             let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); } it.release(h); outs![t]
         }
         other => panic!("runtime error: builtin {} not implemented", NAMES[other as usize]),
