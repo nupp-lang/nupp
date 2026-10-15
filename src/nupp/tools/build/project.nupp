@@ -802,16 +802,25 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
     end
-    report:at("native")
-    report:step("building native providers")
-    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
-    report:clear()
-    if not nativeOutputs then
-        say(opts, "NUPP0004", "nupp: " .. tostring(nativeErr) .. "\n")
-        return 1
-    end
-    for output in pairs(nativeOutputs) do
-        newState.outputs[output] = true
+    -- A compiler running on the VM stamps its binaries onto the VM runtime,
+    -- which carries every native facility itself: no LuaJIT host, no provider
+    -- beside it. A cross-platform stamp still needs a catalog stub.
+    local vmProgram = target.kind == "binary"
+        and target.stub == "nupp"
+        and selectedPlatform == nil
+        and rawget(_G, "__nupp_load_image") ~= nil
+    if not vmProgram then
+        report:at("native")
+        report:step("building native providers")
+        local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
+        report:clear()
+        if not nativeOutputs then
+            say(opts, "NUPP0004", "nupp: " .. tostring(nativeErr) .. "\n")
+            return 1
+        end
+        for output in pairs(nativeOutputs) do
+            newState.outputs[output] = true
+        end
     end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
@@ -827,21 +836,29 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         table.sort(runtimeModules)
         local requiredHostFeatures = nativeFeatures.requiredHostFeatureNames(resolvedEffects)
-        local text, bundleErr, unreachable = loadBuildTool(
-            "nupp.tools.build.package"
-        ).bundleText(
-            root,
-            config,
-            target,
-            nil,
-            newState.modules,
-            reachedWorkers or resolvedEffects["native.workers"] == true,
-            runtimeModules,
-            ((target.kind == "binary" and target.stub == "nupp") or target.kind == "component") and requiredHostFeatures
-            or nil,
-            target.kind == "component",
-            outDir
-        )
+        local text, bundleErr, unreachable
+        if vmProgram then
+            text, bundleErr, unreachable = loadBuildTool(
+                "nupp.tools.build.package"
+            ).programPayload(root, config, target, outDir)
+        else
+            text, bundleErr, unreachable = loadBuildTool(
+                "nupp.tools.build.package"
+            ).bundleText(
+                root,
+                config,
+                target,
+                nil,
+                newState.modules,
+                reachedWorkers or resolvedEffects["native.workers"] == true,
+                runtimeModules,
+                ((target.kind == "binary" and target.stub == "nupp") or target.kind == "component")
+                and requiredHostFeatures
+                or nil,
+                target.kind == "component",
+                outDir
+            )
+        end
         if not text then
             say(opts, "NUPP0004", "nupp: " .. tostring(bundleErr) .. "\n")
             return 1
@@ -876,7 +893,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
                 newState.outputs[payloadOutput] = true
             end
-            local stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
+            local stubPath, hostErr
+            if vmProgram then
+                report:step("building the VM program runtime")
+                stubPath, hostErr = native.vmRuntime()
+            else
+                stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
+            end
             if not stubPath then
                 say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
                 return 1
@@ -887,9 +910,14 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
                 return 1
             end
-            local payload, payloadFlags, payloadErr = loadBuildTool(
-                "nupp.tools.build.package"
-            ).payloadBytes(text, selectedPlatform)
+            local payload, payloadFlags, payloadErr
+            if vmProgram then
+                payload, payloadFlags = text, loadBuildTool("nupp.tools.build.package").payloadFlagVmProgram
+            else
+                payload, payloadFlags, payloadErr = loadBuildTool(
+                    "nupp.tools.build.package"
+                ).payloadBytes(text, selectedPlatform)
+            end
             if not payload then
                 say(opts, "NUPP0004", "nupp: " .. tostring(payloadErr) .. "\n")
                 return 1

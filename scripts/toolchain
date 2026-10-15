@@ -42,6 +42,7 @@ Components: luajit luarocks lpeg lpeg-source stage0
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
+            vm-runtime
             archive DIRECTORY OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
@@ -823,6 +824,69 @@ EOF
     release_lock
 }
 
+# The runtime a VM program binary is stamped onto: the interpreter with linked
+# entry support and native C calls, and no code generator. Every source state
+# shares one target directory, so an edit to the VM is an incremental rebuild
+# rather than a cold one beside every earlier result; each result is copied out
+# to its content key, which is the file a build reads.
+build_rust_vm_runtime() {
+    select_rust_tools
+    vm_features=aot-linked,native-ffi
+    rust_environment=$(rust_environment_material)
+    digest=$({
+        printf '%s|%s|%s|%s|%s\n' \
+            nupp-vm-runtime "$vm_features" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s\n' "$rust_environment"
+    } | sha256_stdin | cut -c1-16)
+    executable=nupp-vm
+    [ "$PLATFORM" = windows ] && executable=nupp-vm.exe
+    out="$RUST_BUILD_ROOT/vm-runtime/$digest"
+    target="$RUST_BUILD_ROOT/vm-runtime/target"
+    RUST_VM_RUNTIME_OUT="$out/$executable"
+    [ -f "$out/.complete" ] && [ -f "$RUST_VM_RUNTIME_OUT" ] && return 0
+
+    # One lock per target directory, because that is what two builds share.
+    take_lock "rust-vm-runtime-$(printf '%s' "$target" | sha256_stdin | cut -c1-16)" "$out/.complete" \
+        || return 0
+    [ -f "$out/.complete" ] && [ -f "$RUST_VM_RUNTIME_OUT" ] \
+        && { release_lock; return 0; }
+
+    note "building the VM program runtime with $RUSTC"
+    set -- "$CARGO" build \
+        --manifest-path "$ROOT/Cargo.toml" \
+        --package nupp-vm \
+        --bin nupp-vm \
+        --release \
+        --locked \
+        --no-default-features \
+        --features "$vm_features" \
+        --target-dir "$target" \
+        --config 'profile.release.lto="fat"' \
+        --config 'profile.release.codegen-units=1' \
+        --config 'profile.release.strip=true'
+    offline && set -- "$@" --offline
+    vendor_arguments=$(rust_vendor_arguments)
+    if [ -n "$vendor_arguments" ]; then
+        while IFS= read -r config; do
+            set -- "$@" --config "$config"
+        done <<EOF
+$vendor_arguments
+EOF
+    fi
+    set -- "$@" --config "$(rust_remap_arguments)"
+    # A linked compiler object belongs to the compiler's runtime, never to a
+    # program's: an object for one image refuses every other at startup.
+    (unset NUPP_AOT_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
+        || die "Cargo could not build the VM program runtime"
+    built="$target/release/$executable"
+    [ -f "$built" ] || die "Cargo built nupp-vm but did not write $built"
+    mkdir -p "$out"
+    cp "$built" "$out/$executable.partial" && mv "$out/$executable.partial" "$RUST_VM_RUNTIME_OUT" \
+        || die "cannot stage the VM program runtime in $out"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 select_host_features() {
     host_feature_words=$(printf '%s' "${1:-}" | tr ',' ' ')
     host_feature_words=$(printf '%s\n' $host_feature_words | LC_ALL=C sort -u | tr '\n' ' ')
@@ -1592,6 +1656,11 @@ case "$1" in
     host-rust)
         build_rust_host binary "${2:-}"
         native_path "$RUST_HOST_OUT"
+        exit 0
+        ;;
+    vm-runtime)
+        build_rust_vm_runtime
+        native_path "$RUST_VM_RUNTIME_OUT"
         exit 0
         ;;
     host-library)

@@ -81,29 +81,22 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
     return envMod.findRuntimeModulePath(env as any, name)
 end
 
---- Read, check and lower a project using the compiler's module resolver.
---- Explicit include roots allow bootstrapping before manifest execution.
---- @raises string when a source cannot be read, checked or lowered.
-function project.emit(
+--- Check and lower `entry` and what it reaches under `config`, the manifest
+--- the project's modules resolve through. `carried` names modules whose
+--- source is generated data rather than a file: parsed, never checked.
+local function emitProject(
     root: string,
+    config: table,
     entry: string,
-    extras: string?,
-    includes: string?,
+    extras: {string},
     hostBootstrap: boolean?,
-    inspection: table?
+    inspection: table?,
+    carried: {[string]: string}?
 ): string
     if not hostBootstrap then
         triviaarena.install(tableProvider)
     end
     chunks.install()
-    local config: table = {include = names(includes or "src")}
-    if not includes and fs.exists(root .. "/nupp.lua") then
-        local loader = assert(rawget(_G, "loadfile"), "source loader unavailable")
-        local chunk, problem = loader(root .. "/nupp.lua")
-        assert(chunk, problem)
-        config = chunk()
-        assert(type(config) == "table", "manifest must return a table")
-    end
     local env = envMod.new(root, {
         cache = false,
         nativeCompilerServices = false,
@@ -126,25 +119,25 @@ function project.emit(
     if inspection then
         entry = envMod.moduleNameForPath(env, inspection.path) or entry
     end
-    local carried = entry == "nupp.tools.vm.root" and require("nupp.compiler.vm.resources").source(root, config) or nil
 
     return lower.emit(
         entry,
-        names(extras),
+        extras,
         function(name: string, soft: boolean?): string?
             if inspection and name == entry and not soft then
                 return inspection.path
             end
-            if carried and name == "nupp.vm.cliResources" and not soft then
-                return "=(VM CLI resources)"
+            if carried and carried[name] and not soft then
+                return "=(" .. name .. ")"
             end
 
             return project.resolve(env, compilerRoot, name, soft)
         end,
         function(name: string, path: string): table
-            if carried and name == "nupp.vm.cliResources" then
-                local parsed = parser.parse(carried, path)
-                assert(#parsed.errors == 0, "compiler resources did not parse")
+            local data = carried and carried[name]
+            if data then
+                local parsed = parser.parse(data, path)
+                assert(#parsed.errors == 0, "carried module " .. name .. " did not parse")
                 return parsed.root
             end
             local source = assert(fs.readFile(path), "cannot read " .. path)
@@ -172,6 +165,71 @@ function project.emit(
         inspection and inspection.functions or nil,
         env.layoutTarget
     )
+end
+
+--- Read, check and lower a project using the compiler's module resolver.
+--- Explicit include roots allow bootstrapping before manifest execution.
+--- @raises string when a source cannot be read, checked or lowered.
+function project.emit(
+    root: string,
+    entry: string,
+    extras: string?,
+    includes: string?,
+    hostBootstrap: boolean?,
+    inspection: table?
+): string
+    if not hostBootstrap then
+        triviaarena.install(tableProvider)
+    end
+    chunks.install()
+    local config: table = {include = names(includes or "src")}
+    if not includes and fs.exists(root .. "/nupp.lua") then
+        local loader = assert(rawget(_G, "loadfile"), "source loader unavailable")
+        local chunk, problem = loader(root .. "/nupp.lua")
+        assert(chunk, problem)
+        config = chunk()
+        assert(type(config) == "table", "manifest must return a table")
+    end
+    local carried = entry == "nupp.tools.vm.root"
+        and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").source(root, config)}
+        or nil
+
+    return emitProject(root, config, entry, names(extras), hostBootstrap, inspection, carried)
+end
+
+--- `path` as a program image names it: relative to the project, or to the
+--- compiler checkout for the library it carries, so where either sat on the
+--- building machine is not part of the binary.
+local function programPath(root: string, compilerRoot: string, path: string): string
+    for _, base in ipairs({root, compilerRoot}) do
+        local prefix = fs.normalize(base) .. "/"
+        if path:sub(1, #prefix) == prefix then
+            return "@" .. path:sub(#prefix + 1)
+        end
+    end
+
+    return path
+end
+
+--- The image of a program: `entry` and every module it reaches under the
+--- project's manifest `config`. `embedded` is the source of the program's
+--- `nupp.embedded` resource table, when it carries resources.
+--- @raises string when a source cannot be read, checked or lowered.
+function project.program(root: string, config: table, entry: string, embedded: string?): string
+    local image = emitProject(
+        root,
+        config,
+        entry,
+        embedded and {"nupp.embedded"} or {},
+        nil,
+        nil,
+        embedded and {["nupp.embedded"] = embedded} or nil
+    )
+    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
+
+    return (image:gsub("\nmodule ([^ \n]+) (%d+) ([^\n]+)", function(name: string, id: string, path: string): string
+        return "\nmodule " .. name .. " " .. id .. " " .. programPath(root, compilerRoot, path)
+    end))
 end
 
 --- Inspect the VM instructions emitted for one checked source file.

@@ -126,6 +126,22 @@ function stage.hostStub(root: string, outDir: string, target: Target, effects: {
     return built
 end
 
+--- Builds the VM runtime a program binary is stamped onto. Every native
+--- facility a VM program reaches is part of that one runtime, so unlike the
+--- LuaJIT host it is the same file whatever the program's effects.
+function stage.vmRuntime(): string?, string?
+    local compilerRoot = envMod.compilerRoot()
+    if not compilerRoot then
+        return nil, "the VM program runtime needs compiler source; use a source checkout"
+    end
+    local built, problem = driven(compilerRoot, "vm-runtime", {})
+    if not built then
+        return nil, "cannot build the VM program runtime:\n" .. problem
+    end
+
+    return built
+end
+
 local libraryFile = deps.sharedLibraryName
 
 --- Builds and stages every native feature in `effects`, returning its files.

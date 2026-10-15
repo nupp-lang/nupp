@@ -90,6 +90,79 @@ local function entryModule(root: string, outDir: string, target: Target): string
     return mainName, join(root, join(outDir, mainName:gsub("%.", "/") .. ".lua"))
 end
 
+--- The resources a target carries, keyed as a running program asks for them,
+--- sorted by key, and the staged files no key could reach.
+local function carriedResources(
+    root: string,
+    config: Config,
+    target: Target,
+    mainName: string,
+    mainPath: string,
+    outDir: string
+): ({{
+    name: string,
+    text: string
+}}?, {string}?, string?)
+    local moduleDirPath = normalize(dirname(mainPath))
+    -- The directory of the entry's top-level namespace: `build/nupp` for
+    -- `nupp.tools.main`. The entry's own directory for an entry with no namespace.
+    local namespaceRoot = mainName:find(".", 1, true)
+        and normalize(join(root, join(outDir, (mainName:match("^[^.]+") as string))))
+        or moduleDirPath
+    local resources: {{
+        name: string,
+        text: string
+    }} = {}
+    local unreachable = {}
+    local keyed: {[string]: string} = {}
+    for _, resource in ipairs(target.resources or {}) do
+        local pattern: string
+        if type(resource) == "table" then
+            pattern = (resource as Resource).source
+        else
+            pattern = resource as string
+        end
+        for _, source in ipairs(expandGlob(root, pattern)) do
+            local staged = normalize(join(root, join(outDir, resourceOutput(config, resource, source, root))))
+            -- Beside the entry, a resource is keyed from the entry's directory, which
+            -- is what a program asks for. Elsewhere in the entry's namespace it is
+            -- keyed from that namespace's directory, which is how a library the entry
+            -- uses carries files for itself: the compiler reads its declarations as
+            -- `/compiler/decls/...` when the program it is part of starts in
+            -- `nupp.tools`. Anything else has no name a running program could know.
+            local key = nil
+            if staged:sub(1, #moduleDirPath + 1) == moduleDirPath .. "/" then
+                key = staged:sub(#moduleDirPath + 1)
+            elseif staged:sub(1, #namespaceRoot + 1) == namespaceRoot .. "/" then
+                key = staged:sub(#namespaceRoot + 1)
+            end
+            if key then
+                local text, readErr = readFile(staged)
+                if not text then
+                    return nil, nil, readErr
+                end
+                if keyed[key] and keyed[key] ~= staged then
+                    return nil, nil, ("resources %s and %s would both be carried as %s"):format(keyed[key], staged, key)
+                end
+                keyed[key] = staged
+                resources[#resources + 1] = {name = key, text = text}
+            else
+                -- A resource staged beside the entry's directory rather than under it
+                -- has no key a running program could ask for, since a program asks
+                -- relative to where its own modules are. Left out and said out loud: a
+                -- bundle that quietly dropped files would be discovered by whatever
+                -- stopped working.
+                unreachable[#unreachable + 1] = staged
+            end
+        end
+    end
+    table.sort(resources, function(a, b)
+        return a.name < b.name
+    end)
+
+    return resources, unreachable
+end
+
 --- A target as a single Lua chunk: every module it built preloaded, every rock module
 --- it asked to carry preloaded beside them, every resource it declared alongside those,
 --- and the entry's own code last.
@@ -346,62 +419,10 @@ local function bundleText(
         end
     end
 
-    local moduleDirPath = normalize(dirname(mainPath))
-    -- The directory of the entry's top-level namespace: `build/nupp` for
-    -- `nupp.tools.main`. The entry's own directory for an entry with no namespace.
-    local namespaceRoot = mainName:find(".", 1, true)
-        and normalize(join(root, join(outDir, (mainName:match("^[^.]+") as string))))
-        or moduleDirPath
-    local resources: {{
-        name: string,
-        text: string
-    }} = {}
-    local unreachable = {}
-    local keyed: {[string]: string} = {}
-    for _, resource in ipairs(target.resources or {}) do
-        local pattern: string
-        if type(resource) == "table" then
-            pattern = (resource as Resource).source
-        else
-            pattern = resource as string
-        end
-        for _, source in ipairs(expandGlob(root, pattern)) do
-            local staged = normalize(join(root, join(outDir, resourceOutput(config, resource, source, root))))
-            -- Beside the entry, a resource is keyed from the entry's directory, which
-            -- is what a program asks for. Elsewhere in the entry's namespace it is
-            -- keyed from that namespace's directory, which is how a library the entry
-            -- uses carries files for itself: the compiler reads its declarations as
-            -- `/compiler/decls/...` when the program it is part of starts in
-            -- `nupp.tools`. Anything else has no name a running program could know.
-            local key = nil
-            if staged:sub(1, #moduleDirPath + 1) == moduleDirPath .. "/" then
-                key = staged:sub(#moduleDirPath + 1)
-            elseif staged:sub(1, #namespaceRoot + 1) == namespaceRoot .. "/" then
-                key = staged:sub(#namespaceRoot + 1)
-            end
-            if key then
-                local text, readErr = readFile(staged)
-                if not text then
-                    return nil, readErr
-                end
-                if keyed[key] and keyed[key] ~= staged then
-                    return nil, ("resources %s and %s would both be carried as %s"):format(keyed[key], staged, key)
-                end
-                keyed[key] = staged
-                resources[#resources + 1] = {name = key, text = text}
-            else
-                -- A resource staged beside the entry's directory rather than under it
-                -- has no key a running program could ask for, since a program asks
-                -- relative to where its own modules are. Left out and said out loud: a
-                -- bundle that quietly dropped files would be discovered by whatever
-                -- stopped working.
-                unreachable[#unreachable + 1] = staged
-            end
-        end
+    local resources, unreachable, resourceErr = carriedResources(root, config, target, mainName, mainPath, outDir)
+    if not resources then
+        return nil, resourceErr
     end
-    table.sort(resources, function(a, b)
-        return a.name < b.name
-    end)
     if not component or #resources > 0 then
         installedModules[#installedModules + 1] = "nupp.embedded"
         chunks[#chunks + 1] = 'package.preload["nupp.embedded"] = function()\n'
@@ -549,6 +570,45 @@ local function bundleText(
     return table.concat(chunks), nil, unreachable
 end
 
+--- The payload a VM program binary carries: the entry module's name on the
+--- first line, then the image of everything it reaches, its resources among
+--- them as the `nupp.embedded` table a bundle preloads.
+---
+--- The image is lowered from source by the VM's own lowering, not assembled
+--- from the generated Lua the modules build wrote, which the VM never runs.
+---
+--- @return the payload, or nil when the program did not compile
+--- @return why not
+--- @return the resources that had no key a running program could ask for
+local function programPayload(
+    root: string,
+    config: Config,
+    target: Target,
+    builtOutDir: string?
+): string?, string?, {string}?
+    local outDir = builtOutDir or target.outDir or "build"
+    local mainName, mainPath = entryModule(root, outDir, target)
+    local resources, unreachable, resourceErr = carriedResources(root, config, target, mainName, mainPath, outDir)
+    if not resources then
+        return nil, resourceErr
+    end
+    local embedded: string? = nil
+    if #resources > 0 then
+        local fields = {"return {\n"}
+        for _, resource in ipairs(resources) do
+            fields[#fields + 1] = interpolate("[%q] = %q,\n", resource.name, resource.text)
+        end
+        fields[#fields + 1] = "}\n"
+        embedded = table.concat(fields)
+    end
+    local ok, image = pcall(require("nupp.tools.vm.project").program, root, config as table, mainName, embedded)
+    if not ok then
+        return nil, tostring(image)
+    end
+
+    return mainName .. "\n" .. (image as string), nil, unreachable
+end
+
 --- Where a `bundle` target writes its one file.
 local function bundleOutput(root: string, target: Target, name: string, builtOutDir: string?): string
     if builtOutDir then
@@ -632,6 +692,10 @@ local TRAILER_LENGTH = 48
 -- reports something newer wrote the file, which is the truth and is more use than
 -- a bytecode header it was never told to expect.
 local PAYLOAD_FLAG_BYTECODE: integer = 1
+
+-- The payload is a VM program: an entry module's name and an image, which the
+-- VM runtime it is appended to loads in place of a LuaJIT chunk.
+local PAYLOAD_FLAG_VM_PROGRAM: integer = 2
 
 --- `value` as `width` little-endian bytes.
 local function littleEndian(value, width)
@@ -950,12 +1014,16 @@ local function stampFile(
 end
 
 package_.bundleText = bundleText
+package_.entryModule = entryModule
+package_.carriedResources = carriedResources
 package_.bundleOutput = bundleOutput
 package_.componentOutput = componentOutput
 package_.binaryOutput = binaryOutput
 package_.stampFile = stampFile
 package_.payloadBytes = payloadBytes
 package_.payloadFlagBytecode = PAYLOAD_FLAG_BYTECODE
+package_.payloadFlagVmProgram = PAYLOAD_FLAG_VM_PROGRAM
+package_.programPayload = programPayload
 package_.hostAbiVersion = hostAbiVersion
 
 export = package_
