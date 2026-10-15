@@ -1497,6 +1497,12 @@ impl Interp {
             }
         }
     }
+    /// A field read by name as `GetField` answers it: a string's fields are the
+    /// string library's, so `s.sub` reads the method `s:sub` calls.
+    pub(crate) fn field(&mut self, t: Value, name: Value) -> Value {
+        if self.is_stringish(t) { return self.string_field(t, name); }
+        self.index(t, name)
+    }
     /// A field of a string: what the string metatable's `__index` answers,
     /// the string library as installed, or whatever a program put there.
     pub(crate) fn string_field(&mut self, s: Value, name: Value) -> Value {

@@ -494,7 +494,7 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     leave_helper!(_hp);
     outs[0].0
 }
-fn j_get_field_impl(t: u64, name: u64) -> u64 { let _hp = enter_helper!(); ctx().index(V(t), V(name)).0 }
+fn j_get_field_impl(t: u64, name: u64) -> u64 { let _hp = enter_helper!(); ctx().field(V(t), V(name)).0 }
 /// A field read that missed its site cache: resolve by name and, for a
 /// record whose shape names the field, remember the shape and slot.
 pub static IC_STATS: [std::sync::atomic::AtomicU64; 8] = [const { std::sync::atomic::AtomicU64::new(0) }; 8];
@@ -508,7 +508,7 @@ fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
         let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_RECORD && h.flags & crate::heap::F_METATABLE == 0 { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.slot_of(V(name)) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } return h.slots()[i].0; } }
     }
-    it.index(tv, V(name)).0
+    it.field(tv, V(name)).0
 }
 fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(); ctx().store_field(V(t), V(name), V(v)); leave_helper!(_hp); 0 }
 fn j_new_cell_impl(v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let scope = it.open_scope(); it.handles.push(V(v)); let c = it.new_cell(V(v)); it.close_scope(scope); leave_helper!(_hp); c.0 }

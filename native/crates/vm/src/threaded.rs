@@ -206,7 +206,7 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
 pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.index(Value(obj), Value(name)));
+    let v = it.guarded(|it| it.field(Value(obj), Value(name)));
     if v == Value::ERROR { ctx.status = ST_ERROR; }
     sync(ctx, it);
     v.0
