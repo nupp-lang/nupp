@@ -408,7 +408,6 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
         "fixpoint",
         "run",
         "import-c",
-        "rock",
         "lsp",
         "help",
     }
