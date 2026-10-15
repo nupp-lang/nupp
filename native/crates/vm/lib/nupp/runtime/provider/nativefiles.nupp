@@ -389,7 +389,13 @@ export function createSymlink(
     link: string | paths.Path,
     kind: ("file" | "directory")?
 ): (boolean, string?)
-    return host.createSymlink(named(target, "target", 2), named(link, "link", 2), kind == "directory")
+    local to, at = named(target, "target", 2), named(link, "link", 2)
+    -- Untyped callers reach here too, so the kind is checked as the declaration says.
+    if kind ~= nil and kind ~= "file" and kind ~= "directory" then
+        error("nupp: io.files symlink kind must be 'file' or 'directory'", 2)
+    end
+
+    return host.createSymlink(to, at, kind == "directory")
 end
 
 --- Sets or clears the platform's read-only attribute.
