@@ -77,6 +77,10 @@ api! {
     clang_getElementType(Type) -> Type;
     clang_getNumElements(Type) -> i64;
     clang_getNumArgTypes(Type) -> c_int;
+    clang_Cursor_getNumArguments(Cursor) -> c_int;
+    clang_Cursor_isAnonymous(Cursor) -> c_uint;
+    clang_Cursor_isAnonymousRecordDecl(Cursor) -> c_uint;
+    clang_Cursor_getArgument(Cursor, c_uint) -> Cursor;
     clang_getArgType(Type, c_uint) -> Type;
     clang_getResultType(Type) -> Type;
     clang_isFunctionTypeVariadic(Type) -> c_uint;
@@ -293,11 +297,22 @@ impl Model {
                     let mut anonymous = 0;
                     let mut unnamed = 0;
                     for field in api.children(cursor) {
+                        // An anonymous struct or union member is a record declaration
+                        // with no field of its own: counted, not listed.
+                        if (field.kind == 2 || field.kind == 3) && (api.clang_Cursor_isAnonymousRecordDecl)(field) != 0 {
+                            anonymous += 1;
+                            continue;
+                        }
                         if field.kind != 6 {
                             continue;
                         } // CXCursor_FieldDecl
                         let name = api.text((api.clang_getCursorSpelling)(field));
-                        if name.is_empty() {
+                        // A member without a name of its own: an anonymous struct or union
+                        // folded into this one, which newer libclang spells after its type.
+                        let record = (api.clang_getTypeDeclaration)((api.clang_getCursorType)(field));
+                        let folded = (api.clang_Cursor_isAnonymousRecordDecl)(record) != 0
+                            && (name.is_empty() || name.contains("(anonymous") || name.contains("(unnamed"));
+                        if name.is_empty() || folded {
                             if (api.clang_Cursor_isBitField)(field) != 0 {
                                 unnamed += 1;
                             } else {
@@ -338,7 +353,11 @@ impl Model {
                 let cursor = (api.clang_getTypeDeclaration)(ty);
                 let integer =
                     self.ty(api, (api.clang_getEnumDeclIntegerType)(cursor), depth + 1)?;
-                json!({"kind":"enum","id":self.id(api,cursor),"name":api.text((api.clang_getCursorSpelling)(cursor)),"bits":integer["bits"],"unsigned":integer["unsigned"]})
+                // An anonymous enum has no name of its own, even under a typedef.
+                // Its USR marks it anonymous (`@EA@`) where the spelling borrows a typedef's.
+                let usr = api.text((api.clang_getCursorUSR)(cursor));
+                let name = if (api.clang_Cursor_isAnonymous)(cursor) != 0 || usr.contains("@EA@") || usr.contains("@Ea@") { Json::Null } else { json!(api.text((api.clang_getCursorSpelling)(cursor))) };
+                json!({"kind":"enum","id":self.id(api,cursor),"name":name,"bits":integer["bits"],"unsigned":integer["unsigned"]})
             }
             110 | 111 => {
                 let mut params = Vec::new();
@@ -421,6 +440,16 @@ impl Registry {
                     let mut function =
                         model.ty(&self.api, (self.api.clang_getCursorType)(cursor), 0)?;
                     function["name"] = json!(name);
+                    // A declaration's parameter names live on its cursor, not its type.
+                    let count = (self.api.clang_Cursor_getNumArguments)(cursor).max(0) as usize;
+                    if let Some(params) = function["params"].as_array_mut() {
+                        for (i, param) in params.iter_mut().enumerate().take(count) {
+                            let spelled = self.api.text((self.api.clang_getCursorSpelling)((self.api.clang_Cursor_getArgument)(cursor, i as c_uint)));
+                            if !spelled.is_empty() {
+                                param["name"] = json!(spelled);
+                            }
+                        }
+                    }
                     functions.insert(name.clone(), function);
                     // Token membership claims repeated declarations, as the old service does.
                     if text
@@ -524,11 +553,16 @@ impl Registry {
         let mut functions = Vec::new();
         let mut enums = Vec::new();
         for (index, text) in units.iter().enumerate() {
+            // What this unit declares, not what a prelude or an earlier unit did:
+            // a struct counts when this unit introduced or completed it.
+            let before = self.model.structs.clone();
             if let Err(error) = self.declare(text) {
                 if !partial {
                     return Err(error);
                 }
-                rejected.push(json!({"text":text,"reason":error,"unit":index+1}));
+                // libclang says "incomplete type"; the model's word is that its size is unknown.
+                let reason = if error.contains("incomplete type") { format!("{error} (its size is unknown)") } else { error };
+                rejected.push(json!({"text":text,"reason":reason,"unit":index+1}));
                 continue;
             }
             let mentioned = |name: &str| {
@@ -537,8 +571,8 @@ impl Registry {
                         .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
                         .any(|word| word == name)
             };
-            for declaration in self.model.structs.values() {
-                if declaration["name"].as_str().is_some_and(&mentioned) {
+            for (id, declaration) in &self.model.structs {
+                if declaration["name"].as_str().is_some_and(&mentioned) && before.get(id) != Some(declaration) {
                     let mut declaration = declaration.clone();
                     declaration["unit"] = json!(index + 1);
                     structures.push(declaration);
