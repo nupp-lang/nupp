@@ -252,3 +252,63 @@ fn a_record_metatable_declares_a_weak_mode() {
     assert_eq!(run_program(1, false, false), Value::NIL);
     assert_eq!(run_program(1, false, true), Value::NIL);
 }
+
+// An entry's strong side is held only while the entry survives. A value that
+// refers back to its dead weak key, and the object key of a dead weak value,
+// would otherwise outlive the entry they belonged to: unreachable, yet kept
+// by the cycle that dropped it, which the exact oracle refuses.
+#[test]
+fn a_dropped_entry_keeps_nothing_alive() {
+    let mut vm = vm(false);
+    vm.heap.oracle = true;
+    let keys = weak_table(&mut vm, "k");
+    let values = weak_table(&mut vm, "v");
+    let both = weak_table(&mut vm, "kv");
+
+    // Weak key, value pointing back at it: an ephemeron.
+    let key = vm.new_table();
+    let held_key = vm.register(key);
+    let value = vm.new_table();
+    let held_value = vm.register(value);
+    let back = vm.intern("key");
+    vm.register(back);
+    vm.set_index(value, back, key);
+    vm.set_index(keys, key, value);
+    vm.release(held_value);
+    vm.release(held_key);
+
+    // Weak value with an object key held only by the entry.
+    let owner = vm.new_table();
+    let held_owner = vm.register(owner);
+    let gone = vm.new_table();
+    let held_gone = vm.register(gone);
+    vm.set_index(values, owner, gone);
+    vm.release(held_gone);
+    vm.release(held_owner);
+
+    // Weak both ways with a string key: the string goes with its entry.
+    let label = vm.intern("a label only this entry names");
+    let held_label = vm.register(label);
+    let target = vm.new_table();
+    let held_target = vm.register(target);
+    vm.set_index(both, label, target);
+    vm.release(held_target);
+    vm.release(held_label);
+
+    // A weak key kept alive elsewhere keeps its value, even one that is
+    // reachable only through the entry.
+    let live = vm.new_table();
+    vm.register(live);
+    let payload = vm.new_table();
+    let held_payload = vm.register(payload);
+    vm.set_index(keys, live, payload);
+    vm.release(held_payload);
+
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(entries(keys), 1, "only the live key's entry stays");
+    assert_eq!(entries(values), 0);
+    assert_eq!(entries(both), 0);
+    let kept = vm.get_index(keys, live);
+    assert!(kept == payload, "the live key's value survives");
+}

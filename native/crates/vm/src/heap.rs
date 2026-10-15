@@ -943,22 +943,47 @@ impl Heap {
         unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
     }
 
-    /// A weak table's strong references: its metatable, every string or
-    /// boxed integer, and the side of each entry its mode leaves strong. The
-    /// table is remembered so `clear_weak` can drop what dies.
+    /// A weak table's strong references: its metatable and both sides of
+    /// every entry that will survive. An entry survives when each weak side
+    /// is a string or boxed integer (never cleared) or already marked; until
+    /// then neither side is marked, as an ephemeron, because the entry may
+    /// yet be dropped and a side marked for it would outlive it unreachable.
+    /// The table is remembered so `propagate_weak` can revisit entries whose
+    /// weak side is marked later, and `clear_weak` can drop what dies.
     fn scan_weak(&mut self, p: NonNull<Header>, mode: u8) {
-        let gray = &mut self.gray;
-        let mut mark = |v: Value| { if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); } } } };
         let t = unsafe { (*p.as_ptr()).table_ref() };
-        let (weak_k, weak_v) = (mode & WEAK_KEYS != 0, mode & WEAK_VALUES != 0);
-        for &v in &t.array { if !weak_v || Self::clearable(v).is_none() { mark(v); } }
-        for (k, v) in t.hash.iter() {
-            if !weak_k || Self::clearable(*k).is_none() { mark(*k); }
-            if !weak_v || Self::clearable(*v).is_none() { mark(*v); }
-        }
-        mark(t.meta);
+        Self::mark_live_entries(&mut self.gray, t, mode);
+        if let Some(c) = t.meta.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; self.gray.push(c); } } }
         self.weak.push((p, mode));
         unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
+    }
+
+    /// Greys both sides of every entry of a weak table that survives as
+    /// marking stands; answers whether anything was greyed.
+    fn mark_live_entries(gray: &mut Vec<NonNull<Header>>, t: &TablePayload, mode: u8) -> bool {
+        let (weak_k, weak_v) = (mode & WEAK_KEYS != 0, mode & WEAK_VALUES != 0);
+        let alive = |v: Value| Self::clearable(v).is_none_or(|p| unsafe { (*p.as_ptr()).color != COLOR_WHITE });
+        let mut greyed = false;
+        let mut mark = |v: Value| { if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); greyed = true; } } } };
+        for &v in &t.array { if !weak_v || alive(v) { mark(v); } }
+        for (k, v) in t.hash.iter() {
+            if (!weak_k || alive(*k)) && (!weak_v || alive(*v)) { mark(*k); mark(*v); }
+        }
+        greyed
+    }
+
+    /// Revisits every weak table this cycle scanned once marking has drained:
+    /// an entry whose weak side was marked after its table was scanned now
+    /// survives, so its other side is marked too. Answers whether marking
+    /// has more to do.
+    fn propagate_weak(&mut self) -> bool {
+        let mut greyed = false;
+        for &(p, mode) in &self.weak {
+            let h = unsafe { &*p.as_ptr() };
+            if h.kind != KIND_TABLE { continue; }
+            greyed |= Self::mark_live_entries(&mut self.gray, h.table_ref(), mode);
+        }
+        greyed
     }
 
     /// One increment of work. Marking drains grey objects; when none remain
@@ -973,7 +998,7 @@ impl Heap {
                     while budget > 0 { match self.gray.pop() { Some(p) => { self.scan(p); budget -= 1; } None => break } }
                     if budget == 0 { return; }
                     self.mark_roots(roots);
-                    if !self.gray.is_empty() { continue; }
+                    if !self.gray.is_empty() || self.propagate_weak() { continue; }
                     self.clear_weak();
                     self.phase = Phase::Sweeping;
                     self.marking = 0;

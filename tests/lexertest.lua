@@ -52,10 +52,11 @@ local CORPUS = {
 local M = {}
 
 function M.triviaArenaProvidersShareOneContract()
-    local providers = {
-        require("nupp.compiler.syntax.triviaarena.ffi"),
-        require("nupp.compiler.syntax.triviaarena.table"),
-    }
+    local providers = {require("nupp.compiler.syntax.triviaarena.table")}
+    -- The ffi arena exists only where LuaJIT's FFI does.
+    if pcall(require, "ffi") then
+        providers[#providers + 1] = require("nupp.compiler.syntax.triviaarena.ffi")
+    end
     for _, provider in ipairs(providers) do
         local arena = provider.new("  -- note\nvalue")
         testAssert.equal(arena.count, 0, "a new arena is empty")
