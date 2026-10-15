@@ -2,7 +2,7 @@ local fmt = require("nupp.tools.fmt")
 local envMod = require("nupp.compiler.project.env")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 
 local M = {}
 local sharedEnv = nil
@@ -26,10 +26,12 @@ local function compile(source)
     for _, err in ipairs(errors) do
         assert(err.severity == "warning" or err.severity == "off", tostring(err.code) .. ": " .. tostring(err.msg))
     end
-    local code, problems = gen.generate(result, "format.nupp")
-    assert(#problems == 0, problems[1] and problems[1].msg)
 
-    return code
+    return result
+end
+
+local function image(source)
+    return program.image(compile(source), "format", "format.nupp")
 end
 
 function M.bindsAbsoluteModuleCalls()
@@ -43,9 +45,10 @@ function M.typeOnlyImportsRemainErased()
     local output = formatted(source)
     assert(output:find('const {type Span} = require("nupp.mem.span")', 1, true), output)
     assert(output:find('value: Span<uint8>', 1, true), output)
-    local before, after = compile(source), compile(output)
-    assert(not before:find('require("nupp.mem.span")', 1, true), before)
-    assert(not after:find('require("nupp.mem.span")', 1, true), after)
+    local before, after = image(source), image(output)
+    -- Neither image requires the module at run time.
+    assert(not before:find('"nupp.mem.span"', 1, true), before)
+    assert(not after:find('"nupp.mem.span"', 1, true), after)
 end
 
 function M.turnsAnExistingModuleAliasIntoItsImport()
@@ -73,7 +76,7 @@ function M.avoidsTheLeafNameOfAQualifiedDeclaration()
     local output = formatted('local process = {}\ninterface process.Reader is nupp.io.Reader\nend\nreturn process\n')
     assert(output:find('const {type Reader as Reader2} = require("nupp.io")', 1, true), output)
     assert(output:find('interface process.Reader is Reader2', 1, true), output)
-    compile(output)
+    image(output)
 end
 
 function M.leavesIntrinsicsAndExplicitRequirePlacement()
@@ -151,8 +154,8 @@ function M.constructsTheSameRecordThroughADeclarationImport()
         "nupp%.io%.files%.TemporaryOptions",
         "files.TemporaryOptions"
     )
-    local original = assert(loadstring(compile(baseline)))()
-    local rewritten = assert(loadstring(compile(output)))()
+    local original = program.run(compile(baseline), "format", "format.nupp")
+    local rewritten = program.run(compile(output), "format", "format.nupp")
     assert(original.prefix == rewritten.prefix)
     assert(getmetatable(original) == getmetatable(rewritten))
 end

@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local header = require("nupp.compiler.project.header")
 local incremental = require("nupp.compiler.project.incremental")
@@ -50,7 +50,7 @@ local function projectEnv(dir)
     return envMod.new(dir, {config = {include = {"src"}}})
 end
 
-local function compile(path, env)
+local function compile(path, env, name)
     local result = parser.parse(readFile(path), path)
     if #result.errors > 0 then
         return nil, result.errors[1].msg
@@ -59,12 +59,18 @@ local function compile(path, env)
     if #diags > 0 then
         return nil, diags[1].msg
     end
-    local code, generated = gen.generate(result, path)
-    if #generated > 0 then
-        return nil, generated[1].msg
-    end
 
-    return code
+    return program.image(result, name, path)
+end
+
+-- Requires through the project's own modules, each lowered to an image the running
+-- VM loads.
+local function installProject(env)
+    local loadImage = assert(rawget(_G, "__nupp_load_image"), "fragments run on the VM")
+
+    return runtime.install(env, compile, nil, nil, function(image)
+        return loadImage(image)
+    end)
 end
 
 local M = {}
@@ -106,7 +112,7 @@ end
             assert(moduleType, "declared module has a boundary type")
 
             package.loaded.mathbox = nil
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local mathbox = require("mathbox")
             removeLoader()
             package.loaded.mathbox = nil
@@ -181,7 +187,7 @@ export = api
             assert(exports.types.Count, "an exported type alias enters the declared interface")
 
             package.loaded.erased = nil
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local erased = require("erased")
             removeLoader()
             package.loaded.erased = nil
@@ -222,7 +228,7 @@ export = setmetatable(legacy, {__call = function(self, value) return self.add(va
             assert(exports.types.Count, "qualified table types enter the declared interface")
 
             package.loaded.legacy = nil
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local legacy = require("legacy")
             removeLoader()
             package.loaded.legacy = nil
@@ -282,7 +288,7 @@ end
             package.loaded.a = nil
             package.loaded.b = nil
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local a = require("a")
             removeLoader()
             package.loaded.a = nil
@@ -314,9 +320,8 @@ end
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
-            local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-            assert(not code:find('require("model")', 1, true), "a type-only selection emits no require")
+            local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
+            assert(not image:find('"model"', 1, true), "a type-only selection emits no require")
         end
     )
 end
@@ -345,16 +350,13 @@ end
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
-            local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-            local _, count = code:gsub('require%("tecs.world.query"%)', "")
-            testAssert.equal(count, 1, "one hidden module binding")
-            assert(not code:find("tecs.world.query.each", 1, true), "qualified path is lowered away")
+            local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
+            assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
             package.loaded["tecs.world.query"] = nil
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local use = require("use")
             removeLoader()
             package.loaded.use = nil
@@ -395,14 +397,13 @@ end
             local inc = incremental.new(dir, {config = {include = {"src"}}})
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
-            local code, diags = gen.generate(checked.result, dir .. "/src/use.nupp")
-            testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-            assert(not code:find("tecs.world.shape.Box", 1, true), "qualified path is lowered away")
+            local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
+            assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
 
             package.loaded.use = nil
             package.loaded["tecs.world.shape"] = nil
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local use = require("use")
             local ok, answer = pcall(use.answer)
             removeLoader()

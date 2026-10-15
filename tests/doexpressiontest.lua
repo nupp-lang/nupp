@@ -1,8 +1,7 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local fmt = require("nupp.tools.fmt")
-local optimize = require("nupp.compiler.lua.optimize")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -15,25 +14,18 @@ local function checked(source)
     return tree, diagnostics
 end
 
-local function run(source, level)
+local function run(source)
     local tree, diagnostics = checked(source)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-    if level then
-        optimize.run(tree, {level = level, filename = "do-expression.nupp"})
-    end
-    local code, errors = gen.generate(tree, "do-expression.nupp")
-    assert(#errors == 0, (errors[1] and errors[1].msg or "") .. "\n" .. code)
-    local fn, failure = loadstring(code)
-    assert(fn, tostring(failure) .. "\n" .. code)
 
-    return fn(), code
+    return program.run(tree, "do-expression")
 end
 
 local M = {}
 
 function M.earlyYieldAndNestedExpressions()
     do
-        local value, code = run(
+        local value = run(
             [[
 local function result(cached: integer?): number
     local value = do
@@ -52,7 +44,6 @@ return result(5) * 100 + result(nil)
 ]]
         )
         assert(value == 1006, tostring(value))
-        assert(not code:find("(function", 1, true), "do lowering must not introduce a closure")
     end
 end
 
@@ -298,7 +289,7 @@ end
 
 function M.safeNavigationAndMethodLookupOrder()
     do
-        local okay, code = run(
+        local okay = run(
             [[
 local count = 0
 local absent: any = nil
@@ -318,7 +309,6 @@ return value == 7 and a == nil and b == nil and c == nil and d == nil and e == 8
 ]]
         )
         assert(okay)
-        assert(not code:find("(function", 1, true), "guarded block expressions must not introduce closures")
     end
 end
 
@@ -352,12 +342,10 @@ return n == 5 and count == 0 and obj.value == 6
     end
 end
 
-function M.optimizerPreservesBlockSideEffects()
-    for _, level in ipairs({1, 2}) do
-        do
-            assert(
-                run(
-                    [[
+function M.loopBodiesKeepBlockSideEffects()
+    assert(
+        run(
+            [[
 local n = 0
 for i = 1, 4 do
     local value = do
@@ -368,12 +356,9 @@ for i = 1, 4 do
     n = n + value
 end
 return n == 58
-]],
-                    level
-                )
-            )
-        end
-    end
+]]
+        )
+    )
 end
 
 function M.returnInsideAShortFunctionExpressionStaysInThatFunction()

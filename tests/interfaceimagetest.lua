@@ -634,7 +634,7 @@ end
 
 function M.keepsTransportStateOutOfThePublicDescriptor()
     local parser = require("nupp.compiler.syntax.parser")
-    local gen = require("nupp.compiler.lua.gen")
+    local program = require("program")
     local check = require("fragment")
     local envMod = require("nupp.compiler.project.env")
     local env = envMod.new(HERE .. "/..")
@@ -644,13 +644,14 @@ function M.keepsTransportStateOutOfThePublicDescriptor()
         testAssert.equal(#parsed.errors, 0, "syntax errors")
         local diagnostics = check.check(parsed, "model.nupp", env)
         testAssert.equal(#diagnostics, 0, "diagnostics")
-        local code = gen.generate(parsed, "model")
         local stat = parsed.root.blocks[1].stats[1]
         while stat and stat.kind == "pragmaStmt" do
             stat = stat.stat
         end
 
-        return code, assert(stat.hoistedType)
+        local nominal = assert(stat.hoistedType)
+
+        return program.image(parsed, "model"), nominal
     end
 
     local source = [[
@@ -659,10 +660,10 @@ local record Model
     value: integer
 end
 ]]
-    local code, nominal = compile(source)
-    local movedCode, moved = compile("-- a comment above the record\n\n" .. source)
+    local image, nominal = compile(source)
+    local movedImage, moved = compile("-- a comment above the record\n\n" .. source)
     local descriptor = reflection.describe(nominal, "Model")
-    for _, text in ipairs({stable(descriptor), code, movedCode}) do
+    for _, text in ipairs({stable(descriptor), image, movedImage}) do
         assert(not text:find("declarationKey", 1, true), "transport state reached the public descriptor")
         assert(not text:find("privateFields", 1, true), "transport state reached the public descriptor")
     end

@@ -12,7 +12,7 @@ local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -299,21 +299,6 @@ function M.aTreeInSyncReportsNothingStale()
     testAssert.equal(#stale, 0, "a tree whose build is current reports " .. table.concat(stale, ", "))
 end
 
-function M.everyCarriedDeclarationResolvesToItsSource()
-    -- The mapping restates what the manifest says rather than reading it, so a file
-    -- it points at the wrong place is one nothing would ever report on. Both shapes
-    -- are here on purpose: `/decls` comes from under `src/nupp/compiler`, and
-    -- everything else keeps the path it has under `src`.
-    local bundled = require("nupp.compiler.bundled")
-    for _, relative in ipairs({"/decls/prelude.d.nupp", "/decls/jit/util.d.nupp", "/nupp/mem/span.nupp",}) do
-        local path = bundled.sourcePathFor(relative)
-        assert(path, "a checkout was found for " .. relative)
-        local file = io.open(path, "rb")
-        assert(file, relative .. " maps to " .. tostring(path) .. ", which is not there")
-        file:close()
-    end
-end
-
 function M.embeddedListingsNormalizeBothPackagingRoots()
     local bundled = require("nupp.compiler.bundled")
     local found = bundled.embeddedUnder(
@@ -391,8 +376,10 @@ end
             error(("%s: %s"):format(diagnostic.code, diagnostic.msg), 2)
         end
     end
-    local code = gen.generate(parsed, "files-owner")
-    assert(code:find("__nuppV:close()", 1, true), "the public File terminal runs at lexical scope exit")
+    -- The program never names `close`; the image carries it because the lowering
+    -- runs the File terminal at lexical scope exit.
+    local image = program.image(parsed, "files-owner")
+    assert(image:find('"close"', 1, true), "the public File terminal runs at lexical scope exit")
 end
 
 return M

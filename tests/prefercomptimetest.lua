@@ -3,7 +3,7 @@ local testAssert = require("nupp.test")
 -- no-input runtime function can be replaced by a scalar literal.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("nupp.compiler.check")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local sharedEnv = envMod.new(".")
@@ -69,9 +69,7 @@ function M.offersAnApiPreservingComptimeFix()
       {lints = {["prefer-comptime"] = "warning"}})) do
       assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
    end
-   local generated, generationDiagnostics = gen.generate(parsed, "fixed.nupp")
-   testAssert.equal(#generationDiagnostics, 0, "the fix generates")
-   assert(generated:find("return 140", 1, true), generated)
+   testAssert.equal(program.run(parsed, "fixed", "fixed.nupp").total(), 140, "the fix keeps the answer")
    testAssert.equal(#diagnostics(rewritten), 0, "the fixed source is no longer suggested")
 end
 

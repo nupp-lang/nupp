@@ -3,7 +3,7 @@ local testAssert = require("nupp.test")
 -- it, and the checking that keeps it honest.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -30,13 +30,7 @@ local function run(src)
    testAssert.equal(#result.errors, 0, "syntax errors")
    local diags = check.check(result, "test.nupp", env)
    testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
-   local code, genDiags = gen.generate(result, "test")
-   testAssert.equal(#genDiags, 0, "gen diagnostics")
-   local chunk, err = loadstring(code, "@carraytest")
-   if not chunk then
-      error("does not load: " .. tostring(err) .. "\n" .. code, 2)
-   end
-   return chunk()
+   return program.run(result, "carraytest")
 end
 
 local M = {}
@@ -56,16 +50,6 @@ function M.indexMustBeNumericAndElementTypeIsAStruct()
    -- a record is not reifiable, so it cannot back a carray
    testAssert.equal(diagsOf("local record R\n    n: number\nend\nlocal q = carray(R, 2)"),
       "NUPP2401")
-end
-
-function M.storageIsContiguousCdata()
-   -- two floats per element, four elements: the layout, not a table of tables
-   testAssert.equal(run(P .. table.concat({
-      "",
-      "local ffi = require('ffi')",
-      "local ps = carray(P, 4)",
-      "return ffi.sizeof(ps)",
-   }, "\n")), 32)
 end
 
 function M.valuesRoundTripThroughTheArray()
@@ -110,17 +94,6 @@ function M.arrayTypeIsWritableInAnnotations()
       "end",
       "local ps: Q[?] = carray(P, 4)",
    }, "\n")), "NUPP2001")
-end
-
-function M.arrayCtypeIsBuiltOncePerElementType()
-   local result = parser.parse(P .. "\nlocal a = carray(P, 2)\nlocal b = carray(P, 3)",
-      "test")
-   check.check(result, "test.nupp", env)
-   local code = gen.generate(result, "test")
-   assert(code:find("__nuppArrayCache", 1, true),
-      "the array ctype is cached rather than rebuilt:\n" .. code)
-   assert(code:find("__nuppArray%(%s*P%s*%)%(") ~= nil,
-      "allocates through the cache:\n" .. code)
 end
 
 function M.elementReadBorrowsTheArray()

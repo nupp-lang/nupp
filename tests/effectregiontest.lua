@@ -44,9 +44,8 @@ end
 function M.directOperationsAreCheckedAndRegionsErase()
     local found, parsed = refusals("@noalloc do local t = {} end")
     testAssert.equal(#found, 1, "table construction is an allocation")
-    local generated = require("nupp.compiler.lua.gen").generate(parsed, "effect-region.nupp")
-    assert(generated:find("do", 1, true), "region emits a block")
-    assert(not generated:find("noalloc", 1, true), "no runtime guard remains")
+    local image = require("program").image(parsed, "effect-region")
+    assert(not image:find("noalloc", 1, true), "no runtime guard remains")
 end
 
 function M.fixedWidthScalarOperationsSatisfyBothRegions()
@@ -603,7 +602,6 @@ if index ~= nil then @noraise do local value = values[index] end end
 
             inc.changeDocument(dep, RELATIONAL_PROVIDER)
             testAssert.equal(count(), 0)
-            require("nupp.compiler.lua.optimize").run(inc.checkFile(main).result, {level = 1})
             local checks = inc.q.stats.checkModule
             inc.changeDocument(dep, RELATIONAL_PROVIDER .. "\n-- unchanged facts\n")
             testAssert.equal(count(), 0)

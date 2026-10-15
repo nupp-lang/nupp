@@ -2,13 +2,13 @@ local testAssert = require("nupp.test")
 -- Comptime, C1: expression blocks.
 --
 -- The property that matters is not that a literal appears in the output but that the
--- literal is the value the block computed, so the interesting tests run the generated
--- code and compare it against the same answer reached another way. The rest are the
+-- literal is the value the block computed, so the interesting tests run the program
+-- and compare it against the same answer reached another way. The rest are the
 -- guard rails, which are worth more here than usual: a block that quietly read the
 -- clock or quietly shared a table would produce a program that builds differently
 -- tomorrow.
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local T = require("nupp.compiler.types")
@@ -20,34 +20,30 @@ local stable = require("nupp.compiler.stable")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
--- Checks, then generates. Comptime runs during checking, so a diagnostic it produced is
--- in the list this returns; nothing here optimizes, because comptime is semantics and
--- must not need a level.
+-- Checks. Comptime runs during checking, so a diagnostic it produced is in the list
+-- this returns.
 local function compile(src, selectedEnv, opts)
     local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", selectedEnv or env, opts)
-    local code, genDiags = gen.generate(result, "test")
-    for _, one in ipairs(genDiags) do
-        diags[#diags + 1] = one
-    end
 
-    return code, diags
+    return result, diags
+end
+
+-- The image a source lowers to.
+local function image(src)
+    return program.image((compile(src)), "test")
 end
 
 local function runIn(src, selectedEnv)
-    local code, diags = compile(src, selectedEnv)
+    local result, diags = compile(src, selectedEnv)
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
-            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, code), 2)
+            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
         end
     end
-    local chunk, err = loadstring(code, "@comptime_layout_test")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk()
+    return program.run(result, "comptime_layout_test")
 end
 
 -- A refused block has no value to type, so a fixture returning it would also be
@@ -68,18 +64,14 @@ end
 -- Compiles, loads and runs, so that what is asserted is the program's behaviour rather
 -- than the shape of the text that produced it.
 local function run(src, ...)
-    local code, diags = compile(src)
+    local result, diags = compile(src)
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
-            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, code), 2)
+            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
         end
     end
-    local chunk, err = loadstring(code, "@comptime_test")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk(...)
+    return program.run(result, "comptime_test", nil, ...)
 end
 
 local function firstLocalBinding(result)
@@ -475,9 +467,6 @@ end
 
 function M.evaluatesAnArithmeticBlock()
     testAssert.equal(run("return comptime do return (2 + 3) * 4 end"), 20, "block result")
-    local code = compile("return comptime do return (2 + 3) * 4 end")
-    assert(code:find("return 20", 1, true) ~= nil, "the block is replaced by its value: " .. code)
-    testAssert.equal(code:find("2 + 3", 1, true), nil, "none of the body reaches the output: " .. code)
 end
 
 function M.keepsAScalarComptimeLiteralOnAConstBinding()
@@ -510,8 +499,6 @@ return SQUARES[4], #SQUARES
     local value, count = run(src)
     testAssert.equal(value, 16, "the fourth square")
     testAssert.equal(count, 5, "the table's length")
-    local code = compile(src)
-    assert(code:find("{1, 4, 9, 16, 25}", 1, true) ~= nil, "the table is emitted as one literal: " .. code)
 end
 
 function M.widensComptimeArrayElements()
@@ -564,26 +551,6 @@ function M.worksAtEveryOptimizationLevel()
     -- Comptime is semantics, not an optimization: `-O0` must still produce the value.
     -- `compile` never optimizes, so reaching the value at all is the assertion.
     testAssert.equal(run("return comptime do return 7 end"), 7, "result at -O0")
-end
-
-function M.preservesTheLineCount()
-    local src = "local before = 1\nconst V = comptime do\n"
-        .. "    local sum = 0\n    for i = 1, 3 do sum = sum + i end\n"
-        .. "    return sum\nend\nreturn before, V\n"
-    local code = compile(src)
-
-    local function lines(text)
-        local n = 1
-        for _ in text:gmatch("\n") do
-            n = n + 1
-        end
-
-        return n
-    end
-
-    testAssert.equal(lines(code), lines(src), "attribution survives by the line count holding: " .. code)
-    local _, value = run(src)
-    testAssert.equal(value, 6, "the block still produced its value")
 end
 
 function M.staysAName()
@@ -717,10 +684,12 @@ end
 -- The coercion Lua itself performs stays performed, so a block and the runtime do not
 -- disagree about the same expression.
 function M.keepsLuaOperandCoercion()
-    local code = compile("return comptime do return \"10\" + 1 end")
-    assert(code:find("11", 1, true) ~= nil, "a numeric string still converts for arithmetic")
-    local concatenated = compile("return comptime do return 1 .. 2 end")
-    assert(concatenated:find("\"12\"", 1, true) ~= nil, "a number still spells itself for concatenation")
+    testAssert.equal(
+        run("return comptime do return (\"10\" as any) + 1 end"),
+        11,
+        "a numeric string still converts for arithmetic"
+    )
+    testAssert.equal(run("return comptime do return 1 .. 2 end"), "12", "a number still spells itself for concatenation")
 end
 
 function M.iteratesDeterministically()
@@ -760,7 +729,7 @@ function M.boundsAnEndlessLoop()
 end
 
 function M.recoversWhenTheWorkerCrashes()
-    if jit.os == "Windows" then
+    if (require("nupp.compiler.targetlayout").hostKey() or ""):find("windows", 1, true) then
         return
     end
     local root = os.tmpname()
@@ -932,9 +901,7 @@ return graph.value, graph.nodes
     local value, nodes = run(src)
     testAssert.equal(value, 18, "the provider lowers its canonical payload")
     testAssert.equal(nodes, 2, "the cyclic graph crosses the worker as flat data")
-    local code = compile(src)
-    assert(code:find("{value=18,nodes=2}", 1, true) ~= nil, "the generator renders validated IR: " .. code)
-    testAssert.equal(code:find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
+    testAssert.equal(image(src):find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
 end
 
 function M.materializesAFactoryWithOrdinaryRuntimeInputs()
@@ -948,11 +915,6 @@ return made.value, made.nodes
     local value, nodes = run(src)
     testAssert.equal(value, 37, "the generated factory reads its declared runtime input")
     testAssert.equal(nodes, 1, "the generated result keeps its provider data")
-    local code = compile(src)
-    assert(
-        code:find("function(_nupp_m1)", 1, true) ~= nil,
-        "the factory is emitted through hygienic expression IR: " .. code
-    )
 end
 
 function M.callsTypedComptimeHelpersAndErasesThem()
@@ -969,10 +931,9 @@ end
 return ANSWER
 ]]
     testAssert.equal(run(src), 42, "comptime helpers compose")
-    local code, diags = compile(src)
+    local _, diags = compile(src)
     testAssert.equal(#diags, 0, "typed helpers check")
-    testAssert.equal(code:find("function double", 1, true), nil, "a comptime helper has no runtime declaration")
-    assert(code:find("42", 1, true) ~= nil, "the computed result remains")
+    testAssert.equal(image(src):find("double", 1, true), nil, "a comptime helper has no runtime declaration")
 end
 
 function M.recursesWithinTheSharedEvaluationBudget()
@@ -1164,11 +1125,6 @@ return T[1], T[2], T[4], T[3]
     testAssert.equal(two, "b", "second")
     testAssert.equal(four, "d", "fourth")
     testAssert.equal(three, nil, "the hole stays a hole")
-    local code = compile(src)
-    assert(
-        code:find('{"a", "b", [4] = "d"}', 1, true) ~= nil,
-        "the hole splits the array part from the keyed entries: " .. code
-    )
 end
 
 function M.buildsTheSameBytesTwice()
@@ -1182,8 +1138,8 @@ const T = comptime do
 end
 return T.a
 ]]
-    local first = compile(src)
-    local second = compile(src)
+    local first = image(src)
+    local second = image(src)
     testAssert.equal(first, second, "two builds of one source agree")
 end
 

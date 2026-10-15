@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 -- Semantic type reflection and the non-PEG materialization provider.
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -12,12 +12,8 @@ local function compile(source, opts)
     local parsed = parser.parse(source, "fieldcodec_materialize_test.nupp")
     testAssert.equal(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "fieldcodec_materialize_test.nupp", env, opts)
-    local code, generated = gen.generate(parsed, "fieldcodec_materialize_test")
-    for _, diagnostic in ipairs(generated) do
-        diagnostics[#diagnostics + 1] = diagnostic
-    end
 
-    return code, diagnostics
+    return parsed, diagnostics
 end
 
 -- A refused block has no value to type, so a fixture returning it would also be
@@ -36,22 +32,20 @@ local function errorsOf(source)
 end
 
 local function run(source)
-    local code, diagnostics = compile(source)
+    local parsed, diagnostics = compile(source)
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
-            error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, code), 2)
+            error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, source), 2)
         end
     end
-    local chunk, why = loadstring(code, "@fieldcodec_materialize_test")
-    assert(chunk, why and (why .. "\n---\n" .. code))
 
-    return chunk(), code
+    return program.run(parsed, "fieldcodec_materialize_test"), parsed
 end
 
 local M = {}
 
 function M.materializesAKeyedRecordCodecFromReflection()
-    local result, code = run(
+    local result, parsed = run(
         [[
 local record Position
     x: number
@@ -85,12 +79,11 @@ return {
     testAssert.equal(result.decodeType, true, "decoded nominal identity")
     testAssert.equal(result.invalid, nil, "non-table decode result")
     testAssert.equal(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
-    assert(code:find("nupp.fieldcodec.keyed", 1, true), code)
+    local image = program.image(parsed, "fieldcodec_materialize_test")
+    assert(image:find("nupp.fieldcodec.keyed", 1, true), image)
     -- The comptime reflection is folded away entirely: the program carries the codec
-    -- the materializer built and none of the machinery that described the type. What
-    -- says so is the reflection namespace, which a program installs only when a record
-    -- of its own is reflected on at run time.
-    testAssert.equal(code:find("__reflect", 1, true), nil, "reflection erased")
+    -- the materializer built and none of the machinery that described the type.
+    testAssert.equal(image:find("reflect", 1, true), nil, "reflection erased")
 end
 
 function M.passesReflectionThroughATypedComptimeHelper()
@@ -309,11 +302,6 @@ end
 ]]
     )
     testAssert.equal(codes[1], "NUPP2418", "runtime value reflection")
-end
-
-function M.excludesTheCodecHelperFromUnrelatedPrograms()
-    local code = compile("return 42")
-    testAssert.equal(code:find("nupp.compiler.runtime.reflect", 1, true), nil, "unused helper")
 end
 
 return M

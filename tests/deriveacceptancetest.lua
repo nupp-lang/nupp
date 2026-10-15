@@ -3,7 +3,7 @@
 -- JSON corpora, and the external Tecs MCP request shape.
 
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -28,12 +28,8 @@ end
             error(diagnostic.code .. ": " .. diagnostic.msg, 2)
         end
     end
-    local code, generated = gen.generate(parsed, "derive_acceptance")
-    assert(#generated == 0, generated[1] and generated[1].msg)
-    local chunk, why = loadstring(code, "@derive_acceptance")
-    assert(chunk, why)
 
-    return chunk(), code
+    return program.run(parsed, "derive_acceptance")
 end
 
 local M = {}

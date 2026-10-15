@@ -2,10 +2,9 @@ local testAssert = require("nupp.test")
 -- A record's inline method, run rather than read.
 --
 -- A leading `self` makes an inline function an instance method. Without it the
--- function is static and is emitted on the declaration table with dot syntax.
+-- function is static and is called on the declaration table with dot syntax.
 local parser = require("nupp.compiler.syntax.parser")
-local optimize = require("nupp.compiler.lua.optimize")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -21,19 +20,16 @@ local function runs(src, label)
             error(("%s: %s: %s\n%s"):format(label, diag.code, diag.msg, src), 2)
         end
     end
-    optimize.run(result, {level = 1})
-    local code, genDiags = gen.generate(result, "test")
-    testAssert.equal(#genDiags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@inline_method_test")
+    local chunk, err = program.load(result, "test")
     if not chunk then
-        error(("%s: generated code does not load: %s\n---\n%s"):format(label, tostring(err), code), 2)
+        error(("%s: does not load: %s"):format(label, tostring(err)), 2)
     end
     local ok, value = pcall(chunk)
     if not ok then
-        error(("%s: generated code raised: %s\n---\n%s"):format(label, tostring(value), code), 2)
+        error(("%s: raised: %s"):format(label, tostring(value)), 2)
     end
 
-    return value, code
+    return value
 end
 
 local function diagnostics(src)
@@ -92,7 +88,7 @@ return m.Point.origin()
 end
 
 function M.staticAndInstanceFunctionsGenerateDistinctForms()
-    local value, code = runs(
+    local value = runs(
         [[
 local m = {}
 record m.P
@@ -109,8 +105,6 @@ return (new m.P(n = 4)):twice() + m.P.answer()
         "static and instance functions"
     )
     testAssert.equal(value, 50)
-    assert(code:find("function m.P:twice()", 1, true))
-    assert(code:find("function m.P.answer()", 1, true))
 end
 
 function M.parametersBesideTheReceiverSurvive()
@@ -156,7 +150,7 @@ return m.Adder.plus(5)
 end
 
 function M.repeatedMethodNamesSelectDistinctBodies()
-    local value, code = runs(
+    local value = runs(
         [[
 local record Decoder
     function decode(self, text: string): string
@@ -173,12 +167,10 @@ return decoder:decode("hello") .. "," .. decoder:decode(7)
         "overloaded bodies"
     )
     testAssert.equal(value, "text:hello,integer:7", "each call reaches its selected body")
-    assert(not code:find(":decode", 1, true), "the source method name must not dispatch at runtime")
-    assert(code:find(":__nupp_m_", 1, true), "calls and bodies use hidden overload slots")
 end
 
 function M.repeatedStaticNamesSelectDistinctBodies()
-    local value, code = runs(
+    local value = runs(
         [[
 local record Decoder
     function decode(text: string): string return "text:" .. text end
@@ -189,7 +181,6 @@ return Decoder.decode("hello") .. "," .. Decoder.decode(7)
         "overloaded statics"
     )
     testAssert.equal(value, "text:hello,integer:7", "each static call reaches its selected body")
-    assert(code:find("Decoder.__nupp_m_", 1, true), "static calls and bodies use hidden overload slots")
     testAssert.equal(
         diagnostics(
             [[
