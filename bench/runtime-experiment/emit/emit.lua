@@ -212,7 +212,7 @@ local function callInto(f, node, dst, extraSelf)
     return base, nargs
 end
 
--- Returns the register holding the result and its class. `dst` is honoured
+-- Returns the register holding the result and its class. `dst` is honored
 -- only when it has class `want`; callers that need a particular register use exprAs.
 expr = function(f, node, dst, want)
     local k = node.kind

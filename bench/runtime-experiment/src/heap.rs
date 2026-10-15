@@ -3,7 +3,7 @@
 //! NaN-boxed values: a double is itself; anything else lives in the quiet-NaN
 //! space with a tag in bits 48..50 and a payload below. Heap objects are raw
 //! pointers in that payload. The collector is a precise, incremental,
-//! non-moving tri-colour mark-sweep with an insertion barrier, driven by
+//! non-moving tri-color mark-sweep with an insertion barrier, driven by
 //! allocation debt at safepoints, with a stress mode that runs a whole cycle at
 //! every allocation and an oracle that recomputes reachability from the roots
 //! and compares it with what survived.
@@ -453,7 +453,7 @@ impl Heap {
             if let Body::Str { text, hash } = &o.body { if *hash != 0 { self.interned.remove(&**text); } }
             if self.stress || self.quarantine {
                 // Under stress nothing is deallocated, so a dangling pointer is
-                // detectable by the oracle instead of being undefined behaviour.
+                // detectable by the oracle instead of being undefined behavior.
                 let what = match &o.body { Body::Str { text, .. } => format!("string {:?}", String::from_utf8_lossy(&text.as_bytes()[..text.len().min(40)])), Body::Slice { off, len, .. } => format!("slice {off}+{len}"), Body::Bytes { data } => format!("bytes {}", data.len()), Body::Table { array, hash } => format!("table[{}+{}]", array.len(), hash.len()), Body::Record { shape, .. } => format!("record shape {shape}"), Body::Storage { data } => format!("storage[{}]", data.len()), Body::Closure { fid, .. } => format!("closure f{fid}"), Body::Cell { .. } => "cell".into(), Body::Iter { kind, .. } => format!("iterator {kind}"), Body::Freed(w) => w.clone() };
                 // A tombstone: dropped from the heap's accounting and never
                 // swept or reused, but its memory stays so a dangling

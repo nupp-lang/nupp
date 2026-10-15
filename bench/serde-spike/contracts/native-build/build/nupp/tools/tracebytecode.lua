@@ -1,0 +1,396 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+local trace = require ( "nupp.profile.trace" )
+local hash = require ( "nupp.compiler.hash" )
+
+local bytecode = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local BACK_EDGE = {
+FORL = true ,
+IFORL = true ,
+JFORL = true ,
+ITERL = true ,
+IITERL = true ,
+JITERL = true ,
+LOOP = true ,
+ILOOP = true ,
+JLOOP = true ,
+}
+
+local function instructionsOf ( util , bc , fn ) 
+local out = { }
+local pc = 0
+while true do
+local raw = util . funcbc ( fn , pc )
+if not raw then
+return out
+end
+local rendered = bc . line ( fn , pc , "" )
+local op = rendered : match ( "^%s*%d+%s+=?>?%s*([A-Z][A-Z0-9]*)" ) or "?"
+local located = util . funcinfo ( fn , pc )
+local shownJump = tonumber ( rendered : match ( "=> (%d+)" ) )
+out [
+# out + 1
+] = {
+pc = pc ,
+op = op ,
+text = rendered : gsub ( "\n$" , "" ) ,
+line = located and located . currentline or nil ,
+jump = shownJump ,
+}
+pc = pc + 1
+end
+end
+
+local function addUnique ( list , value ) 
+for _ , present in ipairs ( list ) do
+if present == value then
+return
+end
+end
+list [ # list + 1 ] = value
+end
+
+local function controlFlow ( instructions ) 
+local count = # instructions
+local successors = { }
+local predecessors = { }
+for pc = 0 , count - 1 do
+successors [ pc ] , predecessors [ pc ] = { } , { }
+end
+
+local function edge ( from , to ) 
+if to and to >= 0 and to < count then
+addUnique ( successors [ from ] , to )
+addUnique ( predecessors [ to ] , from )
+end
+end
+
+for _ , ins in ipairs ( instructions ) do
+local op , pc = ins . op , ins . pc
+if op : sub ( 1 , 3 ) == "RET" or op == "CALLT" or op == "CALLMT" then
+
+elseif op == "JMP" or op == "UCLO" then
+edge ( pc , ins . jump )
+elseif BACK_EDGE [ op ] then
+edge ( pc , ins . jump )
+edge ( pc , pc + 1 )
+elseif op : sub ( 1 , 2 ) == "IS" then
+
+edge ( pc , pc + 1 )
+edge ( pc , pc + 2 )
+elseif ins . jump then
+edge ( pc , pc + 1 )
+edge ( pc , ins . jump )
+else
+edge ( pc , pc + 1 )
+end
+end
+
+local reachable = { }
+local pending = { 0 }
+while # pending > 0 do
+local pc = table . remove ( pending )
+if not reachable [ pc ] then
+reachable [ pc ] = true
+for _ , following in ipairs ( successors [ pc ] or { } ) do
+pending [ # pending + 1 ] = following
+end
+end
+end
+
+local all = { }
+for pc = 0 , count - 1 do
+if reachable [ pc ] then
+all [ pc ] = true
+end
+end
+local dominators = { }
+for pc = 0 , count - 1 do
+if reachable [ pc ] then
+dominators [ pc ] = pc == 0 and { [ 0 ] = true } or { }
+if pc ~= 0 then
+for candidate in pairs ( all ) do
+dominators [ pc ] [ candidate ] = true
+end
+end
+end
+end
+local changed = true
+while changed do
+changed = false
+for pc = 1 , count - 1 do
+if reachable [ pc ] then
+local nextSet = { [ pc ] = true }
+local first = true
+for _ , before in ipairs ( predecessors [ pc ] ) do
+if reachable [ before ] then
+if first then
+for candidate in pairs ( dominators [ before ] ) do
+nextSet [ candidate ] = true
+end
+first = false
+else
+for candidate in pairs ( nextSet ) do
+if candidate ~= pc and not dominators [ before ] [ candidate ] then
+nextSet [ candidate ] = nil
+end
+end
+end
+end
+end
+local nodeChanged = false
+for candidate in pairs ( dominators [ pc ] ) do
+if not nextSet [ candidate ] then
+nodeChanged = true
+do break end
+end
+end
+if not nodeChanged then
+for candidate in pairs ( nextSet ) do
+if not dominators [ pc ] [ candidate ] then
+nodeChanged = true
+do break end
+end
+end
+end
+changed = changed or nodeChanged
+dominators [ pc ] = nextSet
+end
+end
+end
+
+local byHeader
+
+
+
+
+= { }
+for from , list in pairs ( successors ) do
+for _ , to in ipairs ( list ) do
+if to <= from and dominators [ from ] and dominators [ from ] [ to ] then
+local loop = byHeader [ to ]
+if not loop then
+loop = { header = to , latches = { } , nodes = { [ to ] = true } }
+byHeader [ to ] = loop
+end
+loop . latches [ # loop . latches + 1 ] = from
+local backwards = { from }
+while # backwards > 0 do
+local pc = table . remove ( backwards )
+if not loop . nodes [ pc ] then
+loop . nodes [ pc ] = true
+for _ , before in ipairs ( predecessors [ pc ] or { } ) do
+backwards [ # backwards + 1 ] = before
+end
+end
+end
+end
+end
+end
+local loops = { }
+for _ , loop in pairs ( byHeader ) do
+local size = 0
+for _ in pairs ( loop . nodes ) do
+size = ( size + 1 )
+end
+loop . size = size
+table . sort ( loop . latches )
+loops [ # loops + 1 ] = loop
+end
+table . sort ( loops , function ( left , right ) 
+if left . size ~= right . size then
+return left . size < right . size
+end
+return left . header < right . header
+end )
+
+return {
+successors = successors ,
+predecessors = predecessors ,
+reachable = reachable ,
+dominators = dominators ,
+loops = loops
+}
+end
+
+local function classify ( instructions ) 
+local cfg = controlFlow ( instructions )
+local findings = { }
+local callees = { }
+for _ , ins in ipairs ( instructions ) do
+local slot = tonumber ( ins . text : match ( "[A-Z][A-Z0-9]*%s+(%d+)" ) )
+if ins . op == "CALLT" and callees [ slot ] == "setmetatable" then
+local reason = assert ( trace . reason ( "jit/tailcall-constructor" ) )
+findings [
+# findings + 1
+] = {
+reason = reason . id ,
+class = "risk" ,
+reachability = "may" ,
+pc = ins . pc ,
+opcode = ins . op ,
+line = ins . line ,
+explanation = reason . explanation ,
+repair = reason . repair
+}
+ins . traceReason = reason . id
+ins . traceClass = "risk"
+ins . traceReachability = "may"
+end
+if slot then
+if ins . op == "GGET" then
+callees [ slot ] = ins . text : match ( "; \"([^\"]+)\"" )
+elseif ins . op == "MOV" then
+local from = tonumber ( ins . text : match ( "MOV%s+%d+%s+(%d+)" ) )
+callees [ slot ] = callees [ from ]
+else
+callees [ slot ] = nil
+end
+end
+local owner
+for _ , loop in ipairs ( cfg . loops ) do
+if loop . nodes [ ins . pc ] then
+owner = loop
+do break end
+end
+end
+if owner then
+ins . inLoop = true
+ins . loopHeader = owner . header
+local reason = trace . forOpcode ( ins . op )
+if reason then
+local must = true
+for _ , latch in ipairs ( owner . latches ) do
+must = must and cfg . dominators [ latch ] and cfg . dominators [ latch ] [ ins . pc ] or false
+end
+local reachability = must and "must" or "may"
+local finding = {
+reason = reason . id ,
+class = reason . class ,
+reachability = reachability ,
+pc = ins . pc ,
+opcode = ins . op ,
+line = ins . line ,
+loop = { header = owner . header , latches = owner . latches } ,
+explanation = reason . explanation ,
+repair = reason . repair ,
+}
+findings [ # findings + 1 ] = finding
+ins . traceReason = reason . id
+ins . traceClass = reason . class
+ins . traceReachability = reachability
+
+
+if must then
+ins . unrecordable = reason . explanation or reason . id
+end
+end
+end
+end
+
+return findings
+end
+
+
+
+
+
+
+
+local function childrenOf ( util , fn ) 
+local out = { }
+local index = 0
+while true do
+local ok , constant = pcall ( util . funck , fn , - ( index + 1 ) )
+if not ok or constant == nil then
+return out
+end
+if type ( constant ) == "proto" or type ( constant ) == "function" then
+out [ # out + 1 ] = { proto = constant , slot = index }
+end
+index = index + 1
+end
+end
+
+local function collect ( util , bc , fn , depth , into , seen , slot ) 
+if seen [ fn ] then
+return
+end
+seen [ fn ] = true
+local info = util . funcinfo ( fn )
+local instructions = instructionsOf ( util , bc , fn )
+local findings = classify ( instructions )
+into [ # into + 1 ] = {
+what = depth == 0 and "chunk" or "function" ,
+depth = depth ,
+firstLine = info . linedefined ,
+lastLine = info . lastlinedefined ,
+instructions = instructions ,
+findings = findings ,
+
+
+slot = slot ,
+}
+for _ , child in ipairs ( childrenOf ( util , fn ) ) do
+collect ( util , bc , child . proto , depth + 1 , into , seen , child . slot )
+end
+end
+
+function bytecode . analyze ( chunk ) 
+local util = require ( "jit.util" )
+local bc = require ( "jit.bc" )
+local functions = { }
+collect ( util , bc , chunk , 0 , functions , { } )
+local blockers = 0
+local mustBlockers = 0
+local risks = 0
+for _ , fn in ipairs ( functions ) do
+for _ , finding in ipairs ( fn . findings ) do
+if finding . class == "blocker" then
+blockers = blockers + 1
+if finding . reachability == "must" then
+mustBlockers = mustBlockers + 1
+end
+elseif finding . class == "risk" then
+risks = risks + 1
+end
+end
+end
+
+return {
+profile = trace . profile ( ) ,
+reasonCatalog = { id = trace . CATALOG_ID , version = trace . CATALOG_VERSION } ,
+bytecodeFingerprint = hash . sha256 ( string . dump ( chunk ) ) ,
+functions = functions ,
+blockers = blockers ,
+mustBlockers = mustBlockers ,
+risks = risks ,
+}
+end
+
+local __nuppExportValue= bytecode ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.tools.tracebytecode"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.tools.tracebytecode"]=__nuppExports;return __nuppExports

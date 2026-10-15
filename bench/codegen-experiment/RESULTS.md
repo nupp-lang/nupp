@@ -84,7 +84,7 @@ benchmark put the LLVM-compiled Nupp SHA-256 at 387 MB/s and direct LuaJIT at
 Median wall time per function over nine processes, signature to defined
 function: map 253 us (the first function carries one-time setup; the second
 map variant is 112 us), dot 99 us, four-accumulator dot 88 us, SHA-256
-compress 289 us, chunked 53-76 us, finalisation 4 us. Opt level `none`
+compress 289 us, chunked 53-76 us, finalization 4 us. Opt level `none`
 compiles in the same time and runs map at 1.38x and SHA-256 at 1.14x, so there
 is no reason for a cheaper tier: `speed` is the only level.
 

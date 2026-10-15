@@ -49,8 +49,8 @@ type listing.Palette = {
     instruction: function(string): string
 }
 
---- What the renderer needs beyond the analysis and the source: `palette` colours
---- the result for a terminal, and without it nothing is coloured.
+--- What the renderer needs beyond the analysis and the source: `palette` colors
+--- the result for a terminal, and without it nothing is colored.
 type listing.Options = {
     palette: listing.Palette?,
     width: integer?

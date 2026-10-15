@@ -1,4 +1,4 @@
--- The shipped path normaliser left to LuaJIT. Its LLVM-compiled twin (the
+-- The shipped path normalizer left to LuaJIT. Its LLVM-compiled twin (the
 -- `llvm-aot` row in RESULTS.md) went with the LLVM backend.
 return {
     include = {"src", ".", "../../../src"},

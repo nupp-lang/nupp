@@ -1,0 +1,5 @@
+module nupp.spi.index
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.codec.json.aot"
+export = {
+    ["nupp.codec.json.spi.Provider"] = {"nupp.codec.json.aot"},
+}

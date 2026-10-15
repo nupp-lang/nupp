@@ -1,0 +1,591 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); require("nupp.compiler.runtime.typewitness").install(__nupp);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()local __nuppT1={ _G.nupp.__reflect.declaration("nupp.compiler.reflection\0runtime\0001") };
+
+
+
+local hash = require ( "nupp.compiler.hash" )
+local stable = require ( "nupp.compiler.stable" )
+local members = require ( "nupp.compiler.types.members" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.types.relations" )
+local cst = require ( "nupp.compiler.syntax.cst" )
+
+local reflection = {} reflection.__index = reflection ;_G.nupp.__reflect.link(reflection,__nuppT1[1],{ })
+
+
+
+
+
+
+
+reflection . SCHEMA = 6
+
+
+
+function reflection . bindRuntimeDeclarations ( root , moduleIdentity ) 
+local ordinal = 0
+
+local function visit ( node ) 
+if not node
+or cst . isToken ( node )
+or node . comptimeFunction
+or node . comptimeTok
+or node . comptimeValue ~= nil
+or node . materializedIR ~= nil
+or node . isAnnotationDefinition
+then
+return
+end
+if node . kind == "recordDecl"
+and not node . isAnnotationDefinition
+and ( node . declKind == "record" or node . declKind == "struct" )
+then
+ordinal += 1
+local nominal = node . resolvedType or node . hoistedType
+if nominal then
+nominal . runtimeDeclarationKey = moduleIdentity .. "\0runtime\0" .. tostring ( ordinal )
+end
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( root )
+end
+
+local function sortedNames ( values ) 
+local names = { }
+for name in pairs ( values or { } ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+
+return names
+end
+
+
+local function admitsNil ( t ) 
+if t == T . nil_ or t == T . any or t == T . unknown then
+return true
+end
+if t . tag == "union" then
+for _ , member in ipairs ( t . members or { } ) do
+if member == T . nil_ then
+return true
+end
+end
+end
+
+return false
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function reflection . graph ( root , hooks ) 
+local indices = { }
+local types = { }
+local sources = { }
+
+local intern
+
+local function reflectedAnnotations ( applications ) 
+local out = { }
+for _ , application in ipairs ( applications or { } ) do
+local reflected = { name = application . name , arguments = { } }
+for _ , argument in ipairs ( application . arguments or { } ) do
+local encoded = { name = argument . name , kind = argument . kind }
+if argument . kind == "type" then
+encoded . type = intern ( argument . type )
+elseif argument . kind == "value" then
+encoded . value = argument . value
+end
+reflected . arguments [ # reflected . arguments + 1 ] = encoded
+end
+out [ # out + 1 ] = reflected
+end
+
+return out
+end
+
+intern = function ( t ) 
+if not t then
+return nil
+end
+local prior = indices [ t ]
+if prior then
+return prior
+end
+local index = # types + 1
+indices [ t ] = index
+sources [ index ] = t
+local out = { kind = t . tag }
+types [ index ] = out
+local tag = t . tag
+local reference = hooks and hooks . reference and hooks . reference ( t , intern ) or nil
+if reference ~= nil then
+types [ index ] = reference
+
+return index
+end
+
+if tag == "nominal" then
+out . kind = t . declKind
+out . name = t . name
+out . moduleName = ( ( t ) . origin or t ) . moduleName
+out . nominal = true
+out . deriveKey = t . deriveKey
+out . annotations = reflectedAnnotations ( t . annotations )
+out . fields = { }
+local view = members . view ( t )
+local storedFields = { }
+for _ , name in ipairs ( t . fieldOrder or { } ) do
+storedFields [ name ] = true
+end
+for _ , field in ipairs ( view . ordered ) do
+if not ( t . privateFields and t . privateFields [ field . name ] ) then
+local read , write = field . readType , field . writeType
+out . fields [
+# out . fields + 1
+] = {
+name = field . name ,
+read = intern ( read ) ,
+write = intern ( write ) ,
+stored = storedFields [ field . name ] == true ,
+readable = read ~= nil ,
+writable = write ~= nil ,
+hasDefault = t . fieldDefaults and t . fieldDefaults [ field . name ] ~= nil or false ,
+defaultValue = t . fieldDefaults
+and t . fieldDefaults [ field . name ]
+and t . fieldDefaults [ field . name ] . value ,
+annotations = reflectedAnnotations ( field . annotations ) ,
+}
+end
+end
+out . staticFields = { }
+for _ , name in ipairs ( sortedNames ( t . staticByname ) ) do
+out . staticFields [
+# out . staticFields + 1
+] = { name = name , read = intern ( t . staticByname [ name ] ) , write = intern ( t . staticWriteByname [ name ] ) , }
+end
+out . index = {
+readKey = intern ( view . readIndexer and view . readIndexer . keyType ) ,
+readValue = intern ( view . readIndexer and view . readIndexer . valueType ) ,
+writeKey = intern ( view . writeIndexer and view . writeIndexer . keyType ) ,
+writeValue = intern ( view . writeIndexer and view . writeIndexer . valueType ) ,
+}
+out . metamethods = { }
+for _ , name in ipairs ( sortedNames ( t . metamethods ) ) do
+out . metamethods [ # out . metamethods + 1 ] = { name = name , type = intern ( t . metamethods [ name ] ) }
+end
+out . nestedTypes = { }
+for _ , name in ipairs ( sortedNames ( t . nestedTypes ) ) do
+out . nestedTypes [ # out . nestedTypes + 1 ] = { name = name , type = intern ( t . nestedTypes [ name ] ) }
+end
+out . associatedTypes = { }
+for _ , requirement in ipairs ( t . associatedRequirements or { } ) do
+local name = requirement . name
+local answer = t . associatedAnswers and t . associatedAnswers [ name ] or nil
+out . associatedTypes [
+# out . associatedTypes + 1
+] = {
+name = name ,
+bound = intern ( requirement . bound ) ,
+answer = intern ( answer and answer . type ) ,
+default = answer ~= nil and answer . kind == "default" or false ,
+}
+end
+out . supertypes = { }
+for _ , supertype in ipairs ( t . supertypes or { } ) do
+out . supertypes [ # out . supertypes + 1 ] = intern ( supertype )
+end
+
+
+
+
+
+out . copyable = relations . isCopyable ( t )
+local entries = t . constructorEntries or { }
+if # entries > 1 then
+out . construction = { overloaded = true , requiresFactory = true , params = { } }
+elseif # entries == 1 then
+local signature = entries [ 1 ] . signature
+local names = signature . paramNames or { }
+local declared = signature . params or { }
+local params = { }
+
+
+local offset = ( # names == # declared + 1 and names [ 1 ] == "self" ) and 1 or 0
+local start = ( offset == 0 and names [ 1 ] == "self" ) and 2 or 1
+for position = start , # declared do
+params [
+# params + 1
+] = {
+name = names [ position + offset ] or "" ,
+type = intern ( declared [ position ] ) ,
+optional = admitsNil ( declared [ position ] ) ,
+mode = signature . paramModes and signature . paramModes [ position ] or "plain" ,
+}
+end
+out . construction = {
+declared = true ,
+index = entries [ 1 ] . index ,
+result = intern ( entries [ 1 ] . result ) ,
+requiresFactory = false ,
+params = params ,
+}
+elseif t . declKind == "record" or t . declKind == "struct" then
+local params = { }
+local hidden = false
+for _ , name in ipairs ( t . fieldOrder or { } ) do
+local fieldType = t . byname and t . byname [ name ] or nil
+local stored = fieldType ~= nil
+and fieldType . tag ~= "typeobject"
+and not ( t . nestedTypes and t . nestedTypes [ name ] )
+and not ( t . privateFields and t . privateFields [ name ] )
+if fieldType ~= nil and t . privateFields and t . privateFields [ name ] then
+hidden = true
+end
+if stored then
+local hasDefault = t . fieldDefaults ~= nil and t . fieldDefaults [ name ] ~= nil
+params [
+# params + 1
+] = {
+name = name ,
+type = intern ( fieldType ) ,
+optional = hasDefault or admitsNil ( fieldType ) ,
+mode = "plain" ,
+}
+end
+end
+out . construction = { declared = false , requiresFactory = hidden , params = params }
+end
+out . arrayOf = intern ( t . arrayOf )
+out . typeParameters , out . typeBounds , out . packParameters , out . constParameters = { } , { } , { } , { }
+for position , parameter in ipairs ( t . typeParams or { } ) do
+out . typeParameters [ position ] = intern ( parameter )
+out . typeBounds [ position ] = intern ( t . typeBounds and t . typeBounds [ position ] )
+end
+for position , parameter in ipairs ( t . packParams or { } ) do
+out . packParameters [ position ] = intern ( parameter )
+end
+for position , parameter in ipairs ( t . constParams or { } ) do
+out . constParameters [ position ] = intern ( parameter )
+end
+out . parameterKinds = t . paramKinds or { }
+out . typeArguments = { }
+for _ , argument in ipairs ( t . typeArgs or { } ) do
+out . typeArguments [ # out . typeArguments + 1 ] = intern ( argument )
+end
+out . packArguments = { }
+for _ , argument in ipairs ( t . packArgs or { } ) do
+out . packArguments [ # out . packArguments + 1 ] = intern ( argument )
+end
+out . constArguments = { }
+for _ , argument in ipairs ( t . constArgs or { } ) do
+out . constArguments [ # out . constArguments + 1 ] = intern ( argument )
+end
+out . origin = intern ( t . origin )
+elseif tag == "shape" then
+out . fields = { }
+local view = members . view ( t )
+for _ , field in ipairs ( view . ordered ) do
+out . fields [
+# out . fields + 1
+] = {
+name = field . name ,
+read = intern ( field . readType ) ,
+write = intern ( field . writeType ) ,
+readable = field . readType ~= nil ,
+writable = field . writeType ~= nil ,
+}
+end
+out . index = {
+readKey = intern ( view . readIndexer and view . readIndexer . keyType ) ,
+readValue = intern ( view . readIndexer and view . readIndexer . valueType ) ,
+writeKey = intern ( view . writeIndexer and view . writeIndexer . keyType ) ,
+writeValue = intern ( view . writeIndexer and view . writeIndexer . valueType ) ,
+}
+elseif tag == "func" then
+out . parameters , out . returns = { } , { }
+for position , parameter in ipairs ( t . params or { } ) do
+out . parameters [
+position
+] = {
+name = t . paramNames and t . paramNames [ position ] or "" ,
+mode = t . paramModes and t . paramModes [ position ] or "plain" ,
+type = intern ( parameter ) ,
+}
+end
+for position , returned in ipairs ( t . rets or { } ) do
+out . returns [ position ] = intern ( returned )
+end
+out . vararg = t . vararg or false
+out . varargType = intern ( t . varargType )
+out . noReturn = t . noreturn or false
+out . noYield = t . noYield or false
+out . borrowedFrom = t . borrowsParam
+out . borrowedFromMany = t . borrowsParams or { }
+out . borrowedResult = t . borrowsResult or 1
+out . typeParameters , out . typeBounds , out . packParameters = { } , { } , { }
+for position , parameter in ipairs ( t . typeParams or { } ) do
+out . typeParameters [ position ] = intern ( parameter )
+out . typeBounds [ position ] = intern ( t . typeBounds and t . typeBounds [ position ] )
+end
+for position , parameter in ipairs ( t . packParams or { } ) do
+out . packParameters [ position ] = intern ( parameter )
+end
+out . constParameters = { }
+for position , parameter in ipairs ( t . constParams or { } ) do
+out . constParameters [ position ] = intern ( parameter )
+end
+out . parameterKinds = t . paramKinds or { }
+out . parameterPack = intern ( t . paramPack )
+out . returnPack = intern ( t . retPack )
+out . yieldPack = intern ( t . yieldPack )
+out . resumePack = intern ( t . resumePack )
+elseif tag == "map" then
+out . readKey = t . readable and intern ( t . key ) or nil
+out . readValue = t . readable and intern ( t . value ) or nil
+out . writeKey = intern ( t . writeKey )
+out . writeValue = intern ( t . writeValue )
+elseif tag == "tuple" then
+out . members = { }
+for position , member in ipairs ( t . elems or { } ) do
+out . members [ position ] = intern ( member )
+end
+elseif tag == "union" or tag == "intersection" then
+out . members = { }
+for position , member in ipairs ( t . members or { } ) do
+out . members [ position ] = intern ( member )
+end
+elseif tag == "pack" then
+out . head = { }
+for position , member in ipairs ( t . head or { } ) do
+out . head [ position ] = { type = intern ( member ) , mode = t . modes and t . modes [ position ] or "plain" }
+end
+local tail = t . tail
+out . tail = tail
+and { kind = tail . kind , type = intern ( tail . type ) , variable = intern ( tail . var ) , mode = tail . mode , }
+or nil
+out . alternatives = { }
+for position , alternative in ipairs ( t . alternatives or { } ) do
+out . alternatives [ position ] = intern ( alternative )
+end
+elseif tag == "protocolThread" then
+out . startPack = intern ( t . startPack )
+out . resumePack = intern ( t . resumePack )
+out . yieldPack = intern ( t . yieldPack )
+out . returnPack = intern ( t . returnPack )
+elseif tag == "genericAlias" then
+out . name = t . name
+out . body = intern ( t . body )
+out . typeParameters , out . typeBounds , out . packParameters , out . constParameters = { } , { } , { } , { }
+for position , parameter in ipairs ( t . typeParams or { } ) do
+out . typeParameters [ position ] = intern ( parameter )
+out . typeBounds [ position ] = intern ( t . typeBounds and t . typeBounds [ position ] )
+end
+for position , parameter in ipairs ( t . packParams or { } ) do
+out . packParameters [ position ] = intern ( parameter )
+end
+for position , parameter in ipairs ( t . constParams or { } ) do
+out . constParameters [ position ] = intern ( parameter )
+end
+out . parameterKinds = t . paramKinds or { }
+elseif tag == "neutral" and t . op == "comptimeCall" then
+out . operation = "comptimeTypeCall"
+out . identity = t . comptimeIdentity
+out . arguments = { }
+for position , argument in ipairs ( t . comptimeArguments or { } ) do
+if argument . kind == "type" then
+out . arguments [ position ] = { kind = "type" , type = intern ( argument . value ) }
+elseif argument . kind == "typepack" then
+out . arguments [ position ] = { kind = "typepack" , pack = intern ( argument . value ) }
+else
+out . arguments [
+position
+] = { kind = "const" , value = argument . value . value , domain = argument . value . domain , }
+end
+end
+out . bound = intern ( t . comptimeBound )
+out . resultKind = t . comptimeResultPack and "typepack" or "type"
+elseif tag == "literal" then
+out . value = t . constant
+out . base = intern ( t . base )
+elseif tag == "typevar" then
+out . name = t . name
+out . bound = intern ( t . bound )
+elseif tag == "typeHandle" then
+out . bound = intern ( t . bound )
+elseif tag == "packResult" then
+out . pack = intern ( t . pack )
+elseif tag == "packvar" then
+out . name = t . name
+elseif tag == "constLiteral" then
+out . domain = t . domain
+out . value = t . value
+elseif tag == "constVar" then
+out . name = t . name
+out . domain = t . domain
+elseif tag == "constOp" then
+out . operation = t . operation
+out . operands = { }
+for position , operand in ipairs ( t . operands or { } ) do
+out . operands [ position ] = intern ( operand )
+end
+elseif tag == "projection" then
+out . of = intern ( t . of )
+out . name = t . name
+elseif tag == "array"
+or tag == "ptr"
+or tag == "affine"
+or tag == "borrowed"
+or tag == "pinned"
+or tag == "const"
+then
+out . element = intern ( t . elem or t . inner )
+if tag == "affine" then
+out . transferOnly = t . transferOnly == true
+out . cleanups = { }
+for position , cleanup in ipairs ( t . cleanups or { } ) do
+out . cleanups [
+position
+] = {
+kind = cleanup . kind ,
+key = cleanup . key ,
+name = cleanup . name ,
+field = cleanup . field ,
+functionType = intern ( cleanup . functionType ) ,
+}
+end
+end
+elseif tag == "carray" then
+out . element = intern ( t . elem )
+out . count = t . count
+out . countTerm = intern ( t . countTerm )
+elseif tag == "ctype" or tag == "metatable" or tag == "typeobject" then
+out . of = intern ( t . of )
+end
+if hooks and hooks . extend then
+hooks . extend ( t , out , intern )
+end
+
+return index
+end
+
+return intern ( root ) , types , sources
+end
+
+function reflection . describe ( root , qualifiedName , includeSources ) 
+local rootIndex , types , sources = reflection . graph ( root )
+local descriptor = { schema = reflection . SCHEMA , root = rootIndex , types = types , qualifiedName = qualifiedName , }
+local rootType = types [ rootIndex or 0 ] or { }
+descriptor . kind = rootType . kind
+descriptor . name = rootType . name or qualifiedName
+descriptor . annotations = rootType . annotations or { }
+descriptor . fields = { }
+for _ , field in ipairs ( rootType . fields or { } ) do
+local fieldType = types [ field . read or field . write or 0 ] or { }
+descriptor . fields [
+# descriptor . fields + 1
+] = {
+name = field . name ,
+kind = fieldType . kind ,
+typeName = fieldType . name ,
+type = field . read or field . write ,
+stored = field . stored == true ,
+readable = field . readable ,
+writable = field . writable ,
+hasDefault = field . hasDefault or false ,
+defaultValue = field . defaultValue ,
+annotations = field . annotations or { } ,
+}
+end
+descriptor . soa = { schema = 1 , eligible = false , reason = nil , fields = { } }
+if root and root . tag == "nominal" and root . declKind == "struct" then
+descriptor . soa . eligible = # ( root . fieldOrder or { } ) > 0
+if not descriptor . soa . eligible then
+descriptor . soa . reason = "the struct declares no stored fields"
+end
+local reflectedByName = { }
+for _ , field in ipairs ( rootType . fields or { } ) do
+reflectedByName [ field . name ] = field
+end
+for ordinal , name in ipairs ( root . fieldOrder or { } ) do
+local fieldType = root . byname and root . byname [ name ] or nil
+local definition = root . fieldDefs and root . fieldDefs [ name ] or nil
+local ctype = fieldType and T . cName ( fieldType ) or nil
+local eligible = ctype ~= nil and not ( definition and definition . bitWidth )
+if not eligible and descriptor . soa . eligible then
+descriptor . soa . eligible = false
+descriptor . soa . reason = definition and definition . bitWidth and ("field %q is a bitfield") : format ( name )
+or ("field %q has no fixed C storage type") : format ( name )
+end
+local reflected = reflectedByName [ name ] or { }
+descriptor . soa . fields [
+# descriptor . soa . fields + 1
+] = {
+name = name ,
+ordinal = ordinal ,
+type = reflected . read or reflected . write ,
+ctype = ctype ,
+eligible = eligible ,
+identity = ( qualifiedName or root . name ) .. "." .. name ,
+}
+end
+elseif root and root . tag == "nominal" then
+descriptor . soa . reason = ("%s is not a struct") : format ( root . declKind )
+else
+descriptor . soa . reason = "the reflected type is not a nominal struct"
+end
+descriptor . fingerprint = hash . sha256 ( "nupp.reflect\0v" .. tostring ( reflection . SCHEMA ) .. "\0" .. stable ( descriptor ) )
+if includeSources then
+
+
+
+descriptor . sources = sources
+for index , node in ipairs ( types ) do
+if node . nominal then
+node . referenceFingerprint = reflection . describe ( sources [ index ] ) . fingerprint
+local declaration = sources [ index ]
+while declaration and declaration . tag == "nominal" and declaration . origin do
+declaration = declaration . origin
+end
+
+
+
+
+node . nominalIdentity = declaration and declaration . id or nil
+end
+end
+end
+
+return descriptor
+end
+
+function reflection . runtimeReferences ( root ) 
+local _ , _ , sources = reflection . graph ( root )
+local references = { }
+for index , source in ipairs ( sources ) do
+if source . tag == "nominal" then
+local declaration = source . origin or source
+local key = declaration . runtimeDeclarationKey or declaration . declarationKey
+if key then
+references [ tostring ( index ) ] = key
+end
+end
+end
+
+return references
+end
+
+local __nuppExportValue= reflection ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.reflection"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.reflection"]=__nuppExports;return __nuppExports

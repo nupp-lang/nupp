@@ -97,7 +97,7 @@ extern "C" fn rt_tagcheck_rec(v: u64, shape: u64) -> u64 { let it = ctx(); it.ta
 extern "C" fn rt_tagcheck_str(v: u64) -> u64 { let it = ctx(); if !Value(v).as_obj().map(|p| unsafe { matches!((*p.as_ptr()).body, Body::Str { .. }) }).unwrap_or(false) { it.err("value is not a string") } v }
 extern "C" fn rt_new_table_sized(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
 /// `string.byte` for a value compiled code could not prove a string: the
-/// builtin's behaviour, including its error.
+/// builtin's behavior, including its error.
 extern "C" fn rt_str_byte(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(Value(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64).0 } else { Value::NIL.0 } }
 /// A field read that missed its site cache: resolve by name and, for a
 /// record, remember the shape and slot for the next read at that site.
@@ -337,7 +337,7 @@ fn template(subject: &Function, h_add: u32, h_sub: u32, h_lt: u32) -> Function {
     f
 }
 
-/// The compiler's path normaliser (`nupp aot --emit ir src/nupp/io/path/pathtext.nupp`)
+/// The compiler's path normalizer (`nupp aot --emit ir src/nupp/io/path/pathtext.nupp`)
 /// through the IR lowering, checked against the shipped implementation's
 /// answers over a corpus and timed on both tiers.
 fn paths_mode(it: &mut Interp, ir_path: &str, corpus_path: &str) {

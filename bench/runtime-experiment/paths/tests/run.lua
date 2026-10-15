@@ -1,4 +1,4 @@
--- Checks the built normaliser against the corpus and times it: nanoseconds
+-- Checks the built normalizer against the corpus and times it: nanoseconds
 -- per input byte over the whole corpus, best of nine rounds of the corpus.
 local bench = require("nupp.bench.pathbench")
 local cases = {}

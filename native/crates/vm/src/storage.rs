@@ -1133,7 +1133,7 @@ fn range(vm: &Interp, value: Value, n: usize, write: bool) -> (Value, usize) {
 }
 /// The bytes a `nupp.mem.span` record addresses: its owner and the byte range
 /// within it. A span over a string is read-only; one over native storage
-/// honours the view's own read-only mark. Providers copy through this rather
+/// honors the view's own read-only mark. Providers copy through this rather
 /// than through `ref()`, whose pointer arithmetic a string span cannot take.
 pub(crate) fn byte_span(vm: &Interp, span: Value, write: bool) -> (Value, usize, usize) {
     let pointer = get(vm, span, "pointer");

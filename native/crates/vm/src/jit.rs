@@ -94,7 +94,7 @@ fn runtime_addr(b: &mut FunctionBuilder, table: Option<FuncRef>, slot: i32, jit_
 impl Compiler<JITModule> {
     pub fn new() -> Jit {
         let mut fb = settings::builder();
-        // The checker measured the same at steady state with the optimiser off
+        // The checker measured the same at steady state with the optimizer off
         // (170 against 176 ms) and compiled 18% faster; the IR verifier is a
         // debugging aid that costs a tenth of the compile. JIT_OPT and JIT_VERIFY restore them.
         fb.set("opt_level", &std::env::var("JIT_OPT").unwrap_or_else(|_| "none".to_string())).unwrap();

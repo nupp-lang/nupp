@@ -1,4 +1,4 @@
--- Writes a corpus of paths with the shipped normaliser's answers, so the
+-- Writes a corpus of paths with the shipped normalizer's answers, so the
 -- prototype runtime is checked against the implementation it is replacing.
 -- Run as `nupp run corpus.lua OUT.tsv` from this directory.
 local pathtext = require("nupp.io.path.pathtext")

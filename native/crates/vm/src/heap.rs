@@ -8,7 +8,7 @@
 //! payloads (a table's parts, storage, byte buffers) own a separate buffer
 //! and re-mirror it whenever it moves.
 //!
-//! The collector is a precise, incremental, non-moving tri-colour mark-sweep
+//! The collector is a precise, incremental, non-moving tri-color mark-sweep
 //! with an insertion barrier, paced by allocation debt at safepoints, with
 //! the four verification modes of 4.11 built in: stress, interleaved,
 //! quarantine and the oracle.
@@ -385,7 +385,7 @@ const CLASSES: [u32; 30] = [32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 32
 /// chunk by masking.
 const CHUNK_BYTES: usize = 256 * 1024;
 /// The chunk's own header: class, slot size, slot count and its index in
-/// allocation order, which the sweep and the allocation colour use.
+/// allocation order, which the sweep and the allocation color use.
 #[repr(C)]
 struct ChunkHeader { class: u8, slot_size: u32, nslots: u32, index: u32 }
 const CHUNK_HEADER: usize = 64;
@@ -516,7 +516,7 @@ impl Heap {
     fn chunk_of(addr: usize) -> usize { addr & !(CHUNK_BYTES - 1) }
 
     /// Allocates an object of `kind` with `inline_bytes` of payload, its
-    /// payload uninitialised beyond zero. The colour follows 4.3: white when
+    /// payload uninitialized beyond zero. The color follows 4.3: white when
     /// idle, black while marking, and during the sweep black ahead of the
     /// cursor and white behind it.
     fn alloc_raw(&mut self, kind: u8, inline_bytes: usize) -> NonNull<Header> {
@@ -912,7 +912,7 @@ impl Heap {
     }
 
     /// Every reference an object holds, by kind: the one walk the marker, the
-    /// oracle and the serialiser share.
+    /// oracle and the serializer share.
     pub fn each_child(h: &Header, f: &mut dyn FnMut(Value)) {
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (k, v) in t.hash.iter() { f(*k); f(*v); } if t.meta != Value::NIL { f(t.meta); } }
@@ -1098,7 +1098,7 @@ impl Heap {
         }
     }
 
-    /// Every live object, for the oracle and the serialiser.
+    /// Every live object, for the oracle and the serializer.
     pub fn objects(&self) -> Vec<NonNull<Header>> {
         let mut out = Vec::new();
         for &base in &self.chunks {

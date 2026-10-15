@@ -13,7 +13,7 @@ the image loader and verifier, and the host services on the parking surface.
 | --- | --- |
 | `value` | the NaN-boxed word: tags for nil, false, true, function handle (image id and index), object |
 | `numeric` | exact signed and unsigned 64-bit values, boxing, arithmetic, comparison and kind checks |
-| `heap` | the fixed 32-byte header, inline payloads, size-classed chunks, large objects, the incremental tri-colour collector with stress, interleaved, quarantine and oracle modes, shapes, the weak intern table |
+| `heap` | the fixed 32-byte header, inline payloads, size-classed chunks, large objects, the incremental tri-color collector with stress, interleaved, quarantine and oracle modes, shapes, the weak intern table |
 | `interp` | tasks, frames inline on one stack of words, the opcode set and dispatch loop, calls and returns, varargs in the frame, host calls that park |
 | `builtins` | the library the compiler's modules use (strings with Lua patterns, tables, math, iteration, errors) |
 | `verify` | operand classes, branch and callee checks, fact re-derivation, def/use and liveness |
@@ -128,7 +128,7 @@ oracle and quarantine, on both dispatch loops.
 **Dispatch.** The Rust `match` loop spent 60% of the parse in dispatch at
 2.4 ns per opcode (27.9M opcodes for parser.nupp). The tail-call-threaded
 core in `csrc/dispatch.c` (contracts 5.2) handles the hot opcodes and the
-call and return path in C, with specialised helpers for field reads,
+call and return path in C, with specialized helpers for field reads,
 indexed stores, builtin calls and allocation and a generic one-opcode
 fallback into the Rust interpreter for the rest (0.7% of opcodes). It
 takes the interpreter from 2.6x to 1.7x LuaJIT's interpreter. The profile
@@ -173,7 +173,7 @@ them up:
 - The capture analysis walked every named key of a node, and the checker
   hangs `definition` links there: a name's declaration, possibly in another
   module. The walk followed those into other functions' bodies first, so
-  the shared `seen` set skipped them when their own function was analysed,
+  the shared `seen` set skipped them when their own function was analyzed,
   and a method's use of a module local was never recorded. The CST keeps
   every syntax child in a node's array part, so the walks now read only that.
 - `self` is a parameter only in the colon form; elsewhere it is whatever
@@ -253,7 +253,7 @@ What it took to get the checker running, each a runtime decision:
 - **A trailing call argument spreads its results** (`f(a, g())`,
   `pcall(f, g())`): the argument count carries flag 64 and the callee's
   results follow the fixed arguments in registers, at most eight; every call
-  path normalises the count from `last_nres`. `PadResults` after a call that
+  path normalizes the count from `last_nres`. `PadResults` after a call that
   wanted several results nils the ones it did not return, since a single
   `Ret` writes one register. Every compiled return now records its count.
 - **`t[#t] = nil` shrinks the array part** (Lua's border rule) on every store
@@ -317,7 +317,7 @@ there too. Local provenance would let the verifier drop the guard on a
 fifth of accesses at most; the other four fifths read parameters, fields
 and call results, where the only shape evidence is the checker's declared
 type. The guard stays the general rule and the direct load is the
-verifier's optimisation for the proven fifth.
+verifier's optimization for the proven fifth.
 
 **Profiling the checker's typed tier (2026-10-11).** With slot guards ruled
 out, `sample` on the checker found the time in the runtime's helpers rather
@@ -361,7 +361,7 @@ is the product problem once steady state is ahead. What this pass found:
   follows IR size. Those sequences are now three stubs compiled once per
   JIT (`stub.probe`, `stub.dispatch`, `stub.iter`) that each site calls,
   which brought the checker to 9.6 s at the same steady state (176 ms).
-- **The optimiser and the IR verifier bought nothing here.** `opt_level=none`
+- **The optimizer and the IR verifier bought nothing here.** `opt_level=none`
   measured 170 ms against 176 at steady state and compiled 18% faster; the
   verifier was a tenth of the compile. Both are off by default now
   (`JIT_OPT=speed`, `JIT_VERIFY=1` restore them): 6.2 s for the checker's
@@ -1480,7 +1480,7 @@ not, and the next measurement should record commits for both sides.
 semantics, the lowering soundness and the tests and measurements, found no
 memory-safety or GC-rooting defect. The elision analysis, the once-per-
 activation span validation inside the admitted subset, the tail masking, the
-verifier operand classes, the deferred NaN normalisation and the budget poll
+verifier operand classes, the deferred NaN normalization and the budget poll
 were each traced and hold. What was wrong, and is fixed here:
 
 - A 64-bit lane scalar refused what the reference wraps: `splat(-1)` on a
@@ -1547,7 +1547,7 @@ and changed in four places, each measured alone:
 - **Canonicalisation.** The NaN blend after a stored float result selected
   on not-equal, which needs a mask inversion; it selects on equal now.
   Hoisting the NaN splat out of the loop was tried two ways and the
-  optimiser rematerialised it at each use both times, so it stays inline.
+  optimizer rematerialized it at each use both times, so it stays inline.
 
 | explicitMap, 65,539 elements | before | after |
 | --- | ---: | ---: |
@@ -1918,7 +1918,7 @@ The representation keeps every inline probe untouched: the open-addressed
 `(key, value)` slots the C core and the typed tier read in place are
 unchanged, and two side arrays record the order, `order` listing slot
 indices by first insertion and `rank` giving each slot its position. `iter`,
-`pairs`, `next` and the serialiser walk `order`; a key whose value is set to
+`pairs`, `next` and the serializer walk `order`; a key whose value is set to
 nil keeps its place until the next growth drops it, and growth reinserts
 the live entries in order, so the order a program sees is a function of its
 operation sequence alone. `next` gets an `O(1)` continuation through `rank`.

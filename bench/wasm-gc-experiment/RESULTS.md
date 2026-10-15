@@ -74,7 +74,7 @@ What it does not give, as measured today:
 
 What it would delete from the plan if the rest holds: the collector and
 its four modes, the allocator, the JIT and its stack maps, the compiled
-cache (wasmtime serialises compiled modules), the separate browser tier,
+cache (wasmtime serializes compiled modules), the separate browser tier,
 and the bounds fragment of the verifier (Wasm validation replaces the
 class checks). What it would add: a Wasm emitter from the typed bytecode
 or the checked tree, a Lua object model over GC structs and arrays, and a
@@ -190,6 +190,6 @@ a property of a small live set. On a runtime that does not control its
 collector, the row is a function of wasmtime's heap policy, which its
 documentation says may change. A generational collector in wasmtime would
 change this; none is offered today. The suspension row is settled in
-Wasm's favour as a lowering, provided the scheduler is in Wasm; the
+Wasm's favor as a lowering, provided the scheduler is in Wasm; the
 checker's existing `suspends` inference supplies the fact the lowering
 needs.

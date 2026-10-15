@@ -315,7 +315,7 @@ impl Lowerer {
     fn zero_f(&mut self) -> u8 { let z = self.freg(); self.code.push(Op::FK(z, 0.0)); z }
     fn zero_v(&mut self) -> u8 { let f = self.zero_f(); let v = self.nv; self.nv += 1; self.code.push(Op::VSplat(v, f)); v }
 
-    /// Recognises `cursor + K <= count S` conjuncts in a loop condition.
+    /// Recognizes `cursor + K <= count S` conjuncts in a loop condition.
     fn facts_of(&self, cond: &Expr, out: &mut Vec<(String, i64, String)>) {
         if let Expr::Call { op, args, .. } = cond {
             if op == "and" { for a in args { self.facts_of(a, out); } return; }

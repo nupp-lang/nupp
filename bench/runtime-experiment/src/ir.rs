@@ -189,7 +189,7 @@ pub fn parse_expr(s: &str) -> Result<Expr, String> {
     if let Some(rest) = s.strip_prefix("count ") { return Ok(Expr::Count(rest.trim().into())); }
     // A bare symbol, such as the `eager` mode of a builder.
     if !s.contains('(') && s.chars().all(|c| c.is_alphanumeric() || c == '_') { return Ok(Expr::Local { ty: "sym".into(), name: s.into() }); }
-    let open = s.find('(').ok_or_else(|| format!("unrecognised expression: {s}"))?;
+    let open = s.find('(').ok_or_else(|| format!("unrecognized expression: {s}"))?;
     if !s.ends_with(')') { return Err(format!("call without close: {s}")); }
     let head = &s[..open];
     let (op, ty) = match head.split_once(':') { Some((o, t)) => (o.to_string(), Some(t.to_string())), None => (head.to_string(), None) };

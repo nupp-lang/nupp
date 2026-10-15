@@ -1,0 +1,3736 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+local lower = { }
+
+
+
+
+
+function lower . emit (
+entryName ,
+extras ,
+resolve ,
+check
+) 
+local out = { }
+local assignedNames = { }
+local SURVEY = { }
+local SURVEY_EXAMPLE = { }
+
+local function emit ( s ) 
+out [ # out + 1 ] = s
+end
+
+local function tokText ( tok ) 
+return tok . value ~= nil and tok . value or tok . text
+end
+
+local function tyTag ( t ) 
+return type ( t ) == "table" and t . tag or "?"
+end
+
+
+
+
+
+
+
+local shapes , shapeOrder = { } , { }
+local shapesByNominal = setmetatable ( { } , { __mode = "k" } )
+local currentModule = nil
+
+local function shapeOfNominal ( t ) 
+if type ( t ) ~= "table" then
+return nil
+end
+local s = shapesByNominal [ t ]
+if s then
+return s
+end
+if t . declarationKey and shapesByNominal [ t . declarationKey ] then
+return shapesByNominal [ t . declarationKey ]
+end
+
+return nil
+end
+
+local function shapeByBareName ( name ) 
+local list = shapes [ name ]
+if not list then
+return nil
+end
+for _ , s in ipairs ( list ) do
+if s . module == currentModule then
+return s
+end
+end
+
+return list [ 1 ]
+end
+
+local function slotTy ( t ) 
+local tag = tyTag ( t )
+if tag == "number" or tag == "integer" then
+return "num"
+end
+if tag == "string" then
+return "str"
+end
+if tag == "boolean" then
+return "bool"
+end
+if tag == "nominal" and shapeOfNominal ( t ) then
+return "rec:" .. shapeOfNominal ( t ) . id
+end
+if tag == "literal" then
+return slotTy ( t . base )
+end
+
+return "any"
+end
+
+local function declareShape ( node ) 
+
+
+if node . declKind == "interface" then
+return nil
+end
+local name = tokText ( node . name )
+local nominal = node . resolvedType
+if nominal and shapeOfNominal ( nominal ) then
+return shapeOfNominal ( nominal )
+end
+if not nominal then
+
+
+local known = shapes [ name ] and shapes [ name ] [ 1 ]
+if known then
+return known
+end
+end
+local shape = { id = # shapeOrder , name = name , slots = { } , slotIndex = { } , node = node , module = currentModule }
+shapes [ name ] = shapes [ name ] or { }
+table . insert ( shapes [ name ] , shape )
+if nominal then
+shapesByNominal [ nominal ] = shape ;
+if nominal . declarationKey then
+shapesByNominal [ nominal . declarationKey ] = shape
+end
+end
+shapeOrder [ # shapeOrder + 1 ] = shape
+local methods = { }
+for _ , entry in ipairs ( node . entries ) do
+if entry . kind == "fieldDecl" then
+local fname = tokText ( entry . name )
+shape . slotIndex [ fname ] = # shape . slots
+shape . slots [
+# shape . slots + 1
+] = { name = fname , ty = slotTy ( nominal and nominal . byname and nominal . byname [ fname ] ) }
+elseif entry . kind == "inlineMethod" then
+methods [ tokText ( entry . name ) ] = true
+end
+end
+
+
+if nominal and type ( nominal . byname ) == "table" then
+local inherited = { }
+for fname in pairs ( nominal . byname ) do
+if type ( fname ) == "string" and shape . slotIndex [ fname ] == nil and not methods [ fname ] then
+inherited [ # inherited + 1 ] = fname
+end
+end
+table . sort ( inherited )
+for _ , fname in ipairs ( inherited ) do
+shape . slotIndex [ fname ] = # shape . slots
+shape . slots [ # shape . slots + 1 ] = { name = fname , ty = slotTy ( nominal . byname [ fname ] ) }
+end
+end
+
+return shape
+end
+
+
+
+
+
+local function structShape ( ty ) 
+if tyTag ( ty ) ~= "shape" or type ( ty . fields ) ~= "table" or # ty . fields == 0 then
+return nil
+end
+local names = { }
+for i , field in ipairs ( ty . fields ) do
+names [ i ] = type ( field ) == "table" and field . name or tostring ( field )
+end
+local name = "struct:" .. table . concat ( names , "," )
+if shapes [ name ] then
+return shapes [ name ]
+end
+local shape = { id = # shapeOrder , name = name , slots = { } , slotIndex = { } }
+shapes [ name ] = shape
+shapeOrder [ # shapeOrder + 1 ] = shape
+for _ , fname in ipairs ( names ) do
+shape . slotIndex [ fname ] = # shape . slots
+
+
+
+shape . slots [ # shape . slots + 1 ] = { name = fname , ty = "any" }
+end
+
+return shape
+end
+
+local function shapeOf ( ty ) 
+
+while type ( ty ) == "table" and ( ty . tag == "borrowed" or ty . tag == "affine" or ty . tag == "owned" ) and ty . inner do
+ty = ty . inner
+end
+if tyTag ( ty ) == "nominal" then
+return shapeOfNominal ( ty ) or shapeByBareName ( ( ty . name or "" ) : match ( "([%w_]+)$" ) or "" )
+end
+end
+
+
+local functions = { }
+local Fn = { }
+Fn . __index = Fn
+
+local function newFn ( name , parent ) 
+
+
+local f = {
+id= # functions ,
+name= name ,
+module= currentModule ,
+consts= { } ,
+constIndex= { } ,
+code= { } ,
+nregs= 1 ,
+nfregs= 0 ,
+scopes= { { } } ,
+nparams= 0 ,
+upvals= { } ,
+upvalIndex= { } ,
+captured= { } ,
+parent= parent ,
+breaks= { } ,
+labelScopes= { } ,
+yields= { } ,
+tables= { } , }
+setmetatable ( f , Fn )
+functions [ # functions + 1 ] = f
+
+return f
+end
+
+function Fn : const ( kind , value ) 
+local key = kind .. "\0" .. ( kind == "num" and ("%.17g") : format ( value ) or tostring ( value ) )
+if self . constIndex [ key ] then
+return self . constIndex [ key ]
+end
+self . consts [ # self . consts + 1 ] = { kind = kind , value = value }
+self . constIndex [ key ] = # self . consts - 1
+
+return # self . consts - 1
+end
+
+function Fn : op ( ... ) 
+self . code [ # self . code + 1 ] = { ... } ;
+return # self . code
+end
+
+function Fn : patch ( at , ... ) 
+self . code [ at ] = { ... }
+end
+
+local function nodeLine ( node ) 
+if type ( node ) ~= "table" then
+return nil
+end
+if node . line then
+return node . line
+end
+for _ , c in ipairs ( node ) do
+local l = nodeLine ( c ) ;
+if l then
+return l
+end
+end
+if node . token then
+return node . token . line
+end
+
+return nil
+end
+
+function Fn : reg ( ) 
+local r = self . nregs ;
+self . nregs = r + 1 ;
+self . maxRegs = math . max ( self . maxRegs or 0 , self . nregs ) ;
+if r > 250 then
+error (
+"register pressure in " .. self . name .. " at statement " .. tostring (
+self . curStmt and self . curStmt . kind
+) .. " line " .. tostring ( nodeLine ( self . curStmt ) ) .. " declTop " .. tostring ( self . declTop )
+)
+end ;
+
+return r
+end
+
+function Fn : freg ( ) 
+local r = self . nfregs ;
+self . nfregs = r + 1 ;
+self . maxFregs = math . max ( self . maxFregs or 0 , self . nfregs ) ;
+if r > 250 then
+error ( "float register pressure in " .. self . name )
+end ;
+
+return r
+end
+
+
+
+
+
+
+
+
+local SPILL_AT = 120
+function Fn : declare ( name , class , spillable ) 
+if spillable and self . spillReg and class == "v" and ( self . declTop or 0 ) >= 120 then
+self . spillCount = ( self . spillCount or 0 ) + 1
+local key = name .. "#" .. self . spillCount
+self . scopes [ # self . scopes ] [ name ] = { class = "v" , cell = self . captured [ name ] or nil , spill = key }
+return nil , self . captured [ name ] or nil , key
+end
+if self . captured [ name ] then
+local r = self : reg ( )
+self . declTop = math . max ( self . declTop or 0 , r + 1 )
+self . scopes [ # self . scopes ] [ name ] = { reg = r , class = "v" , cell = true }
+return r , true
+end
+local r = ( class == "f" or class == "i" ) and self : freg ( ) or self : reg ( )
+if class == "f" or class == "i" then
+self . fdeclTop = math . max ( self . fdeclTop or 0 , r + 1 )
+else
+self . declTop = math . max ( self . declTop or 0 , r + 1 )
+end
+self . scopes [ # self . scopes ] [ name ] = { reg = r , class = class or "v" }
+
+return r
+end
+
+function Fn : lookup ( name ) 
+for i = # self . scopes , 1 , -1 do
+local r = self . scopes [ i ] [ name ] ;
+if r then
+return r . reg , r . class , r . cell , r . spill
+end
+end
+end
+
+
+function Fn : loadSpill ( key , dst ) 
+dst = dst or self : reg ( )
+self : op ( "GetField" , dst , self . spillReg , self : const ( "str" , key ) )
+return dst
+end
+
+function Fn : storeSpill ( key , src ) 
+self : op ( "SetField" , self . spillReg , self : const ( "str" , key ) , src )
+end
+
+
+
+
+function Fn : binding ( name ) 
+for i = # self . scopes , 1 , -1 do
+local e = self . scopes [ i ] [ name ] ;
+if e then
+return e
+end
+end
+if self . parent then
+return self . parent : binding ( name )
+end
+end
+
+function Fn : knownFid ( name ) 
+for i = # self . scopes , 1 , -1 do
+local e = self . scopes [ i ] [ name ] ;
+if e then
+return e . fid
+end
+end
+if self . parent then
+return self . parent : knownFid ( name )
+end
+end
+
+
+
+
+function Fn : upvalReg ( ui ) 
+self . upvalRegs = self . upvalRegs or { }
+local r = self . upvalRegs [ ui ]
+if r then
+return r
+end
+r = self : reg ( )
+self . declTop = math . max ( self . declTop or 0 , r + 1 )
+self . upvalRegs [ ui ] = r
+
+return r
+end
+
+
+
+
+
+function Fn : upvalue ( name , speculative ) 
+if self . upvalIndex [ name ] then
+return self . upvalIndex [ name ]
+end
+if not self . parent then
+return nil
+end
+local preg , _ , pcell , pspill = self . parent : lookup ( name )
+local source
+if pspill then
+if speculative and not pcell then
+return nil
+end
+assert ( pcell , "captured spilled local " .. name .. " is not a cell in " .. self . parent . name )
+source = { kind = "spill" , key = pspill }
+elseif preg then
+if speculative and not pcell then
+return nil
+end
+assert ( pcell , "captured local " .. name .. " is not a cell in " .. self . parent . name )
+source = { kind = "local" , reg = preg }
+else
+local pi = self . parent : upvalue ( name , speculative )
+if not pi then
+return nil
+end
+source = { kind = "upval" , index = pi }
+end
+self . upvals [ # self . upvals + 1 ] = source
+self . upvalIndex [ name ] = # self . upvals - 1
+
+return # self . upvals - 1
+end
+
+
+
+function Fn : push ( ) 
+self . scopes [ # self . scopes + 1 ] = { [ "\0top" ] = { self . declTop or 0 , self . fdeclTop or 0 } }
+end
+
+function Fn : pop ( ) 
+local top = self . scopes [ # self . scopes ] [ "\0top" ] ;
+self . scopes [ # self . scopes ] = nil ;
+if top then
+self . declTop , self . fdeclTop = top [ 1 ] , top [ 2 ]
+end
+end
+
+function Fn : here ( ) 
+return # self . code
+end
+
+function Fn : offset ( from , to ) 
+return to - from
+end
+
+local BUILTINS = { }
+for _ , n in ipairs ( {
+"pairs" ,
+"ipairs" ,
+"next" ,
+"type" ,
+"tostring" ,
+"tonumber" ,
+"error" ,
+"assert" ,
+"select" ,
+"print" ,
+"rawequal" ,
+"rawget" ,
+"rawset" ,
+"setmetatable" ,
+"getmetatable" ,
+"unpack"
+} ) do
+BUILTINS [ n ] = true
+end
+
+
+for name in ("string.byte string.sub string.find string.char string.rep string.format string.gsub string.gmatch string.len string.upper string.lower string.match string.reverse table.concat table.insert table.remove table.unpack table.sort math.floor math.min math.max math.abs math.ceil math.sqrt math.log math.fmod math.modf math.frexp bit.band bit.bor bit.bxor bit.bnot bit.lshift bit.rshift bit.arshift bit.tobit bit.rol bit.ror bit.bswap bit.tohex os.getenv os.clock os.time os.remove os.tmpname os.execute os.rename io.write io.open io.read")
+
+
+
+
+
+
+: gmatch ( "%S+" ) do
+BUILTINS [ name ] = true
+end
+local LIBS = { string = true , table = true , math = true , bit = true , os = true , io = true }
+local BITOPS = { [ "&" ] = "IAnd" , [ "|" ] = "IOr" , [ "~" ] = "IXor" , [ "<<" ] = "IShl" , [ ">>" ] = "IShrU" }
+
+local GLOBAL_MODULES = {
+_G = true ,
+package = true ,
+os = true ,
+io = true ,
+bit = true ,
+debug = true ,
+math = true ,
+string = true ,
+table = true
+}
+
+local function isNumeric ( t ) 
+local tag = tyTag ( t )
+if tag == "number" or tag == "integer" then
+return true
+end
+if tag == "literal" then
+return isNumeric ( t . base )
+end
+
+return false
+end
+
+local function isInteger ( t ) 
+local tag = tyTag ( t )
+if tag == "integer" then
+return true
+end
+if tag == "literal" then
+return isInteger ( t . base )
+end
+
+return false
+end
+
+local function wideKind ( t ) 
+if tyTag ( t ) == "literal" then
+return wideKind ( t . base )
+end
+local tag = tyTag ( t )
+
+return tag == "int64" and "i64" or tag == "uint64" and "u64" or nil
+end
+
+local function isIntegerish ( n ) 
+if n . kind == "paren" then
+return isIntegerish ( n . expr )
+end
+if n . kind == "number" then
+local text = tokText ( n . token ) ;
+local v = tonumber ( text ) ;
+return v ~= nil and v == math . floor ( v ) and not text : find ( "[%.eE]" ) and not text : find ( "^0[xX]" )
+end
+
+return isInteger ( n . inferredType )
+end
+
+local function coerce ( f , reg , class , want , dst ) 
+if class == want then
+if dst and dst ~= reg then
+f : op ( want == "f" and "FMov" or want == "i" and "IMov" or "Move" , dst , reg )
+return dst
+end
+return reg
+end
+if want == "v" then
+dst = dst or f : reg ( )
+if class == "i" then
+f : op ( "IBox" , dst , reg )
+else
+f : op ( "FBox" , dst , reg )
+end
+return dst
+end
+if want == "f" then
+dst = dst or f : freg ( )
+if class == "i" then
+f : op ( "IToF" , dst , reg )
+else
+f : op ( "FUnbox" , dst , reg )
+end
+return dst
+end
+dst = dst or f : freg ( )
+if class == "f" then
+f : op ( "FToI" , dst , reg )
+else
+f : op ( "IUnbox" , dst , reg )
+end
+
+return dst
+end
+
+local expr , block , stmt , stmtReclaim , defineFunction , markCaptures , callInto , emitClosure , emitIs , openSpill , emitCall , deferCleanup
+local queueModule
+
+
+
+
+local DST_SAFE = {
+call = true ,
+methodCall = true ,
+dotIndex = true ,
+bracketIndex = true ,
+number = true ,
+string = true ,
+trueExpr = true ,
+falseExpr = true ,
+[ "nil" ] = true ,
+nilExpr = true ,
+unop = true ,
+name = true ,
+funcExpr = true ,
+shortfn = true ,
+castExpr = true
+}
+
+local function dstSafe ( node ) 
+while node . kind == "paren" do
+node = node . expr
+end
+if node . kind == "binop" then
+local op = tokText ( node . op ) ;
+return op ~= "and" and op ~= "or" and op ~= "??" and op ~= ".."
+end
+
+return DST_SAFE [ node . kind ] == true
+end
+
+local function exprAs ( f , node , want , dst ) 
+local pass = ( want == "v" and dst and dstSafe ( node ) ) and dst or nil
+local r , c = expr ( f , node , pass , want )
+return coerce ( f , r , c , want , dst )
+end
+
+
+
+local function condBranch ( f , node ) 
+local r , c = expr ( f , node , nil , "cond" )
+if c == "i" then
+return f : op ( "JmpIfIZero" , r , 0 ) , "JmpIfIZero" , r
+end
+local v = coerce ( f , r , c , "v" )
+
+return f : op ( "JmpIfNot" , v , 0 ) , "JmpIfNot" , v
+end
+
+
+
+
+local function valueDomain ( f , node ) 
+local k = node . kind
+if k == "paren" then
+return valueDomain ( f , node . expr )
+end
+if k == "number" or k == "string" or k == "call" or k == "methodCall" or k == "bracketIndex" then
+return true
+end
+if k == "name" then
+local r , c , cell = f : lookup ( tokText ( node . token ) )
+if r then
+return cell or c == "v"
+end
+return true
+end
+if k == "dotIndex" then
+local shape = shapeOf ( node . obj . inferredType )
+local fname = tokText ( node . name )
+return not ( shape and shape . slotIndex [ fname ] and shape . slots [ shape . slotIndex [ fname ] + 1 ] . ty == "num" )
+end
+if k == "binop" then
+return valueDomain ( f , node . lhs ) and valueDomain ( f , node . rhs )
+end
+if k == "unop" then
+return valueDomain ( f , node . operand )
+end
+
+return false
+end
+
+
+
+
+local function recordConstructorCast ( f , node ) 
+local shape = shapeOf ( node . inferredType )
+if not shape or shape . name : sub ( 1 , 7 ) == "struct:" then
+return nil
+end
+local e = node . expr
+while e and e . kind == "paren" and e . expr do
+e = e . expr
+end
+local tbl , meta
+if e and e . kind == "tableExpr" then
+tbl = e
+elseif e
+and e . kind == "call"
+and e . obj . kind == "name"
+and tokText ( e . obj . token ) == "setmetatable"
+and not f : binding ( "setmetatable" )
+then
+local args = e . args and e . args . exprs or { }
+if args [ 1 ] and args [ 1 ] . kind == "tableExpr" then
+tbl = args [ 1 ] ;
+meta = args [ 2 ]
+end
+end
+if not tbl then
+return nil
+end
+for _ , field in ipairs ( tbl . fields ) do
+if field . kind ~= "fieldNamed" then
+return nil
+end
+end
+
+return shape , tbl , meta
+end
+
+
+local SCALAR_KIND = { }
+for i , n in ipairs ( {
+"u32.wrap" ,
+"u32.add" ,
+"u32.sub" ,
+"u32.andBits" ,
+"u32.orBits" ,
+"u32.xorBits" ,
+"u32.shiftLeft" ,
+"u32.shiftRightLogical" ,
+"u32.fromI32" ,
+"u32.toI32" ,
+"i32.wrap" ,
+"i32.add" ,
+"i32.sub" ,
+"i32.andBits" ,
+"i32.orBits" ,
+"i32.xorBits" ,
+"i32.fromU32" ,
+"i32.toU32" ,
+"u32.mul" ,
+"i32.mul" ,
+"u32.notBits" ,
+"i32.notBits" ,
+"u32.rotateLeft" ,
+"u32.rotateRight" ,
+"i32.shiftRightArithmetic"
+} ) do
+SCALAR_KIND [ n ] = i - 1
+end
+local IS_TYPE = {
+string = "string" ,
+number = "number" ,
+boolean = "boolean" ,
+table = "table" ,
+thread = "thread" ,
+userdata = "userdata" ,
+integer = "number" ,
+float = "number" ,
+[ "function" ] = "function"
+}
+
+
+emitIs = function ( f , node , dst ) 
+dst = dst or f : reg ( )
+local t = node . type
+
+local function typeTest ( prim ) 
+local call = {
+kind = "call" ,
+obj = { kind = "name" , token = { text = "type" } , inferredType = { tag = "any" } } ,
+args = { exprs = { node . expr } } ,
+inferredType = { tag = "string" }
+}
+local tv = exprAs ( f , call , "v" )
+local kv = f : reg ( ) ;
+f : op ( "K" , kv , f : const ( "str" , prim ) )
+f : op ( "Eq" , dst , tv , kv )
+end
+
+if node . provenStatically then
+if node . provenNeedsNil then
+local v = exprAs ( f , node . expr , "v" ) ;
+local n = f : reg ( ) ;
+f : op ( "Nil" , n ) ;
+f : op ( "Ne" , dst , v , n )
+else
+f : op ( "K" , dst , f : const ( "true" , "" ) )
+end
+elseif node . refutedStatically then
+f : op ( "K" , dst , f : const ( "false" , "" ) )
+elseif t . kind == "tname" and t . base . kind == "nil" then
+local v = exprAs ( f , node . expr , "v" ) ;
+local n = f : reg ( ) ;
+f : op ( "Nil" , n ) ;
+f : op ( "Eq" , dst , v , n )
+elseif wideKind ( node . typeTestTarget ) then
+local callee , base , value = f : reg ( ) , f : reg ( ) , f : reg ( )
+f : op ( "K" , callee , f : const ( "builtin" , "wide." .. wideKind ( node . typeTestTarget ) .. ".is" ) )
+exprAs ( f , node . expr , "v" , value )
+f : op ( "CallDyn" , callee , base , 1 )
+f : op ( "Move" , dst , base )
+elseif t . kind == "tname" and # t == 1 and IS_TYPE [ t . base . text ] then
+typeTest ( IS_TYPE [ t . base . text ] )
+elseif t . primitiveTest then
+typeTest ( t . primitiveTest )
+elseif t . kind == "tfunc" then
+typeTest ( "function" )
+elseif t . recordName and ( shapeOfNominal ( t . resolvedType ) or shapeByBareName ( t . recordName ) ) then
+local v = exprAs ( f , node . expr , "v" ) ;
+f : op ( "IsRec" , dst , v , ( shapeOfNominal ( t . resolvedType ) or shapeByBareName ( t . recordName ) ) . id )
+elseif t . recordNames then
+
+local v = exprAs ( f , node . expr , "v" )
+local exits = { }
+for i , rn in ipairs ( t . recordNames ) do
+local sh = assert ( shapeByBareName ( rn ) , "is-test against unknown record " .. tostring ( rn ) )
+f : op ( "IsRec" , dst , v , sh . id )
+if i < # t . recordNames then
+exits [ # exits + 1 ] = f : op ( "JmpIf" , dst , 0 )
+end
+end
+for _ , at in ipairs ( exits ) do
+f : patch ( at , "JmpIf" , dst , f : offset ( at , f : here ( ) ) )
+end
+else
+error ( "is-test against " .. tostring ( t . kind ) .. " is not in this emitter" )
+end
+
+return dst , "v"
+end
+
+
+local function multiCall ( e ) 
+while e . kind == "castExpr" do
+e = e . expr
+end
+return ( e . kind == "call" or e . kind == "methodCall" ) and not e . scalarIntrinsic and not e . ownershipIntrinsic
+end
+
+
+
+callInto = function ( f , node , dst , extraSelf ) 
+local base = dst
+local nargs = 0
+local args = node . args and node . args . exprs or { }
+if node . args and node . args . loweredArgs then
+local lowered = node . args . loweredArgs
+local offset = extraSelf and 1 or 0
+while f . nregs < base + # lowered + offset + 1 do
+f : reg ( )
+end
+
+local evaluated = { }
+for _ , argument in ipairs ( args ) do
+local value = ( argument . kind == "namedArg" or argument . kind == "pluckArg" ) and argument . value
+or argument
+evaluated [ value ] = exprAs ( f , value , "v" )
+end
+if extraSelf then
+f : op ( "Move" , base + 1 , extraSelf )
+end
+for i , argument in ipairs ( lowered ) do
+local target = base + offset + i
+if argument . generatedKind == "nil" then
+f : op ( "Nil" , target )
+elseif argument . generatedKind == "field" then
+local source = evaluated [ argument . source ] or exprAs ( f , argument . source , "v" )
+f : op ( "GetField" , target , source , f : const ( "str" , argument . name ) )
+else
+local source = evaluated [ argument . expr ] or exprAs ( f , argument . expr , "v" )
+f : op ( "Move" , target , source )
+end
+end
+return base , # lowered + offset
+end
+if node . trailingCallableCall then
+local offset = extraSelf and 1 or 0
+while f . nregs < base + # args + offset + 1 do
+f : reg ( )
+end
+local values = { }
+for i , argument in ipairs ( args ) do
+values [ i ] = exprAs ( f , argument , "v" )
+end
+if extraSelf then
+f : op ( "Move" , base + 1 , extraSelf )
+end
+f : op ( "Move" , base + offset + 1 , values [ # values ] )
+for i = 1 , # values - 1 do
+f : op ( "Move" , base + offset + i + 1 , values [ i ] )
+end
+return base , # values + offset
+end
+local argRegs = { }
+if extraSelf then
+nargs = nargs + 1 ;
+argRegs [ 1 ] = extraSelf
+end
+local spread , trailing
+for i , a in ipairs ( args ) do
+if a . kind == "vararg" and i == # args then
+spread = a
+elseif multiCall ( a ) and i == # args then
+trailing = a
+else
+nargs = nargs + 1 ;
+argRegs [ nargs ] = a
+end
+end
+
+
+while f . nregs < base + nargs + 1 do
+f : reg ( )
+end
+for i , a in ipairs ( argRegs ) do
+if type ( a ) == "number" then
+if a ~= base + i then
+f : op ( "Move" , base + i , a )
+end
+else
+exprAs ( f , a , "v" , base + i )
+end
+end
+
+
+if trailing then
+emitCall ( f , trailing , base + nargs + 1 , 8 , true ) ;
+return base , nargs + 64
+end
+
+
+if spread then
+assert ( f . vararg , "... outside a vararg function" ) ;
+return base , nargs + 128
+end
+
+return base , nargs
+end
+
+
+
+
+
+
+local function markLibraryLocals ( f , names , exprs ) 
+for i , nameTok in ipairs ( names ) do
+local e = exprs [ i ]
+local name = tokText ( nameTok )
+if e
+and e . kind == "dotIndex"
+and e . obj . kind == "name"
+and tokText ( e . obj . token ) == "string"
+and not f : binding ( "string" )
+and not assignedNames [ name ]
+then
+local entry = f . scopes [ # f . scopes ] [ name ]
+if entry then
+entry . builtin = "string." .. tokText ( e . name )
+end
+end
+end
+end
+
+
+
+local function emitStrByte ( f , node , dst , nres ) 
+local args = node . args and node . args . exprs or { }
+if # args ~= 2 or ( nres or 1 ) > 1 then
+return false
+end
+if tyTag ( args [ 1 ] . inferredType ) ~= "string" or not isIntegerish ( args [ 2 ] ) then
+return false
+end
+local s = exprAs ( f , args [ 1 ] , "v" )
+local i = exprAs ( f , args [ 2 ] , "i" )
+f : op ( "StrByte" , dst , s , i )
+
+return true
+end
+
+
+
+emitCall = function ( f , node , dst , nres , all ) 
+nres = nres or 1
+if node . kind == "castExpr" then
+emitCall ( f , node . expr , dst , nres , all )
+local target = tyTag ( node . inferredType )
+if wideKind ( node . inferredType ) then
+f : op ( "TagCheckInt" , dst , dst , wideKind ( node . inferredType ) == "u64" and 1 or 0 )
+elseif target == "number" or target == "integer" then
+f : op ( "TagCheckNum" , dst , dst )
+elseif target == "string" then
+f : op ( "TagCheckStr" , dst , dst )
+end
+return
+end
+if node . ownershipIntrinsic then
+
+local oi = node . ownershipIntrinsic
+local args = node . args and node . args . exprs or { }
+local src = oi == "region" and args [ 2 ] or args [ 1 ]
+if oi == "drop" or oi == "attemptAll" then
+local guards = { }
+for i , guard in pairs ( node . ownerCleanupGuards or { } ) do
+for _ , slot in ipairs ( f . cleanupOwners and f . cleanupOwners [ guard . owner ] or { } ) do
+if slot . field == guard . field then
+guards [ i ] = f : reg ( )
+f : op ( "CleanupLive" , guards [ i ] , slot . depth )
+end
+end
+end
+local value = exprAs ( f , src , "v" )
+local depth = f . cleanupDepth or 0
+for i = # ( node . ownerCleanups or { } ) , 1 , -1 do
+deferCleanup ( f , value , node . ownerCleanups [ i ] , guards [ i ] )
+end
+f : op ( "Unwind" , depth )
+f . cleanupDepth = depth
+f : op ( "Nil" , dst )
+return
+end
+if oi == "adopt"
+or oi == "release"
+or oi == "borrow"
+or oi == "borrowFrom"
+or oi == "region"
+or oi == "drop"
+then
+if src then
+exprAs ( f , src , "v" , dst )
+else
+f : op ( "Nil" , dst )
+end
+for i = 1 , nres - 1 do
+f : op ( "Nil" , dst + i )
+end
+return
+end
+if oi == "partition" then
+
+while f . nregs < dst + math . max ( nres , 2 ) do
+f : reg ( )
+end
+if args [ 2 ] then
+exprAs ( f , args [ 2 ] , "v" , dst )
+else
+f : op ( "Nil" , dst )
+end
+if nres >= 2 then
+if args [ 3 ] then
+exprAs ( f , args [ 3 ] , "v" , dst + 1 )
+else
+f : op ( "Nil" , dst + 1 )
+end
+end
+for i = 2 , nres - 1 do
+f : op ( "Nil" , dst + i )
+end
+return
+end
+error ( "ownership intrinsic " .. tostring ( oi ) .. " is not in this emitter" )
+end
+local callee = node . obj
+if node . scalarIntrinsic
+and SCALAR_KIND [ node . scalarIntrinsic ]
+and nres == 1
+and node . args
+and ( # node . args . exprs == 1 or # node . args . exprs == 2 )
+and node . args . exprs [ # node . args . exprs ] . kind ~= "vararg"
+and not ( node . args . exprs [ # node . args . exprs ] . kind == "call" and # node . args . exprs == 2 and false )
+then
+
+
+local sargs = node . args . exprs
+local a = exprAs ( f , sargs [ 1 ] , "v" )
+local bb = sargs [ 2 ] and exprAs ( f , sargs [ 2 ] , "v" ) or a
+f : op ( "Scalar" , SCALAR_KIND [ node . scalarIntrinsic ] , dst , a , bb )
+return
+end
+if node . scalarIntrinsic then
+
+
+local top = dst == f . nregs - 1
+local sargs = node . args and node . args . exprs or { }
+local argc = # sargs
+local lastArg = sargs [ # sargs ]
+local slack = (
+lastArg
+and ( lastArg . kind == "call" or lastArg . kind == "methodCall" )
+and not lastArg . ownershipIntrinsic
+and not lastArg . scalarIntrinsic
+)
+and 8
+or 0
+local base , fr
+if top then
+base = dst ;
+while f . nregs < base + argc + 2 + slack do
+f : reg ( )
+end ;
+fr = f : reg ( )
+else
+fr = f : reg ( ) ;
+base = math . max ( dst , f . nregs )
+end
+local shared = {
+[ "f32.exp" ] = true ,
+[ "f32.fromF16Bits" ] = true ,
+[ "f32.toF16Bits" ] = true ,
+[ "f32.fromBF16Bits" ] = true ,
+[ "f32.toBF16Bits" ] = true
+}
+if shared [ node . scalarIntrinsic ] then
+queueModule ( "nupp.vm.math" )
+f : op ( "Require" , fr , f : const ( "str" , "nupp.vm.math" ) )
+for member in node . scalarIntrinsic : gmatch ( "[^.]+" ) do
+local value = f : reg ( )
+f : op ( "GetField" , value , fr , f : const ( "str" , member ) )
+f : op ( "Move" , fr , value )
+end
+else
+f : op ( "K" , fr , f : const ( "builtin" , "scalar." .. node . scalarIntrinsic ) )
+end
+local base2 , nargs = callInto ( f , node , base )
+f : op ( "CallDyn" , fr , base2 , nargs )
+if nres > 0 and not all then
+f : op ( "PadResults" , base2 , nres )
+end
+if base2 ~= dst then
+for i = 0 , nres - 1 do
+f : op ( "Move" , dst + i , base2 + i )
+end
+end
+return
+end
+if callee . kind == "name" then
+local bnd = f : binding ( tokText ( callee . token ) )
+if bnd and bnd . builtin == "string.byte" and emitStrByte ( f , node , dst , nres ) then
+return
+end
+elseif callee . kind == "dotIndex"
+and callee . obj . kind == "name"
+and tokText ( callee . obj . token ) == "string"
+and tokText ( callee . name ) == "byte"
+and not f : binding ( "string" )
+then
+if emitStrByte ( f , node , dst , nres ) then
+return
+end
+end
+
+local function finish ( base ) 
+if nres > 0 and not all then
+f : op ( "PadResults" , base , nres )
+end
+if base ~= dst then
+for i = 0 , nres - 1 do
+f : op ( "Move" , dst + i , base + i )
+end
+end
+end
+
+
+
+
+local top = dst == f . nregs - 1
+local argc = 0
+local args0 = node . args and node . args . exprs or { }
+for _ , a in ipairs ( args0 ) do
+if a . kind ~= "vararg" then
+argc = argc + 1
+end
+end
+
+
+local lastArg = args0 [ # args0 ]
+local slack = lastArg and multiCall ( lastArg ) and 8 or 0
+if node . kind == "methodCall" then
+
+local base , o
+if top then
+base = dst ;
+while f . nregs < base + argc + 3 + slack do
+f : reg ( )
+end ;
+o = exprAs ( f , node . obj , "v" , base + 1 )
+else
+o = exprAs ( f , node . obj , "v" ) ;
+base = math . max ( dst , f . nregs )
+end
+local base , nargs = callInto ( f , node , base , o )
+f : op (
+"CallMethod" ,
+f : const ( "str" , node . trailingCallableMember or node . overloadMember or tokText ( node . name ) ) ,
+base ,
+nargs
+)
+finish ( base )
+return
+end
+if callee . kind == "name" then
+local name = tokText ( callee . token )
+if name == "pcall" and not f : binding ( name ) then
+local args = node . args . exprs
+local base = dst
+while f . nregs < base + # args + 8 do
+f : reg ( )
+end
+local last = args [ # args ]
+local trailing = # args > 1 and multiCall ( last )
+local varargs = # args > 1 and last . kind == "vararg"
+for i , a in ipairs ( args ) do
+if not ( ( trailing or varargs ) and i == # args ) then
+exprAs ( f , a , "v" , base + i )
+end
+end
+if trailing then
+emitCall ( f , last , base + # args , 8 , true ) ;
+f : op ( "PCall" , base , ( # args - 2 ) + 64 )
+elseif varargs then
+f : op ( "PCall" , base , ( # args - 2 ) + 128 )
+else
+f : op ( "PCall" , base , # args - 1 )
+end
+finish ( base )
+return
+end
+if name == "require" and not f : binding ( name ) and nres <= 1 and not all then
+local a = node . args . exprs [ 1 ]
+if a . kind == "string" then
+f : op ( "Require" , dst , f : const ( "str" , ( loadstring ( "return " .. tokText ( a . token ) ) ) ( ) ) )
+else
+local r = exprAs ( f , a , "v" ) ;
+f : op ( "RequireV" , dst , r )
+end
+return
+end
+end
+
+local base , fr
+if top then
+base = dst ;
+while f . nregs < base + argc + 2 + slack do
+f : reg ( )
+end ;
+fr = exprAs ( f , callee , "v" )
+else
+fr = exprAs ( f , callee , "v" ) ;
+base = math . max ( dst , f . nregs )
+end
+local base , nargs = callInto ( f , node , base )
+local fid = callee . kind == "name" and f : knownFid ( tokText ( callee . token ) )
+if fid then
+f : op ( "CallK" , fid , fr , base , nargs , nres )
+else
+f : op ( "CallDyn" , fr , base , nargs )
+end
+finish ( base )
+end
+
+local function wideOperation ( f , name , args , dst ) 
+dst = dst or f : reg ( )
+local callee = f : reg ( )
+local base = f : reg ( )
+for _ = 1 , # args do
+f : reg ( )
+end
+f : op ( "K" , callee , f : const ( "builtin" , name ) )
+for i , arg in ipairs ( args ) do
+exprAs ( f , arg , "v" , base + i )
+end
+f : op ( "CallDyn" , callee , base , # args )
+f : op ( "Move" , dst , base )
+
+return dst , "v"
+end
+
+expr = function ( f , node , dst , want ) 
+local k = node . kind
+if k == "paren" then
+return expr ( f , node . expr , dst , want )
+end
+local numeric = isNumeric ( node . inferredType )
+local integer = isInteger ( node . inferredType )
+if k == "binop" and node . fixedArithmetic then
+local a = exprAs ( f , node . lhs , "v" )
+local b = exprAs ( f , node . rhs , "v" )
+local d = ( want ~= "f" and want ~= "i" and dst ) or f : reg ( )
+f : op ( "Scalar" , assert ( SCALAR_KIND [ node . fixedArithmetic ] ) , d , a , b )
+return d , "v"
+end
+local wide = wideKind ( node . inferredType )
+if k == "number" and ( wide or node . wideIntegerLiteralTag ) then
+local tag = node . wideIntegerLiteralTag or ( wide == "u64" and "uint64" or "int64" )
+local text = node . wideIntegerLiteralText or tokText ( node . token ) : gsub ( "_" , "" ) : gsub ( "[uUlL]+$" , "" )
+local d = ( want ~= "f" and want ~= "i" and dst ) or f : reg ( )
+f : op ( "K" , d , f : const ( tag , text ) )
+return d , "v"
+end
+if k == "binop" then
+local family = wide or wideKind ( node . lhs . inferredType ) or wideKind ( node . rhs . inferredType )
+local op = tokText ( node . op )
+local operations = {
+[ "+" ] = "add" ,
+[ "-" ] = "sub" ,
+[ "*" ] = "mul" ,
+[ "/" ] = "div" ,
+[ "//" ] = "idiv" ,
+[ "%" ] = "mod" ,
+[ "^" ] = "pow" ,
+[ "&" ] = "and" ,
+[ "|" ] = "or" ,
+[ "~" ] = "xor" ,
+[ "<<" ] = "shl" ,
+[ ">>" ] = "shr" ,
+[ "~>>" ] = "sar" ,
+[ "==" ] = "eq" ,
+[ "~=" ] = "ne" ,
+[ "<" ] = "lt" ,
+[ "<=" ] = "le" ,
+[ ">" ] = "lt" ,
+[ ">=" ] = "le"
+}
+if family and operations [ op ] then
+local args = ( op == ">" or op == ">=" ) and { node . rhs , node . lhs } or { node . lhs , node . rhs }
+return wideOperation (
+f ,
+"wide." .. family .. "." .. operations [ op ] ,
+args ,
+( want ~= "f" and want ~= "i" ) and dst or nil
+)
+end
+end
+if k == "unop" and wide and ( tokText ( node . op ) == "-" or tokText ( node . op ) == "~" ) then
+return wideOperation (
+f ,
+"wide." .. wide .. ( tokText ( node . op ) == "-" and ".neg" or ".not" ) ,
+{ node . operand } ,
+( want ~= "f" and want ~= "i" ) and dst or nil
+)
+end
+if k == "castExpr" and wide then
+local value = exprAs ( f , node . expr , "v" )
+local d = ( want ~= "f" and want ~= "i" and dst ) or f : reg ( )
+f : op ( "TagCheckInt" , d , value , wide == "u64" and 1 or 0 )
+return d , "v"
+end
+if k == "number" then
+local n = assert ( tonumber ( tokText ( node . token ) ) , "invalid numeric literal" )
+if want ~= "i" and want ~= "f" then
+dst = dst or f : reg ( ) ;
+f : op ( "K" , dst , f : const ( "num" , n ) ) ;
+return dst , "v"
+end
+if want == "i" and isIntegerish ( node ) then
+local ir = f : freg ( ) ;
+f : op ( "IK" , ir , string . format ( "%d" , n ) ) ;
+return ir , "i"
+end
+local fr = f : freg ( ) ;
+f : op ( "FK" , fr , n )
+return fr , "f"
+end
+if k == "binop"
+and isIntegerish ( node . lhs )
+and isIntegerish ( node . rhs )
+and ( want == "i" or want == "f" or not ( valueDomain ( f , node . lhs ) and valueDomain ( f , node . rhs ) ) )
+then
+local op = tokText ( node . op )
+local map = { [ "+" ] = "IAdd" , [ "-" ] = "ISub" }
+if map [ op ] then
+local a = exprAs ( f , node . lhs , "i" ) ;
+local bb = exprAs ( f , node . rhs , "i" ) ;
+local d = f : freg ( ) ;
+f : op ( map [ op ] , d , a , bb ) ;
+return d , "i"
+end
+local cmp = { [ "<" ] = "ICmpSLt" , [ "<=" ] = "ICmpSLe" , [ ">" ] = "ICmpSLt" , [ ">=" ] = "ICmpSLe" }
+if cmp [ op ] then
+local a = exprAs ( f , node . lhs , "i" ) ;
+local bb = exprAs ( f , node . rhs , "i" ) ;
+local i = f : freg ( )
+if op == ">" or op == ">=" then
+f : op ( cmp [ op ] , i , bb , a )
+else
+f : op ( cmp [ op ] , i , a , bb )
+end
+if want == "cond" then
+return i , "i"
+end
+local d = f : reg ( ) ;
+f : op ( "BoolFromI" , d , i ) ;
+return d , "v"
+end
+end
+if numeric and k == "binop" then
+local op = tokText ( node . op )
+local map = { [ "+" ] = "FAdd" , [ "-" ] = "FSub" , [ "*" ] = "FMul" , [ "/" ] = "FDiv" , [ "%" ] = "FMod" }
+if map [ op ]
+and isNumeric ( node . lhs . inferredType )
+and isNumeric ( node . rhs . inferredType )
+and want ~= "f"
+and want ~= "i"
+and valueDomain ( f , node . lhs )
+and valueDomain ( f , node . rhs )
+then
+local a = exprAs ( f , node . lhs , "v" ) ;
+local b = exprAs ( f , node . rhs , "v" )
+local vmap = { [ "+" ] = "Add" , [ "-" ] = "Sub" , [ "*" ] = "Mul" , [ "/" ] = "Div" , [ "%" ] = "Mod" }
+dst = dst or f : reg ( ) ;
+f : op ( vmap [ op ] , dst , a , b ) ;
+return dst , "v"
+end
+if map [ op ] and isNumeric ( node . lhs . inferredType ) and isNumeric ( node . rhs . inferredType ) then
+local a = exprAs ( f , node . lhs , "f" ) ;
+local b = exprAs ( f , node . rhs , "f" )
+local d = f : freg ( ) ;
+f : op ( map [ op ] , d , a , b ) ;
+return d , "f"
+end
+end
+if k == "binop" and tokText ( node . op ) == "//" then
+local a = exprAs ( f , node . lhs , "v" ) ;
+local b = exprAs ( f , node . rhs , "v" )
+dst = ( want ~= "f" and want ~= "i" and dst ) or f : reg ( ) ;
+f : op ( "IDiv" , dst , a , b ) ;
+return dst , "v"
+end
+if k == "binop" and tokText ( node . op ) == "^" then
+local a = exprAs ( f , node . lhs , "v" ) ;
+local b = exprAs ( f , node . rhs , "v" )
+dst = ( want ~= "f" and want ~= "i" and dst ) or f : reg ( ) ;
+f : op ( "Pow" , dst , a , b ) ;
+return dst , "v"
+end
+if k == "binop" and BITOPS [ tokText ( node . op ) ] then
+local a = exprAs ( f , node . lhs , "i" ) ;
+local b = exprAs ( f , node . rhs , "i" ) ;
+local d = f : freg ( ) ;
+f : op ( BITOPS [ tokText ( node . op ) ] , d , a , b ) ;
+return d , "i"
+end
+if k == "unop" and tokText ( node . op ) == "~" then
+local a = exprAs ( f , node . operand , "i" ) ;
+local d = f : freg ( ) ;
+f : op ( "INot" , d , a ) ;
+return d , "i"
+end
+if numeric and k == "unop" and tokText ( node . op ) == "-" then
+local a = exprAs ( f , node . operand , "f" ) ;
+local d = f : freg ( ) ;
+f : op ( "FNeg" , d , a ) ;
+return d , "f"
+end
+if numeric and k == "unop" and tokText ( node . op ) == "#" then
+if want ~= "f" and want ~= "i" then
+local a = exprAs ( f , node . operand , "v" ) ;
+dst = dst or f : reg ( ) ;
+f : op ( "Len" , dst , a ) ;
+return dst , "v"
+end
+local a = exprAs ( f , node . operand , "v" ) ;
+local d = f : freg ( ) ;
+f : op ( "LenF" , d , a ) ;
+return d , "f"
+end
+if k == "vararg" then
+dst = dst or f : reg ( ) ;
+f : op ( "VarargN" , dst , 1 ) ;
+return dst , "v"
+end
+if k == "isExpr" then
+return emitIs ( f , node , dst )
+end
+if k == "name" then
+local name = tokText ( node . token )
+local r , c , cell , spill = f : lookup ( name )
+if spill then
+local d = f : loadSpill ( spill )
+if cell then
+f : op ( "GetCell" , d , d )
+end
+if numeric and want == "f" then
+local fr = f : freg ( ) ;
+f : op ( "FUnbox" , fr , d ) ;
+return fr , "f"
+end
+return d , "v"
+end
+if r and cell then
+local d = f : reg ( ) ;
+f : op ( "GetCell" , d , r )
+if numeric and want == "f" then
+local fr = f : freg ( ) ;
+f : op ( "FUnbox" , fr , d ) ;
+return fr , "f"
+end
+return d , "v"
+end
+if r then
+return r , c
+end
+local ui = f : upvalue ( name )
+if ui then
+local cellReg = f : upvalReg ( ui )
+local d = f : reg ( ) ;
+f : op ( "GetCell" , d , cellReg )
+if numeric and want == "f" then
+local fr = f : freg ( ) ;
+f : op ( "FUnbox" , fr , d ) ;
+return fr , "f"
+end
+return d , "v"
+end
+end
+if numeric and k == "dotIndex" then
+local shape = shapeOf ( node . obj . inferredType )
+local fname = tokText ( node . name )
+if shape and shape . slotIndex [ fname ] and shape . slots [ shape . slotIndex [ fname ] + 1 ] . ty == "num" then
+local o = exprAs ( f , node . obj , "v" )
+local d = f : freg ( ) ;
+f : op ( "GetSlotF" , d , o , shape . slotIndex [ fname ] , shape . id ) ;
+return d , "f"
+end
+end
+if numeric and k == "bracketIndex" then
+local o = exprAs ( f , node . obj , "v" ) ;
+local d = f : reg ( )
+if isIntegerish ( node . expr ) then
+local i = exprAs ( f , node . expr , "i" ) ;
+f : op ( "GetIdxI" , d , o , i )
+elseif isNumeric ( node . expr . inferredType ) then
+local i = exprAs ( f , node . expr , "f" ) ;
+f : op ( "GetIdxF" , d , o , i )
+else
+local i = exprAs ( f , node . expr , "v" ) ;
+f : op ( "GetIdx" , d , o , i )
+end
+if want == "i" and integer then
+local ir = f : freg ( ) ;
+f : op ( "IUnbox" , ir , d ) ;
+return ir , "i"
+end
+if want == "f" then
+local fr = f : freg ( ) ;
+f : op ( "FUnbox" , fr , d ) ;
+return fr , "f"
+end
+return d , "v"
+end
+if k == "binop" then
+local op = tokText ( node . op )
+local cmp = {
+[ "<" ] = "FCmpLt" ,
+[ "<=" ] = "FCmpLe" ,
+[ ">" ] = "FCmpLt" ,
+[ ">=" ] = "FCmpLe" ,
+[ "==" ] = "FCmpEq" ,
+[ "~=" ] = "FCmpNe"
+}
+if cmp [ op ]
+and isNumeric ( node . lhs . inferredType )
+and isNumeric ( node . rhs . inferredType )
+and not ( valueDomain ( f , node . lhs ) and valueDomain ( f , node . rhs ) )
+then
+local a = exprAs ( f , node . lhs , "f" ) ;
+local b = exprAs ( f , node . rhs , "f" )
+local i = f : freg ( )
+if op == ">" or op == ">=" then
+f : op ( cmp [ op ] , i , b , a )
+else
+f : op ( cmp [ op ] , i , a , b )
+end
+if want == "cond" then
+return i , "i"
+end
+local d = f : reg ( ) ;
+f : op ( "BoolFromI" , d , i ) ;
+return d , "v"
+end
+end
+if k == "doExpr" then
+
+dst = dst or f : reg ( )
+f . yields = f . yields or { }
+f . yields [ # f . yields + 1 ] = { dst = dst , exits = { } , depth = f . cleanupDepth or 0 }
+block ( f , node . body )
+local y = table . remove ( f . yields )
+for _ , at in ipairs ( y . exits ) do
+f : patch ( at , "Jmp" , f : offset ( at , f : here ( ) ) )
+end
+return dst , "v"
+end
+if k == "switchExpr" then
+dst = dst or f : reg ( )
+local subject = f : reg ( )
+exprAs ( f , node . selector , "v" , subject )
+f : op ( "Nil" , dst )
+f : push ( )
+local selectorName = "\0switch" .. subject
+f . scopes [ # f . scopes ] [ selectorName ] = { reg = subject , class = "v" }
+local selector = { kind = "name" , token = { text = selectorName } }
+local mark , fmark = f . nregs , f . nfregs
+local exits = { }
+for _ , arm in ipairs ( node . cases or { } ) do
+local matched = f : reg ( )
+if arm . patternKind == "static" then
+local matches = { }
+for _ , value in ipairs ( arm . values or { } ) do
+local candidate = exprAs ( f , value , "v" )
+f : op ( "Eq" , matched , subject , candidate )
+matches [ # matches + 1 ] = f : op ( "JmpIf" , matched , 0 )
+end
+for _ , at in ipairs ( matches ) do
+f : patch ( at , "JmpIf" , matched , f : offset ( at , f : here ( ) ) )
+end
+else
+emitIs ( f , { type = arm . type , expr = selector } , matched )
+end
+local nextArm = f : op ( "JmpIfNot" , matched , 0 )
+f : push ( )
+
+local function bind ( name , value ) 
+local reg , cell = f : declare ( name , "v" )
+f : op ( cell and "NewCell" or "Move" , reg , value )
+end
+
+if arm . binding then
+bind ( tokText ( arm . binding ) , subject )
+end
+for _ , field in ipairs ( arm . fields or { } ) do
+local value = f : reg ( )
+f : op ( "GetField" , value , subject , f : const ( "str" , tokText ( field . name ) ) )
+bind ( tokText ( field . alias or field . name ) , value )
+end
+local guard , guardOp , guardReg
+if arm . guard and arm . guard . expr then
+guard , guardOp , guardReg = condBranch ( f , arm . guard . expr )
+end
+exprAs ( f , arm . expr or { kind = "doExpr" , body = arm . body } , "v" , dst )
+exits [ # exits + 1 ] = f : op ( "Jmp" , 0 )
+f : pop ( )
+f : patch ( nextArm , "JmpIfNot" , matched , f : offset ( nextArm , f : here ( ) ) )
+if guard then
+f : patch ( guard , guardOp , guardReg , f : offset ( guard , f : here ( ) ) )
+end
+f . nregs , f . nfregs = mark , fmark
+end
+if node . elseCase then
+local arm = node . elseCase
+exprAs ( f , arm . expr or { kind = "doExpr" , body = arm . body } , "v" , dst )
+end
+for _ , at in ipairs ( exits ) do
+f : patch ( at , "Jmp" , f : offset ( at , f : here ( ) ) )
+end
+f : pop ( )
+return dst , "v"
+end
+
+dst = ( want ~= "f" and want ~= "i" and dst ) or nil
+dst = dst or f : reg ( )
+if k == "number" then
+f : op ( "K" , dst , f : const ( "num" , tonumber ( tokText ( node . token ) ) ) )
+elseif k == "string" then
+local raw = tokText ( node . token )
+local value = raw
+if raw : sub ( 1 , 1 ) == "\"" or raw : sub ( 1 , 1 ) == "'" then
+value = assert ( loadstring ( "return " .. raw ) , "literal " .. raw ) ( )
+end
+if raw : sub ( 1 , 1 ) == "[" then
+value = assert ( loadstring ( "return " .. raw ) ) ( )
+end
+f : op ( "K" , dst , f : const ( "str" , value ) )
+elseif k == "trueExpr" then
+f : op ( "K" , dst , f : const ( "true" , "" ) )
+elseif k == "falseExpr" then
+f : op ( "K" , dst , f : const ( "false" , "" ) )
+elseif k == "nil" or k == "nilExpr" then
+f : op ( "Nil" , dst )
+elseif node . namespacePath
+and ( node . namespacePath == "nupp.math" or node . namespacePath : sub ( 1 , 10 ) == "nupp.math." )
+then
+queueModule ( "nupp.vm.math" )
+f : op ( "Require" , dst , f : const ( "str" , "nupp.vm.math" ) )
+for member in node . namespacePath : sub ( 11 ) : gmatch ( "[^.]+" ) do
+local value = f : reg ( )
+f : op ( "GetField" , value , dst , f : const ( "str" , member ) )
+f : op ( "Move" , dst , value )
+end
+elseif ( k == "name" or k == "dotIndex" ) and ( node . qualifiedModule or node . compilerModule ) then
+
+
+local name = node . qualifiedModule or node . compilerModule
+queueModule ( name )
+f : op ( "Require" , dst , f : const ( "str" , name ) )
+for _ , member in ipairs ( node . qualifiedMembers or { } ) do
+local t = f : reg ( ) ;
+f : op ( "GetField" , t , dst , f : const ( "str" , member ) ) ;
+f : op ( "Move" , dst , t )
+end
+elseif k == "name" then
+local name = tokText ( node . token )
+if BUILTINS [ name ] then
+f : op ( "K" , dst , f : const ( "builtin" , name ) )
+elseif name == "pcall" then
+f : op ( "K" , dst , f : const ( "builtin" , "pcall" ) )
+elseif GLOBAL_MODULES [ name ] then
+f : op ( "Require" , dst , f : const ( "str" , name ) )
+elseif name == "loadstring" or name == "load" then
+f : op ( "K" , dst , f : const ( "builtin" , "loadstring" ) )
+elseif name == "require" then
+f : op ( "K" , dst , f : const ( "builtin" , "require" ) )
+else
+
+
+f : op ( "Require" , dst , f : const ( "str" , "_G" ) ) ;
+local t = f : reg ( ) ;
+f : op ( "GetField" , t , dst , f : const ( "str" , name ) ) ;
+f : op ( "Move" , dst , t )
+end
+elseif k == "binop" then
+local op = tokText ( node . op )
+if op == "and" or op == "or" then
+exprAs ( f , node . lhs , "v" , dst )
+local branch = f : op ( op == "and" and "JmpIfNot" or "JmpIf" , dst , 0 )
+exprAs ( f , node . rhs , "v" , dst )
+f : patch ( branch , op == "and" and "JmpIfNot" or "JmpIf" , dst , f : offset ( branch , f : here ( ) ) )
+elseif op == "??" then
+exprAs ( f , node . lhs , "v" , dst )
+local n = f : reg ( ) ;
+f : op ( "Nil" , n ) ;
+local c = f : reg ( ) ;
+f : op ( "Ne" , c , dst , n )
+local branch = f : op ( "JmpIf" , c , 0 )
+exprAs ( f , node . rhs , "v" , dst )
+f : patch ( branch , "JmpIf" , c , f : offset ( branch , f : here ( ) ) )
+elseif op == ".." then
+
+
+
+local parts = { }
+
+local function flatten ( n ) 
+if n . kind == "binop" and tokText ( n . op ) == ".." then
+flatten ( n . lhs ) ;
+flatten ( n . rhs )
+else
+parts [ # parts + 1 ] = n
+end
+end
+
+flatten ( node )
+local mark = f . nregs
+exprAs ( f , parts [ 1 ] , "v" , dst )
+for i = 2 , # parts do
+f . nregs = math . max ( mark , f . declTop or 0 )
+local b = exprAs ( f , parts [ i ] , "v" )
+f : op ( "Concat" , dst , dst , b )
+end
+else
+local a = exprAs ( f , node . lhs , "v" ) ;
+local b = exprAs ( f , node . rhs , "v" )
+local map = {
+[ "+" ] = "Add" ,
+[ "-" ] = "Sub" ,
+[ "*" ] = "Mul" ,
+[ "/" ] = "Div" ,
+[ "%" ] = "Mod" ,
+[ "<" ] = "Lt" ,
+[ "<=" ] = "Le" ,
+[ "==" ] = "Eq" ,
+[ ".." ] = "Concat" ,
+[ "~=" ] = "Ne" ,
+[ ">" ] = "Gt" ,
+[ ">=" ] = "Ge"
+}
+local name = assert ( map [ op ] , "operator " .. op )
+if name == "Gt" then
+f : op ( "Lt" , dst , b , a )
+elseif name == "Ge" then
+f : op ( "Le" , dst , b , a )
+else
+f : op ( name , dst , a , b )
+end
+end
+elseif k == "unop" then
+local op = tokText ( node . op )
+local a = exprAs ( f , node . operand , "v" )
+if op == "not" then
+f : op ( "Not" , dst , a )
+elseif op == "-" then
+f : op ( "Neg" , dst , a )
+elseif op == "#" then
+f : op ( "Len" , dst , a )
+else
+error ( "unop " .. op )
+end
+elseif k == "ternary" then
+local c = exprAs ( f , node . cond , "v" )
+local branch = f : op ( "JmpIfNot" , c , 0 )
+exprAs ( f , node . ifTrue , "v" , dst )
+local skip = f : op ( "Jmp" , 0 )
+f : patch ( branch , "JmpIfNot" , c , f : offset ( branch , f : here ( ) ) )
+exprAs ( f , node . ifFalse , "v" , dst )
+f : patch ( skip , "Jmp" , f : offset ( skip , f : here ( ) ) )
+elseif k == "dotIndex" then
+local fname = tokText ( node . name )
+if node . obj . kind == "name" and LIBS [ tokText ( node . obj . token ) ] and not f : binding ( tokText ( node . obj . token ) ) then
+local full = tokText ( node . obj . token ) .. "." .. fname
+
+if full == "math.huge" then
+f : op ( "K" , dst , f : const ( "num" , math . huge ) )
+elseif full == "math.pi" then
+f : op ( "K" , dst , f : const ( "num" , math . pi ) )
+elseif BUILTINS [ full ] then
+f : op ( "K" , dst , f : const ( "builtin" , full ) )
+else
+f : op ( "Require" , dst , f : const ( "str" , tokText ( node . obj . token ) ) ) ;
+local t = f : reg ( ) ;
+f : op ( "GetField" , t , dst , f : const ( "str" , fname ) ) ;
+f : op ( "Move" , dst , t )
+end
+else
+local shape = shapeOf ( node . obj . inferredType )
+local o = exprAs ( f , node . obj , "v" )
+if shape and shape . slotIndex [ fname ] then
+f : op ( "GetSlot" , dst , o , shape . slotIndex [ fname ] , shape . id )
+else
+f : op ( "GetField" , dst , o , f : const ( "str" , fname ) )
+end
+end
+elseif k == "bracketIndex" then
+local o = exprAs ( f , node . obj , "v" )
+if isIntegerish ( node . expr ) then
+local i = exprAs ( f , node . expr , "i" ) ;
+f : op ( "GetIdxI" , dst , o , i )
+elseif isNumeric ( node . expr . inferredType ) then
+local i = exprAs ( f , node . expr , "f" ) ;
+f : op ( "GetIdxF" , dst , o , i )
+else
+local i = exprAs ( f , node . expr , "v" ) ;
+f : op ( "GetIdx" , dst , o , i )
+end
+elseif k == "call" or k == "methodCall" then
+emitCall ( f , node , dst )
+elseif k == "newExpr" then
+local call = node . call
+if call . constructorCall then
+local lowered = { }
+for key , value in pairs ( call ) do
+lowered [ key ] = value
+end
+lowered . constructorCall = nil
+lowered . obj = {
+kind = "dotIndex" ,
+obj = call . obj ,
+name = { text = "__nuppCtor" .. tostring ( call . constructorIndex or 1 ) }
+}
+emitCall ( f , lowered , dst )
+return dst , "v"
+end
+local shape = shapeOf ( node . inferredType )
+if not shape then
+local t = node . inferredType
+local keys = { }
+if type ( t ) == "table" then
+for k , v in pairs ( t ) do
+keys [
+# keys + 1
+] = k .. "=" .. (
+type ( v ) == "table" and ( "{" .. tostring ( v . tag ) .. ":" .. tostring ( v . name ) .. "}" )
+or tostring ( v )
+)
+end
+end
+table . sort ( keys )
+error (
+"new of unknown record " .. tostring (
+type ( t ) == "table" and t . name or tyTag ( t )
+) .. " [" .. table . concat ( keys , " " ) .. "]"
+)
+end
+f : op ( "NewRecord" , dst , shape . id )
+local fields = call . recordFields
+if not fields then
+fields = { }
+for _ , argument in ipairs ( call . args . exprs or { } ) do
+assert ( argument . kind == "namedArg" , "unchecked positional construction in " .. f . name )
+fields [ # fields + 1 ] = { name = tokText ( argument . name ) , node = argument . value }
+end
+end
+for _ , field in ipairs ( fields ) do
+local slot = assert ( shape . slotIndex [ field . name ] , "field " .. field . name )
+local value = field . isDefault and require ( "nupp.compiler.vm.metadata" ) . literal ( field . defaultValue )
+or field . node
+if shape . slots [ slot + 1 ] . ty == "num" then
+local v = exprAs ( f , value , "f" ) ;
+f : op ( "SetSlotF" , dst , slot , v , shape . id )
+else
+local v = exprAs ( f , value , "v" ) ;
+f : op ( "SetSlot" , dst , slot , v , shape . id )
+end
+end
+elseif k == "tableExpr" then
+local items , named = 0 , 0
+for _ , field in ipairs ( node . fields ) do
+if field . kind == "fieldItem" then
+items = items + 1
+else
+named = named + 1
+end
+end
+local struct = items == 0 and structShape ( node . inferredType )
+if struct then
+local every = true
+for _ , field in ipairs ( node . fields ) do
+if field . kind ~= "fieldNamed" or not struct . slotIndex [ tokText ( field . name ) ] then
+every = false
+end
+end
+if every then
+f : op ( "NewRecord" , dst , struct . id )
+for _ , field in ipairs ( node . fields ) do
+local slot = struct . slotIndex [ tokText ( field . name ) ]
+if struct . slots [ slot + 1 ] . ty == "num" then
+local fv = exprAs ( f , field . value , "f" ) ;
+f : op ( "SetSlotF" , dst , slot , fv , struct . id )
+else
+local v = exprAs ( f , field . value , "v" ) ;
+f : op ( "SetSlot" , dst , slot , v , struct . id )
+end
+end
+return dst , "v"
+end
+end
+if items == 1 and named == 0 and node . fields [ 1 ] . value and node . fields [ 1 ] . value . kind == "vararg" then
+f : op ( "VarargTable" , dst ) ;
+return dst , "v"
+end
+f : op ( "NewTableN" , dst , math . min ( items , 255 ) , math . min ( named , 255 ) )
+local n = 0
+
+
+local fieldMark = f . nregs
+for fieldIndex , field in ipairs ( node . fields ) do
+f . nregs = math . max ( fieldMark , f . declTop or 0 )
+if field . kind == "fieldNamed" then
+local v = exprAs ( f , field . value , "v" )
+f : op ( "SetField" , dst , f : const ( "str" , tokText ( field . name ) ) , v )
+elseif field . kind == "fieldItem" then
+n = n + 1
+local i = f : reg ( ) ;
+f : op ( "K" , i , f : const ( "num" , n ) )
+if fieldIndex == # node . fields and multiCall ( field . value ) then
+
+
+local base = f : reg ( )
+while f . nregs < base + 11 do
+f : reg ( )
+end
+local callee = f : reg ( )
+f : op ( "K" , callee , f : const ( "builtin" , "vm.tableAppendResults" ) )
+f : op ( "Move" , base + 1 , dst )
+f : op ( "Move" , base + 2 , i )
+emitCall ( f , field . value , base + 3 , 8 , true )
+f : op ( "CallDyn" , callee , base , 66 )
+elseif fieldIndex == # node . fields and field . value . kind == "vararg" then
+
+
+local values = f : reg ( )
+f : op ( "VarargTable" , values )
+local count = f : reg ( )
+local argument = f : reg ( )
+local callee = f : reg ( )
+f : op ( "K" , argument , f : const ( "str" , "#" ) )
+f : op ( "K" , callee , f : const ( "builtin" , "select" ) )
+f : op ( "CallDyn" , callee , count , 129 )
+local index , one , condition , value = f : reg ( ) , f : reg ( ) , f : reg ( ) , f : reg ( )
+f : op ( "K" , index , f : const ( "num" , 1 ) )
+f : op ( "K" , one , f : const ( "num" , 1 ) )
+local top = f : here ( )
+f : op ( "Le" , condition , index , count )
+local done = f : op ( "JmpIfNot" , condition , 0 )
+f : op ( "GetIdx" , value , values , index )
+f : op ( "SetIdx" , dst , i , value )
+f : op ( "Add" , index , index , one )
+f : op ( "Add" , i , i , one )
+local back = f : op ( "Jmp" , 0 )
+f : patch ( back , "Jmp" , f : offset ( back , top ) )
+f : patch ( done , "JmpIfNot" , condition , f : offset ( done , f : here ( ) ) )
+else
+local v = exprAs ( f , field . value , "v" )
+f : op ( "SetIdx" , dst , i , v )
+end
+elseif field . kind == "fieldBracket" then
+local kreg = exprAs ( f , field . key , "v" ) ;
+local v = exprAs ( f , field . value , "v" )
+f : op ( "SetIdx" , dst , kreg , v )
+else
+error ( "table field " .. field . kind )
+end
+end
+elseif k == "funcExpr" or k == "shortfn" then
+emitClosure ( f , k == "shortfn" and node or node . body , dst , f . name .. ".fn" .. tostring ( # functions ) )
+elseif k == "castExpr" and recordConstructorCast ( f , node ) then
+
+
+
+local shape , tbl , meta = recordConstructorCast ( f , node )
+f : op ( "NewRecord" , dst , shape . id )
+local mark = f . nregs
+for _ , field in ipairs ( tbl . fields ) do
+f . nregs = math . max ( mark , f . declTop or 0 )
+local fname = tokText ( field . name )
+local slot = shape . slotIndex [ fname ]
+if slot and shape . slots [ slot + 1 ] . ty == "num" and isNumeric ( field . value . inferredType ) then
+local fv = exprAs ( f , field . value , "f" ) ;
+f : op ( "SetSlotF" , dst , slot , fv , shape . id )
+elseif slot then
+local v = exprAs ( f , field . value , "v" ) ;
+f : op ( "SetSlot" , dst , slot , v , shape . id )
+else
+local v = exprAs ( f , field . value , "v" ) ;
+f : op ( "SetField" , dst , f : const ( "str" , fname ) , v )
+end
+end
+if meta then
+f . nregs = math . max ( mark , f . declTop or 0 ) ;
+local callee , result , object , metatable = f : reg ( ) , f : reg ( ) , f : reg ( ) , f : reg ( )
+f : op ( "K" , callee , f : const ( "builtin" , "setmetatable" ) )
+f : op ( "Move" , object , dst )
+exprAs ( f , meta , "v" , metatable )
+f : op ( "CallDyn" , callee , result , 2 )
+end
+f . nregs = math . max ( mark , f . declTop or 0 )
+elseif k == "castExpr" then
+local target = node . inferredType
+local v = exprAs ( f , node . expr , "v" , dst )
+
+
+
+if tyTag ( target ) == "number" or tyTag ( target ) == "integer" then
+f : op ( "TagCheckNum" , dst , v )
+elseif tyTag ( target ) == "string" then
+f : op ( "TagCheckStr" , dst , v )
+else
+if v ~= dst then
+f : op ( "Move" , dst , v )
+end
+end
+else
+error ( "expression kind " .. tostring ( k ) .. " in " .. f . name )
+end
+
+return dst , "v"
+end
+
+local plainExpr = expr
+
+expr = function ( f , node , dst , want ) 
+local r , class = plainExpr ( f , node , dst , want )
+if node . automaticOwnerMove and node . kind ~= "paren" and node . kind ~= "castExpr" then
+local move = node . automaticOwnerMove
+local owner = move . owner or move
+for _ , slot in ipairs ( f . cleanupOwners and f . cleanupOwners [ owner ] or { } ) do
+if not move . field or move . field == slot . field then
+f : op ( "DisarmAt" , slot . depth )
+end
+end
+end
+
+return r , class
+end
+
+
+
+emitClosure = function ( f , funcbody , dst , name , implicitSelf ) 
+local inner = newFn ( name , f )
+inner . sig = { }
+inner . implicitSelf = implicitSelf
+
+
+local fixed = { }
+for _ , p in ipairs ( funcbody . params or { } ) do
+if p . vararg then
+inner . vararg = true
+else
+fixed [ # fixed + 1 ] = p
+end
+end
+for i = 1 , # fixed + ( implicitSelf and 1 or 0 ) do
+inner . sig [ i ] = "v"
+end
+inner . nparams = # fixed + ( implicitSelf and 1 or 0 )
+inner . ret = "v"
+markCaptures ( inner , funcbody )
+defineFunction ( inner , funcbody )
+local base = f : reg ( )
+while f . nregs < base + # inner . upvals + 1 do
+f : reg ( )
+end
+for i , u in ipairs ( inner . upvals ) do
+if u . kind == "local" then
+f : op ( "Move" , base + i , u . reg )
+elseif u . kind == "spill" then
+f : loadSpill ( u . key , base + i )
+else
+f : op ( "Move" , base + i , f : upvalReg ( u . index ) )
+end
+end
+
+
+for _ , capture in ipairs ( funcbody . takenCaptures or funcbody . vmCaptureDrops or { } ) do
+local ui = assert ( inner . upvalIndex [ capture . name ] , "missing taken capture" )
+local value = f : reg ( )
+f : op ( "GetCell" , value , base + ui + 1 )
+f : op ( "NewCell" , base + ui + 1 , value )
+end
+f : op ( "NewClosure" , dst , inner . id , base , # inner . upvals )
+if # ( funcbody . takenCaptures or { } ) > 0 then
+local drop = f : reg ( )
+emitClosure (
+f ,
+{ params = { } , body = { stats = { } } , vmCaptureDrops = funcbody . takenCaptures } ,
+drop ,
+name .. ".drop"
+)
+f : op ( "AffineMark" , dst , drop )
+for _ , capture in ipairs ( funcbody . takenCaptures ) do
+local move = capture . move
+local owner = move and ( move . owner or move )
+local slots = f . cleanupOwners and f . cleanupOwners [ owner ]
+if not slots and capture . outer then
+slots = f . cleanupOwners and f . cleanupOwners [ capture . outer . automaticOwner ]
+end
+for _ , slot in ipairs ( slots or { } ) do
+if not move or not move . field or move . field == slot . field then
+f : op ( "DisarmAt" , slot . depth )
+end
+end
+end
+end
+
+return inner
+end
+
+
+
+
+
+local function exprsInto ( f , exprs , count , base ) 
+while f . nregs < base + count do
+f : reg ( )
+end
+for i , e in ipairs ( exprs ) do
+if i == # exprs and i < count and multiCall ( e ) then
+emitCall ( f , e , base + i - 1 , count - i + 1 )
+return
+end
+if i == # exprs and i < count and e . kind == "vararg" then
+f : op ( "VarargN" , base + i - 1 , count - i + 1 ) ;
+return
+end
+if i <= count then
+exprAs ( f , e , "v" , base + i - 1 )
+else
+expr ( f , e , nil , "v" )
+end
+end
+for i = # exprs + 1 , count do
+f : op ( "Nil" , base + i - 1 )
+end
+end
+
+
+local function exportedNames ( stat ) 
+local names = { }
+if stat . kind == "localFuncStmt" then
+names [ 1 ] = stat . name and tokText ( stat . name )
+elseif stat . kind == "funcStmt" then
+local fname = stat . name
+local dotted = false
+for _ , child in ipairs ( fname or { } ) do
+if type ( child ) == "table"
+and child . kind == "name"
+and child ~= fname . base
+and child ~= fname . method
+then
+dotted = true
+end
+end
+if fname and fname . base and not fname . method and not dotted then
+names [ 1 ] = tokText ( fname . base )
+end
+elseif stat . kind == "localStmt" then
+for _ , t in ipairs ( stat . names or { } ) do
+names [ # names + 1 ] = tokText ( t )
+end
+elseif stat . kind == "recordDecl" and ( stat . declKind == "record" or stat . declKind == "struct" ) then
+names [ 1 ] = stat . name and tokText ( stat . name )
+end
+
+return names
+end
+
+
+
+local function exportShape ( moduleName , rootBlock ) 
+local names , seen = { } , { }
+for _ , st in ipairs ( rootBlock . stats or { } ) do
+if st . kind == "exportStmt" then
+if st . value then
+return nil
+end
+local stat = st . stat
+while stat and stat . kind == "pragmaStmt" do
+stat = stat . stat
+end
+if stat and not ( stat . comptimeFunction or stat . comptimeTok or stat . isAnnotationDefinition ) then
+for _ , n in ipairs ( exportedNames ( stat ) ) do
+if not seen [ n ] then
+seen [ n ] = true ;
+names [ # names + 1 ] = n
+end
+end
+end
+end
+end
+if # names == 0 then
+return nil
+end
+local shape = {
+id = # shapeOrder ,
+name = "module:" .. moduleName ,
+slots = { } ,
+slotIndex = { } ,
+module = moduleName
+}
+shapeOrder [ # shapeOrder + 1 ] = shape
+for _ , fname in ipairs ( names ) do
+shape . slotIndex [ fname ] = # shape . slots ;
+shape . slots [ # shape . slots + 1 ] = { name = fname , ty = "any" }
+end
+
+return shape
+end
+
+
+
+local function exportedFunctionNames ( rootBlock ) 
+local names = { }
+for _ , st in ipairs ( rootBlock . stats or { } ) do
+if st . kind == "exportStmt" and st . stat then
+local stat = st . stat
+while stat and stat . kind == "pragmaStmt" do
+stat = stat . stat
+end
+if stat and stat . kind == "funcStmt" and not ( stat . comptimeFunction or stat . comptimeTok ) then
+for _ , name in ipairs ( exportedNames ( stat ) ) do
+names [ # names + 1 ] = name
+end
+end
+end
+end
+
+return names
+end
+
+local function assignTo ( f , target , valueReg ) 
+if target . kind == "name" then
+local r , c , cell , spill = f : lookup ( tokText ( target . token ) )
+if spill then
+if cell then
+local t = f : loadSpill ( spill ) ;
+f : op ( "SetCell" , t , valueReg )
+else
+f : storeSpill ( spill , valueReg )
+end
+elseif r and cell then
+f : op ( "SetCell" , r , valueReg )
+elseif r then
+coerce ( f , valueReg , "v" , c , r )
+else
+local name = tokText ( target . token )
+local ui = f : upvalue ( name )
+if ui then
+local cellReg = f : upvalReg ( ui ) ;
+f : op ( "SetCell" , cellReg , valueReg )
+else
+local globals = f : reg ( ) ;
+f : op ( "Require" , globals , f : const ( "str" , "_G" ) ) ;
+f : op ( "SetField" , globals , f : const ( "str" , name ) , valueReg )
+end
+end
+elseif target . kind == "dotIndex" then
+local shape = shapeOf ( target . obj . inferredType )
+local o = exprAs ( f , target . obj , "v" )
+local fname = tokText ( target . name )
+if shape and shape . slotIndex [ fname ] then
+local slot = shape . slotIndex [ fname ]
+if shape . slots [ slot + 1 ] . ty == "num" then
+local fv = f : freg ( ) ;
+f : op ( "FUnbox" , fv , valueReg ) ;
+f : op ( "SetSlotF" , o , slot , fv , shape . id )
+else
+f : op ( "SetSlot" , o , slot , valueReg , shape . id )
+end
+else
+f : op ( "SetField" , o , f : const ( "str" , fname ) , valueReg )
+end
+elseif target . kind == "bracketIndex" then
+local o = exprAs ( f , target . obj , "v" )
+if isIntegerish ( target . expr ) then
+local i = exprAs ( f , target . expr , "i" ) ;
+f : op ( "SetIdxI" , o , i , valueReg )
+elseif isNumeric ( target . expr . inferredType ) then
+local i = exprAs ( f , target . expr , "f" ) ;
+f : op ( "SetIdxF" , o , i , valueReg )
+else
+local i = exprAs ( f , target . expr , "v" ) ;
+f : op ( "SetIdx" , o , i , valueReg )
+end
+else
+error ( "assignment target " .. target . kind )
+end
+end
+
+local function loopBegin ( f ) 
+f . breaks [ # f . breaks + 1 ] = { cleanupDepth = f . cleanupDepth or 0 }
+end
+
+local function loopEnd ( f ) 
+local list = table . remove ( f . breaks ) ;
+for _ , at in ipairs ( list ) do
+f : patch ( at , "Jmp" , f : offset ( at , f : here ( ) ) )
+end
+end
+
+local function patchGoto ( f , jump , label ) 
+assert ( label . depth <= jump . depth , "goto enters a cleanup scope" )
+f : patch ( jump . unwind , "Unwind" , label . depth )
+f : patch ( jump . branch , "Jmp" , f : offset ( jump . branch , label . pc ) )
+end
+
+
+local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"
+deferCleanup = function ( f , value , cleanup , guard ) 
+if guard and cleanup . kind ~= "field" then
+local copy = f : reg ( )
+f : op ( "Move" , copy , value )
+local branch = f : op ( "JmpIf" , guard , 0 )
+f : op ( "Nil" , copy )
+f : patch ( branch , "JmpIf" , guard , f : offset ( branch , f : here ( ) ) )
+value = copy
+end
+if cleanup . kind == "method" or cleanup . kind == "closure" then
+local name = cleanup . kind == "closure" and "__nuppRelease" or cleanup . name
+f : op ( "DeferMethod" , value , f : const ( "str" , name ) )
+elseif cleanup . kind == "function" and cleanup . key : sub ( -74 ) == "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine" then
+local callback = f : reg ( )
+f : op ( "K" , callback , f : const ( "builtin" , "tasks.coDispose" ) )
+f : op ( "Defer" , value , callback )
+elseif cleanup . kind == "function" and cleanup . key == "nupp:lua.d.nupp#__nuppCloseFile" then
+local callback = f : reg ( )
+f : op ( "K" , callback , f : const ( "builtin" , "file.close" ) )
+f : op ( "Defer" , value , callback )
+elseif cleanup . kind == "function" then
+local callback = exprAs (
+f ,
+{ kind = "name" , token = { text = cleanup . name } , inferredType = { tag = "any" } } ,
+"v"
+)
+f : op ( "Defer" , value , callback )
+elseif cleanup . kind == "field" then
+local field = f : reg ( )
+f : op ( "GetField" , field , value , f : const ( "str" , cleanup . field ) )
+deferCleanup ( f , field , cleanup . cleanup , guard )
+return
+else
+error ( "unsupported affine cleanup " .. tostring ( cleanup . kind ) )
+end
+f . cleanupDepth = ( f . cleanupDepth or 0 ) + 1
+end
+
+stmt = function ( f , node ) 
+local k = node . kind
+if k == "localStmt" then
+local names = node . names
+local declared = { }
+for i , nameTok in ipairs ( names ) do
+local name = tokText ( nameTok )
+local value = node . exprs and node . exprs [ i ]
+local ty = node . types and node . types [ i ] and node . types [ i ] . resolvedType
+local class = "v"
+
+
+
+if not f . captured [ name ] and ( ty or not assignedNames [ name ] ) then
+if isInteger ( ty ) or ( not ty and value and isInteger ( value . inferredType ) ) then
+class = "i"
+elseif isNumeric ( ty ) or ( not ty and value and isNumeric ( value . inferredType ) ) then
+class = "f"
+end
+end
+declared [ i ] = { name = name , class = class }
+end
+local exprs = node . exprs or { }
+if # names == 1 and # exprs <= 1 and not node . syntheticCapture then
+local d = declared [ 1 ]
+local value = exprs [ 1 ]
+
+
+local scope = f . scopes [ # f . scopes ]
+local previous = scope [ d . name ]
+local r , cell , spill = f : declare ( d . name , d . class , true )
+local binding = scope [ d . name ]
+scope [ d . name ] = previous
+if spill then
+local v = f : reg ( )
+if value then
+exprAs ( f , value , "v" , v )
+else
+f : op ( "Nil" , v )
+end
+if cell then
+local c = f : reg ( ) ;
+f : op ( "NewCell" , c , v ) ;
+v = c
+end
+f : storeSpill ( spill , v )
+elseif cell then
+local v = f : reg ( )
+if value then
+exprAs ( f , value , "v" , v )
+else
+f : op ( "Nil" , v )
+end
+f : op ( "NewCell" , r , v )
+elseif value then
+exprAs ( f , value , d . class , r )
+elseif d . class == "v" then
+f : op ( "Nil" , r )
+elseif d . class == "i" then
+f : op ( "IK" , r , 0 )
+else
+f : op ( "FK" , r , 0 )
+end
+scope [ d . name ] = binding
+markLibraryLocals ( f , names , exprs )
+return
+end
+local base = f . nregs
+exprsInto ( f , exprs , # names , base )
+for i , d in ipairs ( declared ) do
+local r , cell , spill = f : declare ( d . name , d . class , true )
+if spill then
+local v = base + i - 1
+if cell then
+local c = f : reg ( ) ;
+f : op ( "NewCell" , c , v ) ;
+v = c
+end
+f : storeSpill ( spill , v )
+elseif cell then
+f : op ( "NewCell" , r , base + i - 1 )
+else
+coerce ( f , base + i - 1 , "v" , d . class , r )
+end
+end
+markLibraryLocals ( f , names , exprs )
+elseif k == "assignStmt" then
+local targets , exprs = node . targets , node . exprs
+if # targets == 1 and # exprs == 1 then
+local target = targets [ 1 ]
+if target . kind == "name" then
+local r , c , cell = f : lookup ( tokText ( target . token ) )
+if r and not cell then
+exprAs ( f , exprs [ 1 ] , c , r ) ;
+return
+end
+end
+local v = exprAs ( f , exprs [ 1 ] , "v" )
+assignTo ( f , target , v )
+return
+end
+local base = f . nregs
+exprsInto ( f , exprs , # targets , base )
+for i , target in ipairs ( targets ) do
+assignTo ( f , target , base + i - 1 )
+end
+elseif k == "gotoStmt" then
+local name = tokText ( node . name )
+local label
+for i = # f . labelScopes , 1 , -1 do
+label = f . labelScopes [ i ] . labels [ name ]
+if label then
+do break end
+end
+end
+assert ( label , "no visible label " .. name )
+local jump = { unwind = f : op ( "Unwind" , 0 ) , branch = f : op ( "Jmp" , 0 ) , depth = f . cleanupDepth or 0 }
+if label . pc then
+patchGoto ( f , jump , label )
+else
+label . pending [ # label . pending + 1 ] = jump
+end
+elseif k == "labelStmt" then
+local scope = f . labelScopes [ # f . labelScopes ]
+local label = assert ( scope . labels [ tokText ( node . name ) ] )
+label . pc = f : here ( )
+label . depth = label . atEnd and scope . depth or ( f . cleanupDepth or 0 )
+for _ , jump in ipairs ( label . pending ) do
+patchGoto ( f , jump , label )
+end
+elseif k == "yieldStmt" then
+local y = assert ( f . yields and f . yields [ # f . yields ] , "yield outside a do expression" )
+exprAs ( f , node . value , "v" , y . dst )
+if ( f . cleanupDepth or 0 ) > y . depth then
+f : op ( "Unwind" , y . depth )
+end
+y . exits [ # y . exits + 1 ] = f : op ( "Jmp" , 0 )
+elseif k == "compoundAssign" then
+
+
+local opText = tokText ( node . op ) : sub ( 1 , -2 )
+local bin = {
+kind = "binop" ,
+lhs = node . target ,
+rhs = node . value ,
+op = { text = opText } ,
+inferredType = node . target . inferredType
+}
+local target = node . target
+if target . kind == "name" then
+local r , c , cell = f : lookup ( tokText ( target . token ) )
+if r and not cell then
+exprAs ( f , bin , c , r ) ;
+return
+end
+end
+local v = exprAs ( f , bin , "v" )
+assignTo ( f , target , v )
+elseif k == "withStmt" then
+local depth = f . cleanupDepth or 0
+f : push ( )
+for _ , binding in ipairs ( node . bindings or { } ) do
+local value = exprAs ( f , binding . expr , "v" )
+local reg , cell , spill = f : declare ( tokText ( binding . name ) , "v" , true )
+local stored = value
+if cell then
+stored = f : reg ( )
+f : op ( "NewCell" , stored , value )
+end
+if spill then
+f : storeSpill ( spill , stored )
+else
+f : op ( "Move" , reg , stored )
+end
+for i = # ( binding . ownerCleanups or { } ) , 1 , -1 do
+deferCleanup ( f , value , binding . ownerCleanups [ i ] )
+end
+end
+block ( f , node . body )
+f : op ( "Unwind" , depth )
+f . cleanupDepth = depth
+f : pop ( )
+elseif k == "doStmt" then
+block ( f , node . body or node )
+elseif k == "pragmaStmt" then
+
+if node . stat then
+stmt ( f , node . stat )
+end
+elseif k == "callStmt" then
+expr ( f , node . expr , nil , "v" )
+elseif k == "returnStmt" then
+local exprs = node . exprs or { }
+if node . constructorReturn then
+exprs = { { kind = "name" , token = { text = assert ( f . constructorSelf ) } } }
+end
+if # exprs == 0 then
+f : op ( "RetNil" )
+elseif # exprs == 1 and not multiCall ( exprs [ 1 ] ) and exprs [ 1 ] . kind ~= "vararg" then
+local r , c = expr ( f , exprs [ 1 ] , nil , nil )
+local vr = coerce ( f , r , c , "v" ) ;
+f : op ( "Ret" , vr )
+else
+local base = f . nregs
+local n = # exprs
+if multiCall ( exprs [ n ] ) or exprs [ n ] . kind == "vararg" then
+
+
+while f . nregs < base + n + 8 do
+f : reg ( )
+end
+for i = 1 , n - 1 do
+exprAs ( f , exprs [ i ] , "v" , base + i - 1 )
+end
+if exprs [ n ] . kind == "vararg" then
+local callee = f : reg ( )
+f : op ( "K" , callee , f : const ( "builtin" , "select" ) )
+f : op ( "K" , base + n , f : const ( "num" , 1 ) )
+f : op ( "CallDyn" , callee , base + n - 1 , 129 )
+else
+emitCall ( f , exprs [ n ] , base + n - 1 , 8 , true )
+end
+
+
+f : op ( "RetN" , base , 128 + ( n - 1 ) )
+else
+exprsInto ( f , exprs , n , base )
+f : op ( "RetN" , base , n )
+end
+end
+elseif k == "exportStmt" then
+
+
+
+if node . value then
+if f . exportsReg then
+exprAs ( f , node . value , "v" , f . exportsReg )
+else
+local r = exprAs ( f , node . value , "v" ) ;
+f : op ( "Ret" , r )
+end
+elseif node . stat then
+stmt ( f , node . stat )
+local stat = node . stat
+while stat and stat . kind == "pragmaStmt" do
+stat = stat . stat
+end
+if stat
+and f . exportsReg
+and not ( stat . comptimeFunction or stat . comptimeTok or stat . isAnnotationDefinition )
+then
+for _ , name in ipairs ( exportedNames ( stat ) ) do
+local r = exprAs ( f , { kind = "name" , token = { text = name } , inferredType = { tag = "any" } } , "v" )
+f : op ( "SetField" , f . exportsReg , f : const ( "str" , name ) , r )
+end
+end
+end
+elseif k == "ifStmt" then
+local exits = { }
+
+
+
+local mark = f . nregs
+for _ , clause in ipairs ( node . clauses ) do
+local branch , bop , c = condBranch ( f , clause . cond )
+f . nregs = math . max ( mark , f . declTop or 0 )
+block ( f , clause . body )
+exits [ # exits + 1 ] = f : op ( "Jmp" , 0 )
+f : patch ( branch , bop , c , f : offset ( branch , f : here ( ) ) )
+end
+if node . elseClause then
+block ( f , node . elseClause . body or node . elseClause )
+end
+for _ , e in ipairs ( exits ) do
+f : patch ( e , "Jmp" , f : offset ( e , f : here ( ) ) )
+end
+elseif k == "whileStmt" then
+local top = f : here ( )
+local mark = f . nregs
+local branch , bop , c = condBranch ( f , node . cond )
+f . nregs = math . max ( mark , f . declTop or 0 )
+loopBegin ( f )
+block ( f , node . body )
+local back = f : op ( "Jmp" , 0 ) ;
+f : patch ( back , "Jmp" , f : offset ( back , top ) )
+f : patch ( branch , bop , c , f : offset ( branch , f : here ( ) ) )
+loopEnd ( f )
+elseif k == "repeatStmt" then
+local top = f : here ( )
+loopBegin ( f )
+f : push ( )
+for _ , s in ipairs ( node . body . stats or { } ) do
+stmtReclaim ( f , s )
+end
+local c = exprAs ( f , node . cond , "v" )
+f : pop ( )
+local back = f : op ( "JmpIfNot" , c , 0 ) ;
+f : patch ( back , "JmpIfNot" , c , f : offset ( back , top ) )
+loopEnd ( f )
+elseif k == "fornumStmt" then
+f : push ( )
+local varName = tokText ( node . var )
+local varCell = f . captured [ varName ]
+
+
+local var = f : declare ( varCell and "\0for" or varName , "f" )
+exprAs ( f , node . start , "f" , var )
+local limit = exprAs ( f , node . stop , "f" )
+local step = f : freg ( ) ;
+if node . step then
+exprAs ( f , node . step , "f" , step )
+else
+f : op ( "FK" , step , 1 )
+end
+
+
+
+
+local function stepSign ( e ) 
+if not e then
+return 1
+end
+if e . kind == "number" then
+local n = tonumber ( tokText ( e . token ) ) ;
+return n and ( n < 0 and -1 or 1 ) or 0
+end
+if e . kind == "unop" and tokText ( e . op ) == "-" and e . operand . kind == "number" then
+return -1
+end
+if e . kind == "paren" and e . expr then
+return stepSign ( e . expr )
+end
+
+return 0
+end
+
+local sign = stepSign ( node . step )
+local up , down
+if sign == 0 then
+local zero = f : freg ( ) ;
+f : op ( "FK" , zero , 0 )
+up = f : freg ( ) ;
+f : op ( "FCmpLe" , up , zero , step )
+local one = f : freg ( ) ;
+f : op ( "IK" , one , 1 )
+down = f : freg ( ) ;
+f : op ( "ISub" , down , one , up )
+end
+local top = f : here ( )
+local c = f : freg ( )
+if sign > 0 then
+f : op ( "FCmpLe" , c , var , limit )
+elseif sign < 0 then
+f : op ( "FCmpLe" , c , limit , var )
+else
+local c1 = f : freg ( ) ;
+f : op ( "FCmpLe" , c1 , var , limit ) ;
+f : op ( "IAnd" , c1 , c1 , up )
+local c2 = f : freg ( ) ;
+f : op ( "FCmpLe" , c2 , limit , var ) ;
+f : op ( "IAnd" , c2 , c2 , down )
+f : op ( "IOr" , c , c1 , c2 )
+end
+local branch = f : op ( "JmpIfIZero" , c , 0 )
+loopBegin ( f )
+if varCell then
+f : push ( ) ;
+local boxed = f : reg ( ) ;
+f : op ( "FBox" , boxed , var ) ;
+local cr = f : declare ( varName , "v" ) ;
+f : op ( "NewCell" , cr , boxed )
+end
+block ( f , node . body )
+if varCell then
+f : pop ( )
+end
+f : op ( "FAdd" , var , var , step )
+local back = f : op ( "Jmp" , 0 ) ;
+f : patch ( back , "Jmp" , f : offset ( back , top ) )
+f : patch ( branch , "JmpIfIZero" , c , f : offset ( branch , f : here ( ) ) )
+loopEnd ( f )
+f : pop ( )
+elseif k == "forinStmt" then
+
+
+f : push ( )
+local base = f . nregs
+exprsInto ( f , node . exprs , 3 , base )
+local fnReg , stateReg , ctl = base , base + 1 , base + 2
+while f . nregs < base + 3 do
+f : reg ( )
+end
+local call = f . nregs
+while f . nregs < call + math . max ( # node . names , 3 ) + 1 do
+f : reg ( )
+end
+local ended = f : reg ( )
+local top = f : here ( )
+f : op ( "Move" , call + 1 , stateReg ) ;
+f : op ( "Move" , call + 2 , ctl )
+f : op ( "CallDyn" , fnReg , call , 2 )
+f : op ( "PadResults" , call , # node . names )
+f : op ( "Nil" , ended )
+f : op ( "Eq" , ended , call , ended )
+local exit = f : op ( "JmpIf" , ended , 0 )
+f : op ( "Move" , ctl , call )
+loopBegin ( f )
+f : push ( )
+for i , nameTok in ipairs ( node . names ) do
+local name = tokText ( nameTok )
+local r , cell = f : declare ( name , "v" )
+if cell then
+f : op ( "NewCell" , r , call + i - 1 )
+else
+f : op ( "Move" , r , call + i - 1 )
+end
+end
+block ( f , node . body )
+f : pop ( )
+local back = f : op ( "Jmp" , 0 ) ;
+f : patch ( back , "Jmp" , f : offset ( back , top ) )
+f : patch ( exit , "JmpIf" , ended , f : offset ( exit , f : here ( ) ) )
+loopEnd ( f )
+f : pop ( )
+elseif k == "breakStmt" then
+if ( f . cleanupDepth or 0 ) > f . breaks [ # f . breaks ] . cleanupDepth then
+f : op ( "Unwind" , f . breaks [ # f . breaks ] . cleanupDepth )
+end
+local list = assert ( f . breaks [ # f . breaks ] , "break outside a loop" )
+list [ # list + 1 ] = f : op ( "Jmp" , 0 )
+elseif k == "localFuncStmt" then
+
+local name = tokText ( node . name )
+local r , cell , spill = f : declare ( name , "v" , true )
+local inner
+if spill then
+local c = f : reg ( )
+if cell then
+local nilReg = f : reg ( ) ;
+f : op ( "Nil" , nilReg ) ;
+local cellReg = f : reg ( ) ;
+f : op ( "NewCell" , cellReg , nilReg ) ;
+f : storeSpill ( spill , cellReg )
+inner = emitClosure ( f , node . body , c , name ) ;
+f : op ( "SetCell" , cellReg , c )
+else
+inner = emitClosure ( f , node . body , c , name ) ;
+f : storeSpill ( spill , c )
+end
+elseif cell then
+f : op ( "Nil" , r + 0 )
+local nilReg = f : reg ( ) ;
+f : op ( "Nil" , nilReg ) ;
+f : op ( "NewCell" , r , nilReg )
+local c = f : reg ( ) ;
+inner = emitClosure ( f , node . body , c , name ) ;
+f : op ( "SetCell" , r , c )
+else
+inner = emitClosure ( f , node . body , r , name )
+end
+if not assignedNames [ name ] then
+f . scopes [ # f . scopes ] [ name ] . fid = inner . id
+end
+elseif k == "funcStmt" then
+local fname = node . name
+local baseName = tokText ( fname . base )
+
+local parts = { }
+for _ , child in ipairs ( fname ) do
+if type ( child ) == "table"
+and child . kind == "name"
+and child ~= fname . base
+and child ~= fname . method
+then
+parts [ # parts + 1 ] = tokText ( child )
+end
+end
+if # parts == 0 and not fname . method then
+
+local c = f : reg ( ) ;
+emitClosure ( f , node . body , c , baseName )
+assignTo ( f , { kind = "name" , token = fname . base } , c )
+else
+
+
+local c = f : reg ( )
+local method = fname . method and tokText ( fname . method )
+local label = baseName .. "." .. table . concat ( parts , "." ) .. ( method and ( ":" .. method ) or "" )
+emitClosure ( f , node . body , c , label , method ~= nil )
+local o = exprAs ( f , { kind = "name" , token = fname . base , inferredType = { tag = "any" } } , "v" )
+local last = method or parts [ # parts ]
+local upto = method and # parts or # parts - 1
+for i = 1 , upto do
+local t = f : reg ( ) ;
+f : op ( "GetField" , t , o , f : const ( "str" , parts [ i ] ) ) ;
+o = t
+end
+f : op ( "SetField" , o , f : const ( "str" , last ) , c )
+local owner = fname . method and shapeOfNominal ( node . ownerNominal ) or nil
+if owner then
+f : op ( "SetMethod" , owner . id , f : const ( "str" , last ) , c )
+end
+end
+elseif k == "recordDecl" then
+local shape = declareShape ( node )
+
+
+if node . name and not node . qualifiers then
+local r , cell , spill = f : declare ( tokText ( node . name ) , "v" , true )
+if spill then
+local t = f : reg ( ) ;
+f : op ( "NewTableN" , t , 0 , 0 ) ;
+if cell then
+local c = f : reg ( ) ;
+f : op ( "NewCell" , c , t ) ;
+t = c
+end ;
+f : storeSpill ( spill , t )
+elseif cell then
+local t = f : reg ( ) ;
+f : op ( "NewTableN" , t , 0 , 0 ) ;
+f : op ( "NewCell" , r , t )
+else
+f : op ( "NewTableN" , r , 0 , 0 )
+end
+end
+if not shape then
+return
+end
+f : push ( )
+local identity
+if node . qualifiers then
+local owner = { kind = "name" , token = node . qualifiers [ 1 ] }
+for index = 2 , # node . qualifiers do
+owner = { kind = "dotIndex" , obj = owner , name = node . qualifiers [ index ] }
+end
+local parent = exprAs ( f , owner , "v" )
+identity = f : reg ( )
+f : op ( "NewTableN" , identity , 0 , 0 )
+f : op ( "SetField" , parent , f : const ( "str" , tokText ( node . name ) ) , identity )
+else
+identity = exprAs ( f , { kind = "name" , token = node . name } , "v" )
+end
+f : op ( "SetField" , identity , f : const ( "str" , "__index" ) , identity )
+for _ , entry in ipairs ( node . entries ) do
+if entry . kind == "inlineMethod" then
+local c = f : reg ( ) ;
+emitClosure ( f , entry . body , c , shape . name .. ":" .. tokText ( entry . name ) )
+if not entry . inlineStatic then
+f : op ( "SetMethod" , shape . id , f : const ( "str" , tokText ( entry . name ) ) , c )
+end
+f : op ( "SetField" , identity , f : const ( "str" , tokText ( entry . name ) ) , c )
+end
+end
+
+
+f . declTop = math . max ( f . declTop or 0 , identity + 1 )
+for _ , generated in ipairs ( node . vmMetadata or { } ) do
+stmtReclaim ( f , generated )
+end
+for _ , member in ipairs ( node . deriveRecipe and node . deriveRecipe . members or { } ) do
+if member . namespace == "instance" then
+local method = f : reg ( )
+f : op ( "GetField" , method , identity , f : const ( "str" , member . name ) )
+f : op ( "SetMethod" , shape . id , f : const ( "str" , member . name ) , method )
+end
+end
+f : pop ( )
+elseif k == "emptyStmt"
+or k == "typeAlias"
+or k == "interface"
+or k == "annotationApply"
+or k == "moduleStmt"
+or k == "typeDecl"
+or k == "constTypeStmt"
+then
+
+else
+error ( "statement kind " .. tostring ( k ) .. " in " .. f . name )
+end
+end
+
+stmtReclaim = function ( f , s ) 
+f . curStmt = s
+local mark , fmark = f . nregs , f . nfregs
+stmt ( f , s )
+if s . kind == "localStmt" then
+for index = 1 , # ( s . names or { } ) do
+local owner = s . automaticOwners and s . automaticOwners [ index ]
+if owner and owner . lowerable then
+f . cleanupOwners = f . cleanupOwners or { }
+local slots = { }
+f . cleanupOwners [ owner ] = slots
+local value = exprAs (
+f ,
+{ kind = "name" , token = { text = owner . name } , inferredType = { tag = "any" } } ,
+"v"
+)
+for i = # ( owner . cleanups or { } ) , 1 , -1 do
+local depth = f . cleanupDepth or 0
+deferCleanup ( f , value , owner . cleanups [ i ] )
+slots [ # slots + 1 ] = { depth = depth , field = owner . cleanups [ i ] . field }
+end
+end
+end
+end
+if os . getenv ( "DEBUG_REGS" ) and f . name : find ( os . getenv ( "DEBUG_REGS" ) , 1 , true ) then
+io . stderr : write (
+f . name ,
+" " ,
+s . kind ,
+" line " ,
+tostring ( s . line or ( s [ 1 ] and s [ 1 ] . line ) or "?" ) ,
+" nregs " ,
+f . nregs ,
+" declTop " ,
+tostring ( f . declTop ) ,
+"\n"
+)
+end
+f . nregs = math . max ( mark , f . declTop or 0 )
+f . nfregs = math . max ( fmark , f . fdeclTop or 0 )
+end
+
+block = function ( f , node ) 
+local depth = f . cleanupDepth or 0
+local stats = node . stats or node . body and node . body . stats or { }
+local scope = { labels = { } , depth = depth }
+local atEnd = true
+for i = # stats , 1 , -1 do
+local st = stats [ i ]
+if st . kind == "labelStmt" then
+local name = tokText ( st . name )
+assert ( not scope . labels [ name ] , "duplicate label " .. name )
+scope . labels [ name ] = { atEnd = atEnd , pending = { } }
+elseif st . kind ~= "emptyStmt" then
+atEnd = false
+end
+end
+f . labelScopes [ # f . labelScopes + 1 ] = scope
+f : push ( )
+for _ , s in ipairs ( stats ) do
+stmtReclaim ( f , s )
+end
+if ( f . cleanupDepth or 0 ) > depth then
+f : op ( "Unwind" , depth )
+f . cleanupDepth = depth
+end
+f : pop ( )
+f . labelScopes [ # f . labelScopes ] = nil
+end
+
+
+
+
+
+
+local function walkSyntax ( node , seen , visit ) 
+if type ( node ) ~= "table" or seen [ node ] then
+return
+end
+seen [ node ] = true
+if visit ( node ) == false then
+return
+end
+for _ , v in ipairs ( node ) do
+if type ( v ) == "table" then
+walkSyntax ( v , seen , visit )
+end
+end
+end
+
+
+
+
+
+
+
+local capturedOf = setmetatable ( { } , { __mode = "k" } )
+
+
+local freeOf = setmetatable ( { } , { __mode = "k" } )
+local fnStack = { }
+local FUNCTION_KINDS = { funcExpr = true , localFuncStmt = true , funcStmt = true , inlineMethod = true }
+local analyzeFunction
+
+
+
+local function lookupChain ( chain , name ) 
+for i = # chain , 1 , -1 do
+local owner = chain [ i ] [ name ] ;
+if owner then
+return owner
+end
+end
+
+return nil
+end
+
+local function noteUse ( chain , name , here ) 
+local owner = lookupChain ( chain , name )
+if owner and owner ~= here then
+capturedOf [ owner ] = capturedOf [ owner ] or { } ;
+capturedOf [ owner ] [ name ] = true
+for i = # fnStack , 1 , -1 do
+local fb = fnStack [ i ]
+if fb == owner then
+do break end
+end
+freeOf [ fb ] = freeOf [ fb ] or { } ;
+freeOf [ fb ] [ name ] = true
+end
+end
+end
+
+
+
+local function noteCleanup ( chain , cleanup , here ) 
+if cleanup . kind == "function" then
+noteUse ( chain , cleanup . name , here )
+elseif cleanup . kind == "field" then
+noteCleanup ( chain , cleanup . cleanup , here )
+end
+end
+
+local function noteCleanups ( node , chain , here ) 
+for _ , cleanup in ipairs ( node . ownerCleanups or { } ) do
+noteCleanup ( chain , cleanup , here )
+end
+for _ , owner in pairs ( node . automaticOwners or { } ) do
+if owner . lowerable then
+for _ , cleanup in ipairs ( owner . cleanups or { } ) do
+noteCleanup ( chain , cleanup , here )
+end
+end
+end
+end
+
+local analyzeExpr , analyzeBlock , analyzeStmt
+
+analyzeExpr = function ( node , chain , here , seen ) 
+if type ( node ) ~= "table" or seen [ node ] then
+return
+end
+seen [ node ] = true
+noteCleanups ( node , chain , here )
+if node . kind == "name" and node . token then
+noteUse ( chain , tokText ( node . token ) , here ) ;
+return
+end
+if node . kind == "funcExpr" or node . kind == "shortfn" then
+analyzeFunction ( node . kind == "shortfn" and node or node . body , chain , seen ) ;
+return
+end
+if node . kind == "vararg" then
+noteUse ( chain , "..." , here ) ;
+return
+end
+if node . kind == "doExpr" then
+analyzeBlock ( node . body , chain , here , seen )
+return
+end
+if node . kind == "switchExpr" then
+analyzeExpr ( node . selector , chain , here , seen )
+for _ , arm in ipairs ( node . cases or { } ) do
+for _ , value in ipairs ( arm . values or { } ) do
+analyzeExpr ( value , chain , here , seen )
+end
+chain [ # chain + 1 ] = { }
+if arm . binding then
+chain [ # chain ] [ tokText ( arm . binding ) ] = here
+end
+for _ , field in ipairs ( arm . fields or { } ) do
+chain [ # chain ] [ tokText ( field . alias or field . name ) ] = here
+end
+analyzeExpr ( arm . guard and arm . guard . expr , chain , here , seen )
+analyzeExpr ( arm . expr , chain , here , seen )
+if arm . body then
+analyzeBlock ( arm . body , chain , here , seen )
+end
+chain [ # chain ] = nil
+end
+local fallback = node . elseCase
+if fallback then
+analyzeExpr ( fallback . expr , chain , here , seen )
+if fallback . body then
+analyzeBlock ( fallback . body , chain , here , seen )
+end
+end
+return
+end
+for _ , v in ipairs ( node ) do
+if type ( v ) == "table" then
+analyzeExpr ( v , chain , here , seen )
+end
+end
+end
+analyzeBlock = function ( block , chain , here , seen ) 
+chain [ # chain + 1 ] = { }
+for _ , st in ipairs ( block and ( block . stats or block ) or { } ) do
+if type ( st ) == "table" then
+analyzeStmt ( st , chain , here , seen )
+end
+end
+chain [ # chain ] = nil
+end
+analyzeStmt = function ( st , chain , here , seen ) 
+local k = st . kind
+local scope = chain [ # chain ]
+noteCleanups ( st , chain , here )
+if k == "localStmt" then
+for _ , e in ipairs ( st . exprs or { } ) do
+analyzeExpr ( e , chain , here , seen )
+end
+for _ , t in ipairs ( st . names or { } ) do
+scope [ tokText ( t ) ] = here
+end
+elseif k == "localFuncStmt" then
+scope [ tokText ( st . name ) ] = here
+analyzeFunction ( st . body , chain , seen )
+elseif k == "funcStmt" then
+if st . name and st . name . base then
+noteUse ( chain , tokText ( st . name . base ) , here )
+end
+analyzeFunction ( st . body , chain , seen , st . name and st . name . method ~= nil )
+elseif k == "compoundAssign" then
+analyzeExpr ( st . target , chain , here , seen ) ;
+analyzeExpr ( st . value , chain , here , seen )
+elseif k == "recordDecl" then
+if st . name and not st . qualifiers then
+scope [ tokText ( st . name ) ] = here
+end
+for _ , entry in ipairs ( st . entries or { } ) do
+if entry . kind == "inlineMethod" then
+analyzeFunction ( entry . body , chain , seen )
+elseif entry . kind ~= "constructorDecl" then
+analyzeExpr ( entry , chain , here , seen )
+end
+end
+chain [ # chain + 1 ] = { }
+for _ , generated in ipairs ( st . vmMetadata or { } ) do
+analyzeStmt ( generated , chain , here , seen )
+end
+chain [ # chain ] = nil
+elseif k == "ifStmt" then
+for _ , clause in ipairs ( st . clauses or { } ) do
+analyzeExpr ( clause . cond , chain , here , seen ) ;
+analyzeBlock ( clause . body , chain , here , seen )
+end
+if st . elseClause then
+analyzeBlock ( st . elseClause . body or st . elseClause , chain , here , seen )
+end
+elseif k == "whileStmt" then
+analyzeExpr ( st . cond , chain , here , seen ) ;
+analyzeBlock ( st . body , chain , here , seen )
+elseif k == "repeatStmt" then
+chain [ # chain + 1 ] = { }
+for _ , s2 in ipairs ( st . body and st . body . stats or { } ) do
+analyzeStmt ( s2 , chain , here , seen )
+end
+analyzeExpr ( st . cond , chain , here , seen )
+chain [ # chain ] = nil
+elseif k == "fornumStmt" then
+analyzeExpr ( st . start , chain , here , seen ) ;
+analyzeExpr ( st . stop , chain , here , seen ) ;
+if st . step then
+analyzeExpr ( st . step , chain , here , seen )
+end
+chain [ # chain + 1 ] = { [ tokText ( st . var ) ] = here }
+analyzeBlock ( st . body , chain , here , seen )
+chain [ # chain ] = nil
+elseif k == "forinStmt" then
+for _ , e in ipairs ( st . exprs or { } ) do
+analyzeExpr ( e , chain , here , seen )
+end
+chain [ # chain + 1 ] = { }
+for _ , t in ipairs ( st . names or { } ) do
+chain [ # chain ] [ tokText ( t ) ] = here
+end
+analyzeBlock ( st . body , chain , here , seen )
+chain [ # chain ] = nil
+elseif k == "withStmt" then
+chain [ # chain + 1 ] = { }
+for _ , binding in ipairs ( st . bindings or { } ) do
+analyzeExpr ( binding . expr , chain , here , seen )
+noteCleanups ( binding , chain , here )
+chain [ # chain ] [ tokText ( binding . name ) ] = here
+end
+analyzeBlock ( st . body , chain , here , seen )
+chain [ # chain ] = nil
+elseif k == "doStmt" then
+analyzeBlock ( st . body or st , chain , here , seen )
+elseif k == "pragmaStmt" then
+if st . stat then
+analyzeStmt ( st . stat , chain , here , seen )
+end
+elseif k == "exportStmt" then
+if st . stat then
+analyzeStmt ( st . stat , chain , here , seen )
+end
+if st . value then
+analyzeExpr ( st . value , chain , here , seen )
+end
+else
+
+for _ , v in ipairs ( st ) do
+if type ( v ) == "table" then
+analyzeExpr ( v , chain , here , seen )
+end
+end
+end
+end
+
+
+analyzeFunction = function ( funcbody , chain , seen , implicitSelf , predeclared ) 
+
+
+seen = { }
+local here = funcbody
+chain [ # chain + 1 ] = { }
+for _ , p in ipairs ( funcbody . params or { } ) do
+if p . name then
+chain [ # chain ] [ tokText ( p . name ) ] = here
+end
+end
+if implicitSelf then
+chain [ # chain ] [ "self" ] = here
+end
+chain [ # chain ] [ "..." ] = here
+for _ , name in ipairs ( predeclared or { } ) do
+chain [ # chain ] [ name ] = here
+end
+fnStack [ # fnStack + 1 ] = funcbody
+for _ , capture in ipairs ( funcbody . takenCaptures or { } ) do
+noteUse ( chain , capture . name , here )
+for _ , cleanup in ipairs ( capture . type . cleanups or { } ) do
+noteCleanup ( chain , cleanup , here )
+end
+end
+if funcbody . expr then
+analyzeExpr ( funcbody . expr , chain , here , seen )
+else
+analyzeBlock ( funcbody . body , chain , here , seen )
+end
+fnStack [ # fnStack ] = nil
+chain [ # chain ] = nil
+end
+
+
+local function analyzeModule ( rootBlock , predeclared ) 
+local root = { body = rootBlock , params = { } }
+analyzeFunction ( root , { } , { } , false , predeclared )
+return root
+end
+
+
+
+local function declarationCount ( body ) 
+local n = 0
+walkSyntax ( body , { } , function ( node ) 
+if node . kind == "localStmt" then
+n = n + # ( node . names or { } )
+elseif node . kind == "localFuncStmt" or node . kind == "recordDecl" or node . kind == "fornumStmt" then
+n = n + 1
+elseif node . kind == "forinStmt" then
+n = n + # ( node . names or { } )
+end
+end )
+
+return n
+end
+
+
+
+openSpill = function ( f , body ) 
+if declarationCount ( body ) > 120 then
+f . spillReg = f : declare ( "\0spill" , "v" )
+f : op ( "NewTableN" , f . spillReg , 0 , 0 )
+end
+end
+
+
+markCaptures = function ( f , funcbody ) 
+local set = capturedOf [ funcbody ]
+if set then
+for name in pairs ( set ) do
+f . captured [ name ] = true
+end
+end
+end
+
+defineFunction = function ( f , funcbody ) 
+f . constructorSelf = funcbody . vmConstructorSelf
+local statements = funcbody . body
+if funcbody . expr then
+statements = { stats = { { kind = "returnStmt" , exprs = { funcbody . expr } } } }
+end
+local params = funcbody . params or { }
+local cellParams = { }
+if f . implicitSelf then
+if f . captured [ "self" ] then
+local r = f : reg ( ) ;
+cellParams [ # cellParams + 1 ] = { "self" , r }
+else
+f : declare ( "self" , "v" )
+end
+end
+local varargParam
+for _ , p in ipairs ( params ) do
+if p . vararg then
+varargParam = p
+else
+local name = tokText ( p . name )
+if f . captured [ name ] then
+local r = f : reg ( ) ;
+cellParams [ # cellParams + 1 ] = { name , r }
+else
+f : declare ( name , "v" )
+end
+end
+end
+
+if varargParam then
+assert ( not varargParam . name , "a named vararg is not in this emitter" )
+end
+for _ , cp in ipairs ( cellParams ) do
+local cellReg = f : declare ( cp [ 1 ] ) ;
+f : op ( "NewCell" , cellReg , cp [ 2 ] )
+end
+openSpill ( f , statements )
+
+
+
+
+if f . parent then
+local names = { }
+for name in pairs ( freeOf [ funcbody ] or { } ) do
+names [ # names + 1 ] = name
+end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+local ui = f : upvalue ( name , true ) ;
+if ui then
+f : upvalReg ( ui )
+end
+end
+
+end
+if # ( funcbody . takenCaptures or { } ) > 0 then
+f : op ( "AffineEnter" )
+end
+for _ , capture in ipairs ( funcbody . vmCaptureDrops or { } ) do
+local value = exprAs ( f , { kind = "name" , token = { text = capture . name } , inferredType = { tag = "any" } } , "v" )
+local slots = { }
+f . cleanupOwners = f . cleanupOwners or { }
+if capture . automaticOwner then
+f . cleanupOwners [ capture . automaticOwner ] = slots
+end
+for i = # ( capture . type . cleanups or { } ) , 1 , -1 do
+local depth = f . cleanupDepth or 0
+deferCleanup ( f , value , capture . type . cleanups [ i ] )
+slots [ # slots + 1 ] = { depth = depth , field = capture . type . cleanups [ i ] . field }
+end
+end
+
+
+
+if os . getenv ( "EMIT_SURVEY" ) then
+local ok , err = pcall ( block , f , statements )
+if not ok then
+local key = tostring ( err )
+: gsub ( "^.-:%d+: " , "" )
+: gsub ( " in [%w%.:_]+$" , "" )
+: gsub ( "line %d+" , "line N" )
+: gsub ( "declTop %d+" , "" )
+SURVEY [ key ] = ( SURVEY [ key ] or 0 ) + 1
+SURVEY_EXAMPLE = SURVEY_EXAMPLE or { } ;
+SURVEY_EXAMPLE [ key ] = SURVEY_EXAMPLE [ key ] or ( f . name .. " :: " .. tostring ( err ) : gsub ( "^.-:%d+: " , "" ) )
+f . code = { } ;
+f . scopes = { { } }
+f : op ( "RetNil" )
+end
+else
+block ( f , statements )
+end
+local last = f . code [ # f . code ]
+if last == nil or ( last [ 1 ] ~= "Ret" and last [ 1 ] ~= "RetNil" and last [ 1 ] ~= "RetN" ) then
+f : op ( "RetNil" )
+end
+
+
+local loads = { }
+for ui , r in pairs ( f . upvalRegs or { } ) do
+loads [ # loads + 1 ] = { "GetUpval" , r , ui }
+end
+table . sort ( loads , function ( a , b ) 
+return a [ 3 ] < b [ 3 ]
+end )
+for i = # loads , 1 , -1 do
+table . insert ( f . code , 1 , loads [ i ] )
+end
+end
+
+
+local modules , moduleOrder = { } , { }
+local modulePath = resolve
+local pendingModules = { }
+queueModule = function ( name ) 
+pendingModules [ # pendingModules + 1 ] = name
+end
+
+local function requiresOf ( tree ) 
+local names = { }
+walkSyntax ( tree , { } , function ( n ) 
+if n . typeOnlyRequire then
+return false
+end
+if n . kind == "call"
+and n . obj
+and n . obj . kind == "name"
+and tokText ( n . obj . token ) == "require"
+and n . args
+and n . args . exprs [ 1 ]
+and n . args . exprs [ 1 ] . kind == "string"
+then
+names [ # names + 1 ] = ( loadstring ( "return " .. tokText ( n . args . exprs [ 1 ] . token ) ) ) ( )
+end
+end )
+
+return names
+end
+
+
+
+
+local STUBS = { }
+for n in ( os . getenv ( "EMIT_STUBS" ) or "" ) : gmatch ( "[^,]+" ) do
+STUBS [ n ] = true
+end
+
+local function compileModule ( name , path ) 
+if modules [ name ] then
+return
+end
+modules [ name ] = true
+if STUBS [ name ] then
+local chunk = newFn ( "module:" .. name , nil )
+chunk . sig , chunk . ret , chunk . nparams = { } , "v" , 0
+local r = chunk : reg ( ) ;
+chunk : op ( "NewTableN" , r , 0 , 0 ) ;
+chunk : op ( "Ret" , r )
+modules [ name ] = chunk
+moduleOrder [ # moduleOrder + 1 ] = name
+io . stderr : write ( "module " , name , " stubbed\n" )
+return
+end
+local tree = check ( name , path )
+assert ( tree , "check failed for " .. path )
+local rootNode = tree . root or tree
+require ( "nupp.compiler.vm.metadata" ) . expand ( rootNode )
+local stats = rootNode . blocks [ 1 ] . stats
+for _ , dep in ipairs ( requiresOf ( rootNode ) ) do
+local depPath = modulePath ( dep )
+if depPath then
+compileModule ( dep , depPath )
+else
+io . stderr : write ( "module " , dep , " not found (left to the runtime)\n" )
+end
+end
+currentModule = name
+for _ , s in ipairs ( stats ) do
+if s . kind == "recordDecl" then
+declareShape ( s )
+elseif s . kind == "exportStmt" and s . stat and s . stat . kind == "recordDecl" then
+declareShape ( s . stat )
+end
+end
+
+
+walkSyntax ( rootNode , { } , function ( n ) 
+if n . kind == "recordDecl" then
+declareShape ( n )
+end
+end )
+local chunk = newFn ( "module:" .. name , nil )
+chunk . sig , chunk . ret , chunk . nparams = { } , "v" , 0
+local declaredModule = false
+for _ , s in ipairs ( stats ) do
+if s . kind == "moduleStmt" then
+declaredModule = true
+end
+end
+local exportedFns = declaredModule and exportedFunctionNames ( rootNode . blocks [ 1 ] ) or { }
+local rootBody = analyzeModule ( rootNode . blocks [ 1 ] , exportedFns )
+
+
+assignedNames = { }
+walkSyntax ( rootNode . blocks [ 1 ] , { } , function ( n ) 
+if n . kind == "assignStmt" then
+for _ , t in ipairs ( n . targets ) do
+if t . kind == "name" then
+assignedNames [ tokText ( t . token ) ] = true
+end
+end
+end
+end )
+markCaptures ( chunk , rootBody )
+openSpill ( chunk , rootNode . blocks [ 1 ] )
+if declaredModule then
+chunk . exportsReg = chunk : declare ( "\0exports" , "v" )
+
+
+
+
+local moduleShape = exportShape ( name , rootNode . blocks [ 1 ] )
+if moduleShape then
+chunk : op ( "NewRecord" , chunk . exportsReg , moduleShape . id )
+else
+chunk : op ( "NewTableN" , chunk . exportsReg , 0 , 0 )
+end
+for _ , fname in ipairs ( exportedFns ) do
+local r , cell = chunk : declare ( fname , "v" )
+if cell then
+local t = chunk : reg ( ) ;
+chunk : op ( "Nil" , t ) ;
+chunk : op ( "NewCell" , r , t ) ;
+chunk . nregs = chunk . nregs - 1
+else
+chunk : op ( "Nil" , r )
+end
+end
+end
+if os . getenv ( "EMIT_SURVEY" ) then
+local ok , err = pcall ( block , chunk , rootNode . blocks [ 1 ] ) ;
+if not ok then
+local key = tostring ( err )
+: gsub ( "^.-:%d+: " , "" )
+: gsub ( " in [%w%.:_]+$" , "" )
+: gsub ( "line %d+" , "line N" )
+: gsub ( "declTop %d+" , "" ) ;
+SURVEY [ key ] = ( SURVEY [ key ] or 0 ) + 1 ;
+SURVEY_EXAMPLE = SURVEY_EXAMPLE or { } ;
+SURVEY_EXAMPLE [ key ] = SURVEY_EXAMPLE [ key ]
+or ( chunk . name .. " :: " .. tostring ( err ) : gsub ( "^.-:%d+: " , "" ) ) ;
+chunk . code = { } ;
+chunk : op ( "RetNil" )
+end
+else
+block ( chunk , rootNode . blocks [ 1 ] )
+end
+local last = chunk . code [ # chunk . code ]
+if last == nil or ( last [ 1 ] ~= "Ret" and last [ 1 ] ~= "RetNil" and last [ 1 ] ~= "RetN" ) then
+if chunk . exportsReg then
+chunk : op ( "Ret" , chunk . exportsReg )
+else
+chunk : op ( "RetNil" )
+end
+end
+modules [ name ] = chunk
+moduleOrder [ # moduleOrder + 1 ] = name
+end
+
+for _ , name in ipairs ( extras ) do
+local p = assert ( modulePath ( name ) , "extra module " .. name ) ;
+compileModule ( name , p )
+end
+compileModule ( entryName , assert ( modulePath ( entryName ) , "entry module " .. entryName ) )
+while # pendingModules > 0 do
+local name = table . remove ( pendingModules , 1 ) ;
+if not modules [ name ] then
+local p = modulePath ( name ) ;
+if p then
+compileModule ( name , p )
+end
+end
+end
+
+
+
+
+local function q ( s ) 
+return "\"" .. s : gsub ( "[%c\"\\€-ÿ]" , function ( c ) 
+return string . format ( "\\%03d" , c : byte ( ) )
+end ) .. "\""
+end
+
+for _ , shape in ipairs ( shapeOrder ) do
+local parts = { "shape" , shape . id , shape . name }
+for _ , slot in ipairs ( shape . slots ) do
+parts [ # parts + 1 ] = slot . name .. ":" .. slot . ty
+end
+emit ( table . concat ( parts , " " ) )
+end
+for _ , f in ipairs ( functions ) do
+emit (
+("function %s %d %d %d %d %s:%s%s")
+
+: format (
+f . name : gsub ( "%s" , "_" ) ,
+f . id ,
+f . nparams ,
+math . max ( f . maxRegs or 0 , f . nregs ) + 9 ,
+math . max ( f . maxFregs or 0 , f . nfregs ) + 2 ,
+table . concat ( f . sig or { } ) ,
+f . ret or "v" ,
+f . vararg and " vararg" or ""
+)
+)
+if f . module then
+emit ( "  source " .. f . module )
+end
+for i , c in ipairs ( f . consts ) do
+if c . kind == "str" then
+emit ( ("  const %d str %s") : format ( i - 1 , q ( c . value ) ) )
+elseif c . kind == "num" then
+emit ( ("  const %d num %.17g") : format ( i - 1 , c . value ) )
+elseif c . kind == "builtin" then
+emit ( ("  const %d builtin %s") : format ( i - 1 , c . value ) )
+else
+emit ( ("  const %d %s %s") : format ( i - 1 , c . kind , tostring ( c . value ) ) )
+end
+end
+for _ , op in ipairs ( f . code ) do
+local parts = { }
+for i , value in ipairs ( op ) do
+parts [ i ] = type ( value ) == "number" and ("%.17g") : format ( value ) or value
+end
+emit ( "  " .. table . concat ( parts , " " ) )
+end
+emit ( "end" )
+end
+
+for _ , name in ipairs ( moduleOrder ) do
+local p = modulePath ( name )
+if p and p : sub ( 1 , 1 ) ~= "/" then
+p = ( os . getenv ( "PWD" ) or "." ) .. "/" .. p
+end
+emit ( "module " .. name .. " " .. modules [ name ] . id .. ( p and ( " " .. p ) or "" ) )
+end
+emit ( "entry " .. modules [ entryName ] . id )
+local result = table . concat ( out , "\n" ) .. "\n"
+if os . getenv ( "EMIT_SURVEY" ) then
+local rows = { } ;
+for k , n in pairs ( SURVEY ) do
+rows [ # rows + 1 ] = { k , n }
+end ;
+table . sort ( rows , function ( a , b ) 
+return a [ 2 ] > b [ 2 ]
+end ) ;
+io . stderr : write ( "survey: " , # functions , " functions, " , # rows , " failure kinds\n" ) ;
+for _ , r in ipairs ( rows ) do
+io . stderr : write (
+string . format (
+"  %5d  %s\n         e.g. %s\n" ,
+r [ 2 ] ,
+r [ 1 ] ,
+tostring ( SURVEY_EXAMPLE and SURVEY_EXAMPLE [ r [ 1 ] ] )
+)
+)
+end
+end
+
+return result
+end
+
+local __nuppExportValue= lower ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.vm.lower"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.vm.lower"]=__nuppExports;return __nuppExports

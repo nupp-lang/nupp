@@ -926,7 +926,7 @@ fn canonicalize(b: &mut FunctionBuilder, value: Value) -> Value {
     // saves the mask inversion a not-equal compare would need.
     let mask = b.ins().fcmp(FloatCC::Equal, value, value);
     if ty.is_vector() {
-        // The optimiser rematerialises a constant splat at every use, so
+        // The optimizer rematerializes a constant splat at every use, so
         // hoisting it buys nothing; two instructions here are the price.
         let nan = if ty.lane_type() == types::F32 { b.ins().f32const(f32::NAN) } else { b.ins().f64const(f64::NAN) };
         let nan = b.ins().splat(ty, nan);

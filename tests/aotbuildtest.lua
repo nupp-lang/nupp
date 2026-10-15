@@ -309,7 +309,7 @@ end
 --- A shared content store would make such an assertion depend on whichever
 --- unrelated temporary project the worker built first. These keep reuse within
 --- the fixture and nowhere else: successive builds of the directory still share
---- the cache whose behaviour the case is exercising, and nothing else reaches
+--- the cache whose behavior the case is exercising, and nothing else reaches
 --- it. Say so at the fixture rather than leaving it to the order cases run in.
 local isolatedCaches = {}
 

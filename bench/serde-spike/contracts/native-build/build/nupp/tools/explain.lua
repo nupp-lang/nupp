@@ -1,0 +1,2735 @@
+_G.assert((_G.loadstring or _G.load)("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups[\"nupp:lua.d.nupp#__nuppCloseFile\"]=__nuppCloseFile require(\"nupp.runtime.managed\").install(__nupp,_G);\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile require("nupp.runtime.managed").install(__nupp,_G); require("nupp.compiler.runtime.typewitness").install(__nupp);local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()local __nuppT1={ _G.nupp.__reflect.declaration("nupp.tools.explain\0runtime\0001") };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local explain = { }
+
+
+explain.Entry = {} explain.Entry.__index = explain.Entry ;_G.nupp.__reflect.link(explain.Entry,__nuppT1[1],{ })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local FAMILIES = {
+{
+prefix = "NUPP0" ,
+title = "Input" ,
+summary = "A failure outside source" ,
+rule = "The command stopped before it had a file and a position to point at: a path it could not read or write, a manifest it could not use, a name that names nothing, or a tool that failed."
+
+,
+docs = "docs/reference/diagnostics.md#failures-outside-source"
+} ,
+{
+prefix = "NUPP1" ,
+title = "Syntax" ,
+summary = "The source is not syntactically valid" ,
+rule = "The parser could not read the file as Nupp. Recovery continues past the first error, so several of these often describe one mistake."
+
+,
+docs = "docs/reference/diagnostics.md#code-families"
+} ,
+{
+prefix = "NUPP2" ,
+title = "Types, declarations, and rules" ,
+summary = "A type, declaration, lint, FFI or ownership rule" ,
+rule = "The program parses but does not mean something the checker can accept, or means something its author probably did not intend."
+,
+docs = "docs/reference/diagnostics.md#code-families"
+} ,
+{
+prefix = "NUPP3" ,
+title = "Code generation" ,
+summary = "Code generation cannot represent the construct" ,
+rule = "The program checked, but the generator cannot lower it to Lua. This is a limit of the backend rather than a mistake in the program's typing."
+
+,
+docs = "docs/reference/diagnostics.md#code-families"
+} ,
+{
+prefix = "NUPP4" ,
+title = "Formatting" ,
+summary = "Formatting could not safely produce the result" ,
+rule = "The formatter declines to rewrite source it cannot prove it would preserve. Formatting is never allowed to change meaning."
+,
+docs = "docs/reference/diagnostics.md#code-families"
+} ,
+{
+prefix = "NUPP5" ,
+title = "Development runtime" ,
+summary = "A development-time change requires a restart" ,
+rule = "The running program cannot apply this change without replacing state or callable structure that hot reload promises to preserve. Restart it so the new program can initialize that state normally."
+
+,
+docs = "docs/learn/projects/hot-reload.md#changes-that-require-restart"
+} ,
+{
+prefix = "OPT" ,
+title = "Optimizer remarks" ,
+summary = "An optimizer remark" ,
+rule = "Not a problem. A pass saying what it rewrote, or what it looked at and declined to rewrite. Always a note, and never fails a build."
+
+,
+docs = "docs/learn/performance/index.md#optimization-passes"
+} ,
+}
+
+
+local ENTRIES = {
+{
+code = "NUPP2630" ,
+summary = "A counted C pointer does not match its physical count parameter" ,
+rule = "countedBy(count) replaces a call-duration borrowed pointer/count pair with a checked span. The qualified value must be a pointer, and the named plain count must currently be uint64."
+
+,
+wrong = "cdef function visit(\n    borrows values: const int32* countedBy(missing), count: uint64\n)\n" ,
+right = "cdef function visit(\n    borrows values: const int32* countedBy(count), count: uint64\n)\n" ,
+related = { "NUPP2203" , "NUPP2602" } ,
+docs = "docs/learn/runtime/c-interop/index.md#counted-pointer-adapters" ,
+} ,
+{
+code = "NUPP2209" ,
+summary = "A private record field is used outside its module" ,
+rule = "A private field is representation available only while checking the canonical module that declares its record. Expose a public method when another module needs an operation without revealing that representation."
+
+,
+wrong = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n" ,
+right = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n" ,
+related = { "NUPP2004" , "NUPP2202" } ,
+docs = "docs/learn/language/types/records-and-structs.md#private-fields" ,
+} ,
+{
+code = "NUPP0001" ,
+summary = "A file could not be read or written" ,
+rule = "The path named on the command line, reached from a require, or written as output could not be opened. Check the spelling and that the file is readable, or its directory writable, from the directory the compiler was run in. The diagnostic has no position: the run never got inside the file."
+
+
+
+,
+related = { "NUPP0002" } ,
+docs = "docs/reference/diagnostics.md#failures-outside-source" ,
+} ,
+{
+code = "NUPP0002" ,
+summary = "The project manifest could not be used" ,
+rule = "A `nupp.lua` that exists has to load and describe a project this compiler can build. One that raises, returns something other than a table, misspells a key, or asks for a combination the build cannot honour stops the command before any source is read, since answering without it would answer for a different project. A directory with no `nupp.lua` at all is a supported configuration and reports nothing."
+
+
+
+
+,
+related = { "NUPP0001" , "NUPP0003" } ,
+docs = "docs/reference/diagnostics.md#failures-outside-source" ,
+} ,
+{
+code = "NUPP0003" ,
+summary = "A name the command was given names nothing here" ,
+rule = "A build target, task, platform or triple is looked up in the manifest or among the targets this compiler models, and a function, position or kind of input in the file the command was pointed at. The name was well formed and names nothing there. `nupp task --list` lists the targets and tasks a project defines."
+
+
+
+,
+related = { "NUPP0002" } ,
+docs = "docs/reference/diagnostics.md#failures-outside-source" ,
+} ,
+{
+code = "NUPP0004" ,
+summary = "A tool the command depends on failed" ,
+rule = "Some commands hand part of their work to another program or component: LuaRocks installs a dependency, the LLVM kit compiles native code, Cargo builds a native provider, a C preprocessor reads a header, a stage compiler rebuilds the compiler. When that step fails, the message carries what it said. The source may be fine; what failed is the step."
+
+
+
+
+,
+related = { "NUPP0002" } ,
+docs = "docs/reference/diagnostics.md#failures-outside-source" ,
+} ,
+{
+code = "NUPP0005" ,
+summary = "A type dependency's declaration file was not imported" ,
+rule = "A `kind = \"types\"` dependency is somebody else's source, pinned at a revision this project chose but did not write. A file in that tree the importer cannot read, parse, or check is skipped and named here; the declarations beside it are still imported, so one unreadable corner of an API does not cost the project the rest of it. Pin a revision this compiler can read, or report the construct that stopped it."
+
+
+
+
+,
+related = { "NUPP1008" , "NUPP1006" } ,
+docs = "docs/learn/projects/integrations/luacats.md#recovery" ,
+} ,
+{
+code = "NUPP1002" ,
+summary = "A required token is missing" ,
+rule = "A construct was opened and not closed. The position reported is where the closing token was expected, which is the end of the file when nothing closed it at all."
+
+,
+wrong = "local function f(): integer\n    if true then\n        return 1\nend\n" ,
+right = "local function f(): integer\n    if true then\n        return 1\n    end\n    return 0\nend\n" ,
+related = { "NUPP1004" } ,
+docs = "docs/reference/diagnostics.md#nupp1002" ,
+} ,
+{
+code = "NUPP1007" ,
+summary = "A docblock parameter does not exist" ,
+rule = "An @param line documents one parameter of the declaration below it. Spell that parameter's source name exactly, or remove the line; otherwise generated documentation promises an argument the function does not accept."
+
+,
+wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
+right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
+related = { "NUPP1010" , "NUPP2506" } ,
+docs = "docs/learn/tooling/documentation.md#doc-comments" ,
+} ,
+{
+code = "NUPP1010" ,
+summary = "A docblock raise does not name a type" ,
+rule = "An @raises line is written `@raises Type the condition`. The type is the value `error` is called with, so a caller reading the page knows what a `pcall` around the call hands back. Name a type this file can resolve, or `string` where the raise is an ordinary Lua message."
+
+
+,
+wrong = "--- Reads a name.\n--- @raises when name is empty\nlocal function read(name: string): string\n    if name == \"\" then error(\"empty name\") end\n    return name\nend\nreturn read\n"
+
+,
+right = "--- Reads a name.\n--- @raises string when name is empty\nlocal function read(name: string): string\n    if name == \"\" then error(\"empty name\") end\n    return name\nend\nreturn read\n"
+
+,
+related = { "NUPP1007" , "NUPP2506" } ,
+docs = "docs/learn/tooling/documentation.md#doc-comments" ,
+} ,
+{
+code = "NUPP1006" ,
+summary = "The typed layer appears in a plain Lua file" ,
+rule = "A `.lua` file is Lua. The toolchain will require, build and run one unchanged, so typed Nupp syntax cannot be written into it. Rename the file `.nupp` to mean it. Type comments are separate: recognized LuaCATS, EmmyLua, and typed LuaDoc comments are always imported."
+
+
+,
+related = { "NUPP2105" , "NUPP2106" } ,
+docs = "docs/reference/diagnostics.md#nupp1006" ,
+} ,
+{
+code = "NUPP1008" ,
+summary = "An annotated Lua type lost precision during import" ,
+rule = "Type comments in a .lua file are always read. A malformed, ambiguous, unsupported, or ownership-incomplete foreign type recovers at the smallest affected position, usually as any, and checking continues."
+
+,
+related = { "NUPP1006" , "NUPP2101" } ,
+docs = "docs/learn/projects/integrations/luacats.md#recovery" ,
+} ,
+{
+code = "NUPP2001" ,
+summary = "A value does not fit the type it is bound to" ,
+rule = "An annotated binding accepts only values of that type. The annotation is the claim; the initializer has to keep it."
+,
+wrong = "local count: integer = \"twelve\"\nreturn count\n" ,
+right = "local count: integer = 12\nreturn count\n" ,
+related = { "NUPP2002" , "NUPP2006" } ,
+docs = "docs/reference/diagnostics.md#nupp2001" ,
+} ,
+{
+code = "NUPP2002" ,
+summary = "A returned value does not fit the declared result" ,
+rule = "A function's result annotation is a promise to every caller. Each returned value must fit its corresponding result type, and a function that declares several results must return the complete sequence."
+
+
+,
+wrong = "local function length(): integer\n    return \"long\"\nend\n\nreturn length\n" ,
+right = "local function length(): integer\n    return 4\nend\n\nreturn length\n" ,
+related = { "NUPP2001" , "NUPP2010" } ,
+docs = "docs/learn/language/types/primitives.md#function-declarations" ,
+} ,
+{
+code = "NUPP2004" ,
+summary = "The field does not exist on that type" ,
+rule = "A field read has to name a field the receiver's type actually has. When the name is close to a real one the diagnostic carries a fix that spells it correctly."
+
+,
+wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal function show(p: Point): number\n    return p.z\nend\n\nreturn show\n"
+
+,
+right = "local record Point\n    x: number\n    y: number\nend\n\nlocal function show(p: Point): number\n    return p.x\nend\n\nreturn show\n"
+
+,
+related = { "NUPP2005" , "NUPP2119" } ,
+docs = "docs/reference/diagnostics.md#nupp2004" ,
+} ,
+{
+code = "NUPP2006" ,
+summary = "A call's arguments are not arranged in a way it can be given" ,
+rule = "Named and plucked arguments follow every positional argument, so nothing positional may come after one. A plucked operand must be a name or dotted field path: each name it fills reads one field of that path, and confining it to a path is what lets those reads be unordered and the path be evaluated once. Bind a call or a computed index to a local and pluck from the local."
+
+
+
+
+,
+wrong = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\nlocal function draw(x: number, y: number): nil\n    print(x, y)\nend\n\nlocal function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\ndraw({x, y} = make())\n\nreturn draw\n"
+
+
+,
+right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\nlocal function draw(x: number, y: number): nil\n    print(x, y)\nend\n\nlocal function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\nlocal position = make()\ndraw({x, y} = position)\n\nreturn draw\n"
+
+
+,
+related = { "NUPP2004" , "NUPP2125" } ,
+docs = "docs/learn/language/named-arguments.md#rejected-arrangements" ,
+} ,
+{
+code = "NUPP2009" ,
+summary = "A property view does not grant the requested access" ,
+rule = "A read-only property may be read but not assigned, and a write-only property may be assigned but not read. Use a view that declares the needed capability."
+
+,
+wrong = "local out: {@writeonly value: string} = {}\nlocal value = out.value\nreturn value\n" ,
+right = "local out: {@writeonly value: string} = {}\nout.value = \"ready\"\nreturn out\n" ,
+related = { "NUPP2004" , "NUPP2008" } ,
+docs = "docs/learn/language/types/properties.md#access-diagnostics" ,
+} ,
+{
+code = "NUPP2010" ,
+summary = "A complete value pack does not fit the required sequence" ,
+rule = "Calls, returns, assignments, selection, and coroutine transfers compare complete Lua value sequences. Their fixed slots, optional tails, and correlated alternatives must agree; use parentheses only when intentionally projecting one ordinary value."
+
+
+,
+wrong = "local value = select(0, 1, 2)\nreturn value\n" ,
+right = "local first, second = select(1, 1, 2)\nreturn first, second\n" ,
+related = { "NUPP2002" , "NUPP2007" , "NUPP2121" } ,
+docs = "docs/learn/language/types/packs.md#pack-compatibility" ,
+} ,
+{
+code = "NUPP2011" ,
+summary = "A fixed-width value was claimed without being established" ,
+rule = "`float`, `int32`, and `uint32` are checked refinements of Lua numbers. A fitting literal, a checked refined source, a reified load, or the explicit conversion establishes the claim; an erased `as` does not."
+
+,
+wrong = "local input: number = 0.1\nlocal value: float = input as float\nreturn value\n" ,
+right = "local input: number = 0.1\nlocal value: float = nupp.math.f32.narrow(input)\nreturn value\n" ,
+related = { "NUPP2001" , "NUPP2002" , "NUPP2006" , "NUPP2012" } ,
+docs = "docs/learn/language/types/primitives.md#value-refinements" ,
+} ,
+{
+code = "NUPP2012" ,
+summary = "A physical storage width was used as an ordinary value type" ,
+rule = "`int8`, `int16`, `uint8`, and `uint16` describe physical layout. Use them for struct fields, C arrays and pointers, cdefs, or span elements; use `int32` or `uint32` for locals, parameters, results, and record fields."
+
+,
+wrong = "local byte: uint8 = 1\nreturn byte\n" ,
+right = "local byte: uint32 = 1\nreturn byte\n" ,
+related = { "NUPP2011" , "NUPP2201" , "NUPP2203" } ,
+docs = "docs/learn/language/types/primitives.md#numbers" ,
+} ,
+{
+code = "NUPP2013" ,
+summary = "nupp.admit was written without a constrained destination or with the wrong value" ,
+rule = "`nupp.admit(value)` takes the constrained type it admits into from where its result goes: an annotated binding, a declared result, or a parameter. A destination that is not constrained gives it nothing to establish, and a value that is not already the constraint's base is a conversion rather than an admission, which this does not do."
+
+
+
+,
+wrong = "local type Small = nupp.types.range(integer, 0, 10)\nlocal function of(v: integer): integer\n    return nupp.admit(v)\nend\nreturn of\n" ,
+right = "local type Small = nupp.types.range(integer, 0, 10)\nlocal function of(v: integer): Small\n    return nupp.admit(v)\nend\nreturn of\n" ,
+related = { "NUPP2011" , "NUPP2422" } ,
+docs = "docs/reference/diagnostics.md#nupp2013" ,
+} ,
+{
+code = "NUPP2101" ,
+summary = "A type name cannot be resolved" ,
+rule = "A type name must be a built-in, a declaration visible in this file, or a member reached through its module. Declare the type, require the module that exports it, or correct its spelling."
+
+,
+wrong = "local count: Count = 1\nreturn count\n" ,
+right = "local type Count = integer\nlocal count: Count = 1\nreturn count\n" ,
+related = { "NUPP2105" , "NUPP2120" } ,
+docs = "docs/reference/diagnostics.md#nupp2101" ,
+} ,
+{
+code = "NUPP2106" ,
+summary = "An exported declaration needs a type annotation" ,
+rule = "What a module returns is its interface, and an interface is written down rather than inferred. A function attached to the module table needs its parameter and result types, and a signature mentioning `any` counts as unwritten. A `.d.nupp` file may write `any`, since it describes code somebody else implements."
+
+
+
+,
+wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\nreturn m\n" ,
+right = "local m = {}\n\nfunction m.double(n: integer): integer\n    return n * 2\nend\n\nreturn m\n" ,
+related = { "NUPP2119" } ,
+docs = "docs/reference/diagnostics.md#nupp2106" ,
+} ,
+{
+code = "NUPP2107" ,
+summary = "A dispatch leaves members of a closed set unhandled" ,
+rule = "When every branch returns, the dispatch is exhaustive or it is not, and the checker can tell which. Add the missing branches, or an else that says the rest are deliberately alike."
+
+,
+wrong = "local type Color = 'red' | 'green' | 'blue'\n\nlocal function name(c: Color): string\n    if c == 'red' then return \"red\" end\n    return \"other\"\nend\n\nreturn name\n"
+
+
+,
+
+
+right = "local type Color = 'red' | 'green' | 'blue'\n\nlocal function name(c: Color): string\n    if c == 'red' then\n        return \"red\"\n    elseif c == 'green' then\n        return \"green\"\n    else\n        return \"blue\"\n    end\nend\n\nreturn name\n"
+
+
+
+,
+related = { "NUPP2004" } ,
+docs = "docs/reference/lints.md#exhaustiveness" ,
+} ,
+{
+code = "NUPP2108" ,
+summary = "A type error is named as though it were a lint" ,
+rule = "`@allow` suppresses lint judgements, by lint name or code. A type error says the program cannot keep its own type claims, so it cannot be configured or silenced; correct that error instead."
+
+,
+wrong = "@allow(NUPP2001)\nlocal count: integer = \"one\"\nreturn count\n" ,
+right = "local count: integer = 1\nreturn count\n" ,
+related = { "NUPP2001" , "NUPP2112" } ,
+docs = "docs/reference/lints.md#local-suppressions" ,
+} ,
+{
+code = "NUPP2504" ,
+summary = "An operator uses its customary C-style spelling" ,
+rule = "The C-style spellings `!`, `&&`, `||`, and `!=` are accepted, but the style lint prefers Lua's `not`, `and`, `or`, and `~=`. The spelling changes; the expression's meaning does not."
+
+,
+wrong = "local ready = true\nlocal pending = !ready\nreturn pending\n" ,
+right = "local ready = true\nlocal pending = not ready\nreturn pending\n" ,
+related = { "NUPP2108" } ,
+docs = "docs/reference/lints.md#customary-operator" ,
+} ,
+{
+code = "NUPP2506" ,
+summary = "A documented function can raise without saying when" ,
+rule = "A function with a docblock that calls `error` must document the condition with `@raises Type the condition`. Callers reading generated documentation then see the exceptional exit, and what it hands back, beside the ordinary result."
+
+
+,
+wrong = "--- Reads a name.\n--- @param name the name to read\nlocal function read(name: string): string\n    if name == \"\" then error(\"empty name\") end\n    return name\nend\n\nreturn read\n"
+
+
+,
+right = "--- Reads a name.\n--- @param name the name to read\n--- @raises string when name is empty\nlocal function read(name: string): string\n    if name == \"\" then error(\"empty name\") end\n    return name\nend\n\nreturn read\n"
+
+
+
+,
+related = { "NUPP1010" , "NUPP2507" } ,
+docs = "docs/reference/lints.md#undocumented-raise" ,
+} ,
+{
+code = "NUPP2507" ,
+summary = "A local is declared and nothing reads it" ,
+rule = "A binding nothing reads is a leftover from an edit, or a use that went to another name. Delete it, or name it `_` when the value is deliberately not wanted. A parameter and a loop variable are bound by a signature and an iterator rather than by their author, so neither is judged."
+
+
+
+,
+wrong = "local function shout(text: string): string\n    local prefix = \"> \"\n    return text .. \"!\"\nend\n\nreturn shout\n"
+
+,
+right = "local function shout(text: string): string\n    local prefix = \"> \"\n    return prefix .. text .. \"!\"\nend\n\nreturn shout\n"
+
+,
+related = { "NUPP2120" , "NUPP2603" } ,
+docs = "docs/reference/lints.md#unused-binding" ,
+} ,
+{
+code = "NUPP2508" ,
+summary = "A call that does nothing but return had its result dropped" ,
+rule = "A call written as a statement is made for what it does. When the callee is proved to do nothing but produce a value, and the statement drops that value, the whole statement does nothing. Use the result, or delete the call."
+
+
+,
+wrong = "local function double(value: number): number\n    return value * 2\nend\n\ndouble(21)\n\nreturn double\n"
+,
+right = "local function double(value: number): number\n    return value * 2\nend\n\nlocal answer = double(21)\nprint(answer)\n\nreturn double\n"
+
+,
+related = { "NUPP2112" , "NUPP2603" } ,
+docs = "docs/reference/lints.md#discarded-result" ,
+} ,
+{
+code = "NUPP2118" ,
+summary = "A declaration contains an invalid or conflicting member" ,
+rule = "A declaration has one member of a given name and capability. Duplicate fields, methods with the same parameter pack, conflicting static and instance members, unknown metamethods, and incompatible interface overrides cannot describe one coherent contract. A method overriding a child interface's inherited slot must say @override; a concrete implementor needs it when replacing inherited default behavior."
+
+
+
+
+,
+wrong = "local record Pair\n    first: string\n    first: integer\nend\n\nreturn Pair\n" ,
+right = "local record Pair\n    first: string\n    second: integer\nend\n\nreturn Pair\n" ,
+related = { "NUPP2004" , "NUPP2123" } ,
+docs = "docs/reference/diagnostics.md#nupp2118" ,
+} ,
+{
+code = "NUPP2119" ,
+summary = "A declaration does not say where it lives" ,
+rule = "A declaration is file-local (`local`), a member of a table (`record m.R`), or a project global (`global`). Plain Lua would have made it a global silently; Nupp asks instead, because a name that means one thing here and another elsewhere is worth one word to prevent."
+
+
+
+,
+wrong = "record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
+right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
+related = { "NUPP2106" , "NUPP2120" } ,
+docs = "docs/reference/diagnostics.md#nupp2119" ,
+} ,
+{
+code = "NUPP2120" ,
+summary = "A project module is used without being required" ,
+rule = "A project file does not put its basename into every other file's scope. Bind the module with `require` before reading its members; the diagnostic names the require call that makes the program valid."
+
+,
+wrong = "local answer: number = mathutil.double(21)\nreturn answer\n" ,
+right = "local mathutil = require(\"mathutil\")\nlocal answer: number = mathutil.double(21)\nreturn answer\n"
+,
+related = { "NUPP2101" , "NUPP2105" } ,
+docs = "docs/learn/language/modules.md#naming-a-member-from-another-file" ,
+} ,
+{
+code = "NUPP2121" ,
+summary = "A type pack is used where only one value type can appear" ,
+rule = "A pack binder must follow every ordinary type binder, and a pack may appear only in a sequence position: function parameters or results, a coroutine protocol, a pack-union arm, or an explicit pack argument."
+
+
+,
+wrong = "local value: (number, string)\nreturn value\n" ,
+right = "local function pair(): (number, string)\n    return 1, \"one\"\nend\nreturn pair\n" ,
+related = { "NUPP2010" } ,
+docs = "docs/learn/language/types/packs.md#syntax" ,
+} ,
+{
+code = "NUPP2122" ,
+
+summary = "A refinement cannot be enforced" ,
+rule = "A `satisfies` declaration names the runtime test that decides whether a value is one of these, and `x is T` compiles to it. That test has to run wherever `is` is written, so it reads the declaration's own fields through `self` and nothing else: comparisons against literals, `type()` tests, `and`, `or`, `not`. A call, arithmetic, or a name from outside the subject cannot be evaluated there. A refinement that always answers the same way is also refused, since always true identifies every value and always false leaves the type uninhabited, and so is one on a struct, which `ffi.istype` already answers exactly.\n\nA declaration is also held to the refinements of the interfaces it declares. `record C is Shape` is a claim the checker proves, and Shape's refinement is what `is Shape` runs, so fields that make that test fail would leave the two disagreeing about the same value. Only a provable failure is reported: a refinement whose answer no declaration settles is not evidence of a mistake."
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+,
+wrong = "local interface Circle\n    kind: string\n\n    satisfies |self| -> tostring(self.kind) == \"circle\"\nend\n\nreturn Circle\n"
+
+,
+right = "local interface Circle\n    kind: string\n\n    satisfies |self| -> self.kind == \"circle\"\nend\n\nreturn Circle\n"
+
+,
+related = { "NUPP2116" } ,
+docs = "docs/learn/language/types/refinements.md#tests-read-self-and-nothing-else" ,
+} ,
+{
+code = "NUPP2123" ,
+summary = "A metatable value does not fit the key it is written under" ,
+rule = "A metamethod declaration is a contract, and a metatable literal is where the value fulfilling it is written, so the value is held to it, with `self` specialized to the receiver, through a bounded type parameter as readily as through a concrete type. Where the declaration contracts for nothing, LuaJIT still says what it will do with the key: `__mode` is read as a string, `__index` and `__newindex` are a table to defer to or a function to run, and everything else it knows is called.\n\nOnly a literal is checked. What a function returns cannot be seen from here, so a computed metatable stays unchecked."
+
+
+
+
+
+
+
+
+,
+wrong = "local record I64\n    v: integer\n    metamethod __add: function(self: I64, other: I64): I64\nend\n\nlocal x = new I64(v = 1)\nsetmetatable(x, {__add = \"not a function\"})\n\nreturn x\n"
+
+
+,
+right = "local record I64\n    v: integer\n    metamethod __add: function(self: I64, other: I64): I64\nend\n\nlocal x = new I64(v = 1)\nsetmetatable(x, {__add = function(a: I64, b: I64): I64\n    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n"
+
+
+
+,
+related = { "NUPP2118" , "NUPP2006" } ,
+docs = "docs/learn/language/metamethods.md#checking-a-metatable-literal" ,
+} ,
+{
+code = "NUPP2124" ,
+summary = "An intersection is provably uninhabited" ,
+rule = "A value of `A & B` must satisfy both contracts. Nupp reports only finite proofs of impossibility, such as distinct runtime categories, literal tags, concrete nominal identities, or incompatible required fields; an intersection it cannot disprove remains legal."
+
+
+,
+wrong = "local type Impossible = string & number\nreturn Impossible\n" ,
+right = "local type NamedValue = {name: string} & {value: number}\nreturn NamedValue\n" ,
+related = { "NUPP2125" , "NUPP2126" } ,
+docs = "docs/learn/language/types/intersections.md#provable-emptiness" ,
+} ,
+{
+code = "NUPP2125" ,
+summary = "No overload accepts a call" ,
+rule = "A callable intersection probes every function member against the same adjusted argument pack. This diagnostic lists why each candidate was rejected; no candidate's ownership or borrowing effects are applied."
+
+,
+wrong = "local type F = function(integer): string & function(string): boolean\nlocal f: F = nil as any\nreturn f(true)\n"
+,
+right = "local type F = function(integer): string & function(string): boolean\nlocal f: F = nil as any\nreturn f(1)\n"
+,
+related = { "NUPP2006" , "NUPP2126" } ,
+docs = "docs/learn/language/types/intersections.md#overload-selection" ,
+} ,
+{
+code = "NUPP2126" ,
+summary = "Several overloads accept a call" ,
+rule = "Overloads have no ranking or declaration-order tie breaker. A call must leave exactly one candidate; use distinguishable parameter packs or narrow an `any` argument before calling."
+
+,
+wrong = "local type F = function(integer): string & function(number): boolean\nlocal f: F = nil as any\nreturn f(1)\n"
+,
+right = "local type F = function(integer): string & function(string): boolean\nlocal f: F = nil as any\nreturn f(1)\n"
+,
+related = { "NUPP2125" , "NUPP2208" } ,
+docs = "docs/learn/language/types/intersections.md#overload-selection" ,
+} ,
+{
+code = "NUPP2127" ,
+summary = "A declaration does not answer an associated type it is owed" ,
+rule = "An interface may state a type it does not name, and whatever takes that contract has to name it. A default on the interface answers it, so only a requirement nothing named is reported -- as is one that several contracts default differently, or that an implementor answers otherwise than a `==` equality fixes, since neither leaves one answer to take."
+
+
+
+,
+wrong = "local interface Reader\n    associated type Item\nend\n\nlocal record Lines is Reader\nend\n\nreturn Lines\n"
+,
+right = "local interface Reader\n    associated type Item\nend\n\nlocal record Lines is Reader\n    associated type Item = string\nend\n\nreturn Lines\n"
+
+,
+related = { "NUPP2128" , "NUPP2116" } ,
+docs = "docs/learn/language/types/associated-types.md#answering-a-requirement" ,
+} ,
+{
+code = "NUPP2128" ,
+summary = "An associated type member cannot mean anything where it is written" ,
+rule = "An interface states a requirement, and `=` on one states a default. Anything else answers, so it needs the `=`, may not restate the bound -- what may answer is the contract's to say -- and may not use `==`, which fixes a type on the contract that states it. Answering a name no contract declares means the name is private, which a plain nested `type` alias already is."
+
+
+
+,
+wrong = "local record Box\n    associated type Item\nend\n\nreturn Box\n" ,
+right = "local record Box\n    type Item = string\nend\n\nreturn Box\n" ,
+related = { "NUPP2127" , "NUPP2117" } ,
+docs = "docs/learn/language/types/associated-types.md#defaults-and-fixed-equalities" ,
+} ,
+{
+code = "NUPP2129" ,
+summary = "An associated type collides with another type member" ,
+rule = "A declaration has one type namespace. An associated type and a nested alias or nested declaration share it, so two of a name is one namespace saying two things. Fields are a separate namespace and may share the spelling."
+
+
+,
+wrong = "local interface Reader\n    type Item = string\n    associated type Item\nend\n\nreturn Reader\n"
+,
+right = "local interface Reader\n    type Unit = string\n    associated type Item\nend\n\nreturn Reader\n"
+,
+related = { "NUPP2128" } ,
+docs = "docs/learn/language/types/associated-types.md#associated-types-are-not-nested-aliases" ,
+} ,
+{
+code = "NUPP2134" ,
+summary = "A projection names something that cannot be projected" ,
+rule = "`T.Item` is the associated type `Item` as whatever T answers it with, so it is a type only where some contract states that name. An unbounded binder has no contract to project through, a bounded one may not state the name, and a union states it only when every alternative does. A projection takes no type arguments."
+
+
+
+,
+wrong = "local function first<T>(x: T): T.Item\n    return nil as any\nend\n\nreturn first\n" ,
+right = "local interface Reader\n    associated type Item\nend\n\nlocal function first<T is Reader>(x: T): T.Item\n    return nil as any\nend\n\nreturn first\n"
+
+,
+related = { "NUPP2127" } ,
+docs = "docs/learn/language/types/associated-types.md#reaching-an-associated-type" ,
+} ,
+{
+code = "NUPP2135" ,
+summary = "An associated type answers through itself" ,
+rule = "An answer has to be a type that does not reach the member it answers. The graph is read once every answer and default is installed, so naming a member declared later in the body is ordinary and only a closed loop is reported. A cyclic default stays latent on the interface that states it and surfaces on the first concrete implementor."
+
+
+
+,
+wrong = "local interface Holds\n    associated type Value\nend\n\nlocal record Direct is Holds\n    associated type Value = Direct.Value\nend\n\nreturn Direct\n"
+
+,
+right = "local interface Holds\n    associated type Value\nend\n\nlocal record Direct is Holds\n    associated type Value = string\nend\n\nreturn Direct\n"
+
+,
+related = { "NUPP2127" } ,
+docs = "docs/learn/language/types/associated-types.md#cycles-report-once-per-component" ,
+} ,
+{
+code = "NUPP2136" ,
+summary = "A sealed interface is implemented outside its owning module" ,
+rule = "A sealed interface carries hidden invariants that its public shape cannot prove. Only a declaration in the interface's own module may explicitly name it after `is`; structural lookalikes do not satisfy it. Obtain the value from that module's constructors instead of declaring another implementation."
+
+
+,
+wrong = "local spans = require(\"nupp.mem.span\")\n\nlocal record Forged is spans.Span<int32>\nend\n\nreturn Forged\n"
+,
+right = "local spans = require(\"nupp.mem.span\")\n\nlocal storage = ffi.new<int32[4]>()\nlocal view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n"
+
+,
+related = { "NUPP2001" , "NUPP2117" } ,
+docs = "docs/learn/language/types/interfaces.md#sealed-interfaces" ,
+} ,
+{
+code = "NUPP2137" ,
+summary = "A switch pattern is not static or cannot bind what it names" ,
+rule = "Static switch cases are finite scalar literals or names whose checked type is one exact scalar. Type destructuring binds direct fields only, and every bound name and field must exist once in that arm."
+
+,
+wrong = "local n: integer = 2\nlocal value = switch n do\n    case 1 + 1 -> 'two'\n    else -> 'other'\nend\nreturn value\n"
+,
+right = "local n: integer = 2\nlocal value = switch n do\n    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n"
+,
+related = { "NUPP2138" , "NUPP2140" } ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
+} ,
+{
+code = "NUPP2138" ,
+summary = "A static switch value is handled more than once" ,
+rule = "Static cases compare Lua values, not source spellings. Numerically equivalent literals such as 1 and 1.0 are therefore duplicates."
+,
+wrong = "local n: number = 1\nlocal value = switch n do\n    case 1, 1.0 -> 'one'\n    else -> 'other'\nend\nreturn value\n"
+,
+right = "local n: number = 1\nlocal value = switch n do\n    case 1 -> 'one'\n    else -> 'other'\nend\nreturn value\n"
+,
+related = { "NUPP2137" , "NUPP2139" } ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
+} ,
+{
+code = "NUPP2139" ,
+summary = "A switch case cannot be selected" ,
+rule = "Cases are checked in source order against the selector type left by earlier cases. A value outside that type and an arm reached after the residue is empty are unreachable."
+
+,
+wrong = "local n: 1 = 1\nlocal value = switch n do\n    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n"
+,
+right = "local n: number = 1\nlocal value = switch n do\n    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n"
+,
+related = { "NUPP2138" , "NUPP2140" } ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
+} ,
+{
+code = "NUPP2140" ,
+summary = "A switch leaves possible selector values unhandled" ,
+rule = "A switch is an expression and must produce a value whenever its selector returns. Cover every member of a finite checked type, or add else when the remaining set is open. A union declared with `nupp.types.nonExhaustive()` is always open, so it always needs else."
+
+
+,
+wrong = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\nlocal value = switch mode do case 'read' -> 1 end\nreturn value\n"
+,
+right = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\nlocal value = switch mode do\n    case 'read' -> 1\n    case 'write' -> 2\nend\nreturn value\n"
+
+,
+related = { "NUPP2139" , "NUPP2141" } ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
+} ,
+{
+code = "NUPP2141" ,
+summary = "A do expression does not yield on every completing path" ,
+rule = "A do expression produces one value with contextual `yield value`. Every path reaching its end must yield, and no statement may follow an unconditional yield in the same path. Return, break and continue retain their enclosing function or loop targets."
+
+
+,
+wrong = "local value = do local answer = 1 end\nreturn value\n" ,
+right = "local value = do local answer = 1; yield answer end\nreturn value\n" ,
+related = { "NUPP2140" , "NUPP2142" } ,
+docs = "docs/learn/language/do-expressions.md#do-expressions" ,
+} ,
+{
+code = "NUPP2142" ,
+summary = "A block expression is in an unsupported lowering position" ,
+rule = "Do and switch expressions need a lexical statement context for their setup. The compiler reports positions its lowering cannot yet preserve. Bind the expression to a preceding local in the same conditional region when that preserves the intended evaluation order."
+
+
+,
+related = { "NUPP2141" } ,
+docs = "docs/learn/language/do-expressions.md#do-expressions" ,
+} ,
+{
+code = "NUPP2149" ,
+summary = "An operand's results cannot be read by an exit suffix" ,
+rule = "`or return`, `or break` and `or continue` read the operand's first result as both the discriminator and the value. That needs a fixed result count, results that are not a correlated pack union, and a first result that can be nil or false and can also be a value. `pcall` and `xpcall` are refused by the union rule, because they lead with the discriminator rather than with a result; `nupp.util.try` and `nupp.util.tryWith` answer the conventional order instead."
+
+
+
+
+
+,
+wrong = "local function name(): string\n    return \"x\"\nend\nlocal function first(): string?\n    local value = name() or return\n    return value\nend\nreturn first()\n"
+
+,
+right = "local function name(): string?\n    return \"x\"\nend\nlocal function first(): string?\n    local value = name() or return\n    return value\nend\nreturn first()\n"
+
+,
+related = { "NUPP2002" , "NUPP2605" } ,
+docs = "docs/learn/language/exit-suffixes.md#exit-suffixes" ,
+} ,
+{
+code = "NUPP2517" ,
+summary = "A binding list takes more than one value from an exit suffix" ,
+rule = "An exit suffix supplies its operand's first result and nothing else, however wide the operand is. A second name bound from one is therefore always nil. Bind the operand's results first and test the one that decides when the other results are wanted."
+
+
+,
+wrong = "local function pair(): (integer?, integer?)\n    return 1, 2\nend\nlocal function both(): (integer?, integer?)\n    local left, right = pair() or return\n    return left, right\nend\nreturn both()\n"
+
+
+,
+right = "local function pair(): (integer?, integer?)\n    return 1, 2\nend\nlocal function both(): (integer?, integer?)\n    local left, right = pair()\n    if left == nil then\n        return nil, nil\n    end\n    return left, right\nend\nreturn both()\n"
+
+
+
+,
+related = { "NUPP2149" } ,
+docs = "docs/learn/language/exit-suffixes.md#exit-suffixes" ,
+} ,
+{
+code = "NUPP2143" ,
+summary = "An export carrying a runtime value sits beside `export =`" ,
+rule = "A module either exports its declarations, and the compiler builds the table, or it names its value with `export =`, and that value is the module. A declaration that carries a runtime value cannot do both: there is no table of the compiler's for it to land on, and the named value is the author's to fill. Put it on that value instead. An interface or type alias is erased and stays legal beside one, because it contributes a type and no value."
+
+
+
+
+,
+wrong = "module geom.shapes\n\nlocal shapes = {}\n\nexport record Point\n    x: number\nend\n\nexport = shapes\n"
+,
+right = "module geom.shapes\n\nlocal shapes = {}\n\nrecord shapes.Point\n    x: number\nend\n\nexport = shapes\n"
+,
+related = { "NUPP2119" } ,
+docs = "docs/learn/language/modules.md#migrating-a-table-shaped-module" ,
+} ,
+{
+code = "NUPP2144" ,
+summary = "An internal module is imported outside its package namespace" ,
+rule = "A leading @!internal or an internal module segment restricts static imports to modules with the same first canonical namespace segment. An internal init.nupp restricts its descendants too. Import the package's public module instead. This applies to require, qualified values and qualified types; dynamic Lua loading remains unchecked and is not an access-control sandbox."
+
+
+
+,
+docs = "docs/learn/language/modules.md#internal-modules" ,
+} ,
+{
+code = "NUPP2145" ,
+summary = "A type parameter conflicts with a builtin type name" ,
+rule = "Builtin type names always denote their primitive types in a type position. Using one for an ordinary generic parameter would create a parameter the declaration cannot refer to. Choose a name that is not a builtin type."
+
+,
+wrong = "local record Box<string>\n    value: string\nend\n\nreturn Box\n" ,
+right = "local record Box<T>\n    value: T\nend\n\nreturn Box\n" ,
+related = { "NUPP2101" , "NUPP2121" } ,
+docs = "docs/learn/language/types/generics.md#parameter-positions" ,
+} ,
+{
+code = "NUPP2146" ,
+summary = "A generic declaration is applied to the wrong number of type arguments" ,
+rule = "An application writes as many arguments as the declaration binds parameters. A trailing parameter the declaration defaulted may be left out; nothing past the last parameter may be written, and a bare name is an application with none. Left unchecked the result was a type whose parameters nothing had bound, which fits no value the program can build and surfaces instead as a mismatch between two types that print the same. `Type<Box>` and `metatable<Box>` name the declaration rather than one of its values and so take no arguments, and inside its own body a declaration means itself applied to its own parameters."
+
+
+
+
+
+
+
+,
+wrong = "local record Pair<A, B>\n    a: A\n    b: B\nend\n\nlocal half: Pair<integer> = nil as any\n\nreturn half\n"
+,
+right = "local record Pair<A, B>\n    a: A\n    b: B\nend\n\nlocal both: Pair<integer, string> = nil as any\n\nreturn both\n"
+,
+related = { "NUPP2101" , "NUPP2116" , "NUPP2121" } ,
+docs = "docs/learn/language/types/generics.md#instantiation" ,
+} ,
+{
+code = "NUPP2147" ,
+summary = "An `is` test's subject can never hold the type it tests" ,
+rule = "A test whose subject and its target share no value can only ever answer false, so the branch it guards is one no run reaches. It is refused where it is written rather than compiled. Only what can be settled for certain counts: `any`, a type parameter, and a structural fit the checker could not decide all leave the test alone, and `as` remains the way to say the value is something its declaration does not admit. `is` sits at the comparison level, below unary `not`, so `not v is T` is `(not v) is T` -- a boolean tested for the identity of something else -- and `not (v is T)` is the test that narrows."
+
+
+
+
+
+
+,
+wrong = "local record Box\n    value: integer\nend\n\nlocal function held(v: Box | string): boolean\n    return not v is Box\nend\n\nreturn held\n"
+
+,
+right = "local record Box\n    value: integer\nend\n\nlocal function held(v: Box | string): boolean\n    return not (v is Box)\nend\n\nreturn held\n"
+
+,
+related = { "NUPP2110" , "NUPP3001" } ,
+docs = "docs/learn/language/types/narrowing.md#type-tests" ,
+} ,
+{
+code = "NUPP2148" ,
+summary = "A result type parameter cannot be inferred" ,
+rule = "A type or type-pack parameter used by a call's result needs evidence from an explicit type argument, an argument value, a destination type, an `any` input, or a declared default. Without any of those, substituting `any` would silently erase the result's type. A parameter absent from the result does not need evidence."
+
+
+
+,
+wrong = "local function make<T>(): T\n    error('not reached')\nend\n\nlocal value = make()\n\nreturn value\n"
+,
+right = "local function make<T>(): T\n    error('not reached')\nend\n\nlocal value = make<string>()\n\nreturn value\n"
+,
+related = { "NUPP2116" , "NUPP2131" , "NUPP2146" } ,
+docs = "docs/learn/language/types/generics.md#inference-at-a-call-site" ,
+} ,
+{
+code = "NUPP2511" ,
+summary = "An associated type was erased because inference did not reach its head" ,
+rule = "A projection is checked as `any` when inference never worked out what answers it, which is the feature declining to say anything rather than saying the call is right. Reported once per call and member, where the erasure happened, because a parameter erased that way accepts whatever it is given."
+
+
+,
+wrong = "local interface Holds\n    associated type Item\nend\n\nlocal function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\nlocal erased = held(nil as any)\n\nreturn erased\n"
+
+,
+right = "local interface Holds\n    associated type Item\nend\n\nlocal record Lines is Holds\n    associated type Item = string\nend\n\nlocal function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\nlocal kept = held(new Lines())\n\nreturn kept\n"
+
+
+,
+related = { "NUPP2134" } ,
+docs = "docs/learn/language/types/associated-types.md#erased-projections" ,
+} ,
+{
+code = "NUPP2133" ,
+summary = "A recursive type alias is not supported" ,
+rule = "Type aliases describe finite type expressions and cannot refer to themselves, directly or mutually. Write an ordinary recursive comptime function that returns type or typepack when the computation needs control flow."
+
+
+,
+wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n" ,
+right = "@comptime\nlocal function DeepElement(T: type): type\n    while nupp.types.kind(T) == 'array' do\n        T = nupp.types.elements(T)[1]\n    end\n    return T\nend\nlocal value: DeepElement({{integer}}) = 1\nreturn value\n"
+
+
+
+
+,
+related = { "NUPP2130" , "NUPP2132" } ,
+docs = "docs/learn/language/types/comptime-types.md#closed-and-generic-calls" ,
+} ,
+{
+code = "NUPP2202" ,
+summary = "A declaration is built with 'new'" ,
+rule = "Records and structs are constructed with `new`, so calling a declaration is never a construction and the call stays the program's own: a record's `__call` is not shadowed when the argument is a table, and a struct's ctype call is not claimed. A record that does declare a `__call` contract is called, not reported."
+
+
+
+
+,
+wrong = "local record Point\n    x: integer\nend\n\nlocal p = Point{x = 1}\n\nreturn p\n" ,
+right = "local record Point\n    x: integer\nend\n\nlocal p = new Point(x = 1)\n\nreturn p\n" ,
+related = { "NUPP2206" } ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
+} ,
+{
+code = "NUPP2203" ,
+summary = "A C declaration uses a type C cannot represent" ,
+rule = "A `cdef` signature and struct layout cross the C ABI, so their types must have a C representation. Lua tables, records, and other garbage-collected values need an explicit pointer or handle boundary."
+
+,
+wrong = "cdef function process(values: {number}): int32\nreturn process\n" ,
+right = "cdef function process(values: voidptr): int32\nreturn process\n" ,
+related = { "NUPP2201" , "NUPP2602" } ,
+docs = "docs/learn/runtime/c-interop/index.md#hand-write-a-small-binding" ,
+} ,
+{
+code = "NUPP2605" ,
+summary = "Adjusting a value pack would discard an affine value" ,
+rule = "Lua may truncate extra results, but Nupp cannot silently lose an owned or pinned slot. Bind and discharge every affine result, or forward the complete generic pack to a matching result or parameter."
+
+,
+wrong = "local record Resource\nend\nlocal function release(takes value: Resource): nil\nend\nlocal function acquire(): affine(Resource, release)\n    return new Resource()\nend\nacquire()\nreturn acquire\n"
+
+
+,
+right = "local record Resource\nend\nlocal function release(takes value: Resource): nil\nend\nlocal function acquire(): affine(Resource, release)\n    return new Resource()\nend\nlocal value = acquire()\nrelease(value)\nreturn acquire\n"
+
+
+
+,
+related = { "NUPP2602" , "NUPP2603" , "NUPP2010" } ,
+docs = "docs/learn/language/types/packs.md#ownership-and-provenance" ,
+} ,
+{
+code = "NUPP2606" ,
+summary = "A preservation relation would lose or duplicate capability" ,
+rule = "`preserves source` conserves the source's complete capability. A source that may carry a cleanup, transfer-only obligation, pin, or foreign retention must be taken, and each movable part must reach exactly one related result."
+
+
+,
+wrong = "local function forward<T>(borrows value: T): T preserves value\n    return value\nend\nreturn forward\n"
+,
+right = "local function forward<T>(takes value: T): T preserves value\n    return value\nend\nreturn forward\n"
+,
+related = { "NUPP2602" , "NUPP2603" , "NUPP2605" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#generic-preservation" ,
+} ,
+{
+code = "NUPP2607" ,
+summary = "Shared and exclusive regions overlap incompatibly" ,
+rule = "A live exclusive region must be disjoint from every other live shared or exclusive region. Fixed sibling fields and distinct proven indexes are disjoint; a parent, unknown index, or unproved range overlaps conservatively."
+
+
+,
+wrong = "local function pair(exclusive a: table, exclusive b: table): nil end\nlocal value = {}\npair(value, value)\n"
+,
+right = "local function pair(exclusive a: table, exclusive b: table): nil end\npair({}, {})\n" ,
+related = { "NUPP2602" , "NUPP2608" , "NUPP2609" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#regions-and-loop-carried-capabilities" ,
+} ,
+{
+code = "NUPP2608" ,
+summary = "A rooted value escapes its permitted lifetime" ,
+rule = "A borrowed or scoped value may leave its scope only through an explicit result relation whose named roots outlive the result. It may not be returned, stored, captured, or erased without that relation."
+
+,
+wrong = "local function leak(borrows value: table): table\n    return borrow(value)\nend\nreturn leak\n" ,
+right = "local function view(borrows value: table): table borrows (value)\n    return borrow(value)\nend\nreturn view\n"
+,
+related = { "NUPP2603" , "NUPP2607" , "NUPP2611" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
+} ,
+{
+code = "NUPP2609" ,
+summary = "A loop back edge changes capability state unsafely" ,
+rule = "Every repeatable back edge must restore the loop header's live obligations and region loans. An iteration-local borrow must end before the edge, and an outer affine value cannot be consumed only on a possibly repeating path."
+
+
+,
+wrong = "local record Resource\nend\nlocal function close(takes value: Resource): nil\nend\nlocal function open(): affine(Resource, close) return new Resource() end\nlocal function run(again: boolean): nil\n    local value = open()\n    while again do\n        nupp.drop(value)\n    end\nend\nreturn run\n"
+
+
+
+
+,
+right = "local record Resource\nend\nlocal function close(takes value: Resource): nil\nend\nlocal function open(): affine(Resource, close) return new Resource() end\nlocal function run(again: boolean): nil\n    local value = open()\n    if again then\n        print('once')\n    end\n    nupp.drop(value)\nend\nreturn run\n"
+
+
+
+
+
+,
+related = { "NUPP2601" , "NUPP2603" , "NUPP2607" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#regions-and-loop-carried-capabilities" ,
+} ,
+{
+code = "NUPP2610" ,
+summary = "A public capability contract is implicit" ,
+rule = "An exported parameter or result that may carry a cleanup, pin, retention, or rooted view must state its mode or result relation. Ordinary public values remain unannotated."
+
+,
+wrong = "local m = {}\nfunction m.forward<T>(value: T): T\n    return value\nend\nreturn m\n" ,
+right = "local m = {}\nfunction m.forward<T>(takes value: T): T preserves value\n    return value\nend\nreturn m\n"
+,
+related = { "NUPP2606" , "NUPP2611" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#public-capability-contracts" ,
+} ,
+{
+code = "NUPP2611" ,
+summary = "A dynamic boundary would erase a live capability" ,
+rule = "A value carrying an obligation, root, exclusive loan, pin, or foreign retention cannot be converted to any or passed to untyped Lua. Keep the boundary typed, move a self-contained owner into nupp.manage, or use an explicit @unsafe nupp.release call."
+
+
+,
+wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n" ,
+right = "local function erase(takes value: affine(table)): any\n    return @unsafe nupp.release(value)\nend\nreturn erase\n"
+,
+related = { "NUPP2603" , "NUPP2608" , "NUPP2612" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells" ,
+} ,
+{
+code = "NUPP2612" ,
+summary = "A managed value is not self-contained" ,
+rule = "nupp.manage accepts only a capability it can discharge without outside state. Transfer-only obligations, external roots, outstanding exclusive loans, and unmatched foreign retentions cannot be managed."
+
+,
+wrong = "local record Resource\nend\nlocal function begin(): affine(Resource) return new Resource() end\nlocal cell = nupp.manage(begin())\n"
+
+,
+right = "local record Resource\nend\nlocal function close(takes value: Resource): nil\nend\nlocal function open(): affine(Resource, close) return new Resource() end\nlocal cell = nupp.manage(open())\n"
+
+
+,
+related = { "NUPP2608" , "NUPP2611" , "NUPP2614" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells" ,
+} ,
+{
+code = "NUPP2613" ,
+summary = "A managed alias has the wrong type policy" ,
+rule = "Downcasting an alias requires an exactly droppable target and compares its canonical representation and cleanup policy with the policy recorded by nupp.manage. Recovery from any separately validates the runtime brand."
+
+,
+wrong = "local record Plain\nend\nlocal erased: any = {}\nlocal recovered = nupp.recoverAlias(erased)\nlocal plain = recovered and recovered:downcast<Plain>()\n"
+
+
+,
+right = "local record File is nupp.Closeable\n    function flush(exclusive self): nil\nend\n    function close(takes self): nil\nend\nend\nlocal owner = nupp.manage(new File())\nlocal erased: any = owner:alias()\nlocal recovered = nupp.recoverAlias(erased)\nlocal file = recovered and recovered:downcast<File>()\n"
+
+
+
+
+
+,
+related = { "NUPP2611" , "NUPP2614" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells" ,
+} ,
+{
+code = "NUPP2614" ,
+summary = "A managed alias is invalid or its cell is terminal" ,
+rule = "An alias must carry the runtime brand of one managed cell. Closing or taking the payload leaves that cell as a permanent tombstone, and every copied alias fails before reading the payload."
+
+,
+related = { "NUPP2612" , "NUPP2613" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells" ,
+} ,
+{
+code = "NUPP2603" ,
+summary = "An ownership obligation is not discharged or cannot escape" ,
+rule = "An affine value must be consumed, dropped, returned under a matching ownership contract, or explicitly released with @unsafe nupp.release. Borrows likewise stay within the lifetime and suspension boundaries their provenance permits."
+
+
+,
+wrong = "cdef function begin_request(): affine(voidptr)\nlocal request = begin_request()\nreturn 0\n" ,
+right = "cdef function begin_request(): affine(voidptr)\ncdef function submit_request(takes request: voidptr)\nlocal request = begin_request()\nsubmit_request(request)\nreturn 0\n"
+
+,
+related = { "NUPP2601" , "NUPP2602" , "NUPP2605" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#consumption-and-lexical-destruction" ,
+} ,
+{
+code = "NUPP2615" ,
+summary = "An affine value names an invalid terminal" ,
+rule = "The terminal must be visible and have the exact shape `function(takes Representation): nil`. A declared `nupp.Affine` claim selects one cleanup function and cannot inherit a competing one."
+
+,
+wrong = "local record Resource\nend\nlocal record Other\nend\nlocal function release(takes value: Other): nil\nend\nlocal function acquire(): affine(Resource, release)\n    return new Resource()\nend\nreturn acquire\n"
+
+
+,
+right = "local record Resource\nend\nlocal record Other\nend\nlocal function release(takes value: Resource): nil\nend\nlocal function acquire(): affine(Resource, release)\n    return new Resource()\nend\nreturn acquire\n"
+
+
+,
+related = { "NUPP2602" , "NUPP2603" } ,
+docs = "docs/learn/runtime/ownership/affine-types.md#cleanup-and-transfer-only-forms" ,
+} ,
+{
+code = "NUPP2620" ,
+summary = "A managed cell has a conflicting runtime borrow" ,
+rule = "Shared alias callbacks exclude an exclusive callback, and an exclusive callback excludes every other borrow. Close and take likewise require no active callback borrow. The runtime releases a borrow before propagating a callback error."
+
+
+,
+related = { "NUPP2607" , "NUPP2614" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries-and-managed-cells" ,
+} ,
+{
+code = "NUPP2801" ,
+summary = "A derive provider name is unknown or duplicated" ,
+rule = "Each @derive argument names one resolved exported comptime provider, and an identity may occur only once across every derive annotation on the record."
+
+,
+related = { "NUPP2113" , "NUPP2802" } ,
+docs = "docs/reference/diagnostics.md#nupp2801" ,
+} ,
+{
+code = "NUPP2802" ,
+summary = "A generated derive member conflicts with the declaration" ,
+rule = "A derive never overrides a written instance or static member. Remove the written member or remove the provider so the behavior has one owner."
+,
+related = { "NUPP2801" , "NUPP2115" } ,
+docs = "docs/reference/diagnostics.md#nupp2802" ,
+} ,
+{
+code = "NUPP2803" ,
+summary = "A field cannot participate in derived Debug" ,
+rule = "Every visible Debug field needs a supported scalar or container type, another Debug record, an exact nupp.Debug contract, or the dynamic any fallback. A field cannot be both skipped and redacted."
+
+,
+related = { "NUPP2802" } ,
+docs = "docs/reference/derives.md#debug" ,
+} ,
+{
+code = "NUPP2806" ,
+summary = "A retired JSON derive rejected its schema" ,
+rule = "This diagnostic belonged to the retired JSON derive. Select an explicit serialization binding and codec; use nupp migrate for supported local declarations."
+,
+related = { "NUPP2001" } ,
+docs = "docs/learn/runtime/data/serde.md#migration" ,
+} ,
+{
+code = "NUPP2807" ,
+summary = "A derive dependency cycle has no valid lowering" ,
+rule = "Recursive Debug graphs are supported. A package provider dependency cycle must still reduce to a closed recipe rather than require another unfinished provider result."
+
+,
+related = { "NUPP2803" , "NUPP2806" , "NUPP2810" } ,
+docs = "docs/reference/derives.md#package-providers" ,
+} ,
+{
+code = "NUPP2808" ,
+summary = "A derive exceeds a compiler generation limit" ,
+rule = "Generated recipes, expressions, locals, upvalues, and emitted output are bounded compiler resources. Reduce the derived declaration or split the schema rather than depending on an unbounded generated function."
+
+,
+related = { "NUPP2807" } ,
+docs = "docs/reference/diagnostics.md#nupp2808" ,
+} ,
+{
+code = "NUPP2809" ,
+summary = "A comptime derive provider declaration or reference is invalid" ,
+rule = "A public derive provider is an exported, nongeneric comptime function with the exact shape function(nupp.derive.Info): nupp.derive.Result<I>, where I is one existing interface. @derive must name that resolved export."
+
+,
+related = { "NUPP2411" , "NUPP2801" } ,
+docs = "docs/reference/derives.md#package-providers" ,
+} ,
+{
+code = "NUPP2810" ,
+summary = "A comptime derive provider failed or returned an invalid blueprint" ,
+rule = "Providers execute in the bounded comptime worker and must return only nupp.derive.implement or nupp.derive.error. Closed builders reject foreign, cyclic, malformed, stale, and over-limit recipe graphs."
+
+,
+related = { "NUPP2412" , "NUPP2808" } ,
+docs = "docs/reference/derives.md#package-providers" ,
+} ,
+{
+code = "NUPP2811" ,
+summary = "A derive recipe declares an invalid generated member" ,
+rule = "A bare forward fills a bodyless callable requirement of Result<I>. A member recipe may instead provide a bounded function signature. Neither form may replace written members or interface defaults."
+
+,
+related = { "NUPP2118" , "NUPP2802" } ,
+docs = "docs/reference/derives.md#closed-forwarding-recipes" ,
+} ,
+{
+code = "NUPP2812" ,
+summary = "A forwarding argument does not exist on the generated method" ,
+rule = "A forwarding recipe may pass its receiver, a named method parameter, a readable stored field, a bounded frozen constant, or a fresh array of those. Every name is resolved against the written owner and interface requirement."
+
+,
+related = { "NUPP2004" , "NUPP2811" } ,
+docs = "docs/reference/derives.md#closed-forwarding-recipes" ,
+} ,
+{
+code = "NUPP2813" ,
+summary = "A runtime forwarding helper does not satisfy the generated call" ,
+rule = "The helper must be an ordinary exported Nupp function. Forwarded argument types must fit its parameters, its result pack must satisfy the interface requirement, and it may not suspend where the requirement cannot."
+
+,
+related = { "NUPP2001" , "NUPP2701" , "NUPP2812" } ,
+docs = "docs/reference/derives.md#runtime-helpers" ,
+} ,
+{
+code = "NUPP2701" ,
+summary = "A non-suspending region can reach suspension" ,
+rule = "A `@nosuspend` region and every cleanup contract must finish without parking the current coroutine. Remove the yielding call, move it before the protected region, or call an operation whose type or visible body proves that it cannot suspend."
+
+
+,
+wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n@nosuspend do\n    wait()\nend\n" ,
+right = "local function finish(): nil\nend\n\n@nosuspend do\n    finish()\nend\n" ,
+related = { "NUPP2602" , "NUPP2603" } ,
+docs = "docs/learn/runtime/concurrency/suspension.md#non-suspending-regions" ,
+} ,
+{
+code = "NUPP2702" ,
+summary = "A non-yieldable C callback can reach suspension" ,
+rule = "LuaJIT cannot yield through every C frame. Make the callback and every call it reaches non-suspending, or invoke it from a yieldable Lua boundary."
+,
+wrong = "table.sort({2, 1}, function(a, b): boolean\n    coroutine.yield()\n    return a < b\nend)\n" ,
+right = "table.sort({2, 1}, function(a, b): boolean\n    return a < b\nend)\n" ,
+related = { "NUPP2701" } ,
+docs = "docs/learn/runtime/concurrency/suspension.md#c-call-boundaries" ,
+} ,
+{
+code = "NUPP2706" ,
+summary = "Control cannot jump into a handled suspension region" ,
+rule = "Entering a `with` body from outside would bypass owner acquisition and its cleanup obligation. Move the label outside the scope or move the jump inside it. Structured exits from the scope are allowed."
+
+,
+wrong = "goto inside\nwith owner = acquire() do\n    ::inside::\nend\n" ,
+right = "with owner = acquire() do\nend\n::outside::\n" ,
+related = { "NUPP2701" , "NUPP2702" } ,
+docs = "docs/learn/runtime/concurrency/suspension.md#handler-scope-follows-the-coroutine" ,
+} ,
+{
+code = "NUPP2206" ,
+summary = "Only a record or a struct can be constructed" ,
+rule = "`new` names a type and builds a value of it, so the operand has to be a declaration with something to build. An interface declares a contract and has no runtime table to stamp; an enum value is one of its declared strings, written directly. The operand is answered as a type rather than through whatever value stands under the name, because an interface binds none."
+
+
+
+
+,
+wrong = "local interface Named\n    name: string\nend\n\nlocal n = new Named(name = \"ada\")\n\nreturn n\n"
+,
+right = "local interface Named\n    name: string\nend\n\nlocal record User is Named\n    name: string\nend\n\nlocal n = new User(name = \"ada\")\n\nreturn n\n"
+
+,
+related = { "NUPP2202" } ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
+} ,
+{
+code = "NUPP2207" ,
+summary = "A binding is read before it holds a value" ,
+rule = "`local v: Vec2` declares a binding and constructs nothing, so the binding holds nil until something assigns to it, and reading it before that indexes nil at run time rather than yielding a value of the declared type. The checker holds every annotation that does not admit nil to this, and a binding is assigned only once every path reaching the read assigned it: an assignment on one arm of an `if`, or inside a loop that may not run, is not one. Assign it first, or declare it optional if it is meant to start empty. A declaration file states what exists elsewhere and assigns nothing, so it is exempt."
+
+
+
+
+
+
+
+
+,
+wrong = "local record Point\n    x: integer\nend\n\nlocal p: Point\n\nreturn p.x\n" ,
+right = "local record Point\n    x: integer\nend\n\nlocal p: Point = new Point(x = 0)\n\nreturn p.x\n" ,
+related = { "NUPP2202" , "NUPP2206" } ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
+} ,
+{
+code = "NUPP2512" ,
+summary = "A record is built by field order rather than by naming its fields" ,
+rule = "A record without a declared constructor may be built either way, and both build the same table. Naming the fields says at the call site which value lands where; leaving it to the order says it in the declaration, so a reader has to go there, and adding a field silently changes what an existing call means. A struct is exempt: it is its C layout, and that order is the layout's rather than the program's to name. Turn it off by name or by its `style` category, or write `@allow(\"positional-record-construction\")`."
+
+
+
+
+
+
+,
+wrong = "local record Point\n    x: integer\n    y: integer\nend\n\nlocal p = new Point(1, 2)\n\nreturn p\n"
+,
+right = "local record Point\n    x: integer\n    y: integer\nend\n\nlocal p = new Point(x = 1, y = 2)\n\nreturn p\n"
+,
+related = { "NUPP2202" , "NUPP2208" } ,
+docs = "docs/reference/lints.md#positional-record-construction" ,
+} ,
+{
+code = "NUPP2513" ,
+summary = "An API marked deprecated is used" ,
+rule = "`@deprecated` keeps an API available while telling callers to move away from it. The optional reason explains why and the replacement names what to use instead. The annotation changes tooling only: it reports this suppressible lint at use sites and emits no runtime behavior."
+
+
+,
+wrong = "local function current(): integer return 1 end\n\n@deprecated(replacement = \"current\")\nlocal function legacy(): integer return current() end\n\nreturn legacy()\n"
+
+,
+right = "local function current(): integer return 1 end\n\n@deprecated(replacement = \"current\")\nlocal function legacy(): integer return current() end\n\nreturn current()\n"
+
+,
+related = { "NUPP2115" } ,
+docs = "docs/reference/lints.md#deprecated" ,
+} ,
+{
+code = "NUPP2516" ,
+summary = "An export exposes a private nominal type" ,
+rule = "The `private-export-type` lint reports a private record, interface, or struct reached through an exported field, function signature, container, generic argument, or other public type position. The boundary remains valid: callers can infer and forward values of the hidden type, but cannot name or independently construct it. Export the nominal or an alias when callers should have a public name, or suppress the lint at the export when that opacity is intentional. Transparent aliases and private record fields do not expose a nominal identity."
+
+
+
+
+
+
+,
+wrong = "module geom.shapes\n\nlocal record Coordinate\n    x: number\nend\n\nexport record Point\n    coordinate: Coordinate\nend\n"
+,
+right = "module geom.shapes\n\nexport record Coordinate\n    x: number\nend\n\nexport record Point\n    coordinate: Coordinate\nend\n"
+,
+related = { "NUPP2004" } ,
+docs = "docs/reference/lints.md#private-export-type" ,
+} ,
+{
+code = "NUPP2208" ,
+summary = "A constructor does not hold up its declaration" ,
+rule = "A `constructor(self, ...)` body is what `new T(...)` runs. The instance is made before it and returned after it, so its whole job is to fill the fields in, and every field that cannot hold nil has to be filled, or the value handed back does not match the declaration it claims. That guarantee is the reason to prefer a constructor over a literal, so declaring one closes the literal form for that declaration. An interface builds nothing and cannot carry one. Constructors may be overloaded by parameter pack. A result annotation is the successful construction policy: it must be one value that erases to the record itself, such as `affine(T, T.destroy)`, because the body still returns the instance it allocated."
+
+
+
+
+
+
+
+
+
+
+,
+wrong = "local record Account\n    name: string\n    balance: number\n\n    constructor(self, name: string)\n        self.name = name\n    end\nend\n\nreturn Account\n"
+
+,
+right = "local record Account\n    name: string\n    balance: number\n\n    constructor(self, name: string)\n        self.name = name\n        self.balance = 0\n    end\nend\n\nreturn Account\n"
+
+,
+related = { "NUPP2202" , "NUPP2207" } ,
+docs = "docs/learn/language/types/records-and-structs.md#constructors-and-result-policies" ,
+} ,
+{
+code = "NUPP3005" ,
+summary = "Generated code that a Lua VM will not load" ,
+rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one of two limits, and the message says which. A function may capture at most sixty names from around it: one reading that many things from its scope is usually reading a record it could take as one argument instead, so pass what varies, or gather what it reads into one value and capture that. And a function, the file's top level included, may hold at most two hundred locals at once: past that, gather related values into a table, or split the function or the module in two. A declared module whose records, structs, interfaces, cdef items and exported functions do not fit is generated with those moved into a table, so only the `local`s it wrote count against its top level, and `nupp check` reports a top level with more of those than fit.\n\nAny other spelling of this is a bug in the compiler rather than in the program. `nupp lsp artifact --kind lua FILE` prints the Lua it wrote even when that Lua does not load, which is where the reason can be read. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written." ,
+related = { "NUPP3004" } ,
+docs = "docs/reference/diagnostics.md#nupp3005" ,
+} ,
+{
+code = "NUPP3006" ,
+summary = "The compiler or host cannot provide a required language capability" ,
+rule = "The compiler building an artifact and the host it targets fix the language representations and runtime modules it may use: the in-memory browser compiler has no native layout provider, and a browser host has no native runtime modules. Choose a target that supports the operation, or express it with a portable contract. Runtime provider selection cannot add a compiler representation." ,
+related = { "NUPP3005" } ,
+docs = "docs/reference/diagnostics.md#nupp3006" ,
+} ,
+{
+code = "NUPP3013" ,
+summary = "Authored syntax is outside the Lua 5.1 compatibility profile" ,
+rule = "The project-wide compat=lua51 requirement checks source before optimization. Types can erase, but runtime const, operators, jumps and literals specific to LuaJIT are rejected even in dead code. Use ordinary Lua 5.1 syntax; this profile does not invoke a lowerer." ,
+docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility" ,
+} ,
+{
+code = "NUPP3014" ,
+summary = "A runtime identity or representation requires LuaJIT" ,
+rule = "Compatibility follows resolved standard-library identities through aliases and checks the stock Lua 5.1 surface. Native bit, FFI, exact-width representations, string.buffer and VM table helpers are unavailable. Explicitly checked pure-Lua libraries remain usable; no automatic provider substitution occurs." ,
+docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility" ,
+} ,
+{
+code = "NUPP3015" ,
+summary = "A runtime dependency or calling contract cannot satisfy compatibility" ,
+rule = "Every runtime import needs checked source. A declaration alone, an opaque native module or non-enumerable dynamic code cannot certify compatibility. Literal loadstring source is checked recursively without execution. Cleanup cannot depend on yieldable protected calls or variadic xpcall arguments. Follow the reported dependency to an explicit Lua 5.1 implementation." ,
+docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility" ,
+} ,
+{
+code = "NUPP3016" ,
+summary = "Ordinary generated output does not satisfy Lua 5.1 syntax" ,
+rule = "The final compatibility guard checks generated helpers as well as authored code. A rejected construct needs shared portable emission before this profile can accept it. Changing the compatibility flag never selects the legacy Lua 5.1 lowerer." ,
+docs = "docs/learn/projects/portability/libraries.md#lua-51-source-compatibility" ,
+} ,
+{
+code = "NUPP3001" ,
+summary = "`is` has nothing to test against this type" ,
+rule = "A record is identified by the metatable it stamps and a struct by its ctype, so both answer `is` exactly. An interface has neither, by design, being conformance rather than provenance, so something has to stand in for one.\n\nThree things can. A literal-typed field is a tag, and the test is read off it with nothing written. A `satisfies` declaration says the test outright, for a shape no tag describes. And a subject whose own type declares the interface needs no test at all: the declaration already answered, so the `is` compiles to `true`. An alias has none of these and never will. An erased generic parameter also carries no runtime identity, even when its bound does."
+
+
+
+
+
+
+
+
+
+,
+wrong = "local interface Drawable\n    width: number\nend\n\nlocal record Sprite is Drawable\n    width: number\nend\n\nlocal unknown: any = new Sprite(width = 1)\n\nreturn unknown is Drawable\n"
+
+
+,
+right = "local interface Drawable\n    kind: \"drawable\"\n    width: number\nend\n\nlocal record Sprite is Drawable\n    kind: \"drawable\"\n    width: number\nend\n\nlocal unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\nreturn unknown is Drawable\n"
+
+
+
+
+,
+related = { "NUPP2122" } ,
+docs = "docs/learn/language/types/interfaces.md#is-at-runtime" ,
+} ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2707" ,
+summary = "A function required to compile crosses an unsupported JIT boundary" ,
+rule = "`@jit` promises that a function contains no variadic FFI call and does not pass a Lua callback into C. Move the boundary into a function disabled with `jit.off`, or remove `@jit` when tracing is not required."
+
+,
+wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n" ,
+right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n" ,
+related = { "NUPP2502" , "NUPP2514" } ,
+docs = "docs/learn/runtime/c-interop/index.md#jit-sensitive-c-boundaries" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2710" ,
+summary = "A non-allocating region can reach allocation" ,
+rule = "A `@noalloc` region may only call operations whose visible bodies or exact exported guarantees prove they perform no managed allocation. Remove the construction, move it outside the region, or give an unseen declaration a truthful trusted @effects contract."
+
+
+,
+wrong = "local function build(): nil\n    local values = {}\nend\n\n@noalloc do\n    build()\nend\n" ,
+right = "local function update(): nil\n    local n = 1\nend\n\n@noalloc do\n    update()\nend\n" ,
+related = { "NUPP2112" , "NUPP2711" } ,
+docs = "docs/learn/language/effects.md#allocation-and-raising-regions" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2711" ,
+summary = "A non-raising region can reach an error path" ,
+rule = "A `@noraise` region may only call operations whose visible bodies or exact exported guarantees prove they cannot raise a catchable language error. Validate the precondition first, remove the error path, or move the operation outside the region."
+
+
+,
+wrong = "local function fail(): nil\n    error('failed')\nend\n\n@noraise do\n    fail()\nend\n" ,
+right = "local function finish(): nil\nend\n\n@noraise do\n    finish()\nend\n" ,
+related = { "NUPP2112" , "NUPP2710" } ,
+docs = "docs/learn/language/effects.md#allocation-and-raising-regions" ,
+}
+
+ENTRIES [ # ENTRIES + 1 ] = {
+code = "NUPP2515" ,
+summary = "A loop builds a function and so never compiles" ,
+
+
+rule = "LuaJIT has no recording for the bytecode that builds a function, so a loop containing one aborts trace recording, is blacklisted after enough attempts, and then runs interpreted however hot it gets. A function that reads nothing from the iteration is `loop-invariant-closure` and lifts out unchanged; this is the other one, which reads the iteration and cannot. The way out where there is one is to declare a function above the loop that takes what varies as arguments, so the loop calls one rather than builds one.\n\nNothing about the program's answers changes either way, which is why this is off until a project asks for it. `@jit` is where it is not optional: that annotation promises the function compiles, so the same hazard inside one is reported as NUPP2707, and `jit.off` on the enclosing function silences it. `nupp bc --check` finds the same loops in any file without running it."
+
+
+
+
+
+
+
+
+
+
+,
+related = { "NUPP2505" , "NUPP2707" } ,
+docs = "docs/reference/lints.md#jit-loop-closure" ,
+}
+
+ENTRIES [ # ENTRIES + 1 ] = {
+code = "NUPP2518" ,
+summary = "A closed no-input function repeats work that comptime can erase" ,
+
+
+rule = "A function with no parameters and no runtime captures that does deterministic construction and iteration repeats the same work every time it is called. When the bounded comptime evaluator proves that work reduces to a materially smaller scalar literal, wrapping the body in `comptime do` makes that choice explicit and keeps the function's runtime API: the offered fix does exactly that, and the function then returns the literal.\n\nMethods, functions with parameters or runtime captures, nondeterministic or unsupported operations, table results, trivial literal bodies, and work that does not become materially smaller are not reported. The lint is off until a project enables the performance category or the lint by name."
+
+
+
+
+
+
+
+
+,
+related = { "NUPP2410" , "NUPP2411" } ,
+docs = "docs/reference/lints.md#prefer-comptime" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2901" ,
+summary = "One function is promised to two compilers" ,
+rule = "`@jit` promises a function compiles as a LuaJIT trace. `@aot` reserves that body for ahead-of-time compilation. Stacking them asks two compilers for the same code, so one of the two has to go: keep `@aot` when the function should compile ahead of time, and `@jit` when it should trace."
+
+
+,
+wrong = "@jit\n@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
+right = "@aot\nlocal function hot(scale: number): number\n    return scale * 2.0\nend\n" ,
+related = { "NUPP2707" , "NUPP2902" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2902" ,
+summary = "`@aot` is attached to something that is not a whole function" ,
+rule = "`@aot` compiles one complete function and puts a wrapper in front of the function value callers see. A constructor and an inline interface requirement are neither: the compiler generates code around both, and neither is a value the wrapper can stand in front of. A function nested inside another function is a fresh value on every call of the one holding it, which is not something one wrapper can stand in front of either. Move the work into an ordinary top-level function and annotate that, then call it from wherever it was."
+
+
+
+
+
+,
+wrong = "local record Point\n    x: number\n    @aot\n    constructor(self, x: number)\n        self.x = x\n    end\nend\n"
+,
+right = "@aot\nlocal function scaled(x: number): number\n    return x * 2.0\nend\n\nlocal record Point\n    x: number\n    constructor(self, x: number)\n        self.x = scaled(x)\n    end\nend\n"
+
+,
+related = { "NUPP2901" , "NUPP2903" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2903" ,
+summary = "An `@aot` body contains a construct with no AOT IR representation" ,
+rule = "The body of an `@aot` function is ordinary Nupp, but only the part of it the AOT IR can represent. The IR has no closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe operation, so a body containing one cannot compile ahead of time and says so here rather than failing in a backend. Rewrite the body without it, or remove `@aot` and let the function run as ordinary Nupp."
+
+
+
+
+,
+wrong = "@aot\nlocal function total(scale: number): number\n    local function double(x: number): number\n        return x * 2.0\n    end\n\n    return double(scale)\nend\n"
+
+,
+right = "local function double(x: number): number\n    return x * 2.0\nend\n\n@aot\nlocal function total(scale: number): number\n    return double(scale)\nend\n"
+,
+related = { "NUPP2901" , "NUPP2902" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2904" ,
+summary = "A construct needs a capability the selected target does not have" ,
+rule = "A target profile states what a destination admits: a dynamic loader, a tracing JIT, FFI callbacks, and a way to resolve a default-namespace symbol out of a static archive. `@jit` on a target with no trace compiler asserts a contract nothing there can meet, and a `cdef ... from \"name\"` on a target with no loader asks the platform to load something it cannot; both are refused where they are written rather than on the device. Reach the same C through the default namespace, which a static link puts in the process image, and drop `@jit` where nothing traces. Which target is selected is what decides this, so no isolated file exhibits it on its own: a target is described by the built-in profile for its triple or by a verified descriptor in a compiler pack, and a target nothing describes refuses nothing."
+
+
+
+
+
+
+
+
+
+,
+related = { "NUPP2707" , "NUPP2901" } ,
+docs = "docs/learn/projects/build.md#target-capability-profiles" ,
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2905" ,
+summary = "An `@aot` body uses a value or operation lowering cannot admit" ,
+rule = "An `@aot` body lowers to typed native code, which decides at compile time what the Lua version decides as it runs: a branch condition has to be a boolean rather than any truthy value, a call has to reach an admitted intrinsic or helper, a span read has to be proved in bounds, and a parameter has to have a type the native ABI can carry. The message names the construct and what it would take. Rewrite that construct, or remove `@aot` and let the function run as ordinary Nupp."
+
+
+
+
+
+,
+wrong = "@aot\nlocal function sign(value: number): number\n    if value then\n        return 1.0\n    end\n    return 0.0\nend\n\nreturn {sign = sign}\n"
+,
+right = "@aot\nlocal function sign(value: number): number\n    if value > 0 then\n        return 1.0\n    end\n    return 0.0\nend\n\nreturn {sign = sign}\n"
+,
+aot = true ,
+related = { "NUPP2903" , "NUPP2906" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2906" ,
+summary = "The selected feature tier cannot carry an explicit vector operation" ,
+rule = "Explicit SIMD code is legalized for the tier it is compiled for, and every tier a build selects compiles the same body. A constant lane index past the lanes the tier's species has names a lane that does not exist there. Index within `species.lanes`, or keep the lane-specific code inside the branch that tested the species."
+
+
+
+,
+wrong = ("local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\nlocal function lane(borrows input: span.Span<float>): number\n    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\nreturn {lane = lane}\n") : gsub ( "LANE" , "5" ) ,
+right = ("local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\nlocal function lane(borrows input: span.Span<float>): number\n    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\nreturn {lane = lane}\n") : gsub ( "LANE" , "1" ) ,
+aot = true ,
+related = { "NUPP2905" } ,
+docs = "docs/learn/performance/ahead-of-time/simd-programming.md#prefix-scans" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2907" ,
+summary = "A GPU kernel is outside the subset the GPU backend compiles" ,
+rule = "A kernel that runs on the GPU lowers to a shader, which has no call stack, no dynamic allocation and a narrower set of types than a CPU kernel. The message names the rule the kernel broke. Keep the kernel to the map and workgroup forms the GPU page describes, or run it on the CPU."
+
+
+,
+wrong = ("local span = require(\"nupp.mem.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n    exclusive output: span.WriteSpan<float>,\n    borrows input: span.Span<float>,\n    PARAMETER\n): nil\n    assert(#output == #input, \"length mismatch\")\n    for index = 1, #output do\n        output[index] = VALUE\n    end\nend\n\nreturn {scale = scale}\n") : gsub ( "PARAMETER" , "enabled: boolean" ) : gsub ( "VALUE" , "enabled and input[index] or 0.0" ) ,
+right = ("local span = require(\"nupp.mem.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n    exclusive output: span.WriteSpan<float>,\n    borrows input: span.Span<float>,\n    PARAMETER\n): nil\n    assert(#output == #input, \"length mismatch\")\n    for index = 1, #output do\n        output[index] = VALUE\n    end\nend\n\nreturn {scale = scale}\n") : gsub ( "PARAMETER" , "factor: float" ) : gsub ( "VALUE" , "input[index] * factor" ) ,
+aot = true ,
+related = { "NUPP2905" } ,
+docs = "docs/learn/performance/ahead-of-time/gpu.md#inspection-and-limits" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2908" ,
+summary = "A const-specialized family cannot be compiled" ,
+rule = "A const-generic `@aot` function compiles one body per closed set of constant arguments its callers use, from a checked source, and a module may demand only so many of them. Pass fewer distinct constants, or make the varying argument an ordinary parameter."
+
+
+,
+wrong = ("@aot\nlocal function SIGNATURE: number\n    local answer = value\n    for _ = 1, BOUND do\n        answer = answer + value\n    end\n    return answer\nend\n\nreturn repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4) + repeated(1.0, 5)\n    + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)\n") : gsub ( "SIGNATURE" , "repeated<const N: integer>(value: number, count: N)" )
+: gsub ( "BOUND" , "count as integer" ) ,
+right = ("@aot\nlocal function SIGNATURE: number\n    local answer = value\n    for _ = 1, BOUND do\n        answer = answer + value\n    end\n    return answer\nend\n\nreturn repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4) + repeated(1.0, 5)\n    + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)\n") : gsub ( "SIGNATURE" , "repeated(value: number, count: integer)" ) : gsub ( "BOUND" , "count" ) ,
+aot = true ,
+related = { "NUPP2905" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#const-specialized-families" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2910" ,
+summary = "A native-only `@aot` entry is used where Lua would execute it" ,
+rule = "An `@aot` function whose signature carries a `simd.Vector` or a `simd.Mask` is native-only: a register holds such a value and Lua has nothing to hand through the parameter or receive from the result, so the build gives it no Lua wrapper and it is called only from another `@aot` function. Every use outside one -- a call, an argument, a return, a field store -- is refused where it is written, for a target whose policy compiles. The member the module exports it under and the binding another module imports it through are admitted, because the native call resolves through them without reading a Lua value. Move the call into an `@aot` function, or give the entry a span and scalar signature."
+
+
+
+
+
+
+
+
+,
+wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\nlocal function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n    return value + value\nend\n\nlocal function fromLua(): simd.Vector<float, simd.Preferred>\n    local species = simd.species(array.float)\n    return twice(species:splat(1.0))\nend\n\nreturn {twice = twice, fromLua = fromLua}\n"
+
+
+
+
+,
+right = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\nlocal simd = require(\"nupp.simd\")\n\n@aot\nlocal function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>\n    return value + value\nend\n\n@aot\nlocal function apply(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil\n    assert(#output == #input, \"length mismatch\")\n    local species = simd.species(array.float)\n    for at, active in species:over(#input) do\n        species:store(output, at, twice(species:load(input, at, active)), active)\n    end\nend\n\nreturn {twice = twice, apply = apply}\n"
+
+
+
+
+
+
+
+,
+aot = true ,
+related = { "NUPP2905" } ,
+docs = "docs/learn/performance/ahead-of-time/simd-programming.md#native-only-entries" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2911" ,
+summary = "A field of a native-only aggregate is assigned" ,
+rule = "A struct holding a `simd.Vector` or a `simd.Mask` is a native-only aggregate: a value the register file holds, as the vectors in it are. It has no field stores, in native code or as ordinary Lua, so the two never disagree about who sees a write. Construct a new aggregate with the field changed."
+
+
+,
+wrong = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\nlocal function conjugate(z: Pair): Pair\n    z.im = -z.im\n    return z\nend\n\nreturn {conjugate = conjugate, Pair = Pair}\n"
+
+
+,
+right = "local simd = require(\"nupp.simd\")\n\nlocal struct Pair\n    re: simd.Vector<float, simd.Preferred>\n    im: simd.Vector<float, simd.Preferred>\nend\n\n@aot\nlocal function conjugate(z: Pair): Pair\n    return new Pair(z.re, -z.im)\nend\n\nreturn {conjugate = conjugate, Pair = Pair}\n"
+
+
+,
+related = { "NUPP2910" } ,
+docs = "docs/learn/performance/ahead-of-time/simd-programming.md#native-only-aggregates" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2909" ,
+summary = "A file given to AOT compilation has no `@aot` function" ,
+rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so a file without one has nothing to show. A build or a check that merely finds the word `@aot` in a file's text does not report this, which is why there is no example program here: only `nupp aot` reports it."
+
+
+,
+related = { "NUPP2905" } ,
+docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP4002" ,
+summary = "A file is not formatted the way `nupp fmt` writes it" ,
+rule = "There is one formatted spelling of a file, and `nupp fmt --check` and a project-wide `nupp fmt` report every file that differs from it. Nothing is wrong with the program; run `nupp fmt --write` on the file to produce the spelling."
+
+
+,
+related = { "NUPP4001" } ,
+docs = "docs/learn/tooling/formatter.md#formatter-modes" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP1001" ,
+summary = "The lexer could not read a token to completion" ,
+rule = "A string, long string, long comment, interpolation, or number must close or resolve within the input it is given: a quote must find its matching quote before the line ends, a long bracket must find its matching close, and a numeral must match the shape of a number. A byte that starts none of the lexer's tokens is reported the same way. Recovery marks the malformed span as an error token and resumes lexing from the next line." ,
+wrong = "local s = 'oops\nreturn 1\n" ,
+right = "local s = 'oops'\nreturn s\n" ,
+related = { "NUPP1002" , "NUPP1005" } ,
+docs = "docs/reference/diagnostics.md#nupp1001" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP1003" ,
+summary = "A required name is missing" ,
+rule = "Certain tokens are always followed by a name: '.', 'function', 'for', 'as', '@', 'metamethod', and other positions where a declaration or reference names something. When the next token is not a name, the parser reports it there and inserts a zero-width name placeholder so parsing, and the source round trip, can continue." ,
+wrong = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.\nend\n\nreturn show\n" ,
+right = "local record Point\n    x: number\nend\n\nlocal function show(p: Point): number\n    return p.x\nend\n\nreturn show\n" ,
+related = { "NUPP1002" , "NUPP1004" } ,
+docs = "docs/reference/diagnostics.md#nupp1003" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP1004" ,
+summary = "A required expression is missing" ,
+rule = "An expression position, whether a parenthesized operand, a call argument, or the whole of a value, must actually contain one; a token that cannot begin an expression is reported there and replaced with a zero-width placeholder. `new` is held to the same requirement in its own way: it takes a suffixed expression that must end in a call, since a bare `new T` would be a second spelling of `new T()`." ,
+wrong = "local record Point\n    x: integer\nend\n\nlocal bare = new Point\n\nreturn bare\n" ,
+right = "local record Point\n    x: integer\nend\n\nlocal made = new Point(x = 1)\n\nreturn made\n" ,
+related = { "NUPP1002" , "NUPP1003" } ,
+docs = "docs/reference/diagnostics.md#nupp1004" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP1005" ,
+summary = "Another syntax or recovery constraint failed" ,
+rule = "The catch-all syntax code, used for a structural violation that is not a missing token, name, or expression: a `return` that is not the last statement in its block, a `const` path that is not static, expressions, blocks or types nested more than a thousand levels deep, and similar constraints the parser enforces directly. Each diagnostic's message names the specific rule that failed." ,
+wrong = "return 1\nlocal x = 2\n" ,
+right = "local x = 2\nreturn x\n" ,
+related = { "NUPP1002" , "NUPP1004" } ,
+docs = "docs/reference/diagnostics.md#nupp1005" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2003" ,
+summary = "An operator's operand types cannot support what it does" ,
+rule = "Arithmetic, comparison, concatenation, length, and LPeg's pattern algebra each accept a fixed set of operand shapes or a metamethod contract that stands in for one. LPeg's `Pattern` operators are compiler-provided rather than ordinary metamethods: `*`, `+`, and `-` need operands whose capture shapes can be combined, `^` needs an integer exponent, `/` needs a string, integer, function, or table transform, and `%` needs a function accumulator. An operand outside what the operator accepts is reported rather than run to see what happens." ,
+wrong = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ \"two\"\nreturn pattern\n" ,
+right = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ 2\nreturn pattern\n" ,
+related = { "NUPP2005" , "NUPP2006" } ,
+docs = "docs/reference/diagnostics.md#nupp2003" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2005" ,
+summary = "A call's callee has no callable type or `__call` contract" ,
+rule = "A call needs a function type, an intersection with at least one function member, or a receiver whose type contracts for `__call`. `any` is exempt, since it opts the value out of checking; anything else that is called is reported once, and its argument expressions are still checked so one mistake does not hide another." ,
+wrong = "local count: integer = 5\nreturn count()\n" ,
+right = "local function callable(): integer\n    return 5\nend\nreturn callable()\n" ,
+related = { "NUPP2003" , "NUPP2006" } ,
+docs = "docs/reference/diagnostics.md#nupp2005" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2007" ,
+summary = "A call passes more arguments than its callee accepts" ,
+rule = "A function that takes fewer parameters is usable where more are supplied, because ignoring trailing arguments is ordinary Lua; the reverse is an error unless the callee's parameter pack has a variadic tail to absorb the extras." ,
+wrong = "local function keep(value: integer): integer\n    return value\nend\nreturn keep(1, 2)\n" ,
+right = "local function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
+related = { "NUPP2006" , "NUPP2010" } ,
+docs = "docs/learn/language/types/primitives.md#function-declarations" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2008" ,
+summary = "A const binding or const module field is assigned to" ,
+rule = "The `const` modifier on a local or a module field is a promise that nothing after its initializer changes it. An ordinary assignment or compound assignment to that name is refused, whether the binding is a local declared `const`, a builtin the prelude declares constant, or a field a module recorded as const on first assignment." ,
+wrong = "const count = 1\ncount = 2\nreturn count\n" ,
+right = "local count = 1\ncount = 2\nreturn count\n" ,
+related = { "NUPP2001" , "NUPP2602" } ,
+docs = "docs/learn/language/types/primitives.md#const" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2102" ,
+summary = "Two project globals declare the same type name" ,
+rule = "A `global` declaration is reachable project-wide with no `require`, so globals share one flat namespace across every file. When two files each declare a global type of the same name, an unqualified use of that name cannot know which declaration it means, and both declaring locations are reported. This is inherently a whole-project condition: within the file that declares a name, its own declaration is already in scope directly and this check is not reached, so a single isolated file cannot exhibit it on its own." ,
+related = { "NUPP2104" , "NUPP2101" } ,
+docs = "docs/reference/diagnostics.md#nupp2102" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2104" ,
+summary = "Two project globals declare the same value name" ,
+rule = "A `global record` or `global struct` declaration puts a value in `_G` as well as a type in the project's global type namespace. When two files each declare a global of the same name whose value side collides, an unqualified use of that name as a value cannot know which declaration it means, and both declaring locations are reported. Like NUPP2102, this is a whole-project condition: a file that declares the name resolves its own declaration directly and never reaches this check, so a single isolated file cannot exhibit it on its own." ,
+related = { "NUPP2102" , "NUPP2120" } ,
+docs = "docs/reference/diagnostics.md#nupp2104" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2105" ,
+summary = "A name is not any value the checker or project can account for" ,
+rule = "A name the checker cannot account for is reported unless it is a project module's basename, with a spelling fix offered when a visible name is close enough to be the one meant. A `.lua` file reports none, since an unknown name there may be a Lua global set at run time." ,
+wrong = "local function shout(text: string): string\n    return txet .. \"!\"\nend\nreturn shout\n" ,
+right = "local function shout(text: string): string\n    return text .. \"!\"\nend\nreturn shout\n" ,
+related = { "NUPP2120" , "NUPP2101" } ,
+docs = "docs/reference/diagnostics.md#nupp2105" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2109" ,
+summary = "A name written to select a parameter or captured value resolves to nothing" ,
+rule = "Several forms name a parameter or a value already in scope rather than introduce one: a predicate's `x is T` result names the tested parameter, and a closure's `takes (...)` or `borrows (...)` clause names values it captures. Each such name must resolve to an actual parameter of the enclosing function, or an actual value visible where the closure is written; a name that answers to nothing there is reported rather than silently ignored." ,
+wrong = "local record R\n    x: integer\nend\n\nlocal function f(a: R): b is R\n    return true\nend\n\nreturn f\n" ,
+right = "local record R\n    x: integer\nend\n\nlocal function f(a: R): a is R\n    return true\nend\n\nreturn f\n" ,
+related = { "NUPP2110" } ,
+docs = "docs/learn/language/types/narrowing.md#predicate-functions" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2110" ,
+summary = "A predicate's tested parameter could never hold the narrowed type" ,
+rule = "A predicate's return type `param is T` is trusted rather than verified for what the body proves, but the checker still confirms the shape is coherent: the named parameter's declared type must be able to hold T. When the two types are disjoint the predicate can never truthfully hold, so it is refused rather than compiled as narrowing that could never fire." ,
+wrong = "local record R\n    x: integer\nend\n\nlocal function f(a: string): a is R\n    return true\nend\n\nreturn f\n" ,
+right = "local record R\n    x: integer\nend\n\nlocal function f(a: R): a is R\n    return true\nend\n\nreturn f\n" ,
+related = { "NUPP2109" } ,
+docs = "docs/learn/language/types/narrowing.md#predicate-functions" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2111" ,
+summary = "An annotation name does not resolve to a definition" ,
+rule = "An `@name` application resolves `name` against a definition: a compiler built-in, or a project declaration reached with `@annotation`. Applying a name nothing defines, or one a project's own resolution reports an error for, is refused rather than treated as an inert comment." ,
+wrong = "@inline\nlocal function f(): nil\nend\n\nreturn f\n" ,
+right = "local function f(): nil\nend\n\nreturn f\n" ,
+related = { "NUPP2112" , "NUPP2114" } ,
+docs = "docs/reference/annotations.md#defining-an-annotation" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2112" ,
+summary = "An annotation is applied where its definition forbids it, or with arguments outside its declared shape" ,
+rule = "A definition's `targets` set is the complete list of constructs an application may decorate, and its argument policy (none, names, effects, warnings, typed) is the complete shape its arguments may take. An application outside either is refused rather than silently accepted." ,
+wrong = "@jit\nlocal x = 1\n\nreturn x\n" ,
+right = "@jit\nlocal function f(): nil\nend\n\nreturn f\n" ,
+related = { "NUPP2111" , "NUPP2115" } ,
+docs = "docs/reference/annotations.md#attachment-targets" ,
+}
+
+ENTRIES [ # ENTRIES + 1 ] = {
+code = "NUPP2113" ,
+summary = "A reserved built-in annotation is applied before its behavior is implemented" ,
+
+
+rule = "A built-in definition may carry a reservation naming the feature it is waiting on, ahead of the feature existing. Applying that name still parses and resolves, since the definition is real, but is refused with what it is reserved for rather than silently accepted and doing nothing. No shipped built-in currently carries a reservation -- the mechanism exists for a name registered ahead of its implementation, as `@jit` itself once was." ,
+related = { "NUPP2111" , "NUPP2112" } ,
+docs = "docs/reference/diagnostics.md#nupp2113" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2114" ,
+summary = "@annotationValue or @ref is used outside an annotation-definition field, or a definition's own shape is invalid" ,
+rule = "@annotationValue and @ref are meaningful only on a field inside a record or struct itself marked @annotation, and @annotation takes exactly one named `targets` argument: a non-empty array of target-name string literals. Any of these written where that context is missing describes a definition that cannot exist." ,
+wrong = "local record Plain\n    @annotationValue\n    x: string\nend\n" ,
+right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationValue\n    x: string\nend\n" ,
+related = { "NUPP2115" , "NUPP2112" } ,
+docs = "docs/reference/annotations.md#single-value-applications" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2115" ,
+summary = "A typed annotation's argument does not fit its member, or is not a compile-time constant" ,
+rule = "A `typed`-argument annotation checks each supplied argument against the member it names: the value must fit the member's declared type, a `@ref` member must resolve to a compatible type reference, no member may be supplied twice, and every required member must be supplied. Only the member marked `@annotationValue` may be supplied positionally." ,
+wrong = "@syntax(42)\nlocal value = 1\n\nreturn value\n" ,
+right = "@syntax(\"json\")\nlocal value = 1\n\nreturn value\n" ,
+related = { "NUPP2114" , "NUPP2112" } ,
+docs = "docs/reference/annotations.md#built-in-annotations" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2116" ,
+summary = "A type argument, or an associated-type answer, does not fit its declared bound" ,
+rule = "A `T is Bound` constraint, wherever it is written -- a generic type parameter or an associated type's own bound -- is checked where the argument is supplied: at a generic's instantiation, or at the default or answer that fills the associated type. An `any` argument skips the check; any other concrete type must actually satisfy the bound." ,
+wrong = "local interface Named\n    name: string\nend\n\nlocal interface Tagged\n    associated type Tag is Named = integer\nend\n\nreturn Tagged\n" ,
+right = "local interface Named\n    name: string\nend\n\nlocal interface Tagged\n    associated type Tag is Named = Named\nend\n\nreturn Tagged\n" ,
+related = { "NUPP2117" , "NUPP2003" } ,
+docs = "docs/learn/language/types/generics.md#constraints-use-is" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2117" ,
+summary = "A declaration names an invalid interface after `is`" ,
+rule = "Only an interface may appear after `is` on a record, struct, or interface declaration, because that is the only declaration kind able to state a contract for another to inherit. An interface cannot implement itself, directly or through other interfaces: the declared hierarchy must be acyclic. A record, struct, alias, or any other named value is refused there even when its shape happens to match." ,
+wrong = "local record Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n" ,
+right = "local interface Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n" ,
+related = { "NUPP2116" , "NUPP2136" } ,
+docs = "docs/learn/language/types/interfaces.md#is-is-a-claim-not-a-proof" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2130" ,
+summary = "A type-level reduction cannot resolve the operator it is given" ,
+rule = "`keyof`, `T.[K]`, `writeof`, mapped shapes, and template construction each reduce a neutral type-level term to a concrete type. A term whose operand is not the shape the operator needs -- chief among them a member projection naming a key the subject does not have -- fails to reduce, and is reported where it was written rather than left as an opaque type." ,
+wrong = "local function read(value: {name: string}.['missing']): string\n    return value\nend\n\nreturn read\n" ,
+right = "local function read(value: {name: string}.['name']): string\n    return value\nend\n\nreturn read\n" ,
+related = { "NUPP2132" , "NUPP2133" } ,
+docs = "docs/learn/language/types/comptime-types.md#direct-finite-operators" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2131" ,
+summary = "A const type parameter cannot be given the value it needs" ,
+rule = "A `const` type parameter's value must be inferable from a use that names it directly -- an argument, or another const parameter already bound to the same one -- and every use inferring the same parameter must agree on exactly the same value. A parameter nothing binds, two arguments that disagree, or a value outside the parameter's declared const domain are each refused." ,
+wrong = "local function same<const S: string>(left: S, right: S): nil\nend\n\nsame('x', 'y')\n" ,
+right = "local function same<const S: string>(left: S, right: S): nil\nend\n\nsame('x', 'x')\n" ,
+related = { "NUPP2101" , "NUPP2130" } ,
+docs = "docs/learn/language/types/comptime-types.md#const-parameters" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2132" ,
+summary = "A template type's hole cannot reduce to a finite string literal" ,
+rule = "A backtick template type's `${...}` holes must each reduce to a finite union of string or numeric literals, so the product of every combination is itself finite. A hole naming an unbounded type such as `string`, or one that is not a valid compile-time constant expression at all, cannot be enumerated and is refused." ,
+wrong = "local function read(value: `${string}`): string\n    return value\nend\n\nreturn read\n" ,
+right = "local type Choice = 'a' | 'b'\nlocal function read(value: `${Choice}`): string\n    return value\nend\n\nreturn read\n" ,
+related = { "NUPP2130" , "NUPP2133" } ,
+docs = "docs/learn/language/types/comptime-types.md#direct-finite-operators" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2201" ,
+summary = "A struct field has no C-representable layout" ,
+rule = "A struct is laid out in C memory, so every field needs a fixed size and offset. A field type has to be reifiable: a numeric primitive, another struct held by value, a pointer, or a fixed C array. A struct cannot hold itself by value, because the layout would then have to contain a copy of itself and so would have no size; hold self-reference through a pointer instead." ,
+wrong = "local struct Loop\n    me: Loop\n    n: int32\nend\nreturn Loop\n" ,
+right = "local struct Loop\n    me: Loop*?\n    n: int32\nend\nreturn Loop\n" ,
+related = { "NUPP2204" , "NUPP2205" , "NUPP2402" } ,
+docs = "docs/learn/language/types/records-and-structs.md#pointing-at-itself" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2204" ,
+summary = "A struct declares a Lua array part" ,
+rule = "The array part `{T}` makes a record's own instances behave as a one-based Lua sequence, which only makes sense for a table-backed value. A struct has no Lua table underneath it, so it cannot declare one; use a fixed C array field `T[N]` for an inline vector instead." ,
+wrong = "local struct P\n    {integer}\n    x: float\nend\nreturn P\n" ,
+right = "local struct P\n    x: float[4]\nend\nreturn P\n" ,
+related = { "NUPP2201" , "NUPP2205" } ,
+docs = "docs/reference/diagnostics.md#nupp2204" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2205" ,
+summary = "An array part is not written as a single element type" ,
+rule = "The array part is spelled `{T}`: braces around exactly the element type. Anything else inside the braces, such as a shape with named fields, resolves to a different kind of type and is not a valid array part." ,
+wrong = "local record R\n    {x: integer}\n    y: integer\nend\nreturn R\n" ,
+right = "local record R\n    {integer}\n    y: integer\nend\nreturn R\n" ,
+related = { "NUPP2204" , "NUPP2201" } ,
+docs = "docs/reference/diagnostics.md#nupp2205" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2301" ,
+summary = "cheader's arguments are not the literal form it takes" ,
+rule = "cheader reads the named header at compile time, so everything it is given has to be known to the compiler before the program runs. It takes a literal header path, then optionally a literal library name, then optionally the literal \"preprocess\", and nothing more. A computed header path or library name, a third argument other than \"preprocess\", and any argument after the third are each refused." ,
+wrong = "local mini = cheader(\"mini\" .. \".h\")\nreturn mini\n" ,
+right = "local mini = cheader(\"mini.h\")\nreturn mini\n" ,
+related = { "NUPP2302" } ,
+docs = "docs/learn/runtime/c-interop/index.md#type-the-header-in-place" ,
+}
+
+ENTRIES [ # ENTRIES + 1 ] = {
+code = "NUPP2302" ,
+summary = "A cheader path cannot be read" ,
+
+
+
+rule = "cheader resolves its literal path relative to the file, then as written, then against each project root, and reads whichever candidate exists first. When none can be opened, the diagnostic reports why, the same way an unreadable source path is reported." ,
+wrong = "local mini = cheader(\"missing.h\")\nreturn mini\n" ,
+related = { "NUPP2301" , "NUPP0001" } ,
+docs = "docs/learn/runtime/c-interop/index.md#type-the-header-in-place" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2303" ,
+summary = "A literal ffi.cdef block does not parse as C" ,
+rule = "A literal string given directly to ffi.cdef declares to the checker as well as to LuaJIT at runtime, so it has to be declarations LuaJIT's own C parser accepts. A string built at runtime, or reached only through a guard, is not read this way and so cannot be checked." ,
+wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ this is not C ]]\nreturn 0\n" ,
+right = "local ffi = require(\"ffi\")\nffi.cdef[[ int mini_add(int a, int b); ]]\nreturn 0\n" ,
+related = { "NUPP2301" , "NUPP2304" } ,
+docs = "docs/learn/runtime/c-interop/index.md#hand-write-a-small-binding" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2304" ,
+summary = "A typed FFI operation's type string does not name a C type" ,
+rule = "ffi.new, ffi.cast, ffi.typeof, ffi.istype, ffi.sizeof, and ffi.alignof read a literal string argument through LuaJIT's own type-string parser when one is given, so that string has to name a type already declared, through a cdef or cheader the checker has already seen." ,
+wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstNoSuch\")\nreturn p\n" ,
+right = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstA\")\nreturn p\n" ,
+related = { "NUPP2303" , "NUPP2203" } ,
+docs = "docs/learn/runtime/c-interop/index.md#typed-ffi-operations" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2401" ,
+summary = "carray's arguments are not a struct type and an element count" ,
+rule = "carray(T, n) allocates a zero-based C array of n elements of T. T must resolve to a reified struct type -- a record is a table with no C layout to array up -- and n must be a number, or `any`, usable as an element count." ,
+wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
+right = "local struct Point\n    x: float\n    y: float\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
+related = { "NUPP2402" , "NUPP2201" } ,
+docs = "docs/learn/runtime/c-interop/index.md#typed-ffi-operations" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2402" ,
+summary = "layoutof was asked about something with no C layout" ,
+rule = "layoutof(T) answers how a reified struct sits in memory: its fields in declaration order with their offsets, sizes and padding, the whole size, and a fingerprint over all of it. Only a struct has one -- a record is a table, not C memory -- and a struct with no fields has nothing to lay out." ,
+wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn layoutof(Point)\n" ,
+right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn layoutof(Point)\n" ,
+related = { "NUPP2401" , "NUPP2201" } ,
+docs = "docs/learn/runtime/c-interop/index.md#read-a-structs-layout" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2403" ,
+summary = "An SoA allocation or column projection has no resolved stored field" ,
+rule = "Structure-of-arrays storage accepts only a reified struct whose top-level fields have fixed C storage; a record, union, interface, GC-managed field, owned field, borrowed field, or variable-size field is not SoA-eligible. A row view's dot or literal bracket projection must likewise name one such stored field of that struct, not a dynamic name or an unknown one." ,
+wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.allocate(ffi.typeof<int32>(), 4)\nreturn rows\n" ,
+right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.allocate(ffi.typeof<Point>(), 4)\nrows:close()\n" ,
+related = { "NUPP2402" , "NUPP2009" } ,
+docs = "docs/reference/diagnostics.md#nupp2403" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2410" ,
+summary = "A comptime block reads or writes a binding it cannot reach" ,
+rule = "A comptime block evaluates in a scope of its own: its own locals and parameters, comptime-declared functions, and the allowlisted compile-time environment. A runtime local, upvalue, module-level binding, global, or an ambient library the environment does not expose -- `io`, `os`, `require`, `debug` among them -- cannot be read, and the same set cannot be assigned." ,
+wrong = "local n = 5\nlocal value: integer = comptime do\n    return n\nend\nprint(value)\n" ,
+right = "local value: integer = comptime do\n    return 5\nend\nprint(value)\n" ,
+related = { "NUPP2411" , "NUPP2412" } ,
+docs = "docs/reference/diagnostics.md#nupp2410" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2411" ,
+summary = "A construct or library member is unavailable at comptime" ,
+rule = "The comptime evaluator supports a fixed subset of Nupp -- literals, control flow, operators over ordinary values, and calls into an explicit allowlist of library members -- and names what falls outside it: a nested function declaration, a multi-value result, a logical operator observing an opaque value, or a library member the allowlist leaves out because it is nondeterministic, such as `math.random`." ,
+wrong = "local value: number = comptime do\n    return math.random()\nend\nprint(value)\n" ,
+right = "local value: number = comptime do\n    return math.floor(7 / 2)\nend\nprint(value)\n" ,
+related = { "NUPP2410" , "NUPP2412" } ,
+docs = "docs/reference/diagnostics.md#nupp2411" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2412" ,
+summary = "A comptime evaluation exceeded a bound or used a value it cannot" ,
+rule = "Comptime evaluation is bounded so a block always finishes, and defined only over values its operations actually support: a step count, a helper call's frame depth, and an allocation size are each checked against a fixed limit, a comptime function must return and must be called with the argument count its parameters declare, and indexing, calling, or printing a value in a way its runtime kind does not support fails the same way." ,
+wrong = "local value: string = comptime do\n    return tostring({})\nend\nprint(value)\n" ,
+right = "local value: string = comptime do\n    return tostring(5)\nend\nprint(value)\n" ,
+related = { "NUPP2410" , "NUPP2411" } ,
+docs = "docs/reference/diagnostics.md#nupp2412" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2413" ,
+summary = "A comptime result has no literal spelling" ,
+rule = "A block's result is quoted into the generated Lua as a literal: nil, booleans, numbers that read back unchanged, strings, and acyclic tables of those with no metatable. NaN, the infinities, functions, and cdata have no such spelling, and a table reachable by more than one path is refused rather than quoted twice into two tables where the block built one." ,
+wrong = "local value: {{integer}} = comptime do\n    local shared = {1}\n    return {shared, shared}\nend\nprint(value)\n" ,
+right = "local value: {{integer}} = comptime do\n    return {{1}, {1}}\nend\nprint(value)\n" ,
+related = { "NUPP2414" , "NUPP2416" } ,
+docs = "docs/learn/language/comptime.md#values-checked-at-their-destination" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2414" ,
+summary = "An opaque comptime result did not reach a materialization boundary" ,
+rule = "A sealed provider -- reflection's field-codec builder among them -- may return a description with no literal spelling. It materializes only when the comptime block directly initializes a declaration whose annotated type the provider owns; an inferred binding, or an opaque value nested inside an ordinary table, gives it nowhere to materialize into." ,
+wrong = "local record Position\n    x: number\n    y: number\nend\n\nconst codec = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Position))\nend\n\nprint(codec)\n" ,
+right = "local record Position\n    x: number\n    y: number\nend\n\nconst codec: nupp.reflect.FieldCodec<Position> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Position))\nend\n\nprint(codec)\n" ,
+related = { "NUPP2415" , "NUPP2416" } ,
+docs = "docs/learn/language/reflection.md#comptime-reflection" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2415" ,
+summary = "A comptime-only value failed validation where it landed" ,
+rule = "A comptime function's own identity, a type or const-function argument crossing into the isolated comptime worker, and an opaque provider result reaching a materialization boundary are all checked against exactly where they land. A comptime function read as an ordinary runtime value has nowhere to run there, an argument that cannot import into the worker cannot be evaluated, and a declared type with no registered materialization relation for what a provider produced cannot receive it." ,
+wrong = "@comptime\nlocal function answer(): integer return 42 end\nlocal escaped = answer\nreturn escaped()\n" ,
+right = "@comptime\nlocal function answer(): integer return 42 end\nreturn comptime do return answer() end\n" ,
+related = { "NUPP2414" , "NUPP2416" } ,
+docs = "docs/reference/diagnostics.md#nupp2415" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2416" ,
+summary = "A comptime result or worker message exceeds its bound" ,
+rule = "Comptime evaluation runs in an isolated worker with fixed step, memory, and result-graph limits, and talks to the compiler over a bounded protocol. A finalized value graph over the item limit, and a worker request or response over the protocol byte limit, are reported here instead of being silently truncated or left to crash the worker." ,
+wrong = "return comptime do\n    local values = {}\n    for index = 1, 12000 do values[index] = index end\n    return values\nend\n" ,
+right = "return comptime do\n    local values = {}\n    for index = 1, 10 do values[index] = index end\n    return values\nend\n" ,
+related = { "NUPP2415" , "NUPP2412" } ,
+docs = "docs/reference/diagnostics.md#nupp2416" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2417" ,
+summary = "A PEG intrinsic call or finalized grammar is malformed" ,
+rule = "Every nupp.peg intrinsic is checked against the pattern arguments it needs, and a finalized grammar is checked against PEG's own rules once assembled. Repetition is possessive and must consume at least one byte whenever it succeeds, so a nullable repetition such as ('')* is refused, and direct or indirect left recursion is refused because a top-down parser cannot re-enter a rule at the position it started." ,
+wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n" ,
+right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n" ,
+related = { "NUPP2415" , "NUPP2416" } ,
+docs = "docs/reference/diagnostics.md#nupp2417" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2418" ,
+summary = "nupp.reflect was applied to something other than a resolvable type" ,
+rule = "nupp.reflect(T) resolves T in type position; it does not accept an expression that merely holds a runtime value, or one that fails to name a type at all. nupp.reflect.fieldCodec further requires that descriptor to describe a record, since only a record has present declared fields for the codec to copy." ,
+wrong = "local value = 1\nconst Bad: nupp.reflect.FieldCodec<any> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(value))\nend\nreturn Bad, value\n" ,
+right = "local record Item\n    value: integer\nend\nconst Good: nupp.reflect.FieldCodec<Item> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Item))\nend\nreturn Good\n" ,
+related = { "NUPP2415" , "NUPP2416" } ,
+docs = "docs/reference/diagnostics.md#nupp2418" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2419" ,
+summary = "A layout intrinsic has no target, a bad shape, or an unknown field" ,
+rule = "nupp.sizeof, nupp.alignof, and nupp.offsetof run only inside a comptime block, against the actual nupp global, with one concrete type argument (plus a compile-time-known field name for offsetof). Once the call's shape is right, it still needs the selected build's layoutTarget configured and a type with a runtime C layout to measure; a record or an unmodeled type has none. A program that only needs the host's own layout should measure it at runtime with ffi.sizeof instead." ,
+wrong = "local struct Value\n    n: int32\nend\nreturn comptime do return nupp.sizeof(Value) end\n" ,
+right = "local struct Value\n    n: int32\nend\nlocal size = ffi.sizeof<Value>()\nreturn size\n" ,
+related = { "NUPP2410" , "NUPP2416" } ,
+docs = "docs/reference/diagnostics.md#nupp2419" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2422" ,
+summary = "A constrained type declaration names an unsupported base or empty bounds" ,
+rule = "nupp.types.range narrows integer, int32 or uint32, and nupp.types.length narrows string; either may also narrow a constrained alias of one, which intersects the two constraints. Both bounds are inclusive whole numbers in ascending order, and both must lie inside what the base itself admits, so a declaration that admits nothing is reported where it is written rather than compiled into a test no value passes." ,
+wrong = "local type Empty = nupp.types.range(integer, 10, 0)\nlocal value: Empty = 5\nreturn value\n" ,
+right = "local type Small = nupp.types.range(integer, 0, 10)\nlocal value: Small = 5\nreturn value\n" ,
+related = { "NUPP2013" , "NUPP2421" } ,
+docs = "docs/reference/diagnostics.md#nupp2422" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2420" ,
+summary = "A comptime type function rejected its own application" ,
+rule = "nupp.types.error(message) lets a comptime type function refuse a specific application deliberately, distinct from an evaluator crash or a result of the wrong kind. The authored message is reported at the application together with the bounded comptime call trace, so a computed type contract can say why an argument it inspected does not qualify." ,
+wrong = "@comptime\nlocal function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n" ,
+right = "@comptime\nlocal function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n" ,
+related = { "NUPP2415" , "NUPP2421" } ,
+docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2421" ,
+summary = "A compiler-only member or type-position call was used where it cannot run" ,
+rule = "Type handles, comptime type aliases, and members typed comptime type or @comptime function(...) are opaque and exist only for the comptime evaluator. Reading one into an ordinary runtime binding, naming a comptime alias in a runtime annotation, or writing a type-position call whose callee, argument, or result does not resolve to a checked comptime function signature is refused because none has anything to erase to at runtime." ,
+wrong = "local leaked = nupp.types.string\nreturn leaked\n" ,
+right = "@comptime\nlocal function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n" ,
+related = { "NUPP2133" , "NUPP2420" } ,
+docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2501" ,
+summary = "A cast to a C pointer type has no lifetime root to hold the string alive" ,
+rule = "The `string-pointer` lint reports a `ffi.cast<T>(value)` to a pointer type whose argument is a Lua string but is not itself a named binding or a preserved parameter: the pointer aliases the string's bytes, and a fresh string is scratch storage LuaJIT is free to collect once the expression that produced it goes unread. Bind the string to a local, or thread it through a preserving parameter, before casting a pointer out of it. Default level is `warning`, and a project may reconfigure or suppress it like any other lint." ,
+wrong = "local pointer = ffi.cast<cstring>('a' .. 'b')\nprint(pointer)\n" ,
+right = "local text = 'a' .. 'b'\nlocal pointer = ffi.cast<cstring>(text)\nprint(pointer)\n" ,
+related = { "NUPP2608" , "NUPP2603" } ,
+docs = "docs/reference/lints.md#string-pointer" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2502" ,
+summary = "A Lua function is cast to a C callback" ,
+rule = "The `jit-callback` lint reports a cast of a Lua function to a C-derived callback type. The cast requires `@unsafe` permission and an explicit retained owner, but LuaJIT registers the function as a permanent C callback once it happens, and no trace can compile through that call boundary for as long as it stays registered. Call `jit.off` on the registering function when the callback is intentional, or pass a plain pointer instead. Default level is `warning`, and a project may reconfigure or suppress it like any other lint." ,
+wrong = "@unsafe do\n    local callback = function()\n    end\n    local pointer = ffi.cast<voidptr>(callback)\n    local handle = nupp.pin(pointer, callback)\nend\n" ,
+right = "@unsafe do\n    local pointer = ffi.cast<voidptr>(8)\n    print(pointer)\nend\n" ,
+related = { "NUPP2604" , "NUPP2603" } ,
+docs = "docs/reference/lints.md#jit-callback" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2505" ,
+summary = "A loop builds the same non-capturing function on every iteration" ,
+rule = "The `loop-invariant-closure` lint reports a function literal built inside a loop body that reads nothing from the iteration, so every built copy is the same function and building one afresh each time buys nothing. LuaJIT has no recorder for the bytecode that builds a function, so a loop containing one aborts trace recording every time it is tried and is eventually blacklisted, running interpreted from then on however hot it gets. Declare the function once above the loop and pass its name. Default level is `warning`; the sibling `jit-loop-closure` reports the case where the function does read the iteration and cannot be lifted." ,
+wrong = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, function(): boolean\n            return true\n        end)\n    end\nend\n\nreturn run\n" ,
+right = "local function register(item: any, callback: function(): boolean): nil\n    print(item, callback())\nend\n\nlocal function alwaysTrue(): boolean\n    return true\nend\n\nlocal function run(items: {any}): nil\n    for _, item in ipairs(items) do\n        register(item, alwaysTrue)\n    end\nend\n\nreturn run\n" ,
+related = { "NUPP2515" , "NUPP2707" } ,
+docs = "docs/reference/lints.md#loop-invariant-closure" ,
+}
+
+ENTRIES [ # ENTRIES + 1 ] = {
+code = "NUPP2509" ,
+summary = "A record's fields would all fit in C memory" ,
+
+
+rule = "The `reifiable-record` lint reports a `record` declaration whose every member -- fields, constructors, methods -- is one a `struct` would also accept: every field's type reifies, and nothing else in the body (an indexer, a Lua array part, a declaration-only metamethod, a nested declaration, a property capability, generics, or a declared supertype) rules `struct` out. Declaring it `struct` instead moves instances into C memory, off the collector's graph, at the cost of a fixed layout and giving up `pairs`/table-serializer support without an explicit hook. This is a suggestion rather than a correctness rule, so it defaults to `off`; a project turns it on with `lints = {[\"reifiable-record\"] = \"note\"}` or by raising the whole `performance` category." ,
+related = { "NUPP2201" , "NUPP2012" } ,
+docs = "docs/reference/lints.md#reifiable-record" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2510" ,
+summary = "An else contains only a nested if" ,
+rule = "The `else-if` lint reports an `else` block whose only statement is an unannotated `if`, which is the long way to write `elseif`; it also recognizes adjacent `if` statements that compare the same local to different literals when the first body does not reassign it. Write `elseif` (or fold the adjacent ifs into one chain) so the chain reads as one dispatch rather than nested blocks. Default level is `warning`, and a project may reconfigure or suppress it like any other lint." ,
+wrong = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    else\n        if fallback then\n            print(\"fallback\")\n        end\n    end\nend\n\nreturn classify\n" ,
+right = "local function classify(primary: boolean, fallback: boolean): nil\n    if primary then\n        print(\"primary\")\n    elseif fallback then\n        print(\"fallback\")\n    end\nend\n\nreturn classify\n" ,
+related = { "NUPP2107" } ,
+docs = "docs/reference/lints.md#else-if" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2514" ,
+summary = "A variadic FFI call is reachable from a compiled trace" ,
+rule = "The `jit-boundary` lint reports a call to a `cdef` function declared with a `...` variadic tail from code LuaJIT may try to compile: a variadic C call cannot safely execute on a trace. Move the call into a helper disabled with `jit.off`, so the interpreter always runs it, rather than leaving the boundary reachable from hot code. Default level is `warning`; inside an `@jit` function the same boundary is instead the non-suppressible `NUPP2707` contract error." ,
+wrong = "cdef function printf(format: cstring, ...): int32\n\nlocal function report(value: int32): nil\n    printf(\"%d\", value)\nend\n\nreturn report\n" ,
+right = "cdef function printf(format: cstring, ...): int32\n\nlocal function coldReport(value: int32): nil\n    printf(\"%d\", value)\nend\njit.off(coldReport)\n\nlocal function report(value: int32): nil\n    coldReport(value)\nend\n\nreturn report\n" ,
+related = { "NUPP2707" , "NUPP2502" } ,
+docs = "docs/reference/lints.md#jit-boundary" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2601" ,
+summary = "A moved-from owner is used again" ,
+rule = "An affine binding or affine field is discharged by exactly one move, drop, or return. The name stays in scope after that, but its value is gone: reading it, moving it a second time, or dropping it again all reuse a transfer that already happened." ,
+wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useTwice(): nil\n    local value = resource_new()\n    nupp.drop(value)\n    nupp.drop(value)\nend\n\nreturn useTwice\n" ,
+right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal function useOnce(): nil\n    local value = resource_new()\n    nupp.drop(value)\nend\n\nreturn useOnce\n" ,
+related = { "NUPP2602" , "NUPP2603" } ,
+docs = "docs/reference/diagnostics.md#nupp2601" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2602" ,
+summary = "An ownership operation is invalid for the value's current state" ,
+rule = "A capability-qualified value only accepts the operations its current state permits: a value with a live borrow cannot itself move or be consumed until that borrow ends, a partially moved record cannot move or drop as a whole, and a plain value cannot be transferred as though it carried an affine or pinned capability. NUPP2602 covers whichever one of those the attempted operation violated." ,
+wrong = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    resource_free(value)\nend\nresource_free(value)\n" ,
+right = "cdef struct resource\n    value: int32\nend\ncdef function resource_create(): resource*\ncdef function resource_free(takes value: resource*)\n\nlocal function resource_new(): affine(resource*, resource_free)\n    return resource_create()\nend\n\nlocal value = resource_new()\ndo\n    local view = borrow(value)\n    print(view.value)\nend\nresource_free(value)\n" ,
+related = { "NUPP2601" , "NUPP2608" , "NUPP2615" } ,
+docs = "docs/reference/diagnostics.md#nupp2602" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2604" ,
+summary = "Raw pointer arithmetic lacks proof or an unsafe boundary" ,
+rule = "Offsetting a raw C pointer with `+` or `-` needs a borrowed, rooted pointer and an explicit `@unsafe (base + offset)` acknowledging that nothing checks the resulting address against a bound. The parentheses include the arithmetic in the annotation. Use a checked span when the bound should be checked." ,
+wrong = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource*\n    return base + 1\nend\n\nreturn advance\n" ,
+right = "cdef struct resource\n    value: int32\nend\n\nlocal function advance(borrows base: resource*): resource* borrows (base)\n    return @unsafe (base + 1)\nend\n\nreturn advance\n" ,
+related = { "NUPP2001" , "NUPP2004" , "NUPP2602" } ,
+docs = "docs/reference/diagnostics.md#nupp2604" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2616" ,
+summary = "A function declaring an owning result returns an input borrow" ,
+rule = "A result annotated with an owning (affine) type promises every caller a value they will eventually discharge themselves. Returning a value borrowed from a parameter breaks that promise, since the caller would receive something whose lifetime it never actually controls. Declare the result `borrows (param)` instead of an owning type when the function only ever forwards a borrow." ,
+wrong = "local record Buffer\n    value: string\nend\n\nlocal function closeBuffer(takes value: Buffer): nil\nend\n\nlocal function bad(borrows source: Buffer): affine(Buffer, closeBuffer)\n    return source\nend\n\nreturn bad\n" ,
+right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nreturn ok\n" ,
+related = { "NUPP2608" , "NUPP2619" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2618" ,
+summary = "A result declares a borrow from a parameter the function consumes" ,
+rule = "`borrows (param)` on a result ties the result's lifetime to a live argument at the call site. A `takes` parameter is moved into the function and its argument is gone once the call returns, so nothing in the result can still be borrowing from it; name a `borrows` parameter instead, or drop the result's borrow annotation." ,
+wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(takes value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn bad\n" ,
+right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn ok\n" ,
+related = { "NUPP2109" , "NUPP2616" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2619" ,
+summary = "A borrowed value's provenance does not reach its declared root" ,
+rule = "A declared borrow names where its value comes from, and the value has to be provably derived from there, sharing the provenance chain rather than merely equalling or coincidentally matching. The same code reports each place that promise is checked: a field declared `T borrows (source)` constructed from a different root than the sibling passed as `source`; a result declared `T borrows (param)` returned from something that cannot be traced to that parameter; a call whose borrowed result has no rooted argument to borrow from; and a C output declared borrowed without a named lifetime source. Derive the value from the root the declaration names, or name the root it is derived from." ,
+wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n" ,
+right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n" ,
+related = { "NUPP2602" , "NUPP2203" , "NUPP2707" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2621" ,
+summary = "More than one result declares a borrow" ,
+rule = "A callable carries one borrow relation, and it states the result it is about: `borrows (param)` may be written on any result, but only one of them. Two results borrowing from two different parameters would be two relations, which the callable has nowhere to record and a call site nowhere to attach; return the second value owned, or hand the caller the borrowed one and let it derive the rest." ,
+wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(borrows left: Buffer, borrows right: Buffer): (Buffer borrows (left), Buffer borrows (right))\n    return left, right\nend\n\nreturn bad\n" ,
+right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows left: Buffer, borrows right: Buffer): (Buffer borrows (left, right), integer)\n    return left, #right.value\nend\n\nreturn ok\n" ,
+related = { "NUPP2608" , "NUPP2618" , "NUPP2109" } ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP2622" ,
+summary = "A generic for control value cannot be affine" ,
+rule = "Generic for replaces its control value with the first result of every iterator call. An affine initial control would lose its cleanup obligation on the first step. Use an ordinary control value; a newly produced affine iterator or state is held and closed by the loop itself." ,
+wrong = "local function release(takes id: integer): nil end\nlocal function owned(): affine(integer, release) return 0 end\nlocal function step(_state: nil, _control: integer?): integer? return nil end\nfor n in step, nil, owned() do end\n" ,
+right = "local function step(_state: nil, _control: integer?): integer? return nil end\nfor n in step, nil, 0 do end\n" ,
+related = { "NUPP2603" , "NUPP2615" } ,
+docs = "docs/learn/runtime/ownership/affine-types.md#cleanup-and-transfer-only-forms" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP3002" ,
+summary = "A struct field's type has no C declarator the generator can emit" ,
+rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check." ,
+wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n" ,
+right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n" ,
+related = { "NUPP2201" , "NUPP3003" , "NUPP3004" } ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP3003" ,
+summary = "A cdef struct field or function signature has no C spelling" ,
+rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record, one with no `cdef struct` layout of its own, passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`." ,
+wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
+right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
+related = { "NUPP2203" , "NUPP3002" , "NUPP3004" } ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP3004" ,
+summary = "An FFI operation's explicit type argument has no C spelling" ,
+rule = "`ffi.new<T>`, `ffi.cast<T>`, `ffi.typeof<T>` and their siblings take T as a literal C type argument to LuaJIT, not an ordinary Nupp value type. The checker resolves any named type here without verifying it is renderable; only a `cdef struct`, a Nupp `struct`, a primitive, or a pointer built from those actually is. Naming a plain `record` fails at generation instead." ,
+wrong = "local record Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
+right = "local struct Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
+related = { "NUPP2203" , "NUPP3002" , "NUPP3003" } ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP4001" ,
+summary = "The formatter's own output would change the token stream" ,
+rule = "Formatting may only move whitespace, reflow comments, add or remove a schema-proven single-value annotation label, and parenthesize a method call's sugar-form arguments. Before writing its result the formatter re-lexes it and compares the token fingerprint against the input; a mismatch means the rewrite it just performed would have changed the program's meaning, so it discards the rewrite and leaves the file untouched instead of risking that change." ,
+related = { } ,
+docs = "docs/reference/diagnostics.md#nupp4001" ,
+}
+
+ENTRIES [
+# ENTRIES + 1
+] = {
+code = "NUPP5001" ,
+summary = "A running program cannot apply a change without a restart" ,
+rule = "Hot reload replaces a watched module's callable bodies in place, but cannot rebind top-level executable statements or initializers, add, remove, rename or move a named declaration, change a callable's signature or capture set, change a record, struct, native or component layout, or repatch a function that took ownership of a cleanup-bearing capture. Loaded FFI declarations, native libraries, and values already built from them are likewise fixed for the life of the process. Any such edit is rejected with NUPP5001 and the previous generation keeps running until the process restarts." ,
+related = { } ,
+docs = "docs/learn/projects/hot-reload.md#changes-that-require-restart" ,
+}
+
+local byCode = { }
+for _ , entry in ipairs ( ENTRIES ) do
+assert ( not byCode [ entry . code ] , "duplicate diagnostic explanation " .. entry . code )
+byCode [ entry . code ] = entry
+end
+
+local function familyFor ( code ) 
+if not code : match ( "^NUPP%d%d%d%d$" ) and not code : match ( "^OPT%-%d+$" ) then
+return nil
+end
+for _ , family in ipairs ( FAMILIES ) do
+if code : sub ( 1 , # family . prefix ) == family . prefix then
+return family
+end
+end
+
+return nil
+end
+
+
+
+
+function explain . anchor ( code ) 
+if not code then
+return nil
+end
+local entry = byCode [ code ]
+if entry then
+return entry . docs
+end
+local family = familyFor ( code )
+
+return family and family . docs or nil
+end
+
+
+
+
+
+
+
+function explain . reasonDocs ( id , class ) 
+local part = class == "stop" and "expected-stops"
+or id : match ( "^jit/runtime%-" ) and "runtime-risks-and-blockers"
+or "statically-attributable-reasons"
+
+return "docs/learn/performance/jit-trace-checking.md#" .. part
+end
+
+
+function explain . lookup ( code ) 
+local entry = byCode [ code ]
+local family = familyFor ( code )
+if not entry and not family then
+return nil
+end
+
+
+local lint = require ( "nupp.compiler.lints" ) . get ( code )
+if entry then
+return ( _G.setmetatable({ code =
+code ,  summary =
+entry . summary ,  rule =
+entry . rule ,  wrong =
+entry . wrong ,  right =
+entry . right ,  aot =
+entry . aot and true or false ,  related =
+entry . related or { } ,  docs =
+entry . docs ,  family =
+false }, explain.Entry) )
+
+end
+
+return ( _G.setmetatable({ code =
+code ,  summary =
+lint and lint . summary or family . summary ,  rule =
+lint
+and (
+"A lint, reported at "
+.. lint . level
+.. " by default and configurable by name or by category. "
+.. family . rule
+)
+or family . rule ,  wrong =
+nil ,  right =
+nil ,  aot =
+false ,  related =
+{ } ,  docs =
+lint and "docs/reference/lints.md#" .. lint . name or family . docs ,  family =
+true }, explain.Entry) )
+
+end
+
+
+
+function explain . familyTitle ( code ) 
+local family = familyFor ( code )
+
+return family and family . title or nil
+end
+
+
+
+
+
+function explain . documented ( ) 
+local codes = { }
+local seen = { }
+for _ , entry in ipairs ( ENTRIES ) do
+if not seen [ entry . code ] then
+seen [ entry . code ] , codes [ # codes + 1 ] = true , entry . code
+end
+end
+local lints = require ( "nupp.compiler.lints" )
+for _ , lint in ipairs ( lints . all ) do
+if not seen [ lint . code ] then
+seen [ lint . code ] , codes [ # codes + 1 ] = true , lint . code
+end
+end
+table . sort ( codes )
+
+return codes
+end
+
+
+
+function explain . codes ( ) 
+local codes = { }
+for _ , entry in ipairs ( ENTRIES ) do
+codes [ # codes + 1 ] = entry . code
+end
+table . sort ( codes )
+
+return codes
+end
+
+
+explain . entries = ENTRIES
+
+local __nuppExportValue= explain ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.tools.explain"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.tools.explain"]=__nuppExports;return __nuppExports

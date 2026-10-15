@@ -28,7 +28,7 @@ integrated kernels and the SHA-256 benchmark:
   kernel. The harness adds the same loop in Rust calling compiled `dot` and
   calling the LLVM artifact.
 
-Optimisation level `speed`, no PIC, native ISA flags.
+Optimization level `speed`, no PIC, native ISA flags.
 
 ## Bars
 
