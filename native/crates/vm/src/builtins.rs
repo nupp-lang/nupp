@@ -80,7 +80,7 @@ pub const NAMES: &[&str] = &[
     "vm.imageModules",
     "foreign.load", "foreign.invokeCallback", "foreign.string",
     "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
-    "table.new", "cleanup.describe",
+    "table.new", "cleanup.describe", "file.setvbuf", "file.flush",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -637,7 +637,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
-        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe")
+        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
@@ -1061,6 +1061,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 }
                 return outs![it.string_of(&text)];
             }
+            // A file writes straight through, so there is no buffer to configure
+            // or flush: `setvbuf` answers true and `flush` the file, as Lua's do.
+            if *name == "file.setvbuf" { return outs![Value::TRUE]; }
+            if *name == "file.flush" { return outs![arg(args, 0)]; }
             // LuaJIT's `table.new(narray, nhash)`: an empty table sized for both parts.
             if *name == "table.new" {
                 let count = |v: Value| if v.is_num() && v.as_num() > 0.0 { v.as_num().min(16777216.0) as usize } else { 0 };

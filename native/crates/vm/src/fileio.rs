@@ -53,6 +53,8 @@ pub fn open(vm: &mut Interp, path: &str, mode: &str) -> Outs {
         ("write", "file.write"),
         ("close", "file.close"),
         ("lines", "file.lines"),
+        ("setvbuf", "file.setvbuf"),
+        ("flush", "file.flush"),
     ] {
         let key = vm.intern(key);
         vm.set_index(
