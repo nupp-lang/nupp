@@ -5293,6 +5293,8 @@ function lower.emit(
             for _, entry in ipairs(st.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     analyzeFunction(entry.body, chain, seen, inlineImplicitSelf(entry))
+                elseif entry.kind == "recordDecl" then
+                    analyzeStmt(entry, chain, here, seen)
                 elseif entry.kind ~= "constructorDecl" then
                     analyzeExpr(entry, chain, here, seen)
                 end
