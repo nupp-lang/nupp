@@ -5853,15 +5853,29 @@ function lower.emit(
         compileModule(name, p)
     end
     compileModule(entryName, assert(modulePath(entryName), "entry module " .. entryName))
-    while #pendingModules > 0 do
-        local name = table.remove(pendingModules, 1);
-        if not modules[name] then
-            local p = modulePath(name);
+    -- `extras.after` names modules carried beside the entry's graph, compiled
+    -- once that graph is, so each is checked as the graph already loaded it.
+    local after = (extras as any).after or {}
+    local afterIndex = 0
+    repeat
+        while #pendingModules > 0 do
+            local name = table.remove(pendingModules, 1);
+            if not modules[name] then
+                local p = modulePath(name);
+                if p then
+                    compileModule(name, p)
+                end
+            end
+        end
+        afterIndex = afterIndex + 1
+        local name = after[afterIndex]
+        if name and not modules[name] then
+            local p = modulePath(name)
             if p then
                 compileModule(name, p)
             end
         end
-    end
+    until afterIndex > #after
 
     -- Output -------------------------------------------------------------------
     -- Every byte outside printable ASCII is escaped, so an image is ASCII text

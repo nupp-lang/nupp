@@ -381,9 +381,10 @@ function project.program(
         end
     end
     table.sort(names)
-    for _, name in ipairs(names) do
-        extras[#extras + 1] = name
-    end
+    -- After the entry's own graph, so a module it reaches is checked as it
+    -- reached it rather than first on its own.
+    local carried: any = extras
+    carried.after = names
     local image = emitProject(
         root,
         config,
