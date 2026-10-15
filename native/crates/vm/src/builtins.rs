@@ -1148,7 +1148,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_33 => { let v = it.get_index(arg(args, 0), arg(args, 1)); outs![v] }
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
         N_35 => { let t = arg(args, 0); it.set_metatable(t, arg(args, 1)); outs![t] }
-        N_36 => outs![it.metatable_of(arg(args, 0))],
+        N_36 => outs![it.getmetatable_value(arg(args, 0))],
         // The bit library: 32-bit two's complement, as LuaJIT's.
         38 => { let mut r: i32 = -1; for a in args { r &= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }
         39 => { let mut r: i32 = 0; for a in args { r |= a.as_num() as i64 as i32; } outs![Value::num(r as f64)] }

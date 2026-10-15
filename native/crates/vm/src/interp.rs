@@ -1427,6 +1427,30 @@ impl Interp {
     pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.newindex(o, name, v) }
     /// An ordinary or shaped table's metatable, or nil.
     pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else if h.kind == KIND_RECORD { h.record_extra_ref().as_ref().map(|extra| extra.meta).unwrap_or(Value::NIL) } else if h.kind == KIND_USERDATA { h.userdata().meta } else { Value::NIL } } None => Value::NIL } }
+    /// What `getmetatable` answers, as on LuaJIT: the metatable, or its
+    /// `__metatable` field when it has one. A record carries no metatable of
+    /// its own unless one was set; it answers its declaration, which LuaJIT
+    /// stamps on a record as its metatable and the VM keeps on its shape.
+    pub fn getmetatable_value(&mut self, v: Value) -> Value {
+        let mut meta = self.metatable_of(v);
+        if meta == Value::NIL {
+            if let Some(p) = v.as_obj() {
+                let h = unsafe { p.as_ref() };
+                if h.kind == KIND_RECORD {
+                    if let Some(key) = self.heap.interned_key("\0nupp:recordType") {
+                        meta = self.heap.shapes[h.shape() as usize].methods.get(&key).copied().unwrap_or(Value::NIL);
+                    }
+                }
+            }
+        }
+        if meta != Value::NIL {
+            if let Some(key) = self.heap.interned_key("__metatable") {
+                let protected = self.get_index(meta, key);
+                if protected != Value::NIL { return protected; }
+            }
+        }
+        meta
+    }
     pub fn set_metatable(&mut self, object: Value, meta: Value) {
         if meta != Value::NIL && !matches!(self.kind_of(meta), Some(KIND_TABLE | KIND_RECORD)) { self.err("metatable must be a table or nil"); }
         let p = object.as_obj().unwrap_or_else(|| self.err("setmetatable expects a table"));
