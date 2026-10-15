@@ -23,6 +23,12 @@ struct Cursor {
     data: [*const c_void; 3],
 }
 #[repr(C)]
+#[derive(Clone, Copy)]
+struct Location {
+    data: [*const c_void; 2],
+    int_data: c_uint,
+}
+#[repr(C)]
 struct Text {
     data: *const c_void,
     flags: c_uint,
@@ -91,6 +97,8 @@ api! {
     clang_getDiagnosticSeverity(Handle) -> c_uint;
     clang_getDiagnosticSpelling(Handle) -> Text;
     clang_disposeDiagnostic(Handle) -> ();
+    clang_getDiagnosticLocation(Handle) -> Location;
+    clang_getSpellingLocation(Location, *mut Handle, *mut c_uint, *mut c_uint, *mut c_uint) -> ();
 }
 impl Api {
     fn load() -> Result<Self, String> {
@@ -233,15 +241,33 @@ impl Api {
                 unit,
             };
             let mut errors = Vec::new();
+            let mut first_line = 0;
             for i in 0..(self.clang_getNumDiagnostics)(unit.unit) {
                 let diagnostic = (self.clang_getDiagnostic)(unit.unit, i);
                 if (self.clang_getDiagnosticSeverity)(diagnostic) >= 3 {
                     errors.push(self.text((self.clang_getDiagnosticSpelling)(diagnostic)));
+                    if first_line == 0 {
+                        let (mut file, mut line, mut column, mut offset) =
+                            (std::ptr::null_mut(), 0, 0, 0);
+                        (self.clang_getSpellingLocation)(
+                            (self.clang_getDiagnosticLocation)(diagnostic),
+                            &mut file,
+                            &mut line,
+                            &mut column,
+                            &mut offset,
+                        );
+                        first_line = line;
+                    }
                 }
                 (self.clang_disposeDiagnostic)(diagnostic);
             }
             if !errors.is_empty() {
-                return Err(errors.join("; "));
+                // LuaJIT's spelling, which callers map back to a header's own line.
+                let mut message = errors.join("; ");
+                if first_line > 0 {
+                    message = format!("{message} at line {first_line}");
+                }
+                return Err(message);
             }
             Ok(unit)
         }
@@ -425,7 +451,19 @@ impl Registry {
             return Ok(hit.clone());
         }
         let source = format!("{}\n{text}\n", self.declarations);
-        let unit = self.api.parse(&source)?;
+        // An error's line is the source's; the text this call was given starts
+        // after the declarations already in force.
+        let unit = self.api.parse(&source).map_err(|error| {
+            let before = self.declarations.matches('\n').count() as u64 + 1;
+            match error.rsplit_once(" at line ") {
+                Some((message, line)) => match line.parse::<u64>() {
+                    // As LuaJIT, the first line goes unnamed.
+                    Ok(line) if line > before + 1 => format!("{message} at line {}", line - before),
+                    _ => message.to_owned(),
+                },
+                None => error,
+            }
+        })?;
         let mut names = serde_json::Map::new();
         let mut model = self.model.clone();
         let mut functions = self.functions.clone();
