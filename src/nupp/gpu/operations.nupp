@@ -166,10 +166,8 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = values[lane]
                 if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(values[lane - distance] as integer)
-                    )
+                    local earlier = nupp.math.u32.wrap(values[lane - distance] as integer)
+                    value = nupp.math.u32.wrap(value as integer) + earlier
                 end
                 temporary[lane] = value
             end)
@@ -178,10 +176,8 @@ function gpu.Phases.inclusiveScan(
                 local lane = localIndex as integer
                 local value = temporary[lane]
                 if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
-                    )
+                    local earlier = nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    value = nupp.math.u32.wrap(value as integer) + earlier
                 end
                 values[lane] = value
             end)

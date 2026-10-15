@@ -1012,6 +1012,46 @@ record simd.XorBits<T is int32 | uint32 | int64 | uint64> is simd.Reducer<T>
     end
 end
 
+local function i32WrappingSum(a: int32, b: int32): int32
+    return a + b
+end
+
+local function i32WrappingProduct(a: int32, b: int32): int32
+    return a * b
+end
+
+local function i32AndBits(a: int32, b: int32): int32
+    return a & b
+end
+
+local function i32OrBits(a: int32, b: int32): int32
+    return a | b
+end
+
+local function i32XorBits(a: int32, b: int32): int32
+    return a ~ b
+end
+
+local function u32WrappingSum(a: uint32, b: uint32): uint32
+    return a + b
+end
+
+local function u32WrappingProduct(a: uint32, b: uint32): uint32
+    return a * b
+end
+
+local function u32AndBits(a: uint32, b: uint32): uint32
+    return a & b
+end
+
+local function u32OrBits(a: uint32, b: uint32): uint32
+    return a | b
+end
+
+local function u32XorBits(a: uint32, b: uint32): uint32
+    return a ~ b
+end
+
 local function i64WrappingSum(a: int64, b: int64): int64
     return (a + b) as int64
 end
@@ -1062,20 +1102,20 @@ const EXACT: {
     [
         storageWitnesses.int32
     ] = {
-        sum = nupp.math.i32.add,
-        product = nupp.math.i32.mul,
-        andBits = nupp.math.i32.andBits,
-        orBits = nupp.math.i32.orBits,
-        xorBits = nupp.math.i32.xorBits,
+        sum = i32WrappingSum,
+        product = i32WrappingProduct,
+        andBits = i32AndBits,
+        orBits = i32OrBits,
+        xorBits = i32XorBits,
     },
     [
         storageWitnesses.uint32
     ] = {
-        sum = nupp.math.u32.add,
-        product = nupp.math.u32.mul,
-        andBits = nupp.math.u32.andBits,
-        orBits = nupp.math.u32.orBits,
-        xorBits = nupp.math.u32.xorBits,
+        sum = u32WrappingSum,
+        product = u32WrappingProduct,
+        andBits = u32AndBits,
+        orBits = u32OrBits,
+        xorBits = u32XorBits,
     },
     [
         storageWitnesses.int64
@@ -2470,12 +2510,12 @@ local function bitwise(element: string, op: string, a: any, b: any): any
     -- Narrow lanes fit the 32-bit bit library exactly.
     local right = pattern(element, b)
     if op == "&" then
-        return wrap(element, nupp.math.u32.andBits(left, right))
+        return wrap(element, left & right)
     elseif op == "|" then
-        return wrap(element, nupp.math.u32.orBits(left, right))
+        return wrap(element, left | right)
     end
 
-    return wrap(element, nupp.math.u32.xorBits(left, right))
+    return wrap(element, left ~ right)
 end
 
 local function isNaN(value: any): boolean
@@ -2539,7 +2579,7 @@ local function binaryLane(op: string, element: string, a: any, b: any): any
         if BITS[element] == 32 then
             -- The low thirty-two bits of the product, which a double cannot
             -- hold whole, are the same bits whatever the signs.
-            return wrap(element, nupp.math.u32.mul(pattern(element, a), pattern(element, b)))
+            return wrap(element, pattern(element, a) * pattern(element, b))
         end
         return wrap(element, (a as any) * (b as any))
     elseif op == "/" then
@@ -2589,7 +2629,7 @@ local function unaryLane(op: string, element: string, a: any): any
     if BITS[element] == 64 then
         return (~(0LL + (a as any))) as any
     elseif BITS[element] == 32 then
-        return wrap(element, nupp.math.u32.notBits(pattern(element, a)))
+        return wrap(element, ~pattern(element, a))
     end
 
     return wrap(element, 2 ^ (BITS[element] as number) - 1 - pattern(element, a))

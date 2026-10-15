@@ -42,23 +42,23 @@ local function u32(value: integer): uint32
 end
 
 local function add(a: uint32, b: uint32): uint32
-    return nupp.math.u32.add(a, b)
+    return a + b
 end
 
 local function shr(value: uint32, count: uint32): uint32
-    return nupp.math.u32.shiftRightLogical(value, count)
+    return value >> count
 end
 
 local function shl(value: uint32, count: uint32): uint32
-    return nupp.math.u32.shiftLeft(value, count)
+    return value << count
 end
 
 local function andBits(a: uint32, b: uint32): uint32
-    return nupp.math.u32.andBits(a, b)
+    return a & b
 end
 
 local function orBits(a: uint32, b: uint32): uint32
-    return nupp.math.u32.orBits(a, b)
+    return a | b
 end
 
 -- One native-endian word as the big-endian view the encoding is stated in.
@@ -175,7 +175,7 @@ local function encodeAot(source: string, nullValue: any): any
         out = add(out, u32(4))
     end
 
-    local rest = nupp.math.u32.sub(length, at)
+    local rest = length - at
     if rest == 1 then
         local c0 = valuebuilder.byte(source, at)
         valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(c0, u32(2))))
@@ -222,12 +222,12 @@ local function decodeAot(text: string, nullValue: any): any
 
     local padding: uint32 = u32(0)
     if length > 0 then
-        if valuebuilder.byte(text, nupp.math.u32.sub(length, u32(1))) == 61 then
+        if valuebuilder.byte(text, length - u32(1)) == 61 then
             padding = u32(1)
         end
         -- A '=' in the third position only pads when the fourth is '=' too;
         -- otherwise the quad is invalid and must reach the alphabet check.
-        if padding == 1 and length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
+        if padding == 1 and length > 1 and valuebuilder.byte(text, length - u32(2)) == 61 then
             padding = u32(2)
         end
     end
@@ -237,7 +237,7 @@ local function decodeAot(text: string, nullValue: any): any
     local bad: uint32 = u32(0)
     local whole = length
     if padding > 0 then
-        whole = nupp.math.u32.sub(length, u32(4))
+        whole = length - u32(4)
     end
     while at < whole do
         local a = valuebuilder.byte(INVERSE, valuebuilder.byte(text, at))

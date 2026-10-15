@@ -45,7 +45,7 @@ local function u32(value: integer): uint32
 end
 
 local function add(a: int32, b: int32): int32
-    return nupp.math.i32.add(a, b)
+    return a + b
 end
 
 -- The two reinterpretations between the signed and unsigned views of the same
@@ -99,10 +99,7 @@ end
 -- letters begin thirty-nine after the digits do, and `(nibble + 6) >> 4` is one
 -- exactly when the nibble is ten or more.
 local function hexDigit(nibble: uint32): uint32
-    return nupp.math.u32.add(
-        nupp.math.u32.add(nibble, u32(48)),
-        nupp.math.u32.mul(nupp.math.u32.shiftRightLogical(nupp.math.u32.add(nibble, u32(6)), u32(4)), u32(39))
-    )
+    return nibble + u32(48) + ((nibble + u32(6)) >> u32(4)) * u32(39)
 end
 
 -- The message words are big-endian and every supported host is little-endian.
@@ -172,13 +169,13 @@ local function digestHex(source: string, nullValue: any): any
     local tail = valuebuilder.newFixedByteScratch(128)
 
     local length = valuebuilder.length(source)
-    local rest = nupp.math.u32.andBits(length, u32(63))
-    local whole = nupp.math.u32.sub(length, rest)
+    local rest = length & u32(63)
+    local whole = length - rest
 
     local carrying: uint32 = u32(0)
     while carrying < rest do
-        valuebuilder.setScratchByte(tail, carrying, valuebuilder.byte(source, nupp.math.u32.add(whole, carrying)))
-        carrying = nupp.math.u32.add(carrying, u32(1))
+        valuebuilder.setScratchByte(tail, carrying, valuebuilder.byte(source, whole + carrying))
+        carrying = carrying + u32(1)
     end
 
     -- The terminating bit, and then nothing: the padding between it and the
@@ -195,22 +192,14 @@ local function digestHex(source: string, nullValue: any): any
     -- The length in bits, big-endian across sixty-four bits. `digest.sha256`
     -- refuses anything that would not fit, so the high word is what the top
     -- three bits of the byte count become.
-    local high = nupp.math.u32.shiftRightLogical(length, u32(29))
-    local low = nupp.math.u32.shiftLeft(length, u32(3))
+    local high = length >> u32(29)
+    local low = length << u32(3)
     local counting: uint32 = u32(0)
     while counting < 4 do
-        local shift = nupp.math.u32.sub(u32(24), nupp.math.u32.shiftLeft(counting, u32(3)))
-        valuebuilder.setScratchByte(
-            tail,
-            nupp.math.u32.add(upTo, counting),
-            nupp.math.u32.andBits(nupp.math.u32.shiftRightLogical(high, shift), u32(255))
-        )
-        valuebuilder.setScratchByte(
-            tail,
-            nupp.math.u32.add(nupp.math.u32.add(upTo, u32(4)), counting),
-            nupp.math.u32.andBits(nupp.math.u32.shiftRightLogical(low, shift), u32(255))
-        )
-        counting = nupp.math.u32.add(counting, u32(1))
+        local shift = u32(24) - (counting << u32(3))
+        valuebuilder.setScratchByte(tail, upTo + counting, (high >> shift) & u32(255))
+        valuebuilder.setScratchByte(tail, upTo + u32(4) + counting, (low >> shift) & u32(255))
+        counting = counting + u32(1)
     end
 
     -- The eight state words are ordinary locals and the schedule is this
@@ -227,7 +216,7 @@ local function digestHex(source: string, nullValue: any): any
     local h6 = signed(u32(0x1f83d9ab))
     local h7 = signed(u32(0x5be0cd19))
 
-    local total = nupp.math.u32.add(whole, nupp.math.u32.add(upTo, u32(8)))
+    local total = whole + (upTo + u32(8))
     local offset: uint32 = u32(0)
     while offset < total do
         -- SHA-256 is defined on big-endian words and a machine is whatever it
@@ -244,26 +233,26 @@ local function digestHex(source: string, nullValue: any): any
         local at: uint32 = u32(0)
         if offset < whole then
             while at < 16 do
-                local reading = nupp.math.u32.add(nupp.math.u32.shiftRightLogical(offset, u32(2)), at)
+                local reading = (offset >> u32(2)) + at
                 local nativeWord = valuebuilder.word(source, reading)
                 valuebuilder.setScratchWord(schedule, at, bigEndianWord(nativeWord))
-                at = nupp.math.u32.add(at, u32(1))
+                at = at + u32(1)
             end
         else
-            local base = nupp.math.u32.sub(offset, whole)
+            local base = offset - whole
             while at < 16 do
-                local within = nupp.math.u32.add(base, nupp.math.u32.shiftLeft(at, u32(2)))
+                local within = base + (at << u32(2))
                 valuebuilder.setScratchWord(
                     schedule,
                     at,
                     unsigned(
                         (signed(valuebuilder.scratchByte(tail, within)) << 24)
-                        | (signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(1)))) << 16)
-                        | (signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(2)))) << 8)
-                        | signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(3))))
+                        | (signed(valuebuilder.scratchByte(tail, within + u32(1))) << 16)
+                        | (signed(valuebuilder.scratchByte(tail, within + u32(2))) << 8)
+                        | signed(valuebuilder.scratchByte(tail, within + u32(3)))
                     )
                 )
-                at = nupp.math.u32.add(at, u32(1))
+                at = at + u32(1)
             end
         end
 
@@ -271,16 +260,16 @@ local function digestHex(source: string, nullValue: any): any
         while extending < 64 do
             local word = add(
                 add(
-                    signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(16)))),
-                    smallSigmaZero(signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(15)))))
+                    signed(valuebuilder.scratchWord(schedule, extending - u32(16))),
+                    smallSigmaZero(signed(valuebuilder.scratchWord(schedule, extending - u32(15))))
                 ),
                 add(
-                    signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(7)))),
-                    smallSigmaOne(signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(2)))))
+                    signed(valuebuilder.scratchWord(schedule, extending - u32(7))),
+                    smallSigmaOne(signed(valuebuilder.scratchWord(schedule, extending - u32(2))))
                 )
             )
             valuebuilder.setScratchWord(schedule, extending, unsigned(word))
-            extending = nupp.math.u32.add(extending, u32(1))
+            extending = extending + u32(1)
         end
 
         local a, b, c, d = h0, h1, h2, h3
@@ -304,7 +293,7 @@ local function digestHex(source: string, nullValue: any): any
             c = b
             b = a
             a = add(first, second)
-            round = nupp.math.u32.add(round, u32(1))
+            round = round + u32(1)
         end
 
         h0 = add(h0, a)
@@ -316,7 +305,7 @@ local function digestHex(source: string, nullValue: any): any
         h6 = add(h6, g)
         h7 = add(h7, h)
 
-        offset = nupp.math.u32.add(offset, u32(64))
+        offset = offset + u32(64)
     end
 
     valuebuilder.setScratchWord(schedule, u32(0), unsigned(h0))
@@ -335,20 +324,12 @@ local function digestHex(source: string, nullValue: any): any
         while nibble < 8 do
             valuebuilder.setScratchByte(
                 scratch,
-                nupp.math.u32.add(nupp.math.u32.shiftLeft(word, u32(3)), nibble),
-                hexDigit(
-                    nupp.math.u32.andBits(
-                        nupp.math.u32.shiftRightLogical(
-                            value,
-                            nupp.math.u32.sub(u32(28), nupp.math.u32.shiftLeft(nibble, u32(2)))
-                        ),
-                        u32(15)
-                    )
-                )
+                (word << u32(3)) + nibble,
+                hexDigit((value >> (u32(28) - (nibble << u32(2)))) & u32(15))
             )
-            nibble = nupp.math.u32.add(nibble, u32(1))
+            nibble = nibble + u32(1)
         end
-        word = nupp.math.u32.add(word, u32(1))
+        word = word + u32(1)
     end
 
     valuebuilder.stringScratch(builder, scratch, u32(0), u32(64))

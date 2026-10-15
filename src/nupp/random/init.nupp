@@ -59,25 +59,25 @@ const ZERO = nupp.math.i32.wrap(0)
 
 --- SplitMix32's finalizer: one word in, one avalanched word out.
 local function mix32(value: int32): int32
-    local shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(value), 16))
-    local mixed = nupp.math.i32.mul(nupp.math.i32.xorBits(value, shifted), nupp.math.i32.wrap(0x21F0AAAD))
-    shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(mixed), 15))
-    mixed = nupp.math.i32.mul(nupp.math.i32.xorBits(mixed, shifted), nupp.math.i32.wrap(0x735A2D97))
-    shifted = nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(mixed), 15))
+    local shifted = value >> 16
+    local mixed = (value ~ shifted) * nupp.math.i32.wrap(0x21F0AAAD)
+    shifted = mixed >> 15
+    mixed = (mixed ~ shifted) * nupp.math.i32.wrap(0x735A2D97)
+    shifted = mixed >> 15
 
-    return nupp.math.i32.xorBits(mixed, shifted)
+    return mixed ~ shifted
 end
 
 --- Expands a seed into four state words without xoshiro's all-zero state.
 local function expand(seed: integer): (int32, int32, int32, int32)
     local counter = nupp.math.i32.wrap(seed)
-    counter = nupp.math.i32.add(counter, GOLDEN)
+    counter = counter + GOLDEN
     local s0 = mix32(counter)
-    counter = nupp.math.i32.add(counter, GOLDEN)
+    counter = counter + GOLDEN
     local s1 = mix32(counter)
-    counter = nupp.math.i32.add(counter, GOLDEN)
+    counter = counter + GOLDEN
     local s2 = mix32(counter)
-    counter = nupp.math.i32.add(counter, GOLDEN)
+    counter = counter + GOLDEN
     local s3 = mix32(counter)
     if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
         return GOLDEN, ZERO, ZERO, ZERO
@@ -108,16 +108,13 @@ export record Xoshiro128
         local s1 = nupp.math.i32.wrap(self.s1 as integer)
         local s2 = nupp.math.i32.wrap(self.s2 as integer)
         local s3 = nupp.math.i32.wrap(self.s3 as integer)
-        local result = nupp.math.i32.mul(
-            nupp.math.i32.rotateLeft(nupp.math.i32.mul(s1, nupp.math.i32.wrap(5)), 7),
-            nupp.math.i32.wrap(9)
-        )
-        local shifted = nupp.math.i32.shiftLeft(s1, 9)
-        s2 = nupp.math.i32.xorBits(s2, s0)
-        s3 = nupp.math.i32.xorBits(s3, s1)
-        s1 = nupp.math.i32.xorBits(s1, s2)
-        s0 = nupp.math.i32.xorBits(s0, s3)
-        s2 = nupp.math.i32.xorBits(s2, shifted)
+        local result = nupp.math.i32.rotateLeft(s1 * nupp.math.i32.wrap(5), 7) * nupp.math.i32.wrap(9)
+        local shifted = s1 << 9
+        s2 = s2 ~ s0
+        s3 = s3 ~ s1
+        s1 = s1 ~ s2
+        s0 = s0 ~ s3
+        s2 = s2 ~ shifted
         s3 = nupp.math.i32.rotateLeft(s3, 11)
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
 

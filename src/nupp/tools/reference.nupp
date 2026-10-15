@@ -1724,23 +1724,29 @@ The establishing conversions are `nupp.math.f32.narrow(number)`,
 performs one binary32 store/load without changing a NaN payload; `f32.round`
 retains its canonical-NaN contract.
 
-`+`, `-`, and `*` between two established `uint32` values, or between an
-established `uint32` and an exact literal, are `nupp.math.u32.add`, `sub`,
-and `mul`: they wrap modulo 2^32 and produce an established `uint32`. The
-same holds for `int32` with `nupp.math.i32`. Mixing the two widths, or either
-with a `number`, is ordinary arithmetic. Every other operator still has
-LuaJIT's numeric meaning and produces `number`; code that requires one of
-those explicitly sized calls `nupp.math.i32`, `nupp.math.u32`, or
-`nupp.math.f32`, whose fixed-width inputs must already be established.
+The operators are the fixed-width arithmetic. `+`, `-`, and `*` between two
+established `uint32` values, or between an established `uint32` and an exact
+literal, wrap modulo 2^32 and produce an established `uint32`; the same holds
+for `int32`. `&`, `|`, `~`, `<<`, `>>`, and unary `~` over established operands
+produce the operand width: a `uint32` beside a `uint32` or a literal is a
+`uint32`, and anything else established is an `int32`. Shift counts are masked
+by 31, `>>` shifts in zeros, and `~>>` copies the sign. Mixing the two widths,
+or either with a `number`, is ordinary arithmetic, and `/`, `//`, `%`, and `^`
+leave the width.
 
-The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
-signedness is stated by the operation. The binary32 namespace rounds every
-input and result to nearest, ties to even. It preserves signed zero,
-subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
-operation. `exp` clamps to `[-104, 88]`, evaluates one specified degree-12
-binary32 polynomial, and squares seven times; it never delegates to host or
-device transcendental libraries. `fromBits` and `toBits` expose the canonical
-bit contract.
+What has no operator keeps a name. `nupp.math.i32` and `nupp.math.u32` carry
+the establishing `wrap`, `rotateLeft` and `rotateRight`; `u32` adds `popcount`,
+`trailingZeros`, `leadingZeros`, and `div` and `mod`, which answer zero for a
+zero divisor; `nupp.math.u64` carries the 64-bit rotations, bit counts, and
+`prefixXor`. Their fixed-width inputs must already be established.
+
+The binary32 namespace rounds every input and result to nearest, ties to even,
+because `float` arithmetic through the operators answers `number`. It
+preserves signed zero, subnormals, and infinities, canonicalizes every NaN,
+and makes `fma` one fused operation. `exp` clamps to `[-104, 88]`, evaluates
+one specified degree-12 binary32 polynomial, and squares seven times; it never
+delegates to host or device transcendental libraries. `fromBits` and `toBits`
+expose the canonical bit contract.
 
 Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
 Aliasing a standard member preserves its intrinsic identity; shadowing the name
@@ -1758,7 +1764,7 @@ conversion; a table-backed record write may not.
 local m = {}
 
 function m.step(flags: uint32, distance: number, inverseTime: number): (uint32, float)
-    local rotated = nupp.math.u32.rotateLeft(flags, 7)
+    local rotated = nupp.math.u32.rotateLeft(flags, 7) ~ ((flags >> 3) & 0xff)
     local d = nupp.math.f32.narrow(distance)
     local dt = nupp.math.f32.narrow(inverseTime)
     local speed = nupp.math.f32.mul(d, dt)
@@ -2492,7 +2498,7 @@ checked against its contract under `NUPP2112`.
 local m = {}
 
 local function quiet(value: uint32): uint32
-    return nupp.math.u32.add(value, 1)
+    return value + 1
 end
 
 function m.advance(value: uint32): uint32

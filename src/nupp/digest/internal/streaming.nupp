@@ -119,15 +119,15 @@ local function i32(value: integer): int32
 end
 
 local function add(a: int32, b: int32): int32
-    return nupp.math.i32.add(a, b)
+    return a + b
 end
 
 local function xor(a: int32, b: int32): int32
-    return nupp.math.i32.xorBits(a, b)
+    return a ~ b
 end
 
-local function logicalRight(value: int32, count: integer): int32
-    return nupp.math.i32.fromU32(nupp.math.u32.shiftRightLogical(nupp.math.u32.fromI32(value), count))
+local function logicalRight(value: int32, count: int32): int32
+    return value >> count
 end
 
 local function rotateRight(value: int32, count: integer): int32
@@ -151,11 +151,11 @@ local function bigSigmaOne(word: int32): int32
 end
 
 local function choose(e: int32, f: int32, g: int32): int32
-    return xor(nupp.math.i32.andBits(e, f), nupp.math.i32.andBits(nupp.math.i32.notBits(e), g))
+    return xor(e & f, (~e) & g)
 end
 
 local function majority(a: int32, b: int32, c: int32): int32
-    return xor(xor(nupp.math.i32.andBits(a, b), nupp.math.i32.andBits(a, c)), nupp.math.i32.andBits(b, c))
+    return xor(xor(a & b, a & c), b & c)
 end
 
 local function wordAt(words: {int32}, index: integer): int32
@@ -243,10 +243,10 @@ end
 
 local function addLength(self: Sha256, count: integer): nil
     local before = unsignedWordAt(self.length, 1)
-    local after = nupp.math.u32.add(before, nupp.math.u32.wrap(count))
+    local after = before + nupp.math.u32.wrap(count)
     self.length[1] = after
     if after < before then
-        self.length[2] = nupp.math.u32.add(unsignedWordAt(self.length, 2), nupp.math.u32.wrap(1))
+        self.length[2] = unsignedWordAt(self.length, 2) + nupp.math.u32.wrap(1)
     end
 end
 
@@ -304,11 +304,8 @@ local function finalState(source: Sha256): Sha256
     local state = copy(source)
     local byteLengthLow = unsignedWordAt(state.length, 1)
     local byteLengthHigh = unsignedWordAt(state.length, 2)
-    local high = nupp.math.u32.orBits(
-        nupp.math.u32.shiftLeft(byteLengthHigh, 3),
-        nupp.math.u32.shiftRightLogical(byteLengthLow, 29)
-    )
-    local low = nupp.math.u32.shiftLeft(byteLengthLow, 3)
+    local high = (byteLengthHigh << 3) | (byteLengthLow >> 29)
+    local low = byteLengthLow << 3
     local tail = state.tail .. "\128"
     tail = tail .. string.rep("\0", (56 - #tail % 64) % 64) .. lengthBytes(high, low)
     for offset = 1, #tail, 64 do
@@ -367,7 +364,7 @@ local function xorPad(key: string, pad: integer): string
     local bytes: {string} = {}
     local mask = nupp.math.u32.wrap(pad)
     for index = 1, 64 do
-        bytes[index] = string.char(nupp.math.u32.xorBits(nupp.math.u32.wrap(key:byte(index)), mask) as integer)
+        bytes[index] = string.char((nupp.math.u32.wrap(key:byte(index)) ~ mask) as integer)
     end
 
     return table.concat(bytes)

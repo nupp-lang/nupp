@@ -296,7 +296,7 @@ local function decodeFused<const Variant: integer>(
             local back: uint32 = 1
             local walking = true
             while walking and back <= 3 and back <= scanCursor do
-                local earlier: uint32 = _valueBuilder.byte(source, nupp.math.u32.sub(scanCursor, back))
+                local earlier: uint32 = _valueBuilder.byte(source, scanCursor - back)
                 if earlier < 128 then
                     walking = false
                 elseif earlier >= 192 then
@@ -304,7 +304,7 @@ local function decodeFused<const Variant: integer>(
                     -- C0, C1 and F5..FF wrong is the byte after them and that
                     -- byte is past the last whole vector.
                     if earlier < 194 or earlier > 244 then
-                        return nullValue, 2, nupp.math.u32.add(nupp.math.u32.sub(scanCursor, back), 1)
+                        return nullValue, 2, scanCursor - back + 1
                     end
                     local need: uint32 = 3
                     if earlier <= 223 then
@@ -313,9 +313,9 @@ local function decodeFused<const Variant: integer>(
                         need = 2
                     end
                     if need >= back then
-                        owed = nupp.math.u32.add(nupp.math.u32.sub(need, back), 1)
+                        owed = need - back + 1
                         haveNonAscii = true
-                        lastNonAscii = nupp.math.u32.sub(scanCursor, 1)
+                        lastNonAscii = scanCursor - 1
                         -- The constraint binds the first continuation, which
                         -- is already behind us unless the lead is.
                         if back == 1 then
@@ -332,7 +332,7 @@ local function decodeFused<const Variant: integer>(
                     end
                     walking = false
                 else
-                    back = nupp.math.u32.add(back, 1)
+                    back = back + 1
                 end
             end
         elseif width == 0 then
@@ -361,32 +361,32 @@ local function decodeFused<const Variant: integer>(
         while events ~= 0 do
             local lane: uint32 = nupp.math.u64.trailingZeros(events)
             events = events & (events - 1)
-            local position: uint32 = nupp.math.u32.add(scanCursor, lane)
+            local position: uint32 = scanCursor + lane
             if position < sourceCount then
                 local byte: uint32 = _valueBuilder.byteAt(source, position)
                 -- A scalar left unfinished by the last non-ASCII byte must be
                 -- continued by the very next byte; an event anywhere later
                 -- means that byte was not a continuation.
-                if owed ~= 0 and (not haveNonAscii or position ~= nupp.math.u32.add(lastNonAscii, 1)) then
-                    return nullValue, 2, nupp.math.u32.add(lastNonAscii, 2)
+                if owed ~= 0 and (not haveNonAscii or position ~= lastNonAscii + 1) then
+                    return nullValue, 2, lastNonAscii + 2
                 end
                 if byte >= 128 then
                     local isContinuation = byte <= 191
                     if owed ~= 0 then
                         if not isContinuation then
-                            return nullValue, 2, nupp.math.u32.add(position, 1)
+                            return nullValue, 2, position + 1
                         end
                         local constrained = constraint == 1 and byte < 160
                             or constraint == 2 and byte > 159
                             or constraint == 3 and byte < 144
                             or constraint == 4 and byte > 143
                         if constrained then
-                            return nullValue, 2, nupp.math.u32.add(position, 1)
+                            return nullValue, 2, position + 1
                         end
-                        owed = nupp.math.u32.sub(owed, 1)
+                        owed = owed - 1
                         constraint = 0
                     elseif isContinuation or byte < 194 or byte > 244 then
-                        return nullValue, 2, nupp.math.u32.add(position, 1)
+                        return nullValue, 2, position + 1
                     elseif byte <= 223 then
                         owed = 1
                     elseif byte <= 239 then
@@ -410,12 +410,12 @@ local function decodeFused<const Variant: integer>(
                     slashOdd = false
                 elseif owed ~= 0 then
                     -- The continuation this byte had to be is ASCII.
-                    return nullValue, 2, nupp.math.u32.add(position, 1)
+                    return nullValue, 2, position + 1
                 elseif byte == 92 then
                     if not inString then
-                        return nullValue, 4, nupp.math.u32.add(position, 1)
+                        return nullValue, 4, position + 1
                     end
-                    if haveSlash and position == nupp.math.u32.add(lastSlash, 1) then
+                    if haveSlash and position == lastSlash + 1 then
                         slashOdd = not slashOdd
                     else
                         slashOdd = true
@@ -424,7 +424,7 @@ local function decodeFused<const Variant: integer>(
                     lastSlash = position
                     stringEscaped = true
                 else
-                    local escaped = haveSlash and position == nupp.math.u32.add(lastSlash, 1) and slashOdd
+                    local escaped = haveSlash and position == lastSlash + 1 and slashOdd
                     if byte == 34 and not escaped then
                         -- An opening quote joins the tape bare; the closing
                         -- one carries whether the string it ends held a
@@ -432,7 +432,7 @@ local function decodeFused<const Variant: integer>(
                         if inString then
                             local word: uint32 = position
                             if stringEscaped then
-                                word = nupp.math.u32.orBits(position, 0x80000000)
+                                word = position | 0x80000000
                             end
                             _valueBuilder.setScratchWord(tape, tapeCount, word)
                             inString = false
@@ -441,17 +441,17 @@ local function decodeFused<const Variant: integer>(
                             inString = true
                             stringEscaped = false
                         end
-                        tapeCount = nupp.math.u32.add(tapeCount, 1)
+                        tapeCount = tapeCount + 1
                     elseif byte < 32 then
                         local whitespace = byte == 9 or byte == 10 or byte == 13
                         if inString or not whitespace then
-                            return nullValue, 3, nupp.math.u32.add(position, 1)
+                            return nullValue, 3, position + 1
                         end
                     elseif not inString then
                         -- Every remaining event byte outside a string is one
                         -- of the six structural characters.
                         _valueBuilder.setScratchWord(tape, tapeCount, position)
-                        tapeCount = nupp.math.u32.add(tapeCount, 1)
+                        tapeCount = tapeCount + 1
                     end
                     haveSlash = false
                     slashOdd = false
@@ -459,13 +459,13 @@ local function decodeFused<const Variant: integer>(
             end
         end
 
-        scanCursor = nupp.math.u32.add(scanCursor, width)
+        scanCursor = scanCursor + width
     end
 
     if owed ~= 0 then
         -- A scalar the end of the input cut off is raised one past the last
         -- byte, which is where its missing continuation would have been.
-        return nullValue, 2, nupp.math.u32.add(lastNonAscii, 2)
+        return nullValue, 2, lastNonAscii + 2
     end
 
     local builderDepth: uint32 = 1024
@@ -512,7 +512,7 @@ local function decodeFused<const Variant: integer>(
         while skipping and cursor < sourceCount do
             pending = _valueBuilder.byteAt(source, cursor)
             if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
-                cursor = nupp.math.u32.add(cursor, 1)
+                cursor = cursor + 1
             else
                 skipping = false
             end
@@ -520,7 +520,7 @@ local function decodeFused<const Variant: integer>(
 
         if needValue then
             if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                return nullValue, 1, cursor + 1
             end
 
             local tag: uint32 = 0
@@ -535,38 +535,38 @@ local function decodeFused<const Variant: integer>(
                 if tapeCursor < tapeCount then
                     local opening = _valueBuilder.scratchWord(tape, tapeCursor)
                     if opening ~= cursor then
-                        return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                        return nullValue, 5, cursor + 1
                     end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    tapeCursor = tapeCursor + 1
                 else
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 5, cursor + 1
                 end
                 if tapeCursor < tapeCount then
                     local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                    local closing = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                    if nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0 then
+                    local closing = closingWord & 0x7FFFFFFF
+                    if closingWord & 0x80000000 ~= 0 then
                         flags = 1
                     end
-                    start = nupp.math.u32.add(cursor, 1)
-                    length = nupp.math.u32.sub(closing, start)
+                    start = cursor + 1
+                    length = closing - start
                     -- The builder validates escapes while transforming them.
                     -- Walking this slice here as well would validate every
                     -- escaped value twice before publishing the same string.
-                    cursor = nupp.math.u32.add(closing, 1)
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    cursor = closing + 1
+                    tapeCursor = tapeCursor + 1
                 else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
             elseif byte == 91 or byte == 123 then
                 if _valueBuilder.depth(values) >= builderDepth then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
                 if byte == 91 then
                     tag = 5
                 else
                     tag = 6
                 end
-                cursor = nupp.math.u32.add(cursor, 1)
+                cursor = cursor + 1
                 if tapeCursor < tapeCount then
                     if byte == 123 then
                         -- Four fields covers the record-heavy common case and
@@ -577,14 +577,14 @@ local function decodeFused<const Variant: integer>(
                         -- repeatedly growing from zero. Cap the estimate at
                         -- 2 MiB of 64-bit slots so one huge element cannot turn
                         -- a construction hint into unbounded retained memory.
-                        containerCapacity = nupp.math.u32.shiftRightLogical(sourceCount, 5)
+                        containerCapacity = sourceCount >> 5
                         if containerCapacity > 262144 then
                             containerCapacity = 262144
                         end
                     else
                         containerCapacity = 4
                     end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    tapeCursor = tapeCursor + 1
                 else
                     return nullValue, 5, cursor
                 end
@@ -592,7 +592,7 @@ local function decodeFused<const Variant: integer>(
                 tag = 1
                 local matched: uint32 = 0
                 while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    local at: uint32 = cursor + matched
                     if at < sourceCount then
                         local actual = _valueBuilder.byteAt(source, at)
                         local expected: uint32 = switch matched do
@@ -602,20 +602,20 @@ local function decodeFused<const Variant: integer>(
                             else -> 101
                         end
                         if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                            return nullValue, 1, at + 1
                         end
                     else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                        return nullValue, 1, at + 1
                     end
-                    matched = nupp.math.u32.add(matched, 1)
+                    matched = matched + 1
                 end
                 length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
+                cursor = cursor + 4
             elseif byte == 102 then
                 tag = 2
                 local matched: uint32 = 0
                 while matched < 5 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    local at: uint32 = cursor + matched
                     if at < sourceCount then
                         local actual = _valueBuilder.byteAt(source, at)
                         local expected: uint32 = switch matched do
@@ -626,20 +626,20 @@ local function decodeFused<const Variant: integer>(
                             else -> 101
                         end
                         if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                            return nullValue, 1, at + 1
                         end
                     else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                        return nullValue, 1, at + 1
                     end
-                    matched = nupp.math.u32.add(matched, 1)
+                    matched = matched + 1
                 end
                 length = 5
-                cursor = nupp.math.u32.add(cursor, 5)
+                cursor = cursor + 5
             elseif byte == 110 then
                 tag = 0
                 local matched: uint32 = 0
                 while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    local at: uint32 = cursor + matched
                     if at < sourceCount then
                         local actual = _valueBuilder.byteAt(source, at)
                         local expected: uint32 = switch matched do
@@ -648,25 +648,25 @@ local function decodeFused<const Variant: integer>(
                             else -> 108
                         end
                         if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
+                            return nullValue, 1, at + 1
                         end
                     else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
+                        return nullValue, 1, at + 1
                     end
-                    matched = nupp.math.u32.add(matched, 1)
+                    matched = matched + 1
                 end
                 length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
+                cursor = cursor + 4
             elseif byte == 45 or byte >= 48 and byte <= 57 then
                 tag = 3
                 local parsed = _jsonBuilder.numberToken(values, source, cursor, sourceCount)
                 if parsed < 2147483648 then
                     return nullValue, 1, parsed
                 end
-                cursor = nupp.math.u32.sub(parsed, 2147483648)
-                length = nupp.math.u32.sub(cursor, start)
+                cursor = parsed - 2147483648
+                length = cursor - start
             else
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                return nullValue, 1, cursor + 1
             end
 
             if tag == 0 then
@@ -685,94 +685,94 @@ local function decodeFused<const Variant: integer>(
             needValue = false
         elseif _valueBuilder.depth(values) == 0 then
             if cursor < sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                return nullValue, 1, cursor + 1
             end
             done = true
         else
             if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                return nullValue, 1, cursor + 1
             end
             local builderState = _valueBuilder.state(values)
             local byte = pending
-            local kind = nupp.math.u32.andBits(builderState, 0xFF)
-            local hasValue = nupp.math.u32.andBits(builderState, 0x100) ~= 0
+            local kind = builderState & 0xFF
+            local hasValue = builderState & 0x100 ~= 0
             local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
             if closing then
                 if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 5, cursor + 1
                 end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                cursor = nupp.math.u32.add(cursor, 1)
+                tapeCursor = tapeCursor + 1
+                cursor = cursor + 1
                 _valueBuilder.close(values)
             elseif kind == 5 then
                 if not hasValue then
                     needValue = true
                 elseif byte == 44 then
-                    cursor = nupp.math.u32.add(cursor, 1)
+                    cursor = cursor + 1
                     if tapeCursor >= tapeCount then
                         return nullValue, 5, cursor
                     end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    tapeCursor = tapeCursor + 1
                     needValue = true
                 else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
             else
                 if hasValue then
                     if byte ~= 44 then
-                        return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                        return nullValue, 1, cursor + 1
                     end
-                    cursor = nupp.math.u32.add(cursor, 1)
+                    cursor = cursor + 1
                     if tapeCursor >= tapeCount then
                         return nullValue, 5, cursor
                     end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    tapeCursor = tapeCursor + 1
                     local keySkipping = true
                     while keySkipping and cursor < sourceCount do
                         local keyByte = _valueBuilder.byteAt(source, cursor)
                         if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
-                            cursor = nupp.math.u32.add(cursor, 1)
+                            cursor = cursor + 1
                         else
                             keySkipping = false
                         end
                     end
                 end
                 if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 34 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
                 local opening = cursor
                 if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= opening then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 5, cursor + 1
                 end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                tapeCursor = tapeCursor + 1
                 if tapeCursor >= tapeCount then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
                 local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                local closingQuote = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                local escaped = nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                local keyStart = nupp.math.u32.add(opening, 1)
-                local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
+                local closingQuote = closingWord & 0x7FFFFFFF
+                local escaped = closingWord & 0x80000000 ~= 0
+                tapeCursor = tapeCursor + 1
+                local keyStart = opening + 1
+                local keyLength = closingQuote - keyStart
                 _valueBuilder.key(values, source, keyStart, keyLength, escaped)
-                cursor = nupp.math.u32.add(closingQuote, 1)
+                cursor = closingQuote + 1
                 local colonSkipping = true
                 while colonSkipping and cursor < sourceCount do
                     local colonByte = _valueBuilder.byteAt(source, cursor)
                     if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
-                        cursor = nupp.math.u32.add(cursor, 1)
+                        cursor = cursor + 1
                     else
                         colonSkipping = false
                     end
                 end
                 if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 1, cursor + 1
                 end
                 if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
+                    return nullValue, 5, cursor + 1
                 end
-                cursor = nupp.math.u32.add(cursor, 1)
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                cursor = cursor + 1
+                tapeCursor = tapeCursor + 1
                 needValue = true
             end
         end
