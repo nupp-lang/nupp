@@ -89,6 +89,11 @@ local function run(options: any): integer
     -- it is written again below, once every module the program required has been
     -- compiled, which is the complete account a reader of the file gets.
     compile.writeRemarks(settings)
+    -- What checking the entry worked out about the project, its index above all,
+    -- kept for the next run before this one starts: a program may never return.
+    -- Without it every run read and parsed every file under the include roots
+    -- again, which on the VM is most of starting a benchmark child.
+    require("nupp.compiler.project.env").persist(projectEnv)
 
     local runtime = require("nupp.compiler.runtime")
     local compileLoaded: function(modulePath: string, env: any, name: string): (string?, string?)
