@@ -1,0 +1,66 @@
+-- The network and TLS primitives the VM's net and TLS providers are written
+-- over. Handles are numbers; every operation but `waitSince` returns at once.
+local record Host
+    -- Snapshots the readiness generation every native family advances, unless
+    -- a snapshot is already waiting to be slept from.
+    snapshot: function(): nil
+    -- Sleeps until the generation moves past the snapshot or `milliseconds`
+    -- pass, spending it; without a snapshot, takes one and returns at once.
+    sleep: function(milliseconds: integer): nil
+
+    listen: function(host: string, port: integer, backlog: integer, reusePort: boolean): (integer?, string?)
+    listenPath: function(path: string, backlog: integer): (integer?, string?)
+    listenerPort: function(listener: integer): integer
+    accept: function(listener: integer): (integer?, string?)
+    closeListener: function(listener: integer): nil
+
+    connect: function(host: string, port: integer, timeoutMs: integer): (integer?, string?)
+    connectPath: function(path: string, timeoutMs: integer): (integer?, string?)
+    connectPoll: function(request: integer): (integer?, string?)
+    closeConnect: function(request: integer): nil
+
+    read: function(stream: integer, wanted: integer): (string?, string?)
+    write: function(stream: integer, bytes: string): (integer?, string?)
+    pending: function(stream: integer): integer
+    ended: function(stream: integer): boolean
+    writeFailed: function(stream: integer): boolean
+    shuttingDown: function(stream: integer): boolean
+    shutdownWrite: function(stream: integer): (boolean, string?)
+    address: function(stream: integer, peer: boolean): (string?, integer?)
+    noDelay: function(stream: integer, enable: boolean): (boolean, string?)
+    keepAlive: function(stream: integer, enable: boolean, delayMs: integer): (boolean, string?)
+    closeStream: function(stream: integer): nil
+
+    bindDatagram: function(host: string, port: integer, reusePort: boolean): (integer?, string?)
+    datagramPort: function(socket: integer): integer
+    receive: function(socket: integer, maximum: integer): (string?, string?, integer?, boolean?, string?)
+    sendTo: function(socket: integer, host: string, port: integer, bytes: string): (boolean, string?)
+    broadcast: function(socket: integer, enable: boolean): (boolean, string?)
+    multicastTtl: function(socket: integer, ttl: integer): (boolean, string?)
+    multicastLoop: function(socket: integer, enable: boolean): (boolean, string?)
+    membership: function(socket: integer, group: string, interfaceAddress: string, join: boolean): (boolean, string?)
+    closeDatagram: function(socket: integer): nil
+
+    -- Takes the stream: its handle is spent whether or not the session starts.
+    tlsWrap: function(
+        stream: integer,
+        server: boolean,
+        hostname: string,
+        certificate: string,
+        privateKey: string,
+        authority: string?,
+        protocols: string,
+        verify: boolean
+    ): (integer?, string?)
+    tlsHandshake: function(session: integer): (boolean?, string?)
+    tlsRead: function(session: integer, wanted: integer): (string?, string?)
+    tlsWrite: function(session: integer, bytes: string): (integer?, string?)
+    tlsFlushed: function(session: integer): (boolean, string?)
+    tlsCloseNotify: function(session: integer): (boolean, string?)
+    tlsConnected: function(session: integer): boolean
+    tlsVerified: function(session: integer): boolean
+    tlsResumed: function(session: integer): boolean
+    tlsProtocol: function(session: integer): string?
+    tlsDestroy: function(session: integer): nil
+end
+return Host

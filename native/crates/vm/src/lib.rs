@@ -25,6 +25,7 @@ mod datetime;
 pub mod fileio;
 pub mod nfiles;
 pub mod ncompression;
+pub mod nnet;
 pub mod utf8lib;
 mod temporary;
 mod process;

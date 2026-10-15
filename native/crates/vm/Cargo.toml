@@ -48,6 +48,8 @@ nupp-native-platform = { path = "../platform", features = ["uuid"] }
 nupp-native-checksum = { path = "../checksum" }
 nupp-native-files = { path = "../files" }
 nupp-native-compression = { path = "../compression" }
+nupp-native-net = { path = "../net" }
+nupp-native-tls = { path = "../tls" }
 nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }
 cranelift-frontend = { version = "0.135", optional = true }

@@ -60,6 +60,13 @@ pub const NAMES: &[&str] = &[
     // Provider primitives, installed as `nupp.vm.<family>` (`crate::interp::PROVIDER_FAMILIES`).
     "ncompression.encoderCreate", "ncompression.encoderWrite", "ncompression.encoderFlush", "ncompression.encoderFinish", "ncompression.encoderRelease",
     "ncompression.decoderCreate", "ncompression.decoderRead", "ncompression.decoderFinishInput", "ncompression.decoderRelease",
+    "nnet.snapshot", "nnet.sleep",
+    "nnet.listen", "nnet.listenPath", "nnet.listenerPort", "nnet.accept", "nnet.closeListener",
+    "nnet.connect", "nnet.connectPath", "nnet.connectPoll", "nnet.closeConnect",
+    "nnet.read", "nnet.write", "nnet.pending", "nnet.ended", "nnet.writeFailed", "nnet.shuttingDown", "nnet.shutdownWrite",
+    "nnet.address", "nnet.noDelay", "nnet.keepAlive", "nnet.closeStream",
+    "nnet.bindDatagram", "nnet.datagramPort", "nnet.receive", "nnet.sendTo", "nnet.broadcast", "nnet.multicastTtl", "nnet.multicastLoop", "nnet.membership", "nnet.closeDatagram",
+    "nnet.tlsWrap", "nnet.tlsHandshake", "nnet.tlsRead", "nnet.tlsWrite", "nnet.tlsFlushed", "nnet.tlsCloseNotify", "nnet.tlsConnected", "nnet.tlsVerified", "nnet.tlsResumed", "nnet.tlsProtocol", "nnet.tlsDestroy",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -587,7 +594,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -939,6 +946,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
             if name.starts_with("ncompression.") { return crate::ncompression::call(it, name, args); }
+            if name.starts_with("nnet.") { return crate::nnet::call(it, name, args); }
             if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }

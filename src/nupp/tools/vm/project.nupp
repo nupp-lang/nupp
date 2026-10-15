@@ -39,6 +39,7 @@ local HOST_MODULES: {
     ["nupp.compiler.nativecdecl"] = true,
     ["nupp.vm.files"] = true,
     ["nupp.vm.compression"] = true,
+    ["nupp.vm.net"] = true,
     ["nupp.digest.internal.sha256"] = true,
 }
 
