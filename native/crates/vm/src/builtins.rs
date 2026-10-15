@@ -80,6 +80,7 @@ pub const NAMES: &[&str] = &[
     "vm.imageModules",
     "foreign.load", "foreign.invokeCallback", "foreign.string",
     "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
+    "table.new",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -636,7 +637,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageIdentity" { return Special::VmImageidentity; }
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
-        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow")
+        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
@@ -1041,6 +1042,12 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 return outs![Value::num(v)];
             }
             if *name == "math.random" || *name == "math.randomseed" { return random(it, name, args); }
+            // LuaJIT's `table.new(narray, nhash)`: an empty table sized for both parts.
+            if *name == "table.new" {
+                let count = |v: Value| if v.is_num() && v.as_num() > 0.0 { v.as_num().min(16777216.0) as usize } else { 0 };
+                let t = it.new_table_sized(count(arg(args, 0)), count(arg(args, 1)));
+                return outs![t];
+            }
             if matches!(*name, "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow") {
                 let a = crate::numeric::double(it, arg(args, 0));
                 let v = match *name {
@@ -1271,11 +1278,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         38 => { let mut r: i32 = -1; for a in args { r &= tobit(a.as_num()); } outs![Value::num(r as f64)] }
         39 => { let mut r: i32 = 0; for a in args { r |= tobit(a.as_num()); } outs![Value::num(r as f64)] }
         40 => { let mut r: i32 = 0; for a in args { r ^= tobit(a.as_num()); } outs![Value::num(r as f64)] }
-        41 => outs![Value::num(!(tobit(arg(args, 0).as_num())) as f64)],
-        42 => outs![Value::num(((tobit(arg(args, 0).as_num())).wrapping_shl((tobit(arg(args, 1).as_num()) as u32 & 31))) as f64)],
-        43 => outs![Value::num(((tobit(arg(args, 0).as_num()) as u32).wrapping_shr((tobit(arg(args, 1).as_num()) as u32 & 31)) as i32) as f64)],
-        44 => outs![Value::num(((tobit(arg(args, 0).as_num())).wrapping_shr((tobit(arg(args, 1).as_num()) as u32 & 31))) as f64)],
-        45 => outs![Value::num((tobit(arg(args, 0).as_num())) as f64)],
+        41 => outs![Value::num(!tobit(arg(args, 0).as_num()) as f64)],
+        42 => outs![Value::num(tobit(arg(args, 0).as_num()).wrapping_shl(tobit(arg(args, 1).as_num()) as u32 & 31) as f64)],
+        43 => outs![Value::num((tobit(arg(args, 0).as_num()) as u32).wrapping_shr(tobit(arg(args, 1).as_num()) as u32 & 31) as i32 as f64)],
+        44 => outs![Value::num(tobit(arg(args, 0).as_num()).wrapping_shr(tobit(arg(args, 1).as_num()) as u32 & 31) as f64)],
+        45 => outs![Value::num(tobit(arg(args, 0).as_num()) as f64)],
         46 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); match std::env::var(&name) { Ok(v) => outs![it.heap_new_string(&v)], Err(_) => outs![Value::NIL] } }
         47 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t)] }
         48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t.floor())] }
@@ -1396,6 +1403,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let source = { let own = fid.and_then(|f| it.funcs[f].path.as_ref().map(|p| p.to_string())); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); own.or_else(|| it.module_paths.get(&module).cloned()).map(|p| if p.starts_with('=') || p.starts_with('@') { p } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
             let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); }
             if line != 0 { let k = it.intern("currentline"); it.set_index(t, k, Value::num(line as f64)); }
+            // Where the function is defined: a closure starts at its definition's line.
+            if let Some(defined) = fid.and_then(|f| it.funcs[f].debug.iter().map(|d| d.0).find(|&l| l != 0)) {
+                let k = it.intern("linedefined"); it.set_index(t, k, Value::num(defined as f64));
+            }
             if func != Value::NIL { let k = it.intern("func"); it.set_index(t, k, func); }
             it.release(h); outs![t]
         }
