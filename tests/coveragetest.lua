@@ -24,12 +24,13 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     os.remove(out)
     -- Any suite produces the same report: what is instrumented is the compiler,
     -- so every one of its files is in the artifacts whatever ran. This one is
-    -- five tests of string handling, where `runnertest` spawns copies of the
-    -- runner and ran them all under an instrumented compiler -- thirty seconds
-    -- of the forty-seven this case cost, for coverage percentages nothing here
-    -- asserts.
+    -- seven quick tests both runners execute, where `runnertest` spawns copies
+    -- of the runner and ran them all under an instrumented compiler -- thirty
+    -- seconds of the forty-seven this case cost, for coverage percentages
+    -- nothing here asserts. (`pathtest` served until the VM runner began
+    -- leaving it to LuaJIT, which made the run report coverage of nothing.)
     local command = (
-        "cd %q && %q test --coverage --coverage-out %q pathtest 2>&1"
+        "cd %q && %q test --coverage --coverage-out %q coveragereporttest 2>&1"
     ):format(ROOT, ROOT .. "/bin/nupp", out)
     local pipe = assert(io.popen(command))
     local output = pipe:read("*a")
@@ -40,6 +41,7 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     test.equal(report.schemaVersion, 1)
     assert(#report.files > 0, "coverage report has source files")
     assert(report.summary.lines.total > 0, "coverage report has executable lines")
+    assert(report.summary.lines.covered > 0, "the run reached instrumented code")
     local index = read(out .. "/index.html")
     test.matches(index, "<details")
     test.matches(index, "Missed arms")
@@ -289,9 +291,8 @@ end
 
 -- Counting the same run the same way is what makes one report hold for either
 -- backend. The image only runs on the VM; the generated Lua runs on both.
-local function countedRun(run)
+local function countedRun(path, run)
     local outer = rawget(_G, "__nuppCoverage")
-    local path = fixturePath()
     local previous = outer and outer.hits[path] or nil
     if outer then
         outer.hits[path] = nil
@@ -311,14 +312,14 @@ end
 local function vmImageCountsWhatTheGeneratedLuaCounts()
     local path = fixturePath()
     local image, manifests = lowered(path, "sample", true)
-    local vmResult, vmHits = countedRun(function()
+    local vmResult, vmHits = countedRun(path, function()
         return rawget(_G, "__nupp_load_image")(image)().run()
     end)
     local code = generated(path, "sample")
     -- The generated prelude installs the managed runtime, which a corpus image
     -- carries only when something names it.
     require("nupp.runtime.managed")
-    local luaResult, luaHits = countedRun(function()
+    local luaResult, luaHits = countedRun(path, function()
         return assert(loadstring(code, "@" .. path))().run()
     end)
     test.equal(vmResult, luaResult)
@@ -338,8 +339,35 @@ local function vmImageCountsWhatTheGeneratedLuaCounts()
     end
 end
 
+-- Loading a real module runs its top level, which the VM lowering opens with
+-- statements of its own (the type witnesses' cells) before any the source wrote.
+-- Those once reused the register the counts were loaded into, and every count of
+-- the module's top level went into the witness table instead.
+local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
+    local path = ROOT .. "/src/nupp/compiler/aot/scalar.nupp"
+    local name = "nupp.compiler.aot.scalar"
+    local image = lowered(path, name, true)
+    local _, vmHits = countedRun(path, function()
+        return rawget(_G, "__nupp_load_image")(image)()
+    end)
+    local code = generated(path, name)
+    local _, luaHits = countedRun(path, function()
+        return assert(loadstring(code, "@" .. path))()
+    end)
+    local keys = 0
+    for key, value in pairs(luaHits) do
+        test.equal(vmHits[key], value, "site " .. key)
+        keys = keys + 1
+    end
+    for key in pairs(vmHits) do
+        assert(luaHits[key] ~= nil, "the VM counted site " .. key .. " the generated Lua did not")
+    end
+    assert(keys > 50, "loading the module reached its top level")
+end
+
 if rawget(_G, "__nupp_load_image") then
     M.vmImageCountsWhatTheGeneratedLuaCounts = vmImageCountsWhatTheGeneratedLuaCounts
+    M.vmModuleLoadCountsWhatTheGeneratedLuaCounts = vmModuleLoadCountsWhatTheGeneratedLuaCounts
 end
 
 return M

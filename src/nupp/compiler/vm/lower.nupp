@@ -569,16 +569,22 @@ function lower.emit(
     -- recorder uses: the site's number, and for a branch the outcome after it.
     local covered = nil
 
-    -- The register holding the counts table. The load is put in front of the
-    -- function once its body is lowered, as the capture loads are.
-    local function coverageCounts(f)
-        if not f.coverageCounts then
+    -- The register holding the counts table, taken before the body is lowered so
+    -- nothing the body does reuses it. Its load is put in front of the function
+    -- once the body is lowered, as the capture loads are, and only when a site
+    -- asked for it.
+    local function reserveCoverageCounts(f)
+        if covered then
             local r = f:reg()
             f.declTop = math.max(f.declTop or 0, r + 1)
             f.coverageCounts = r
         end
+    end
 
-        return f.coverageCounts
+    local function coverageCounts(f)
+        f.coverageUsed = true
+
+        return assert(f.coverageCounts, "coverage counted outside an instrumented function")
     end
 
     local function count(f, key)
@@ -598,7 +604,7 @@ function lower.emit(
 
     -- Loads the counts table on entry, once the body has asked for it.
     local function loadCoverageCounts(f)
-        if not f.coverageCounts then
+        if not f.coverageUsed then
             return
         end
         local callee, base, path = f:reg(), f:reg(), f:reg()
@@ -4740,6 +4746,7 @@ function lower.emit(
             local cellReg = f:declare(cp[1]);
             f:op("NewCell", cellReg, cp[2])
         end
+        reserveCoverageCounts(f)
         openSpill(f, statements)
         -- Every capture the body reads gets its register now, below the locals,
         -- so no scope's end reclaims it: the analysis's free names of this
@@ -4994,6 +5001,7 @@ function lower.emit(
             local cell = chunk:declare("\0environment", "v")
             chunk:op("NewCell", cell, context)
         end
+        reserveCoverageCounts(chunk)
         openSpill(chunk, rootNode.blocks[1])
         if declaredModule then
             chunk.exportsReg = chunk:declare("\0exports", "v")
