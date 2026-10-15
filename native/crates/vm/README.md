@@ -2185,3 +2185,44 @@ Open: functions with vector instructions still need a linked AOT entry or
 `SIMD_INTERPRET=1`, so a SIMD program needs the per-program AOT link above;
 cross-platform targets still read the LuaJIT stub catalog; a module-level
 `...` does not lower, so the arguments arrive only through `arg`.
+
+## Corpus after the lane merges (2026-10-15)
+
+84 of the 88 portable suites pass (1,178 passing cases, 3 failing), every
+suite under incremental collector steps, the root oracle and quarantine.
+The portable set shrank from 100: the LuaJIT-era deletion removed twenty
+suites outright, `workerstartuptest` tests LuaJIT's C worker module, and
+`tlstest` loads generated Lua through `providerstate` like the other
+port-required provider suites. What the merges and the fix-forward found:
+
+- **Weak tables are ephemerons.** The collector first marked a weak
+  table's strong side whatever became of the weak one, so a value pointing
+  back at its dead weak key, or the object key of a dead weak value,
+  outlived the entry the cycle dropped. The exact oracle refused that
+  floating garbage in 53 suites. An entry's sides are now marked only once
+  every weak side survives, revisited to a fixpoint when marking drains.
+- **String constants are decoded by the lexer.** The VM lowering decoded a
+  quoted literal with `loadstring("return " .. raw)`, which on the VM
+  compiles a chunk holding the same literal: one the Rust fast path could
+  not read, such as a CR line continuation, recursed until killed.
+- **`load` and `loadfile` take LuaJIT's `mode` and `env`.** Scintillua's
+  lexers load each other with an environment and found no `lexer` global.
+- **A compiler running from `src`** finds the files a build would carry
+  beside it (`nupp.compiler.bundled`), so a corpus image's checker no longer
+  types `nupp.mem.span` as unknown.
+- **The fused JSON scan read before its source.** Its first block's
+  previous vector was loaded from offset `1 - lanes`, which the LLVM backend
+  answered with zeros and `species:load` never promised; the VM refuses it.
+- **Shape identities carry no control bytes.** A runtime declaration key
+  separates its parts with NUL, and a `<chunk>` declaration has no module;
+  both had reached the image's `identity=` token and broke the emitter's
+  JSON.
+- The harness now gives suites the development rock tree and carries the
+  `@aot` check's backend, which the check loads by name outside the module
+  graph.
+
+Open: `lspclitest` and `preludecachetest` exercise the Lua generator's
+artifacts and LuaJIT's FFI prelude arena, and move with the tools lane;
+`examplestest` and `serdecontracttest` time out on compile cost under
+collector stress, the serde contracts recompiling the serde modules from
+source in every child process.
