@@ -58,7 +58,7 @@ local function run(options: any): integer
     local code: integer
     if values.binary then
         code = project.binaryFixpoint(".", {result = asJson and result or nil, diagnostics = collected})
-    elseif rawget(_G, "__nupp_load_image") and not values.emitStage0 and selfHosting() then
+    elseif rawget(_G, "__nupp_load_image") and selfHosting() then
         -- A VM-hosted compiler's claim is about its root image, which it emits
         -- itself; the LuaJIT one starts from the pinned stage zero below. Anything
         -- else, a project that is not a compiler included, takes the path below
@@ -73,6 +73,19 @@ local function run(options: any): integer
             end
         )
         code = found.ok and 0 or 1
+        -- A VM stage zero is the verified root image itself: platform-free
+        -- text a cold checkout runs on a runtime built from its own sources.
+        if found.ok and values.emitStage0 then
+            local fs = require("nupp.compiler.fs")
+            local written, writeErr = fs.writeFile(values.emitStage0, assert(fs.readFile(found.image as string)))
+            if not written then
+                io.stderr:write("nupp: ", tostring(writeErr), "\n")
+                code = 1
+            elseif not asJson then
+                io.write(("wrote the stage-zero image to %s\n"):format(values.emitStage0))
+            end
+            result.emittedStage0 = values.emitStage0
+        end
         if asJson then
             result.target = "vm"
             result.reason = found.reason

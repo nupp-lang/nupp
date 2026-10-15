@@ -180,9 +180,9 @@ def build(args):
     target = ROOT / "build/rust/target"
     image = out / "compiler.image"
     image.unlink(missing_ok=True)
-    seed = args.seed or ("vm" if (PACKAGES / "current").exists() else "luajit")
-    if seed == "vm":
-        seed_image = selected() / "compiler.image"
+    seed = args.seed or ("image" if args.seed_image else "vm" if (PACKAGES / "current").exists() else "luajit")
+    if seed in ("vm", "image"):
+        seed_image = args.seed_image.resolve(strict=True) if seed == "image" else selected() / "compiler.image"
         plain = cargo(None, target)
         shutil.copyfile(plain, out / "plain-runtime")
         (out / "plain-runtime").chmod(0o755)
@@ -224,7 +224,8 @@ command.add_argument("--runtime", type=Path, required=True)
 command.add_argument("--image", type=Path, required=True)
 commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
 command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
-command.add_argument("--seed", choices=["vm", "luajit"], help="compiler that lowers the image (default: installed VM CLI, else LuaJIT)")
+command.add_argument("--seed", choices=["vm", "image", "luajit"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else LuaJIT)")
+command.add_argument("--seed-image", type=Path, help="a root CLI image to lower with, such as a pinned VM stage zero")
 command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
 args = parser.parse_args()
 try:

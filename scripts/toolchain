@@ -38,7 +38,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source stage0
+Components: luajit luarocks lpeg lpeg-source stage0 stage0-image
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -482,6 +482,61 @@ stage0() {
     trap - EXIT HUP INT TERM
     stage0_runtime "$file"
     native_path "$stage0_runtime_file"
+}
+
+# The VM stage zero: a verified root CLI image, platform-free text that a cold
+# checkout runs on a runtime built from its own sources (`scripts/vm-cli build
+# --seed-image`). Pinned by STAGE0_IMAGE_TAG, STAGE0_IMAGE_SHA256 and
+# STAGE0_IMAGE_URL beside the Lua stage zero, which stays until this replaces it.
+stage0_image() {
+    [ -n "${STAGE0_IMAGE_SHA256:-}" ] || die "no VM stage-zero image is pinned in scripts/toolchain.pins"
+    out="$CACHE/stage0-image/$STAGE0_IMAGE_SHA256"
+    file="$out/compiler.image"
+    if [ -f "$file" ]; then
+        if [ "$(sha256 "$file")" = "$STAGE0_IMAGE_SHA256" ]; then
+            native_path "$file"
+            return 0
+        fi
+        note "the cached $STAGE0_IMAGE_TAG stage-zero image does not have the pinned digest; fetching it again"
+        rm -f "$file"
+    fi
+
+    name="nupp-stage0-$STAGE0_IMAGE_TAG.image"
+    mkdir -p "$CACHE/stage0-image"
+    staged="$out.$$"
+    rm -rf "$staged"
+    mkdir -p "$staged"
+    # shellcheck disable=SC2064
+    trap "rm -rf '$staged'" EXIT HUP INT TERM
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
+        cp "$SOURCE_DIR/$name" "$staged/compiler.image"
+    elif [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name.gz" ]; then
+        cp "$SOURCE_DIR/$name.gz" "$staged/compiler.image.gz"
+        gunzip "$staged/compiler.image.gz" || die "$name.gz did not decompress"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and the $STAGE0_IMAGE_TAG stage-zero image is not cached; put $name.gz in NUPP_HOST_SOURCE_DIR"
+    else
+        url=$(expand_pin "$STAGE0_IMAGE_URL")
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name.gz"
+        fi
+        note "fetching the $STAGE0_IMAGE_TAG stage-zero image"
+        download "$url" "$staged/compiler.image.gz" || die "cannot download $url"
+        gunzip "$staged/compiler.image.gz" || die "$name.gz did not decompress"
+    fi
+
+    found=$(sha256 "$staged/compiler.image")
+    if [ "$found" != "$STAGE0_IMAGE_SHA256" ]; then
+        rm -rf "$staged"
+        trap - EXIT HUP INT TERM
+        die "the $STAGE0_IMAGE_TAG stage-zero image has digest $found, expected $STAGE0_IMAGE_SHA256; refusing to cache or run it"
+    fi
+    mkdir -p "$out"
+    mv "$staged/compiler.image" "$file.$$"
+    mv "$file.$$" "$file"
+    rm -rf "$staged"
+    trap - EXIT HUP INT TERM
+    native_path "$file"
 }
 
 # --- notices ----------------------------------------------------------------
@@ -1698,6 +1753,7 @@ for component in "$@"; do
         # and a refused archive printed an empty prefix and succeeded.
         lpeg-source) lpeg_tree=$(lpeg_source); native_path "$lpeg_tree" ;;
         stage0)   stage0 ;;
+        stage0-image) stage0_image ;;
         *) note "unknown component $component"; usage ;;
     esac
 done
