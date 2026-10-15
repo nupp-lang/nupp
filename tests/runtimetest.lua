@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local runtime = require("nupp.compiler.runtime")
 
@@ -42,7 +42,7 @@ local function withProject(files, callback)
     return result
 end
 
-local function compile(path, env)
+local function compile(path, env, name)
     local result = parser.parse(readFile(path), path)
     if #result.errors > 0 then
         return nil, "syntax errors"
@@ -51,12 +51,19 @@ local function compile(path, env)
     if #diags > 0 then
         return nil, "type errors"
     end
-    local code, genDiags = gen.generate(result, path)
-    if #genDiags > 0 then
-        return nil, "code generation errors"
+    local ok, image = pcall(program.image, result, name, path)
+    if not ok then
+        return nil, "lowering errors: " .. tostring(image)
     end
 
-    return code
+    return image
+end
+
+-- The project loader, running what `compile` lowered as a VM image.
+local function install(env, compiler)
+    return runtime.install(env, compiler, nil, nil, function(image)
+        return rawget(_G, "__nupp_load_image")(image)
+    end)
 end
 
 local function projectEnv(dir)
@@ -78,7 +85,7 @@ return M
         },
         function(dir)
             package.loaded.runtimeanswer = nil
-            local removeLoader = runtime.install(projectEnv(dir), compile)
+            local removeLoader = install(projectEnv(dir), compile)
             local answer = require("runtimeanswer")
             removeLoader()
             package.loaded.runtimeanswer = nil
@@ -100,7 +107,7 @@ return { loads = _G.runtimeFolderLoads }
         function(dir)
             package.loaded.runtimefolder = nil
             _G.runtimeFolderLoads = nil
-            local removeLoader = runtime.install(projectEnv(dir), compile)
+            local removeLoader = install(projectEnv(dir), compile)
             local first = require("runtimefolder")
             local second = require("runtimefolder")
             removeLoader()
@@ -121,7 +128,7 @@ function M.preservesPreloadAndPlainLuaLoaders()
             package.preload.runtimepreferred = function()
                 return "preload"
             end
-            local removeLoader = runtime.install(projectEnv(dir), compile)
+            local removeLoader = install(projectEnv(dir), compile)
             local preferred = require("runtimepreferred")
             local plain = require("runtimeplain")
             removeLoader()
@@ -149,7 +156,7 @@ return { a = a }
         function(dir)
             package.loaded.runtimecyclea = nil
             package.loaded.runtimecycleb = nil
-            local removeLoader = runtime.install(projectEnv(dir), compile)
+            local removeLoader = install(projectEnv(dir), compile)
             local ok, err = pcall(require, "runtimecyclea")
             removeLoader()
             package.loaded.runtimecyclea = nil
@@ -170,14 +177,14 @@ function M.declinesRequiresIssuedWhileCompiling()
             package.loaded.runtimemain = nil
             package.loaded.runtimelazy = nil
             local midCompile
-            local removeLoader = runtime.install(projectEnv(dir), function(path, env)
+            local removeLoader = install(projectEnv(dir), function(path, env, name)
                 -- The compiler lazily requires pieces of itself while compiling. Such
                 -- a require must fall through to the chain behind this loader, even
                 -- when the project could resolve the name, or the loader re-enters
                 -- the very compile that is computing the module's exports.
                 local ok, result = pcall(require, "runtimelazy")
                 midCompile = ok and result or "declined"
-                return compile(path, env)
+                return compile(path, env, name)
             end)
             local main = require("runtimemain")
             removeLoader()
@@ -437,18 +444,6 @@ end
     )
 end
 
-function M.cliWatchRejectsOptimizedGeneration()
-    withProject({["main.nupp"] = "print(1)\n"}, function(dir)
-        local output = dir .. "/output.txt"
-        local command = (
-            "cd '%s' && '%s/bin/nupp' run --watch -O1 main.nupp " .. "> '%s' 2>&1"
-        ):format(dir, ROOT, output)
-        local status = os.execute(command)
-        assert(status ~= 0, "optimized watch command must fail")
-        assert(readFile(output):find("--watch supports -O0 only", 1, true), readFile(output))
-    end)
-end
-
 function M.cliWatchObservesHeaderOnlyEdits()
     withProject(
         {
@@ -495,8 +490,8 @@ end
 end
 
 function M.cliWatchRequiresRestartForMappedNativeReplacement()
-    local ffi = require("ffi")
-    if ffi.os == "Windows" or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
+    local system = require("nupp.tools.build.platform").hostSystem()
+    if system == "windows" or os.execute("cc --version >/dev/null 2>&1") ~= 0 then
         return require("assert").skip("a POSIX C compiler is unavailable")
     end
     withProject(
@@ -506,10 +501,10 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             ["replace.lua"] = "return function(from, to) assert(os.rename(from, to)) end\n",
         },
         function(dir)
-            local extension = ffi.os == "OSX" and ".dylib" or ".so"
+            local extension = system == "darwin" and ".dylib" or ".so"
             local current = "libmini" .. extension
             local replacement = "libmini-next" .. extension
-            local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
+            local flags = system == "darwin" and "-dynamiclib" or "-shared -fPIC"
             testAssert.equal(
                 os.execute(("cc %s -o '%s/%s' '%s/first.c'"):format(flags, dir, current, dir)),
                 0,
@@ -546,117 +541,6 @@ function M.cliWatchRequiresRestartForMappedNativeReplacement()
             testAssert.equal(status, 0, "native watch exit status: " .. stderr)
             testAssert.equal(readFile(output), "1\nrestart-required\n")
             assert(stderr:find("native artifact for mini at", 1, true), stderr)
-        end
-    )
-end
-
--- Guarded integer IR carries flags which must not become a type-size index.
--- ARM64 stack arguments exposed this as a halfword store for a uint32_t.
-function M.tracedFfiPreservesStackArgumentWidths()
-    local ffi = require("ffi")
-    withProject(
-        {
-            [
-                "echo.c"
-            ] = [==[
-#include <stddef.h>
-#include <stdint.h>
-int32_t ffiWidthEcho(uint64_t context, const uint8_t *spirv, size_t spirv_length,
- const char *entrypoint, size_t entrypoint_length, uint32_t reads,
- uint32_t writes, uint64_t uniforms, uint32_t x, uint32_t y, uint32_t z,
- uint64_t *output) {
- output[0]=context; output[1]=x; output[2]=y; output[3]=z;
- output[4]=(uintptr_t)output;
- output[5]=spirv_length+entrypoint_length+reads+writes+uniforms+spirv[0]+entrypoint[0];
- return 0;
-}
-]==],
-            [
-                "echo.lua"
-            ] = [==[
-local ffi=require('ffi')
-ffi.cdef[[int32_t ffiWidthEcho(uint64_t,const uint8_t*,size_t,const char*,size_t,uint32_t,uint32_t,uint64_t,uint32_t,uint32_t,uint32_t,uint64_t*);]]
-local C=ffi.load(arg[2])
-local function compile(artifacts,context,reads,writes,uniforms,group)
- local output=ffi.new('uint64_t[6]')
- assert(C.ffiWidthEcho(context,artifacts.spirv,#artifacts.spirv,artifacts.entrypoint,#artifacts.entrypoint,reads,writes,uniforms,group,1,1,output)==0)
- assert(output[0]==context)
- assert(output[1]==group and output[2]==1 and output[3]==1,
-   ('bad workgroup[%s,%s,%s] output=%s'):format(tostring(output[1]),tostring(output[2]),tostring(output[3]),tostring(output[4])))
- assert(output[5]==#artifacts.spirv+#artifacts.entrypoint+reads+writes+uniforms+artifacts.spirv:byte(1)+artifacts.entrypoint:byte(1))
- return output
-end
-if arg[1]=='off' then jit.off() else jit.opt.start('hotloop=1','hotexit=1') end
-local total=0
-local traced=false
-for round=1,30 do
- local artifacts={spirv=('abcdef'):rep(round),entrypoint='main'}
- for i=1,10000 do
-  local result=compile(artifacts,i,1,1,20,256)
-  total=total+tonumber(result[0])
- end
- if arg[1]~='off' then
-  traced = traced or require('jit.util').traceinfo(1) ~= nil
-  jit.flush()
- end
-end
-if arg[1] ~= 'off' then assert(traced, 'loop never traced') end
-print('300000 calls passed',total)
-]==],
-        },
-        function(dir)
-            local flags = ffi.os == "OSX" and "-dynamiclib" or "-shared -fPIC"
-            local library = dir .. (ffi.os == "Windows" and "/echo.dll" or "/echo.so")
-            local cc = os.getenv("NUPP_CC") or (ffi.os == "Windows" and "gcc" or "cc")
-            testAssert.equal(
-                os.execute(("%s -O2 %s '%s/echo.c' -o '%s' > '%s/cc.log' 2>&1"):format(cc, flags, dir, library, dir)),
-                0,
-                "build FFI width oracle"
-            )
-            for _, mode in ipairs({"off", "on"}) do
-                local output = dir .. "/" .. mode .. ".log"
-                local command = ("luajit '%s/echo.lua' %s '%s' > '%s' 2>&1"):format(dir, mode, library, output)
-                local status = os.execute(command)
-                local result = readFile(output)
-                testAssert.equal(status, 0, mode .. " FFI calls: " .. result)
-                assert(result:find("300000 calls passed", 1, true), result)
-            end
-        end
-    )
-end
-
--- Once a numeric for loop has a trace, ARM64 enters it through JFORI, whose
--- floating-point path left PC at the loop body when the loop ran no
--- iterations: after `f(0, 1000)`, `f(2.5, 0)` ran once. Every bound that is
--- not an int32 takes that path, an integer past 2^31 included, and the pinned
--- build carries the fix. A fresh interpreter, so the loop's trace is this
--- script's own, and the same answers with the JIT off.
-function M.aTracedNumericForLoopRunsNoIterationsForAnEmptyRange()
-    withProject(
-        {
-            [
-                "loops.lua"
-            ] = [==[
-if arg[1] == 'off' then jit.off() end
-local function count(first, last) local n = 0 for _ = first, last do n = n + 1 end return n end
-local answers = {count(0, 1000)}
-for _, range in ipairs({{2.5, 0}, {0, -0.5}, {1.5, 1.2}, {2^40, 0}, {0, -2^40}, {0, -math.huge}, {0/0, 5}}) do
-    answers[#answers + 1] = count(range[1], range[2])
-end
-answers[#answers + 1] = count(2.5, 5)
-answers[#answers + 1] = count(0, 2.5)
-print(table.concat(answers, ' '))
-]==],
-        },
-        function(dir)
-            for _, mode in ipairs({"off", "on"}) do
-                local output = dir .. "/" .. mode .. ".log"
-                local status = os.execute(("luajit '%s/loops.lua' %s > '%s' 2>&1"):format(dir, mode, output))
-                -- Windows writes the interpreter's print with CRLF.
-                local result = readFile(output):gsub("\r\n", "\n")
-                testAssert.equal(status, 0, mode .. ": " .. result)
-                testAssert.equal(result, "1001 0 0 0 0 0 0 0 3 3\n", mode .. " loop counts")
-            end
         end
     )
 end

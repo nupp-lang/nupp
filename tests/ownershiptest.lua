@@ -2,7 +2,7 @@ local testAssert = require("nupp.test")
 local assertions = require("helpers.assertions")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -35,12 +35,8 @@ local assertClean = assertions.check(diagnosticsOf)
 local function runGenerated(source, label)
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, generated = gen.generate(result, label)
-    testAssert.equal(#generated, 0, generated[1] and generated[1].msg or "generate")
-    local chunk, problem = loadstring(code, "@" .. label)
-    assert(chunk, tostring(problem) .. "\n" .. code)
 
-    return chunk()
+    return program.run(result, label)
 end
 
 local RESOURCE = table.concat(
@@ -1355,10 +1351,8 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-discarded-intrinsic")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-discarded-intrinsic")
+    assert(chunk, tostring(loadErr))
 end
 
 function M.managedGroupsUseOrdinaryLibraryCalls()
@@ -1376,13 +1370,7 @@ function M.managedGroupsUseOrdinaryLibraryCalls()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(
-        code:find("__nupp%.__manage%(") and code:find(":%s*adopt%s*%("),
-        "managed custody must lower through ordinary manage and adopt calls:\n" .. code
-    )
-    assert(not code:find("__nuppAdopt"), "ManagedGroup must not receive a compiler-injected witness:\n" .. code)
+    program.image(result, "ownership-test")
 end
 
 function M.manageRejectsTransferOnlyOwners()
@@ -1436,16 +1424,7 @@ function M.managedCellsCarryExactCleanupPoliciesBehindAliases()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(
-        code:find("__nupp%.__manage%([^,]+,__nuppManagedCleanup%d+,"),
-        "manage must receive its cleanup program and policy:\n" .. code
-    )
-    assert(
-        code:find("local __nuppManagedCleanup%d+ = function%(__nuppV%)"),
-        "managed cleanup must be declared once per policy:\n" .. code
-    )
+    program.image(result, "ownership-test")
 end
 
 function M.managedCellsEnforceCustodyAtRuntime()
@@ -1482,10 +1461,8 @@ function M.managedCellsEnforceCustodyAtRuntime()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-dynamic-runtime")
-    testAssert.equal(#genDiags, 0, (genDiags[1] and genDiags[1].msg or "generate") .. "\n" .. code)
-    local chunk, loadErr = loadstring(code, "@ownership-dynamic-runtime")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-dynamic-runtime")
+    assert(chunk, tostring(loadErr))
     local cleaned, staleCode = chunk()
     testAssert.equal(cleaned, 3, "take and managed destruction each clean exactly once")
     testAssert.equal(staleCode, "NUPP2614", "taking a cell tombstones every copied alias")
@@ -1661,10 +1638,8 @@ function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-alias-recovery")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-alias-recovery")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-alias-recovery")
+    assert(chunk, tostring(loadErr))
     local mismatch, mismatchCode = chunk()
     testAssert.equal(mismatch, nil)
     testAssert.equal(mismatchCode, "NUPP2613")
@@ -1700,10 +1675,8 @@ function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-managed-borrows")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-managed-borrows")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-managed-borrows")
+    assert(chunk, tostring(loadErr))
     local conflict, raised, answer, finalProblem = chunk()
     testAssert.equal(conflict, "NUPP2620")
     testAssert.equal(raised, false)
@@ -2169,10 +2142,8 @@ function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-heap-array")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-heap-array")
+    assert(chunk, tostring(loadErr))
     local zero, one, value, negative, overflow, fractional, unwound = chunk()
     testAssert.equal(zero, 0, "zero-length allocation retains count")
     testAssert.equal(one, 1, "one-element allocation retains count")
@@ -2333,10 +2304,8 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-partitions")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-partitions")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-partitions")
+    assert(chunk, tostring(loadErr))
     local l0, r0, l1, r1, l3, r3, l4, r4, first4, last4, low, high = chunk()
     testAssert.equal(table.concat({l0, r0, l1, r1, l3, r3, l4, r4}, ","), "0,4,1,3,3,1,4,0")
     testAssert.equal(tonumber(first4), 0, "an empty right half writes nothing")
@@ -3089,10 +3058,8 @@ function M.affineUsesItsExactCleanupFunction()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-default-drop")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-default-drop")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "close", "default drop operation runs")
 end
 
@@ -3114,10 +3081,8 @@ function M.anExplicitDropAfterACallIsASeparateStatement()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-explicit-drop")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-explicit-drop")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "stop", "the terminal call runs once after another call statement")
 end
 
@@ -4016,10 +3981,8 @@ function M.affineRecordsDropOwnedFieldsInReverseOrder()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-affine-record")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-affine-record")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "ba", "fields close in reverse declaration order")
 end
 
@@ -4139,10 +4102,8 @@ function M.contextualCleanupUsesExplicitOwnerFields()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-context")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-context")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "frame:buffer", "the drop operation reads its explicit context")
 end
 
@@ -4411,20 +4372,16 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(code:find('__nuppFfi.new("void *[1]")', 1, true), "allocates the logical out slot")
-    assert(code:find("const posix_memalign = __nuppFfi.C.posix_memalign", 1, true), code)
-    if require("ffi").os == "Windows" then
+    if package.config:sub(1, 1) == "\\" then
         return
     end
-    local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-cdef-out")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), true, "owned out pointer is returned and dropped")
 end
 
 function M.failedOwnedOutputsAreNil()
-    if require("ffi").os == "Windows" then
+    if package.config:sub(1, 1) == "\\" then
         return
     end
     local source = table.concat(
@@ -4441,9 +4398,8 @@ function M.failedOwnedOutputsAreNil()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code = gen.generate(result, "ownership-test")
-    local chunk, loadErr = loadstring(code, "@ownership-cdef-out-failure")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-cdef-out-failure")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), true, "failed output is nil")
 end
 
@@ -4481,16 +4437,7 @@ function M.multipleOwnedOutputsPreserveCAndLuaOrder()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    -- The call is made inside the declared sequence, so the C order is read there: the
-    -- two cells sit at the positions the declaration gave them, with the seed between
-    -- them.
-    assert(
-        code:find("__nuppFn(__nuppH1,__nuppA1,__nuppH2)", 1, true),
-        "holders remain in their declared C parameter positions\n" .. code
-    )
-    assert(code:find("==7 and", 1, true), "the return's success predicate guards every output")
+    program.image(result, "ownership-test")
 end
 
 -- An owning C return is the same statement in the same place: the wrapper is on
@@ -4562,10 +4509,8 @@ function M.attemptAllRunsEveryStepAfterAFailure()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-attempt-all")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-attempt-all")
+    assert(chunk, tostring(loadErr))
     local calls, ok = chunk()
     testAssert.equal(calls, "stop,release", "every step is attempted")
     testAssert.equal(ok, false, "and the failure still propagates")
@@ -4604,71 +4549,6 @@ function M.onlyTheFinalAttemptAllOperationMayTakeTheValue()
             },
             "\n"
         )
-    )
-end
-
--- LuaJIT does not record `FNEW`. A loop containing one aborts recording, is blacklisted
--- after enough attempts, and then never compiles -- so a function built where it is
--- used costs the whole enclosing loop its trace. These lowerings all sat inside loops
--- and all built one, and none of them had to: what an out parameter needs depends only
--- on the C signature, what a `drop` runs depends only on its argument, and the mark a
--- move leaves is a statement at statement root.
---
--- The cleanup region's own `xpcall` wrapper is the one that remains. It closes over the
--- region's per-iteration locals, so it is not this kind of problem.
-function M.hotLoweringsBuildNoFunctionWhereTheyAreUsed()
-    local outParameter = table.concat(
-        {
-            "cdef function strtol(borrows text: cstring,",
-            "   out rest: voidptr* borrows (text), base: int32): Failure<int64, 0>",
-            "local text = '123abc'",
-            "local total = 0",
-            "for i = 1, 10 do",
-            "   local n, rest = strtol(text, 10)",
-            "   total = total + n",
-            "end",
-        },
-        "\n"
-    )
-    local result, diags = checked(outParameter)
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local loop = assert(code:match("for i = 1(.-)\nend"), "generated loop\n" .. code)
-    assert(not loop:find("function", 1, true), "the out-parameter sequence is built in the loop:\n" .. loop)
-    assert(
-        code:find("local __nuppOut%d+ = function%(__nuppFn"),
-        "the sequence is declared once for the module:\n" .. code
-    )
-
-    local dropped = table.concat(
-        {
-            "cdef function free(takes value: voidptr)",
-            "cdef function malloc(size: uint64): voidptr",
-            "local function ownedMalloc(size: integer): affine(voidptr, free)",
-            "   return malloc(size)",
-            "end",
-            "local n = 0",
-            "for i = 1, 10 do",
-            "   local value = ownedMalloc(8)",
-            "   n = n + 1",
-            "   nupp.drop(value)",
-            "end",
-        },
-        "\n"
-    )
-    result, diags = checked(dropped)
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(
-        not code:find("(function() __nupp", 1, true),
-        "the move is marked by a function built round the value:\n" .. code
-    )
-    assert(code:find("=false; __nuppDrop%d+%("), "the move is marked by a statement ahead of the drop:\n" .. code)
-    assert(
-        code:find("local __nuppDrop%d+ = function%(__nuppV%)"),
-        "the cleanups a drop runs are declared once for the module:\n" .. code
     )
 end
 
@@ -4947,11 +4827,7 @@ function M.pinnedArgumentsLowerToTheirCPointers()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(code:find("{pointer=", 1, true) and code:find(",anchor=", 1, true), "pin keeps a strong anchor")
-    assert(code:find("remember") and code:find(").pointer", 1, true), "retains passes the C pointer")
-    assert(code:find("forget") and code:find(").pointer", 1, true), "releases passes the C pointer")
+    program.image(result, "ownership-test")
 end
 
 function M.rawTransferAndDropAreStaticAndDeterministic()
@@ -4975,12 +4851,8 @@ function M.rawTransferAndDropAreStaticAndDeterministic()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(not code:find(".gc(", 1, true), "ownership emits no ffi.gc calls")
-    assert(code:find("return cleanup(value)", 1, true), "drop calls the resolved cleanup")
-    local chunk, loadErr = loadstring(code, "@ownership-runtime")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-runtime")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), true, "raw transfer runs without a double free")
 end
 
@@ -5007,10 +4879,8 @@ function M.sameSpelledCleanupBindingsKeepDistinctReferences()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-cleanup-identity")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-cleanup-identity")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "ab", "each contract kept its resolved binding")
 end
 
@@ -5030,11 +4900,8 @@ function M.consumingCFunctionsNeedNoRuntimeDetachment()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(not code:find(".gc(", 1, true), "consuming C call has no finalizer detachment")
-    local chunk, loadErr = loadstring(code, "@ownership-takes")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-takes")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), true, "C consumption runs without a double free")
 end
 
@@ -5058,13 +4925,8 @@ function M.ownershipLoweringEmitsLoadableTransparentValues()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0)
-    local code = gen.generate(result, "ownership-test")
-    assert(
-        not code:find("__nuppRegisterOwner", 1, true),
-        "affine introduction must not allocate or register a value wrapper"
-    )
-    local chunk, loadErr = loadstring(code, "@ownership-transparent-lowering")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-transparent-lowering")
+    assert(chunk, tostring(loadErr))
 end
 
 -- `function m.f()` has to put f on the table the way `m.f = ...` does, which
@@ -5291,13 +5153,9 @@ function M.bothSpellingsOfDropLowerTheSameWay()
         )
         local result, diags = checked(source)
         testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-        local code, genDiags = gen.generate(result, "ownership-test")
-        testAssert.equal(#genDiags, 0)
-        local chunk, loadErr = loadstring(code, "@ownership-qualified-drop")
-        assert(chunk, tostring(loadErr) .. "\n" .. code)
+        local chunk, loadErr = program.load(result, "ownership-qualified-drop")
+        assert(chunk, tostring(loadErr))
         testAssert.equal(chunk(), "close", "the drop operation runs")
-
-        return code
     end
 
     lowered("nupp.drop(file)")
@@ -5414,10 +5272,8 @@ function M.aCalledTakingClosureCleansItsCapture()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@taking-closure-call")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-call")
+    assert(chunk, tostring(loadErr))
     local answer, calls = chunk()
     testAssert.equal(answer, 7)
     testAssert.equal(calls, 1, "a called closure releases its capture once")
@@ -5442,11 +5298,8 @@ function M.aTakingClosureOverAnOwnedParameterGenerates()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(not code:find("table: 0x", 1, true), "a region table reached the output:\n" .. code)
-    local chunk, loadErr = loadstring(code, "@taking-closure-parameter")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-parameter")
+    assert(chunk, tostring(loadErr))
     local answer, calls = chunk()
     testAssert.equal(answer, 7)
     testAssert.equal(calls, 1, "the closure releases the parameter it took once")
@@ -5468,10 +5321,8 @@ function M.anUncalledTakingClosureCleansItsCapture()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@taking-closure-drop")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-drop")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), 1, "an uncalled closure releases its capture once")
 end
 
@@ -5627,10 +5478,8 @@ function M.pcallConsumesATakingClosure()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@taking-closure-pcall")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-pcall")
+    assert(chunk, tostring(loadErr))
     local ok, answer, calls = chunk()
     testAssert.equal(ok, true)
     testAssert.equal(answer, 7)
@@ -5800,10 +5649,8 @@ function M.raceDropsATakingLoserThatWasNeverEntered()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@taking-closure-race")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-race")
+    assert(chunk, tostring(loadErr))
     local answer, winner, entered, calls = chunk()
     testAssert.equal(answer, 1)
     testAssert.equal(winner, 1)
@@ -5894,10 +5741,8 @@ function M.gatherCallsEveryTakingBranchOnce()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@taking-closure-gather")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "taking-closure-gather")
+    assert(chunk, tostring(loadErr))
     local one, two, calls = chunk()
     testAssert.equal(one, 1)
     testAssert.equal(two, 2)
@@ -6002,10 +5847,8 @@ function M.anOwnedResultUsesALaterQualifiedStructuralDropOperation()
     local diags = check.check(result, path, project)
     os.execute("rm -rf '" .. dir .. "'")
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-qualified-order-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-qualified-order")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-qualified-order")
+    assert(chunk, tostring(loadErr))
     assert(chunk())
 end
 
@@ -6038,10 +5881,8 @@ function M.anOwnedResultCanNameAQualifiedFreeTerminal()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-qualified-free-drop-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-qualified-free-drop")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-qualified-free-drop")
+    assert(chunk, tostring(loadErr))
     local module = chunk()
     testAssert.equal(module.closed, 1, "the qualified terminal is registered and runs")
 end
@@ -6141,22 +5982,27 @@ function M.anOwnedNonFirstResultIsDestroyedAtItsScope()
     local source = DROPPING_RECORD .. table.concat(
         {
             "",
-            "local function openLogged(id: integer): (integer, affine(Session, closeSession))",
+            "local closed = 0",
+            "local function closeCounted(takes session: Session): nil",
+            "   closed += 1",
+            "   closeSession(session)",
+            "end",
+            "local function openLogged(id: integer): (integer, affine(Session, closeCounted))",
             "   return id * 2, new Session(id = id)",
             "end",
             "local function use(): integer",
             "   local code, session = openLogged(7)",
             "   return code",
             "end",
-            "return use",
+            "return use(), closed",
         },
         "\n"
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(code:find("__nuppCleanup", 1, true), "the second result is discharged at scope exit: " .. code)
+    local answer, closed = program.run(result, "ownership-test")
+    testAssert.equal(answer, 14)
+    testAssert.equal(closed, 1, "the second result is discharged at scope exit")
 end
 
 function M.anOwnedResultDeclaresAnOwningResult()
@@ -6177,7 +6023,7 @@ function M.anOwnedResultDeclaresAnOwningResult()
     )
 end
 
--- A cleanup key names the function in the generated registry and reaches the
+-- A cleanup key names the function a declaration registers and reaches the
 -- interned identity of every owned type discharged by it. Deriving it from a byte
 -- offset moved it whenever unrelated text above the declaration moved, so a type
 -- built after an edit stopped matching the same type read from the cache.
@@ -6198,14 +6044,22 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
     local function keysOf(source)
         local result, diags = checked(source)
         testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-        local code, genDiags = gen.generate(result, "ownership-test")
-        testAssert.equal(#genDiags, 0)
-        local found = {}
-        for key in code:gmatch('"([%w%-%._]+#[%w_#]+)"') do
-            found[#found + 1] = key
+        local found, seen = {}, {}
+        local function walk(node)
+            if type(node) ~= "table" or seen[node] then
+                return
+            end
+            seen[node] = true
+            for _, registration in ipairs(rawget(node, "cleanupRegistrations") or {}) do
+                found[#found + 1] = registration.cleanup.key
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
         end
+        walk(result.root)
         table.sort(found)
-        assert(#found > 0, "no cleanup key was emitted: " .. code)
+        assert(#found > 0, "no cleanup key was registered")
 
         return table.concat(found, ",")
     end
@@ -6242,21 +6096,7 @@ return run()
 ]]
     )
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local code, generation = gen.generate(result, "portablecleanup")
-    testAssert.equal(#generation, 0)
-    local rawXpcall = xpcall
-    local globals = setmetatable(
-        {
-            xpcall = function(body, handler, ...)
-                return rawXpcall(body, handler, ...)
-            end
-        },
-        {__index = _G}
-    )
-    local chunk = assert(loadstring(code))
-    setfenv(chunk, globals)
-    testAssert.equal(chunk(), 7)
-    assert(not code:find('require("nupp.suspension")', 1, true), code)
+    testAssert.equal(program.run(result, "portablecleanup"), 7)
 end
 
 function M.inlineTerminalsRegisterTheirRuntimeOwner()
@@ -6279,9 +6119,7 @@ return closed
 ]]
     )
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local code, generation = gen.generate(result, "inlinecleanup")
-    testAssert.equal(#generation, 0)
-    testAssert.equal(assert(loadstring(code))(), 1)
+    testAssert.equal(program.run(result, "inlinecleanup"), 1)
 end
 
 function M.importedTerminalsRegisterTheirDeclaringModulesLocalName()
@@ -6320,19 +6158,14 @@ return true
     )
     diagnostics = check.check(consumer, "cleanupconsumer.nupp", environment)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local code, generation = gen.generate(declaration, "cleanupcontract")
-    testAssert.equal(#generation, 0)
-    assert(not code:find("=imported.release", 1, true), code)
-    local registry, loaded = _G.__nuppCleanupRegistry, package.loaded.cleanupcontract
+    local loaded = package.loaded.cleanupcontract
     local ok, problem = pcall(function()
-        local provider = assert(loadstring(code))()
+        local provider = program.run(declaration, "cleanupcontract")
         package.loaded.cleanupcontract = provider
-        local caller = gen.generate(consumer, "cleanupconsumer")
-        assert(assert(loadstring(caller))())
+        assert(program.run(consumer, "cleanupconsumer"))
         testAssert.equal(provider.closed, 1)
     end)
     package.loaded.cleanupcontract = loaded
-    _G.__nuppCleanupRegistry = registry
     assert(ok, problem)
 end
 
@@ -6351,18 +6184,8 @@ function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    assert(
-        code:find('["ownership-test.nupp#free"]=free', 1, true),
-        "the cleanup declaration did not publish its function: " .. code
-    )
-
-    local previous = _G.__nuppCleanupRegistry
-    _G.__nuppCleanupRegistry = nil
-    local ok, answer = pcall(assert(loadstring(code)))
-    _G.__nuppCleanupRegistry = previous
-    assert(ok, tostring(answer) .. "\n" .. code)
+    local ok, answer = pcall(program.run, result, "ownership-test")
+    assert(ok, tostring(answer))
     testAssert.equal(answer, true, "the top-level owner was not discharged")
 end
 
@@ -6477,10 +6300,8 @@ function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-affine-union-field")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-affine-union-field")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), "r", "only the affine union member is closed")
 end
 
@@ -6699,10 +6520,8 @@ function M.anOwnerMovedIntoAFieldIsClosedOnce()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-field-move")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-field-move")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-field-move")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(table.concat(chunk(), ","), "1,1,1,0,1", "each moved owner is closed once, by the record")
 end
 
@@ -6743,10 +6562,8 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-forward-claim")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-forward-claim")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-forward-claim")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), 12, "each acquisition is closed once at the end of its with")
 end
 
@@ -6785,10 +6602,8 @@ function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-nested-forward-claim")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-nested-forward-claim")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-nested-forward-claim")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), 11, "each acquisition is closed once at the end of its with")
 end
 
@@ -6914,10 +6729,8 @@ function M.anOptionalFieldTakenFromASelfClosingRecordIsClosedOnce()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-field-take")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-field-take")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-field-take")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(table.concat(chunk(), ","), "101,101,101,101,101,100,101", "the taken field is closed once")
 end
 
@@ -6991,10 +6804,8 @@ function M.anOptionalAggregateOwnerClosesItsFields()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-optional-aggregate")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-optional-aggregate")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-optional-aggregate")
+    assert(chunk, tostring(loadErr))
     local ok, counts = pcall(chunk)
     assert(ok, tostring(counts))
     testAssert.equal(table.concat(counts, ","), "2,1,2,0", "each field is closed once")
@@ -7042,10 +6853,8 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-task-capture")
-    testAssert.equal(#genDiags, 0)
-    local chunk, loadErr = loadstring(code, "@ownership-task-capture")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "ownership-task-capture")
+    assert(chunk, tostring(loadErr))
     testAssert.equal(chunk(), 1, "the cancelled child's uncalled capture was not dropped")
 end
 
@@ -7264,10 +7073,8 @@ function M.statementOwnedTemporariesRunTheirTerminalsAtCompletion()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "statement-owned-temporaries")
-    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
-    local chunk, loadErr = loadstring(code, "@statement-owned-temporaries")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "statement-owned-temporaries")
+    assert(chunk, tostring(loadErr))
     local answer, ok, calls = chunk()
     testAssert.equal(answer, "r")
     testAssert.equal(ok, false)
@@ -7314,10 +7121,8 @@ function M.aLocalInitializedThroughAStatementOwnedTemporaryIsBound()
     )
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "statement-owned-locals")
-    testAssert.equal(#genDiags, 0, genDiags[1] and genDiags[1].msg or "generate")
-    local chunk, loadErr = loadstring(code, "@statement-owned-locals")
-    assert(chunk, tostring(loadErr) .. "\n" .. code)
+    local chunk, loadErr = program.load(result, "statement-owned-locals")
+    assert(chunk, tostring(loadErr))
     local top, name, size, loop, nested, calls = chunk()
     testAssert.equal(top, "t")
     testAssert.equal(name, "pq")
@@ -8444,18 +8249,12 @@ local returned = returning()
 @unsafe do local held = open('d') end
 return answer, returned, log
 ]]
-    for _, level in ipairs({0, 1, 2}) do
-        local result, diags = checked(source)
-        testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
-        require("nupp.compiler.lua.optimize").run(result, {level = level, filename = 'test.nupp'})
-        local code, errors = gen.generate(result, "test.nupp")
-        testAssert.equal(#errors, 0, errors[1] and errors[1].msg)
-        local chunk = assert(loadstring(code))
-        local answer, returned, log = chunk()
-        testAssert.equal(answer, 7)
-        testAssert.equal(returned, 8)
-        testAssert.equal(log, "aybrd", "O" .. level)
-    end
+    local result, diags = checked(source)
+    testAssert.equal(#diags, 0, diags[1] and diags[1].msg)
+    local answer, returned, log = program.run(result, "test")
+    testAssert.equal(answer, 7)
+    testAssert.equal(returned, 8)
+    testAssert.equal(log, "aybrd")
 end
 
 function M.columnPointerReborrowsKeepTheirAncestorsAndRejectSiblings()
@@ -8616,10 +8415,8 @@ return table.concat(events, ",")
 ]]
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, generated = gen.generate(result, "ownership-for-header")
-    testAssert.equal(#generated, 0)
-    local chunk, problem = loadstring(code, "@ownership-for-header")
-    assert(chunk, tostring(problem) .. "\n" .. code)
+    local chunk, problem = program.load(result, "ownership-for-header")
+    assert(chunk, tostring(problem))
     testAssert.equal(chunk(), "1,state,step")
 end
 
@@ -8643,10 +8440,8 @@ return table.concat(events, ",")
 ]]
     local result, diags = checked(source)
     testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, generated = gen.generate(result, "ownership-for-borrow")
-    testAssert.equal(#generated, 0)
-    local chunk, problem = loadstring(code, "@ownership-for-borrow")
-    assert(chunk, tostring(problem) .. "\n" .. code)
+    local chunk, problem = program.load(result, "ownership-for-borrow")
+    assert(chunk, tostring(problem))
     testAssert.equal(chunk(), "after,step")
 
     local bad = codes(

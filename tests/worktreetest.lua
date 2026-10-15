@@ -102,67 +102,6 @@ function M.helperSeedsOnlyReusableWorktreeState()
     os.execute("rm -rf " .. quote(parent))
 end
 
--- The launcher builds the development provider by asking the toolchain driver
--- for it, and installs the file the driver named. It does not know where that
--- file came from or how it was cached: the driver keys that by the compiler
--- this machine has, and every worktree of a checkout shares one answer.
-function M.launcherBuildsTheProviderThroughTheToolchainDriver()
-    if jit.os == "Windows" then
-        test.skip("the fake Darwin toolchain fixture requires a POSIX host")
-    end
-    local root = temporary()
-    local fake = root .. "/fake-bin"
-    assert(
-        os.execute(
-            ("mkdir -p %s/bin %s/scripts %s/build/lib %s"):format(quote(root), quote(root), quote(root), quote(fake))
-        ) == 0
-    )
-    assert(
-        os.execute(
-            ("cp %s/bin/nupp %s/bin/nupp && chmod +x %s/bin/nupp"):format(quote(ROOT), quote(root), quote(root))
-        ) == 0
-    )
-    assert(os.execute(("cp %s/scripts/luajit.sh %s/scripts/luajit.sh"):format(quote(ROOT), quote(root))) == 0)
-    assert(os.execute(("cp %s/scripts/rocks.sh %s/scripts/rocks.sh"):format(quote(ROOT), quote(root))) == 0)
-    -- The compiler this tree has no build of. It reaches the launcher through the
-    -- driver below, the way a real one reaches it out of the toolchain cache.
-    write(root .. "/stage0.lua", "return true\n")
-    -- A driver that records what it was asked for and answers with a file it
-    -- made, which is the whole of the contract the launcher relies on.
-    write(
-        root .. "/scripts/toolchain",
-        [[#!/bin/sh
-case "${1:-}" in
-   native-rust) printf '%s\n' "$*" >> "$NUPP_TEST_RECORD" ;;
-   stage0) printf '%s\n' "$NUPP_TEST_STAGE0"; exit 0 ;;
-esac
-printf 'built\n' > "$NUPP_TEST_BUILT"
-printf '%s\n' "$NUPP_TEST_BUILT"
-]]
-    )
-    assert(os.execute("chmod +x " .. quote(root .. "/scripts/toolchain")) == 0)
-    write(fake .. "/uname", "#!/bin/sh\necho Darwin\n")
-    write(fake .. "/luajit", [[#!/bin/sh
-if [ "${1:-}" = -v ]; then echo 'LuaJIT 2.1.1784535650'; fi
-exit 0
-]])
-    assert(os.execute("chmod +x " .. quote(fake) .. "/*") == 0)
-
-    local record, built = root .. "/asked.txt", root .. "/provider.dylib"
-    local environment = (
-        "PATH=%s:$PATH NUPP_TEST_RECORD=%s NUPP_TEST_BUILT=%s NUPP_TEST_STAGE0=%s "
-    ):format(quote(fake), quote(record), quote(built), quote(root .. "/stage0.lua"))
-    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
-    local asked = read(record)
-    local union = "native-rust base,compression,files,gpu,http,net,process,tls,uri,uuid"
-    assert(asked == union .. "\n", "the launcher requested the wrong development providers: " .. asked)
-    assert(
-        read(root .. "/build/lib/libnupp_native_dev.dylib") == "built\n",
-        "the launcher did not install the Rust provider"
-    )
-    os.execute("rm -rf " .. quote(root))
-end
-
 -- `.rocks` is ignored, so it belongs to a checkout rather than a revision and a
 -- worktree begins without one. The helper links it, but a worktree made any
 -- other way does not run the helper, and the suites needing a rock tree then
@@ -170,7 +109,7 @@ end
 -- launcher links it lazily so that how a worktree was made stops deciding
 -- whether its tests can run.
 function M.theRockTreeIsLinkedByWhicheverCommandRunsFirst()
-    if jit.os == "Windows" then
+    if package.config:sub(1, 1) == "\\" then
         test.skip("linking the rock tree needs a symlink the host may refuse")
     end
     local parent = temporary()

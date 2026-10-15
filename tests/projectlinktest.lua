@@ -3,6 +3,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local fmt = require("nupp.tools.fmt")
+local program = require("program")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local cwdPipe = assert(io.popen("pwd"))
@@ -85,6 +86,27 @@ local function projectEnv(dir)
     local files = envMod.listProjectFiles(env)
     assert(#files > 0, "project discovery found no files under " .. dir)
     return env
+end
+
+-- Runs `callback` with each named module of the project under `dir` checked, run,
+-- and answered by `require`, the way a consumer's own require finds it.
+local function withModules(dir, names, callback)
+    for _, name in ipairs(names) do
+        local path = dir .. "/src/" .. name .. ".nupp"
+        local parsed = parser.parse(readFile(path), path)
+        local diags = check.check(parsed, path, projectEnv(dir))
+        assert(#diags == 0, diags[1] and diags[1].msg)
+        package.loaded[name] = program.run(parsed, name, path)
+    end
+    local ok, result = pcall(callback)
+    for _, name in ipairs(names) do
+        package.loaded[name] = nil
+    end
+    if not ok then
+        error(result, 0)
+    end
+
+    return result
 end
 
 local M = {}
@@ -1240,12 +1262,10 @@ return 0
             local diags = check.check(parsed, path, env)
             testAssert.equal(#diags, 0, "the consumer checks: " .. (diags[1] and diags[1].msg or ""))
 
-            local gen = require("nupp.compiler.lua.gen")
-            local code = gen.generate(parsed, path)
-            assert(
-                code:find("model%s*%.%s*Account%s*%.__nuppCtor"),
-                "the call resolves to the minted constructor: " .. code
-            )
+            local answer = withModules(dir, {"model"}, function()
+                return program.run(parsed, "use", path)
+            end)
+            testAssert.equal(answer, 0, "the call runs the declaring module's constructor")
 
             -- and the wrong arguments are still the consumer's problem
             local badPath = dir .. "/src/use.nupp"
@@ -1293,7 +1313,8 @@ local record Person is greet.Greeter
     name: string
 end
 
-return Person
+local person = new Person(name = "Ada")
+return person:hello()
 ]],
         },
         function(dir)
@@ -1304,12 +1325,10 @@ return Person
             local diags = check.check(parsed, path, env)
             testAssert.equal(#diags, 0, "the implementor checks: " .. (diags[1] and diags[1].msg or ""))
 
-            local gen = require("nupp.compiler.lua.gen")
-            local code = gen.generate(parsed, path)
-            assert(
-                code:find('require("greet").Greeter.hello', 1, true),
-                "the default is referenced out of its own module: " .. code
-            )
+            local greeting = withModules(dir, {"greet"}, function()
+                return program.run(parsed, "use", path)
+            end)
+            testAssert.equal(greeting, "hello, Ada", "the default runs out of its own module")
         end
     )
 end
@@ -1331,9 +1350,8 @@ return shape
             local path = dir .. "/src/shape.nupp"
             local parsed = parser.parse(readFile(path), path)
             check.check(parsed, path, projectEnv(dir))
-            local gen = require("nupp.compiler.lua.gen")
-            local code = gen.generate(parsed, path)
-            assert(not code:find("Named", 1, true), "an interface with no defaults emits nothing: " .. code)
+            local image = program.image(parsed, "shape", path)
+            assert(not image:find("Named", 1, true), "an interface with no defaults emits nothing: " .. image)
         end
     )
 end

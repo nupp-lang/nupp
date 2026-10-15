@@ -113,7 +113,7 @@ end
 -- answers with: a round trip proves every message ahead of it has been handled,
 -- and an unknown method is the cheapest one that touches no state.
 local function runLiveSession(steps, rootDir)
-    if jit.os == "Windows" then
+    if package.config:sub(1, 1) == "\\" then
         test.skip("the live LSP harness requires POSIX named pipes")
     end
     local dir = os.tmpname()
@@ -5136,7 +5136,8 @@ function M.artifactKindsAreAdvertisedAsExperimentalCapabilities()
     for _, kind in ipairs(capabilities.experimental.nuppArtifacts) do
         kinds[kind] = true
     end
-    assert(kinds.lua, "the generated Lua artifact is advertised")
+    assert(kinds.image, "the VM image artifact is advertised")
+    assert(kinds.bytecode, "the bytecode artifact is advertised")
 end
 
 -- A lens runs a command belonging to the client. Offering one to a client that
@@ -5201,9 +5202,9 @@ function M.artifactDiscoveryNamesTheFunctionTheCursorIsIn()
     for _, entry in ipairs(result.artifacts) do
         kinds[entry.kind] = entry
     end
-    assert(kinds.lua, "the generated Lua is offered")
-    test.equal(kinds.lua.languageId, "lua")
-    test.equal(kinds.lua.scope, "module")
+    assert(kinds.image, "the VM image is offered")
+    test.equal(kinds.image.languageId, "nupp-image")
+    test.equal(kinds.image.scope, "module")
     test.equal(result["function"].name, "scale")
 end
 
@@ -5216,32 +5217,28 @@ function M.artifactDiscoveryOutsideAFunctionStillOffersTheFile()
         position = positionOf(ARTIFACT_SOURCE, "return scale")
     })
     os.execute("rm -rf '" .. projectDir .. "'")
-    assert(#result.artifacts == 1, "the file's artifact is still offered")
+    assert(#result.artifacts > 0, "the file's artifacts are still offered")
     test.equal(result["function"], nil)
 end
 
--- The emitter holds generated Lua to the source's own line numbering, and the
--- artifact says so rather than shipping an entry per line. A client synchronizes
--- a cursor on that promise, so it is asserted here and not only documented.
-function M.generatedLuaIsLineIdenticalToItsSource()
+-- The image maps its rows back to the source lines they came from. A client
+-- synchronizes a cursor on that mapping, so it is asserted here and not only
+-- documented.
+function M.theImageArtifactMapsItsRowsToSourceLines()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "lua"})
+    local result = artifactSession(projectDir, "lowered.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "image"})
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the file lowers: " .. json.encode(result.unavailable or {}))
-    test.equal(result.kind, "lua")
-    test.equal(result.languageId, "lua")
-    test.equal(result.mapping.kind, "line-identity")
+    test.equal(result.kind, "image")
+    test.equal(result.languageId, "nupp-image")
+    test.equal(result.mapping.kind, "lines")
     test.equal(result.version, 7)
-    local sourceLines, generatedLines = 0, 0
-    for _ in ARTIFACT_SOURCE:gmatch("\n") do
-        sourceLines = sourceLines + 1
+    local mapped = false
+    for _, entry in ipairs(result.mapping.entries) do
+        mapped = mapped or entry.sourceLine == 4
     end
-    for _ in result.text:gmatch("\n") do
-        generatedLines = generatedLines + 1
-    end
-    test.equal(generatedLines, sourceLines)
-    assertContains(result.text, "total = total + value * by", "the authored line is on its own line")
+    assert(mapped, "the authored loop body is mapped to its own line")
 end
 
 -- Resolution reads the buffer, not the file. The disk here says one thing and
@@ -5249,13 +5246,13 @@ end
 function M.artifactsLowerTheBufferRatherThanTheFileOnDisk()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    writeFile(projectDir .. "/unsaved.nupp", "local onDisk = 1\nreturn onDisk\n")
+    writeFile(projectDir .. "/unsaved.nupp", "return 'onDisk'\n")
     local result = artifactSession(
         projectDir,
         "unsaved.nupp",
-        "local inBuffer = 2\nreturn inBuffer\n",
+        "return 'inBuffer'\n",
         "nupp/artifact",
-        {kind = "lua"}
+        {kind = "image"}
     )
     os.execute("rm -rf '" .. projectDir .. "'")
     assert(result.available, "the buffer lowers")
@@ -5269,7 +5266,7 @@ function M.anUnresolvableArtifactSaysWhyRatherThanComingBackEmpty()
     local projectDir = tempProject()
     writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
     local result = artifactSession(projectDir, "broken.nupp", "local value: integer = \n", "nupp/artifact", {
-        kind = "lua"
+        kind = "image"
     })
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
@@ -5285,48 +5282,6 @@ function M.anUnknownArtifactKindIsRefusedByName()
     os.execute("rm -rf '" .. projectDir .. "'")
     test.equal(result.available, false)
     test.equal(result.unavailable.reason, "unknown-kind")
-end
-
--- Two levels of the same file are two artifacts, and a client putting them side
--- by side needs them to be distinguishable without parsing the label.
-function M.artifactIdentityCarriesTheOptimizationLevel()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local plain = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "nupp/artifact", {kind = "lua"})
-    local optimized = artifactSession(projectDir, "levels.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
-        kind = "lua",
-        optLevel = 1
-    })
-    os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(plain.metadata.optLevel, 0)
-    test.equal(optimized.metadata.optLevel, 1)
-    test.notEqual(plain.id, optimized.id)
-end
-
-function M.anUnknownOptimizationLevelIsRefused()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
-        kind = "lua",
-        optLevel = 9
-    })
-    os.execute("rm -rf '" .. projectDir .. "'")
-    test.equal(result.available, false)
-    test.equal(result.unavailable.reason, "unknown-opt-level")
-end
-
-function M.optimizationLevelsAreNotCoerced()
-    local projectDir = tempProject()
-    writeFile(projectDir .. "/nupp.lua", 'return {include = {"."}}\n')
-    for _, optLevel in ipairs({1.5, "1"}) do
-        local result = artifactSession(projectDir, "level.nupp", ARTIFACT_SOURCE, "nupp/artifact", {
-            kind = "lua",
-            optLevel = optLevel
-        })
-        test.equal(result.available, false)
-        test.equal(result.unavailable.reason, "unknown-opt-level")
-    end
-    os.execute("rm -rf '" .. projectDir .. "'")
 end
 
 -- One lens per function rather than one per artifact kind: most kinds do not

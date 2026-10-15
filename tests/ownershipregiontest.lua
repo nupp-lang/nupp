@@ -1,6 +1,6 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local M = {}
@@ -10,10 +10,13 @@ local function compile(source, opts)
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
     local diagnostics = check.check(result, "ownership-region.nupp", envMod.new(HERE .. "/.."), opts)
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-    local code, generation = gen.generate(result, "ownershipregion")
-    assert(#generation == 0, generation[1] and generation[1].msg)
 
-    return code
+    return result
+end
+
+-- What the checked fragment returns when run. `path` names it in error positions.
+local function execute(result, path)
+    return program.run(result, "ownershipregion", path)
 end
 
 local RESOURCE = [[
@@ -32,7 +35,7 @@ end
 ]]
 
 function M.cachedMultiOwnerRegionsKeepIndependentStateAndPartialAcquisitions()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer, mode: integer): (integer, nil, integer)
@@ -50,30 +53,12 @@ end
 return run, closed
 ]]
     )
-    local bodies, calls = {}, 0
-    local globals = setmetatable(
-        {
-            xpcall = function(body, handler, ...)
-                bodies[body] = true
-                calls = calls + 1
-                return xpcall(body, handler, ...)
-            end
-        },
-        {__index = _G}
-    )
-    local chunk = assert(loadstring(code))
-    setfenv(chunk, globals)
-    local run, closed = chunk()
+    local run, closed = execute(checked)
     for _, value in ipairs({20, 40, 60}) do
         local first, hole, last = run(value, 0)
         assert(first == value and hole == nil and last == value + 2)
     end
     assert(table.concat(closed, ",") == "21,20,41,40,61,60")
-    local unique = 0
-    for _ in pairs(bodies) do
-        unique = unique + 1
-    end
-    assert(calls == 3 and unique == 1, "the multi-owner body must be reused across invocations")
     local ok, why = pcall(run, 80, 1)
     assert(not ok and tostring(why):find("acquisition", 1, true))
     assert(closed[#closed] == 80)
@@ -84,12 +69,12 @@ return run, closed
     assert(closed[#closed - 1] == 101 and closed[#closed] == 100)
     run(120, 4)
     assert(table.concat(closed, ","):match("111,110,121,120$"), "recursive invocation must retain each caller's owners")
-    local coldRun, coldClosed = assert(loadstring(code))()
+    local coldRun, coldClosed = execute(checked)
     coldRun(120, 4)
     assert(table.concat(coldClosed, ",") == "111,110,121,120", "the first invocation must support recursion")
 end
 
-function M.moduleOwnerWrappersHaveNoChildClosuresAndKeepBodyLines()
+function M.moduleOwnerErrorsReportTheirBodyLine()
     local source = RESOURCE
         .. [[
 local function run(value: integer, fail: boolean): integer
@@ -101,19 +86,8 @@ local function run(value: integer, fail: boolean): integer
 end
 return run, closed
 ]]
-    local code = compile(source)
-    local _, sourceLines = source:gsub("\n", "")
-    local _, codeLines = code:gsub("\n", "")
-    assert(codeLines == sourceLines, "hoisting must preserve generated source lines")
-    local run, closed = assert(loadstring(code, "@hoisted-ownership.nupp"))()
-    local util, names = require("jit.util"), require("jit.vmdef").bcnames
-    local bit = require("bit")
-    for pc = 1, util.funcinfo(run).bytecodes - 1 do
-        local ins = util.funcbc(run, pc)
-        local op = bit.band(ins, 255)
-        local name = names:sub(op * 6 + 1, op * 6 + 6):gsub("%s+$", "")
-        assert(name ~= "FNEW" and name ~= "UCLO", "hot owner wrapper retains " .. name)
-    end
+    local checked = compile(source)
+    local run, closed = execute(checked, "hoisted-ownership.nupp")
     assert(run(10, false) == 23 and run(20, false) == 43)
     local line = 1
     for text in source:gmatch("([^\n]*)\n") do
@@ -128,7 +102,7 @@ return run, closed
 end
 
 function M.publishingAQualifiedWrapperCanCallItImmediately()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local observed = 0
@@ -146,13 +120,13 @@ end
 return target.run, observed, closed
 ]]
     )
-    local run, observed, closed = assert(loadstring(code))()
+    local run, observed, closed = execute(checked)
     assert(observed == 21 and run(20) == 41)
     assert(table.concat(closed, ",") == "11,10,21,20")
 end
 
 function M.multiOwnerRegionsPreserveObservableCapturedWrites()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local observer: any
@@ -173,13 +147,13 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     assert(run(20) == 41)
     assert(run(40) == 81)
 end
 
 function M.cachedAcquisitionsReadEachCallsArguments()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer): nil
@@ -189,7 +163,7 @@ end
 return run, closed
 ]]
     )
-    local run, closed = assert(loadstring(code))()
+    local run, closed = execute(checked)
     run(20)
     run(40)
     assert(
@@ -199,7 +173,7 @@ return run, closed
 end
 
 function M.cachedRegionsDoNotSnapshotLocalsWrittenByOtherClosures()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local setter: any
@@ -214,13 +188,13 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     assert(run(20) == 30)
     assert(run(40) == 50)
 end
 
 function M.multiOwnerRegionsForwardTheStateFrame()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer): integer
@@ -232,23 +206,13 @@ end
 return run, closed
 ]]
     )
-    local globals = setmetatable(
-        {
-            xpcall = function(body, handler, ...)
-                return xpcall(body, handler, ...)
-            end
-        },
-        {__index = _G}
-    )
-    local chunk = assert(loadstring(code))
-    setfenv(chunk, globals)
-    local run, closed = chunk()
+    local run, closed = execute(checked)
     assert(run(20) == 20 and run(40) == 40)
     assert(table.concat(closed, ",") == "1,20,1,40")
 end
 
 function M.nestedCleanupBodiesReadTheCurrentOuterFrame()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local seen: {integer} = {}
@@ -263,14 +227,14 @@ end
 return run, seen
 ]]
     )
-    local run, seen = assert(loadstring(code))()
+    local run, seen = execute(checked)
     run(20)
     run(40)
     assert(table.concat(seen, ",") == "20,40", "nested cleanup must not retain an earlier outer frame")
 end
 
 function M.cachedMixedDeclarationsReadEveryInitializer()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer): integer
@@ -281,13 +245,13 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     assert(run(20) == 20)
     assert(run(40) == 40, "non-owner initializer must use the current call's argument")
 end
 
 function M.cachedAcquisitionsForwardVarargs()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(...: integer): integer
@@ -298,14 +262,14 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     assert(run(20) == 20)
     assert(run(40) == 40)
 end
 
 function M.constructorCleanupReturnsEachNewInstance()
     for _, extra in ipairs({"", "local second = create(2)"}) do
-        local code = compile(
+        local checked = compile(
             RESOURCE
             .. [[
 local record Box
@@ -321,14 +285,14 @@ end
 return function(): Box return new Box() end
 ]]
         )
-        local createBox = assert(loadstring(code))()
+        local createBox = execute(checked)
         local first, second = createBox(), createBox()
         assert(first ~= second, "a cached cleanup must not return an earlier constructor instance")
     end
 end
 
 function M.localTypeIdentitiesRemainPerInvocation()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer): (unknown, unknown)
@@ -342,7 +306,7 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     for _, value in ipairs({20, 40}) do
         local instance, identity = run(value)
         assert(
@@ -350,7 +314,7 @@ return run
             "construction must use this invocation's type identity"
         )
     end
-    code = compile(
+    checked = compile(
         RESOURCE
         .. [[
 local function run(value: integer): boolean
@@ -365,13 +329,13 @@ end
 return run
 ]]
     )
-    run = assert(loadstring(code))()
+    run = execute(checked)
     assert(run(20) and run(40), "type tests must use this invocation's type identity")
 end
 
 function M.functionDeclarationsMutateTheirActualCapturedBinding()
     for _, extra in ipairs({"", "local second = create(2)"}) do
-        local code = compile(
+        local checked = compile(
             RESOURCE
             .. [[
 local setter: any
@@ -390,7 +354,7 @@ end
 return run
 ]]
         )
-        local run = assert(loadstring(code))()
+        local run = execute(checked)
         local value = run(20)
         assert(
             type(value) == "function" and value() == 42,
@@ -403,7 +367,7 @@ function M.bodyFunctionDeclarationsKeepLoopBindingWrites()
     -- The declaration is intentionally inside the loop: this tests its binding
     -- write, so only the corresponding closure-allocation lint is suppressed.
     for _, extra in ipairs({"", "local second = create(2)"}) do
-        local code = compile(
+        local checked = compile(
             RESOURCE
             .. [[
 local seen: {any} = {}
@@ -420,7 +384,7 @@ return seen
 ]],
             {lints = {["unused-binding"] = "off", ["discarded-result"] = "off"}}
         )
-        local seen = assert(loadstring(code))()
+        local seen = execute(checked)
         assert(#seen == 2)
         for _, value in ipairs(seen) do
             assert(
@@ -432,7 +396,7 @@ return seen
 end
 
 function M.unrelatedFunctionDeclarationsDoNotDisableOwnerHoisting()
-    local code = compile(
+    local checked = compile(
         RESOURCE
         .. [[
 local function replace(): nil
@@ -448,15 +412,8 @@ end
 return run
 ]]
     )
-    local run = assert(loadstring(code))()
+    local run = execute(checked)
     assert(run(20) == 20 and run(40) == 40)
-    local util, names, bit = require("jit.util"), require("jit.vmdef").bcnames, require("bit")
-    for pc = 1, util.funcinfo(run).bytecodes - 1 do
-        local instruction = util.funcbc(run, pc)
-        local opcode = bit.band(instruction, 255)
-        local name = names:sub(opcode * 6 + 1, opcode * 6 + 6):gsub("%s+$", "")
-        assert(name ~= "FNEW" and name ~= "UCLO", "a shadowed binding wrongly disables hoisting")
-    end
 end
 
 return M

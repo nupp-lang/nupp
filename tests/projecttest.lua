@@ -6,6 +6,7 @@ local process = require("nupp.compiler.process")
 local store = require("nupp.compiler.project.store")
 local nativeStage = require("nupp.tools.build.native")
 local buildPlatform = require("nupp.tools.build.platform")
+local hostSystem = buildPlatform.hostSystem()
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.project.env")
 local json = require("testjson")
@@ -82,22 +83,11 @@ local function remove(dir)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- A directory that is neither a project nor one of its output trees, for
--- proving a tree runs from anywhere. This was spelled `/`, which is a
--- directory on POSIX and a switch to cmd's `cd`, so on Windows the run never
--- started and the tests read as though the tree had answered nothing.
-local function elsewhere()
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
-    return dir
-end
-
 local function libraryName(name)
-    if jit.os == "Windows" then
+    if hostSystem == "windows" then
         return name .. ".dll"
     end
-    if jit.os == "OSX" then
+    if hostSystem == "darwin" then
         return "lib" .. name .. ".dylib"
     end
 
@@ -109,19 +99,30 @@ local function staticLibraryName(name)
 end
 
 local function executableName(name)
-    return name .. (jit.os == "Windows" and ".exe" or "")
+    return name .. (hostSystem == "windows" and ".exe" or "")
 end
 
--- Loads an output tree in a fresh interpreter and reports what its entry module
--- answered. The tree is named absolutely and the working directory is somewhere
--- else, so no part of the answer can come from where the process was started.
-local function answerFrom(tree, cwd)
-    local here = assert(require("nupp.io.path").currentDirectory()):toString()
-    here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
-    local script = (
-        "package.path = %q .. %q .. package.path " .. "print('VALUE ' .. tostring(require('main')))"
-    ):format(tree .. "/?.lua;", here .. "/build/?.lua;")
-    local code, out = process.capture({"luajit", "-e", script}, {cwd = cwd})
+-- Builds a project's entry module as a VM program and reports what it answered.
+-- The manifest's own build is turned into a binary target for the one build and
+-- then put back, so the case goes on with the project it wrote.
+local function answerFrom(dir)
+    local manifest = read(dir .. "/nupp.lua")
+    local program, replaced = manifest:gsub(
+        'entries%s*=%s*{%s*"main"%s*}',
+        'kind = "binary", stub = "nupp", entries = {"answer"}',
+        1
+    )
+    assert(replaced == 1, "the manifest builds main: " .. manifest)
+    write(dir .. "/nupp.lua", program)
+    write(dir .. "/src/answer.nupp", "print('VALUE ' .. tostring(require('main')))\n")
+    local diagnostics = {}
+    local built = project.build(dir, {diagnostics = diagnostics})
+    write(dir .. "/nupp.lua", manifest)
+    os.remove(dir .. "/src/answer.nupp")
+    if built ~= 0 then
+        return "the program did not build: " .. tostring(diagnostics[1] and diagnostics[1].msg)
+    end
+    local code, out = process.capture({dir .. "/out/" .. executableName("binary")}, {cwd = dir})
     if code ~= 0 then
         return out or ""
     end
@@ -130,24 +131,6 @@ local function answerFrom(tree, cwd)
 end
 
 local M = {}
-
--- Sets or clears a variable of this process's own environment, which the
--- build it then runs in process reads: POSIX `setenv`, or the Windows C
--- runtime's `_putenv_s`, where an empty value clears it.
-local function setEnvironment(name, value)
-    local ffi = require("ffi")
-    if package.config:sub(1, 1) == "\\" then
-        pcall(ffi.cdef, "int _putenv_s(const char *, const char *);")
-        ffi.C._putenv_s(name, value or "")
-    else
-        pcall(ffi.cdef, "int setenv(const char *, const char *, int); int unsetenv(const char *);")
-        if value == nil then
-            ffi.C.unsetenv(name)
-        else
-            ffi.C.setenv(name, value, 1)
-        end
-    end
-end
 
 function M.sha256KnownVectors()
     testAssert.equal(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -257,28 +240,6 @@ function M.digestSeparatesEveryLength()
     end
 end
 
--- The fingerprint identifies the compiler, not where it was found. It used to
--- hash each file's path as given, and `moduleDir` reports whatever
--- `package.path` was written as -- so the launcher's absolute path and a
--- harness's relative one described the same compiler two ways, and every
--- cache stamped with it discarded the other's work whenever they alternated.
-function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
-    local function fingerprintUnder(prefix)
-        local script = (
-            "package.path=%q..package.path " .. "print(require('nupp.compiler.project.fingerprint').toolFingerprint())"
-        ):format(prefix .. "build/?.lua;")
-        local code, out = process.capture({"luajit", "-e", script})
-
-        return code == 0 and out:match("[^\r\n]+") or nil
-    end
-
-    local here = assert(require("nupp.io.path").currentDirectory()):toString()
-    here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
-    local relative = fingerprintUnder("")
-    assert(relative and relative ~= "", "the relative run produced a digest")
-    testAssert.equal(fingerprintUnder(here .. "/"), relative, "the same compiler fingerprints the same either way")
-end
-
 function M.windowsMkdirUsesNativePathAndIsIdempotent()
     testAssert.equal(fs.join("C:/one", "D:/two"), "D:/two", "joining an absolute Windows path does not prefix it")
     local command = process.mkdirCommand("build/nupp", true)
@@ -334,7 +295,7 @@ function M.aPathThatClimbsOutOfItsRootIsNotAModuleBeneathIt()
 end
 
 function M.isolatedProcessStopsAtItsWallClockDeadline()
-    if jit.os == "Windows" then
+    if hostSystem == "windows" then
         return
     end
     local code = process.captureIsolated({"sh", "-c", "while :; do :; done"}, {timeoutMs = 50})
@@ -348,7 +309,7 @@ function M.isolatedProcessCapturesACompletedResponse()
 end
 
 function M.isolatedProcessAppliesAMemoryCeilingWhenSupported()
-    if jit.os == "Windows" then
+    if hostSystem == "windows" then
         return
     end
     local code, output = process.captureIsolated({"sh", "-c", "printf memory-bounded"}, {
@@ -396,7 +357,6 @@ return Matcher("ok")
         type(cached.generated) == "string" and #cached.generated > 0,
         "the manifest cache retains the backend output"
     )
-    local coldBytes = read(dir .. "/out/main.lua")
 
     local warm, warmStats = {}, {}
     testAssert.equal(project.build(dir, {produced = warm, stats = warmStats}), 0)
@@ -406,7 +366,6 @@ return Matcher("ok")
         observation.fingerprint,
         "the cached build reports the same canonical product"
     )
-    testAssert.equal(read(dir .. "/out/main.lua"), coldBytes, "cold and cached backend output is byte-identical")
     remove(dir)
 end
 
@@ -431,7 +390,6 @@ return models
 ]],
     })
     testAssert.equal(project.build(dir, {}), 0)
-    local producer = read(dir .. "/out/witnessmodels.lua")
     write(
         dir .. "/src/main.nupp",
         [[
@@ -445,8 +403,7 @@ return child == getmetatable(value.child) and value.child.value == 7
     local stats = {}
     testAssert.equal(project.build(dir, {stats = stats}), 0)
     testAssert.equal(stats.checkedModules, 1, "only the consumer changed")
-    testAssert.equal(read(dir .. "/out/witnessmodels.lua"), producer)
-    testAssert.equal(answerFrom(dir .. "/out", dir), "true", producer .. read(dir .. "/out/main.lua"))
+    testAssert.equal(answerFrom(dir), "true")
     remove(dir)
 end
 
@@ -482,7 +439,7 @@ return nupp.reflect.runtimeType(info, info.fields[1].type as integer) == childre
 ]],
     })
     testAssert.equal(project.build(dir, {}), 0)
-    testAssert.equal(answerFrom(dir .. "/out", dir), "true")
+    testAssert.equal(answerFrom(dir), "true")
     remove(dir)
 end
 
@@ -567,7 +524,6 @@ return comptime do return nupp.sizeof(PointerSized) end
     local lp64 = {}
     testAssert.equal(project.build(dir, {stats = lp64}), 0)
     testAssert.equal(lp64.checkedModules, 1, "the first target is checked")
-    assert(read(dir .. "/out/main.lua"):find("return 16", 1, true), "the LP64 result was generated")
 
     local warm = {}
     testAssert.equal(project.build(dir, {stats = warm}), 0)
@@ -577,7 +533,6 @@ return comptime do return nupp.sizeof(PointerSized) end
     local ilp32 = {}
     testAssert.equal(project.build(dir, {stats = ilp32}), 0)
     testAssert.equal(ilp32.checkedModules, 1, "changing the target invalidates the old result")
-    assert(read(dir .. "/out/main.lua"):find("return 8", 1, true), "the ILP32 result replaces the LP64 result")
     remove(dir)
 end
 
@@ -608,7 +563,6 @@ return comptime do return nupp.sizeof(models.Wire) end
     local cold = {}
     testAssert.equal(project.build(dir, {stats = cold}), 0)
     testAssert.equal(cold.checkedModules, 2, "the layout reader and declaration check cold")
-    assert(read(dir .. "/out/main.lua"):find("return 8", 1, true), "the first layout was folded")
 
     write(dir .. "/src/models.nupp", model:gsub("return 1", "return 2"))
     local body = {}
@@ -620,7 +574,6 @@ return comptime do return nupp.sizeof(models.Wire) end
     local changed = {}
     testAssert.equal(project.build(dir, {stats = changed}), 0)
     testAssert.equal(changed.checkedModules, 2, "a field layout edit rechecks its reader")
-    assert(read(dir .. "/out/main.lua"):find("return 16", 1, true), "the changed layout replaced the old folded result")
     remove(dir)
 end
 
@@ -1347,8 +1300,8 @@ return {include = {"src"}, build = {targets = {app = {
 end
 
 function M.subprocessPreservesEmptyArguments()
-    local dir = tempProject({["argv.lua"] = [[io.write(#arg, "|", arg[1], "|", arg[2])]],})
-    local status, output = process.capture({"luajit", dir .. "/argv.lua", "", "tail"})
+    local dir = tempProject({["argv.sh"] = [[printf '%s|%s|%s' "$#" "$1" "$2"]],})
+    local status, output = process.capture({"sh", dir .. "/argv.sh", "", "tail"})
     remove(dir)
     testAssert.equal(status, 0, output)
     testAssert.equal(output, "2||tail", "an empty argv entry reaches the child process")
@@ -1574,8 +1527,6 @@ return {
         ["src/schema.nupp"] = "return { version = 1 }\n",
     })
     testAssert.equal(project.build(dir), 0)
-    assert(exists(dir .. "/out/app/main.lua"), "entry output keeps module path")
-    assert(exists(dir .. "/out/lib/util.lua"), "dependency closure is emitted")
     assert(exists(dir .. "/out/app/data.d.nupp"), "resources keep include-relative path")
     assert(exists(dir .. "/out/app/data/schema.nupp"), "resource tables use their explicit target-relative output")
     assert(exists(dir .. "/out/.nupp-state.json"), "persistent state is written")
@@ -1590,22 +1541,19 @@ return {
     -- to be compiled was also too old to ask for another build, and the tree stayed one
     -- edit behind until something unrelated happened to move.
     testAssert.equal(
-        os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/lib/util.lua'"):format(dir, dir)),
+        os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/app/data.d.nupp'"):format(dir, dir)),
         0,
         "the completion marker must not be newer than what the build wrote"
     )
-    local before = read(dir .. "/out/lib/util.lua")
     testAssert.equal(project.build(dir), 0, "warm build succeeds")
-    testAssert.equal(read(dir .. "/out/lib/util.lua"), before, "warm artifact is unchanged")
     write(dir .. "/out/.nupp-state.json", "not json")
     testAssert.equal(project.build(dir), 0, "corrupt state degrades to a cold build")
-    testAssert.equal(read(dir .. "/out/lib/util.lua"), before, "cold rebuild preserves identical artifacts")
     remove(dir)
 end
 
 -- Advice about a program is not a reason to refuse to compile it. A note and a
--- warning are said and stepped over; only an error withholds the generated Lua
--- and fails the build.
+-- warning are said and stepped over; only an error withholds the build's output
+-- and fails it.
 function M.onlyAnErrorStopsAManifestBuild()
     local dir = tempProject({
         ["nupp.lua"] = [[
@@ -1630,7 +1578,7 @@ return {
         ) .. "\n",
     })
     testAssert.equal(project.build(dir), 0, "a warning does not fail the build")
-    assert(exists(dir .. "/out/app/main.lua"), "a warning does not withhold the generated Lua")
+    assert(exists(dir .. "/out/.nupp-complete"), "a warning does not withhold the build")
 
     -- the same lint, turned up by the project, does stop it
     write(
@@ -1645,7 +1593,7 @@ return {
     )
     remove(dir .. "/out")
     assert(project.build(dir) ~= 0, "raised to an error, it stops the build")
-    assert(not exists(dir .. "/out/app/main.lua"), "and the generated Lua is withheld")
+    assert(not exists(dir .. "/out/.nupp-complete"), "and the build is withheld")
     remove(dir)
 end
 
@@ -1778,59 +1726,6 @@ return {
     testAssert.equal(project.build(dir, {stats = reflectedEdit}), 0)
     testAssert.equal(reflectedEdit.checkedModules, 2, "reflected field edit checks its declaration and reader")
     testAssert.equal(reflectedEdit.reusedModules, 1, "unrelated module remains reusable")
-    remove(dir)
-end
-
-function M.buildPropagatesOnlyCompleteConstModulePaths()
-    local lib = table.concat(
-        {
-            "local M = {}",
-            "const... M.bar = {BAZ = 123, nested = {name = 'nupp'}}",
-            "M.replaceable = {const BAZ = 456}",
-            "local function ping(value: integer): integer return value + 1 end",
-            "const... M.api = {ping = ping}",
-            "return M",
-        },
-        "\n"
-    )
-    local dir = tempProject({
-        ["nupp.lua"] = [[
-return {
-   include = {"src"},
-   build = {outDir = "out", entries = {"main"}},
-}
-]],
-        [
-            "src/main.nupp"
-        ] = table.concat(
-            {
-                "const lib = require('lib')",
-                "lib.api.ping(1)",
-                "lib.api.ping(2)",
-                "return lib.bar.BAZ, lib.bar.nested.name, lib.replaceable.BAZ",
-            },
-            "\n"
-        ),
-        ["src/lib.nupp"] = lib,
-    })
-
-    testAssert.equal(project.build(dir, {optLevel = 1}), 0)
-    local output = read(dir .. "/out/main.lua")
-    assert(output:find("return 123 , \"nupp\"", 1, true), output)
-    assert(output:find("lib . replaceable . BAZ", 1, true), output)
-    assert(output:find("const __nupp_call_1= lib . api . ping", 1, true), output)
-    testAssert.equal(
-        select(2, output:gsub("lib . api . ping", "")),
-        1,
-        "the built consumer resolves its immutable callable once"
-    )
-
-    write(dir .. "/src/lib.nupp", lib:gsub("BAZ = 123", "BAZ = 124"))
-    local changed = {}
-    testAssert.equal(project.build(dir, {optLevel = 1, stats = changed}), 0)
-    testAssert.equal(changed.checkedModules, 2, "changing an exported literal invalidates its consumer")
-    output = read(dir .. "/out/main.lua")
-    assert(output:find("return 124 , \"nupp\"", 1, true), output)
     remove(dir)
 end
 
@@ -2070,42 +1965,6 @@ end
     remove(dir)
 end
 
--- A const-specialized body is emitted with the function's declaration, so what a
--- declaring module's artifact holds depends on its callers' constant arguments as
--- well as on its own source. An edit to only a caller leaves the declaring
--- module's source hash where it was; its specialization hash is what says the
--- artifact is owed again, and a reuse that ignored it left the caller naming a
--- body its declaration never emitted.
-function M.aCallersNewConstantRegeneratesTheDeclaringModule()
-    local dir = tempProject({
-        ["nupp.lua"] = [[
-return {include = {"src"}, build = {outDir = "out", entries = {"main"}, optimize = 1}}
-]],
-        [
-            "src/lib.nupp"
-        ] = [[
-local function accumulate<const N: integer>(value: number, count: N): number
-    local total = value
-    for offset = 1, count as integer do total = total + offset end
-    return total
-end
-return {accumulate = accumulate}
-]],
-        ["src/main.nupp"] = "local lib = require('lib')\nreturn lib.accumulate(10.0, 4)\n",
-    })
-    testAssert.equal(project.build(dir, {stats = {}}), 0)
-    testAssert.equal(answerFrom(dir .. "/out", dir), "20", "the specialized call answers")
-    local declaration = read(dir .. "/out/lib.lua")
-
-    write(dir .. "/src/main.nupp", "local lib = require('lib')\nreturn lib.accumulate(10.0, 5)\n")
-    local stats = {}
-    testAssert.equal(project.build(dir, {stats = stats}), 0)
-    assert(read(dir .. "/out/lib.lua") ~= declaration, "the declaring module was regenerated for the new constant")
-    testAssert.equal(answerFrom(dir .. "/out", dir), "25", "and the caller reaches the body it names")
-
-    remove(dir)
-end
-
 function M.aHeaderEditRechecksTheModuleThatReadsIt()
     local dir = cheaderProject()
     testAssert.equal(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")
@@ -2147,7 +2006,6 @@ function M.aHeaderEditRegeneratesTheModuleThatReadsIt()
     local edited = {}
     testAssert.equal(project.build(dir, {stats = edited}), 0)
     testAssert.equal(edited.checkedModules, 1, "the header edit rebuilt its reader")
-    assert(read(dir .. "/out/m.lua"):find("probe_sub", 1, true), "and the artifact carries the new declarations")
 
     remove(dir)
 end
@@ -2443,10 +2301,11 @@ return {
     }
 
     -- The stamp carries the module compiler, so it is read from the state the last
-    -- check wrote rather than spelled here.
+    -- check wrote rather than spelled here, with the codec the store writes it in.
     local function checkStamp()
         local file = assert(io.open(dir .. "/out/cache/checks.buf", "rb"))
-        local envelope = require("string.buffer").decode(file:read("*a"))
+        local codec = rawget(_G, "__nupp_plain_codec") or require("string.buffer")
+        local envelope = codec.decode(file:read("*a"))
         file:close()
         return envelope.slots[1].stamp
     end
@@ -2595,7 +2454,7 @@ return {
     assert(exists(archive), "C static archive emitted")
     assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")), "a static dependency does not emit a shared library")
 
-    local executable = dir .. "/native/static-consumer" .. (jit.os == "Windows" and ".exe" or "")
+    local executable = dir .. "/native/static-consumer" .. (hostSystem == "windows" and ".exe" or "")
     testAssert.equal(
         process.run({
             "cc",
@@ -2634,7 +2493,7 @@ return {
     local archive = dir .. "/out/lib/" .. staticLibraryName("tiny")
     assert(exists(shared), "both linkage emits the shared library")
     assert(exists(archive), "both linkage emits the static archive")
-    testAssert.equal(answerFrom(dir .. "/out", dir), "5", "the generated binding loads the shared artifact")
+    testAssert.equal(answerFrom(dir), "5", "the generated binding loads the shared artifact")
 
     os.remove(archive)
     testAssert.equal(project.build(dir), 0, "a missing static half is rebuilt")
@@ -2786,7 +2645,7 @@ return {
     })
     testAssert.equal(project.build(dir), 0)
     testAssert.equal(
-        answerFrom(dir .. "/out", dir),
+        answerFrom(dir),
         "5",
         "the shared parent contains its transitive static implementation"
     )
@@ -2832,68 +2691,7 @@ function M.cDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
 
     -- The ordinary case first: a project built and run where it was built has to
     -- go on loading, since this changes how every existing one names its library.
-    testAssert.equal(answerFrom(dir .. "/out", dir), "5", "an ordinary C dependency loads where the build left it")
-    remove(dir)
-end
-
-function M.cDependencyOutputTreeRunsWhereverItIsCopied()
-    local dir = callingProject()
-    testAssert.equal(project.build(dir), 0)
-
-    local moved = dir .. "/moved"
-    testAssert.equal(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
-    -- Run from a directory that is neither the project nor the copy. Naming the
-    -- library the way the build did answered here only from the project root.
-    local away = elsewhere()
-    testAssert.equal(answerFrom(moved, away), "5", "a copied output tree runs from anywhere")
-    remove(away)
-    remove(dir)
-end
-
--- A bundle is one file someone moves somewhere. The library its binding names
--- lives in the build directory the bundle was assembled in, which is not where
--- the bundle ends up, so the build puts a copy beside it -- exactly as it
--- already does for compiled `@aot` code.
-function M.aBundleCarriesTheLibraryItsBindingNames()
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      tiny = {kind = "c", sources = {"native/tiny.c"},
-         bindings = {header = "native/tiny.h"}},
-   },
-   build = {
-      targets = {
-         app = {
-            kind = "bundle",
-            entries = {"main"},
-            outDir = "out",
-            output = "dist/app.lua",
-            dependencies = {"tiny"},
-         },
-      },
-   },
-}
-]],
-        ["src/main.nupp"] = "local tiny = require('tiny')\n" .. "print('VALUE ' .. tostring(tiny.tiny_add(2, 3)))\n",
-        ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
-        ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
-    })
-    testAssert.equal(project.build(dir, {target = "app"}), 0)
-    assert(
-        exists(dir .. "/dist/lib/" .. libraryName("tiny")),
-        "the library went with the bundle rather than staying in the build directory"
-    )
-
-    -- A bundle runs with nothing beside it but the library, and from anywhere.
-    local away = elsewhere()
-    local code, out = process.capture({"luajit", dir .. "/dist/app.lua"}, {cwd = away})
-    testAssert.equal(code, 0, out)
-    assert(out:find("VALUE 5", 1, true), "the bundle called through its binding: " .. out)
-    remove(away)
+    testAssert.equal(answerFrom(dir), "5", "an ordinary C dependency loads where the build left it")
     remove(dir)
 end
 
@@ -2982,11 +2780,7 @@ static inline int32_t tiny_triple(int32_t value) { return value * TINY_SCALE; }
     assert(triple, "physical inline symbol recorded")
     local clamp = binding:match("cdef function (__nupp_bridge_[%da-f]+)%(arg0: int32, arg1: int32, arg2: int32%)")
     assert(clamp, "physical macro symbol recorded")
-    local ffi = require("ffi")
-    ffi.cdef(("int32_t %s(int32_t); int32_t %s(int32_t, int32_t, int32_t);"):format(triple, clamp))
-    local native = ffi.load(library)
-    testAssert.equal(native[triple](4), 12, "bridge compilation receives the dependency's preprocessor flags")
-    testAssert.equal(native[clamp](20, 2, 8), 8)
+    testAssert.equal(answerFrom(dir), "42", "bridge compilation receives the dependency's preprocessor flags")
     remove(dir)
 end
 
@@ -3056,7 +2850,7 @@ end
 function M.cargoCbindgenBindingsPreserveExplicitOwnership()
     requireCargo()
     local command, cbindgen
-    if jit.os == "Windows" then
+    if hostSystem == "windows" then
         command = "cbindgen.cmd"
         -- One redirect per line rather than one around a block: `cmd` ends a
         -- parenthesised block at the first unescaped `)`, and every line here has
@@ -3152,7 +2946,7 @@ pub extern "C" fn tiny_destroy(value: *mut TinyBox) {
 pub extern "C" fn tiny_drops() -> i32 { DROPS.load(Ordering::SeqCst) }
 ]],
     })
-    if jit.os ~= "Windows" then
+    if hostSystem ~= "windows" then
         testAssert.equal(os.execute(("chmod +x %q"):format(dir .. "/native/cbindgen")), 0)
     end
     testAssert.equal(project.build(dir), 0)
@@ -3171,7 +2965,7 @@ pub extern "C" fn tiny_drops() -> i32 { DROPS.load(Ordering::SeqCst) }
         "the cbindgen import names the copied cdylib relatively: " .. binding
     )
     testAssert.equal(
-        answerFrom(dir .. "/out", dir),
+        answerFrom(dir),
         "1",
         "leaving the returned Box at scope end calls its Rust destructor once"
     )
@@ -3223,12 +3017,7 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
     )
     assert(not binding:find(dir, 1, true), "and the build directory does not appear in it: " .. binding)
 
-    testAssert.equal(answerFrom(dir .. "/out", dir), "42", "a Cargo dependency loads where the build left it")
-    local moved = dir .. "/moved"
-    testAssert.equal(os.execute(("cp -r %q %q"):format(dir .. "/out", moved)), 0)
-    local away = elsewhere()
-    testAssert.equal(answerFrom(moved, away), "42", "and its output tree runs wherever it is copied")
-    remove(away)
+    testAssert.equal(answerFrom(dir), "42", "a Cargo dependency loads where the build left it")
     remove(dir)
 end
 
@@ -3458,7 +3247,7 @@ function M.canonicalPathsFollowLinksAndKeepMissingOnesObservable()
     testAssert.equal(fs.canonical(dir .. "/real/../real/./file.txt"), real, "dot segments are resolved")
     local missing = fs.canonical(dir .. "/real/absent.txt")
     testAssert.equal(missing, fs.absolute(dir .. "/real/absent.txt"), "a missing path keeps its absolute spelling")
-    if jit.os ~= "Windows" then
+    if hostSystem ~= "windows" then
         testAssert.equal(process.run({"ln", "-s", "real", dir .. "/link"}), 0)
         testAssert.equal(fs.canonical(dir .. "/link/file.txt"), real, "a symbolic link is followed")
         local _, printed = process.capture({"realpath", dir .. "/link/file.txt"})
@@ -3484,7 +3273,7 @@ function M.lexicalRootsRemainAbsolute()
 end
 
 function M.fileWalksStopAtSymbolicLinkCycles()
-    if jit.os == "Windows" then
+    if hostSystem == "windows" then
         return
     end
     local dir = tempProject({["root/value.txt"] = "value\n"})
@@ -3547,307 +3336,6 @@ function M.stagedWritesKeepTheDestinationAfterStreamFailures()
     end
 end
 
-function M.luarocksDependencyInstallsIntoTheProjectTree()
-    local files = tinyRockFiles()
-    files[
-        "nupp.lua"
-    ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      tiny = {kind = "luarocks", rock = "tinyrock", path = "vendor/tinyrock",
-         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec"},
-   },
-   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
-}
-]]
-    local dir = tempProject(files)
-    testAssert.equal(project.build(dir), 0)
-    assert(exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"), "the rock is installed into a tree the project owns")
-    local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(
-        #state.dependencies.tiny.key,
-        32,
-        "a rock's cache key is the build digest, not the trailer's SHA-256"
-    )
-    -- And into the running process's search path: a build that installs a
-    -- renderer is a build that may render with it a moment later.
-    assert(
-        package.path:find(dir .. "/.rocks/share/lua/5.1/?.lua", 1, true),
-        "the tree is added to the search path this process is using"
-    )
-
-    -- A rock already in the tree at the version asked for is left alone, which
-    -- is what keeps a warm build from reaching for the network.
-    testAssert.equal(project.build(dir), 0, "an installed rock rebuilds")
-    remove(dir)
-end
-
-function M.rockDependenciesCanBeOwnedByTheManifest()
-    local files = tinyRockFiles()
-    files[
-        "vendor/tinyrock/tinyrock-1.0-1.rockspec"
-    ] = TINY_ROCKSPEC:gsub(
-        'dependencies = { "lua >= 5.1" }',
-        'dependencies = { "lua >= 5.1", "dependency-nupp-does-not-install >= 1" }'
-    )
-    files[
-        "nupp.lua"
-    ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      tiny = {kind = "luarocks", rock = "tinyrock", path = "vendor/tinyrock",
-         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec",
-         rockDependencies = false},
-   },
-   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
-}
-]]
-    local dir = tempProject(files)
-    testAssert.equal(project.build(dir), 0, "an explicitly owned rock dependency list is not resolved by LuaRocks")
-    assert(
-        exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"),
-        "disabling transitive resolution still installs the selected rock"
-    )
-    remove(dir)
-end
-
--- A rock's `nupp` directory is copied into its versioned installation beside the
--- rockspec. It is not on Lua's runtime path; Nupp alone reads the declaration that
--- mirrors the module LuaRocks installed.
-function M.installedRocksProvideTypedModuleDeclarations()
-    local rockspec = [[
-rockspec_format = "3.0"
-package = "typedrock"
-version = "1.0-1"
-source = { url = "file://typedrock.lua" }
-description = { summary = "A typed rock that ships with the project." }
-dependencies = { "lua >= 5.1" }
-build = {
-   type = "builtin",
-   modules = { typedrock = "typedrock.lua" },
-   copy_directories = { "nupp" },
-}
-]]
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      typedrock = {kind = "luarocks", path = "vendor/typedrock",
-         rockspec = "vendor/typedrock/typedrock-1.0-1.rockspec"},
-   },
-   build = {outDir = "out", entries = {"main"},
-      dependencies = {"typedrock"}},
-}
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-local typedrock = require("typedrock")
-local answer: integer = typedrock.answer
-print(answer)
-]],
-        ["vendor/typedrock/typedrock.lua"] = "return {answer = 42}\n",
-        ["vendor/typedrock/nupp/typedrock.d.nupp"] = [[
-local answer: integer
-return {answer = answer}
-]],
-        ["vendor/typedrock/typedrock-1.0-1.rockspec"] = rockspec,
-    })
-    local first = {}
-    testAssert.equal(
-        project.build(dir, {
-            checkOnly = true,
-            stats = first
-        }),
-        0,
-        "the installed declaration is a valid module surface"
-    )
-    local warm = {}
-    testAssert.equal(project.build(dir, {checkOnly = true, stats = warm}), 0, "an unchanged rock declaration is warm")
-    testAssert.equal(warm.reusedModules, 2, "the project module and external declaration are both reusable")
-
-    write(dir .. "/vendor/typedrock/nupp/typedrock.d.nupp", [[
-local answer: string
-return {answer = answer}
-]])
-    local diagnostics = {}
-    testAssert.equal(
-        project.build(dir, {
-            checkOnly = true,
-            diagnostics = diagnostics
-        }),
-        1,
-        "changing the installed declaration invalidates its consumer"
-    )
-    testAssert.equal(
-        diagnostics[1] and diagnostics[1].code,
-        "NUPP2001",
-        "the rock's changed string surface rejects an integer binding"
-    )
-    assert(
-        exists(dir .. "/.rocks/lib/luarocks/rocks-5.1/typedrock/1.0-1/" .. "nupp/typedrock.d.nupp"),
-        "LuaRocks carried the Nupp declaration"
-    )
-    remove(dir)
-end
-
-function M.rockDependenciesAreRefusedUnlessTheyArePinned()
-    local loose = tempProject({
-        ["nupp.lua"] = [[
-return {
-   dependencies = {lunamark = {kind = "luarocks"}},
-   build = {entries = {"main"}},
-}
-]],
-    })
-    local config, err = project.loadManifest(loose)
-    testAssert.equal(config, nil, "a rock naming no version is refused")
-    assert(err:find("must pin the rock", 1, true), err)
-    remove(loose)
-
-    local nested = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   dependencies = {
-      native = {kind = "c", sources = {"native.c"}},
-      lunamark = {kind = "luarocks", version = "0.6.0-1",
-         dependencies = {"native"}},
-   },
-   build = {entries = {"main"}},
-}
-]],
-    })
-    config, err = project.loadManifest(nested)
-    testAssert.equal(config, nil, "a rock does not declare what LuaRocks resolves")
-    assert(err:find("LuaRocks resolves", 1, true), err)
-    remove(nested)
-
-    local wrongMode = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   dependencies = {lunamark = {kind = "luarocks", version = "0.6.0-1",
-      rockDependencies = "no"}},
-   build = {entries = {"main"}},
-}
-]],
-    })
-    config, err = project.loadManifest(wrongMode)
-    testAssert.equal(config, nil, "the rock dependency policy is a boolean")
-    assert(err:find("rockDependencies must be a boolean", 1, true), err)
-    remove(wrongMode)
-end
-
--- A version in the manifest and a version in the rockspec are two claims about
--- one rock, and a build that installed whichever it read last would be pinned
--- to neither.
-function M.rockVersionMustAgreeWithItsRockspec()
-    local files = tinyRockFiles()
-    files[
-        "nupp.lua"
-    ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      tiny = {kind = "luarocks", rock = "tinyrock", version = "2.0-1",
-         path = "vendor/tinyrock",
-         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec"},
-   },
-   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
-}
-]]
-    local dir = tempProject(files)
-    testAssert.equal(project.build(dir), 1, "a disagreeing version fails the build")
-    assert(not exists(dir .. "/.rocks"), "and installs nothing")
-    remove(dir)
-end
-
--- A bundle carries modules, not files, so what a rock's files are called on the
--- way in is what `require` calls them on the way out.
-function M.bundledRockModulesAreNamedTheWayRequireFindsThem()
-    local dir = tempProject({
-        [".rocks/share/lua/5.1/lunamark.lua"] = "return {}\n",
-        [".rocks/share/lua/5.1/lunamark/util.lua"] = "return {}\n",
-        [".rocks/share/lua/5.1/lunamark/writer/html.lua"] = "return {}\n",
-        [".rocks/share/lua/5.1/cosmo/init.lua"] = "return {}\n",
-        [".rocks/share/lua/5.1/unasked.lua"] = "return {}\n",
-    })
-    local config = {
-        dependencies = {
-            lunamark = {
-                kind = "luarocks",
-                version = "0.6.0-1",
-                bundle = {"lunamark.lua", "lunamark/**.lua", "cosmo/init.lua"},
-            },
-        },
-    }
-    local carried = deps.rockModules(dir, config, {dependencies = {"lunamark"}})
-    local names = {}
-    for _, module in ipairs(carried) do
-        names[#names + 1] = module.name
-    end
-    testAssert.equal(
-        table.concat(names, " "),
-        "cosmo lunamark lunamark.util lunamark.writer.html",
-        "a directory module keeps its init, a nested one keeps its path"
-    )
-
-    testAssert.equal(
-        deps.rockModules(dir, config, {
-            dependencies = {}
-        })[1],
-        nil,
-        "a target that asks for no rock carries none"
-    )
-    local unasked = {dependencies = {lunamark = {kind = "luarocks", version = "0.6.0-1"}},}
-    testAssert.equal(
-        deps.rockModules(dir, unasked, {
-            dependencies = {"lunamark"}
-        })[1],
-        nil,
-        "and a rock with no bundle globs is installed rather than carried"
-    )
-    remove(dir)
-end
-
--- What a test command has to be told, since it is a fresh interpreter that has
--- never heard of the tree the build installed into.
-function M.rockPathsNameTheTreesATargetDependsOn()
-    local config = {
-        dependencies = {
-            tiny = {kind = "luarocks", version = "1.0-1", tree = "vendor/rocks"},
-            native = {kind = "c", sources = {"native.c"}},
-        },
-    }
-    local paths = deps.rockPaths("/project", config, {dependencies = {"tiny", "native"}})
-    testAssert.equal(
-        paths.path,
-        "/project/vendor/rocks/share/lua/5.1/?.lua;" .. "/project/vendor/rocks/share/lua/5.1/?/init.lua",
-        "the tree's Lua templates, in the order require reads them"
-    )
-    testAssert.equal(paths.cpath, "/project/vendor/rocks/lib/lua/5.1/" .. (jit.os == "Windows" and "?.dll" or "?.so"))
-    testAssert.equal(
-        paths.typeRoots[1],
-        "/project/vendor/rocks/lib/luarocks/" .. "rocks-5.1/tiny/1.0-1/nupp",
-        "the pinned rock version names its declaration root without installing it"
-    )
-    testAssert.equal(
-        deps.rockPaths("/project", config, {
-            dependencies = {"native"}
-        }),
-        nil,
-        "a target with no rocks needs nothing added to its path"
-    )
-end
-
 function M.testCommandBuildsThenRunsArgv()
     local dir = tempProject({
         [
@@ -3856,47 +3344,15 @@ function M.testCommandBuildsThenRunsArgv()
 return {
    include = {"src"},
    build = {outDir = "out", entries = {"main"}},
-   test = {argv = {"luajit", "test.lua"}},
+   test = {argv = {"sh", "test.sh"}},
 }
 ]],
         ["src/main.nupp"] = "return true\n",
-        ["test.lua"] = "local f=assert(io.open('test-ran','wb')); f:write('yes'); f:close()\n",
+        ["test.sh"] = "printf yes > test-ran\n",
     })
     testAssert.equal(project.test(dir), 0)
     testAssert.equal(read(dir .. "/test-ran"), "yes")
-    assert(exists(dir .. "/out/main.lua"), "test builds first")
-    remove(dir)
-end
-
-function M.testOutputOverrideRunsTheArtifactItBuilt()
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   include = {"src"},
-   build = {
-      kind = "bundle",
-      outDir = "build",
-      output = "build/test.lua",
-      entries = {"main"},
-   },
-   test = {argv = {"luajit", "build/test.lua"}},
-}
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-assert(os.getenv("NUPP_TEST_BUILD") == "coverage", tostring(os.getenv("NUPP_TEST_BUILD")))
-local file = assert(io.open("test-ran", "wb"))
-file:write("yes")
-file:close()
-]],
-    })
-    testAssert.equal(project.test(dir, {}, {outDir = "coverage"}), 0)
-    testAssert.equal(read(dir .. "/test-ran"), "yes")
-    assert(exists(dir .. "/coverage/test.lua"), "the override receives the test artifact")
-    assert(not exists(dir .. "/build/test.lua"), "the manifest output is not overwritten")
+    assert(exists(dir .. "/out/.nupp-state.json"), "test builds first")
     remove(dir)
 end
 
@@ -3929,7 +3385,7 @@ return {
     testAssert.equal(ran.argv[2], "test", "the default runner stays under the test command")
     testAssert.equal(ran.argv[3], "--internal-runner", "the default test command is Nupp's bundled runner")
     testAssert.equal(ran.options.cwd, dir, "the default runner starts in the project")
-    assert(exists(dir .. "/out/main.lua"), "the default test command builds first")
+    assert(exists(dir .. "/out/.nupp-state.json"), "the default test command builds first")
     remove(dir)
 end
 
@@ -3944,11 +3400,11 @@ function M.namedTaskRunsItsArgvWithoutBuildingByDefault()
 return {
    include = {"src"},
    tasks = {
-      greet = {argv = {"luajit", "greet.lua"}},
+      greet = {argv = {"sh", "greet.sh"}},
    },
 }
 ]],
-        ["greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+        ["greet.sh"] = "printf hi > task-ran\n",
     })
     testAssert.equal(project.runTask(dir, "greet"), 0)
     testAssert.equal(read(dir .. "/task-ran"), "hi")
@@ -3965,12 +3421,12 @@ return {
    include = {"src"},
    build = {entries = {"main"}},
    tasks = {
-      greet = {cwd = "tools", argv = {"luajit", "greet.lua"}},
+      greet = {cwd = "tools", argv = {"sh", "greet.sh"}},
    },
 }
 ]],
         ["src/main.nupp"] = "return true\n",
-        ["tools/greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+        ["tools/greet.sh"] = "printf hi > task-ran\n",
     })
     testAssert.equal(project.runTask(dir, "greet"), 0)
     testAssert.equal(read(dir .. "/tools/task-ran"), "hi")
@@ -4008,15 +3464,15 @@ return {
    build = {outDir = "out", default = "app",
       targets = {app = {entries = {"main"}}}},
    tasks = {
-      greet = {build = "app", argv = {"luajit", "greet.lua"}},
+      greet = {build = "app", argv = {"sh", "greet.sh"}},
    },
 }
 ]],
         ["src/main.nupp"] = "return true\n",
-        ["greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+        ["greet.sh"] = "printf hi > task-ran\n",
     })
     testAssert.equal(project.runTask(dir, "greet"), 0)
-    assert(exists(dir .. "/out/main.lua"), "a task naming a build target builds first")
+    assert(exists(dir .. "/out/.nupp-state.json"), "a task naming a build target builds first")
     remove(dir)
 end
 
@@ -4025,13 +3481,12 @@ function M.namedTaskAppendsTrailingArgsToItsArgv()
         ["nupp.lua"] = [[
 return {
    include = {"src"},
-   tasks = {greet = {argv = {"luajit", "greet.lua"}}},
+   tasks = {greet = {argv = {"sh", "greet.sh"}}},
 }
 ]],
-        ["greet.lua"] = [[
-local f = assert(io.open('task-args', 'wb'))
-f:write(table.concat(arg, ','))
-f:close()
+        ["greet.sh"] = [[
+IFS=,
+printf '%s' "$*" > task-args
 ]],
     })
     testAssert.equal(project.runTask(dir, "greet", {"a", "b"}), 0)

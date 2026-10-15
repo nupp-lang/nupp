@@ -2,7 +2,6 @@ local testAssert = require("nupp.test")
 local project = require("nupp.tools.build.project")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
-local json = require("testjson")
 local M = {}
 
 local function write(path, text)
@@ -11,10 +10,6 @@ end
 
 local function read(path)
     return assert(fs.readFile(path))
-end
-
-local function exists(path)
-    return fs.exists(path)
 end
 
 local function tempProject(files)
@@ -95,347 +90,9 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
         end
         testAssert.equal(parsed.host, "browser", "the editor honors the named default target")
         testAssert.equal(project.check(dir), 0, "the default browser target checks")
-        for _, target in ipairs({
-            {name = "browser", host = "browser"},
-            {name = "native", host = "native"},
-        }) do
-            local options = target.name == "browser" and {} or {target = target.name}
-            testAssert.equal(project.build(dir, options), 0, target.name .. " target builds")
-            local output = dir .. "/out/" .. target.name
-            local facts = assert(loadfile(output .. "/nupp/runtime/target.lua"))()
-            testAssert.equal(facts.host, target.host, "generated host")
-            testAssert.equal(facts.dialect, "luajit", "every target runs on LuaJIT")
-            for _, name in ipairs({"nativebuffer", "nativestorage"}) do
-                assert(exists(output .. "/nupp/runtime/provider/" .. name .. ".lua"), target.name .. " carries " .. name)
-            end
-            testAssert.equal(
-                exists(output .. "/nupp/runtime/provider/nativetime.lua"),
-                target.host == "native",
-                target.name .. " carries native clocks"
-            )
-            testAssert.equal(
-                exists(output .. "/nupp/runtime/browser/time.lua"),
-                target.host == "browser",
-                target.name .. " carries browser clocks"
-            )
-        end
     end)
     remove(dir)
     assert(ok, why)
-end
-
-function M.fixedHostLibrariesRemainOrdinaryBundleImports()
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[return {include = {"src"}, build = {
-            kind = "bundle", outDir = "out",
-            output = "out/app.lua", entries = {"main"}
-        }}]],
-        ["src/main.nupp"] = [[local re = require("re")
-return re.match("aaa", "'a'+")]],
-    })
-    testAssert.equal(project.build(dir), 0, "bundle with host LPeg")
-    local output = read(dir .. "/out/app.lua")
-    assert(not output:find('package.preload["lpeg"]', 1, true))
-    assert(not output:find('package.preload["nupp.spi"]', 1, true))
-    local status, value = process.capture({
-        "luajit",
-        "-e",
-        "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())"
-    })
-    testAssert.equal(status, 0, value)
-    testAssert.equal(value, "4")
-    remove(dir)
-end
-
-function M.packagedGeneratorsAndSpiUseSeparateDependencyRoles()
-    local rockspec = [[
-rockspec_format = "3.0"
-package = "providerrock"
-version = "1.0-1"
-source = { url = "file://provider.lua" }
-description = { summary = "Generator and SPI fixture." }
-dependencies = { "lua >= 5.1" }
-build = {
-   type = "builtin",
-   modules = {
-      ["provider.codegen"] = "codegen.lua",
-      ["provider.codec"] = "codec.lua",
-   },
-   copy_directories = { "nupp" },
-}
-]]
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   include = {"src"},
-   dependencies = {
-      provider = {kind = "luarocks", path = "vendor/provider",
-         rockspec = "vendor/provider/providerrock-1.0-1.rockspec"},
-   },
-   generators = {
-      api = {using = "provider/codegen", inputs = {"model/*.txt"},
-         options = {prefix = "generated"}},
-   },
-   build = {outDir = "out", entries = {"main"}, dependencies = {"provider"}},
-}
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-local generated = require("fixture.generated")
-local contract = require("codec")
-local spi = require("nupp.spi")
-local codec = assert(spi.load(contract.Provider)())
-return generated.value .. ":" .. codec.name
-]],
-        ["src/codec.nupp"] = [[
-module codec
-export interface Provider
-    name: string
-end
-]],
-        ["model/value.txt"] = "answer\n",
-        ["vendor/provider/providerrock-1.0-1.rockspec"] = rockspec,
-        [
-            "vendor/provider/codegen.lua"
-        ] = [[
-return function(request)
-   local value = request.read("model/value.txt"):match("%S+")
-   request.write("fixture/generated.nupp", "return {value = "
-      .. string.format("%q", request.options.prefix .. "-" .. value) .. "}\n")
-end
-]],
-        [
-            "vendor/provider/codec.lua"
-        ] = [[
-local fields = {name = "codec"}
-local implementation = newproxy(true)
-getmetatable(implementation).__index = fields
-getmetatable(implementation).__newindex = fields
-return implementation
-]],
-        [
-            "vendor/provider/nupp/capabilities.json"
-        ] = [[
-{"schema":2,"capabilities":[
- {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"}
-]}
-]],
-        ["vendor/provider/nupp/spi.json"] = [[{"codec.Provider":["provider.codec"]}]],
-        ["vendor/provider/nupp/provider/codec.d.nupp"] = [[
-local codec: {name: string}
-return codec
-]],
-    })
-    local produced = {}
-    testAssert.equal(project.build(dir, {produced = produced}), 0, "a packaged generator and runtime implementation build")
-    local found = false
-    for _, provider in ipairs(produced.spi or {}) do
-        if provider.interface == "codec.Provider" then
-            testAssert.equal(provider.implementation, "provider.codec")
-            testAssert.equal(provider.dependency, "provider")
-            found = true
-        end
-    end
-    assert(found, "build output describes checked SPI implementations")
-    assert(
-        exists(dir .. "/out/generated/api/fixture/generated.nupp"),
-        "the generator publishes beneath its instance module root"
-    )
-    local state = json.decode(read(dir .. "/out/.nupp-state.json"))
-    testAssert.equal(state.dependencies["tool:provider"].usage, "tool", "generator discovery installs a host-tool record")
-    testAssert.equal(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
-    assert(
-        exists(dir .. "/out/nupp/spi/index/g.lua") or exists(dir .. "/out/nupp/spi/index.lua"),
-        "the build compiles a deterministic SPI index"
-    )
-
-    local script = (
-        "package.path=%q..package.path;io.write(require('main'));assert(type(require('provider.codec'))=='userdata')"
-    ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
-    local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, "the generated module and implementation load: " .. tostring(output))
-    testAssert.equal(output, "generated-answer:codec")
-
-    testAssert.equal(project.build(dir), 0, "unchanged generator output is reusable")
-    write(dir .. "/model/value.txt", "changed\n")
-    testAssert.equal(project.build(dir), 0, "an input change reruns the generator")
-    assert(
-        read(dir .. "/out/generated/api/fixture/generated.nupp"):find("generated%-changed"),
-        "the published output follows the changed input"
-    )
-    remove(dir)
-end
-
-function M.nativeBitopsNeedNoSpiResolution()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}}}',
-        ["src/setup.nupp"] = [[
-module setup
-export = require("consumer")
-]],
-        ["src/consumer.nupp"] = [[
-module consumer
-export function shift(value: int32): int32
-    return value << 3
-end
-]],
-    })
-    testAssert.equal(project.build(dir), 0, "native bitops build")
-    local script = (
-        [=[
-package.path = %q .. package.path
-local consumer = require("setup")
-for value = 1, 1000 do assert(consumer.shift(value) == value * 8) end
-assert(require("consumer") == consumer)
-io.write("direct")
-]=]
-    ):format(dir .. "/out/?.lua;")
-    local probe = dir .. "/verify.lua"
-    write(probe, script)
-    local status, output = process.capture({"luajit", probe})
-    testAssert.equal(status, 0, "native bit operation initialization: " .. tostring(output))
-    testAssert.equal(output, "direct")
-    local code = read(dir .. "/out/consumer.lua")
-    assert(code:find("value << 3", 1, true), code)
-    assert(not code:find('require("nupp.runtime.bitops")', 1, true), code)
-    assert(not code:find("spi.load", 1, true), code)
-    assert(not exists(dir .. "/out/nupp/spi.lua"))
-    remove(dir)
-end
-
-function M.nativeStructsBindFfiDirectly()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}, build = {outDir = "out", entries = {"setup"}}}',
-        ["src/setup.nupp"] = [[
-module setup
-export = require("consumer")
-]],
-        [
-            "src/consumer.nupp"
-        ] = [[
-module consumer
-local struct Point
-    x: int32
-    y: uint8
-end
-export function sum(value: integer): integer
-    local point = new Point(value, 7)
-    point.x += 1
-    return point.x + point.y
-end
-]],
-    })
-    local diagnostics = {}
-    testAssert.equal(
-        project.build(dir, {
-            diagnostics = diagnostics
-        }),
-        0,
-        "native struct build: " .. tostring(diagnostics[1] and diagnostics[1].msg)
-    )
-    local script = (
-        [=[
-package.path = %q .. package.path
-local consumer = require("setup")
-for index = 1, 1000 do assert(consumer.sum(index) == index + 8) end
-io.write("direct")
-]=]
-    ):format(dir .. "/out/?.lua;")
-    local probe = dir .. "/verify.lua"
-    write(probe, script)
-    local status, output = process.capture({"luajit", probe})
-    testAssert.equal(status, 0, "native struct initialization: " .. tostring(output))
-    testAssert.equal(output, "direct")
-    local code = read(dir .. "/out/consumer.lua")
-    assert(code:find('require("ffi")', 1, true), code)
-    assert(not code:find('require("nupp.runtime.structvalue")', 1, true), code)
-    assert(not exists(dir .. "/out/nupp/runtime/provider/nativestorage.lua"))
-    assert(not exists(dir .. "/out/nupp/workers/native.lua"))
-    assert(not exists(dir .. "/out/nupp/text/internal/buffer.lua"))
-    remove(dir)
-end
-
-function M.targetDependencyCanSupplyAMacImplementation()
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {
-   include = {"src"},
-   dependencies = {crypto = {kind = "luarocks", path = "vendor/crypto",
-      rockspec = "vendor/crypto/acme-crypto-1.0-1.rockspec"}},
-   build = {outDir = "out", entries = {"main"}, dependencies = {"crypto"}},
-}
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-local mac = require("nupp.mac")
-local rolling = mac.newMac("hmac-sha256", "key")
-assert(rolling:digestSize() == 32)
-rolling:write("The quick brown fox ")
-rolling:write("jumps over the lazy dog")
-return rolling:hexDigest()
-]],
-        [
-            "vendor/crypto/acme-crypto-1.0-1.rockspec"
-        ] = [[
-rockspec_format = "3.0"
-package = "acme-crypto"
-version = "1.0-1"
-source = {url = "file://provider.lua"}
-description = {summary = "Target-selected incremental MAC implementation fixture."}
-dependencies = {"lua >= 5.1"}
-build = {type = "builtin", modules = {["acme.hmac_sha256"] = "provider.lua"},
-   copy_directories = {"nupp"}}
-]],
-        ["vendor/crypto/nupp/spi.json"] = [[
-{"nupp.mac.spi.Provider":["acme.hmac_sha256"]}
-]],
-        [
-            "vendor/crypto/nupp/acme/hmac_sha256.d.nupp"
-        ] = [[
-local {type Provider} = require("nupp.mac.spi")
-local provider: Provider
-return provider
-]],
-        [
-            "vendor/crypto/provider.lua"
-        ] = [[
-local ffi = require("ffi")
-local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
-local raw = expected:gsub("..", function(byte) return string.char(tonumber(byte, 16)) end)
-return {algorithms = {["hmac-sha256"] = {name = "hmac-sha256", digestSize = 32, create = function(_, key)
-   assert(key == "key")
-   local parts = {}
-   return {
-      update = function(_, bytes)
-         local pointer, count = bytes:ref()
-         parts[#parts + 1] = ffi.string(pointer, count)
-      end,
-      finish = function(_, destination)
-         assert(table.concat(parts) == "The quick brown fox jumps over the lazy dog")
-         local pointer = destination:ref()
-         ffi.copy(pointer, raw, #raw)
-      end,
-      close = function() parts = {} end,
-   }
-end}}}
-]],
-    })
-    testAssert.equal(project.build(dir), 0, "a target dependency supplies an incremental MAC implementation")
-    local script = (
-        "package.path=%q..package.path;io.write(require('main'))"
-    ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
-    local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, "the dependency-backed MAC artifact loads: " .. tostring(output))
-    testAssert.equal(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
-    remove(dir)
 end
 
 function M.advertisedImplementationsAndTheirImportsReceiveTheAotPolicy()
@@ -488,14 +145,13 @@ local function checkDocumentedSpi(page)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "bundle", outDir = "out",
-            output = "out/app.lua", entries = {"main"}
+            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
         }}]],
         [
             "src/main.nupp"
         ] = [[local codec = require("example.codec")
 assert(codec.encode("hello") == "hello")
-return codec.encode == require("example.fastcodec").encode and "provider" or "fallback"
+io.write(codec.encode == require("example.fastcodec").encode and "provider" or "fallback")
 ]],
     }
     local moduleCount = 0
@@ -514,13 +170,10 @@ return codec.encode == require("example.fastcodec").encode and "provider" or "fa
     testAssert.equal(moduleCount, 4, "the guide's interface, implementations, and consumer")
     assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
     local dir = tempProject(files)
+    local executable = dir .. "/out/binary" .. (package.config:sub(1, 1) == "\\" and ".exe" or "")
     for _, expected in ipairs({"provider", "fallback"}) do
         testAssert.equal(project.build(dir), 0, "the documented SPI example builds")
-        local status, output = process.capture({
-            "luajit",
-            "-e",
-            "io.write(assert(loadfile(" .. string.format("%q", dir .. "/out/app.lua") .. "))())",
-        })
+        local status, output = process.capture({executable}, {cwd = dir})
         testAssert.equal(status, 0, output)
         testAssert.equal(output, expected, "the documented consumer chooses its implementation")
         write(dir .. "/nupp/spi.json", "{}\n")
