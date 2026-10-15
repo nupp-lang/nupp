@@ -248,7 +248,7 @@ local function lpegRecognize(text: string): any
 end
 
 local function runtimeDecode(text: string): any
-    return runtime.decode(text, runtime.NULL)
+    return (runtime.decode(text, runtime.NULL))
 end
 
 local edgeText = [[ {"empty":[],"object":{},"unicode":"\u0041\uD834\uDD1E","exponent":-1.25e+2} ]]

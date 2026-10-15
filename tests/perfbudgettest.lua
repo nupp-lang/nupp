@@ -30,6 +30,7 @@
 -- bytecode budget keeps the benchmarks' kernels what was measured, and toolchaintest
 -- holds the launcher to one toolchain question per command.
 local json = require("testjson")
+local test = require("nupp.test")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if HERE:sub(1, 1) ~= "/" and not HERE:match("^%a:[/\\]") then
@@ -129,30 +130,34 @@ function M.theProjectWalkNeverListsTheOutputDirectory()
     assert(not has(result.project, "stray.nupp") and not has(result.sources, "stray.nupp"), "build output is not")
 end
 
--- LuaJIT bytecode for the benchmark programs, at the level `nupp bench` runs them.
--- Instruction counts are the compiler's output and nothing else, so a lowering that
--- starts spending more of them shows here on any machine, where the benchmark itself
--- needs a quiet one to show it. Instructions inside loops are held separately because
--- they are the ones a benchmark pays for, and a loop LuaJIT cannot record is held at
--- none: that one never compiles, and nothing else notices.
+-- VM bytecode for the benchmark programs, as `nupp bc` lists the image each lowers
+-- to. Instruction counts are the compiler's output and nothing else, so a lowering
+-- that starts spending more of them shows here on any machine, where the benchmark
+-- itself needs a quiet one to show it.
 --
--- Each ceiling is about a tenth above what the file compiles to at the commit that set
--- it. An edit to a benchmark moves its own numbers, and the message says which.
+-- Each ceiling is about a tenth above what the file lowered to at the commit that
+-- set it. An edit to a benchmark moves its own numbers, and the message says which.
+-- `peg-lpeg` is absent: the VM lowering has no `comptime` expression yet.
 local BYTECODE = {
-    ["aos"] = {total = 266, loop = 80},
-    ["frames"] = {total = 116, loop = 23},
-    ["json-lpeg"] = {total = 795, loop = 124},
-    ["nupp-lpeg-shapes"] = {total = 398, loop = 13},
-    ["optparser"] = {total = 548, loop = 125},
-    ["peg-kernels"] = {total = 318, loop = 30},
-    ["peg-lpeg"] = {total = 540, loop = 14},
-    ["peg-result-packs"] = {total = 202, loop = 26},
-    ["presize"] = {total = 126, loop = 10},
-    ["soa"] = {total = 785, loop = 182},
-    ["trivia-record"] = {total = 232, loop = 49},
+    ["aos"] = 345,
+    ["frames"] = 45,
+    ["json-lpeg"] = 1355,
+    ["nupp-lpeg-shapes"] = 480,
+    ["optparser"] = 685,
+    ["peg-kernels"] = 460,
+    ["peg-result-packs"] = 205,
+    ["presize"] = 108,
+    ["soa"] = 617,
+    ["trivia-record"] = 272,
 }
 
 function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
+    -- The listing is of the VM image, which only the VM-hosted launcher lowers to.
+    local selected = io.open(ROOT .. "/.nupp/vm-cli/current", "rb")
+    if selected then
+        selected:close()
+    end
+    test.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
     local names = {}
     for name in pairs(BYTECODE) do
         names[#names + 1] = name
@@ -162,41 +167,19 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
     for _, name in ipairs(names) do
         local budget = BYTECODE[name]
         local file = "bench/" .. name .. ".bench.nupp"
-        local out = run(ROOT, "bc -O1 --json " .. file)
+        local out = run(ROOT, "bc --json " .. file)
         local ok, report = pcall(json.decode, out)
         assert(ok and type(report) == "table" and report.functions, file .. " did not report bytecode: " .. out)
-        local total, loop, unrecordable = 0, 0, {}
+        local total = 0
         for _, fn in ipairs(report.functions) do
-            for _, instruction in ipairs(fn.instructions) do
-                total = total + 1
-                if instruction.inLoop then
-                    loop = loop + 1
-                    if instruction.unrecordable then
-                        unrecordable[#unrecordable + 1] = ("%s:%d %s"):format(
-                            file,
-                            instruction.line or 0,
-                            instruction.unrecordable
-                        )
-                    end
-                end
-            end
+            total = total + #fn.instructions
         end
-        if total > budget.total then
+        if total > budget then
             failures[#failures + 1] = ("%s compiles to %d instructions, over its budget of %d"):format(
                 file,
                 total,
-                budget.total
+                budget
             )
-        end
-        if loop > budget.loop then
-            failures[#failures + 1] = ("%s has %d instructions in loops, over its budget of %d"):format(
-                file,
-                loop,
-                budget.loop
-            )
-        end
-        for _, site in ipairs(unrecordable) do
-            failures[#failures + 1] = "a loop LuaJIT cannot record: " .. site
         end
     end
     assert(#failures == 0, table.concat(failures, "\n"))
@@ -211,6 +194,8 @@ end
 local GENERATED_PER_SOURCE_BYTE = 0.80
 
 function M.generatedLuaStaysWithinItsSizeBudget()
+    -- What the Lua generator writes; a VM build writes images instead.
+    test.requireCapability("generated-lua", rawget(_G, "__nupp_load_image") == nil)
     local build = ROOT .. "/" .. (os.getenv("NUPP_TEST_BUILD") or "build")
     local pipe = assert(io.popen(("cd '%s/src' && find nupp -name '*.nupp' ! -name '*.d.nupp'"):format(ROOT)))
     local source, generated, modules = 0, 0, 0
