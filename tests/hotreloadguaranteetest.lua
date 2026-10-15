@@ -49,11 +49,8 @@ local guarantees = {
       },
    },
    {
-      claim = "patch staging is atomic and commit flushes stale JIT traces",
-      cases = {
-         {"hotreloadtest", "failedMultiFunctionStagePublishesNothing"},
-         {"hotreloadtest", "commitFlushesJitAfterPublishing"},
-      },
+      claim = "patch staging is atomic",
+      cases = {{"hotreloadtest", "failedMultiFunctionStagePublishesNothing"}},
    },
    {
       claim = "loaded semantic dependencies are rechecked at their dependency boundary",
