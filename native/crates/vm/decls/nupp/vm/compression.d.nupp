@@ -1,0 +1,25 @@
+-- The compression primitives the VM's compression provider is written over.
+-- Steps read and write the spans they are given in place and answer the
+-- crate's progress: bytes consumed, bytes written and the step status.
+local {type ByteSpan, type ByteWriteSpan} = require("nupp.mem.span")
+
+local record Host
+    encoderCreate: function(format: integer, level: integer): (integer?, string?)
+    encoderWrite: function(
+        encoder: integer,
+        borrows input: ByteSpan,
+        exclusive output: ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+    encoderFlush: function(encoder: integer, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+    encoderFinish: function(encoder: integer, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+    encoderRelease: function(encoder: integer): boolean
+    decoderCreate: function(format: integer, concatenatedMembers: boolean): (integer?, string?)
+    decoderRead: function(
+        decoder: integer,
+        borrows input: ByteSpan,
+        exclusive output: ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+    decoderFinishInput: function(decoder: integer, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+    decoderRelease: function(decoder: integer): boolean
+end
+return Host

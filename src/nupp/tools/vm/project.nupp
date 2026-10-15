@@ -38,6 +38,7 @@ local HOST_MODULES: {
     ["nupp.compiler.nativehash"] = true,
     ["nupp.compiler.nativecdecl"] = true,
     ["nupp.vm.files"] = true,
+    ["nupp.vm.compression"] = true,
     ["nupp.digest.internal.sha256"] = true,
 }
 

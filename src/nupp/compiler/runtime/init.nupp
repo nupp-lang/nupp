@@ -123,13 +123,32 @@ function runtime.install(
         return path
     end
 
+    -- The VM's own modules are written over primitives only the VM declares, so
+    -- they are checked where those declarations and their sibling VM modules
+    -- resolve first, as the image builder checks them.
+    local vmEnv: envMod.Env? = nil
+
+    local function vmModuleEnv(): envMod.Env
+        local made = vmEnv
+        if made == nil then
+            local root = assert(envMod.compilerRoot(), "compiler source root unavailable")
+            made = envMod.new(root)
+            local roots = assert((made as any).roots) as {string}
+            table.insert(roots, 1, root .. "/native/crates/vm/lib")
+            table.insert(roots, 1, root .. "/native/crates/vm/decls")
+            vmEnv = made
+        end
+
+        return made
+    end
+
     local function loadLjppModule(name)
         if compiling then
             return
         end
         local override = vmOverride(name)
         if override then
-            return loadPath(name, override)
+            return loadPath(name, override, vmModuleEnv())
         end
         local path = envMod.findRuntimeModulePath(env, name)
         if not path then
@@ -154,7 +173,7 @@ function runtime.install(
         local candidates = {root .. "/src/" .. rel .. ".nupp", root .. "/src/" .. rel .. "/init.nupp"}
         local override = vmOverride(name)
         if override then
-            candidates = {override}
+            return loadPath(name, override, vmModuleEnv())
         end
         for _, path in ipairs(candidates) do
             local file = io.open(path, "rb")

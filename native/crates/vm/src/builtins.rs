@@ -57,6 +57,9 @@ pub const NAMES: &[&str] = &[
     "lpeg.ptree", "lpeg.pcode", "lpeg.match", "lpeg.B", "lpeg.V", "lpeg.C", "lpeg.Cc", "lpeg.Cmt", "lpeg.Cb", "lpeg.Carg", "lpeg.Cp", "lpeg.Cs", "lpeg.Ct", "lpeg.Cf", "lpeg.Cg",
     "lpeg.P", "lpeg.S", "lpeg.R", "lpeg.utfR", "lpeg.locale", "lpeg.setmaxstack", "lpeg.type",
     "lpeg.__mul", "lpeg.__add", "lpeg.__pow", "lpeg.__len", "lpeg.__div", "lpeg.__mod", "lpeg.__unm", "lpeg.__sub",
+    // Provider primitives, installed as `nupp.vm.<family>` (`crate::interp::PROVIDER_FAMILIES`).
+    "ncompression.encoderCreate", "ncompression.encoderWrite", "ncompression.encoderFlush", "ncompression.encoderFinish", "ncompression.encoderRelease",
+    "ncompression.decoderCreate", "ncompression.decoderRead", "ncompression.decoderFinishInput", "ncompression.decoderRelease",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -584,7 +587,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.loadImage" { return Special::VmLoadimage; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -935,6 +938,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             }
             if name.starts_with("files.") || name.starts_with("path.") { return files(it, name, args); }
             if name.starts_with("nfiles.") { return crate::nfiles::call(it, name, args); }
+            if name.starts_with("ncompression.") { return crate::ncompression::call(it, name, args); }
             if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }

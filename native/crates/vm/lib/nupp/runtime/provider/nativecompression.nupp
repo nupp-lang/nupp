@@ -1,0 +1,125 @@
+@!internal
+
+module nupp.runtime.provider.nativecompression
+
+--[[
+The VM's gzip, zlib, and raw DEFLATE provider for compression API 1: the same
+catalog and records as the LuaJIT provider, written over the VM's
+`nupp.vm.compression` primitives rather than the native library's C ABI. Each
+encoder and decoder owns one native stream handle, and every step reads and
+writes the spans it is given in place. Failed steps carry the stream's error in
+their reason.
+]]
+
+const contract = require("nupp.compression.spi")
+const host = require("nupp.vm.compression")
+const span = require("nupp.mem.span")
+
+local function reason(prefix: string, problem: string?): string
+    return prefix .. ": " .. (problem or "unknown error")
+end
+
+local record Encoder is contract.Encoder
+    @private handle: integer
+
+    function close(takes self): nil
+        host.encoderRelease(self.handle)
+    end
+
+    function write(
+        exclusive self,
+        borrows input: span.ByteSpan,
+        exclusive output: span.ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+        local consumed, written, status, problem = host.encoderWrite(self.handle, input, output)
+        if consumed == nil then
+            return nil, nil, nil, reason("compression encode failed", problem)
+        end
+
+        return consumed, written, status
+    end
+
+    function flush(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local written, status, problem = host.encoderFlush(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression flush failed", problem)
+        end
+
+        return written, status
+    end
+
+    function finish(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local written, status, problem = host.encoderFinish(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression finish failed", problem)
+        end
+
+        return written, status
+    end
+end
+
+local record Decoder is contract.Decoder
+    @private handle: integer
+
+    function close(takes self): nil
+        host.decoderRelease(self.handle)
+    end
+
+    function read(
+        exclusive self,
+        borrows input: span.ByteSpan,
+        exclusive output: span.ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+        local consumed, written, status, problem = host.decoderRead(self.handle, input, output)
+        if consumed == nil then
+            return nil, nil, nil, reason("compression decode failed", problem)
+        end
+
+        return consumed, written, status
+    end
+
+    function finishInput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+        local written, status, problem = host.decoderFinishInput(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression decode failed", problem)
+        end
+
+        return written, status
+    end
+end
+
+local record Format is contract.Format
+    @readonly name: string
+    @private id: integer
+
+    function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
+        local level = options ~= nil and options.level or 6
+        local handle, problem = host.encoderCreate(self.id, level)
+        if handle == nil then
+            error("nupp: " .. (problem or "could not create a compression encoder"), 2)
+        end
+
+        return new Encoder(handle = handle)
+    end
+
+    function createDecoder(self, options: contract.FormatOptions?): contract.Decoder
+        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedMembers ~= false)
+        local handle, problem = host.decoderCreate(self.id, concatenatedMembers)
+        if handle == nil then
+            error("nupp: " .. (problem or "could not create a compression decoder"), 2)
+        end
+
+        return new Decoder(handle = handle)
+    end
+end
+
+local formats: {
+    [string]: contract.Format
+} = {
+    gzip = new Format(name = "gzip", id = 1),
+    zlib = new Format(name = "zlib", id = 2),
+    ["deflate-raw"] = new Format(name = "deflate-raw", id = 3),
+}
+
+local provider: contract.Provider = {formats = formats}
+export = provider

@@ -1459,6 +1459,7 @@ dependencies = [
  "libloading",
  "mimalloc",
  "nupp-native-checksum",
+ "nupp-native-compression",
  "nupp-native-files",
  "nupp-native-platform",
  "nupp-native-process",

@@ -1131,6 +1131,35 @@ fn range(vm: &Interp, value: Value, n: usize, write: bool) -> (Value, usize) {
     }
     (v.owner, v.offset)
 }
+/// The bytes a `nupp.mem.span` record addresses: its owner and the byte range
+/// within it. A span over a string is read-only; one over native storage
+/// honours the view's own read-only mark. Providers copy through this rather
+/// than through `ref()`, whose pointer arithmetic a string span cannot take.
+pub(crate) fn byte_span(vm: &Interp, span: Value, write: bool) -> (Value, usize, usize) {
+    let pointer = get(vm, span, "pointer");
+    let offset = count(vm, get(vm, span, "offset"));
+    let n = count(vm, get(vm, span, "count"));
+    if vm.is_stringish(pointer) {
+        if write {
+            vm.err("nupp: storage view is read-only");
+        }
+        if offset.checked_add(n).map_or(true, |end| end > vm.bytes_of(pointer).len()) {
+            vm.err("nupp: storage read is out of bounds");
+        }
+        return (pointer, offset, n);
+    }
+    let v = view(vm, pointer);
+    if write && v.readonly {
+        vm.err("nupp: storage view is read-only");
+    }
+    let width = if v.element == Value::NIL { 1 } else { layout(vm, v.element, 0).1.max(1) };
+    let start = offset.checked_mul(width).and_then(|x| x.checked_add(v.offset));
+    let length = n.checked_mul(width);
+    match (start, length) {
+        (Some(start), Some(length)) if start.checked_add(length).is_some_and(|end| end <= v.end) => (v.owner, start, length),
+        _ => vm.err("nupp: storage access is out of bounds"),
+    }
+}
 pub(crate) fn borrowed_bytes(vm: &Interp, value: Value, length: Value) -> &[u8] {
     let n = count(vm, length);
     let (owner, offset) = range(vm, value, n, false);
