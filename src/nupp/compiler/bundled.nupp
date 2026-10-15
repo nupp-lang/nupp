@@ -173,7 +173,12 @@ function bundled.source(relative: string): string?
     -- A compiler running from `src` itself, as an image lowered from the
     -- checkout does, finds what a build would have carried where the build
     -- copies it from.
-    local checkout = moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")
+    local hostOs: any = rawget(_G, "os")
+    local named = hostOs and hostOs.getenv("NUPP_COMPILER_ROOT") or nil
+    local checkout = named ~= nil
+        and named ~= ""
+        and named
+        or moduleDir():gsub("\\", "/"):match("^(.*)/src/nupp/compiler$")
 
     return checkout and readFile(sourcePath(checkout, relative)) or nil
 end
