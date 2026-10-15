@@ -42,7 +42,7 @@ Components: luajit luarocks lpeg lpeg-source stage0
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
-            vm-runtime
+            vm-runtime FACILITIES
             archive DIRECTORY OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
@@ -825,13 +825,21 @@ EOF
 }
 
 # The runtime a VM program binary is stamped onto: the interpreter with linked
-# entry support and native C calls, and no code generator. Every source state
-# shares one target directory, so an edit to the VM is an incremental rebuild
-# rather than a cold one beside every earlier result; each result is copied out
-# to its content key, which is the file a build reads.
+# entry support and native C calls, no code generator, and of the facilities
+# a program may reach (compression, net, http) the ones it names. Every source
+# state of one facility set shares a target directory, so an edit to the VM is
+# an incremental rebuild rather than a cold one beside every earlier result;
+# each result is copied out to its content key, which is the file a build reads.
 build_rust_vm_runtime() {
+    facilities=$(normalize_rust_features "${1:-}")
+    for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
+        case "$facility" in
+            compression|net|http) ;;
+            *) die "unknown VM runtime facility $facility" ;;
+        esac
+    done
     select_rust_tools
-    vm_features=aot-linked,native-ffi
+    vm_features=aot-linked,native-ffi${facilities:+,$facilities}
     rust_environment=$(rust_environment_material)
     digest=$({
         printf '%s|%s|%s|%s|%s\n' \
@@ -841,7 +849,7 @@ build_rust_vm_runtime() {
     executable=nupp-vm
     [ "$PLATFORM" = windows ] && executable=nupp-vm.exe
     out="$RUST_BUILD_ROOT/vm-runtime/$digest"
-    target="$RUST_BUILD_ROOT/vm-runtime/target"
+    target="$RUST_BUILD_ROOT/vm-runtime/target-${facilities:-base}"
     RUST_VM_RUNTIME_OUT="$out/$executable"
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_RUNTIME_OUT" ] && return 0
 
@@ -1659,7 +1667,7 @@ case "$1" in
         exit 0
         ;;
     vm-runtime)
-        build_rust_vm_runtime
+        build_rust_vm_runtime "${2:-}"
         native_path "$RUST_VM_RUNTIME_OUT"
         exit 0
         ;;

@@ -1,3 +1,4 @@
+#![cfg(feature = "compression")]
 use nupp_vm::{
     builtins::{call, id_of},
     interp::Interp,

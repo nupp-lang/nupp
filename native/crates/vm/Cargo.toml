@@ -20,7 +20,12 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
-default = ["jit", "c-headers", "native-ffi"]
+default = ["jit", "c-headers", "native-ffi", "compression", "net", "http"]
+# The native facilities a program may reach. A program binary's runtime links
+# the ones its program does; the compiler's links all of them.
+compression = ["dep:nupp-native-compression"]
+net = ["dep:nupp-native-net", "dep:nupp-native-tls"]
+http = ["dep:nupp-native-http", "dep:url"]
 # Optional in-process C declaration inspection for compiler hosts.
 c-headers = ["dep:libloading", "dep:serde_json"]
 # Dynamic native C calls and callback trampolines.
@@ -47,12 +52,12 @@ serde_json = { version = "1", optional = true }
 nupp-native-platform = { path = "../platform", features = ["uuid"] }
 nupp-native-checksum = { path = "../checksum" }
 nupp-native-files = { path = "../files" }
-nupp-native-compression = { path = "../compression" }
-nupp-native-net = { path = "../net" }
-nupp-native-tls = { path = "../tls" }
-nupp-native-http = { path = "../http" }
+nupp-native-compression = { path = "../compression", optional = true }
+nupp-native-net = { path = "../net", optional = true }
+nupp-native-tls = { path = "../tls", optional = true }
+nupp-native-http = { path = "../http", optional = true }
 nupp-native-abi = { path = "../abi" }
-url = "2.5"
+url = { version = "2.5", optional = true }
 nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }
 cranelift-frontend = { version = "0.135", optional = true }

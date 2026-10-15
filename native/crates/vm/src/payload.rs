@@ -29,6 +29,7 @@ const MAX_SIGNATURE_PADDING: u64 = 4095;
 const MAX_COMMAND_BYTES: u64 = 1 << 24;
 
 /// The program a stamped runtime carries.
+#[derive(Debug)]
 pub struct Program {
     pub entry: String,
     pub image: String,

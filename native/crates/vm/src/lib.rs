@@ -24,9 +24,42 @@ mod clock;
 mod datetime;
 pub mod fileio;
 pub mod nfiles;
+#[cfg(feature = "compression")]
 pub mod ncompression;
+#[cfg(feature = "net")]
 pub mod nnet;
+#[cfg(feature = "http")]
 pub mod nhttp;
+
+// A runtime built without a facility still names its builtins, so an image
+// that reaches one loads; the call says which facility this runtime lacks.
+#[cfg(not(feature = "compression"))]
+pub mod ncompression {
+    #[derive(Default)]
+    pub struct Streams;
+    pub fn call(it: &mut crate::interp::Interp, _: &str, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without compression")
+    }
+}
+#[cfg(not(feature = "net"))]
+pub mod nnet {
+    #[derive(Default)]
+    pub struct Resources;
+    pub fn call(it: &mut crate::interp::Interp, _: &str, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without networking")
+    }
+}
+#[cfg(not(feature = "http"))]
+pub mod nhttp {
+    #[derive(Default)]
+    pub struct Transfers;
+    pub fn call(it: &mut crate::interp::Interp, _: &str, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without HTTP")
+    }
+    pub fn parse_uri(it: &mut crate::interp::Interp, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without HTTP")
+    }
+}
 pub mod utf8lib;
 mod temporary;
 mod process;

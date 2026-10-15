@@ -580,12 +580,13 @@ end
 --- @return the payload, or nil when the program did not compile
 --- @return why not
 --- @return the resources that had no key a running program could ask for
+--- @return the runtime facilities the program reaches
 local function programPayload(
     root: string,
     config: Config,
     target: Target,
     builtOutDir: string?
-): string?, string?, {string}?
+): string?, string?, {string}?, {string}?
     local outDir = builtOutDir or target.outDir or "build"
     local mainName, mainPath = entryModule(root, outDir, target)
     local resources, unreachable, resourceErr = carriedResources(root, config, target, mainName, mainPath, outDir)
@@ -601,12 +602,18 @@ local function programPayload(
         fields[#fields + 1] = "}\n"
         embedded = table.concat(fields)
     end
-    local ok, image = pcall(require("nupp.tools.vm.project").program, root, config as table, mainName, embedded)
+    local ok, image, facilities = pcall(
+        require("nupp.tools.vm.project").program,
+        root,
+        config as table,
+        mainName,
+        embedded
+    )
     if not ok then
         return nil, tostring(image)
     end
 
-    return mainName .. "\n" .. (image as string), nil, unreachable
+    return mainName .. "\n" .. (image as string), nil, unreachable, facilities as {string}
 end
 
 --- Where a `bundle` target writes its one file.

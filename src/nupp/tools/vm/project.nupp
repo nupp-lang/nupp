@@ -45,6 +45,17 @@ local HOST_MODULES: {
     ["nupp.digest.internal.sha256"] = true,
 }
 
+-- The runtime facility each VM-supplied module needs linked in. A program's
+-- runtime links only the ones its image asks for.
+local FACILITIES: {
+    [string]: string
+} = {
+    ["nupp.vm.compression"] = "compression",
+    ["nupp.vm.net"] = "net",
+    ["nupp.vm.http"] = "http",
+    ["nupp.vm.uri"] = "http",
+}
+
 -- Providers the source tree spells once for both runtimes: they reach the
 -- native library only through modules the VM replaces beneath them, so the
 -- VM takes them where it would otherwise take only its own.
@@ -91,7 +102,8 @@ local function emitProject(
     extras: {string},
     hostBootstrap: boolean?,
     inspection: table?,
-    carried: {[string]: string}?
+    carried: {[string]: string}?,
+    reached: {[string]: boolean}?
 ): string
     if not hostBootstrap then
         triviaarena.install(tableProvider)
@@ -110,7 +122,11 @@ local function emitProject(
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/lib")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
     -- A separate project still executes the compiler-carried library sources.
-    -- Keep project roots first so an explicitly supplied module wins.
+    -- Keep project roots first so an explicitly supplied module wins. They are
+    -- the library a LuaJIT build finds by name, not the project's own files, so
+    -- the project index is made before they join: indexing them read the whole
+    -- compiler checkout, eleven seconds of a hello world's build.
+    envMod.ensureProjectIndex(env)
     table.insert(assert(env.roots), compilerRoot .. "/src")
     env.managedCoroutines = true
     -- The VM coroutine surface participates in ordinary affine cleanup.
@@ -129,6 +145,10 @@ local function emitProject(
             end
             if carried and carried[name] and not soft then
                 return "=(" .. name .. ")"
+            end
+            local facility = FACILITIES[name]
+            if reached and facility and not soft then
+                reached[facility] = true
             end
 
             return project.resolve(env, compilerRoot, name, soft)
@@ -212,10 +232,12 @@ local function programPath(root: string, compilerRoot: string, path: string): st
 end
 
 --- The image of a program: `entry` and every module it reaches under the
---- project's manifest `config`. `embedded` is the source of the program's
---- `nupp.embedded` resource table, when it carries resources.
+--- project's manifest `config`, and the runtime facilities that image needs
+--- linked, sorted. `embedded` is the source of the program's `nupp.embedded`
+--- resource table, when it carries resources.
 --- @raises string when a source cannot be read, checked or lowered.
-function project.program(root: string, config: table, entry: string, embedded: string?): string
+function project.program(root: string, config: table, entry: string, embedded: string?): (string, {string})
+    local reached: {[string]: boolean} = {}
     local image = emitProject(
         root,
         config,
@@ -223,13 +245,25 @@ function project.program(root: string, config: table, entry: string, embedded: s
         embedded and {"nupp.embedded"} or {},
         nil,
         nil,
-        embedded and {["nupp.embedded"] = embedded} or nil
+        embedded and {["nupp.embedded"] = embedded} or nil,
+        reached
     )
+    local facilities: {string} = {}
+    for facility in pairs(reached) do
+        facilities[#facilities + 1] = facility
+    end
+    table.sort(facilities)
     local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
 
-    return (image:gsub("\nmodule ([^ \n]+) (%d+) ([^\n]+)", function(name: string, id: string, path: string): string
+    local named = image:gsub("\nmodule ([^ \n]+) (%d+) ([^\n]+)", function(
+        name: string,
+        id: string,
+        path: string
+    ): string
         return "\nmodule " .. name .. " " .. id .. " " .. programPath(root, compilerRoot, path)
-    end))
+    end)
+
+    return named, facilities
 end
 
 --- Inspect the VM instructions emitted for one checked source file.

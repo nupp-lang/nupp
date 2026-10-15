@@ -2,7 +2,8 @@
 """Validate a frozen linked compiler in fresh processes with executable memory denied.
 
 The caller builds the object and a runtime with --no-default-features
---features aot-linked,c-headers, then supplies both the binary and its image.
+--features aot-linked,c-headers,compression,net,http, then supplies both the
+binary and its image.
 This harness performs no Cargo builds and retains logs and artifact hashes.
 """
 import argparse

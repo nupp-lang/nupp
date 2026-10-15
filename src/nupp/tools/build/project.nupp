@@ -836,9 +836,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         table.sort(runtimeModules)
         local requiredHostFeatures = nativeFeatures.requiredHostFeatureNames(resolvedEffects)
-        local text, bundleErr, unreachable
+        local text, bundleErr, unreachable, facilities
         if vmProgram then
-            text, bundleErr, unreachable = loadBuildTool(
+            text, bundleErr, unreachable, facilities = loadBuildTool(
                 "nupp.tools.build.package"
             ).programPayload(root, config, target, outDir)
         else
@@ -896,7 +896,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             local stubPath, hostErr
             if vmProgram then
                 report:step("building the VM program runtime")
-                stubPath, hostErr = native.vmRuntime()
+                stubPath, hostErr = native.vmRuntime(facilities or {})
             else
                 stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
             end
