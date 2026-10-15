@@ -60,7 +60,7 @@ does not search arbitrary executable bytes for the magic.
 | --- | --- | --- |
 | 0 | 8 | magic, the ASCII bytes `NUPPLOAD` |
 | 8 | 4 | format version, currently 1 |
-| 12 | 4 | flags, bit 0 set when the payload is bytecode |
+| 12 | 4 | flags, bit 0 set when the payload is bytecode, bit 1 when it is a VM program |
 | 16 | 8 | payload offset from the start of the file |
 | 24 | 8 | payload length in bytes |
 | 32 | 8 | the payload's XXH64 under seed zero, little-endian |
@@ -93,6 +93,17 @@ build-time fact: the host names it after the executable it found itself in, and
 code in the payload reads that name to find what travels beside the binary. The
 price is that a traceback out of a stamped binary has no line numbers. The same
 crash reproduces under a `modules` build, which is not stamped and keeps them.
+
+Bit 1 says the payload is a VM program rather than a Lua chunk, and the stub
+is the VM runtime rather than a LuaJIT host. A compiler running on the VM
+stamps every binary for the machine it runs on this way: the payload is the
+entry module's name, a newline, and the image the VM's lowering wrote for the
+entry and everything it reaches, the target's resources among them as the
+`nupp.embedded` module. The runtime runs the entry module's body on a task,
+with the program's arguments as `arg` and the executable as `arg[0]`, and links
+only the native facilities -- compression, networking, HTTP -- the image
+requires. A LuaJIT host refuses the bit, and the VM runtime refuses a Lua
+payload, each naming what it found.
 
 The digest is a corruption check, not a security boundary: the file is
 unsigned, and anyone who can rewrite the payload can rewrite the trailer beside

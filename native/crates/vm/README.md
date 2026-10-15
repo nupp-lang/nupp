@@ -2147,3 +2147,41 @@ sources.
 Tests: `tests/weak_tables.rs`, `string_buffer.rs`,
 `protected_suspension.rs`, `getmetatable.rs` and `error_wording.rs`, under
 collector stress on the Rust loop, the threaded core and scheduled frames.
+
+
+## Program binaries (2026-10-15)
+
+`nupp build` on the VM CLI writes a binary target as one file: the VM
+runtime with the program's image appended. The container is the one
+`docs/reference/distribution.md` already specifies for LuaJIT hosts, payload
+then 48-byte trailer, with trailer flag bit 1 marking a VM program; the
+payload is the entry module's name, a newline, and the image. The packager's
+existing Mach-O handling (unsign, grow `__LINKEDIT`, ad hoc sign) applies
+unchanged, and `payload::read` finds the trailer before the signature the
+same way the LuaJIT host does, reading only the trailer and load commands.
+
+An appended payload rather than a linked section or a per-program AOT link:
+the runtime already loaded text images, the format and signing code existed,
+and stamping costs no Cargo invocation per program. A hello world starts in
+under 10 ms. Linking a program's AOT object stays compatible: the AOT check
+hashes the loaded image, which is the appended one.
+
+The runtime is `scripts/toolchain vm-runtime FACILITIES`: `aot-linked` and
+`native-ffi` without Cranelift, fat LTO, stripped. Compression, networking
+and HTTP (with the URL parser) are now crate features, on by default; the
+build links the ones the image requires through `nupp.vm.compression`,
+`nupp.vm.net`, `nupp.vm.http` and `nupp.vm.uri`. A hello world is
+2,295,072 bytes; with networking and HTTP, 4.9 MB. The compiler's own linked
+runtime must name `compression,net,http` explicitly now.
+
+The program is its entry module's body, run on a scheduled task with the
+arguments in `arg` (`arg[0]` the executable), exiting 0 when it returns and 1
+with the message when it raises; `os.exit` sets any other status. Module
+paths in a program image are relative to the project or the compiler
+checkout, so two builds of one tree are byte-identical. Resources ride as an
+unchecked `nupp.embedded` data module, as the root CLI's do.
+
+Open: functions with vector instructions still need a linked AOT entry or
+`SIMD_INTERPRET=1`, so a SIMD program needs the per-program AOT link above;
+cross-platform targets still read the LuaJIT stub catalog; a module-level
+`...` does not lower, so the arguments arrive only through `arg`.
