@@ -95,6 +95,8 @@ end
 --- Check and lower `entry` and what it reaches under `config`, the manifest
 --- the project's modules resolve through. `carried` names modules whose
 --- source is generated data rather than a file: parsed, never checked.
+--- `sources` names the files a build compiled for modules, its generated
+--- ones among them, which resolve as those files.
 --- `cacheDir`, when given, is where per-module lowering is kept for the next
 --- emit and found from the last (`nupp.tools.vm.emitcache`).
 --- @raises string when a source cannot be read, checked or lowered.
@@ -108,7 +110,8 @@ local function emitProject(
     carried: {[string]: string}?,
     reached: {[string]: boolean}?,
     coverage: lower.CoverageRequest?,
-    cacheDir: string?
+    cacheDir: string?,
+    sources: {[string]: string}?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -132,6 +135,20 @@ local function emitProject(
     -- the project index is made before they join: indexing them read the whole
     -- compiler checkout, eleven seconds of a hello world's build.
     envMod.ensureProjectIndex(env)
+    -- A module a build generated (a C binding, the SPI index) lives under the
+    -- build's output rather than an include root; its root joins the project's.
+    for name, path in pairs(sources or {}) do
+        local stem = (path:match("^(.*)%.[^./]+$") or path):gsub("/init$", "")
+        local relative = "/" .. name:gsub("%.", "/")
+        local base = stem:sub(-#relative) == relative and stem:sub(1, #stem - #relative) or nil
+        local known = false
+        for _, existing in ipairs(assert(env.roots)) do
+            known = known or existing == base
+        end
+        if base and not known then
+            table.insert(assert(env.roots), 3, base)
+        end
+    end
     table.insert(assert(env.roots), compilerRoot .. "/src")
     env.managedCoroutines = true
     -- The VM coroutine surface participates in ordinary affine cleanup.
@@ -189,6 +206,9 @@ local function emitProject(
             end
             if carried and carried[name] and not soft then
                 return "=(" .. name .. ")"
+            end
+            if sources and sources[name] then
+                return sources[name]
             end
             local facility = FACILITIES[name]
             if reached and facility and not soft then
@@ -329,24 +349,44 @@ const NATIVE_OPS = {
 --- resource table, when it carries resources. `coverage` instruments the modules
 --- it names and collects their sites.
 --- @raises string when a source cannot be read, checked or lowered.
+--- `modules`, when a build gives them, are the target's compiled source set:
+--- a program carries every one of them, as a LuaJIT build carried its whole
+--- output tree, so a module named only by a computed `require` is found.
 function project.program(
     root: string,
     config: table,
     entry: string,
     embedded: string?,
-    coverage: lower.CoverageRequest?
+    coverage: lower.CoverageRequest?,
+    modules: {[string]: any}?
 ): (string, {string})
     local reached: {[string]: boolean} = {}
+    local extras: {string} = embedded and {"nupp.embedded"} or {}
+    local sources: {[string]: string} = {}
+    local names: {string} = {}
+    for name, record in pairs(modules or {}) do
+        local path = type(record) == "table" and (record as any).sourcePath or nil
+        if type(path) == "string" and name ~= entry then
+            names[#names + 1] = name
+            sources[name] = path as string
+        end
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        extras[#extras + 1] = name
+    end
     local image = emitProject(
         root,
         config,
         entry,
-        embedded and {"nupp.embedded"} or {},
+        extras,
         nil,
         nil,
         embedded and {["nupp.embedded"] = embedded} or nil,
         reached,
-        coverage
+        coverage,
+        nil,
+        sources
     )
     -- A function with vector instructions runs only compiled (`native_simd`'s
     -- `required`), so a program holding one is linked with the code generator,

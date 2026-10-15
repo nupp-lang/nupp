@@ -697,7 +697,8 @@ local function programPayload(
         config as table,
         mainName,
         embedded,
-        coverage
+        coverage,
+        modules
     )
     if not ok then
         return nil, tostring(image)
