@@ -4169,8 +4169,10 @@ function lower.emit(
             end
             local base = f.nregs
             exprsInto(f, exprs, #targets, base)
-            for i, target in ipairs(targets) do
-                assignTo(f, target, base + i - 1, prepared[i] or nil)
+            -- Stored right to left, as Lua stores them: when two targets name one
+            -- place, the leftmost store is the one that stays.
+            for i = #targets, 1, -1 do
+                assignTo(f, targets[i], base + i - 1, prepared[i] or nil)
             end
         elseif k == "gotoStmt" then
             local name = tokText(node.name)
