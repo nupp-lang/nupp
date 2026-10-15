@@ -302,7 +302,10 @@ end
 -- allocating more per module, whatever the machine is doing. About 1.15 MB a module
 -- at ten modules and 1.3 MB at forty when these were set; quadratic growth would be
 -- four times the per-module figure at forty, and linear growth is none.
-local ALLOCATION_PER_MODULE = 2 * 1024 * 1024
+-- The VM counts its own object layout -- a 32-byte header per object, tables carrying
+-- their insertion order -- so the same work measures about 2.5 MB a module there; its
+-- budget keeps the same headroom over what it measures. The growth bound is the same.
+local ALLOCATION_PER_MODULE = (rawget(_G, "__nupp_load_image") and 3.75 or 2) * 1024 * 1024
 local ALLOCATION_GROWTH = 1.6
 
 function M.theCheckerAllocatesPerModuleNotPerProject()

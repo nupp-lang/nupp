@@ -20,6 +20,55 @@ local function names(csv: string?): {string}
     return out
 end
 
+-- Modules the VM itself supplies at run time, which an image never carries.
+local HOST_MODULES: {
+    [string]: boolean
+} = {
+    ["nupp.vm.tasks"] = true,
+    ["nupp.simd"] = true,
+    ["nupp.runtime.provider.nativestorage"] = true,
+    ["nupp.runtime.provider.nativeuuid"] = true,
+    ["nupp.runtime.provider.nativecrypto"] = true,
+    ["nupp.vm.clock"] = true,
+    ["nupp.vm.crc"] = true,
+    ["nupp.vm.coroutine"] = true,
+    ["nupp.cli.internal.terminalhost"] = true,
+    ["nupp.tools.build.clockhost"] = true,
+    ["nupp.compiler.hostpid"] = true,
+    ["nupp.compiler.nativehash"] = true,
+    ["nupp.compiler.nativecdecl"] = true,
+    ["nupp.vm.files"] = true,
+    ["nupp.digest.internal.sha256"] = true,
+}
+
+--- Where an image finds `name`, the rule every VM image builder shares: the
+--- VM's own implementations first, the modules the VM supplies left to run
+--- time, the browser runtime never. A soft dependency (a provider chosen at run
+--- time) is taken only where the VM supplies its own implementation of it.
+function project.resolve(env: table, compilerRoot: string, name: string, soft: boolean?): string?
+    if soft then
+        local path = envMod.findRuntimeModulePath(env as any, name)
+        local vmLib = compilerRoot .. "/native/crates/vm/lib/"
+        return path ~= nil and path:sub(1, #vmLib) == vmLib and path or nil
+    end
+    if name == "nupp.vm.taskScope" then
+        -- Reuse the public implementation under a private link name.
+        -- Its source identity remains nupp.tasks for checker call rules.
+        return compilerRoot .. "/src/nupp/tasks.nupp"
+    elseif name == "nupp.generator" then
+        return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
+    elseif name == "nupp.tasks" then
+        return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
+    elseif name == "nupp.tools.bytecodecache" then
+        return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
+    end
+    if HOST_MODULES[name] or name:find("^nupp%.runtime%.browser%.") then
+        return nil
+    end
+
+    return envMod.findRuntimeModulePath(env as any, name)
+end
+
 --- Read, check and lower a project using the compiler's module resolver.
 --- Explicit include roots allow bootstrapping before manifest execution.
 --- @raises string when a source cannot be read, checked or lowered.
@@ -71,54 +120,14 @@ function project.emit(
         entry,
         names(extras),
         function(name: string, soft: boolean?): string?
-            if soft then
-                -- A provider chosen at run time belongs to the image only where
-                -- the VM supplies its own implementation of it.
-                local path = envMod.findRuntimeModulePath(env, name)
-                local vmLib = compilerRoot .. "/native/crates/vm/lib/"
-                return path ~= nil and path:sub(1, #vmLib) == vmLib and path or nil
-            end
-            if inspection and name == entry then
+            if inspection and name == entry and not soft then
                 return inspection.path
             end
-            if carried and name == "nupp.vm.cliResources" then
+            if carried and name == "nupp.vm.cliResources" and not soft then
                 return "=(VM CLI resources)"
             end
-            if name == "nupp.vm.taskScope" then
-                -- Reuse the public implementation under a private link name.
-                -- Its source identity remains nupp.tasks for checker call rules.
-                return compilerRoot .. "/src/nupp/tasks.nupp"
-            elseif name == "nupp.generator" then
-                return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
-            elseif name == "nupp.tasks" then
-                return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
-            elseif name == "nupp.tools.bytecodecache" then
-                return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
-            end
-            -- The VM is a native host; the browser runtime is never its provider.
-            if name:find("^nupp%.runtime%.browser%.") then
-                return nil
-            end
-            if name == "nupp.vm.tasks"
-            or name == "nupp.simd"
-            or name == "nupp.runtime.provider.nativestorage"
-            or name == "nupp.runtime.provider.nativeuuid"
-            or name == "nupp.runtime.provider.nativecrypto"
-            or name == "nupp.vm.clock"
-            or name == "nupp.vm.crc"
-            or name == "nupp.vm.coroutine"
-            or name == "nupp.cli.internal.terminalhost"
-            or name == "nupp.tools.build.clockhost"
-            or name == "nupp.compiler.hostpid"
-            or name == "nupp.compiler.nativehash"
-            or name == "nupp.compiler.nativecdecl"
-            or name == "nupp.vm.files"
-            or name == "nupp.digest.internal.sha256"
-            then
-                return nil
-            end
 
-            return envMod.findRuntimeModulePath(env, name)
+            return project.resolve(env, compilerRoot, name, soft)
         end,
         function(name: string, path: string): table
             if carried and name == "nupp.vm.cliResources" then

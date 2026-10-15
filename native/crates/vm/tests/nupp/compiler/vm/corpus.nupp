@@ -22,23 +22,6 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     table.insert(assert(env.roots), 1, root .. "/native/crates/vm/decls")
     env.managedCoroutines = true
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
-    local hosts = {
-        ["nupp.simd"] = true,
-        ["nupp.runtime.provider.nativestorage"] = true,
-        ["nupp.runtime.provider.nativeuuid"] = true,
-        ["nupp.vm.tasks"] = true,
-        ["nupp.vm.clock"] = true,
-        ["nupp.vm.crc"] = true,
-        ["nupp.vm.coroutine"] = true,
-        ["nupp.io.files"] = true,
-        ["nupp.io.path"] = true,
-        ["nupp.cli.internal.terminalhost"] = true,
-        ["nupp.tools.build.clockhost"] = true,
-        ["nupp.compiler.hostpid"] = true,
-        ["nupp.compiler.nativehash"] = true,
-        ["nupp.compiler.nativecdecl"] = true,
-        ["nupp.digest.internal.sha256"] = true,
-    }
     local extras = {}
     local missing = {}
     for name in (unavailable or ""):gmatch("[^,]+") do
@@ -51,15 +34,12 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     return lower.emit(
         "corpus-runner",
         extras,
-        function(name: string): string?
-            if name == "nupp.vm.taskScope" then
-                return root .. "/src/nupp/tasks.nupp"
-            end
-            if hosts[name] or missing[name] then
+        function(name: string, soft: boolean?): string?
+            if missing[name] then
                 return nil
             end
 
-            return envMod.findRuntimeModulePath(env, name)
+            return require("nupp.tools.vm.project").resolve(env, root, name, soft)
         end,
         function(_: string, path: string): table
             local parsed = parser.parse(assert(fs.readFile(path)), path)
