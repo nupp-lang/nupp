@@ -4869,6 +4869,54 @@ function lower.emit(
     end
 
     stmtReclaim = function(f, s)
+        -- `local a, b = open(), open()` registers each owner as soon as its value
+        -- exists, so a later value that raises still closes the earlier ones. The
+        -- declaration splits into one per name when no value reads those names.
+        if s.kind == "localStmt"
+            and s.automaticOwners
+            and not s.pattern
+            and not s.vmSplit
+            and #(s.names or {}) > 1
+            and #(s.exprs or {}) == #s.names
+        then
+            local declared = {}
+            for _, token in ipairs(s.names) do
+                declared[tokText(token)] = true
+            end
+            local reads, seen = false, {}
+
+            local function scan(n)
+                if reads or type(n) ~= "table" or seen[n] then
+                    return
+                end
+                seen[n] = true
+                if n.kind == "name" and n.token and declared[tokText(n.token)] then
+                    reads = true
+                    return
+                end
+                for _, child in ipairs(n) do
+                    scan(child)
+                end
+            end
+
+            for _, value in ipairs(s.exprs) do
+                scan(value)
+            end
+            if not reads then
+                for index, token in ipairs(s.names) do
+                    stmtReclaim(f, {
+                        kind = "localStmt",
+                        names = {token},
+                        types = {s.types and s.types[index] or nil},
+                        exprs = {s.exprs[index]},
+                        isConst = s.isConst,
+                        automaticOwners = {s.automaticOwners[index]},
+                        vmSplit = true,
+                    })
+                end
+                return
+            end
+        end
         f.curStmt = s
         f.curLine = nodeLine(s) or f.curLine
         local mark, fmark = f.nregs, f.nfregs
