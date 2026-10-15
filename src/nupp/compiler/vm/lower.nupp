@@ -2107,6 +2107,37 @@ function lower.emit(
     -- lands, and `stmtReclaim` unwinds to before the statement.
     local emitCallBody = emitCall
     emitCall = function(f, node, dst, nres, all)
+        local plan = node.formatIntrinsic
+        if plan then
+            -- A format holding `%?` was rewritten by the checker to `%s`; each
+            -- argument it marked is rendered through its own `debug` method.
+            local arguments = node.args and node.args.exprs or {}
+            local offset = plan.argumentOffset or 0
+            local format = f:reg()
+            f:op("K", format, f:const("str", plan.format))
+            local values = {format}
+            for index = offset + 1, #arguments do
+                local value = exprAs(f, arguments[index], "v")
+                if (plan.debugArguments or {})[index - offset] then
+                    value = exprAs(
+                        f,
+                        {
+                            kind = "methodCall",
+                            obj = {kind = "vmRegister", reg = value},
+                            name = {text = "debug"},
+                            args = {kind = "args", exprs = {}},
+                        },
+                        "v"
+                    )
+                end
+                values[#values + 1] = value
+            end
+            builtinRegisters(f, "string.format", values, dst)
+            for extra = 1, (nres or 1) - 1 do
+                f:op("Nil", dst + extra)
+            end
+            return
+        end
         emitCallBody(f, node, dst, nres, all)
         local owner = node.statementOwner
         if owner and #(owner.cleanups or {}) > 0 then
