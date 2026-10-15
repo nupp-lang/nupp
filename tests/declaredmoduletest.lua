@@ -327,6 +327,8 @@ end
 end
 
 function M.qualifiedNamespacesSelectOneHiddenDirectRequire()
+    -- Its own module name: a VM image keeps answering a module name an earlier
+    -- case's image declared, even after package.loaded forgets it.
     withProject(
         {
             [
@@ -338,9 +340,9 @@ export function each(value: integer): integer
 end
 ]],
             [
-                "src/use.nupp"
+                "src/usequery.nupp"
             ] = [[
-module use
+module usequery
 export function answer(): integer
    return tecs.world.query.each(41) + tecs.world.query.each(0)
 end
@@ -348,18 +350,18 @@ end
         },
         function(dir)
             local inc = incremental.new(dir, {config = {include = {"src"}}})
-            local checked = inc.checkFile(dir .. "/src/use.nupp")
+            local checked = inc.checkFile(dir .. "/src/usequery.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
-            local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
+            local image = program.image(checked.result, "usequery", dir .. "/src/usequery.nupp")
             assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
 
-            package.loaded.use = nil
+            package.loaded.usequery = nil
             package.loaded["tecs.world.query"] = nil
             local env = projectEnv(dir)
             local removeLoader = installProject(env)
-            local use = require("use")
+            local use = require("usequery")
             removeLoader()
-            package.loaded.use = nil
+            package.loaded.usequery = nil
             package.loaded["tecs.world.query"] = nil
             testAssert.equal(use.answer(), 43, "qualified module call")
         end

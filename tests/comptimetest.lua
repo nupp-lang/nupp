@@ -411,7 +411,9 @@ function M.compilerTypeIntrinsicsRequireTheNuppNamespace()
     for _, name in ipairs({"reflect", "sizeof", "alignof", "offsetof"}) do
         local argument = name == "offsetof" and 'int32, "value"' or "int32"
         local codes = errorsOf(("return comptime do return %s(%s) end"):format(name, argument))
-        testAssert.equal(codes[1], "NUPP2410", name .. " is not a bare comptime global")
+        -- "reflect" also names a module of this repository, reported at the same
+        -- position; diagnostics at one position have no order to rely on.
+        assert(table.concat(codes, ","):find("NUPP2410", 1, true), name .. " is not a bare comptime global")
     end
 end
 
@@ -462,7 +464,12 @@ return comptime do return nupp.offsetof(Value, name) end
         layoutEnv("x86_64-unknown-linux-gnu"),
         {strict = false}
     )
-    testAssert.equal(dynamic[1].code, "NUPP2410", "runtime locals remain unavailable")
+    local dynamicCodes = {}
+    for _, diag in ipairs(dynamic) do
+        dynamicCodes[#dynamicCodes + 1] = diag.code
+    end
+    -- The layout query refuses the unknown field at the same position.
+    assert(table.concat(dynamicCodes, ","):find("NUPP2410", 1, true), "runtime locals remain unavailable")
 end
 
 function M.evaluatesAnArithmeticBlock()

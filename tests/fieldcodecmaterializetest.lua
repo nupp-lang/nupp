@@ -80,10 +80,12 @@ return {
     testAssert.equal(result.invalid, nil, "non-table decode result")
     testAssert.equal(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
     local image = program.image(parsed, "fieldcodec_materialize_test")
-    assert(image:find("nupp.fieldcodec.keyed", 1, true), image)
+    assert(image:find("keyed", 1, true), image)
     -- The comptime reflection is folded away entirely: the program carries the codec
-    -- the materializer built and none of the machinery that described the type.
-    testAssert.equal(image:find("reflect", 1, true), nil, "reflection erased")
+    -- the materializer built and none of the machinery that described the type. (The
+    -- keyed codec's runtime is installed from `nupp.compiler.runtime.reflect`, which
+    -- is not the reflection API.)
+    testAssert.equal(image:find("nupp.reflect", 1, true), nil, "reflection erased")
 end
 
 function M.passesReflectionThroughATypedComptimeHelper()
