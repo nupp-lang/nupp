@@ -15,10 +15,10 @@ return {
          kind = "c",
          cc = "c++",
          path = "../..",
-         sources = { "bench/simd-json/native/simdjson_control.cpp" },
+         sources = { "bench/serde-spike/simdjson-native/simdjson_control.cpp" },
          headers = {
-            "bench/simd-json/native/simdjson_control.h",
-            "bench/simd-json/native/serde.inc",
+            "bench/serde-spike/simdjson-native/simdjson_control.h",
+            "bench/serde-spike/simdjson-native/serde.inc",
          },
          cflags = {
             "-std=c++17", "-O3", "-DNDEBUG", "-Wall", "-Wextra", "-Werror",
@@ -34,7 +34,7 @@ return {
          ["serde-spike"] = {
             kind = "modules",
             entries = { "serde_spike" },
-            aot = "require",
+            aot = "off",
             dependencies = { "serde_spike_native", "simdjson_bench_native" },
          },
       },

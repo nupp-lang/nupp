@@ -5,7 +5,7 @@
 -- tier is answered by lowering, and a check used to stop short of it: these
 -- programs checked clean and then failed `build`. A check of a target whose
 -- policy lowers now lowers too, so each refusal below has to come back from
--- `check` with the code and position `nupp aot` gives it, and a target that
+-- `check` with the code and position lowering gives it, and a target that
 -- does not lower, or a file with no `@aot`, has to be left alone.
 --
 -- Driven through the real binary, since the verdict of a command is the
@@ -25,7 +25,7 @@ local NUPP = HERE .. "/../bin/nupp"
 -- Pinned so a feature tier has the same lanes on every machine the suite runs on.
 local TRIPLE = "aarch64-apple-darwin"
 
--- What `check` has to refuse, each as `nupp aot` refuses it. One refusal a file:
+-- What `check` has to refuse, each as lowering refuses it. One refusal a file:
 -- lowering stops at the first, in a build as here.
 local REFUSED = {
     -- A native-only aggregate has no memory layout, so no span holds one.
@@ -597,35 +597,8 @@ end
 
 local M = {}
 
--- The promise: what `nupp aot` refuses for a target, `nupp check` of that target
--- reports, at the same code and position, and nothing it admits is refused.
-function M.checkRefusesExactlyWhatAotRefuses()
-    local dir = corpus()
-    local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
-    assert(decoded.ok == false, raw)
-    local checked = refusalsByFile(decoded)
-    for name in pairs(REFUSED) do
-        local out, aotCode = run(dir, ("aot --triple %s %s"):format(TRIPLE, name))
-        test.equal(aotCode, 1, name .. " is refused by aot: " .. out)
-        local escaped = name:gsub("%.", "%%.")
-        local line, column, refusedCode = out:match(escaped .. ":(%d+):(%d+): aot: (NUPP%d+):")
-        assert(refusedCode, name .. ": aot names a coded refusal: " .. out)
-        local expected = ("%s %s:%s"):format(refusedCode, line, column)
-        local reported = checked[name] or {}
-        test.equal(#reported, 1, name .. " is refused once by check: " .. raw)
-        test.equal(reported[1], expected, name .. ": check and aot agree")
-    end
-    for name in pairs(ADMITTED) do
-        assert(checked[name] == nil, name .. " is admitted and checks clean: " .. raw)
-    end
-    for _, name in ipairs({"lane.nupp", "kernel.nupp", "family.nupp"}) do
-        assert(checked[name][1]:match("^NUPP290[678] "), name .. " carries its own refusal code: " .. checked[name][1])
-    end
-end
-
--- The method-call case `aotclitest` pins for `nupp aot`, through `check`: the
--- code, the range covering the receiver, and help naming the target and tier.
+-- The method-call refusal through `check`: the code, the range covering the
+-- receiver, and help naming the target and tier.
 function M.theRefusalIsACodedDiagnosticWithARange()
     local decoded = checkJson(corpus(), "method.nupp")
     local diagnostic = decoded.diagnostics[1]
@@ -666,135 +639,6 @@ return {include = {"."}, build = {targets = {native = {kind = "modules", aot = "
     local fixed, fixedCode, fixedRaw = checkJson(dir, "")
     test.equal(fixedCode, 0, fixedRaw)
     test.equal(fixed.timing.compiledModules, 1, fixedRaw)
-end
-
--- A build lowers what its deliverable reaches. A module no entry requires is
--- not in the library, is not refused by the build, and is not refused here.
-function M.onlyWhatTheTargetReachesIsRefused()
-    local dir = project(([[
-return {
-   include = {"src"},
-   build = {targets = {native = {kind = "modules", entries = {"main"}, aot = "require", aotTarget = %q}}},
-}
-]]):format(TRIPLE), {
-        ["src/main.nupp"] = 'local used = require("used")\nreturn used\n',
-        ["src/used.nupp"] = ADMITTED["clamp.nupp"],
-        ["src/stray.nupp"] = REFUSED["truthy.nupp"],
-    })
-    local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 0, "the unreached module is not the target's to refuse: " .. raw)
-    test.equal(#decoded.diagnostics, 0, raw)
-    local out, buildCode = run(dir, "build")
-    test.equal(buildCode, 0, "and the build agrees: " .. out)
-    -- Reached, it is refused, although the module itself did not change.
-    write(dir .. "/src/main.nupp", 'local used = require("used")\nlocal stray = require("stray")\n'
-        .. "return {used = used, stray = stray}\n")
-    local reached, reachedCode, reachedRaw = checkJson(dir, "")
-    test.equal(reachedCode, 1, reachedRaw)
-    test.equal(reached.diagnostics[1].code, "NUPP2905", reachedRaw)
-    assert(tostring(reached.diagnostics[1].file):match("stray%.nupp$"), reachedRaw)
-end
-
--- A const-generic family is specialized for every call the deliverable makes into
--- it. Called only from another module, it used to be lowered by check with its own
--- module's calls alone -- none -- and passed, while the build, collecting the calls
--- across the graph, refused the tenth body. A check now says what the build says,
--- keeps saying it from the records when nothing moved, and stops once the calls do.
-function M.aFamilyOnlyAnotherModuleClosesIsRefusedByCheck()
-    local family = REFUSED["family.nupp"]:gsub("\nreturn repeated%(.*$", "\nreturn {repeated = repeated}\n")
-    local calls = {}
-    for count = 1, 9 do
-        calls[#calls + 1] = ("repeated(1.0, %d)"):format(count)
-    end
-    local function caller(n)
-        return 'local family = require("family")\nlocal repeated = family.repeated\nreturn '
-            .. table.concat(calls, " + ", 1, n) .. "\n"
-    end
-    local dir = project(([[
-return {include = {"src"}, build = {targets = {native = {kind = "modules", entries = {"main"}, aot = "require", aotTarget = %q}}}}
-]]):format(TRIPLE), {
-        ["src/family.nupp"] = family,
-        ["src/main.nupp"] = caller(9),
-        ["src/other.nupp"] = "return {answer = 42}\n",
-    })
-    local out, buildCode = run(dir, "build")
-    test.equal(buildCode, 1, "the build refuses the family: " .. out)
-    assert(out:find("NUPP2908", 1, true), out)
-    local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
-    local refused = refusalsByFile(decoded)
-    assert(refused["family.nupp"] and refused["family.nupp"][1]:match("^NUPP2908 "), raw)
-    test.equal(refused["main.nupp"], nil, raw)
-    local warm, warmCode, warmRaw = checkJson(dir, "")
-    test.equal(warmCode, 1, warmRaw)
-    test.equal(warm.timing.compiledModules, 0, warmRaw)
-    test.equal(#warm.diagnostics, 1, warmRaw)
-    -- Eight bodies fit, and the verdict follows the caller without the family moving.
-    write(dir .. "/src/main.nupp", caller(8))
-    local fixed, fixedCode, fixedRaw = checkJson(dir, "")
-    test.equal(fixedCode, 0, fixedRaw)
-    test.equal(fixed.timing.compiledModules, 1, fixedRaw)
-    local _, fixedBuild = run(dir, "build")
-    test.equal(fixedBuild, 0, "and the build agrees")
-end
-
--- A Lua use of a native-only entry is the checker's refusal, not lowering's:
--- `nupp aot` inspects without a compiling policy and says nothing, while a
--- check of a target that compiles names each use, and a target that does not
--- compile leaves the ordinary Lua call alone.
-function M.aLuaUseOfANativeOnlyEntryIsRefusedWhereATargetCompiles()
-    local dir = project(([[
-return {
-   include = {"."},
-   build = {
-      default = "native",
-      targets = {
-         native = {kind = "modules", aot = "require", aotTarget = %q},
-         off = {kind = "modules"},
-      },
-   },
-}
-]]):format(TRIPLE), {
-        ["vec.nupp"] = [[
-local simd = require("nupp.simd")
-
-@aot
-local function twice(value: simd.Vector<float, simd.Preferred>): simd.Vector<float, simd.Preferred>
-    return value + value
-end
-
-return {twice = twice}
-]],
-        ["uses.nupp"] = [[
-local array = require("nupp.mem.array")
-local simd = require("nupp.simd")
-local vec = require("vec")
-local twice = vec.twice
-
-local function alias(): simd.Vector<float, simd.Preferred>
-    return twice(simd.species(array.float):splat(1.0))
-end
-
-local function member(): simd.Vector<float, simd.Preferred>
-    return vec.twice(simd.species(array.float):splat(1.0))
-end
-
-return {alias = alias, member = member}
-]],
-    })
-    local decoded, code, raw = checkJson(dir, "")
-    test.equal(code, 1, raw)
-    local found = refusalsByFile(decoded)
-    test.equal(#(found["uses.nupp"] or {}), 2, "both Lua uses are refused: " .. raw)
-    assert(found["uses.nupp"][1]:match("^NUPP2910 7:12"), found["uses.nupp"][1])
-    assert(found["uses.nupp"][2]:match("^NUPP2910 11:16"), found["uses.nupp"][2])
-    assert(found["vec.nupp"] == nil, "the export itself is admitted: " .. raw)
-    local off, offCode, offRaw = checkJson(dir, "--target off")
-    test.equal(offCode, 0, offRaw)
-    assert(off.ok == true, "without a compiling policy the Lua call is ordinary: " .. offRaw)
-    local out, aotCode = run(dir, ("aot --triple %s vec.nupp"):format(TRIPLE))
-    test.equal(aotCode, 0, out)
-    assert(out:find("twice, kernel, explicit simd, native-only", 1, true), "the report says native-only: " .. out)
 end
 
 -- A native-only aggregate is a value: a field store is refused by the checker

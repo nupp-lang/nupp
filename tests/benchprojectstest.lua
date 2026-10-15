@@ -91,7 +91,7 @@ end
 
 function M.everyBenchmarkProjectChecks()
     local names = projects()
-    assert(#names >= 8, "the benchmark projects were found: " .. #names)
+    assert(#names >= 4, "the benchmark projects were found: " .. #names)
     local scratch = os.tmpname()
     os.remove(scratch)
     assert(os.execute("mkdir -p '" .. scratch .. "'") == 0)

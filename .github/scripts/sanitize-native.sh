@@ -18,14 +18,10 @@
 # archives and stay uninstrumented: accesses made inside them are not
 # checked, and nothing they do is reported.
 #
-# Two crates are left out, the same two for both sanitizers:
-#
-# - nupp-native-gpu drives a Vulkan/Metal driver through wgpu. The driver is
-#   an uninstrumented system library that races by design from ThreadSanitizer's
-#   point of view, and the tests need an adapter this job does not provision.
-# - nupp-native-codegen links the pinned LLVM (NUPP_LLVM_PREFIX, an hour to
-#   build from source) as uninstrumented C++, and does its work on the calling
-#   thread; what it would add is sanitizing LLVM, not this repository.
+# One crate is left out, the same one for both sanitizers: nupp-native-gpu
+# drives a Vulkan/Metal driver through wgpu. The driver is an uninstrumented
+# system library that races by design from ThreadSanitizer's point of view, and
+# the tests need an adapter this job does not provision.
 #
 # LeakSanitizer is Linux-only. On macOS the address leg still runs, with leak
 # detection off, and says so.

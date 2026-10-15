@@ -1,12 +1,12 @@
 -- Generated structured-workgroup GEMM compared element-exact with the
--- generated naive GPU kernel and CPU AOT body.
+-- generated naive GPU kernel and the CPU reference body.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
 local gpu = require("nupp.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local size = tonumber(os.getenv("TILED_GEMM_SIZE") or 512)
 assert(size % 16 == 0, "the phase spike takes a multiple-of-sixteen square")
 local m, n, k = size, size, size
@@ -81,7 +81,7 @@ for i = 0, m * n - 1 do
 end
 
 local flops = 2.0 * m * n * k
-io.write(("Tiled GEMM %dx%dx%d: both GPU kernels agree element-exact with CPU AOT\n"):format(m, n, k))
+io.write(("Tiled GEMM %dx%dx%d: both GPU kernels agree element-exact with the CPU reference\n"):format(m, n, k))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format(
     "naive generated", naiveElapsed * 1e3, flops / naiveElapsed / 1e9))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format(

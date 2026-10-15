@@ -471,15 +471,15 @@ end
 export = {apply = apply}
 ]],
     })
-    testAssert.equal(project.build(dir, {outDir = dir .. "/out"}), 0, "the implementation's AOT import builds")
-    local script = (
-        "package.path=%q..package.path;local apply=require('main');"
-        .. "assert(_G.__nuppAotCompiled[apply], 'SPI reached an uncompiled function');"
-        .. "io.write(apply(20))"
-    ):format(dir .. "/out/?.lua;")
-    local status, output = process.capture({"luajit", "-e", script})
-    testAssert.equal(status, 0, output)
-    testAssert.equal(output, "41")
+    -- Only GPU kernels compile ahead of time, so the policy reaching the
+    -- implementation's import shows as the CPU kernel's refusal.
+    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+    local status, output = process.capture({fs.absolute(here .. "/../bin/nupp"), "build"}, {cwd = dir})
+    testAssert.equal(status, 1, "the implementation's CPU @aot import is refused: " .. tostring(output))
+    testAssert.assert(
+        tostring(output):find("apply is a CPU @aot function", 1, true),
+        "the refusal names the imported kernel: " .. tostring(output)
+    )
     remove(dir)
 end
 

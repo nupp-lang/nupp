@@ -99,17 +99,6 @@ local TEMPLATE_FILES = {
     "browser/tests/build.test.mjs",
     "browser/web/app.mjs",
     "browser/web/index.html",
-    "browser-simd/.gitignore",
-    "browser-simd/README.md",
-    "browser-simd/nupp.lua",
-    "browser-simd/scripts/package.sh",
-    "browser-simd/scripts/serve.mjs",
-    "browser-simd/src/scalar.nupp",
-    "browser-simd/src/simd.nupp",
-    "browser-simd/template.lua",
-    "browser-simd/tests/build.test.mjs",
-    "browser-simd/web/app.mjs",
-    "browser-simd/web/index.html",
     "love/.gitignore",
     "love/README.md",
     "love/nupp.lua",
@@ -237,8 +226,6 @@ local RESOURCES = {
     -- `nupp.compiler.bundled` is the one place anything carried is read from.
     {source = "src/nupp/tools/build/stub-catalog.json", output = "nupp/compiler/build/stub-catalog.json",},
     {source = "src/nupp/tools/doc/theme.css", output = "nupp/compiler/doc/theme.css"},
-    "src/nupp/compiler/aot/llvm/wasm/*.ll",
-    "src/nupp/compiler/aot/llvm/lua/*.ll",
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/nupp/bench/init.nupp", output = "nupp/compiler/nupp/bench/init.nupp"},
     {source = "src/nupp/bench/internal/statistics.nupp", output = "nupp/compiler/nupp/bench/internal/statistics.nupp"},
@@ -702,12 +689,6 @@ return {
     test = {build = "testRunner", argv = {"build/nupp-test"}, env = {NUPP_TEST_BUILD = "build"},},
 
     tasks = {
-        [
-            "test-fleet"
-        ] = {
-            description = "Run cross-platform tests on locally owned workers",
-            argv = {"python3", "scripts/test-fleet"},
-        },
         [
             "docs-serve"
         ] = {

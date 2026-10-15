@@ -608,12 +608,11 @@ end
 
 function M.theBuiltInsAreTheTemplatesThatAreThere()
     local names = template.builtins()
-    testAssert.equal(#names, 5, "five built-ins ship")
+    testAssert.equal(#names, 4, "four built-ins ship")
     testAssert.equal(names[1], "app", "app is one")
     testAssert.equal(names[2], "browser", "browser is one")
-    testAssert.equal(names[3], "browser-simd", "browser SIMD is one")
-    testAssert.equal(names[4], "lib", "lib is one")
-    testAssert.equal(names[5], "love", "and love is the other")
+    testAssert.equal(names[3], "lib", "lib is one")
+    testAssert.equal(names[4], "love", "and love is the other")
     assert(#template.builtinDescription("app") > 0, "each says what it is for")
 end
 
@@ -848,34 +847,6 @@ function M.theBrowserTemplateChecksBuildsAndTests()
     -- Here the built-in promise is that a generated project reaches its checked,
     -- dependency-backed Lua 5.1 bundle without needing Emscripten.
     scaffoldAndVerify("browser", "sample-browser", nil, withDevelopmentRocks)
-end
-
-function M.theBrowserSimdTemplateChecksBuildsAndTests()
-    -- Its default keeps the scalar kernel as Lua. The package task is what asks
-    -- for scalar and SIMD128 AOT, so ordinary init/check/build/test remains a
-    -- useful path on a machine that has not installed Emscripten yet.
-    scaffoldAndVerify("browser-simd", "sample-browser-simd", nil, function(into)
-        withDevelopmentRocks(into)
-        local config = assert(loadfile(into .. "/nupp.lua"))()
-        testAssert.equal(config.build.targets.scalar.aotFeatures.maximum, "scalar", "the fallback is scalar Wasm AOT")
-        testAssert.equal(config.build.targets.simd.aotFeatures.minimum, "simd128", "the fast package requires Wasm SIMD128")
-        testAssert.equal(config.build.targets.simd.aotFeatures.maximum, nil, "and names no ceiling above the tier it requires")
-
-        local prefix = "NUPP_CACHE_DIR='"
-            .. SCAFFOLD_STORE
-            .. "' NUPP="
-            .. NUPP
-            .. " "
-            .. NUPP
-            .. " aot --triple wasm32-unknown-emscripten --features "
-        local ok, out = shell(prefix .. "scalar '" .. into .. "/src/scalar.nupp'")
-        assert(ok, "the scalar browser kernel is not admitted:\n" .. out)
-        ok, out = shell(prefix .. "simd128 '" .. into .. "/src/simd.nupp'")
-        assert(
-            ok and out:find("explicit simd", 1, true),
-            "the SIMD browser kernel did not use explicit vectors:\n" .. out
-        )
-    end)
 end
 
 function M.theLoveTemplateChecksBuildsAndTests()

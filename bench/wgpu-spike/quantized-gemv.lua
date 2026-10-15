@@ -4,7 +4,7 @@ local gpu = require("nupp.gpu")
 local generated = require("quantgemv")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local rows = tonumber(os.getenv("QUANT_ROWS") or 1024)
 local width = tonumber(os.getenv("QUANT_WIDTH") or 1024)
 -- The GPU kernels read the weights as whole uint32 words.
@@ -75,7 +75,7 @@ for index = 0, rows - 1 do
 end
 
 local operations = 2 * rows * width
-io.write(("Quantized GEMV %dx%d: int8 and packed int4 agree element-exact with CPU AOT\n"):format(rows, width))
+io.write(("Quantized GEMV %dx%d: int8 and packed int4 agree element-exact with the CPU reference\n"):format(rows, width))
 io.write(("%-16s %12.3f us  %8.2f GOP/s\n"):format("int8", elapsed8 * 1e6, operations / elapsed8 / 1e9))
 io.write(("%-16s %12.3f us  %8.2f GOP/s\n"):format("packed int4", elapsed4 * 1e6, operations / elapsed4 / 1e9))
 context:close()

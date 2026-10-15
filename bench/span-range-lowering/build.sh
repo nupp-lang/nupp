@@ -5,7 +5,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
 
 OUT=bench/span-range-lowering/build
-mkdir -p "$OUT/disabled" "$OUT/enabled" "$OUT/aot" "$OUT/runtime/nupp"
+mkdir -p "$OUT/disabled" "$OUT/enabled" "$OUT/runtime/nupp"
 ./bin/nupp build -O1 -Zno-opt=OPT-6 -o "$OUT/disabled" \
     bench/span-range-lowering/kernel.nupp bench/span-range-lowering/matrix.nupp
 ./bin/nupp build -O1 -o "$OUT/enabled" \
@@ -18,12 +18,3 @@ for mode in disabled enabled; do
     cp "$OUT/$mode/bench/span-range-lowering/matrix.lua" "$OUT/$mode/matrix.lua"
 done
 cp -R "$OUT/enabled/src/nupp/." "$OUT/runtime/nupp/"
-
-# AOT is context rather than the acceptance target. Reuse the checked subset
-# generator and call the compiled kernel from the benchmark.
-case $(uname -s) in
-    Darwin) AOT_LIB="$OUT/aot/libspan_range_aot.dylib" ;;
-    Linux) AOT_LIB="$OUT/aot/libspan_range_aot.so" ;;
-    *) echo "span-range-lowering: unsupported host $(uname -s)" >&2; exit 2 ;;
-esac
-bench/kernel-subset-spike/generate.sh bench/span-range-lowering/aot.nupp "$OUT/aot" "$AOT_LIB"

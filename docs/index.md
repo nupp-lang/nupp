@@ -150,8 +150,8 @@ and
 
 ## Portable targets and packaging
 
-Projects can produce module trees, bundles, standalone binaries, embedded
-components, independent Wasm kernels, and browser packages.
+Projects can produce module trees, bundles, binaries, embedded components, and
+browser packages.
 
 ```lua [nupp.lua]
 return {
@@ -159,9 +159,8 @@ return {
 }
 ```
 
-See [project builds](learn/projects/build.md),
-[portable libraries](learn/projects/portability/libraries.md), and
-[Wasm applications](learn/performance/ahead-of-time/wasm.md).
+See [project builds](learn/projects/build.md) and
+[portable libraries](learn/projects/portability/libraries.md).
 
 ## Language-aware tools
 

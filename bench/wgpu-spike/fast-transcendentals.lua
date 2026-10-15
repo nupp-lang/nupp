@@ -4,7 +4,7 @@ local gpu = require("nupp.gpu")
 local generated = require("fastmath")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local count = tonumber(os.getenv("FAST_MATH_COUNT") or 1048576)
 local input = ffi.new("float[?]", count)
 for index = 0, count - 1 do

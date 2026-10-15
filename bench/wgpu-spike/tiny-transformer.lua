@@ -8,7 +8,7 @@ local transformer = require("transformer")
 local gpu = require("nupp.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local tokens, width = 8, 8
 local elements = tokens * width
 
@@ -144,6 +144,6 @@ for index = 0, elements - 1 do
         index, output[index], expected[index]))
 end
 
-io.write("Tiny transformer: 6 chained kernels and 6 resident views agree element-exact with CPU AOT\n")
+io.write("Tiny transformer: 6 chained kernels and 6 resident views agree element-exact with the CPU reference\n")
 io.write(("%-16s %12.3f us per 8-token block\n"):format("WGPU chain", elapsed * 1e6))
 context:close()

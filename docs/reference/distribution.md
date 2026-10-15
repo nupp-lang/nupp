@@ -411,11 +411,7 @@ built by another release is refused by exact version rather than adapted.
 | Embedding ABI | 2 | exact, config `size` at least the struct | `native/crates/host/src/embed.rs` `EMBED_ABI_VERSION` |
 | Compiler host ABI | 1 | exact | `src/nupp/tools/build/platform.nupp` `hostAbiVersion` |
 | Payload trailer | 1 | exact | `native/crates/host/src/payload.rs` `FORMAT_VERSION` |
-| AOT runtime ABI | 1 | exact | `native/crates/native/c/ks_rt.c` `KS_RT_ABI_VERSION` |
 | Browser application manifest | 1 | exact | `runtime/luajit/app-runtime.mjs` `schema` |
-| AOT units manifest | 3 | exact | `src/nupp/tools/build/aot.nupp` `UNITS_SCHEMA_VERSION` |
-| AOT component manifest | 1 | exact | `src/nupp/tools/build/aot.nupp` `schemaVersion` |
-| Link kit | 1 | exact | `src/nupp/tools/build/aotllvm.nupp` `kit.json` `schemaVersion` |
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |
@@ -442,18 +438,11 @@ A distributed binary is deliberately none of these things.
   asset beside it exists so a source checkout can build a compiler; a
   distributed binary is what comes out the other end. Different problems that
   are easy to conflate.
-- **Ordinary stamping does not absorb arbitrary native dependencies.** A normal
-  binary still ships project C and provider libraries beside it. A
-  [`standalone` binary](../learn/projects/build.md#standalone-native-binaries) is the
-  explicit exception: Nupp relinks its compiler-owned host with static C and
-  AOT archives before stamping. It refuses a dependency or native feature for
-  which no static implementation exists rather than quietly leaving a sidecar.
-- **AOT code needs no toolchain; C dependencies still need a C compiler.**
-  `nupp` compiles and links `@aot` code itself, and a standalone program with
-  AOT code links from its target's link kit, for this platform or another,
-  with nothing installed. A project C dependency built from sources still needs
-  a C compiler on the machine; prebuilt target-indexed C archives remain usable
-  without one.
+- **Stamping does not absorb arbitrary native dependencies.** A binary still
+  ships project C and provider libraries beside it.
+- **C dependencies still need a C compiler.** A project C dependency built from
+  sources needs a C compiler on the machine; prebuilt target-indexed C archives
+  remain usable without one.
 
   Nupp's compiler payload detects one native module, and its compiler-owned
   host links exactly that feature: LPeg, which backs direct LPeg patterns and every

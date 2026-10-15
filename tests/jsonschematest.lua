@@ -208,30 +208,6 @@ function M.astOutputMatchesItsSchema()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.aotOutputMatchesItsSchema()
-    local dir = tempProject({
-        ["nupp.lua"] = 'return {include = {"."}}\n',
-        [
-            "rules.nupp"
-        ] = [[
-@aot
-local function identity(value: number): number
-    return value
-end
-
-@aot
-local function simplified(value: number): number
-    return (value + -0.0) * 1.0
-end
-
-return {identity = identity, simplified = simplified}
-]],
-    })
-    local decoded = agrees(dir, "aot rules.nupp")
-    assert(#decoded.functions == 2, "one record per @aot function")
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 function M.cleanOutputMatchesItsSchema()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}, build = {outDir = "out"}}\n'})
     local decoded = agrees(dir, "clean --dry-run")
@@ -374,7 +350,6 @@ local function failureProjects()
     local good = tempProject({
         ["nupp.lua"] = 'return {include = {"."}, build = {default = "app", targets = {app = {kind = "modules"}}}}\n',
         ["good.nupp"] = GOOD,
-        ["kernel.nupp"] = "@aot\nlocal function twice(x: number): number\n    return x * 2.0\nend\n\nreturn {twice = twice}\n",
     })
     local broken = tempProject({["nupp.lua"] = "return { build = { targets = 5 }, nope = \n", ["good.nupp"] = GOOD})
     local none = tempProject({["good.nupp"] = GOOD})
@@ -389,7 +364,6 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
         "build nosuch.nupp",
         "fmt nosuch.nupp",
         "bc nosuch.nupp",
-        "aot nosuch.nupp",
         "doc nosuch.nupp",
         "import-c nosuch.h",
         "migrate nosuch.lua",
@@ -457,7 +431,6 @@ function M.everyCommandReportsAnUnknownNameAsACodedFailure()
         "build --target nosuch",
         "clean --target nosuch",
         "doc --target nosuch",
-        "aot --triple nosuch-unknown-none kernel.nupp",
     }) do
         holdsTheContract(good, argv, {code = "NUPP0003", where = "a project"})
     end

@@ -3,10 +3,10 @@
 The replacement retains explicit-state callbacks and caches checked operations as schema extensions.
 These measurements describe the supported workloads on arm64 macOS and LuaJIT, not a universal serializer ranking.
 
-```sh
-python3 bench/serde-spike/contracts/run-matrix.py --baseline /path/to/v0.0.14-checkout --forks 7 --samples 7 --target .05 --out /tmp/serde-matrix
-python3 bench/serde-spike/contracts/run-breadth.py --out /tmp/serde-breadth
-```
+The harness behind these numbers (`matrix.lua`, `breadth.lua`, their runner
+scripts and the `native-build` project) compiled the recipes through the LLVM
+AOT backend and was removed with it. The tables and `evidence/` are kept as the
+record of what it measured.
 
 ## Baseline comparison
 

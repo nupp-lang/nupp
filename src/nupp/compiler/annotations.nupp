@@ -443,7 +443,7 @@ local BUILTINS = {
         arguments = "typed",
         targets = {"function"},
         builtin = true,
-        doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), require, emit-wasm or require-wasm.",
+        doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default) or require, which compiles `@aot(target = \"gpu\")` kernels.",
         docsPath = "docs/reference/annotations.md#aot",
     },
 }

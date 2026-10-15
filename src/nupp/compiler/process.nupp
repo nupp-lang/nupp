@@ -219,7 +219,7 @@ end
 --- An argument, spelled so the shell that will read it sees exactly it.
 ---
 --- Exposed because a caller composing several commands into one shell script --
---- which is how `toolruns` runs compilations side by side -- has to quote the
+--- has to quote the
 --- redirection targets it writes around them with the same rules.
 function process.quote(argument: string): string
     return quote(argument)

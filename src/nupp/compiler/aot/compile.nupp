@@ -6,7 +6,6 @@ and emitted; LLVM does the optimizing. Explicit vector values are legalized for
 the selected target before emission.
 ]]
 
-local bindingRules = require("nupp.compiler.aot.binding")
 local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -788,8 +787,6 @@ end
 
 --- Compiles a source to everything a build would need from it.
 ---
---- @param library where the compiled object will be found, which the generated
----   module loads
 --- @param selected the target, which decides how wide a vector may be
 --- @param at named with each step this takes as it reaches it, for a build
 ---   accounting for where its time went. A plain function rather than the
@@ -800,7 +797,6 @@ function compile.artifacts(
     source: string,
     filename: string,
     parsed: parser.ParseResult?,
-    library: string,
     selected: targets.Target,
     symbolTier: string?,
     constPlans: {any}?,
@@ -916,12 +912,11 @@ function compile.artifacts(
         qualifySymbols(cpuPrograms, filename)
     end
 
-    -- A file with no CPU program has no binding module to stand in front of
-    -- compiled code, so the GPU replacements are the whole binding. Beside CPU
-    -- programs they are not part of it: the build rewrites each GPU declaration
-    -- in place from `gpu` instead.
+    -- A file with no CPU program has its GPU replacements as its whole binding.
+    -- Beside CPU programs, which no backend compiles ahead of time, there is
+    -- none: the build refuses those before it reads a binding.
     step("emit")
-    local generatedBinding = bindingRules.module(cpuPrograms, library)
+    local generatedBinding = ""
     if #cpuPrograms == 0 then
         local generatedGpuBindings: {string} = {}
         for _, program in ipairs(programs) do

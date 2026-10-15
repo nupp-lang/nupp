@@ -60,10 +60,8 @@
 #define NUPP_NATIVE_FEATURE_NET (UINT64_C(1) << 8)
 #define NUPP_NATIVE_FEATURE_TLS (UINT64_C(1) << 9)
 #define NUPP_NATIVE_FEATURE_COMPRESSION (UINT64_C(1) << 10)
-/* The code generator. Its exports belong to the compiler, which declares
- * them itself; this header does not. */
-#define NUPP_NATIVE_FEATURE_CODEGEN (UINT64_C(1) << 11)
-#define NUPP_NATIVE_FEATURE_AOT_RUNTIME (UINT64_C(1) << 12)
+/* Bit 11 named the removed LLVM code generator; it stays unassigned. */
+/* Bit 12 named the removed AOT runtime for LLVM-compiled builders. */
 /* The endpoint calls of the network family, which carry an IPv6 scope. */
 #define NUPP_NATIVE_FEATURE_NET_ENDPOINT (UINT64_C(1) << 13)
 /* The process-wide readiness generation, nuppNativePoll and nuppNativeWait,
@@ -96,11 +94,6 @@ NUPP_NATIVE_EXPORT uint64_t nuppNativeFeatures(void);
 /* The message of the last call on this thread that failed. A call that
  * succeeds leaves it as it was, so read it only after a failure. */
 NUPP_NATIVE_EXPORT const char *nuppNativeLastError(void);
-
-/* Present when NUPP_NATIVE_FEATURE_AOT_RUNTIME is set: the table an
- * ahead-of-time compiled Lua module's registrar is handed. Null when the
- * runtime cannot find the Lua API in this process. */
-NUPP_NATIVE_EXPORT const void *nuppAotRuntime(void);
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeBytesCopy(
     uint64_t handle, uint8_t *data, size_t capacity, size_t *length);

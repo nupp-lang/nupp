@@ -4,7 +4,7 @@ local gpu = require("nupp.gpu")
 local generated = require("compaction")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local block = 256
 local count = tonumber(os.getenv("COMPACTION_COUNT") or 65536)
 assert(count % block == 0 and count <= block * block,

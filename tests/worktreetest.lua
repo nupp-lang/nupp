@@ -154,13 +154,8 @@ exit 0
     ):format(quote(fake), quote(record), quote(built), quote(root .. "/stage0.lua"))
     assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
     local asked = read(record)
-    -- `codegen` joins the union only where a pinned LLVM is available, which a
-    -- machine naming NUPP_LLVM_PREFIX (CI's) has.
     local union = "native-rust base,compression,files,gpu,http,net,process,tls,uri,uuid"
-    assert(
-        asked == union .. "\n" or asked == union .. ",codegen\n",
-        "the launcher requested the wrong development providers: " .. asked
-    )
+    assert(asked == union .. "\n", "the launcher requested the wrong development providers: " .. asked)
     assert(
         read(root .. "/build/lib/libnupp_native_dev.dylib") == "built\n",
         "the launcher did not install the Rust provider"

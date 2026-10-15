@@ -211,24 +211,6 @@ nupp_runtime_add_feature(runtime, "engine.clock", &error);
 nupp_runtime_add_resource(runtime, "engine/defaults.json", data, length, &error);
 ```
 
-An AOT archive that contains a Lua builder has one more registration before the
-component is loaded. Link the archive into the executable, then pass its
-registrar and the key generated in the component binding to the runtime:
-
-```c
-extern int ks_register_example(lua_State *state);
-
-nupp_runtime_register_aot_builders(
-    runtime, "ks_register_example", ks_register_example, &error
-);
-```
-
-The registrar runs with the embedded runtime's Lua state and returns the table
-of builder functions for that archive. Registration is rejected after the first
-component load, just like every other provider registration. Static AOT code
-without a Lua builder needs no registration: its generated binding resolves C
-symbols from the process image.
-
 `nupp_runtime_preload` accepts an ordinary `lua_CFunction` and places it in
 `package.preload`. Requiring `engine.clock` from Lua or Nupp invokes the opener
 once through normal Lua module semantics. The opener is compiled against
@@ -251,44 +233,6 @@ failing to find `nupp.workers.native`.
 A registration attempted after component loading returns
 `NUPP_STATUS_RUNTIME`. Configure every provider before loading any component,
 including a library component whose entry will never start.
-
-### Static AOT components
-
-A component target selects static AOT with `aotLinkage = "static"` and
-`aot = "require"`. Its build produces the ordinary component plus an AOT
-archive under `outDir/lib`. The archive is input to the embedding application's
-link, not a file the component will discover at runtime.
-
-The host contract is four items:
-
-1. Link and retain the archive.
-2. Expose its AOT and probe symbols to the VM's default C namespace.
-3. Call each builder registrar with the owned `lua_State *`.
-4. Call `nupp_runtime_register_aot_builders` before `nupp_component_load` for
-   each builder registrar.
-
-The build writes `outDir/aot/link.json` saying what those are for one archive:
-its path, the probe symbol and the value it must return, every exported kernel
-and registrar symbol, the builder keys the host owes, and the retain and export
-flags the target's linker takes. See
-[Static AOT components](build.md#static-aot-components) for its shape. The host
-also constructs the component with the same target ABI. Numeric and span kernels
-then resolve through the process image; substituting `ffi.load` would
-reintroduce the dynamic-loader dependency this mode avoids.
-
-Retention is a physical link requirement, not something a generated wrapper can
-recover from: an FFI lookup creates no undefined C reference, so a linker
-reading the archive normally extracts nothing from it. The archive therefore
-exports a probe every rewritten module checks first. An archive that was never
-linked, or one stripped by the linker, reports that it is not in the default C
-namespace; an archive from a different build of the component reports that
-instead. An unregistered builder reports itself the same way. All three are host
-deployment errors and all three say so at load.
-
-Use static AOT when the application owns the final link or cannot rely on a
-dynamic loader. Use the default shared AOT linkage when components must travel
-and update independently of the host. Static archives share one C namespace,
-so the compiler qualifies their generated AOT and registrar symbols.
 
 ## Component lifecycle
 

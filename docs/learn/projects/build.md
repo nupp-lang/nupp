@@ -108,8 +108,7 @@ preserves module paths beneath `outDir`, so `app.main` becomes
 
 A target's `host = "browser"` selects browser services; `nupp build --host
 browser` overrides the manifest for one invocation. Browser LuaJIT uses i686 Linux layouts and native
-guest storage. Browser Wasm kernels have their own memory and transfer ABI.
-See [Wasm applications](../performance/ahead-of-time/wasm.md).
+guest storage.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
@@ -323,105 +322,6 @@ stage a current-machine sidecar beside a foreign executable. Sidecar-only
 features such as path, URI, UUID and HTTP are refused until the catalog has a
 provider artifact for that platform.
 
-### Standalone native binaries
-
-A compiler-owned binary can relink its host with the target's static native
-closure before stamping the payload:
-
-```lua
-build = {
-   kind = "binary",
-   stub = "nupp",
-   standalone = true,
-   entries = { "app.main" },
-   dependencies = { "image" }
-}
-```
-
-`nupp build --target app --standalone` enables the same mode for one build.
-Nupp compiles source C dependencies as static archives, rewrites their generated
-bindings to the executable's process namespace, emits native AOT as a static
-archive, and force-loads the complete archive closure into the host. The result
-does not carry those libraries under `lib`.
-
-An explicitly shared C dependency is refused in this mode; use
-`linkage = "static"` or `"both"`. Native facilities which only have a sidecar
-implementation are refused for the same reason. A path-valued third-party
-`stub` cannot be relinked and therefore cannot select `standalone`.
-
-### Static AOT components
-
-An embedded host that owns its final executable can consume a component's AOT
-code as an archive instead of carrying a shared-library sidecar:
-
-```lua
-build = {
-   kind = "component",
-   entries = { "game.main" },
-   aot = "require",
-   aotLinkage = "static",
-}
-```
-
-`aotLinkage` is `"shared"` by default. That route writes a shared AOT library
-beside the component and the generated binding opens it at runtime. `"static"`
-writes an AOT archive under `outDir/lib` for the embedding application's link;
-the generated binding instead resolves ordinary kernels from the process C
-namespace. It does not make Nupp produce or relink an executable.
-
-Choose `"shared"` for a file-based application or a component that must be
-updated independently of its host. Choose `"static"` only when the host owns
-the final link and deliberately has no dynamic-loader dependency. The host must
-force-link and retain the archive, export its AOT symbols to the embedded
-LuaJIT default namespace, and use the same target ABI as the component. Static
-archives are source-qualified because every linked component shares one C
-namespace.
-
-A component whose AOT entry constructs Lua tables or strings also carries a
-Lua C-module registrar. Its host registers that archive before it loads the
-component; see [Embedding Nupp](embedding.md#static-aot-components). Pure
-numeric and span kernels need no registrar. A static component cannot make a
-sidecar-only native provider available: its native dependencies must already be
-linked into, or otherwise supplied by, the host.
-
-A static build writes two more things beside the archive. `outDir/aot/archive.c`
-defines one exported probe, `ks_aot_archive_<component>`, returning a number
-derived from the archive's contents, and every rewritten module checks it before
-anything else it declares. A name that does not resolve reports that the archive
-was not linked into the host; a value that disagrees reports that the archive
-which was linked is a different build of the component. Both are load errors
-naming the cause, in place of the `dlsym` failure an unretained archive
-otherwise produces on whichever kernel happened to be declared first.
-
-`outDir/aot/link.json` is the handoff for whoever performs that link. It names
-the component and target, the archive, the probe symbol and its expected value,
-every exported kernel and registrar symbol, the builder registrations the host
-owes, and the retain and export flags the target's linker takes, with
-`<archive>` standing for wherever the archive ends up:
-
-```json
-{
-  "schemaVersion": 1,
-  "component": "gameScripts",
-  "target": "aarch64-apple-darwin",
-  "archive": "lib/libgameScripts_aot.a",
-  "fingerprint": {"symbol": "ks_aot_archive_a91c2e...", "value": 54690558639838},
-  "retain": {
-    "forceLoad": ["-Wl,-force_load,<archive>"],
-    "export": ["-Wl,-export_dynamic"]
-  }
-}
-```
-
-Each entry in `builders` names both a `key` and the `symbols` behind it, because
-they are not the same string: the host calls a tier-spelled registrar symbol and
-registers what it returns under the unsuffixed key, which is what the generated
-wrapper looks the table up under.
-
-A target whose VM uses a vendor static symbol registry instead of a linker
-option has no retain flags to give; `symbols` is then the list that registry
-must contain.
-
 ### Reload components
 
 A component built with `reload = true` is the development build of the same
@@ -464,15 +364,11 @@ tree has moved past is refused rather than patched against the wrong baseline.
 ### Target capability profiles
 
 A target profile says what a destination admits, as distinct from what its
-pointers are: whether it has a dynamic loader, working FFI callbacks, a VM that resolves default-namespace symbols out of the process
-image, and a toolchain that produces static AOT archives. Every publicly
-modeled triple has a built-in profile and answers yes to all of them, except
-`wasm32-unknown-emscripten`, which has no native archive.
-
-The profile is what static linkage is checked against. A build that selects
-`aotLinkage = "static"` for a target whose profile does not produce static
-archives, or whose VM does not resolve symbols out of the process image, is
-refused with that reason rather than producing an archive nothing can use.
+pointers are: whether it has a dynamic loader, working FFI callbacks, a VM that
+resolves default-namespace symbols out of the process image, and a toolchain
+that produces static archives. Every publicly modeled triple has a built-in
+profile and answers yes to all of them, except `wasm32-unknown-emscripten`,
+which has no native archive.
 
 Two source constructs are refused the same way, as
 [NUPP2904](../../reference/diagnostics.md). A `cdef ... from "name"` asks the platform to load a
@@ -508,10 +404,7 @@ does not also open the set of layout models. A descriptor wins over the
 built-in answer for the same triple, because a vendor port of a public triple is
 still that vendor's port.
 
-AOT code and standalone programs need no compiler pack: `nupp` compiles and
-links them itself, for any target, and a standalone program links from its
-target's link kit (see [distribution](../../reference/distribution.md)). A pack
-still serves C dependencies, whose sources need a C compiler. `NUPP_COMPILER_PACK_DIR`
+A compiler pack serves C dependencies, whose sources need a C compiler. `NUPP_COMPILER_PACK_DIR`
 names a pack tree containing `<host>/<target>/pack.json`; Nupp verifies the
 recorded size and SHA-256 of its compiler and archiver before running them.
 A C dependency compiles with its own `cc` when it names one, then with the
@@ -877,9 +770,8 @@ image = {
 
 The shared artifact remains the one a generated FFI binding loads. A static
 artifact is a linker input: another C dependency can name this dependency and
-will link the archive into its own shared library. A static archive becomes
-part of a binary only when that target selects `standalone`; ordinary binary
-targets retain the shared-library sidecar path.
+will link the archive into its own shared library. Binary targets use the
+shared-library sidecar path.
 
 `output` renames the sole artifact for `shared` or `static`; with `both`, it
 names the shared artifact. `staticOutput` independently renames the archive and
@@ -920,8 +812,8 @@ image = {
 
 Selection uses the build's `layoutTarget`, or the modeled host triple for an
 ordinary host build. The file is read from the dependency root, authenticated,
-and staged under the same output name a source build would use. A standalone
-target selects `static`; an ordinary generated binding selects `shared`.
+and staged under the same output name a source build would use. A generated
+binding selects `shared`.
 Sources remain a fallback for triples without a matching artifact set. Prebuilt
 artifacts cannot request a generated macro/inline bridge, since that bridge must
 have been compiled into the published library already.
@@ -1021,7 +913,7 @@ inline bodies under the selected flags. Either failure stops the dependency
 build; compiler-failed generated source remains inspectable, but no successful
 target may consume it. See [Calling C
 safely](../runtime/c-interop/index.md#header-only-functions) for a complete header,
-standalone bridge emission, inspection output, ownership refinements, and the
+bridge emission, inspection output, ownership refinements, and the
 supported boundary.
 
 ## Rust dependencies

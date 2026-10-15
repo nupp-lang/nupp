@@ -18,7 +18,6 @@ The commands, in the order `nupp help` lists them:
 
 - [`init`](#init): create a project from a template
 - [`ast`](#ast): dump a Nupp file's parsed syntax tree as JSON
-- [`aot`](#aot): show what the `@aot` functions in a file compile to
 - [`bc`](#bc): show the bytecode a Nupp file compiles to
 - [`check`](#check): type-check source without emitting Lua
 - [`fmt`](#fmt): format Nupp source
@@ -83,10 +82,10 @@ nupp check --json
 nupp check --schema
 ```
 
-`init`, `aot`, `bc`, `check`, `fmt`, `build`, `clean`, `task`, `lints`,
+`init`, `bc`, `check`, `fmt`, `build`, `clean`, `task`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c`, `export-c` and
 `version` take all three, and so does every `lsp` operation. `reference` names its
-formats `markdown`, `skill` and `json` instead. `bench`, `test` and `run` take
+formats `markdown`, `skill` and `json` instead. `bench` and `test` take
 `--json` and `--schema` with no `--format`, because
 the JSON each writes is one particular artifact rather than a rendering of the
 whole result. [`ast`](#ast) has no `--format` either: a lossless syntax tree has
@@ -223,7 +222,6 @@ and no checkout:
   built-in template  what it writes
   app                A runnable program, with a test and a task to start it
   browser            A browser application using crypto and timers
-  browser-simd       A browser application with scalar and SIMD128 AOT kernels
   lib                A typed library with public declarations
   love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```
@@ -433,105 +431,6 @@ by a person:
 ```
 
 That is the whole of `return 1`, down to the newline the file ends with.
-
-### `aot`
-
-```text [nupp aot --help]
-Show what the @aot functions in a file compile to.
-
-With no artifact, reports whether each function uses scalar, explicit SIMD, or GPU
-execution. Select verified IR, LLVM IR, native GPU SPIR-V, browser GPU WGSL,
-native assembly, or the generated Nupp binding with `--emit`.
-
-Examples:
-
-    nupp aot bench/kernel-subset-spike/mandelbrot.nupp
-    nupp aot --emit ir src/kernel.nupp
-    nupp aot --emit llvm src/kernel.nupp
-    nupp aot --emit asm --function scale src/kernel.nupp
-    nupp aot --emit wgsl --function transform src/gpu.nupp
-    nupp aot --format json src/kernel.nupp
-
-Usage:
-  nupp aot [options] FILE
-
-Arguments:
-  FILE  Source file to inspect.
-
-Options:
-  --emit ARTIFACT  Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.
-  --function NAME  Show only this function.
-  --triple TRIPLE  Target triple to compile for.
-  --features TIER  CPU feature tier to promise.
-  --library PATH   Compiled object path used by a generated binding.
-  --format FORMAT, --json, --text
-                   Select the report representation.
-  --schema         Print the JSON Schema of JSON output and exit.
-  -h, --help       Show this help
-  --color[=WHEN]   When to color output: always, never, or auto
-  --no-color       Never color output
-```
-
-The bare command says what every `@aot` function in the file lowered to: its
-entry mode and whether its Nupp IR uses explicit SIMD, scalar control flow,
-or GPU invocations.
-
-```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
-bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, kernel, scalar
-```
-
-`--emit` prints one artifact. `ir` is the verified IR, `llvm` is the LLVM IR it
-lowers to, `spirv` is the native GPU module, `wgsl` is the browser WebGPU
-integer artifact, `asm` is the instructions that LLVM IR became, and `binding`
-is the Nupp module that stands in front of it.
-
-The calling VM is always LuaJIT, and its numeric-loop semantics follow the
-target: dual-number on ARM64, single-number on x86 and for the browser guest's
-Wasm kernels. Other project settings remain in effect.
-
-`--emit asm` compiles the LLVM IR with the options a build compiles this
-tier's unit with, and stops one step before the assembler encodes it. It is the
-answer to what the code generator did, which is the last thing between a
-lowering decision and the machine and the one thing nothing else in the tree
-reports. Each symbol is headed by what it is -- the compiled body, the
-forced-scalar oracle it is differentially tested against, a Lua wrapper, the
-registrar, a layout reporter, or a helper the compiler declined to inline -- and
-by a count of the listing under it:
-
-```text [nupp aot --emit asm --function scale src/kernel.nupp]
--- src/kernel.nupp, aarch64-apple-darwin, neon, llvm 23.1.1; codegen 1
--- ks_scale (scale), kernel: 80 instructions, 31 vector, 4 loads, 4 stores, 11 branches, 0 calls, 0 stack
-Lfunc_begin0:
-      cbz     x2, LBB0_14
-LBB0_6:
-      ldp     q1, q2, [x9, #-32]
-      fmul.4s v1, v1, v0[0]
-      stp     q1, q2, [x10, #-32]
-      subs    x11, x11, #16
-      b.ne    LBB0_6
-```
-
-`total` is exact. The other counts are a rule per architecture over the mnemonic
-and the operand shape, coarse on purpose: what they support is comparing two
-runs of one kernel, not modelling the machine. Scalar floating point is
-deliberately not counted as vector on either architecture, since a loop that
-fell back to one element at a time is what a vector count is usually being read
-to detect, and `stack` counts instructions whose memory operand is the frame,
-which is the closest thing to a spill count that reading instructions can give.
-
-`--function` narrows that to one body, named either as the source spells it or
-as the symbol does. With `--features`, which selects the tier the kernel is both
-lowered and compiled for, that is a repeatable command for one function at one
-tier -- so what a change did to the emitted instructions can be compared across
-runs rather than re-derived by hand. Two runs are comparable when the code generator
-is: `--json` reports it, alongside the options it was given and the per-symbol
-counts. There are instruction rules for aarch64 and x86-64; another
-architecture is refused rather than reported with empty counts.
-
-The exit status is the one a build would give. An invalid explicit vector
-operation fails at its authored access. See
-[simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for
-species and target tiers.
 
 ### `bc`
 
@@ -877,7 +776,6 @@ Arguments:
 Options:
   --target NAME         Build a named manifest target.
   --platform NAME       Build one configured binary platform, or all.
-  --standalone          Link native FFI and AOT code into the binary host.
   --output DIR, -o DIR  Output directory, overriding the target's.
   --host HOST           Runtime host services.
   -O0, -O1, -O2         Optimization level.
@@ -2259,7 +2157,6 @@ Usage:
 Commands:
   init             Create a project from a template.
   ast              Dump a Nupp file's parsed syntax tree as JSON.
-  aot              Show what the @aot functions in a file compile to.
   bc               Show the bytecode a Nupp file compiles to.
   check            Type-check source without emitting Lua.
   fmt              Format Nupp source.

@@ -4,17 +4,13 @@
 -- Where they agree on a corpus they agree because both read JSON, not because
 -- one was derived from the other.
 --
--- The scan itself is checked a second way, against `referenceScan` below. That
--- is this file's independent scalar reference in the sense
--- `bench/simd-json/src/simd_json/indexer_reference.nupp` is the vector
--- indexer's: it shares no mask, no lane and no tape with the decoder, and it
--- states the same contract -- the first error in byte order, and the one-based
--- position of the byte that raised it.
+-- The scan itself is checked a second way, against `referenceScan` below, an
+-- independent scalar reference: it shares no mask, no lane and no tape with the
+-- decoder, and it states the same contract -- the first error in byte order, and
+-- the one-based position of the byte that raised it.
 --
--- Nothing here builds anything. With no linked artifact the `@aot` body runs
--- as ordinary Nupp, which is the same source and the same answers; what it
--- does not exercise is the emitted C, which the `aot` group covers. Every
--- literal below is ASCII, so a byte sequence under test is written as an
+-- Nothing here builds anything. The `@aot` body runs as ordinary Nupp, which is
+-- the same source and the same answers. Every literal below is ASCII, so a byte sequence under test is written as an
 -- escape and never as itself.
 
 local fused = require("nupp.codec.json.aot")

@@ -50,10 +50,8 @@ GPU-free program does not acquire WGPU.
 | `nupp.peg`, raw `lpeg`, and `re` | retained LPeg | `lpeg` |
 
 `tls` includes the Rust network implementation, and the compiler's HTTP effect
-closure also selects URI handling. A standalone link may combine the Rust
-application-host archive with one or more exact-feature provider or AOT
-archives. Shared sidecar builds stage the same provider ABI in a dynamic
-library instead.
+closure also selects URI handling. Builds stage the provider ABI in a dynamic
+library beside the program.
 
 The provider's ABI version 2 is an internal compiler/runtime boundary. It is
 not an extension ABI for applications. The public C embedding API in
@@ -151,10 +149,6 @@ claim that every executable byte is Rust. Native builds still retain:
   protected LuaJIT stack, userdata, callback, and longjmp boundary while Rust
   owns every persistent host and worker resource;
 - `ring`'s bounded C and assembly implementation under its Rust API;
-- compiled AOT code, and the AOT runtime (`native/crates/native/c/ks_rt.c`) a
-  builder entry calls through a table the provider hands it;
-- LLVM and lld, linked into `nupp` as the AOT code generator and never into the
-  programs it builds;
 - operating-system libraries, GPU drivers, and platform SDKs selected by Rust
   crates and the final linker.
 
@@ -166,16 +160,14 @@ GPU ownership layer.
 
 The official release workflow builds these compiler hosts and catalog stubs:
 
-| Public target | Release archive | Link kit | Rust build ABI |
-| --- | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | `nupp-linux-x86_64.tar.gz` | `nupp-kit-x86_64-unknown-linux-gnu.tar.gz` | native Linux GNU |
-| `aarch64-apple-darwin` | `nupp-macos-arm64.tar.gz` | `nupp-kit-aarch64-apple-darwin.tar.gz` | native Apple Darwin |
-| `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | not yet published | GNU |
+| Public target | Release archive | Rust build ABI |
+| --- | --- | --- |
+| `x86_64-unknown-linux-gnu` | `nupp-linux-x86_64.tar.gz` | native Linux GNU |
+| `aarch64-apple-darwin` | `nupp-macos-arm64.tar.gz` | native Apple Darwin |
+| `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | GNU |
 
-The Windows names describe two different contracts. Nupp's AOT artifacts use
-the public `x86_64-pc-windows-msvc` target name and layout, and LLVM
-compiles them for `x86_64-w64-windows-gnu`.
-The Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
+The Windows names describe two different contracts. The public target keeps the
+`x86_64-pc-windows-msvc` name and layout, while the Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
 The base release host and ordinary Windows source checkout therefore use the
 ABI-compatible `x86_64-pc-windows-gnu` Rust host named in
 [`CONTRIBUTING.md`](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#requirements).
@@ -195,10 +187,8 @@ the production executable host, static application archive, and static and
 dynamic embedding SDKs. Release builders repeat that artifact gate on the
 runner whose output they package because a separate compiler workflow cannot
 be a dependency of a tagged release. They then stamp, package, unpack, and run
-the matching compiler hosts, and build each platform's link kit. Cross-target
-jobs stamp all three public targets and execute each result on its matching
-runner, and a standalone AOT program linked on one platform from another's kit
-runs on that other platform.
+the matching compiler hosts. Cross-target jobs stamp all three public targets
+and execute each result on its matching runner.
 
 Those workflows are the platform gates; their presence alone is not evidence
 that a particular commit completed them. The Rust-host cutover is exercised on
@@ -241,8 +231,8 @@ selected provider or the public embedding SDK. There is no compatibility mode
 which restores the old ownership model.
 
 ::: seealso
-- [Distribution](distribution.md) for stubs, payloads, signing, and link kits
+- [Distribution](distribution.md) for stubs, payloads, and signing
 - [Embedding Nupp](../learn/projects/embedding.md) for the public C SDK
-- [Building projects](../learn/projects/build.md) for standalone and sidecar native artifacts
+- [Building projects](../learn/projects/build.md) for sidecar native artifacts
 - [Native GPU AOT](../learn/performance/ahead-of-time/gpu.md) for the WGPU contract
 :::

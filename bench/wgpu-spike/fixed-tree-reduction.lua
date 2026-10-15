@@ -6,7 +6,7 @@ local gpu = require("nupp.gpu")
 local generated = require("reduction")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "../simd-mandelbrot/clock.lua")
+local now = dofile(here .. "clock.lua")
 local workgroupSize = 256
 local count = tonumber(os.getenv("REDUCTION_COUNT") or 65536)
 assert(count == workgroupSize * workgroupSize, "the two-level spike takes exactly 65536 values")

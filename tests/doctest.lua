@@ -4261,13 +4261,7 @@ local VERSION_SOURCES = {
     ["Embedding ABI"] = {"native/crates/host/src/embed.rs", "const EMBED_ABI_VERSION: u32 = (%d+);"},
     ["Compiler host ABI"] = {"src/nupp/tools/build/platform.nupp", "platform%.hostAbiVersion = (%d+)"},
     ["Payload trailer"] = {"native/crates/host/src/payload.rs", "const FORMAT_VERSION: u32 = (%d+);"},
-    ["AOT runtime ABI"] = {"native/crates/native/c/ks_rt.c", "#define KS_RT_ABI_VERSION (%d+)u"},
     ["Browser application manifest"] = {"runtime/luajit/app-runtime.mjs", "manifest%.schema !== (%d+)"},
-    ["AOT units manifest"] = {"src/nupp/tools/build/aot.nupp", "aot%.UNITS_SCHEMA_VERSION = (%d+)"},
-    [
-        "AOT component manifest"
-    ] = {"src/nupp/tools/build/aot.nupp", "document = sortedJson%({%s*schemaVersion = (%d+),%s*component"},
-    ["Link kit"] = {"src/nupp/tools/build/aotllvm.nupp", "manifest%.schemaVersion ~= (%d+)"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},

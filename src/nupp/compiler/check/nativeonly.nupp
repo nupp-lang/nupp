@@ -110,7 +110,7 @@ function nativeonly.install(c: state.Checker): nativeonly.Ops
         local selected = c.env ~= nil and c.env.config ~= nil and c.env.config._target or nil
         local policy = selected ~= nil and selected.aot or nil
 
-        return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
+        return policy == "require"
     end
 
     --- The definition a module exports under `member`, through the project.

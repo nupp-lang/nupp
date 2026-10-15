@@ -388,35 +388,6 @@ function M.everyPublicCommandHelpHasExamples()
     visit(root, "")
 end
 
-function M.aotHelpNamesArtifactsAndShowsHighlightedExamples()
-    local plain = capture("aot --help")
-    -- Collapsed, because the list is long enough to wrap and where it wraps is the
-    -- help formatter's business rather than this test's. What is asserted is that
-    -- every accepted artifact is named.
-    local flowed = plain:gsub("%s+", " ")
-    assert(
-        flowed:find("Artifact to print: ir, llvm, spirv, wgsl, asm, or binding.", 1, true),
-        "--emit names every accepted artifact: " .. plain
-    )
-    assert(
-        plain:find("nupp aot --emit asm --function scale src/kernel.nupp", 1, true),
-        "the help includes an assembly example: " .. plain
-    )
-    assert(plain:find("nupp aot --format json src/kernel.nupp", 1, true), "the help includes a JSON example: " .. plain)
-
-    local coloured = capture("aot --color=always --help")
-    assert(coloured:find("\27[1mExamples:\27[0m", 1, true), "the example heading is highlighted: " .. coloured)
-    assert(coloured:find("\27[1;36mnupp\27[0m", 1, true), "the executable is highlighted: " .. coloured)
-    assert(coloured:find("\27[1;32m--emit\27[0m", 1, true), "example options are highlighted: " .. coloured)
-    assert(coloured:find("\27[1;34msrc/kernel.nupp\27[0m", 1, true), "example paths are highlighted: " .. coloured)
-
-    local nested = capture("lsp inspect --color=always --help")
-    assert(
-        nested:find("\27[1mlsp\27[0m \27[1minspect\27[0m", 1, true),
-        "every component of a nested command is highlighted: " .. nested
-    )
-end
-
 function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
     local dir = os.tmpname()
     os.remove(dir)
@@ -929,7 +900,7 @@ function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
     local probe = (
         [[
 package.path = %q
-for _, name in ipairs({"aot", "lsp", "bc", "ast"}) do
+for _, name in ipairs({"lsp", "bc", "ast"}) do
    require("nupp.tools.cli." .. name)
 end
 for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
@@ -963,8 +934,7 @@ local policy = require("nupp.tools.build.aotcheck")
 assert(policy.mentionsGpuTarget('@aot(target = "gpu")'))
 assert(not policy.mentionsGpuTarget('@aot local function plain() end'))
 assert(not policy.mentionsGpuTarget('target = "gpu"'))
-for _, name in ipairs({"nupp.tools.build.aot", "nupp.tools.build.aotllvm",
-    "nupp.compiler.aot.llvm.codegen", "nupp.tools.build.kits",
+for _, name in ipairs({"nupp.tools.build.aot",
     "nupp.tools.hotsession", "nupp.tools.doc", "nupp.tools.build.package"}) do
     assert(not package.loaded[name], "loaded " .. name)
 end

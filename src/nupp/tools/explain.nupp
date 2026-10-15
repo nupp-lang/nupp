@@ -182,8 +182,8 @@ local ENTRIES: {any} = {
         code = "NUPP0004",
         summary = "A tool the command depends on failed",
         rule = "Some commands hand part of their work to another program or "
-        .. "component: LuaRocks installs a dependency, the LLVM kit compiles "
-        .. "native code, Cargo builds a native provider, a C preprocessor reads a "
+        .. "component: LuaRocks installs a dependency, Cargo builds a native "
+        .. "provider, a C preprocessor reads a "
         .. "header, a stage compiler rebuilds the compiler. When that step fails, "
         .. "the message carries what it said. The source may be fine; what failed "
         .. "is the step.",
@@ -1727,10 +1727,9 @@ ENTRIES[
 ] = {
     code = "NUPP2909",
     summary = "A file given to AOT compilation has no `@aot` function",
-    rule = "`nupp aot` inspects what the `@aot` functions in one file compile to, so "
-    .. "a file without one has nothing to show. A build or a check that merely finds "
-    .. "the word `@aot` in a file's text does not report this, which is why there is "
-    .. "no example program here: only `nupp aot` reports it.",
+    rule = "Lowering a file that has no `@aot` function produces nothing. A build or a "
+    .. "check that merely finds the word `@aot` in a file's text treats that as no "
+    .. "work rather than reporting it, which is why there is no example program here.",
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }

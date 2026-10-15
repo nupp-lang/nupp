@@ -1027,19 +1027,6 @@ function M.unknownRunnerOptionIsRejectedBeforeDiscovery()
     test.equal(output:find("suites across", 1, true), nil, "an unknown option does not start the suite")
 end
 
-function M.indirectSimdProcessesUseTheReusableShellLane()
-    local shell, shellRun = runWorkerHost("--lane=shell --list-suites")
-    test.equal(shellRun.status, 0, "shell lane listing failed" .. evidence(shellRun))
-    test.matches(shell, "simdnativealgorithmdifferentialtest")
-    test.matches(shell, "simdprimitivedifferentialtest")
-    test.matches(shell, "simdwasmalgorithmdifferentialtest")
-    test.matches(shell, "simdwasmtimeconformancetest")
-
-    local shared, sharedRun = runWorkerHost("--lane=shared --list-suites")
-    test.equal(sharedRun.status, 0, "shared lane listing failed" .. evidence(sharedRun))
-    test.matches(shared, "simdreducerdifferentialtest")
-end
-
 function M.fixedWidthRuntimeUsesTheFreshProcessLane()
     local isolated, isolatedRun = runWorkerHost("--lane=isolated --list-suites")
     test.equal(isolatedRun.status, 0, "isolated lane listing failed" .. evidence(isolatedRun))

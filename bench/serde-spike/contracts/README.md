@@ -200,9 +200,4 @@ Serialization traverses the original adapter directly. `document_cache_scope.lua
 checks lazy reconstruction selection, bounded eviction, failure caching,
 reentrant initialization refusal, and release without invalidating held decoders.
 
-`matrix.lua` compares the old public API at v0.0.14 with the replacement using
-paired independent processes and the same native syntax provider. `breadth.lua`
-measures nominal, indexed, document, typed-view, Smithy, and OpenAPI paths under
-both portable LuaJIT and native syntax providers. Its allocation measurement is
-Lua heap growth with collection paused, not native allocation or process RSS.
 The browser conformance record comes from the real i386 LuaJIT guest in Chrome.

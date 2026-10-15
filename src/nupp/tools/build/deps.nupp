@@ -306,12 +306,8 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         end
         nativeInputs[#nativeInputs + 1] = header
     end
-    local standalone = target and target.standalone == true
-    if standalone and dep.linkage == "shared" then
-        return nil, "standalone binary requires C dependency " .. name .. " to use linkage = \"static\" or \"both\""
-    end
-    local linkage = dep.linkage or (standalone and "static" or "shared")
-    local buildsShared = not standalone and (linkage == "shared" or linkage == "both")
+    local linkage = dep.linkage or "shared"
+    local buildsShared = linkage == "shared" or linkage == "both"
     local buildsStatic = linkage == "static" or linkage == "both"
     table.sort(nativeInputs)
 
@@ -384,7 +380,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
             return nil, problem
         end
         local reference = configuredBinding
-            and not standalone
             and (
                 configuredBinding.library or dep.load or (sharedOutput and libraryReference(root, outDir, sharedOutput))
             )
@@ -422,9 +417,7 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
         end
 
         return {
-            key = hash.digest(
-                stable(dep) .. "\0" .. tostring(artifactTriple) .. "\0standalone=" .. tostring(standalone)
-            ),
+            key = hash.digest(stable(dep) .. "\0" .. tostring(artifactTriple)),
             output = sharedOutput or staticOutput,
             staticOutput = staticOutput,
             runtimeOutput = sharedOutput,
@@ -515,7 +508,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     -- that what the record reports is what the binding wrote. A target that
     -- carries the binding somewhere has to carry the library it names.
     local reference = configuredBinding
-        and not standalone
         and (
             configuredBinding.library
             or dep.load
@@ -536,8 +528,6 @@ local function buildC(root, outDir, name, dep, previous, childResults, target)
     local key = hash.digest(
         stable(
             dep
-        ) .. "\0standalone=" .. tostring(
-            standalone
         ) .. "\0" .. hashFiles(
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(

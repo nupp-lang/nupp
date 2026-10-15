@@ -67,7 +67,7 @@ type aotcheck.Target = {
     --- The target's name, which the help names so a reader knows which build refuses.
     name: string?,
 
-    --- The `aot` policy: `off`, `require`, `emit-wasm` or `require-wasm`.
+    --- The `aot` policy: `off` or `require`.
     aot: string?,
 
     --- The triple AOT code is compiled for, when it is not the host's.
@@ -79,7 +79,7 @@ type aotcheck.Target = {
 
 --- Whether a policy lowers `@aot` functions, which is whether a build can refuse one.
 function aotcheck.applies(policy: string?): boolean
-    return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
+    return policy == "require"
 end
 
 --- Returns whether source may need the GPU runtime while it is checked.
@@ -118,14 +118,10 @@ function aotcheck.projectSource(root: string, include: {string}?, outDir: string
     return envMod.moduleNameInRoots(roots, file) ~= nil
 end
 
---- The triple and feature range a build of this policy compiles for.
----
---- The Wasm policies compile for the browser's Wasm target whatever the host is.
---- Shared with the build so the two cannot select different tiers.
+--- The triple and feature range a build of this policy compiles for. Shared with
+--- the build so the two cannot select different tiers.
 function aotcheck.selection(policy: string?, triple: string?, features: any): (string?, any)
-    if policy == "emit-wasm" or policy == "require-wasm" then
-        return "wasm32-unknown-emscripten", features or "scalar"
-    end
+    local _ = policy
 
     return triple, features
 end
@@ -186,15 +182,7 @@ function aotcheck.refusals(
         return {}
     end
     for _, tier in ipairs(tiers as {TierTarget}) do
-        local artifacts, problems = compile.artifacts(
-            source,
-            filename,
-            checked,
-            "<object>",
-            tier,
-            tier.tier,
-            constPlans
-        )
+        local artifacts, problems = compile.artifacts(source, filename, checked, tier, tier.tier, constPlans)
         if artifacts == nil then
             local first = problems[1]
             if first == nil or first.code == compile.NO_AOT_FUNCTION then

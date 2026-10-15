@@ -23,14 +23,12 @@
 --   cold whole-project check                 19 s, 2.3 GB peak, 0.9 GB live    [25 s, 3 GB]
 --   language server initialize               0.3 s                             [0.6 s]
 --   language server edit to diagnostics      15-250 ms; hover under 10 ms      [500 ms]
---   bench/simd-mandelbrot, 1024x768          scalar 14.1 ms, SIMD 7.9 ms       [+10%]
 --
 -- Each is kept by a deterministic case where one exists: the walk budget keeps the
 -- unchanged check and the server's initialize near their floor, the recompile count
 -- keeps an edit cheap, the allocation budget keeps a check linear in the project, the
--- bytecode and native code-size budgets keep the benchmarks' kernels what was measured
--- (aotbudgettest holds the native ones), and toolchaintest holds the launcher to one
--- toolchain question per command.
+-- bytecode budget keeps the benchmarks' kernels what was measured, and toolchaintest
+-- holds the launcher to one toolchain question per command.
 local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

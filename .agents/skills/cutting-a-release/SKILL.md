@@ -61,9 +61,8 @@ worktrees push to this trunk, so `main` moves; tagging a commit you did not
 verify is how a release ships something nobody looked at.
 
 **5. Watch the run.** It takes roughly an hour. The jobs are the browser
-runtime, Linux and macOS binaries, Windows, the link kits, the stage-zero
-compiler, the stub catalog, cross-target stamping, its two verifiers, and
-finally `release`, which is the only job that publishes.
+runtime, Linux and macOS binaries, Windows, the stage-zero compiler, the stub
+catalog, cross-target stamping, its two verifiers, and finally `release`, which is the only job that publishes.
 
 ## After it publishes
 

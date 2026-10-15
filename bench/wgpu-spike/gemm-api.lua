@@ -1,5 +1,5 @@
 -- Naive f32 GEMM through nupp.gpu's generated binding, validated element-exact
--- against the generated CPU AOT kernel from the same source.
+-- against the CPU kernel from the same source.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
@@ -204,7 +204,7 @@ end
 local flops = 2.0 * m * n * k
 io.write(
     (
-        "GEMM %dx%dx%d: all %d elements agree with CPU AOT within %.3g absolute error\n"
+        "GEMM %dx%dx%d: all %d elements agree with the CPU reference within %.3g absolute error\n"
     ):format(m, n, k, m * n, maximumDifference)
 )
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format("Nupp CPU scalar", cpuElapsed * 1e3, flops / cpuElapsed / 1e9))

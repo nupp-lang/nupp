@@ -1,6 +1,6 @@
 module mandelbrot
 
--- The same binary32 point-batch as bench/simd-mandelbrot, expressed as a
+-- A binary32 point-batch Mandelbrot, expressed as a
 -- one dispatch covers the complete input through 64-thread workgroups.
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")

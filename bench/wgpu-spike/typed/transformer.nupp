@@ -30,7 +30,6 @@ local function scores(
     end
 end
 
-@aot
 local function scoresCpu(
     exclusive output: span.WriteSpan<float>,
     borrows query: span.Span<float>,
@@ -102,7 +101,6 @@ local function softmax(exclusive output: span.WriteSpan<float>, borrows input: s
     end
 end
 
-@aot
 local function softmaxCpu(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, tokens: uint32): nil
     if #output ~= #input then
         error("length mismatch", 2)
@@ -173,7 +171,6 @@ local function mix(
     end
 end
 
-@aot
 local function mixCpu(
     exclusive output: span.WriteSpan<float>,
     borrows probabilities: span.Span<float>,

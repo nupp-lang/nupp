@@ -143,9 +143,8 @@ local function gemmNaive(
     end
 end
 
--- The same scalar IR through the CPU AOT tier: the reference the GPU result must
--- match element-exactly and a real baseline for the generated native kernel.
-@aot
+-- The same scalar computation on the CPU: the reference the GPU result must
+-- match element-exactly.
 local function gemmCpu(
     exclusive c: span.WriteSpan<float>,
     borrows a: span.Span<float>,

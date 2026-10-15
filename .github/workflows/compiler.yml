@@ -407,15 +407,8 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
-      # The AOT code generator is LLVM, linked into nupp. Fetched once per pin
-      # and platform, so a run never builds it unless the pin moved.
-      - name: Fetch or build the pinned LLVM
-        uses: ./.github/actions/pinned-llvm
-
       - name: Provision the pinned toolchain
         shell: bash
-        env:
-          NUPP_REQUIRE_CODEGEN: '1'
         run: ./scripts/toolchain --all
 
       # LuaJIT 3.0 has not been released. Its matrix entries belong beside
@@ -550,14 +543,13 @@ jobs:
       # shell suites with two workers: benchmark checks spawn their own children,
       # and more concurrent cold AOT builds consume the platform timeout.
       #
-      # `--exclude-group` names what earlier steps in this job already ran, and
-      # `wasm-conformance`, which the SIMD conformance workflow runs sharded.
+      # `--exclude-group` names what earlier steps in this job already ran.
       # The shared lane is excluded on Linux only, where the fast gate this job
       # depends on has already run it against the same revision.
       # hostbinarytest stamps this binary once and reuses it while it is newer
-      # than its sources. Stamped here, its host build -- a cargo build with
-      # LLVM linked in whenever the Rust cache is cold -- does not hold the
-      # checkout's build lock while every other test's nupp waits on it.
+      # than its sources. Stamped here, its host build -- a cargo build
+      # whenever the Rust cache is cold -- does not hold the checkout's build
+      # lock while every other test's nupp waits on it.
       - name: Stamp the compiler binary
         if: runner.os != 'Linux'
         shell: bash
@@ -574,12 +566,12 @@ jobs:
           set -euo pipefail
           ulimit -c unlimited || true
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+            --exclude-group=external-corpus,rust-native-gate,measurement
           if [ "$RUNNER_OS" != Linux ]; then
             ./bin/nupp test --lane=shared \
-              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+              --exclude-group=external-corpus,rust-native-gate,measurement
             ./bin/nupp test --lane=shell --jobs=2 \
-              --exclude-group=external-corpus,rust-native-gate,measurement,wasm-conformance
+              --exclude-group=external-corpus,rust-native-gate,measurement
           fi
 
       # A worker killed by a signal says which suite it was in, and on Linux it
@@ -655,11 +647,11 @@ jobs:
           NUPP_TEST_SH=$(cygpath -w "$sh_path")
           export NUPP_TEST_BASH NUPP_TEST_SH
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
           ./bin/nupp test --lane=shared \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
           ./bin/nupp test --lane=shell --jobs=2 \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement,wasm-conformance
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
 
       # What the suite saved, named in the log so a reader knows what the
       # artifact holds before downloading it. `aot-libraries.txt` beside these
@@ -913,14 +905,7 @@ jobs:
           test -n "$icd"
           printf 'NUPP_GPU_ICD=%s\n' "$icd" >> "$GITHUB_ENV"
 
-      # The bench's CPU twins are compiled by the AOT code generator, which is
-      # LLVM linked into nupp.
-      - name: Fetch or build the pinned LLVM
-        uses: ./.github/actions/pinned-llvm
-
       - name: Provision the compiler
-        env:
-          NUPP_REQUIRE_CODEGEN: '1'
         run: ./scripts/toolchain --all
 
       - name: Run exact GPU dispatch and readback
@@ -989,15 +974,8 @@ jobs:
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
 
-      # The bench's CPU twins are compiled by the AOT code generator, which is
-      # LLVM linked into nupp.
-      - name: Fetch or build the pinned LLVM
-        uses: ./.github/actions/pinned-llvm
-
       - name: Provision the pinned toolchain
         shell: bash
-        env:
-          NUPP_REQUIRE_CODEGEN: '1'
         run: ./scripts/toolchain --all
 
       # Adapter absence is a failure: Vulkan cannot silently substitute for

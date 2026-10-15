@@ -123,8 +123,8 @@ out.
 
 `nupp.math.f32.exp` is instead defined by the scalar IR itself: clamp the input
 to `[-104, 88]`, evaluate a degree-12 Taylor polynomial for `exp(x / 128)` in
-Horner order with `fma`, then square seven times. The interpreter, native code,
-Wasm, and SPIR-V execute that same binary32 sequence; WGPU translates the canonical
+Horner order with `fma`, then square seven times. The interpreter, native code
+and SPIR-V execute that same binary32 sequence; WGPU translates the canonical
 module for the selected native backend, and none asks a platform math library
 to choose a result.
 
@@ -140,7 +140,7 @@ local narrow = nupp.math.f32.add(nupp.math.f32.narrow(wide), nupp.math.f32.narro
 outputs[i].value = narrow + doubled
 ```
 
-```llvm [LLVM IR]
+```llvm [As lowered]
 %wide = fpext float %value to double
 %doubled = fadd double %wide, %wide
 %a = fptrunc double %wide to float
@@ -280,41 +280,6 @@ lane does, sign- or zero-extended to its 32-bit carrier.
 
 ## Verification
 
-The reducer corpus in `tests/simd/reducers.lua` runs through the same native and
-Wasm harness as the explicit primitive corpus. Ordered and compensated folds
-match ordinary Nupp, including signed zero. Pairwise folds also match an
-independent level-by-level adjacent-pair tree, including unpaired leaves. The
-seed is the first leaf: seven leaves combine as `block4 + (block2 + leaf1)`,
-not `(block4 + block2) + leaf1`. Integer wrapping, bitwise, predicate, extremum,
-and first-position contracts are exact. NaNs compare by the observable policy
-above, not by unspecified payload bits. Explicit vector reducer probes
-cover Fixed2 through Fixed64 and Preferred with two complete groups and every
-tail, including positive-only holes and all-false masks. Authored reducers retain their
-one-unconditional-contribution rule. Arg-position reducers compare their
-first logical position against an independent search that counts inactive
-lanes as positions; predicate reducers take their truth as a mask. A mixed
-corpus feeds one reducer the seed as a scalar, whole vectors inside a region
-and the remaining elements as scalars, at two fixed widths, and compares it
-against the same contributions made one at a time. Every floating contract runs
-twice, over `number` and over the `float` witness, the latter against a
-binary32 reference built from `nupp.math.f32`. The integer horizontals compare
-against exact wrapping and bitwise folds in the lane's width.
-
-Algebraic checks use a different contract. For finite inputs whose intermediate
-values neither overflow nor underflow, the corpus compares two rounded paths
-with `gamma(4n + 4) = (4n + 4)u / (1 - (4n + 4)u)`, where `u` is `2^-24` for
-binary32 and `2^-53` for binary64, and `n` counts the seed among the
-contributions where it is one. The absolute envelope scales by the sum of
-absolute contributing inputs for a sum, the sum of absolute contributing
-products for a dot, and the absolute reference result for a product. One smallest subnormal accommodates
-the final boundary. This is a comparison envelope, not a promise of one
-association or one target's low bits.
-
-Separate exceptional fixtures check NaN propagation, infinities, signed zeros,
-empty seeds and first-index ties. Those fixtures select cases where association
-cannot change the expected classification; a reassociation that overflows an
-intermediate is not silently compared as a small finite rounding error.
-
 The generated code is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion and lane operation is verified in the IR
 before anything is emitted, so a rewrite that produced something invalid is a
@@ -327,43 +292,13 @@ matrix is required complete rather than merely consistent: every pair of span
 regions carries a fact, because a pair with no fact would be a `restrict` nobody
 justified.
 
-Above that sit the differentials, which establish correctness. Explicit SIMD
-primitives and algorithms run through native vector code and a forced-scalar
-twin, alongside independent scalar expectations appropriate to each numerical
-contract. Scalar code runs against ordinary Lua over boundary operands, built
-once with `aot = "off"` and once with `require`, with the JIT off on the
-reference side:
-
-```bash
-./bin/nupp test simdprimitivedifferentialtest
-./bin/nupp test simdreducerdifferentialtest
-./bin/nupp test aotdifferentialtest
-```
-
-Tails are exercised across supported fixed and preferred species.
-
-The forced-scalar version of an explicit vector body is the same body left as
-written and compiled with the optimizer off (`optnone`), which makes it an
-independent executable answer. It carries the same floating-point flags as the
-source, so its last bits agree with the specified operation order.
-
-The unoptimized oracle is not a speed baseline. Compare complete optimized functions
-when measuring performance, not the forced-scalar conformance route.
-
-The exact reducer contracts are also executed at the one other tier that can
-run them. `tests/wasm-aot/simd-project` reduces the same corpus at Wasm
-`simd128` against the same Lua reducers, so bit identity for an ordered chain or
-a logical-index tree is a claim about the contract rather than about NEON.
-
-The SIMD conformance matrix runs the authored vector corpus on native targets
-and Wasm `simd128`, with each native tier selected explicitly.
-
-The build's own end of it is exercised the same way, by doing the thing rather
-than asserting it: a project is built under `require` and its results compared
-against the same project built with `aot = "off"`, an output tree is copied
-elsewhere and run from a third directory, a cross build's object is inspected to
-confirm it is the other machine's, and a stamped binary is run from `/` to
-confirm it finds the library it was given.
+Reducer contracts are held to independent models. Ordered and compensated folds
+match ordinary Nupp, including signed zero. Pairwise folds also match an
+independent level-by-level adjacent-pair tree, including unpaired leaves. The
+seed is the first leaf: seven leaves combine as `block4 + (block2 + leaf1)`,
+not `(block4 + block2) + leaf1`. Integer wrapping, bitwise, predicate, extremum,
+and first-position contracts are exact. NaNs compare by the observable policy
+above, not by unspecified payload bits.
 
 ## Scalar switch expressions and do blocks
 

@@ -20,9 +20,6 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 -- exactly this way, and building one means checking the prelude from source.
 local sharedEnv = envMod.new(HERE .. "/..")
 local gpuEnv = envMod.new(HERE .. "/..", {config = {include = {"src"}, _target = {aot = "require"}},})
-local browserGpuEnv = envMod.new(HERE .. "/..", {
-    config = {include = {"src"}, _target = {aot = "require-wasm", host = "browser"}},
-})
 
 local M = {}
 
@@ -57,7 +54,7 @@ end
 
 local function diagnosticCodes(source)
     local out = {}
-    for _, environment in ipairs({gpuEnv, browserGpuEnv}) do
+    for _, environment in ipairs({gpuEnv}) do
         local result = parser.parse(source, "test.nupp")
         for _, diagnostic in ipairs(check.check(result, "test.nupp", environment)) do
             out[#out + 1] = diagnostic.code
@@ -67,7 +64,7 @@ local function diagnosticCodes(source)
 end
 
 local function reportsGpu(source, want, label)
-    for _, environment in ipairs({gpuEnv, browserGpuEnv}) do
+    for _, environment in ipairs({gpuEnv}) do
         local result = parser.parse(source, "test.nupp")
         if #result.errors > 0 then
             error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
@@ -801,7 +798,7 @@ end
 function M.aotOnANestedFunctionIsRefused()
     -- Discovery walks the chunk's own statements, so before this refusal the
     -- annotation inside another body was simply never found: the contract was not
-    -- applied, `nupp aot` said no @aot function was there, and checking said
+    -- applied, lowering found no @aot function there, and checking said
     -- nothing at all.
     reports(
         [[

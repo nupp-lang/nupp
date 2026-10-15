@@ -126,61 +126,6 @@ function stage.hostStub(root: string, outDir: string, target: Target, effects: {
     return built
 end
 
---- Relinks the current-platform compiler host with an application's static
---- native closure. The driver force-loads archives because FFI symbol lookups
---- do not create ordinary undefined references for an archive linker to see.
-function stage.linkHost(
-    root: string,
-    target: Target,
-    effects: {[string]: any}?,
-    output: string,
-    archives: {string},
-    flags: {string}
-): (string?, string?)
-    local selected = target.layoutTarget
-    local host = require("nupp.tools.build.platform").hostKey()
-    -- Only standalone linking needs the legacy LLVM backend.
-    local aotllvm = require("nupp.tools.build." .. "aotllvm") as {
-        selected: function(): (boolean?, string?),
-        linkStandalone: function(string, string, {string}, {string}): string?
-    }
-    local compilerRoot = envMod.compilerRoot()
-    local featureNames = native.hostFeatureNames(effects)
-    local linked = selected or host
-    if linked == nil then
-        return nil, "standalone native linking needs a target platform"
-    end
-    if require("nupp.compiler.aot.llvm.profile").of(linked as string) == nil then
-        return nil, "standalone native linking has no link kit for " .. tostring(linked)
-    end
-    -- The link is lld's, from a link kit: the runtime and stubs for the
-    -- system libraries, and no C toolchain or SDK, for this machine's
-    -- platform or another's.
-    local available, availableErr = aotllvm.selected()
-    if available ~= true then
-        return nil, tostring(availableErr)
-    end
-    local build: (function(): (string?, string?))? = nil
-    if compilerRoot ~= nil and linked == host then
-        build = function(): (string?, string?)
-            return driven(compilerRoot as string, "kit", featureNames)
-        end
-    end
-    local kits = require(
-        "nupp.tools.build." .. "kits"
-    ) as {resolve: function(string, {string}, (function(): (string?, string?))?): (string?, string?)}
-    local kit, kitErr = kits.resolve(linked as string, featureNames, build)
-    if kit == nil then
-        return nil, kitErr
-    end
-    local linkErr = aotllvm.linkStandalone(kit as string, output, archives, flags)
-    if linkErr ~= nil then
-        return nil, linkErr
-    end
-
-    return output, nil
-end
-
 local libraryFile = deps.sharedLibraryName
 
 --- Builds and stages every native feature in `effects`, returning its files.
@@ -189,8 +134,7 @@ function stage.build(
     outDir: string,
     effects: {[string]: any}?,
     selectedPlatform: string?,
-    availableOutputs: {[string]: boolean}?,
-    standalone: boolean?
+    availableOutputs: {[string]: boolean}?
 ): {[string]: boolean}?, string?
     local outputs = {}
     local providers: {[string]: {
@@ -203,16 +147,6 @@ function stage.build(
     local providerKeys: {string} = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.provider then
-            if standalone and feature.host then
-                -- The relinked host contains this provider; no loadable sidecar
-                -- is part of a standalone binary's runtime closure.
-                goto continue
-            end
-            if standalone and not feature.host then
-                return nil, "standalone binary needs sidecar-only native feature "
-                    .. feature.name
-                    .. "; no static host implementation exists"
-            end
             if selectedPlatform and feature.host then
                 -- The compiler-owned catalog stub carries this implementation. A
                 -- current-machine sidecar beside a foreign executable is invalid.

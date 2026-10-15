@@ -44,7 +44,6 @@ manifest, tests, and the tasks needed for its host.
 - `app` creates a command-line application.
 - `lib` creates a typed LuaRocks library.
 - `browser` creates a portable Lua application hosted in a browser Worker.
-- `browser-simd` adds scalar and SIMD128 Wasm AOT variants.
 - `love` creates a checked LÖVE project with pinned API definitions.
 
 ## Continue learning

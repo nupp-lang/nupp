@@ -47,21 +47,10 @@ type progress.ModuleSpan = {
 --- What a build's ahead-of-time policy did, when it ran one.
 ---
 --- Beside the timeline rather than in it, because these are counts and the
---- timeline is milliseconds. `externalCommands` is the one worth having: a
---- build that reused every object should start no compiler, and only a number
---- can say that it did not.
+--- timeline is milliseconds.
 type progress.AotFacts = {
-    units: number,
     checkedSources: number,
-    loweredPrograms: number,
-    optimizedPrograms: number,
-    emittedUnits: number,
-    reusedObjects: number,
-    compiledObjects: number,
-    reusedModules: number,
-    compiledModules: number,
-    linked: boolean,
-    externalCommands: number
+    loweredPrograms: number
 }
 
 --- How a cold project check or build used workers, when it considered them.

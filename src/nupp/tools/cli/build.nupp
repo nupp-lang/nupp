@@ -54,10 +54,6 @@ local REPORT_SCHEMA = {
             type = "string",
             description = "The transportable artifact written by a bundle, binary, or component target."
         },
-        aotManifest = {
-            type = "string",
-            description = "The packaged Wasm AOT manifest beside the transportable artifact."
-        },
         spi = {
             type = "array",
             description = "Discovered SPI implementations in dependency order; selection belongs to the use site.",
@@ -174,15 +170,8 @@ local REPORT_SCHEMA = {
                 },
                 aot = {
                     type = "object",
-                    description = "What the ahead-of-time policy did. Absent when the "
-                    .. "target has none. externalCommands counts every external toolchain "
-                    .. "process the policy started, version probes included, so an "
-                    .. "unchanged build reports zero.",
+                    description = "What the ahead-of-time policy did. Absent when the target has none.",
                     properties = {
-                        units = {
-                            type = "integer",
-                            description = "LLVM IR units the policy emitted, one per source and target tier.",
-                        },
                         checkedSources = {
                             type = "integer",
                             description = "Sources checked by the AOT policy in this build.",
@@ -191,49 +180,8 @@ local REPORT_SCHEMA = {
                             type = "integer",
                             description = "Programs lowered by the AOT policy in this build.",
                         },
-                        optimizedPrograms = {
-                            type = "integer",
-                            description = "Programs optimized by the AOT policy in this build.",
-                        },
-                        emittedUnits = {
-                            type = "integer",
-                            description = "Source-tier LLVM IR units emitted by the AOT policy in this build.",
-                        },
-                        reusedObjects = {
-                            type = "integer",
-                            description = "Native objects taken from the last build unchanged.",
-                        },
-                        compiledObjects = {
-                            type = "integer",
-                            description = "Native objects the code generator compiled in this build.",
-                        },
-                        reusedModules = {
-                            type = "integer",
-                            description = "Wasm modules taken from the last build unchanged.",
-                        },
-                        compiledModules = {
-                            type = "integer",
-                            description = "Wasm modules the code generator compiled in this build.",
-                        },
-                        linked = {type = "boolean", description = "Whether an archiver or a linker ran.",},
-                        externalCommands = {
-                            type = "integer",
-                            description = "External toolchain processes the policy started.",
-                        },
                     },
-                    required = {
-                        "units",
-                        "checkedSources",
-                        "loweredPrograms",
-                        "optimizedPrograms",
-                        "emittedUnits",
-                        "reusedObjects",
-                        "compiledObjects",
-                        "reusedModules",
-                        "compiledModules",
-                        "linked",
-                        "externalCommands"
-                    },
+                    required = {"checkedSources", "loweredPrograms"},
                 },
                 slowest = {
                     type = "array",
@@ -275,8 +223,8 @@ local function run(options: any): integer
     if values.remarksOut == "" then
         return usageError("--remarks-out= requires a file name")
     end
-    if #paths > 0 and (target or values.platform or values.standalone or values.host) then
-        return usageError("--target, --platform, --host and --standalone cannot be used with explicit source files")
+    if #paths > 0 and (target or values.platform or values.host) then
+        return usageError("--target, --platform and --host cannot be used with explicit source files")
     end
     -- A positional is a source file, and a target is named with `--target`. `nupp build
     -- docs` reads as the first and means the second, so the two are told apart here
@@ -321,7 +269,6 @@ local function run(options: any): integer
                 notice = produced.notice,
                 written = produced.outputs or {},
                 artifact = produced.artifact,
-                aotManifest = produced.aotManifest,
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
                 spi = produced.spi or {},
@@ -339,7 +286,6 @@ local function run(options: any): integer
             outDir = projectOutDir,
             target = target,
             platform = values.platform,
-            standalone = values.standalone,
             host = values.host,
             optLevel = settings.optLevel,
             remarks = settings.remarks,
@@ -540,9 +486,6 @@ local record Build
     --- Build one configured binary platform, or all.
     @cli(value = "NAME")
     platform: string?
-
-    --- Link native FFI and AOT code into the binary host.
-    standalone: boolean = false
 
     --- Output directory, overriding the target's.
     @cli(short = "o", value = "DIR")

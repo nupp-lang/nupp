@@ -5,9 +5,9 @@ order: 630
 # Ahead-of-time compilation
 
 `@aot` lowers a checked top-level local function through verified IR before the
-program runs. CPU entries produce native code or Wasm through LLVM, while
-`target = "gpu"` produces a typed resident-buffer kernel and either a native
-SPIR-V or browser WGSL artifact.
+program runs. `target = "gpu"` produces a typed resident-buffer kernel and a
+native SPIR-V artifact. A CPU `@aot` function is lowered by the VM, which runs
+the same verified IR on its native tier.
 
 ```nupp
 @aot
@@ -20,19 +20,15 @@ end
 
 `nupp check` validates the target and the structural subset, and for a target
 whose policy compiles `@aot` code it lowers each function for every feature tier
-the build selects, so `@aot` on something the backend could not compile is an
-error rather than a surprise later. [Build policy](build-and-artifacts.md) selects what a build does with a
-CPU result: `off` by default, and `require` to compile it into the project's
-own shared library and call it. Browser
-applications have corresponding
-[`emit-wasm` and `require-wasm`](wasm.md) policies for pointer kernels and
-Lua-building entries.
+the build selects, so `@aot` on something the backend could not lower is an
+error rather than a surprise later. A target's `aot` policy selects what a
+build does with it: `off` by default, and `require` to compile every
+`@aot(target = "gpu")` kernel. Under `require` a CPU `@aot` function is refused:
+its LuaJIT-era native code generator was removed.
 
-Pure numeric and span bodies keep the small `kernel` ABI, and a body that
-constructs fresh Lua values uses the separate `lua-builder` ABI. GPU entries
-replace the function with a checked `compile`, `bind`, and `dispatch` surface.
-Nothing in the source names an ABI. A loop that runs in CPU vector lanes states
-its species, masks, and tail through `nupp.simd`.
+GPU entries replace the function with a checked `compile`, `bind`, and
+`dispatch` surface. A loop that runs in CPU vector lanes states its species,
+masks, and tail through `nupp.simd`.
 
 ## Const-specialized families
 
@@ -50,29 +46,17 @@ end
 local result = doubled(5.0, 3)
 ```
 
-The build collects closed applications across the module graph, emits a private
-native body per admitted body class, and removes the carrier from that private
-ABI, which LLVM then folds and unrolls like any other constant. Checked
-same- and cross-module calls use the private entry; the public function value
-dispatches tuples that were included in the deliverable and reports an unmatched
-tuple instead of silently falling back from an AOT-required build.
-
-One module may emit eight logical const body classes before target tiers
-multiply them into physical entries. Calls with the same semantic key
-deduplicate, and
-keys with the same proven body and ABI coalesce. Exceeding the cap is a build
-error for a required AOT family and names its demanding call sites. With AOT
-off, the generic Lua body remains available; at `-O1` and above it may still be
+Lowering collects closed applications across the module graph and specializes a
+private body per admitted body class. One module may lower eight logical const
+body classes before target tiers multiply them. Calls with the same semantic
+key deduplicate, and keys with the same proven body and ABI coalesce. Exceeding
+the cap is an error that names its demanding call sites. With AOT off, the
+generic Lua body remains available; at `-O1` and above it may still be
 specialized by [`OPT-8`](../index.md#opt-8-const-monomorphization).
 
 ## Annotation guarantees
 
 `@aot` promises ahead-of-time compilation and stable numeric meaning.
-
-The body compiles once, ahead of time, with an optimizing compiler behind it.
-LuaJIT is a tracing JIT: it compiles what it observes, it gives up on shapes it
-cannot record, and a hot loop that aborts a trace runs interpreted however hot
-it gets.
 
 The body's numeric meaning is pinned. Ordinary binary64 Nupp arithmetic is
 neither contracted nor reassociated, so an AOT function's results are a property
@@ -94,19 +78,11 @@ a contract that degrades quietly is a comment.
 
 See these pages for each part of the AOT pipeline.
 
-- [CPU kernels](cpu-kernels.md) for inspection, generated code, calls, and
-  representative measurement.
-- [Lua values](lua-values.md) for table and string construction through the
-  VM-rooted builder ABI.
 - [SIMD programming](simd-programming.md) for lanes, masks, reducers, native
   helpers, and feature tiers, with runnable examples.
 - [Numeric semantics](numeric-semantics.md) for arithmetic guarantees and
   verification.
-- [Builds and artifacts](build-and-artifacts.md) for policies, cross builds,
-  caches, and shipping.
-- [Wasm applications](wasm.md) for the browser guest and Wasm side modules.
-- [GPU compute](gpu.md) for native resident buffers, workgroup kernels, and
-  browser WebGPU.
+- [GPU compute](gpu.md) for native resident buffers and workgroup kernels.
 
 ## FAQ
 
@@ -115,22 +91,15 @@ See these pages for each part of the AOT pipeline.
 ### Does `@aot` change what a function returns?
 
 Only through `@relax`. Removing `@aot`, or building the same source under
-`aot = "off"`, changes performance and artifacts and never the result, which is
-what the differentials in
-[Verification](numeric-semantics.md#verification) check. `@relax` is the one
-annotation that changes the answer, and it says so per function.
+`aot = "off"`, changes performance and artifacts and never the result.
+`@relax` is the one annotation that changes the answer, and it says so per
+function.
 
 ### How does a loop run in vector lanes?
 
 By saying so with `nupp.simd`: a species, its vector loads and stores, masks,
 and a tail. A loop without those operations is scalar. See
 [simd-programming.md](simd-programming.md) for the model and vector operations.
-
-### Does a project need a C compiler?
-
-No. `nupp` compiles AOT code itself, native and Wasm, for any target, with the
-LLVM it carries. See [the code generator](build-and-artifacts.md#the-code-generator)
-and [Wasm AOT applications](wasm.md).
 
 ::: seealso
 - [performance.md](../index.md) for the rewrites applied to ordinary Nupp

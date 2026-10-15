@@ -49,20 +49,11 @@ type manifest.Target = {
     --- The prebuilt host a `binary` target's payload is stamped into.
     stub: string?,
 
-    --- Relink the compiler-owned host with static AOT and FFI archives before
-    --- stamping the payload, producing an executable with no native sidecars.
-    standalone: boolean?,
-
     --- Build this component for development hot reload: every named function
     --- dispatches through a slot an embedding host can patch, and the component
     --- records what it was built from so a session can prove it still matches.
     --- A reload build is `-O0` and is not what ships.
     reload: boolean?,
-
-    --- How linked AOT code reaches its consumer. Static archives are consumed
-    --- by a standalone host or by an embedding application, never mapped by
-    --- the generated component.
-    aotLinkage: string?,
 
     --- Compiler-owned distribution platforms. Their public spellings are target
     --- triples; only triples with cataloged native stubs are accepted.
@@ -352,7 +343,6 @@ local DOCS_KEYS = {
     "output",
     "payloadOutput",
     "stub",
-    "standalone",
     "reload",
     "platforms",
     "platformOutputs",
@@ -414,7 +404,6 @@ local TARGET_KEYS = {
     "kind",
     "optimize",
     "aot",
-    "aotLinkage",
     "aotFeatures",
     "aotTarget",
     "description",
@@ -422,7 +411,6 @@ local TARGET_KEYS = {
     "output",
     "payloadOutput",
     "stub",
-    "standalone",
     "reload",
     "platforms",
     "platformOutputs",
@@ -676,17 +664,6 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
-    if target.standalone ~= nil and type(target.standalone) ~= "boolean" then
-        return nil, label .. ".standalone must be a boolean"
-    end
-    if target.standalone then
-        if kind ~= "binary" then
-            return nil, label .. ".standalone is only valid for a binary target"
-        end
-        if target.stub ~= "nupp" then
-            return nil, label .. ".standalone requires the compiler-owned stub = \"nupp\""
-        end
-    end
     if target.reload ~= nil and type(target.reload) ~= "boolean" then
         return nil, label .. ".reload must be a boolean"
     end
@@ -830,33 +807,8 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        if target.aot ~= "off"
-            and target.aot ~= "require"
-            and target.aot ~= "emit-wasm"
-            and target.aot ~= "require-wasm"
-        then
-            return nil, label .. ".aot must be \"off\", \"require\", \"emit-wasm\" or \"require-wasm\""
-        end
-        if (target.aot == "emit-wasm" or target.aot == "require-wasm")
-            and target.aotTarget ~= nil
-            and target.aotTarget ~= "wasm32-unknown-emscripten"
-        then
-            return nil, label .. ".aot = \"" .. target.aot .. "\" fixes aotTarget to wasm32-unknown-emscripten"
-        end
-    end
-    if target.aotLinkage ~= nil then
-        local valid, err = validateString(target.aotLinkage, label .. ".aotLinkage")
-        if not valid then
-            return nil, err
-        end
-        if target.aotLinkage ~= "shared" and target.aotLinkage ~= "static" then
-            return nil, label .. ".aotLinkage must be \"shared\" or \"static\""
-        end
-        if target.aotLinkage == "static" and kind ~= "component" and not target.standalone then
-            return nil, label .. ".aotLinkage = \"static\" requires a component or standalone binary target"
-        end
-        if target.aotLinkage == "shared" and target.standalone then
-            return nil, label .. ".standalone requires aotLinkage = \"static\""
+        if target.aot ~= "off" and target.aot ~= "require" then
+            return nil, label .. ".aot must be \"off\" or \"require\""
         end
     end
     if target.aotTarget ~= nil then
@@ -870,17 +822,6 @@ local function validateTarget(target, label, dependencies)
         local _, targetErr = aotTargets.select(target.aotTarget as string, nil)
         if targetErr ~= nil then
             return nil, label .. ".aotTarget: " .. tostring(targetErr)
-        end
-        -- Wasm units are independent modules, which only the Wasm policies
-        -- build; there is no native library to link for one. A static link
-        -- is refused later, by the target profile that has no archive.
-        if target.aot == "require"
-            and target.aotLinkage ~= "static"
-            and (target.aotTarget as string):match("^wasm32%-") ~= nil
-        then
-            return nil, label .. ".aot = \"require\" links a native library, and " .. tostring(
-                target.aotTarget
-            ) .. " has none: use \"emit-wasm\" or \"require-wasm\""
         end
     end
     if target.aotFeatures ~= nil then
@@ -912,10 +853,7 @@ local function validateTarget(target, label, dependencies)
                 return nil, err
             end
         end
-        local featureTarget = (target.aot == "emit-wasm" or target.aot == "require-wasm")
-            and "wasm32-unknown-emscripten"
-            or target.aotTarget as string?
-        local _, tierErr = aotTargets.buildTiers(featureTarget, target.aotFeatures)
+        local _, tierErr = aotTargets.buildTiers(target.aotTarget as string?, target.aotFeatures)
         if tierErr ~= nil then
             return nil, label .. ".aotFeatures: " .. tostring(tierErr)
         end

@@ -42,9 +42,6 @@ type project.BuildOptions = {
     --- A configured binary platform, or "all" at the public build boundary.
     platform: string?,
 
-    --- Relink a compiler-owned binary host with its static native closure.
-    standalone: boolean?,
-
     host: string?,
 
     --- Where to write, instead of the target's own directory.
@@ -298,17 +295,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
-    if opts.standalone then
-        if target.kind ~= "binary" or target.stub ~= "nupp" then
-            say(opts, "NUPP0002", "nupp: --standalone requires a binary target with stub = \"nupp\"\n")
-            return 1
-        end
-        if target.aotLinkage == "shared" then
-            say(opts, "NUPP0002", "nupp: --standalone requires aotLinkage = \"static\"\n")
-            return 1
-        end
-        target.standalone = true
-    end
     target.host = opts.host or target.host or "native"
     if target.host ~= "native" and target.host ~= "browser" then
         say(opts, "NUPP0002", "nupp: host must be native or browser\n")
@@ -328,14 +314,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             return 1
         end
         target.layoutTarget = "i686-unknown-linux-gnu"
-    end
-    if target.aot == "require-wasm" and target.host ~= "browser" then
-        say(
-            opts,
-            "NUPP0002",
-            "nupp: require-wasm needs host = \"browser\" or --host browser; use emit-wasm to export kernels for another host\n"
-        )
-        return 1
     end
 
     local selectedPlatform = opts.platform
@@ -384,7 +362,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    if selectedPlatform and not opts.checkOnly and not target.standalone then
+    if selectedPlatform and not opts.checkOnly then
         local record, recordErr = require("nupp.tools.build.stubs").record(selectedPlatform)
         if not record then
             say(opts, "NUPP0004", "nupp: " .. tostring(recordErr) .. "\n")
@@ -577,10 +555,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.nupp")), 2)
 
-    if opts.checkOnly
-        and (target.aot == "require" or target.aot == "require-wasm")
-        and checkedTargetNeedsGpu(root, config, opts.paths)
-    then
+    if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageGpuRuntime()
     end
     -- The AOT policy runs before the modules it affects. `off` is the default
@@ -603,19 +578,12 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- with the rest of that module's record.
     local aotOverlays: {[string]: string}? = nil
     local aotAuthoredUnused: {[string]: {any}}? = nil
-    local aotLibrary: string? = nil
-    local aotLinkage = target.aotLinkage or (target.standalone and "static" or "shared")
-    local aotManifest: string? = nil
-    local aotWasmModules: {string} = {}
     local aotGpu = false
     local aotRemarks: {any} = {}
     if not opts.checkOnly and aotcheck.applies(target.aot) then
         local aotPolicy = loadBuildTool("nupp.tools.build.aot")
         report:at("aot")
-        report:step(
-            (target.aot == "require" or target.aot == "require-wasm") and "compiling ahead-of-time code"
-            or "emitting ahead-of-time code"
-        )
+        report:step("compiling ahead-of-time code")
 
         -- This key is intentionally available before target-scope discovery,
         -- because discovering that scope checks the graph. The complete config
@@ -624,11 +592,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- will interpret them. `inputFingerprint` adds all authored source
         -- bytes that can affect emission or target-scope discovery.
         report:at("aot:lookup")
-        local aotToolchainPolicy = aotPolicy.toolchainPolicy(
-            target.aot as string,
-            target.aotTarget as string?,
-            contentDigest
-        )
+        local aotToolchainPolicy = aotPolicy.toolchainPolicy(target.aot as string, target.aotTarget as string?)
         local aotInput = aotPolicy.inputFingerprint(
             -- Declarations do not emit units, but they do participate in
             -- checking the sources that do. A changed local `.d.nupp` file
@@ -668,7 +632,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         local produced = nil
         if outputsIntact and oldState.aotInput == aotInput then
-            produced = aotPolicy.replay(oldState.aotReplay, aotToolchainPolicy.desiredCommand)
+            produced = aotPolicy.replay(oldState.aotReplay)
         end
 
         -- Bounded by what this target bundles rather than by the include roots.
@@ -696,20 +660,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 root,
                 outDir,
                 config.include or {},
-                (target.name or opts.target or "default") as string,
-                (oldState.aot or {}) as {[string]: string},
-                oldState.aotLibrary,
                 session,
                 target.aotFeatures,
                 target.aotTarget as string?,
-                aotLinkage,
-                aotPolicy.carried(
-                    oldState.aotObjects,
-                    -- The state holds what JSON read back; these are the records
-                    -- the AOT stage wrote into it, and it checks each before use.
-                    oldState.aotModules,
-                    oldState.aotToolchain
-                ),
                 report,
                 aotScope
             )
@@ -760,37 +713,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             gpuSources[normalize(source)] = true
         end
         internalTarget._aotGpuSources = gpuSources
-        -- Recorded like any other output, so `nupp clean` removes it and a
-        -- rebuild knows it is there.
-        local keys: {[string]: string} = {}
-        for _, one in ipairs((produced as any).emitted as {any}) do
-            newState.outputs[one.output] = true
-            keys[one.cacheKey] = one.key
-            if one.object ~= nil then
-                newState.outputs[one.object] = true
-            end
-        end
-        newState.aot = keys
-        if (produced as any).manifest ~= nil then
-            newState.outputs[(produced as any).manifest] = true
-            aotManifest = (produced as any).manifest as string
-        end
-        if (produced as any).library ~= nil then
-            newState.outputs[(produced as any).library] = true
-            aotLibrary = (produced as any).library as string?
-        end
-        for _, output in ipairs((produced as any).wasmModules or {}) do
-            newState.outputs[output] = true
-            if output:match("%.wasm$") then
-                aotWasmModules[#aotWasmModules + 1] = output
-            end
-        end
-        if (produced as any).libraryKey ~= nil then
-            newState.aotLibrary = (produced as any).libraryKey
-        end
-        newState.aotObjects = (produced as any).objects
-        newState.aotModules = (produced as any).modules
-        newState.aotToolchain = (produced as any).remembered
         newState.aotReplay = aotPolicy.captureReplay(target.aot as string, produced as any)
         report:aotCounted((produced as any).facts)
         aotOverlays = (produced as any).dispatch as {[string]: string}?
@@ -799,7 +721,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- A cold linked GPU policy stages the compiler-carried GPU runtime
         -- before checking. Replaying the result must preserve that session side
         -- effect before the ordinary module build resolves the same imports.
-        if aotGpu and (target.aot == "require" or target.aot == "require-wasm") then
+        if aotGpu and target.aot == "require" then
             session.stageGpuRuntime()
         end
     end
@@ -890,14 +812,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     report:at("native")
     report:step("building native providers")
-    local nativeOutputs, nativeErr = native.build(
-        root,
-        outDir,
-        resolvedEffects,
-        selectedPlatform,
-        result.outputs,
-        target.standalone
-    )
+    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
     report:clear()
     if not nativeOutputs then
         say(opts, "NUPP0004", "nupp: " .. tostring(nativeErr) .. "\n")
@@ -909,7 +824,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
     local primaryArtifact: string? = nil
-    local packagedAotManifest: string? = nil
     if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
@@ -970,48 +884,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
                 newState.outputs[payloadOutput] = true
             end
-            local stubPath, hostErr
-            if target.standalone then
-                local archives, flags, seenArchives, seenFlags = {}, {}, {}, {}
-
-                local function addUnique(into, seen, value)
-                    if not seen[value] then
-                        seen[value] = true
-                        into[#into + 1] = value
-                    end
-                end
-
-                for dependencyName, dep in pairs(dependencies) do
-                    if dep.usage == "target" and dep.staticOutput then
-                        for _, archive in ipairs(dep.linkOutputs or {dep.staticOutput as string}) do
-                            addUnique(archives, seenArchives, archive)
-                        end
-                        for _, flag in ipairs(dep.linkFlags or {}) do
-                            addUnique(flags, seenFlags, flag)
-                        end
-                    elseif dep.usage == "target" and dep.runtimeOutput and dep.reference then
-                        say(
-                            opts,
-                            "NUPP0002",
-                            "nupp: standalone binary cannot carry shared dependency "
-                            .. dependencyName
-                            .. "; provide static linkage or a static prebuilt artifact\n"
-                        )
-                        return 1
-                    end
-                end
-                if aotLibrary ~= nil then
-                    addUnique(archives, seenArchives, aotLibrary as string)
-                end
-                table.sort(archives)
-                local linkedPlatform = target.layoutTarget or buildPlatform.hostKey()
-                local executableSuffix = linkedPlatform and buildPlatform.executableSuffix(linkedPlatform) or ""
-                local linkedHost = join(root, join(outDir, "cache/standalone-host-" .. name .. executableSuffix))
-                fs.mkdir(dirname(linkedHost))
-                stubPath, hostErr = native.linkHost(root, target, resolvedEffects, linkedHost, archives, flags)
-            else
-                stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
-            end
+            local stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
             if not stubPath then
                 say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
                 return 1
@@ -1051,76 +924,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         primaryArtifact = output
         newState.outputs[output] = true
-        -- A single-artifact target is something someone carries somewhere, and
-        -- the compiled code has to go with it. The wrapper looks for the library
-        -- beside the module that calls it, and for these kinds that module is
-        -- the artifact, so the copy goes beside the artifact rather than staying
-        -- in the build directory the artifact was assembled in.
-        if aotLibrary ~= nil and aotLinkage == "shared" then
-            local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
-            local copied, copyErr = copyFile(aotLibrary as string, beside)
-            if not copied then
-                say(
-                    opts,
-                    "NUPP0001",
-                    ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
-                )
-
-                return 1
-            end
-            newState.outputs[beside] = true
-        end
-        -- A Lua-in-Wasm artifact keeps its Wasm modules and loader manifest
-        -- beside the bundle under the same relative paths the manifest names.
-        -- The Wasm filenames carry their content digests, so the VM, Lua bundle,
-        -- and kernels remain independently cacheable.
-        if #aotWasmModules > 0 and aotManifest ~= nil then
-            local builtRoot = normalize(join(outDir, "aot")) .. "/"
-            local packagedRoot = join(dirname(output), "aot")
-            for _, source in ipairs(aotWasmModules) do
-                local normalizedSource = normalize(source)
-                if normalizedSource:sub(1, #builtRoot) ~= builtRoot then
-                    say(opts, "NUPP0004", "nupp: Wasm AOT output escaped its build directory: " .. source .. "\n")
-                    return 1
-                end
-                local beside = join(packagedRoot, normalizedSource:sub(#builtRoot + 1))
-                if normalize(beside) ~= normalizedSource then
-                    local copied, copyErr = copyFile(source, beside)
-                    if not copied then
-                        say(
-                            opts,
-                            "NUPP0001",
-                            ("nupp: cannot put the Wasm AOT module beside %s: %s\n"):format(output, tostring(copyErr))
-                        )
-                        return 1
-                    end
-                end
-                newState.outputs[beside] = true
-            end
-            local packagedManifest = join(packagedRoot, "units.json")
-            -- Packaged for another process to read, so it is held to its format here
-            -- rather than discovered wrong there.
-            local _, manifestErr = loadBuildTool("nupp.tools.build.aot").readUnitsManifest(aotManifest as string)
-            if manifestErr ~= nil then
-                say(opts, "NUPP0001", "nupp: " .. manifestErr .. "\n")
-                return 1
-            end
-            if normalize(packagedManifest) ~= normalize(aotManifest as string) then
-                local copied, copyErr = copyFile(aotManifest as string, packagedManifest)
-                if not copied then
-                    say(
-                        opts,
-                        "NUPP0001",
-                        ("nupp: cannot put the Wasm AOT manifest beside %s: %s\n"):format(output, tostring(copyErr))
-                    )
-                    return 1
-                end
-            end
-            newState.outputs[packagedManifest] = true
-            packagedAotManifest = packagedManifest
-        end
-        -- A dependency's library is the same case: its binding names it relative
-        -- to whatever loads that binding, and here that is the artifact. One
+        -- A dependency's library has to go with the artifact: its binding names
+        -- it relative to whatever loads that binding, and here that is the
+        -- artifact. One
         -- named for the platform loader instead carries no `@` and stays where
         -- it is, since nothing is looking for it beside anything.
         for _, dep in pairs(dependencies) do
@@ -1213,7 +1019,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.target = target.name or opts.target or "default"
         opts.produced.platform = selectedPlatform
         opts.produced.artifact = primaryArtifact
-        opts.produced.aotManifest = packagedAotManifest
         if selectedPlatform == "aarch64-apple-darwin" then
             opts.produced.distributionReady = false
             opts.produced.notice = "the macOS binary must be signed on macOS and has not passed notarization"

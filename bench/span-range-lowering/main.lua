@@ -9,15 +9,6 @@ local kernelDisabled = assert(loadfile(out .. "disabled/kernel.lua"))()
 local kernelEnabled = assert(loadfile(out .. "enabled/kernel.lua"))()
 local spans = require("nupp.mem.span")
 
--- A scalar kernel's LLVM library carries no separate forced-scalar twin (only
--- SIMD kernels get one), so this times the compiled kernel itself.
-ffi.cdef [[
-void ks_advance(void *positions, const void *velocities,
-   double first, double last, float dt, size_t count);
-]]
-local aot = ffi.load(out .. "aot/" .. (jit.os == "OSX"
-   and "libspan_range_aot.dylib" or "libspan_range_aot.so"))
-
 local count = tonumber(os.getenv("NUPP_SPAN_COUNT") or "200000")
 local steps = tonumber(os.getenv("NUPP_SPAN_STEPS") or "40")
 local rounds = tonumber(os.getenv("NUPP_SPAN_ROUNDS") or "9")
@@ -49,18 +40,6 @@ local function direct(positions, velocities, first, last, repeats, scale)
          position.x = velocity.x * scale + velocity.y
          position.y = velocity.y * scale - velocity.x
       end
-   end
-end
-
-local function compiledAot(positions, velocities, first, last, repeats, scale)
-   if positions.count ~= velocities.count then
-      error("length mismatch", 2)
-   end
-   local positionPointer = positions.pointer + positions.offset
-   local velocityPointer = velocities.pointer + velocities.offset
-   for _ = 1, repeats do
-      aot.ks_advance(positionPointer, velocityPointer,
-         first, last, scale, positions.count)
    end
 end
 
@@ -132,7 +111,6 @@ local results = {
    measure("indexed.range + checked", kernelDisabled.ranged, kernelDisabled),
    measure("indexed.range + OPT-6", kernelEnabled.ranged, kernelEnabled),
    measure("indexed.range + direct", direct, kernelEnabled),
-   measure("AOT", compiledAot, kernelEnabled),
 }
 
 io.write(("span-range-lowering: %s, %d elements x %d steps\n")

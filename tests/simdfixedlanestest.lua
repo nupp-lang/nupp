@@ -637,15 +637,4 @@ end
 print(table.concat(answers, " ") .. " | " .. tostring(total))
 ]]
 
--- The same fixed-species kernel answers the same whether it runs as four
--- lanes of ordinary Lua or as a native vector register.
-function M.aFixedSpeciesKernelAnswersTheSameAsLuaAndNatively()
-    local dir = project{["src/fixed.nupp"] = FIXED, ["check.lua"] = FIXED_CHECK}
-    local expected = "4 3 4.5 8 4.5 10 16.5 | 46"
-    for _, policy in ipairs({"off", "require"}) do
-        local result, log = buildAndRun(dir, '"fixed"', policy)
-        testAssert.equal(result, expected, policy .. " at " .. dir .. "\n" .. log)
-    end
-end
-
 return M

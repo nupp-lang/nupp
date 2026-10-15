@@ -40,7 +40,6 @@ function Root.subcommands(): {cliModule.CommandType}
     return {
         require("nupp.tools.cli.initcommand").commandType,
         require("nupp.tools.cli.ast").commandType,
-        require("nupp.tools.cli.aot").commandType,
         require("nupp.tools.cli.bc").commandType,
         require("nupp.tools.cli.check").commandType,
         require("nupp.tools.cli.fmt").commandType,

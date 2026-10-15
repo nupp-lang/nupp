@@ -208,7 +208,6 @@ LUAJIT_VERSION_SYM
 nuppNativeAbiVersion
 nuppNativeFeatures
 nuppNativeLastError
-nuppAotRuntime
 nuppNativeBytesCopy
 nuppNativeBytesRelease
 nuppNativeMonotonicNs
@@ -352,17 +351,3 @@ nuppNativeGpuDownloadQueue
 nuppNativeGpuSynchronize
 nuppNativeGpuSynchronizeReady
 nuppNativeGpuDownloadRead
-
-[native-codegen]
-# The code generator, declared by the compiler rather than a header.
-nuppCodegenArchive
-nuppCodegenAvailable
-nuppCodegenCompile
-nuppCodegenCompileFiles
-nuppCodegenEndProcess
-nuppCodegenImportLibrary
-nuppCodegenKitFetch
-nuppCodegenKitUnpack
-nuppCodegenLink
-nuppCodegenUnexitable
-nuppCodegenVersion

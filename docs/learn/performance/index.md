@@ -121,9 +121,6 @@ end
 ```
 :::
 
-Under `@aot`, table construction and initialization can run in one native call.
-See [building ordinary Lua values](ahead-of-time/lua-values.md).
-
 ### `string.buffer`
 
 `string.buffer` needs no source-level `require`:
@@ -1142,18 +1139,12 @@ luajit bench/constant-propagation.lua
 luajit bench/static-callable.lua
 luajit bench/concat.lua
 bench/span-range-lowering/run.sh
-bench/kernel-subset-spike/mandelbrot.sh const-monomorph-ceiling
-luajit bench/kernel-subset-spike/const-monomorph-lua_main.lua
 ```
 
 The `OPT-6` measurements used an arm64 Apple host after warmup, comparing
 disabled and enabled passes. Slice results cover derived-view replacement, not
 general escape analysis. See `bench/span-range-lowering/README.md` for the full
 matrix and `trace.sh` for IR comparisons.
-
-`const-monomorph-lua_main.lua` times a runtime round count against a literal
-four and against four rounds written straight-line through the ordinary Lua
-path; see `bench/kernel-subset-spike/README.md` for its recorded ratios.
 :::
 
 ## Inspecting, controlling, and measuring

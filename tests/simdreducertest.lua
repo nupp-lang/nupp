@@ -1,7 +1,6 @@
 -- Independent reducer contracts: a level-at-a-time tree, never the runtime's
 -- online partial stack, decides the expected association.
 local test = require("assert")
-local mutation = require("tests.simd.equivalence-mutation")
 local simd = require("nupp.simd")
 local M = {}
 
@@ -42,16 +41,7 @@ function M.pairwiseFinalizationCarriesOddLeavesToTheNextLevel()
                 fold:add(values[i])
             end
         end
-        local actual = fold:value()
-        if kind == "sum" and mutation.active("pairwise-finalization") then
-            actual = actual + 1
-        end
-        test.equal(
-            actual,
-            tree(values, kind == "product"),
-            mutation.active("pairwise-finalization") and mutation.marker("pairwise-finalization", "wrong-result")
-            or kind .. " adjacent-pair tree"
-        )
+        test.equal(fold:value(), tree(values, kind == "product"), kind .. " adjacent-pair tree")
     end
 end
 

@@ -5,8 +5,7 @@ order: 637
 # GPU compute
 
 `@aot(target = "gpu")` turns one verified Nupp function into a typed kernel
-specification. Native targets emit SPIR-V for the Rust WGPU provider, while
-browser targets emit WGSL from the same checked operation sequence.
+specification. Native targets emit SPIR-V for the Rust WGPU provider.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -187,55 +186,13 @@ a narrow buffer whose bytes end partway through one is padded to it, and an
 upload, download or binding may end partway through a word only where it ends
 the buffer.
 
-## Browser GPU kernels
-
-A browser target combines `host = "browser"` and `aot = "require-wasm"`. GPU kernels use `nupp.mem.span.Span` and
-`nupp.mem.span.WriteSpan`; the Worker transfers bounded copies between guest
-storage and WebGPU buffers:
-
-```nupp
-local span = require("nupp.mem.span")
-local array = nupp.mem.array
-
-@aot(target = "gpu")
-local function addMask(
-    exclusive output: span.WriteSpan<uint32>,
-    borrows input: span.Span<uint32>,
-    mask: uint32
-): nil
-    assert(#output == #input, "length mismatch")
-    for index = 1, #output do
-        output[index] = nupp.math.u32.add(input[index], mask)
-    end
-end
-```
-
-The portable WebGPU profile admits complete-span maps over `int32` and
-`uint32` storage with scalar uniforms. It refuses floats, structs,
-cursor-indexed storage, and workgroup phases. WebGPU is required; no different
-graphics API is substituted when it is unavailable.
-
-WebGPU reports a rejected call later rather than at the call, so the page checks
-every GPU operation before answering it. A validation or out-of-memory error
-fails the operation that caused it, and an error nothing was waiting for fails
-the next one. A dispatch too long for one dimension of workgroups is folded
-into rows as it is natively; one past the device's per-dimension limit in rows
-as well is refused before it is submitted, with the same message the native
-provider gives.
-
-See [wasm.md](wasm.md#browser-package) for the application package and Worker
-host around this kernel.
-
 ## Inspection and limits
 
-`nupp aot --emit spirv FILE` writes the native WGPU module. On macOS WGPU
-translates that module for Metal internally; Nupp does not ship a second Metal
-artifact or a shader translator. `nupp aot --emit wgsl FILE` prints the browser
-WebGPU artifact when the kernel belongs to the portable profile. The AOT report
-records the GPU family and the compiler's verified resource facts. Its `gpu`
-object names the shader digest, authored source position, entrypoint and
-workgroup width. `nupp build --remarks-out` also records `GPU-DISPATCH` at the
-authored declaration, including that same digest.
+The build emits the native WGPU module as SPIR-V. On macOS WGPU translates that
+module for Metal internally; Nupp does not ship a second Metal artifact or a
+shader translator. `nupp build --remarks-out` records `GPU-DISPATCH` at the
+authored declaration, naming the shader digest, the workgroup width and the
+artifact.
 
 For native operation costs, use `nupp run --gpu-costs costs.jsonl PROGRAM`.
 `nupp bench --gpu-costs DIRECTORY` allocates a separate JSONL file for
@@ -246,8 +203,7 @@ an instrumented account separately from uninstrumented CPU/GPU comparisons.
 
 GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU
-provider selected by the built target. Browser availability is checked by the
-host before dispatch.
+provider selected by the built target.
 
 ## Native GPU costs
 
@@ -308,8 +264,6 @@ and synchronization costs before any residency optimization is attempted.
 ::: seealso
 - [annotations.md](../../../reference/annotations.md#built-in-annotations)
   for the exact `@aot` arguments
-- [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
-  artifact caching
 - [](nupp.gpu) for the generated binding and resident-buffer API
 - [](nupp.gpu.layout) for layout functions
 :::

@@ -485,11 +485,9 @@ end
 ```
 
 A target's `aot` build policy says what happens with it: `off`, the default,
-does nothing; `require` compiles it into the project's own shared library and
-fails the build when it cannot. Browser targets use `emit-wasm` to package
-pointer kernels as Wasm modules, or `require-wasm` to replace their bodies with
-checked calls into those modules. See
-[wasm-aot.md](../learn/performance/ahead-of-time/wasm.md) for that host and its limits.
+does nothing; `require` compiles every `@aot(target = "gpu")` kernel and refuses
+a CPU `@aot` function, whose native code generator was removed with LuaJIT. The
+VM lowers CPU `@aot` bodies itself.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside the body reports `NUPP2903` at the construct, and annotating a
@@ -504,9 +502,7 @@ which never lowers, reports none of them.
 
 Code that runs in vector lanes uses `nupp.simd`. See
 [simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for the
-vector loop and scalar continuation patterns, and
-[build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
-for a full kernel, the build policy, and what the backend does not do yet.
+vector loop and scalar continuation patterns.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
 whole-span loop iteration to one GPU invocation. With the native `aot =
@@ -518,20 +514,8 @@ resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 kernel returned by `compile` borrows its context, and the binding returned by
 `bind` borrows its kernel; both are closeable.
 
-With `aot = "require-wasm"`, the same declaration emits WGSL for a browser
-WebGPU application. Browser GPU storage uses `nupp.mem.span.Span` and
-`nupp.mem.span.WriteSpan`, with the selected physical representation. The first browser
-profile admits complete-span map kernels over `int32` and `uint32` storage and
-scalar uniforms; it does not yet admit floating-point values, structs,
-cursor-indexed storage, or workgroup phases. The generated binding retains the
-same `compile`, `bind`, and `dispatch` shape and crosses the browser Worker
-boundary through bounded Wasm-memory transfer leases. See
-[gpu.md](../learn/performance/ahead-of-time/gpu.md#browser-gpu-kernels) for a complete
-browser target and source example.
-
-`aot = "off"` retains the ordinary function value. `nupp aot --emit
-spirv FILE` writes the native WGPU module; WGPU performs platform shader
-translation internally.
+`aot = "off"` retains the ordinary function value. WGPU performs platform
+shader translation internally.
 
 The GPU subset has two entry shapes. A complete-span map assigns one invocation
 to every element. A structured workgroup entry ends in

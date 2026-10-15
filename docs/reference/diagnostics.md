@@ -293,7 +293,7 @@ without reading the message, and none has a `range`:
 | `NUPP0001` | a file could not be read or written |
 | `NUPP0002` | the project manifest exists and could not be used |
 | `NUPP0003` | a target, task, platform, triple, function or position it was given names nothing here |
-| `NUPP0004` | a tool it depends on failed: LuaRocks, the LLVM kit, Cargo, a C preprocessor, a stage compiler |
+| `NUPP0004` | a tool it depends on failed: LuaRocks, Cargo, a C preprocessor, a stage compiler |
 
 A directory with no `nupp.lua` is a supported configuration for the commands
 that can work without one, and reports nothing. One that has a manifest which

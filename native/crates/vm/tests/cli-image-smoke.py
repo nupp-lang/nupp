@@ -32,8 +32,7 @@ modules = {line.split()[1] for line in image.splitlines() if line.startswith("mo
 assert {"nupp.tools.vm.cli", "nupp.tools.cli.check", "nupp.tools.build.project", "nupp.tools.build.aotcheck"} <= modules
 assert {"nupp.compiler.hostservices", "nupp.compiler.cinterop.cheader", "nupp.compiler.cinterop.cdecl"} <= modules
 for module in (
-    "nupp.tools.build.aot", "nupp.tools.build.aotllvm", "nupp.tools.build.kits",
-    "nupp.compiler.aot.compile", "nupp.compiler.aot.lower", "nupp.compiler.aot.llvm.codegen",
+    "nupp.tools.build.aot", "nupp.compiler.aot.compile", "nupp.compiler.aot.lower",
     "nupp.tools.hotsession", "nupp.tools.doc", "nupp.io.process",
     "nupp", "nupp.tools.build.package",
 ):

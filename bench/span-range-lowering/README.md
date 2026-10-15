@@ -2,10 +2,9 @@
 
 This benchmark is the evidence gate for the view and span lowering pass.
 It compares the existing handwritten-guard kernel shape, a semantics-preserving
-adoption of `indexed.range` with `OPT-6` disabled and enabled, handwritten direct
-FFI access, and AOT context. The first three are checked Nupp; the
-handwritten form is confined to the Lua benchmark driver. AOT is reported
-separately and is not the pass's acceptance target.
+adoption of `indexed.range` with `OPT-6` disabled and enabled, and handwritten
+direct FFI access. The first three are checked Nupp; the handwritten form is
+confined to the Lua benchmark driver.
 
 Run it from the repository root:
 
@@ -37,11 +36,9 @@ produced these warmed medians:
 | `indexed.range` + checked access | 10.800 ms | 1.350 ns | 740.7 Melem/s |
 | `indexed.range` + `OPT-6` | 7.258 ms | 0.907 ns | 1102.2 Melem/s |
 | Handwritten direct FFI | 7.583 ms | 0.948 ns | 1055.0 Melem/s |
-| Forced-scalar AOT context | 4.433 ms | 0.554 ns | 1804.6 Melem/s |
 
 The 1.004x checked/guard ratio prices adoption separately. The 0.672x
-optimized/checked ratio is the pass's result; AOT is a different backend and is
-not included in that speedup. The `OPT-6` and handwritten-direct traces matched
+optimized/checked ratio is the pass's result. The `OPT-6` and handwritten-direct traces matched
 in the named categories reported by `trace.sh`.
 
 The same harness includes a slice-heavy construction gate. One representative

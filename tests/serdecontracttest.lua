@@ -219,22 +219,6 @@ function M.nativePersistenceKeepsExactTreesAndRestoresStoresTransactionally()
     assert(status == 0, output)
 end
 
-function M.compiledRecipesMatchVisitorAndRespectRefusals()
-    local native = PROJECT .. "/native-build"
-    local status, output = process.capture({NUPP, "build", "--target", "compiled-contracts", "--json"}, {cwd = native})
-    assert(status == 0, output)
-    local built = json.decode(output)
-    assert(built.ok, output)
-    status, output = process.capture({"luajit", PROJECT .. "/compiled_scope.lua"}, {
-        cwd = native,
-        env = {
-            LUA_PATH = native .. "/build/?.lua;" .. fs.absolute(HERE .. "/../build") .. "/?.lua;" .. package.path,
-            LUA_CPATH = package.cpath
-        }
-    })
-    assert(status == 0, output)
-end
-
 function M.ordinaryProgramsNeedNoMappingTablesOrPreparation()
     local status, output = call({"run", "ergonomics.nupp"})
     assert(status == 0, output)

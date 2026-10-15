@@ -365,17 +365,10 @@ function M.thirdPartyActionsArePinnedToCommits()
 end
 
 -- A pin written out a second time somewhere that cannot read the pins file. Each
--- of these agreed only because whoever bumped the pin remembered it: the profiler
--- labels a trace from any other LuaJIT unsupported, the notice every archive
--- carries names what was pinned, and llvm-sys is the C API the code generator is
--- compiled against, `231` for LLVM 23.1.
+-- of these agreed only because whoever bumped the pin remembered it: the notice
+-- every archive carries names what was pinned.
 function M.handCopiedPinsAgreeWithThePinsFile()
     local recorded = pins()
-    local trace = read(ROOT .. "/src/nupp/profile/trace.nupp")
-    assert(
-        trace:find('trace.PINNED_LUAJIT_REVISION = "' .. recorded.LUAJIT_REV .. '"', 1, true),
-        "src/nupp/profile/trace.nupp names a LuaJIT revision other than LUAJIT_REV"
-    )
 
     local notice = read(ROOT .. "/host/NOTICE.md")
     assert(
@@ -385,14 +378,6 @@ function M.handCopiedPinsAgreeWithThePinsFile()
     assert(
         notice:find("| `" .. recorded.LPEG_VERSION .. "` |", 1, true),
         "host/NOTICE.md names an LPeg version other than LPEG_VERSION"
-    )
-
-    local major, minor = recorded.LLVM_VERSION:match("^(%d+)%.(%d+)%.")
-    local manifest = read(ROOT .. "/native/crates/codegen/Cargo.toml")
-    local bound = manifest:match('llvm%-sys = { version = "=(%d+)%.')
-    assert(
-        bound == major .. minor,
-        ("llvm-sys is pinned to the %s C API and LLVM_VERSION is %s"):format(tostring(bound), recorded.LLVM_VERSION)
     )
 
     -- The archive names an offline builder is told to supply.
@@ -594,96 +579,6 @@ function M.aDamagedCachedLuajitIsBuiltAgain()
     os.execute("rm -rf " .. quote(directory))
 end
 
--- The LLVM and LLD notices ship in every release archive, and nothing held them
--- to the source they describe. A drifted one now stops the LLVM build before any
--- of it is configured, the way a drifted LuaJIT or LPeg notice does.
-function M.aDriftedLlvmNoticeStopsTheLlvmBuild()
-    local directory = temporary()
-    local root = directory .. "/root"
-    local bin = directory .. "/bin"
-    local source = directory .. "/cache/sources/" .. pins().LLVM_DIRECTORY:gsub("%${LLVM_VERSION}", pins().LLVM_VERSION)
-    for _, path in ipairs({
-        root .. "/scripts/patches",
-        root .. "/host/notices",
-        bin,
-        source .. "/llvm",
-        source .. "/lld"
-    }) do
-        assert(os.execute("mkdir -p " .. quote(path)) == 0)
-    end
-    local driver = root .. "/scripts/toolchain"
-    write(driver, read(DRIVER))
-    write(root .. "/scripts/toolchain.pins", read(ROOT .. "/scripts/toolchain.pins"))
-    write(root .. "/scripts/patches/luajit.patch", read(ROOT .. "/scripts/patches/luajit.patch"))
-    for _, notice in ipairs({"LLVM-LICENSE.txt", "LLD-LICENSE.txt"}) do
-        write(root .. "/host/notices/" .. notice, read(ROOT .. "/host/notices/" .. notice))
-    end
-    write(source .. "/llvm/CMakeLists.txt", "")
-    write(source .. "/lld/CMakeLists.txt", "")
-    write(source .. "/llvm/LICENSE.TXT", read(ROOT .. "/host/notices/LLVM-LICENSE.txt"))
-    write(source .. "/lld/LICENSE.TXT", read(ROOT .. "/host/notices/LLD-LICENSE.txt") .. "\nA new clause.\n")
-    -- cmake records that it ran; reaching it means the notice was not checked.
-    write(bin .. "/cmake", "#!/bin/sh\n: > " .. quote(directory .. "/configured") .. "\nexit 1\n")
-    write(bin .. "/ninja", "#!/bin/sh\nexit 1\n")
-    assert(
-        os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/cmake") .. " " .. quote(bin .. "/ninja")) == 0
-    )
-    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
-    local status, output = run(
-        {
-            NUPP_TOOLCHAIN_DIR = directory .. "/cache",
-            NUPP_CC = compiler,
-            NUPP_CXX = compiler,
-            -- CI's pinned-llvm step names a real tree, which would be used as is.
-            NUPP_LLVM_PREFIX = "",
-            PATH = forPath(bin) .. ":$PATH",
-        },
-        "llvm",
-        driver
-    )
-    assert(status ~= 0, "a drifted LLD notice was built past:\n" .. output)
-    assert(output:find("host/notices/LLD-LICENSE.txt is not what", 1, true), output)
-    assert(not io.open(directory .. "/configured", "rb"), "LLVM was configured before its notices were checked")
-    os.execute("rm -rf " .. quote(directory))
-end
-
--- A tree named outright is checked for being the pinned LLVM as well as for being
--- whole. CI names whichever restored tree it finds first, and one left from before
--- a pin bump was linked as though it were the pinned one.
-function M.aNamedLlvmTreeOfAnotherVersionIsRefused()
-    local directory = temporary()
-
-    local function tree(name, version)
-        local prefix = directory .. "/" .. name
-        assert(os.execute("mkdir -p " .. quote(prefix .. "/bin") .. " " .. quote(prefix .. "/lib")) == 0)
-        fakeCompiler(prefix .. "/bin", "llvm-config", version)
-        for _, library in ipairs({"lldCommon", "lldMachO", "lldELF", "lldCOFF", "lldMinGW", "lldWasm"}) do
-            write(prefix .. "/lib/lib" .. library .. ".a", "")
-        end
-        assert(os.execute("mkdir -p " .. quote(prefix .. "/include/llvm/Config")) == 0)
-        write(
-            prefix .. "/include/llvm/Config/llvm-config.h",
-            '#define LLVM_VERSION_MAJOR 1\n#define LLVM_VERSION_STRING "' .. version .. '"\n'
-        )
-
-        return prefix
-    end
-
-    local environment = {NUPP_TOOLCHAIN_DIR = directory .. "/cache", PATH = "$PATH",}
-    environment.NUPP_LLVM_PREFIX = tree("pinned", pins().LLVM_VERSION)
-    local status, output = run(environment, "llvm")
-    assert(status == 0, "the pinned version was refused:\n" .. output)
-
-    environment.NUPP_LLVM_PREFIX = tree("stale", "1.0.0")
-    status, output = run(environment, "llvm")
-    assert(status ~= 0, "a tree of another LLVM was used as the pinned one:\n" .. output)
-    assert(
-        output:find("which is LLVM 1.0.0, not the pinned " .. pins().LLVM_VERSION, 1, true),
-        "the refusal does not say which versions disagree:\n" .. output
-    )
-    os.execute("rm -rf " .. quote(directory))
-end
-
 -- Offline says which directory to put the archive in, because a builder with no
 -- network has no way to discover that from a failed download.
 function M.offlineNamesTheDirectoryToSupply()
@@ -868,14 +763,14 @@ function M.windowsDefaultsToTheGnuCompilerPair()
     assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
 end
 
--- Cargo owns the ordinary Rust executable's platform closure. The static relink
--- route still invokes a C linker and must spell that closure explicitly.
+-- Cargo owns the ordinary Rust executable's platform closure. The embedding
+-- library link still invokes a C linker and must spell that closure explicitly.
 function M.windowsHostLinkersCarryPthread()
     local driver = read(ROOT .. "/scripts/toolchain")
     local systemFlags = assert(driver:match("host_system_flags%(%) {%s*(.-)\n}"))
     local windowsFlags = assert(systemFlags:match("windows%)(.-);;"))
     assert(windowsFlags:find("-lpthread", 1, true), "the Windows application host linker does not link pthread")
-    assert(driver:find('$(host_system_flags "$features")', 1, true), "the application linker omits its system flags")
+    assert(driver:find('system_flags=$(host_system_flags "$2")', 1, true), "the embedding linker omits its system flags")
 end
 
 -- Rustls reads the Windows root stores through CryptoAPI, and Rust std builds
@@ -970,18 +865,9 @@ function M.staticHostsRetainTheRustApplicationArchive()
         hasOneCodegenUnit("nupp-native") and hasOneCodegenUnit("nupp-native-host"),
         "the ordinary Windows host archive can split name-resolved Rust exports across codegen units"
     )
-    local windowsHost = assert(
-        driver:find('set -- "$CC" -v -o "$probe.exe" "$probe-aot.o" "$out/libnupp-runtime.a"', 1, true)
-    )
     assert(
         driver:find('-lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -lntdll', 1, true),
         "the Windows system flags omit canonical imports"
-    )
-    local systemImports = assert(driver:find('$(host_system_flags "$features")', windowsHost, true))
-    local hostImports = assert(driver:find('set -- "$@" "$out/lib/libnupp-host-imports.a"', systemImports, true))
-    assert(
-        windowsHost < systemImports and systemImports < hostImports,
-        "the Windows import companion can preempt MinGW's canonical system imports"
     )
     assert(
         driver:find('-lkernel32 -lsecur32 -lncrypt', 1, true),
@@ -989,7 +875,7 @@ function M.staticHostsRetainTheRustApplicationArchive()
     )
     assert(
         not driver:find('--whole-archive "$out/lib/libnupp-host-imports.a"', 1, true),
-        "the Windows link kit explicitly force-loads Rust std's import companion"
+        "the Windows host link explicitly force-loads Rust std's import companion"
     )
 end
 

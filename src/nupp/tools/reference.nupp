@@ -1929,13 +1929,10 @@ annotation. It changes no runtime behavior.
 
 `@aot` reserves a required whole-function ahead-of-time compilation contract on
 a top-level local function declaration. A target's `aot` policy says what a
-build does with it: `off`, the default, does
-nothing; `require` compiles it into the project's own shared library and fails
-the build when it cannot.
-Under `require` the function is replaced where it was written by a checked
-wrapper that calls the compiled entry, so every call to it reaches native code
-and the struct layouts are compared against the object's own before the module
-finishes loading.
+build does with it: `off`, the default, does nothing; `require` compiles every
+`@aot(target = "gpu")` kernel and fails the build on a CPU `@aot` function,
+whose native code generator was removed with LuaJIT. The VM lowers those bodies
+itself.
 
 A closure, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside one reports `NUPP2903` at the construct. A constructor,
@@ -1948,23 +1945,6 @@ species, a GPU kernel outside its subset, or a const family over its cap.
 `nupp check` lowers too, for a target whose policy is anything but `off`, so a
 program that checks against that target is one its build admits.
 
-The compiler classifies an admitted function automatically. Numeric, struct and
-span code uses the pointer-free `kernel` ABI. A function that constructs or
-returns ordinary Lua tables or strings uses the `lua-builder` ABI and is entered
-as a registered Lua C closure. `nupp aot` reports the selected mode; no second
-annotation selects it.
-
-The builder subset admits fresh table literals, resolved
-`table.new(arrayCapacity, hashCapacity)`, primitive values, rooted string
-arguments, nested fresh tables, numeric or string-key raw-equivalent writes,
-numeric reads from fresh tables, rooted string length, byte and substring
-operations, append-only concatenation, structured control flow, and a final
-return. Append-only locals lower automatically to buffered Lua construction;
-they need no builder-specific source body. Mutating or reading an existing or
-published table, metatables, dynamic calls, callbacks, userdata, and cycles are
-not admitted. With `aot = "off"` the unchanged ordinary body runs; with
-`require`, one native call returns the completed ordinary Lua value.
-
 A block kernel may use independently sized spans, structured scalar control
 flow, and multiple numeric or boolean results. A loop from one through
 `#input` authorizes access to that input, and a zero-based `uint32` append
@@ -1972,17 +1952,12 @@ cursor authorizes `output[cursor + 1] = value` only inside a dominating
 `cursor < #output` branch, or a bound on a span the leading guards hold no
 longer than `output`, such as `#input` after `assert(#output == #input)`.
 These proofs remain in checked AOT IR, so omitting a
-guard is a compile-time refusal rather than an unchecked native access. Reified
-span structs may store `number` fields as physical C `double` values, which is
-what makes them usable as pointer-free parser and codec arenas.
+guard is a compile-time refusal rather than an unchecked native access.
 
 An algorithm that runs in vector lanes imports `nupp.simd` inside a block
 kernel and writes the species loop, masks, and tail explicitly; a loop without
-those operations is scalar. Its vector and mask
-values cannot escape the kernel and have no boxed Lua representation.
-`simd.species` returns `nil` with `aot = "off"`, so the source can supply an
-ordinary scalar continuation. `nupp aot --emit llvm` and `--emit asm` expose the
-chosen implementation for inspection.
+those operations is scalar. Its vector and mask values cannot escape the kernel
+and have no boxed Lua representation.
 
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. With the native `aot = "require"` policy, the compiler emits
@@ -1992,13 +1967,8 @@ a typed kernel specification. Its
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The kernel returned by `compile` borrows its context, and the binding returned
-by `bind` borrows its kernel; both are closeable.
-The generated `compile(...)` call carries the target provider's artifact and
-entrypoint: SPIR-V for native WGPU, or WGSL for browser WebGPU.
-The Wasm policies refuse GPU IR, and `aot = "off"` retains the ordinary
-function value. `nupp aot --emit spirv FILE` writes the canonical
-binary module, and `--emit wgsl` prints the `webgpu-int32` artifact when the
-kernel lies inside that profile. WGPU performs platform shader translation.
+by `bind` borrows its kernel; both are closeable. `aot = "off"` retains the
+ordinary function value. WGPU performs platform shader translation.
 
 The current GPU subset is one complete-span map with fixed-width elements, any
 number of proved read and write spans, and up to 128 bytes of fixed-width scalar
@@ -2023,11 +1993,6 @@ A structured kernel calls `gpu.workgroups(groups, size, controller)` with
 the CPU and on the device alike: when the span is not a whole number of groups,
 the elements past the last whole group are not visited, so pad the span to a
 multiple of `size` to cover them.
-
-A parser builds an ordinary Lua value through the iterative
-`nupp.codec.valuebuilder` stream. See
-[lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
-for its operations and limits.
 ]=],
         example = [=[
 local m = {}

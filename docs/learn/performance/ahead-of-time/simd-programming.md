@@ -102,9 +102,9 @@ their running time. The useful group size depends on the work and the target.
 ## Kernels
 
 Nupp's explicit SIMD operations use the *ahead-of-time* (AOT) path: an `@aot`
-function lowers to native code through LLVM during a build. LLVM is the
-compiler backend that selects and optimizes processor instructions. The
-kernel uses these modules to connect its data to those instructions:
+function lowers through verified IR, which the VM compiles on its native tier
+into processor instructions. The kernel uses these modules to connect its data
+to those instructions:
 
 - [](nupp.mem.array) allocates owned, contiguous storage of
   one element type. Contiguous means the elements sit next to each other in
@@ -254,85 +254,17 @@ The full-width guard proves the unmasked accesses safe. The earlier length
 assertion extends that proof to `output`. `species:tail` marks the remaining
 elements, and both the partial load and its store receive that mask.
 
-## Compiling a kernel
+## Running a kernel
 
-A build target with an `aot` policy compiles its `@aot` functions. In
-`nupp.lua`, the target can require AOT compilation:
+The VM lowers an `@aot` function's verified IR on its native tier, so explicit
+lane operations reach vector instructions without a separate build step. Run as
+ordinary Lua, under `aot = "off"`, the same source still answers the same: the
+preferred species has one lane and a fixed species its requested count.
 
-```lua
-targets = {
-   app = {kind = "modules", aot = "require"},
-}
-```
-
-`nupp build` then lowers the target's `@aot` functions into a shared library
-under its output directory's `lib/` and writes wrappers that call it. Before
-building, `nupp aot` says what the compiler makes of each function:
-
-```text [nupp aot scale.nupp]
-scale.nupp: scale, kernel, explicit simd
-```
-
-"Explicit simd" means the source uses vector operations. *Assembly* names
-the processor instructions selected for the function; this excerpt shows
-the scale kernel built for NEON:
-
-```text [nupp aot --emit asm --function scale scale.nupp]
-LBB1_11:
-      ldp     q1, q2, [x11, #-32]
-      fmul.4s v1, v1, v0[0]
-      fmul.4s v2, v2, v0[0]
-      stp     q1, q2, [x12, #-32]
-```
-
-`q1` and `q2` are 128-bit registers, each loaded with four floats. `fmul.4s`
-multiplies all four lanes by the factor in `v0`. The code generator has
-*unrolled* the loop, repeating its body so each pass handles several vectors.
-See [build-and-artifacts.md](build-and-artifacts.md) for the policies, the
-feature tiers a build ships, and what the build writes.
-
-## Auto-vectorization
-
-The same function written as a plain loop, with no `nupp.simd` operations,
-also lowers to vector multiplies in this NEON build:
-
-```nupp
-local span = require("nupp.mem.span")
-
-@aot
-local function scale(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, factor: float): nil
-    assert(#output == #input, "length mismatch")
-    for i = 1, #input do
-        output[i] = input[i] * factor
-    end
-end
-```
-
-```text [nupp aot --emit asm --function scale scalar.nupp]
-LBB0_6:
-      ldp     q1, q2, [x10, #-32]
-      ldp     q3, q4, [x10], #64
-      fmul.4s v1, v1, v0[0]
-      fmul.4s v2, v2, v0[0]
-      fmul.4s v3, v3, v0[0]
-      fmul.4s v4, v4, v0[0]
-```
-
-LLVM's *auto-vectorizer* is a compiler pass that turns scalar operations into
-vector operations. Here it recognized independent multiplications over
-contiguous storage. In the recorded measurement over a million floats on an
-Apple silicon laptop, both versions took 0.07 ms.
-
-A compiler may vectorize a loop when it can preserve the program's required
-behavior and expects the transformation to be worthwhile. Independent
-iterations can run together; an iteration that depends on the previous
-result needs a transformation that preserves that dependency's meaning.
-
-`nupp aot` reports "scalar" when the function has no explicit SIMD operations
-in Nupp's *intermediate representation* (IR), the form passed to the backend.
-That includes the plain `scale` loop above that LLVM vectorizes. Read
-the generated assembly to see whether LLVM used lanes. The rest of this page
-shows explicit SIMD for loop shapes that can need it:
+A loop without `nupp.simd` operations is scalar in Nupp's *intermediate
+representation* (IR). Explicit SIMD puts the lane operations in the source, so
+their presence does not depend on a backend's auto-vectorization decisions.
+The rest of this page shows explicit SIMD for loop shapes that can need it:
 
 - a loop whose body runs a different number of times for different elements
 - a floating-point sum, because adding in another order gives another answer
@@ -341,14 +273,6 @@ shows explicit SIMD for loop shapes that can need it:
 - a filter that keeps some elements and drops others
 - byte arithmetic that needs more than a byte of room
 - data laid out as interleaved records
-
-Explicit SIMD puts the lane operations in the source, and `nupp aot` reports
-the kernel as "explicit simd". Their presence in Nupp IR does not depend on
-LLVM's auto-vectorization decisions. LLVM can also vectorize some searches,
-interleaved accesses, and ordered reductions; the result depends on the loop
-and target. See
-[LLVM's vectorization guide](https://llvm.org/docs/Vectorizers.html)
-for its supported transformations.
 
 ## Vectors and species
 
@@ -1225,10 +1149,8 @@ It also rejects passing a native-only function as an argument, returning it,
 or storing it in a Lua table. Module exports and import bindings are allowed
 so other native functions can reach the entry.
 
-`nupp aot` reports these functions as `explicit simd, native-only`. The
-build writes a refusing Lua stub instead of a wrapper, omits the function
-from `__nuppAotCompiled`, and shows the stub under `--emit binding`. Native
-calls resolve through module exports without reading a Lua function value.
+Native calls resolve through module exports without reading a Lua function
+value.
 
 Under `aot = "off"`, the functions are ordinary Nupp and callable from Lua.
 Preferred vectors use one lane; fixed vectors use their requested count.
@@ -1345,20 +1267,15 @@ aggregate.
 ::: deepdive
 The compiler's target layout model lays the field out, per target: the
 payload rounded up to a power of two, capped at the allocator's guarantee of
-16 bytes on 64-bit targets and Wasm, or 8 bytes on i686. The payload pads to
+16 bytes on 64-bit targets, or 8 bytes on i686. The payload pads to
 that alignment, so three `float` lanes occupy 16 bytes, 4 of them padding; a
 payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
 bytes a row, `velocity` at offset 16.
 
-Three things are held to that model. The Lua struct declares the field as
-its element's C array with the model's alignment, so `layoutof(Particle)`,
-the FFI's allocation and its stride follow it. The native code spells the
-struct with explicit padding where the model places a field past LLVM's own
-packing, and loads and stores the field as one vector at the model's
-alignment. The compiled object reports every offset, size and alignment,
-which the generated wrapper compares with `layoutof` when the module loads,
-so a struct the two sides lay out differently, by alignment alone included,
-is rejected there rather than read wrong.
+Both sides are held to that model. The Lua struct declares the field as its
+element's C array with the model's alignment, so `layoutof(Particle)`, the
+FFI's allocation and its stride follow it, and native code loads and stores the
+field as one vector at the model's alignment.
 
 As ordinary Lua the field is the struct's C array: reading it returns the
 N-lane vector of its species, and assigning a vector copies the lanes in.
@@ -1368,8 +1285,8 @@ N-lane vector of its species, and assigning a vector copies the lanes in.
 
 A kernel using the preferred species names no lane count or instruction set.
 The build selects a *feature tier*, a set of processor capabilities the
-compiled function may use: NEON on ARM, an x86 baseline, AVX2, AVX-512, or
-SIMD128 for Wasm. The preferred species has one lane on a scalar tier, while
+compiled function may use: NEON on ARM, an x86 baseline, AVX2, or AVX-512.
+The preferred species has one lane on a scalar tier, while
 a fixed species retains its requested logical lane count on every tier.
 
 Under ordinary Lua the preferred species has one lane and a fixed species its
@@ -1389,38 +1306,21 @@ else
 end
 ```
 
-A native build can include several tiers and select a supported one when the
-library loads. The source is shared across tiers. See
-[library dispatch](build-and-artifacts.md#library-dispatch) for native
-wrappers and [AOT targets](index.md) for target selection.
+The source is shared across tiers. See [AOT targets](index.md) for target
+selection.
 
 `aotFeatures` selects the shipped tiers and can raise the minimum when the
 source requires SIMD. An assertion of `simd.vectors` is rejected at compile
 time on a tier without vector registers. Windows x86-64 limits physical
-vector width to 16 bytes for frame safety, even on wider tiers. Wasm SIMD128
-uses the same source-level vector and mask operations; see
+vector width to 16 bytes for frame safety, even on wider tiers. See
 [gpu.md](gpu.md) for GPU invocations, which use a separate execution model.
 
 ## Measurement
 
-`nupp aot` reports explicit SIMD in Nupp IR, while the LLVM IR and assembly
-show how the backend implements it:
-
-```bash
-nupp aot scale.nupp
-nupp aot --emit llvm scale.nupp
-nupp aot --emit asm --function scale scale.nupp
-```
-
-If the plain loop already shows `fmul.4s`, the auto-vectorizer did the work
-of vectorizing its multiplication. That instruction alone does not establish
-equal performance: the versions can differ in loads, loop control, tails,
-and other work.
-
 Time the whole function. Setup, the tail, and the reducer's final fold are
 part of the cost. The recorded times on this page are the shortest of ten
-wall-clock measurements of complete functions on one Apple silicon laptop,
-with the kernels built under `aot = "require"`. The numeric examples use a
+wall-clock measurements of complete functions compiled ahead of time on one
+Apple silicon laptop. The numeric examples use a
 million elements; the search uses ten million bytes. These timings describe
 those runs. The best of ten does not show measurement uncertainty. See
 [benchmarks.md](../benchmarks.md) for comparisons with a confidence interval.
@@ -1459,15 +1359,11 @@ These terms connect the processor model to the Nupp operations.
   across the lanes of one vector; reducers do it across a whole loop.
 - *Contract*: the grouping and rounding rules a reduction promises.
   Ordered, pairwise, algebraic, and compensated are floating-point contracts.
-- *Auto-vectorizer*: the compiler pass that turns a scalar loop into lanes
-  when it can prove the answer is unchanged.
 - *Feature tier*: one instruction set a build compiles a kernel for, such
-  as NEON, AVX2, or SIMD128.
+  as NEON or AVX2.
 - *Widen* and *narrow*: moving lanes to the next larger or smaller
   element type with the same lane count.
 
 ::: seealso
 - [](nupp.simd) for the complete vector API
-- [cpu-kernels.md](cpu-kernels.md) for bounds proofs, ownership, and
-  inspecting generated code
 :::

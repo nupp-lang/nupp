@@ -46,7 +46,6 @@ local function q8(
     end
 end
 
-@aot
 local function q8Cpu(
     exclusive output: span.WriteSpan<float>,
     borrows weights: span.Span<int8>,
@@ -118,7 +117,6 @@ local function q4(
     end
 end
 
-@aot
 local function q4Cpu(
     exclusive output: span.WriteSpan<float>,
     borrows weights: span.Span<uint8>,

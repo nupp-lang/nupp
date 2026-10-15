@@ -61,11 +61,11 @@ reach the same interpreter.
 
 ### JSON
 
-The performance JSON decoder is Nupp source whose `@aot` SIMD path generates C.
-Portable compiler and browser targets select the vendored pure-Lua codec
-instead. Neither route requires a C++ compiler, simdjson package, or
-JSON-specific native dependency. The simdjson binding under `bench/simd-json`
-is only a performance and differential-test control.
+The performance JSON decoder is Nupp source whose `@aot` SIMD path the VM
+lowers natively. Portable compiler and browser targets select the vendored
+pure-Lua codec instead. Neither route requires a C++ compiler, simdjson
+package, or JSON-specific native dependency. The simdjson binding under
+`bench/serde-spike/simdjson-native` is only a performance control.
 
 ### LPeg
 

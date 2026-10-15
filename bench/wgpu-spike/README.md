@@ -25,7 +25,6 @@ Run a benchmark from the repository root, for example:
 
 ```sh
 bench/wgpu-spike/run-gemm.sh
-bench/wgpu-spike/run-mandelbrot.sh
 bench/wgpu-spike/run-tiled-gemm.sh
 ```
 
@@ -45,10 +44,6 @@ Its `--fp-mode contract=off` is required for the exact binary32 comparison.
 
 ## Workloads
 
-- `run-mandelbrot.sh` compares the generated GPU path with the existing
-  `bench/simd-mandelbrot` scalar and SIMD controls. They share a precomputed
-  1024x768 point array, 256-iteration limit, structs, checksum, warmups, timing
-  windows, and full per-pixel comparison.
 - `run-gemm.sh` checks a generated multi-buffer naive f32 GEMM element-exactly
   against the CPU body from the same source.
 - `run-batched-gemm.sh` covers checked strided, transposed, and broadcast

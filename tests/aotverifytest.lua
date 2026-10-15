@@ -12,7 +12,6 @@ local diagnosticMod = require("nupp.compiler.diagnostics")
 local envMod = require("nupp.compiler.project.env")
 local parser = require("nupp.compiler.syntax.parser")
 local verify = require("nupp.compiler.aot.verify")
-local equivalenceMutation = require("tests.simd.equivalence-mutation")
 local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -1143,33 +1142,6 @@ return {identity = identity}
     refuses(program, "invalid AOT entry result storage")
 end
 
-function M.generatedBuilderWrappersEstablishFloatResults()
-    local binding = require("nupp.compiler.aot.binding")
-    local wasm = require("nupp.compiler.aot.wasmbinding")
-    for _, returns in ipairs({"float", "(float, float)"}) do
-        local returned = returns == "float" and "value" or "value, value"
-        local program = lowered(
-            "@aot\nlocal function identity(value: float): "
-            .. returns
-            .. "\n return "
-            .. returned
-            .. "\nend\nreturn identity\n",
-            "builder-float.nupp"
-        )
-        local source = "local " .. program.symbol .. "_builder: any = nil\n" .. table.concat(
-            binding.builderWrapper(program),
-            "\n"
-        ) .. "\nreturn identity\n"
-        for _, wrapper in ipairs({source, wasm.replacement(program, {"test.wasm"}) .. "\nreturn identity\n"}) do
-            local tree = parser.parse(wrapper, "float-wrapper.nupp")
-            assert(#tree.errors == 0)
-            for _, problem in ipairs(compilerCheck.check(tree, "float-wrapper.nupp", environment)) do
-                assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
-            end
-        end
-    end
-end
-
 function M.mathCallsKeepTheirAdmittedArity()
     local program = lowered(
         [[
@@ -1548,13 +1520,6 @@ return {lanes = lanes}
         if preferred then
             program.simdWidth = 32
             program.vectorCeiling = 16
-        end
-        if not preferred and equivalenceMutation.active("lane-bounds") then
-            local original = extract.args[2]
-            extract.args[2] = {op = "constant", type = "f64", value = "5"}
-            local accepted = pcall(verify.program, program)
-            extract.args[2] = original
-            assert(accepted, equivalenceMutation.marker("lane-bounds", "wrong-result"))
         end
         local returned = program.body[#program.body]
         program.body[#program.body] = {op = "block", body = {returned}}

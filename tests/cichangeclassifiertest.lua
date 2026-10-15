@@ -72,78 +72,6 @@ function M.aotChangeSelectsAotAndFixpoint()
     selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
-function M.localFleetInputsRemainAnExplicitSimdSurface()
-    for _, path in ipairs({
-        "src/nupp/simd.nupp",
-        "src/nupp/simd/horizontal.nupp",
-        "src/nupp/mem/array.nupp",
-        "src/nupp/mem/span.nupp",
-        "src/nupp/mem/soa.nupp",
-        "src/nupp/runtime/storage.nupp",
-        "src/nupp/mem/representation/init.nupp",
-        "src/nupp/runtime/provider/nativestorage.nupp",
-        "src/nupp/text/utf8.nupp",
-        "src/nupp/codec/valuebuilder.nupp",
-        "src/nupp/codec/json/aot.nupp",
-        "src/nupp/codec/json/internal/decoder/fused.nupp",
-        "src/nupp/codec/json/internal/builder.nupp",
-        "src/nupp/compiler/aot/emit.nupp",
-        "src/nupp/tools/build/aot.nupp",
-        "src/nupp/compiler/compilerpacks.nupp",
-        "src/nupp/tools/build/project.nupp",
-        "src/nupp/compiler/check/aot.nupp",
-        "src/nupp/compiler/lua/constspecialize.nupp",
-        "src/nupp/compiler/scalarintrinsics.nupp",
-        "src/nupp/compiler/targetlayout.nupp",
-        "src/nupp/compiler/targetprofile.nupp",
-        "src/nupp/compiler/capabilities.nupp",
-        "runtime/luajit/aot.mjs",
-        "tests/simd/primitives.lua",
-        "tests/simdprimitivedifferentialtest.lua",
-        "tests/jsonfuseddifferentialtest.lua",
-        "bench/utf8simd/src/utf8simd.nupp",
-        "bench/utf8simd/src/utf8reference.nupp",
-        "bench/utf8simd/tests/run.lua",
-        "bench/utf8simd/nupp.lua",
-        "bench/base64simd/src/base64simd.nupp",
-        "bench/base64simd/src/base64reference.nupp",
-        "bench/base64simd/tests/run.lua",
-        "bench/base64simd/nupp.lua",
-        "bench/simd-json/src/simd_json/indexer.nupp",
-        "bench/simd-json/src/simd_json/indexer_reference.nupp",
-        "bench/simd-json/tests/index.lua",
-        "bench/simd-json/nupp.lua",
-        "bench/fused-json/prepare.sh",
-        "bench/fused-json/tests/differential.lua",
-        "bench/fused-json/nupp.lua"
-    }) do
-        test.assert(classifier().surfacesOf(path).simd, path .. " should be on the SIMD surface")
-    end
-end
-
-function M.simdSurfaceHasNoChangeTriggeredGitHubJob()
-    for _, name in ipairs(everyJob()) do
-        test.assert(name ~= "simd-conformance", "the SIMD fleet must stay out of change-triggered CI")
-    end
-end
-
-function M.unrelatedSourcesStayOutsideTheSimdSurface()
-    for _, path in ipairs({
-        "src/nupp/derive.nupp",
-        "src/nupp/text.nupp",
-        "src/nupp/runtime/tasks.nupp",
-        "src/nupp/compiler/check/callexpr.nupp",
-        "native/crates/http/src/lib.rs",
-        "tests/parsertest.lua",
-        "bench/utf8simd/results/run.json",
-        "bench/base64simd/compare.lua",
-        "bench/simd-json/benchmark.lua",
-        "bench/fused-json/README.md"
-    }) do
-        test.assert(not classifier().surfacesOf(path).simd, path .. " should not be on the SIMD surface")
-    end
-end
-
 function M.runtimeChangeSelectsBrowserAndNativeCoverage()
     selects("src/nupp/runtime/tasks.nupp", {"fast-checks", "linux-integration", "portable-compiler", "fixpoint"})
 end
@@ -160,12 +88,6 @@ function M.wasmOnlyFixturesSelectTheJobThatRunsThem()
     selects("tests/wasm-aot/project/src/main.nupp", {"browser-wasm"})
     selects("tests/wasm-aot/simd-project/src/main.nupp", {"browser-wasm"})
     selects("tests/luajit-browser/prepare-packaged.mjs", {"browser-wasm"})
-    selects("tests/simd/primitives.lua", {
-        "browser-wasm",
-        "linux-integration",
-        "macos-integration",
-        "windows-integration"
-    })
     selects("src/nupp/compiler/aot/compile.nupp", {"browser-wasm"})
     selects("src/nupp/tools/build/aot.nupp", {"browser-wasm"})
     selects("src/nupp/simd.nupp", {"browser-wasm"})
@@ -335,15 +257,11 @@ function M.everyBenchmarkRunnerInputReachesTheMeasurementSurface()
     end
 end
 
--- The budget suites compile benchmark sources and hold what those compile to, so a
--- benchmark edit is a change those suites can observe, not only a measurement one.
+-- The budget suite compiles benchmark sources and holds what those compile to, so a
+-- benchmark edit is a change that suite can observe, not only a measurement one.
 function M.benchmarkSourcesWithBudgetsReachTheSuitesHoldingThem()
     local surfacesOf = classifier().surfacesOf
     test.assert(surfacesOf("bench/soa.bench.nupp").tests, "perfbudgettest holds the benchmark programs' bytecode")
-    test.assert(
-        surfacesOf("bench/simd-mandelbrot/mandelbrot.nupp").aot,
-        "aotbudgettest holds the Mandelbrot kernels' native code"
-    )
     test.assert(surfacesOf("bench/soa.bench.nupp").measurement, "a benchmark source is still a measurement input")
 end
 
