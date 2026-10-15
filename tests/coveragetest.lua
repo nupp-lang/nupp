@@ -42,6 +42,18 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(#report.files > 0, "coverage report has source files")
     assert(report.summary.lines.total > 0, "coverage report has executable lines")
     assert(report.summary.lines.covered > 0, "the run reached instrumented code")
+    -- A module the suite loaded ran its top level, and its first statement is there.
+    local first = nil
+    for _, file in ipairs(report.files) do
+        if file.path == "src/nupp/tools/coverage.nupp" then
+            for _, site in ipairs(file.sites) do
+                if site.kind == "statement" and (not first or site.line < first.line) then
+                    first = site
+                end
+            end
+        end
+    end
+    assert(first and first.count > 0, "a loaded module's top level is counted")
     local index = read(out .. "/index.html")
     test.matches(index, "<details")
     test.matches(index, "Missed arms")
