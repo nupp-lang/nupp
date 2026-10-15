@@ -2135,6 +2135,45 @@ function lower.emit(
     -- lands, and `stmtReclaim` unwinds to before the statement.
     local emitCallBody = emitCall
     emitCall = function(f, node, dst, nres, all)
+        if node.kind == "call" and node.admitName then
+            -- `nupp.admit(value)`: what the checker proved costs nothing; what it
+            -- could not is tested on the value, read once, and refused when false.
+            local supplied = node.args and node.args.exprs and node.args.exprs[1]
+            if not node.admitPredicate then
+                exprAs(f, supplied, "v", dst)
+            else
+                local test = node.vmAdmitTest
+                if not test then
+                    local text = require(
+                        "nupp.compiler.types.predicate"
+                    ).render(node.admitPredicate, "__nuppAdmitValue")
+                    local parsed = require("nupp.compiler.syntax.parser").parse("return " .. text, "=admit")
+                    assert(#parsed.errors == 0, "admission test does not parse: " .. text)
+                    test = (parsed.root.blocks[1].stats[1] as any).exprs[1]
+                    node.vmAdmitTest = test
+                end
+                f:push()
+                local subject = f:declare("__nuppAdmitValue", "v")
+                exprAs(f, supplied, "v", subject)
+                local admitted = exprAs(f, test, "v")
+                local pass = f:op("JmpIf", admitted, 0)
+                local message, level = f:reg(), f:reg()
+                f:op(
+                    "K",
+                    message,
+                    f:const("str", "value is not established as " .. (node.admitName or "a constrained type"))
+                )
+                f:op("K", level, f:const("num", 2))
+                builtinRegisters(f, "error", {message, level})
+                f:patch(pass, "JmpIf", admitted, f:offset(pass, f:here()))
+                f:op("Move", dst, subject)
+                f:pop()
+            end
+            for extra = 1, (nres or 1) - 1 do
+                f:op("Nil", dst + extra)
+            end
+            return
+        end
         local plan = node.formatIntrinsic
         if plan then
             -- A format holding `%?` was rewritten by the checker to `%s`; each
