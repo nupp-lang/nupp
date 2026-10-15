@@ -234,10 +234,17 @@ function lower.emit(
     -- the loader resolves both images to one shape and one method table.
     -- The module a nominal type was declared in, which a type restored from
     -- another module's interface keeps only in its runtime declaration key.
+    -- The key separates its parts with NUL, and a declaration with no module
+    -- (`<chunk>`) has no identity to share.
     local function declaringModule(t)
-        return t.moduleName
-            or type(t.runtimeDeclarationKey) == "string" and t.runtimeDeclarationKey:match("^(%S+)")
+        local owner = t.moduleName
+            or type(t.runtimeDeclarationKey) == "string" and t.runtimeDeclarationKey:match("^([^%z]+)")
             or nil
+        if owner and owner:find("^[%w_.]+$") then
+            return owner
+        end
+
+        return nil
     end
 
     foreignShape = function(t)
@@ -4736,8 +4743,9 @@ function lower.emit(
 
     for _, shape in ipairs(shapeOrder) do
         local parts = {"shape", shape.id, shape.name}
-        if shape.module and not shape.physical and not shape.name:find("^struct:") then
-            parts[#parts + 1] = "identity=" .. shape.module .. ":" .. shape.name
+        local identity = shape.module and shape.module .. ":" .. shape.name
+        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
+            parts[#parts + 1] = "identity=" .. identity
         end
         for _, slot in ipairs(shape.slots) do
             parts[#parts + 1] = slot.name .. ":" .. slot.ty
