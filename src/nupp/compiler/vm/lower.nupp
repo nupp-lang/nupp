@@ -3186,6 +3186,12 @@ function lower.emit(
                     ) .. " [" .. table.concat(keys, " ") .. "]"
                 )
             end
+            -- A record or struct another module declares (a `global struct` among
+            -- them) carries what that module's image attaches, so it loads first.
+            if shape.module and shape.module ~= currentModule then
+                local loaded = f:reg()
+                f:op("Require", loaded, f:const("str", shape.module))
+            end
             if shape.physical then
                 if not shape.layout.supported then
                     local reason = f:reg()
@@ -3206,12 +3212,6 @@ function lower.emit(
                     dst
                 )
             else
-                -- A record another module declares carries the methods that module's
-                -- image attaches to its shape, so that module is loaded first.
-                if shape.module and shape.module ~= currentModule then
-                    local loaded = f:reg()
-                    f:op("Require", loaded, f:const("str", shape.module))
-                end
                 f:op("NewRecord", dst, shape.id)
             end
             local fields = call.recordFields
@@ -4839,6 +4839,13 @@ function lower.emit(
                 f:op("SetField", parent, f:const("str", tokText(node.name)), identity)
             else
                 identity = exprAs(f, {kind = "name", token = node.name}, "v")
+            end
+            -- A `global` declaration is also the global of its name, which a file
+            -- that never requires its module reads.
+            if node.visibility == "global" and not node.qualifiers then
+                local globals = f:reg()
+                f:globals(globals)
+                f:op("SetField", globals, f:const("str", tokText(node.name)), identity)
             end
             if not shape then
                 for _, entry in ipairs(node.entries) do
