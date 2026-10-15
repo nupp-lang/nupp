@@ -2275,3 +2275,51 @@ cache takes most of an hour,
 so a run that should pass needs the cache kept between runs (`NUPP_CACHE_DIR`,
 or the checkout's `build/cache`). `examplestest` is unchanged: it checks the
 documentation's examples in its own process and compiles no image.
+
+## Stamps narrower than the image (2026-10-15)
+
+Stamping every store with the whole image's identity was correct and coarse:
+an edit to any command made every project start cold. The runtime now also
+answers `__nupp_image_modules()` (`vm.imageModules`) for the image it started
+from, and `nupp.compiler.project.fingerprint` walks that graph the way it
+walks a LuaJIT tree, so a store is stamped with only the image modules its
+answer came from. The answer is read off the loaded image, never off the
+sources beside it, for the reason the identity stamp exists.
+
+- **Digest**: a module's functions as the image spells them, with every
+  image-wide index made stable: a function id (in calls, closures, `func`
+  constants, shape methods, and the `fn<id>` an anonymous function is named
+  after) becomes the owning module and its position there, and a shape index
+  becomes the shape's own text. Two images that differ in one module differ in
+  that module's digest alone, whether a LuaJIT or a VM compiler emitted them.
+- **Edges**: literal `Require`s, the modules whose functions a module names,
+  the modules defining methods of the shapes it uses, and what an
+  `@requires-dynamically` constant declares. A name the image does not carry
+  is no edge: that code is no more covered by the whole image's digest.
+- **Incomplete**: a forward dataflow over each function that touches
+  `require` (or `_G.require`) finds its calls. A string argument is that
+  module; a concatenation starting with a literal counts as the literal, which
+  is how the LuaJIT graph's token reader sees `require("nupp.compiler." ..
+  name)`; any other argument, or `require` escaping as a value, makes the
+  module incomplete unless it carries a marker. A subsystem reaching an
+  incomplete module falls back to the whole image, and a runtime without the
+  builtin gives the whole image too.
+
+On the CLI image every root the compiler stamps with (headers, check records,
+type functions, prelude, VM images) reaches a complete graph; only
+`generatorworker` and `nupp.tools.vm.root` are incomplete. Describing the
+21 MB image takes about 95 ms, kept per image in `modulegraph.buf`.
+
+Measured on `bench/serde-spike` with `nupp check` on the linked CLI, the
+machine shared with other runs: cold 1,187 s, warm 1.8 s. A CLI rebuilt with
+a code change to `nupp.tools.cli.explain` alone (source restored before
+checking, so only the compiler differed) stayed warm: 2.8 s on the first
+command, which describes the new image, then 1.7 s. Before this every such
+rebuild went cold. A CLI rebuilt with a message change in
+`nupp.compiler.check.discard` went cold as it must, 180 s, then 1.7 s. Of the
+three images' 336 module digests, only the edited module's differed.
+
+Inherited from the LuaJIT graph, and open: the literal-prefix rule means
+`compilerPrivate` in `env` and the trivia-arena provider `vm.root` installs
+are not edges, so neither graph covers those modules for the stamps reaching
+them; the runtime binary is in no stamp.
