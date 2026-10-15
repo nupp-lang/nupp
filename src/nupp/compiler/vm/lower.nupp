@@ -961,6 +961,18 @@ function lower.emit(
     }) do
         SCALAR_KIND[n] = i - 1
     end
+    -- `int32` bit operators by the `Scalar` kinds that compute them.
+    local INT32_BITS: {
+        [string]: {string}
+    } = {
+        ["&"] = {"i32.andBits"},
+        ["|"] = {"i32.orBits"},
+        ["~"] = {"i32.xorBits"},
+        ["<<"] = {"u32.shiftLeft", "u32.toI32"},
+        [">>"] = {"u32.shiftRightLogical", "u32.toI32"},
+        ["~>>"] = {"i32.shiftRightArithmetic"},
+    }
+    local INT32_UNARY_BITS: {[string]: {string}} = {["~"] = {"i32.notBits"}}
     local IS_TYPE = {
         string = "string",
         number = "number",
@@ -1953,6 +1965,31 @@ function lower.emit(
             local b = exprAs(f, node.rhs, "v")
             local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
             f:op("Scalar", assert(SCALAR_KIND[node.fixedArithmetic]), d, a, b)
+            return d, "v"
+        end
+        if k == "unop" and node.fixedArithmetic then
+            local a = exprAs(f, node.operand, "v")
+            local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
+            f:op("Scalar", assert(SCALAR_KIND[node.fixedArithmetic]), d, a, a)
+            return d, "v"
+        end
+        -- A bit operator the checker typed `int32` has BitOp's thirty-two bit
+        -- meaning, as the Lua backend gives it, rather than the integer
+        -- file's sixty-four: `x << 9` wraps and `x >> 16` shifts in zeros at
+        -- bit 31. The shifts reinterpret the unsigned result as the signed
+        -- one the operator answers.
+        local int32Bits = (k == "binop" or k == "unop")
+            and node.inferredType
+            and node.inferredType.tag == "int32"
+            and (k == "unop" and INT32_UNARY_BITS or INT32_BITS)[tokText(node.op)]
+        if int32Bits then
+            local a = exprAs(f, k == "unop" and node.operand or node.lhs, "v")
+            local b = k == "unop" and a or exprAs(f, node.rhs, "v")
+            local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
+            f:op("Scalar", assert(SCALAR_KIND[int32Bits[1]]), d, a, b)
+            if int32Bits[2] then
+                f:op("Scalar", assert(SCALAR_KIND[int32Bits[2]]), d, d, d)
+            end
             return d, "v"
         end
         local wide = wideKind(node.inferredType)
