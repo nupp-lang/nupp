@@ -191,6 +191,15 @@ def build(args):
             env.pop(name, None)
         run_step([str(out / "plain-runtime"), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "VM-hosted root emit")
+        if seed == "image":
+            # A pinned image is an older compiler: what it lowers is these sources
+            # as its lowerer spells them. One more pass lowers them with their own
+            # lowerer, which is the image the fixpoint verifies.
+            first = out / "stage1.image"
+            image.replace(first)
+            run_step([str(out / "plain-runtime"), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
+                      "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "self-hosting root emit")
+            first.unlink()
     else:
         env = dict(os.environ, NUPP_ENGINE="luajit")
         env.pop("NUPP_VM_CLI_IMAGE", None)
