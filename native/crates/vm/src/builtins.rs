@@ -971,6 +971,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
                 "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
                 "isrunning" => outs![Value::boolean(it.heap.automatic_collection)],
+                // A step finishes a whole cycle here, which is what `true` reports.
+                "step" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::TRUE] }
+                // The incremental collector paces itself; the settings are answered, not kept.
+                "setpause" => outs![Value::num(200.0)],
+                "setstepmul" => outs![Value::num(100.0)],
                 _ => it.err("unsupported collector option"),
             };
         }
@@ -1257,7 +1262,24 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) }; lua_number(body).map(|x| if negative { -x } else { x }) } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
-        N_30 => { let n = arg(args, 0); if !n.is_num() { return outs![Value::num((args.len() - 1) as f64)]; } let i = n.as_num() as i64; if i < 0 { args[(args.len() as i64 + i) as usize..].iter().copied().collect() } else { args[(i as usize).min(args.len())..].iter().copied().collect() } }
+        N_30 => {
+            // `select('#', ...)` counts; any other selector is an index, a numeric
+            // string included, and anything else is refused as Lua refuses it.
+            let n = arg(args, 0);
+            let count = args.len().saturating_sub(1) as i64;
+            if it.is_stringish(n) && it.bytes_of(n) == b"#" { return outs![Value::num(count as f64)]; }
+            let index = if n.is_num() { Some(n.as_num()) } else if it.is_stringish(n) { std::str::from_utf8(it.bytes_of(n)).ok().and_then(|s| s.trim().parse::<f64>().ok()) } else { None };
+            let Some(index) = index else { let got = type_name(it, n); it.err(&format!("bad argument #1 to 'select' (number expected, got {got})")) };
+            let i = index as i64;
+            if i < 0 {
+                if -i > count { it.err("bad argument #1 to 'select' (index out of range)"); }
+                args[(args.len() as i64 + i) as usize..].iter().copied().collect()
+            } else if i == 0 {
+                it.err("bad argument #1 to 'select' (index out of range)")
+            } else {
+                args[(i as usize).min(args.len())..].iter().copied().collect()
+            }
+        }
         N_31 => {
             use std::io::Write;
             let mut line = Vec::new();
