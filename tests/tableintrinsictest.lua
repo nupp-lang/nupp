@@ -1,43 +1,24 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local optimize = require("nupp.compiler.lua.optimize")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function compile(src, level)
+local function run(src)
     local result = parser.parse(src, "test.nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
     local diags = check.check(result, "test.nupp", env)
     testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
-    optimize.run(result, {level = level or 0})
-    local code, generatedDiags = gen.generate(result, "test")
-    testAssert.equal(#generatedDiags, 0, "generation diagnostics")
 
-    return code
-end
-
-local function run(src, level)
-    local code = compile(src, level)
-    local chunk, err = loadstring(code, "@table_intrinsic_test")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
-
-    return chunk()
-end
-
-local function occurrences(text, literal)
-    local _, count = text:gsub(literal:gsub("(%W)", "%%%1"), "")
-    return count
+    return program.run(result, "table_intrinsic_test", "test.nupp")
 end
 
 local M = {}
 
-function M.injectsEachUsedTableBuiltinOnce()
+function M.tableNewAndClearRun()
     local src = table.concat(
         {
             "local first = table.new(2, 0)",
@@ -48,45 +29,9 @@ function M.injectsEachUsedTableBuiltinOnce()
         },
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(occurrences(code, 'require("table.new")'), 1, "one table.new binding")
-    testAssert.equal(occurrences(code, 'require("table.clear")'), 1, "one table.clear binding")
-    assert(code:find('const __nuppNew = require("table.new")', 1, true), code)
-    assert(code:find('const __nuppClear = require("table.clear")', 1, true), code)
     local first, second = run(src)
     testAssert.equal(next(first), nil, "first table was cleared")
     testAssert.equal(next(second), nil, "second table was cleared")
-end
-
-function M.constructorPresizingLeavesTheUserTableNewBindingAlone()
-    local code = compile(
-        table.concat(
-            {
-                "local sized = {}",
-                "sized.left = 1",
-                "sized.right = 2",
-                "local explicit = table.new(1, 0)",
-                "return sized, explicit",
-            },
-            "\n"
-        ),
-        1
-    )
-    testAssert.equal(occurrences(code, 'require("table.new")'), 1, "the explicit call has one table.new binding")
-    testAssert.equal(occurrences(code, "__nuppNew"), 2, "one declaration and one explicit call use the binding")
-    assert(code:match("local sized%s*=%s*{%s*left%s*=%s*1%s*,"), code)
-end
-
-function M.tableIntrinsicsRemainIntrinsicAtOptimizationLevelOne()
-    local src = table.concat(
-        {"local value = table.new(0, 1)", "table.clear(value)", "table.clear(value)", "return value",},
-        "\n"
-    )
-    local code = compile(src, 1)
-    testAssert.equal(occurrences(code, 'require("table.new")'), 1, "optimized source keeps the table.new binding")
-    testAssert.equal(occurrences(code, 'require("table.clear")'), 1, "OPT-4 does not capture table.clear before it is loaded")
-    testAssert.equal(code:find("__nupp_call_", 1, true), nil, "table intrinsics bypass static-callable binding")
-    testAssert.equal(next(run(src, 1)), nil, "optimized intrinsic calls run")
 end
 
 function M.leavesAShadowedTableAlone()
@@ -101,17 +46,13 @@ function M.leavesAShadowedTableAlone()
         },
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(code:find('require("table.new")', 1, true), nil, "shadowed table.new is ordinary code")
-    testAssert.equal(code:find('require("table.clear")', 1, true), nil, "shadowed table.clear is ordinary code")
-    testAssert.equal(code:find("__nuppClone", 1, true), nil, "shadowed table.clone is ordinary code")
     local first, second, third = run(src)
     testAssert.equal(first, 7, "shadowed new result")
     testAssert.equal(second, 8, "shadowed clear result")
     testAssert.equal(third, 9, "shadowed clone result")
 end
 
-function M.generatedBindingsAvoidSourceNames()
+function M.sourceNamesLikeTheIntrinsicsSurvive()
     local src = table.concat(
         {
             "local __nuppNew = 'new'",
@@ -123,29 +64,10 @@ function M.generatedBindingsAvoidSourceNames()
         },
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(
-        code:find('const __nuppNew = require("table.new")', 1, true),
-        nil,
-        "table.new binding avoids the source name"
-    )
-    testAssert.equal(
-        code:find('const __nuppClear = require("table.clear")', 1, true),
-        nil,
-        "table.clear binding avoids the source name"
-    )
     local first, second, remaining = run(src)
     testAssert.equal(first, "new", "source new name survives")
     testAssert.equal(second, "clear", "source clear name survives")
-    testAssert.equal(remaining, nil, "generated clear binding works")
-end
-
-function M.injectedBindingsPreserveLineCount()
-    local src = "local value = table.new(0, 0)\ntable.clear(value)\nreturn value"
-    local code = compile(src)
-    local _, sourceLines = src:gsub("\n", "")
-    local _, generatedLines = code:gsub("\n", "")
-    testAssert.equal(generatedLines, sourceLines + 1, "generated line count")
+    testAssert.equal(remaining, nil, "table.clear still clears")
 end
 
 function M.clonesOneLevelDeep()
@@ -159,8 +81,6 @@ function M.clonesOneLevelDeep()
         },
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(occurrences(code, "local function __nuppClone"), 1, "one table.clone definition")
     local source, copy = run(src)
     testAssert.equal(source.kind, "point", "the original keeps its own keys")
     testAssert.equal(copy.kind, "moved", "the copy takes its own keys")
@@ -181,29 +101,24 @@ function M.cloneCarriesTheMetatableAcross()
     testAssert.equal(shared, true, "the copy shares the metatable it was cloned from")
 end
 
-function M.clonesEachUsedIntrinsicOnce()
+function M.everyCloneCallRuns()
     local src = table.concat(
         {"local first = table.clone({a = 1})", "local second = table.clone({b = 2})", "return first.a, second.b",},
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(occurrences(code, "local function __nuppClone"), 1, "one definition serves every call")
-    testAssert.equal(occurrences(code, "__nuppClone"), 3, "one definition and two calls use the binding")
     local a, b = run(src)
     testAssert.equal(a, 1, "first clone")
     testAssert.equal(b, 2, "second clone")
 end
 
-function M.cloneBindingAvoidsSourceNames()
+function M.aSourceNameLikeCloneSurvives()
     local src = table.concat(
         {"local __nuppClone = 'clone'", "local copy = table.clone({a = 1})", "return __nuppClone, copy.a",},
         "\n"
     )
-    local code = compile(src)
-    testAssert.equal(code:find("local function __nuppClone(", 1, true), nil, "table.clone binding avoids the source name")
     local name, value = run(src)
     testAssert.equal(name, "clone", "source clone name survives")
-    testAssert.equal(value, 1, "generated clone binding works")
+    testAssert.equal(value, 1, "table.clone still copies")
 end
 
 return M

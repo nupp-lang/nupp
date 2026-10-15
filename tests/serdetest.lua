@@ -1,6 +1,6 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -21,12 +21,8 @@ local function run(source)
             error(problem.code .. ": " .. problem.msg, 2)
         end
     end
-    local code, generated = gen.generate(parsed, "serde_test")
-    assert(#generated == 0, generated[1] and generated[1].msg)
-    local chunk, why = loadstring(code, "@serde_test")
-    assert(chunk, why and (why .. "\n---\n" .. code))
 
-    return chunk(), code
+    return program.run(parsed, "serde_test", "serde_test.nupp")
 end
 
 local M = {}

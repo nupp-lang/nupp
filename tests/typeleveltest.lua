@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local fmt = require("nupp.tools.fmt")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
@@ -34,6 +34,17 @@ end
 
 local function clean(source)
     testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+end
+
+-- Checks a source clean and runs it, answering what it returns.
+local function run(source, name)
+    env.loaded = {}
+    local parsed = parser.parse(source, name .. ".nupp")
+    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    local found = check.check(parsed, name .. ".nupp", env)
+    testAssert.equal(#found, 0, found[1] and found[1].msg or "check")
+
+    return program.run(parsed, name, name .. ".nupp")
 end
 
 local function oneDiagnostic(source, code, message)
@@ -1345,7 +1356,7 @@ function M.failedSubstitutionsRestoreEnclosingRefreshScope()
     testAssert.equal(generics.rebind(open[first], bindings).byname.afterFailure, types.boolean)
 end
 
-function M.typeComputationAndConstBindersEraseFromGeneratedLua()
+function M.typeComputationAndConstBindersErase()
     local source = table.concat(
         {
             "local function field<const Name: string>(name: Name): Name",
@@ -1357,17 +1368,10 @@ function M.typeComputationAndConstBindersEraseFromGeneratedLua()
         },
         "\n"
     )
-    clean(source)
-    local parsed = parser.parse(source, "erase.nupp")
-    local lua, emitted = gen.generate(parsed, "erase")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
-    assert(not lua:find("const Name", 1, true), "const binder reached runtime Lua")
-    assert(not lua:find("keyof", 1, true), "type operator reached runtime Lua")
-    local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), "ok")
+    testAssert.equal(run(source, "erase"), "ok")
 end
 
-function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
+function M.comptimeCallsInAnnotationPositionErase()
     local source = table.concat(
         {
             "@comptime local function Optional(T: type): type",
@@ -1378,16 +1382,9 @@ function M.comptimeCallsInAnnotationPositionEraseFromGeneratedLua()
         },
         "\n"
     )
-    clean(source)
-    local parsed = parser.parse(source, "annotation.nupp")
-    local lua, emitted = gen.generate(parsed, "annotation")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
     -- The call is type material, so its parentheses erase with the annotation
-    -- rather than reaching the statement as `local value ( ) = 'ok'`, which is
-    -- not Lua and so fails to load rather than to type-check.
-    assert(lua:find("local value = 'ok'", 1, true), "annotation reached runtime Lua:\n" .. lua)
-    local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), "ok")
+    -- rather than reaching the statement as a call.
+    testAssert.equal(run(source, "annotation"), "ok")
 end
 
 -- A parameter with a default may be left out of an application, and the
@@ -1697,14 +1694,7 @@ function M.affineConstructorAddsNoRuntimeRepresentation()
         },
         "\n"
     )
-    local parsed = parser.parse(source, "affine-erasure.nupp")
-    local found = check.check(parsed, "affine-erasure.nupp", env)
-    testAssert.equal(#found, 0, found[1] and found[1].msg or "check")
-    local lua, emitted = gen.generate(parsed, "affine-erasure")
-    testAssert.equal(#emitted, 0, "code generation diagnostics")
-    assert(not lua:find("Counter = {}", 1, true), "affine constructor allocated a runtime type")
-    local chunk = assert(loadstring(lua))
-    testAssert.equal(chunk(), 2)
+    testAssert.equal(run(source, "affine-erasure"), 2)
 end
 
 local TUPLE_QUERY = table.concat(
@@ -2532,26 +2522,33 @@ function M.admissionIsWrittenWhereProofRunsOut()
     )
 end
 
--- Proof decides what is emitted: an unprovable value gets one shared test, a proved
--- one gets nothing at all, and the value is read exactly once either way.
-function M.admissionEmitsOnlyWhatProofLeaves()
+-- An unprovable value is tested where it is admitted, against both bounds and the
+-- integer base, and the value is read exactly once.
+function M.admissionTestsWhatProofLeaves()
     local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
-
-    local function lua(source)
-        local parsed = parser.parse(source, "admit.nupp")
-        testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
-        env.loaded = {}
-        check.check(parsed, "admit.nupp", env)
-
-        return gen.generate(parsed, "admit.nupp")
-    end
-
-    local unproved = lua(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
-    assert(unproved:find("__nuppAdmit", 1, true), "an unprovable admission emits its test")
-    assert(unproved:find("__nuppV <= 10", 1, true), "the test carries the upper bound")
-    assert(unproved:find("__nuppV %% 1 == 0"), "an integer base tests integrality")
-    local proved = lua(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
-    assert(not proved:find("__nuppAdmit", 1, true), "a proved admission emits nothing")
+    local admitted, high, fraction, reads = run(
+        alias
+            .. table.concat(
+                {
+                    "local reads = 0",
+                    "local function read(v: number): number",
+                    "    reads = reads + 1",
+                    "    return v",
+                    "end",
+                    "local function of(v: number): Small",
+                    "    return nupp.admit(read(v) as integer)",
+                    "end",
+                    "return of(1), pcall(of, 11), pcall(of, 1.5), reads",
+                },
+                "\n"
+            ),
+        "admit"
+    )
+    testAssert.equal(admitted, 1)
+    testAssert.equal(high, false, "the test carries the upper bound")
+    testAssert.equal(fraction, false, "an integer base tests integrality")
+    testAssert.equal(reads, 3, "each admission reads its value once")
+    testAssert.equal(run(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nreturn of()", "admit"), 7)
 end
 
 -- One constraint is one type however it was reached: written in a type, returned

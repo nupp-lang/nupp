@@ -5,11 +5,12 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local environment = envMod.new(HERE .. "/..")
 local M = {}
 
-local function errors(source, selectedEnvironment)
-    local result = parser.parse(source, "typed-interface.nupp")
+local function errors(source, selectedEnvironment, filename)
+    filename = filename or "typed-interface.nupp"
+    local result = parser.parse(source, filename)
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
     local found = {}
-    for _, diagnostic in ipairs(check.check(result, "typed-interface.nupp", selectedEnvironment or environment)) do
+    for _, diagnostic in ipairs(check.check(result, filename, selectedEnvironment or environment)) do
         if diagnostic.severity == "error" then
             found[#found + 1] = diagnostic.code .. ": " .. diagnostic.msg
         end
@@ -153,7 +154,8 @@ local record Reader
     function read(self, value: Left): string return "left" end
     function read(self, value: Right): string return "right" end
 end
-return Reader
+local reader = new Reader()
+return reader:read({} as any as Left) .. reader:read({} as any as Right)
 ]]
         )
     )
@@ -162,17 +164,8 @@ return Reader
         for _, diagnostic in ipairs(checked.diags) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
-        local code, diagnostics = require("nupp.compiler.lua.gen").generate(checked.result, main)
-        assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-        local slots = {}
-        for slot in code:gmatch("function Reader:(__nupp_m_[%da-f]+)") do
-            slots[slot] = true
-        end
-        local count = 0
-        for _ in pairs(slots) do
-            count = count + 1
-        end
-        assert(count == 2, "same-named declaration nominals keep distinct method slots")
+        local answer = require("program").run(checked.result, "main", main)
+        assert(answer == "leftright", "same-named declaration nominals keep distinct methods: " .. tostring(answer))
     end)
     require("nupp.io.files").remove(dir, true)
     assert(ok, problem)
@@ -348,6 +341,8 @@ return m
 end
 
 function M.runtimeImplementationInterfacesArePublic()
+    -- The fixture declares its module, so it is checked under the path that names
+    -- it: a project root can map a bare filename to a module of that name.
     local found = errors(
         [[
 module application
@@ -357,7 +352,9 @@ local uuid = require("nupp.util.spi")
 local storage = spi.load(CstorageProvider)
 local uuids = spi.load(uuid.UuidProvider)
 export = {storage = storage, uuids = uuids}
-]]
+]],
+        nil,
+        "application.nupp"
     )
     assert(found == "", found)
 end

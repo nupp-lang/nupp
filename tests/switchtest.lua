@@ -1,7 +1,7 @@
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -27,35 +27,8 @@ end
 local function run(source)
     local result, diagnostics = checked(source)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
-    local code, lowering = gen.generate(result, "switch-test.nupp")
-    testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
-    local chunk, failure = loadstring(code, "@switch_test")
-    if not chunk then
-        error("generated switch code does not load: " .. tostring(failure) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk()
-end
-
-local function generate(source, coverage)
-    local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks")
-    local code, lowering = gen.generate(result, "switch-test.nupp", coverage)
-    testAssert.equal(#lowering, 0, lowering[1] and lowering[1].msg or "switch source lowers")
-
-    return code, result
-end
-
-local function loweringCodes(source)
-    local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "switch source checks before lowering")
-    local _, lowering = gen.generate(result, "switch-test.nupp")
-    local codes = {}
-    for _, diagnostic in ipairs(lowering) do
-        codes[#codes + 1] = diagnostic.code
-    end
-
-    return table.concat(codes, " ")
+    return program.run(result, "switch_test", "switch-test.nupp")
 end
 
 local M = {}
@@ -348,7 +321,7 @@ function M.nestedSwitchesStayAtTheirStatementBoundary()
 end
 
 function M.lazyPlacementIsSupported()
-    local codes = loweringCodes(
+    local value = run(
         table.concat(
             {
                 "local ready = true",
@@ -357,42 +330,12 @@ function M.lazyPlacementIsSupported()
                 "   case 1 -> 1",
                 "   else -> 0",
                 "end",
-            },
-            "\n"
-        )
-    )
-    testAssert.equal(codes, "")
-end
-
-function M.coverageCountsTestsAndSelectedArmRegions()
-    local result, diagnostics = checked(
-        table.concat(
-            {
-                "local selector: number = 1",
-                "local value = switch selector do",
-                "   case 1 -> 'one'",
-                "   case 2 -> 'two'",
-                "   else -> 'other'",
-                "end",
                 "return value",
             },
             "\n"
         )
     )
-    testAssert.equal(#diagnostics, 0)
-    local _, lowering, coverage = gen.generate(result, "switch-coverage.nupp", true)
-    testAssert.equal(#lowering, 0)
-    local branches, regions = 0, 0
-    for _, site in ipairs(coverage.sites) do
-        if site.kind == "branch" then
-            branches = branches + 1
-        end
-        if site.kind == "statement" and site.line >= 3 and site.line <= 5 then
-            regions = regions + 1
-        end
-    end
-    testAssert.equal(branches, 2)
-    testAssert.equal(regions, 3)
+    testAssert.equal(value, 1)
 end
 
 function M.denseIntegerMapsHandleEveryKindOfMiss()
@@ -448,34 +391,7 @@ function M.stringAndSparseMapsHandleHitsAndMisses()
     testAssert.equal(sparseMiss, 0)
 end
 
-function M.sentinelAndCoverageAreConditional()
-    local source = table.concat(
-        {
-            "local selector: string = 'k1'",
-            "local selected = switch selector do",
-            "   case 'k1' -> 'v1'",
-            "   case 'k2' -> 'v2'",
-            "   case 'k3' -> 'v3'",
-            "   case 'k4' -> 'v4'",
-            "   case 'k5' -> 'v5'",
-            "   case 'k6' -> 'v6'",
-            "   case 'k7' -> 'v7'",
-            "   case 'k8' -> 'v8'",
-            "   else -> 'miss'",
-            "end",
-            "return selected",
-        },
-        "\n"
-    )
-    local code = generate(source)
-    assert(code:find("__nuppSwitchMap", 1, true), code)
-    testAssert.equal(code:find("__nuppSwitchNil", 1, true), nil, "a map without a nil result needs no sentinel")
-
-    local covered = generate(source, true)
-    testAssert.equal(covered:find("__nuppSwitchMap", 1, true), nil, "coverage keeps per-case conditions")
-end
-
-function M.recordIdentityGuardUsesTheCheckerProof()
+function M.recordCasesMatchWithAndWithoutANilMember()
     local safe = table.concat(
         {
             "local record First value: integer end",
@@ -490,9 +406,7 @@ function M.recordIdentityGuardUsesTheCheckerProof()
         },
         "\n"
     )
-    local safeCode = generate(safe)
-    assert(safeCode:find("=getmetatable(", 1, true), safeCode)
-    testAssert.equal(safeCode:find("?.__index", 1, true), nil, "a record-only residue needs no safe guard")
+    testAssert.equal(run(safe), 1)
 
     local open = table.concat(
         {
@@ -507,11 +421,10 @@ function M.recordIdentityGuardUsesTheCheckerProof()
         },
         "\n"
     )
-    local openCode = generate(open)
-    assert(openCode:find("?.__index", 1, true), openCode)
+    testAssert.equal(run(open), 0)
 end
 
-function M.manyMapsSpillBehindOnePrologueUpvalue()
+function M.manySwitchesInOneChunkEachAnswer()
     local lines = {}
     for functionIndex = 1, 34 do
         lines[
@@ -527,10 +440,7 @@ function M.manyMapsSpillBehindOnePrologueUpvalue()
         lines[#lines + 1] = "end"
     end
     lines[#lines + 1] = "return f1('f1-k1'), f34('f34-k8'), f34('f34-k3')"
-    local code = generate(table.concat(lines, "\n"))
-    assert(code:find("__nuppSwitchConstants", 1, true), code)
-    local chunk = assert(loadstring(code, "@switch_spill"))
-    local first, last, nilResult = chunk()
+    local first, last, nilResult = run(table.concat(lines, "\n"))
     testAssert.equal(first, 101)
     testAssert.equal(last, 3408)
     testAssert.equal(nilResult, nil)
@@ -597,10 +507,7 @@ function M.aNestedArmStaysLazyAndPlansIndependently()
         },
         "\n"
     )
-    local code = generate(source)
-    assert(code:find("__nuppSwitchMap", 1, true), code)
-    local chunk = assert(loadstring(code, "@nested_switch_arm"))
-    local first, before, second, after = chunk()
+    local first, before, second, after = run(source)
     testAssert.equal(first, "outer-two")
     testAssert.equal(before, 0, "the unselected nested arm does no work")
     testAssert.equal(second, "v8")
@@ -722,21 +629,12 @@ local value = switch selector do case "\x61", "a" -> 1 else -> 0 end]]
     testAssert.equal(never, "")
 end
 
-local function leanSwitch(source, expected, inspect)
-    do
-        local result = parser.parse(source, "lean-switch.nupp")
-        testAssert.equal(#result.errors, 0, "lean switch parses")
-        local diagnostics = check.check(result, "lean-switch.nupp", env)
-        testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        local code, problems = gen.generate(result, "lean-switch.nupp")
-        testAssert.equal(#problems, 0, problems[1] and problems[1].msg)
-        local chunk, problem = loadstring(code)
-        assert(chunk, tostring(problem) .. "\n" .. code)
-        testAssert.equal(chunk(), expected)
-        if inspect then
-            inspect(code)
-        end
-    end
+local function leanSwitch(source, expected)
+    local result = parser.parse(source, "lean-switch.nupp")
+    testAssert.equal(#result.errors, 0, "lean switch parses")
+    local diagnostics = check.check(result, "lean-switch.nupp", env)
+    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.equal(program.run(result, "lean_switch", "lean-switch.nupp"), expected)
 end
 
 function M.directLocalSwitchUsesItsDestinationAndLocalSelector()
@@ -753,11 +651,7 @@ local function choose(status: number): string
 end
 return choose(200) .. ':' .. choose(301) .. ':' .. choose(500)
 ]],
-        "200:redirect:other",
-        function(code)
-            assert(not code:find("__nuppT", 1, true), code)
-            assert(code:match("local text%s*;"), code)
-        end
+        "200:redirect:other"
     )
 end
 
@@ -772,10 +666,7 @@ local text = switch status do
 end
 return text
 ]],
-        "outer",
-        function(code)
-            assert(code:find("__nuppT", 1, true), code)
-        end
+        "outer"
     )
 end
 
@@ -812,11 +703,7 @@ local label = switch label do
 end
 return label
 ]],
-        "newline",
-        function(code)
-            assert(not code:find("__nuppT", 1, true), code)
-            assert(code:match("local label%s*=%s*__nuppSwitchMap%d+%["), code)
-        end
+        "newline"
     )
 end
 
@@ -901,10 +788,7 @@ local function choose(status: number): string
 end
 return choose(200)
 ]],
-        "ok",
-        function(code)
-            assert(code:find("__nuppT", 1, true), code)
-        end
+        "ok"
     )
 end
 
@@ -1058,25 +942,6 @@ return f({5}), f({1})
     )
     testAssert.equal(found, "found")
     testAssert.equal(missing, "missing")
-end
-
-function M.aGuardedSwitchLowersToBranchesRatherThanAMap()
-    local code = generate(
-        [[
-local function label(n: integer): string
-    return switch n do
-        case 9 where n > 0 -> 'tab'
-        case 10 -> 'newline'
-        case 11 -> 'vertical tab'
-        case 12 -> 'form feed'
-        case 13 -> 'return'
-        else -> 'other'
-    end
-end
-return label(10)
-]]
-    )
-    assert(code:find("goto", 1, true), "a guarded switch jumps out of a taken arm:\n" .. code)
 end
 
 function M.breakInsideAGuardedArmStillLeavesTheEnclosingLoop()

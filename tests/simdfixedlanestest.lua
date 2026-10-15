@@ -1,14 +1,11 @@
--- A fixed species as ordinary Lua: `simd.species(array.float, 4)` is four
--- lanes wherever the kernel runs. Where the preferred species is one lane
--- (`simdlanetest`), a fixed one is an N-lane table, `species:over` visits a
--- span N lanes at a time under a real tail mask, every operator and method
--- works lane by lane, and reducers, horizontals and `simd.transpose` fold the
--- lanes. The kernels here are compiled to Lua and run, and their answers are
--- held to what the same source means in lanes; the last test builds one
--- natively as well and holds the two forms to the same output.
+-- A fixed species: `simd.species(array.float, 4)` is four lanes wherever the
+-- kernel runs. `species:over` visits a span N lanes at a time under a real tail
+-- mask, every operator and method works lane by lane, and reducers, horizontals
+-- and `simd.transpose` fold the lanes. The kernels here are compiled and run,
+-- and their answers are held to what the same source means in lanes.
 local testAssert = require("nupp.test")
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -30,14 +27,8 @@ local function compile(src)
     testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
     local diagnostics = check.check(result, "fixed.nupp", env)
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
-    local code, diags = gen.generate(result, "fixed")
-    testAssert.equal(#diags, 0, "gen diagnostics")
-    local chunk, err = loadstring(code, "@fixed.nupp")
-    if not chunk then
-        error("generated code does not load: " .. tostring(err) .. "\n---\n" .. code, 2)
-    end
 
-    return chunk()
+    return program.run(result, "fixed", "fixed.nupp")
 end
 
 function M.aFixedSpeciesIsItsLanesAndOverVisitsChunksUnderATailMask()
@@ -547,94 +538,5 @@ end
         32, 12, 16, -- tail: twelve payload bytes, sixteen aligned
     })
 end
-
-----------------------------------------------------------------------------
--- The two forms agree
-
-local function write(path, text)
-    local file = assert(io.open(path, "wb"))
-    file:write(text)
-    file:close()
-end
-
-local function read(path)
-    local file = assert(io.open(path, "rb"))
-    local text = file:read("*a")
-    file:close()
-    return text
-end
-
-local function project(files)
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute(("mkdir -p %q"):format(dir .. "/src")) == 0)
-    for name, text in pairs(files) do
-        write(dir .. "/" .. name, text)
-    end
-    return dir
-end
-
-local function buildAndRun(dir, entries, policy)
-    write(
-        dir .. "/nupp.lua",
-        (
-            'return {include={"src"}, build={targets={native={kind="modules",entries={%s},outDir="build/native",aot=%q}}}}'
-        ):format(entries, policy)
-    )
-    local logPath = dir .. "/build.log"
-    local status = os.execute(
-        ("cd %q && rm -rf build && %q build --target native > %q 2>&1"):format(dir, HERE .. "/../bin/nupp", logPath)
-    )
-    testAssert.equal(status, 0, policy .. " build at " .. dir .. ": " .. read(logPath))
-    local pipe = assert(io.popen(("cd %q && luajit check.lua %s 2>&1"):format(dir, policy)))
-    local result = pipe:read("*a")
-    pipe:close()
-    return (result:gsub("%s+$", "")), read(logPath)
-end
-
-local FIXED = [[
-module fixed
-local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
-local simd = require("nupp.simd")
-
---- Every lane of a four-lane species in one kernel: a loop-carried vector,
---- an align across chunks, a prefix scan, a select, a reducer and a
---- horizontal over the last chunk.
-@aot
-local function smooth(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): number
-    local s = simd.species(array.float, 4)
-    local total = simd.reducer.orderedSum(array.float, 0.0)
-    local previous = s:splat(0.0)
-    for at, active in s:over(#input) do
-        local v = s:load(input, at, active)
-        local shifted = v:align(previous, 1)
-        local scan = ((v + shifted) * 0.5):orderedPrefixSum()
-        s:store(out, at, (v > 2.0):select(scan, v:reverse()), active)
-        total:add(v, active)
-        previous = v
-    end
-    return total:value() + simd.horizontal.orderedSum(previous)
-end
-
-export = {smooth = smooth}
-]]
-
-local FIXED_CHECK = [[
-package.path = "build/native/?.lua;" .. package.path
-local m = require("fixed")
-local ffi = require("ffi")
-local span = require("nupp.mem.span")
-local compiled = rawget(_G, "__nuppAotCompiled") or {}
-local input = ffi.new("float[7]", {1, 2, 3, 4, 5, 6, 7})
-local out = ffi.new("float[7]")
-local total = m.smooth(span.writeCarray(out, 7), span.fromCarray(input, 7))
-local answers = {}
-for i = 0, 6 do answers[#answers + 1] = tostring(out[i]) end
-if arg[1] == "require" then
-    assert(compiled[m.smooth], "the kernel is compiled")
-end
-print(table.concat(answers, " ") .. " | " .. tostring(total))
-]]
 
 return M

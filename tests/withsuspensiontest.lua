@@ -1,5 +1,5 @@
 local parser = require("nupp.compiler.syntax.parser")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
@@ -13,7 +13,7 @@ local function diagnose(source)
     return check.check(result, "with-suspension.nupp", sharedEnv), result
 end
 
-local function runGenerated(source)
+local function run(source)
     local diagnostics, result = diagnose(source)
     for _, diagnostic in ipairs(diagnostics) do
         assert(
@@ -21,17 +21,14 @@ local function runGenerated(source)
             diagnostic.code .. " " .. diagnostic.msg
         )
     end
-    local code = gen.generate(result, "withsuspension")
-    local chunk, problem = loadstring(code, "@with-suspension")
-    assert(chunk, tostring(problem) .. "\n" .. code)
 
-    return chunk()
+    return program.run(result, "withsuspension", "with-suspension.nupp")
 end
 
 local HANDLER = "local h = {park = function() end, canPark = function() return true end, shutdown = function() end}\n"
 
 function M.ordinaryWithInstallsAndRestores()
-    local before, inside, after = runGenerated(
+    local before, inside, after = run(
         table.concat(
             {
                 'local s = require("nupp.suspension")',
@@ -78,7 +75,7 @@ function M.gotoCannotEnterInstallationScope()
 end
 
 function M.returnDischargesInstallation()
-    local value, beforeRelease, released = runGenerated(
+    local value, beforeRelease, released = run(
         table.concat(
             {
                 "local released = 0",
@@ -99,7 +96,7 @@ function M.returnDischargesInstallation()
 end
 
 function M.gotoOutDischargesInstallation()
-    local answer, released = runGenerated(
+    local answer, released = run(
         table.concat(
             {
                 "local released = 0",
@@ -121,7 +118,7 @@ function M.gotoOutDischargesInstallation()
 end
 
 function M.breakDischargesInstallation()
-    local released = runGenerated(
+    local released = run(
         table.concat(
             {
                 "local released = 0",
@@ -141,7 +138,7 @@ function M.breakDischargesInstallation()
 end
 
 function M.errorDischargesInstallation()
-    local ok, released = runGenerated(
+    local ok, released = run(
         table.concat(
             {
                 "local released = 0",
@@ -193,7 +190,7 @@ function M.installationKeepsTheAotBoundary()
 end
 
 function M.nestedInstallationsRestoreTheOuterHandler()
-    local outer, inner, restored, cleared = runGenerated(
+    local outer, inner, restored, cleared = run(
         table.concat(
             {
                 'local s = require("nupp.suspension")',

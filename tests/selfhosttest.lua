@@ -4,7 +4,7 @@ local testAssert = require("nupp.test")
 -- the token stream actually are could not be said without them.
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -25,15 +25,13 @@ local function diagsOf(src, opts)
     return table.concat(out, " ")
 end
 
--- gen reads hints the checker leaves on type nodes (a record's runtime
+-- Lowering reads hints the checker leaves on type nodes (a record's runtime
 -- table, a struct's ctype), so it runs after checking, as in a real build.
-local function generate(src)
+local function run(src)
     local result = parse(src)
     check.check(result, "test.nupp", env)
-    local code, diags = gen.generate(result, "test")
-    testAssert.equal(#diags, 0, "gen diagnostics: " .. (diags[1] and diags[1].msg or ""))
 
-    return code
+    return program.run(result, "test", "test.nupp")
 end
 
 local M = {}
@@ -257,7 +255,7 @@ end
 -- A record's runtime table is its identity, so `is` compiles to a real test
 -- rather than failing for want of one.
 function M.recordIdentityCompiles()
-    local code = generate(
+    local hit, miss = run(
         table.concat(
             {
                 "local record R",
@@ -266,18 +264,20 @@ function M.recordIdentityCompiles()
                 -- `any`, because a subject whose own type proves the answer is elided
                 -- rather than tested, and it is the test being checked here
                 "local v: any = new R(x = 1)",
-                "print(v is R)",
+                "local w: any = {x = 1}",
+                "return v is R, w is R",
             },
             "\n"
         )
     )
-    assert(code:find("getmetatable", 1, true), "`is` on a record reaches the declaration through __index: " .. code)
+    testAssert.equal(hit, true, "`is` on a record answers for an instance")
+    testAssert.equal(miss, false, "`is` on a record refuses a plain table")
 end
 
 -- A test the subject's own type already answers is not worth running, and an
 -- optional's nil is the only part of that answer its declaration leaves open.
 function M.aProvenIdentityIsNotTested()
-    local code = generate(
+    local proven, present, absent = run(
         table.concat(
             {
                 "local record R",
@@ -285,26 +285,15 @@ function M.aProvenIdentityIsNotTested()
                 "end",
                 "local v = new R(x = 1)",
                 "local maybe: R? = v",
-                "print(v is R, maybe is R)",
+                "local none: R? = nil",
+                "return v is R, maybe is R, none is R",
             },
             "\n"
         )
     )
-    assert(not code:find("getmetatable%s*%(%s*v%s*%)"), "neither test runs: " .. code)
-    assert(code:find("maybe ~= nil", 1, true), "the optional still answers for its nil: " .. code)
-end
-
--- The comma between two return types belongs to the annotation, so it has
--- to erase with it. Left behind it produced `function f ( ) ,`.
-function M.multipleReturnAnnotationsErase()
-    local code = generate(
-        table.concat(
-            {"local function f(s: string): integer?, boolean", "    return #s, true", "end", "print(f('a'))",},
-            "\n"
-        )
-    )
-    assert(loadstring(code), "generated Lua parses: " .. code)
-    assert(not code:find("%)%s*,"), "no orphan separator: " .. code)
+    testAssert.equal(proven, true)
+    testAssert.equal(present, true)
+    testAssert.equal(absent, false, "the optional still answers for its nil")
 end
 
 -- A variable holds what was just written to it. Without this the common

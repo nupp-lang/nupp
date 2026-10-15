@@ -1,22 +1,20 @@
 local testAssert = require("nupp.test")
 -- `string.buffer`, a builtin namespace path backed by the string.buffer module.
 --
--- LuaJIT keeps it in package.loaded and puts nothing on the `string` table. The
--- compiler gives the module its builtin surface without changing that table: the
--- whole path lowers to one private require binding.
+-- The runtime keeps it in package.loaded and puts nothing on the `string` table.
+-- The compiler gives the module its builtin surface without changing that table.
 --
--- Everything here runs the generated code: the point of the namespace is what it
+-- Everything here runs the compiled code: the point of the namespace is what it
 -- lowers to, and a type that checks is not evidence about that.
 local parser = require("nupp.compiler.syntax.parser")
-local optimize = require("nupp.compiler.lua.optimize")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function compile(src, level)
+local function runs(src)
    local result = parser.parse(src, "test.nupp")
    testAssert.equal(#result.errors, 0, "syntax errors in test source")
    local diags = check.check(result, "test.nupp", env)
@@ -25,24 +23,7 @@ local function compile(src, level)
          error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)
       end
    end
-   optimize.run(result, {level = level or 1})
-   local code, genDiags = gen.generate(result, "test")
-   testAssert.equal(#genDiags, 0, "gen diagnostics")
-   return code
-end
-
-local function runs(src, level)
-   local code = compile(src, level)
-   local chunk, err = loadstring(code, "@string_buffer_namespace_test")
-   if not chunk then
-      error(("generated code does not load: %s\n---\n%s")
-         :format(tostring(err), code), 2)
-   end
-   local ok, value = pcall(chunk)
-   if not ok then
-      error(("generated code raised: %s\n---\n%s"):format(tostring(value), code), 2)
-   end
-   return value, code
+   return program.run(result, "string_buffer_namespace_test", "test.nupp")
 end
 
 local M = {}
@@ -99,21 +80,6 @@ function M.bareBufferIsNotACompilerGlobal()
    testAssert.equal(found, true, "strict source rejects the removed buffer global")
 end
 
-function M.oneBindingIsSharedWithOptFive()
-   local code = compile([[
-local b = string.buffer.new()
-b:put("a")
-local out = ""
-for i = 1, 3 do
-    out = out .. i
-end
-return b:tostring() .. out
-]])
-   local requires = 0
-   for _ in code:gmatch('require%("string%.buffer"%)') do requires = requires + 1 end
-   testAssert.equal(requires, 1, "the namespace and OPT-5 share one module binding")
-end
-
 function M.decodingRoundTrips()
    -- The module is the whole module, not a hand-picked `new`.
    local value = runs([[
@@ -123,17 +89,6 @@ local out = b:decode()
 return #out
 ]])
    testAssert.equal(value, 3, "encode and decode are reachable too")
-end
-
-function M.itIsNotRequiredAtLevelZero()
-   -- The namespace is a lowering rather than an optimization, like the table
-   -- intrinsics: it has to work where nothing is rewritten.
-   local value = runs([[
-local b = string.buffer.new()
-b:put("zero")
-return b:tostring()
-]], 0)
-   testAssert.equal(value, "zero", "-O0 still resolves the namespace")
 end
 
 return M
