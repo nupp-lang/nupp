@@ -173,7 +173,15 @@ end
 ---
 --- @param collected where a `--json` run gathers the diagnostics instead, the
 ---   unreadable file included, so nothing is written to stderr
-function compile.check(path: string, env: table, opts: {[string]: any}?, collected: {any}?): (any?, string?)
+---
+--- @param source the file's text, when the caller has already read it
+function compile.check(
+    path: string,
+    env: table,
+    opts: {[string]: any}?,
+    collected: {any}?,
+    source: string?
+): (any?, string?)
     local function report(diagnostics: {any}): boolean
         if not collected then
             return diagnosticMod.report(diagnostics)
@@ -187,7 +195,10 @@ function compile.check(path: string, env: table, opts: {[string]: any}?, collect
         return failed
     end
 
-    local source, readErr = fs.readFile(path)
+    local readErr: string? = nil
+    if source == nil then
+        source, readErr = fs.readFile(path)
+    end
     if not source then
         local cliReport = require("nupp.tools.cli.report")
         cliReport.fileFailure(path, readErr, "check that the path exists and is readable", collected)
@@ -333,8 +344,30 @@ end
 --- of `compile.module`. Its imports are left to the runtime loader, which
 --- compiles each the same way. Returns nil after the diagnostics that stopped it
 --- have been reported.
+---
+--- An image an earlier process compiled from the same inputs is answered from
+--- `nupp.compiler.vm.imagecache` instead, which is what keeps a program that
+--- requires a large standard module from checking it again in every run.
 function compile.image(path: string, env: table, moduleName: string?, collected: {any}?): string?
-    local result = compile.check(path, env, {moduleName = moduleName}, collected)
+    local source = fs.readFile(path)
+    local cached = source and require("nupp.compiler.vm.imagecache").open(env, path, moduleName, source) or nil
+    if cached then
+        local image = cached.lookup()
+        if image then
+            return image
+        end
+    end
+    -- Gathered here when keeping the result, so that whether the check said anything
+    -- is known; said afterwards exactly as the check would have said it.
+    local diagnostics = collected
+    if cached and diagnostics == nil then
+        diagnostics = {}
+    end
+    local before = diagnostics and #diagnostics or 0
+    local result = compile.check(path, env, {moduleName = moduleName}, diagnostics, source)
+    if diagnostics and collected == nil then
+        diagnosticMod.report(diagnostics)
+    end
     if result == nil then
         return nil
     end
@@ -343,7 +376,7 @@ function compile.image(path: string, env: table, moduleName: string?, collected:
     -- What the module publishes decides which records its witnesses link.
     tree.vmModuleExports = (result as any).moduleExports
 
-    return require("nupp.compiler.vm.lower").emit(
+    local image = require("nupp.compiler.vm.lower").emit(
         name,
         {},
         function(candidate: string): string?
@@ -356,6 +389,11 @@ function compile.image(path: string, env: table, moduleName: string?, collected:
         nil,
         (env as any).layoutTarget or require("nupp.compiler.targetlayout").hostKey()
     )
+    if cached and #(diagnostics as {any}) == before then
+        cached.store(image)
+    end
+
+    return image
 end
 
 export = compile

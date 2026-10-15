@@ -1,0 +1,344 @@
+module nupp.compiler.vm.imagecache
+
+--[[
+The VM images `nupp run` lowered in earlier processes, kept for the next.
+
+On LuaJIT a standard module is compiled once, into the build tree, and every
+process loads that. The VM has no such tree: a module its own image does not
+carry is checked and lowered from source when something requires it, in every
+process that does, and a program reaching `nupp.serde` spent minutes on that
+before it ran a line. This keeps what that work produced.
+
+An entry is one module's image under a key, in a file of its own, sealed and
+stamped by `nupp.compiler.project.store`. Like every store the toolchain keeps
+it is plain data and never load-bearing: a missing, corrupt or stale entry is a
+miss, and a miss compiles exactly what compiling did before.
+
+What decides an image, and where each part of it is answered:
+
+- The module's bytes, its path and the name it is loaded as, and everything
+  about the environment it is checked in that is not a file: the roots that
+  resolve its requires, the manifest, the layout target. All of it is in the
+  key, so an entry for anything else is a different file.
+- The code that checked and lowered it, and the declarations it carries. That
+  is the stamp; on the VM it is the running image's identity (see
+  `fingerprint.toolFingerprint`).
+- What the check read: every module the environment had loaded by the time
+  the check finished, with the bytes it loaded each from, the carried modules
+  it fell back to, and the project index, which a check consults whenever it
+  asks whether a module is internal. These are only known once a check has
+  run, so they are recorded in the entry and compared on the way back in. The
+  modules are the environment's whole set rather than the module's own closure:
+  a superset can only make an entry miss when it need not have, and the closure
+  is what the environment cannot say.
+
+A check that read a file no module load accounts for -- a C header, a derive
+provider's input -- is not kept, because nothing here could say later whether
+that file still holds what it held. Nor is one that reported anything: a hit
+reports nothing, and a warning that appears on the first run and never again
+would be a different answer.
+]]
+
+local fs = require("nupp.compiler.fs")
+local storeMod = require("nupp.compiler.project.store")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local envMod = require("nupp.compiler.project.env")
+
+local imagecache = {}
+
+--- Bumped when an entry's shape or meaning changes.
+const FORMAT = "vm-image/1"
+
+--- Where the entries live under a store directory.
+const DIRECTORY = "vm-images"
+
+--- Variables that make lowering write a report as it goes. A hit would skip the
+--- report, so a run that asks for one compiles.
+local REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "DEBUG_REGS"}
+
+--- What this process asked of the cache, for tests: they can otherwise only see
+--- that something got faster.
+imagecache.stats = {lookups = 0, hits = 0, misses = 0, stores = 0, declined = 0}
+
+--- A module's place in the cache, opened by `imagecache.open`.
+record imagecache.Entry
+    --- The image kept for this module, when there is one and everything it was
+    --- computed from is unchanged; nil otherwise.
+    lookup: function(): string?
+
+    --- Keeps `image` as what compiling this module produced, when the check that
+    --- produced it was clean.
+    store: function(image: string): nil
+end
+
+local function contentDigest(env: any): function(string): string
+    local services = env.compilerServices
+    local native = services and services.hash and services.hash.digest or nil
+
+    return native or fingerprint.contentDigest()
+end
+
+local function storeDirectory(env: any): string
+    return (env.cacheDir or (envMod.outDir(env) .. "/cache")) .. "/" .. DIRECTORY
+end
+
+-- Per store directory: the stamp reads the compiler's own tree once a process.
+local stampMemo: {[string]: string} = {}
+
+local function stampFor(env: any, digest: function(string): string): string
+    local directory = env.cacheDir or (envMod.outDir(env) .. "/cache")
+    local remembered = stampMemo[directory]
+    if remembered then
+        return remembered
+    end
+    local code = fingerprint.subsystemFingerprint(
+        {"nupp.compiler.check", "nupp.compiler.vm.lower", "nupp.compiler.vm.imagecache", "nupp.tools.cli.compile"},
+        directory,
+        digest,
+        env.cacheReadOnly
+    )
+    local stamp = digest(FORMAT .. "\0" .. code .. "\0" .. fingerprint.declarationFingerprint(digest))
+    stampMemo[directory] = stamp
+
+    return stamp
+end
+
+--- Writes `value` into `out` as text that two equal values spell the same way. A
+--- function, or anything else that is not data, is named by its kind only: a manifest
+--- holding one is described as far as it can be, and a key that is too coarse still
+--- covers the file's bytes, which are digested beside it.
+local function canonical(value: any, out: {string}, seen: {[any]: boolean}): nil
+    local kind = type(value)
+    if kind == "string" then
+        out[#out + 1] = "s" .. tostring(#(value as string)) .. ":" .. (value as string)
+    elseif kind == "number" or kind == "boolean" or kind == "nil" then
+        out[#out + 1] = kind:sub(1, 1) .. tostring(value)
+    elseif kind == "table" then
+        if seen[value] then
+            out[#out + 1] = "<cycle>"
+            return
+        end
+        seen[value] = true
+        local keys: {any} = {}
+        for key in pairs(value as table) do
+            keys[#keys + 1] = key
+        end
+        table.sort(keys, function(left: any, right: any): boolean
+            local a = type(left) .. ":" .. tostring(left)
+            local b = type(right) .. ":" .. tostring(right)
+            return a < b
+        end)
+        out[#out + 1] = "{"
+        for _, key in ipairs(keys) do
+            canonical(key, out, seen)
+            out[#out + 1] = "="
+            canonical((value as table)[key], out, seen)
+            out[#out + 1] = ","
+        end
+        out[#out + 1] = "}"
+        seen[value] = nil
+    else
+        out[#out + 1] = "<" .. kind .. ">"
+    end
+end
+
+local function list(values: {string}?): string
+    return table.concat(values or {}, "\1")
+end
+
+--- Everything about checking `path` as `name` in `env` that is not a file it reads.
+local function keyFor(env: any, path: string, name: string?, source: string, digest: function(string): string): string
+    local rootDir = env.rootDir or "."
+    local config: {string} = {}
+    canonical(env.config, config, {})
+    local manifest = fs.readFile(fs.join(rootDir, "nupp.lua"))
+    local parts = {
+        FORMAT,
+        name or "\0main",
+        path,
+        fs.absolute(path),
+        fs.absolute(rootDir),
+        list(env.roots),
+        list(env.typeRoots),
+        list(env.ambientTypeRoots),
+        list(env.folders),
+        list(env.runtimeSourceRoots),
+        tostring(env.layoutTarget or require("nupp.compiler.targetlayout").hostKey()),
+        table.concat(config),
+        manifest and digest(manifest) or "",
+        -- Lowering spells a relative module path against this, and stubs what it names.
+        os.getenv("PWD") or "",
+        os.getenv("EMIT_STUBS") or "",
+        digest(source),
+    }
+
+    return digest(table.concat(parts, "\0"))
+end
+
+-- What each file held when an environment first asked, the way the environment
+-- keeps the modules it loaded: one view of the project per environment, so a
+-- file changing under a running program is a change the next environment sees.
+local fileDigests: any = setmetatable({}, {__mode = "k"})
+
+local function fileDigest(env: any, path: string, digest: function(string): string): string
+    local known: {[string]: string} = fileDigests[env] or {}
+    fileDigests[env] = known
+    local remembered = known[path]
+    if remembered then
+        return remembered
+    end
+    local text = fs.readFile(path)
+    local answer = text and digest(text) or ""
+    known[path] = answer
+
+    return answer
+end
+
+--- What the environment has loaded, as rows to compare against later: each module
+--- read from a file as `{name, path, digest}`, and each name answered by the
+--- compiler's carried modules, or by nothing, as `{name, resource, digest}` with empty
+--- strings for nothing. Nil when something there is not a finished load this can
+--- describe.
+local function loadedRows(env: any, digest: function(string): string): ({{string}}?, {{string}}?)
+    local modules: {{string}} = {}
+    for name, record in pairs(env.loaded as {[string]: any}) do
+        if type(record) ~= "table" or record.inProgress or type(record.path) ~= "string" then
+            return nil, nil
+        end
+        local text = record.source or fs.readFile(record.path)
+        modules[#modules + 1] = {name, record.path, text and digest(text) or ""}
+    end
+    local carried: {{string}} = {}
+    for name, record in pairs(env.bundled as {[string]: any}) do
+        if record == false then
+            carried[#carried + 1] = {name, "", ""}
+        elseif type(record) == "table"
+            and not record.inProgress
+            and type(record.resource) == "string"
+            and type(record.source) == "string"
+        then
+            carried[#carried + 1] = {name, record.resource, digest(record.source)}
+        else
+            return nil, nil
+        end
+    end
+
+    local function byName(left: {string}, right: {string}): boolean
+        return left[1] < right[1]
+    end
+
+    table.sort(modules, byName)
+    table.sort(carried, byName)
+
+    return modules, carried
+end
+
+local function rows(value: any, width: integer): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    for _, row in ipairs(value as {any}) do
+        if type(row) ~= "table" then
+            return false
+        end
+        for index = 1, width do
+            if type(row[index]) ~= "string" then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+--- Whether a decoded entry has the shape this version writes. The store vouches for
+--- the bytes, not for what they decode to.
+local function wellFormed(value: any): boolean
+    return type(value) == "table"
+        and type(value.image) == "string"
+        and type(value.project) == "string"
+        and rows(value.modules, 3)
+        and rows(value.carried, 3)
+end
+
+--- Whether everything an entry recorded reading still reads the same.
+local function current(env: any, value: any, digest: function(string): string): boolean
+    if envMod.projectDigest(env) ~= value.project then
+        return false
+    end
+    for _, row in ipairs(value.modules as {{string}}) do
+        local name, path, recorded = row[1], row[2], row[3]
+        if envMod.resolvedModulePath(env, name) ~= path or fileDigest(env, path, digest) ~= recorded then
+            return false
+        end
+    end
+    local bundled: any = nil
+    for _, row in ipairs(value.carried as {{string}}) do
+        local name, resource, recorded = row[1], row[2], row[3]
+        -- A project file now providing the name would be loaded instead.
+        if envMod.resolvedModulePath(env, name) ~= nil then
+            return false
+        end
+        if resource ~= "" then
+            bundled = bundled or require("nupp.compiler.bundled")
+            local text = bundled.source(resource)
+            if text == nil or digest(text) ~= recorded then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+--- The cache entry for compiling `path`, read as `source`, into `env` as module
+--- `name` (nil for a program's entry), or nil when this environment keeps nothing
+--- between commands.
+function imagecache.open(env: any, path: string, name: string?, source: string): imagecache.Entry?
+    if env.cacheDisabled or env.memoryOnly then
+        return nil
+    end
+    for _, variable in ipairs(REPORTING) do
+        if os.getenv(variable) then
+            return nil
+        end
+    end
+    local digest = contentDigest(env)
+    local file = storeDirectory(env) .. "/" .. keyFor(env, path, name, source, digest) .. ".buf"
+    local stamp = stampFor(env, digest)
+    local stats = imagecache.stats
+
+    local function lookup(): string?
+        stats.lookups = stats.lookups + 1
+        local value = storeMod.openValue(file, stamp).value
+        if wellFormed(value) and current(env, value, digest) then
+            stats.hits = stats.hits + 1
+
+            return value.image
+        end
+        stats.misses = stats.misses + 1
+
+        return nil
+    end
+
+    local function store(image: string): nil
+        if env.cacheReadOnly or env.observedExternalInput then
+            stats.declined = stats.declined + 1
+            return
+        end
+        local project = envMod.projectDigest(env)
+        local modules, carried = loadedRows(env, digest)
+        if project == nil or modules == nil or carried == nil then
+            stats.declined = stats.declined + 1
+            return
+        end
+        local kept = storeMod.openValue(file, stamp)
+        kept.set({image = image, project = project, modules = modules, carried = carried})
+        kept.save()
+        stats.stores = stats.stores + 1
+    end
+
+    return new imagecache.Entry(lookup = lookup, store = store)
+end
+
+export = imagecache
