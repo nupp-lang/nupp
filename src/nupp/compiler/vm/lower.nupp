@@ -4905,6 +4905,12 @@ function lower.emit(
                 end
             end
             f:pop()
+            -- Records declared in this one's body are its members, made once it is.
+            for _, entry in ipairs(node.entries or {}) do
+                if entry.vmNested then
+                    stmt(f, entry)
+                end
+            end
         elseif k == "emptyStmt"
             or k == "typeAlias"
             or k == "interface"

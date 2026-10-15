@@ -910,6 +910,21 @@ function metadata.expand(root)
                 })
             )
         end
+        -- A record declared in another record's body is that record's member:
+        -- qualified by it, as `record Outer.Inner` would be.
+        if current.kind == "recordDecl" and current.name then
+            for _, entry in ipairs(current.entries or {}) do
+                if entry.kind == "recordDecl" and entry.name and not entry.qualifiers then
+                    local qualifiers = {}
+                    for _, qualifier in ipairs(current.qualifiers or {}) do
+                        qualifiers[#qualifiers + 1] = qualifier
+                    end
+                    qualifiers[#qualifiers + 1] = current.name
+                    entry.qualifiers = qualifiers
+                    entry.vmNested = true
+                end
+            end
+        end
         if current.kind == "recordDecl" and not current.vmMetadata then
             local identity
             for _, qualifier in ipairs(current.qualifiers or {}) do
