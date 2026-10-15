@@ -800,6 +800,7 @@ end
 function metadata.expand(root)
     local seen = {}
     local managed = false
+    local reflects = false
     local links = witnesses(root)
 
     local function replaceCall(current, replacement)
@@ -839,6 +840,14 @@ function metadata.expand(root)
         end
         seen[current] = true
         managed = managed or current.requiresManagedRuntime == true
+        reflects = reflects
+            or current.kind == "dotIndex"
+            and current.obj
+            and current.obj.kind == "name"
+            and current.obj.token
+            and current.obj.token.text == "nupp"
+            and current.name
+            and current.name.text == "reflect"
         if current.kind == "call" and current.ffiIntrinsic == "typeof" then
             replaceExpression(current, storageDescriptor(current))
         elseif current.kind == "call" and current.soaLayout and current.soaOperation then
@@ -916,6 +925,15 @@ function metadata.expand(root)
         table.insert(block.stats, 1, install)
         block[#block + 1] = install
         root.vmManagedRuntime = true
+    end
+    -- `nupp.reflect` is installed by whatever chunk first needs it; on LuaJIT an
+    -- earlier chunk always had, but a program image installs what it reads.
+    if reflects and not root.vmReflectRuntime then
+        local install = invoke(field(required("nupp.compiler.runtime.reflect"), "install"), {field(name("_G"), "nupp")})
+        local block = root.blocks[1]
+        table.insert(block.stats, 1, install)
+        block[#block + 1] = install
+        root.vmReflectRuntime = true
     end
 end
 
