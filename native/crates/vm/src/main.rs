@@ -285,6 +285,14 @@ fn main() {
         Some(argv)
     } else { None };
     if host { it.host = Some(Host::start(4)); let ht = it.host_table(); it.loaded.insert("nupp.bench.host".into(), ht); }
+    // A program's resources ride as the `nupp.embedded` module, which a bundle
+    // reaches through `package.preload` (docs/reference/distribution.md).
+    if stamped {
+        if let Some(&fid) = it.modules.get("nupp.embedded") {
+            let package = it.require("package"); let key = it.intern("preload"); let preload = it.get_index(package, key);
+            if preload != Value::NIL { let name = it.intern("nupp.embedded"); it.set_index(preload, name, Value::func(fid)); }
+        }
+    }
     // A program is its entry module's body, run on a task so it may suspend.
     let module = if stamped { Value::NIL } else if restoring { *it.loaded.get(&args[3]).unwrap_or_else(|| { eprintln!("restore: module {} was not initialized in the checkpoint", args[3]); std::process::exit(1) }) } else {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.require(&args[3]))) {
