@@ -400,7 +400,12 @@ end
 
 --- Sets or clears the platform's read-only attribute.
 export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
-    return host.setReadOnly(named(path, "path", 2), readOnly == true)
+    local at = named(path, "path", 2)
+    if type(readOnly) ~= "boolean" then
+        error("nupp: io.files readOnly must be a boolean", 2)
+    end
+
+    return host.setReadOnly(at, readOnly)
 end
 
 --- Creates a directory and every missing parent.
@@ -410,7 +415,12 @@ end
 
 --- Removes a name; a directory with contents only when recursive.
 export function remove(path: string | paths.Path, recursive: boolean?): (boolean, string?)
-    return host.remove(named(path, "path", 2), recursive == true)
+    local at = named(path, "path", 2)
+    if recursive ~= nil and type(recursive) ~= "boolean" then
+        error("nupp: io.files recursive must be a boolean", 2)
+    end
+
+    return host.remove(at, recursive == true)
 end
 
 --- Moves a name, replacing what the destination named.
