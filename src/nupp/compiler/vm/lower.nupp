@@ -118,17 +118,14 @@ function lower.emit(
         end
         if tag == "string" then
             return "str"
-        end
-        if tag == "boolean" then
+        elseif tag == "boolean" then
             return "bool"
-        end
-        if tag == "nominal" then
+        elseif tag == "nominal" then
             local shape = shapeOfNominal(t) or foreignShape(t)
             if shape and shape.id and not shape.physical then
                 return "rec:" .. shape.id
             end
-        end
-        if tag == "literal" then
+        elseif tag == "literal" then
             return slotTy(t.base)
         end
 
@@ -693,8 +690,7 @@ function lower.emit(
         local tag = tyTag(t)
         if tag == "integer" then
             return true
-        end
-        if tag == "literal" then
+        elseif tag == "literal" then
             return isInteger(t.base)
         end
 
@@ -875,16 +871,13 @@ function lower.emit(
                 return cell or c == "v"
             end
             return true
-        end
-        if k == "dotIndex" then
+        elseif k == "dotIndex" then
             local shape = shapeOf(node.obj.inferredType)
             local fname = tokText(node.name)
             return not (shape and shape.slotIndex[fname] and shape.slots[shape.slotIndex[fname] + 1].ty == "num")
-        end
-        if k == "binop" then
+        elseif k == "binop" then
             return valueDomain(f, node.lhs) and valueDomain(f, node.rhs)
-        end
-        if k == "unop" then
+        elseif k == "unop" then
             return valueDomain(f, node.operand)
         end
 
@@ -1352,8 +1345,7 @@ function lower.emit(
                     f:op("Nil", dst + i)
                 end
                 return true
-            end
-            if operation == "scatter" then
+            elseif operation == "scatter" then
                 local indices = args[2]
                 local indexType = indices and indices.kind == "methodCall" and simdType(indices.obj.inferredType)
                 assert(
@@ -2184,11 +2176,9 @@ function lower.emit(
             dst = dst or f:reg();
             f:op("VarargN", dst, 1);
             return dst, "v"
-        end
-        if k == "isExpr" then
+        elseif k == "isExpr" then
             return emitIs(f, node, dst)
-        end
-        if k == "name" then
+        elseif k == "name" then
             local name = tokText(node.token)
             local r, c, cell, spill = f:lookup(name)
             if spill then
@@ -2299,8 +2289,7 @@ function lower.emit(
                 f:op("BoolFromI", d, i);
                 return d, "v"
             end
-        end
-        if k == "doExpr" then
+        elseif k == "doExpr" then
             -- A block whose `yield v` statements each end it with a value.
             dst = dst or f:reg()
             f.yields = f.yields or {}
@@ -2311,8 +2300,7 @@ function lower.emit(
                 f:patch(at, "Jmp", f:offset(at, f:here()))
             end
             return dst, "v"
-        end
-        if k == "switchExpr" then
+        elseif k == "switchExpr" then
             dst = dst or f:reg()
             local subject = f:reg()
             exprAs(f, node.selector, "v", subject)
@@ -2603,7 +2591,6 @@ function lower.emit(
                 f:op("GetIdx", dst, o, key)
             end
             f:patch(skip, "JmpIfNot", present, f:offset(skip, f:here()))
-
         elseif k == "newExpr" then
             local call = node.call
             if call.constructorCall then
@@ -4173,7 +4160,6 @@ function lower.emit(
     -- the way to the owner included: what its upvalue registers hold at entry.
     local freeOf = setmetatable({}, {__mode = "k"})
     local fnStack = {}
-    local FUNCTION_KINDS = {funcExpr = true, localFuncStmt = true, funcStmt = true, inlineMethod = true}
     local analyzeFunction
 
     -- `chain` is a list of scopes, innermost last; each scope maps a name to the

@@ -1967,6 +1967,9 @@ end
 
 --- Completes applications after a loader has populated every declaration.
 --- All applications share one refresh walk; later calls can still see new members.
+---
+--- @raises string when instantiating an application raises, after restoring the
+--- refresh walk it was part of
 function generics.completeInstantiations(applications: {{
     origin: T.Nominal,
     map: Bindings

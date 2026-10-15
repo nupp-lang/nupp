@@ -58,8 +58,9 @@ local function data(value)
         return node("string", {token = {text = quoted}})
     elseif kind == "number" then
         return node("number", {token = {text = string.format("%.17g", value)}})
+    else
+        assert(kind == "table", "metadata must be plain data")
     end
-    assert(kind == "table", "metadata must be plain data")
     local keys = {}
     for key in pairs(value) do
         keys[#keys + 1] = key
