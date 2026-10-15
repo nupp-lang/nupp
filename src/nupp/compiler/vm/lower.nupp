@@ -3206,6 +3206,12 @@ function lower.emit(
                     dst
                 )
             else
+                -- A record another module declares carries the methods that module's
+                -- image attaches to its shape, so that module is loaded first.
+                if shape.module and shape.module ~= currentModule then
+                    local loaded = f:reg()
+                    f:op("Require", loaded, f:const("str", shape.module))
+                end
                 f:op("NewRecord", dst, shape.id)
             end
             local fields = call.recordFields
