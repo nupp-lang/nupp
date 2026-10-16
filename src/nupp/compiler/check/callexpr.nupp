@@ -1708,7 +1708,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- what `setmetatable` answers may be called, compared or operated on
         -- through any metamethod: Lua decides at run time, and so does the VM.
         if calleeName == "setmetatable"
-            and not (c.opts and c.opts.strict)
+            and c.plainLua()
             and globalsForAssert
             and c.lookupEntry("setmetatable") == globalsForAssert.setmetatable
         then

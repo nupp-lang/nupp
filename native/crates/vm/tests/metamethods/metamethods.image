@@ -5898,7 +5898,7 @@ function module:records 150 0 16 2 :v
   const 10 str "__tostring"
   const 11 str "__call"
   const 12 str "main"
-  lines 4x2 6x5 21x4 25x4 29x4 33x4 37x3 41x3 45x3 49x3 53x3 57x3 61x3 86
+  lines 4x2 6x5 21x4 25x4 29x4 33x4 37x3 41x3 45x3 49x3 53x3 57x3 61x3 87
   NewTableN 2 0 0
   Move 1 2
   NewTableN 3 0 0
@@ -6097,7 +6097,7 @@ function M.main 161 0 29 9 :v
   const 7 num 1
   const 8 builtin table.concat
   const 9 str "\010"
-  lines 0 62x2 63x6 64x6 65 66x9 67x9 68x10 69x9 70x28 71x23 72x8 73x18 74x6 75 76x6 77x3 78x9 79x5 82x16 83x8
+  lines 0 62x2 63x6 64x6 65 66x9 67x9 68x10 69x9 70x28 71x23 72x8 73x18 74x6 75 76x6 77x3 78x9 79x5 82x16 84x8
   GetUpval 1 0
   NewTableN 3 0 0
   Move 2 3

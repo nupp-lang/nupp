@@ -3087,3 +3087,89 @@ header over `embed` (the plan's "C hosting Nupp" item; this header is the
 extension direction); the `nupp` CLI's build integration (a manifest entry
 that builds and ships an extension beside a program binary); Linux and
 Windows evidence.
+
+
+
+## Metatables and metamethods (2026-10-15)
+
+The runtime dispatches every metamethod LuaJIT 2.1 does, plus Lua 5.2's
+`__len` and `__pairs` on tables (LuaJIT's compatibility build), identically
+on the Rust loop, the threaded core, the typed tier and scheduled frames.
+`tests/metamethod-differential.py` runs thirteen programs
+(`tests/metamethods/*`) under LuaJIT, or stock Lua for the 5.2 pair, or the
+LuaJIT host for a typed record's declared metamethods, and on each tier, and
+compares the output; `tests/metamethods.rs` replays the emitted image against
+the recorded outputs under full collector stress.
+
+| metamethod | what the VM does now |
+| --- | --- |
+| `__eq` | consulted when two tables (records are tables) or two userdata are not raw-equal and share one handler; the result is a boolean. `lua_equal` (5fa7ed203) now runs through the guarded, rooted `equals`, and the typed tier's helper records its frame for the collector. |
+| `__lt`, `__le` | as before, plus `__le` falling back to `not (b < a)`; `table.sort` without a comparator orders tables by `__lt` (it raised). |
+| `__add` … `__pow`, `__idiv`, `__unm` | unchanged; numeric strings convert. |
+| `__concat` | a chain that may dispatch it joins from the right, as Lua does (`a .. t .. b` asks `t .. b` first); a chain of strings and numbers keeps the accumulator. |
+| `__len` | honored on tables and records, as before. |
+| `__index`, `__newindex` | functions and tables, chains of any depth; string fields now read on every tier (the core and the typed tier raised on `("x").len`). |
+| `__call` | a non-function handler or a missing one raises LuaJIT's `attempt to call a table value`. |
+| `__tostring` | `tostring` passes a non-string result through, as LuaJIT; `print` and `%s` accept a number and refuse anything else. |
+| `__pairs` | `pairs` returns the handler's triple. |
+| `__metatable` | `getmetatable` answers it, `setmetatable` refuses a protected metatable. |
+| `__gc`, `__close`, `__name`, bitwise | ordinary fields, as on LuaJIT; ownership and `with` are the close path. |
+
+**What a program that uses none pays.** The heap keeps one bit per
+metamethod name whose string was ever interned (`Heap::mm_seen`): a key that
+was never a string is in no table. Each record shape caches which handlers
+its declaration holds (`Shape::mm_cache`), dropped by `redeclare` and
+`set_method`. Lookups use the names' interned keys, held as roots, so none
+hashes bytes. The checker on `lexer.nupp`, typed tier, seven interleaved
+pairs of seven repeats on the loaded machine: base 518 ms, this branch 462 ms
+(medians of the medians; same result and checksum). The gain is the absent
+field and method lookups that used to intern `__index` and the declaration
+key on every miss.
+
+**Dynamic lookups.** Every table an `__index` lookup walks, as a metatable or
+as an `__index` target, is flagged `F_PROTO`; a store to one bumps
+`Heap::proto_epoch` (it rides `schema_write`, like the storage schema), and
+the core's and the typed tier's raw store fast paths refuse flagged objects.
+`(metatable, key)` lookups are cached against the epoch and cleared before
+each sweep, so a class chain of any depth is one probe of the receiver and
+one cache probe. A record with a metatable of its own reads and writes a
+present slot raw on every tier, since `__index` and `__newindex` only see
+absent keys.
+
+The class benchmark (`tests/metamethod-bench/classbench.lua`: setmetatable
+classes three deep, an operator-overloaded vector), medians of seven:
+
+| section | Rust loop | threaded | typed tier | LuaJIT interpreter | LuaJIT |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `methods` | 44.3 ms | 52.1 ms | 64.5 ms | 14.2 ms | 2.2 ms |
+| `vectors` | 195.0 ms | 190.8 ms | 161.5 ms | 42.4 ms | 12.0 ms |
+| `text` | 5.8 ms | 5.4 ms | 5.2 ms | 0.5 ms | 0.0 ms |
+| `main` | 237.3 ms | 224.3 ms | 210.8 ms | 56.6 ms | 13.7 ms |
+
+All columns ran in one window with the load average near 20 (other lanes'
+suites), so read the ratios: the interpreters are about four times LuaJIT's
+interpreter here. On a quieter machine earlier the same image ran `main` in
+about 95 ms on every tier (120 ms before the cache and the present-slot
+paths). `methods` is slower on the typed tier than interpreted: a compiled
+`CallMethod` goes through `j_call_method`, which walks the receiver and
+copies the arguments, where the interpreter pushes a frame.
+
+**Plain `.lua` files.** The checker refused `t + 1`, `t()`, `t .. s` and
+`t < u` on a table, and typed `setmetatable`'s result as the bare table, so a
+Lua program using metatables did not compile for the VM at all. A `.lua` file
+checked without the strict rules now treats a table or an unknown operand as
+dispatching at run time (result unknown), and `setmetatable` answers `any`.
+
+**Roots on a raise.** A helper that pushed handles and then raised (a
+`__call` from compiled code, any metamethod helper) left them pushed until the
+task ended. Every catch point that recovers (`guarded`, `pcall`, the run
+loop, the core's single-op step) now truncates the handle stack to its depth
+on entry; `raising_handlers_release_their_roots_on_every_tier` checks it.
+
+Not done, from the plan's interception item: typed operators on records still
+lower to the generic opcode and dispatch through the declaration (no direct
+`CallK`), interface tables are not in the image, and a metamethod call runs
+its handler on a scratch task (`call_value`), which is most of what the
+vector section costs. Handing the handler a frame of the caller's task needs a
+delivery mode in the frame header (first result only, converted to a boolean
+for comparisons) that every return path on every tier honors.

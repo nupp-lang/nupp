@@ -20,6 +20,7 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("newindex", include_str!("metamethods/newindex.expected")),
     ("order", include_str!("metamethods/order.expected")),
     ("pairs", include_str!("metamethods/pairs.expected")),
+    ("records", include_str!("metamethods/records.expected")),
     ("tostring", include_str!("metamethods/tostring.expected")),
 ];
 

@@ -80,6 +80,7 @@ function M.main(): string
         end
     end
     lines[#lines + 1] = tostring(total) .. " " .. tostring(same)
+
     return table.concat(lines, "\n") .. "\n"
 end
 

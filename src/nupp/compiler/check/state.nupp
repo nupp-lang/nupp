@@ -514,6 +514,9 @@ record state.Checker
     --- Whether an operand is numeric, reporting when it is not.
     numericOperand: function(t: Type, node: any, op: string): boolean
 
+    --- Whether this is a plain `.lua` file checked without the strict rules.
+    plainLua: function(): boolean
+
     --- Whether a plain Lua file's operand may dispatch a metamethod.
     dynamicOperand: function(t: Type): boolean
 
