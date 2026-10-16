@@ -1,0 +1,81 @@
+--- A heap frame whose field read deoptimizes: the read's receiver keeps one
+--- shape long enough for the frame entry to specialize on it, then changes.
+--- At the read, the frame holds an integer and a float in typed registers, a
+--- table, a boxed value, a closure over an upvalue the code after the read
+--- calls, and a cleanup pending on a lease. Each must survive the exit, and
+--- the cleanup must run once per call.
+local M = {}
+
+local interface Point
+    x: number
+end
+
+local record P2 is Point
+    x: number
+    y: number
+end
+
+local record P3 is Point
+    z: number
+    x: number
+    y: number
+end
+
+local record Lease
+    state: any
+end
+
+local function destroyLease(takes self: Lease): nil
+    self.state.closed = self.state.closed + 1
+end
+
+local function lease(state: any): affine(Lease, destroyLease)
+    return new Lease(state = state)
+end
+
+local function weigh(p: Point, state: any, scale: number): number
+    local count: integer = 3
+    local factor = scale * 0.5
+    local bag = {p, p}
+    local label: any = "ww"
+    local function bump(): number
+        return factor + count
+    end
+    local result = 0
+    with owned = lease(state) do
+        local x = p.x
+        result = x * factor + count + #bag + bump() + #label
+        assert(owned.state.closed >= 0)
+    end
+    return result
+end
+
+local function shift(p: Point, by: number): number
+    p.x = p.x + by
+    return p.x
+end
+
+function M.run(): string
+    local state: any = {closed = 0}
+    local sum = 0
+    for i = 1, 3000 do
+        sum = sum + weigh(new P2(x = i, y = 1), state, 2)
+    end
+    for i = 1, 300 do
+        sum = sum + weigh(new P3(z = 0, x = i, y = 1), state, 2)
+    end
+    local moved = 0
+    for i = 1, 3000 do
+        moved = moved + shift(new P2(x = i, y = 1), 1)
+    end
+    for i = 1, 300 do
+        moved = moved + shift(new P3(z = 0, x = i, y = 1), 2)
+    end
+    return tostring(sum) .. " closed=" .. tostring(state.closed) .. " moved=" .. tostring(moved)
+end
+
+function M.main(): string
+    return M.run()
+end
+
+return M
