@@ -1,0 +1,7 @@
+@!internal
+module nupp.runtime.provider.suspension
+
+-- The VM's suspension implementation, the one `nupp.suspension.selected` falls
+-- back to on a native host when no program provider is selected. Spelled here
+-- so the image carries it: the selection reaches it by a soft `_G.require`.
+export = require("nupp.suspension.internal.provider")

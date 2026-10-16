@@ -1,0 +1,7 @@
+@!internal
+module nupp.runtime.provider.nativetime
+
+-- The VM's clocks behind the shared timer implementation. `nupp.time` selects it
+-- through `nupp.runtime.timeprovider` like any native provider, so a program's
+-- own provider still wins.
+export = require("nupp.time.internal.timers").create(require("nupp.vm.clock"))

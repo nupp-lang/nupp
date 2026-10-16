@@ -1212,6 +1212,10 @@ impl Interp {
         let parents = self.new_table(); self.registered.push(parents); self.loaded.insert("nupp.vm.taskHandles".into(), parents);
         let tag=self.new_table(); self.registered.push(tag); self.loaded.insert("nupp.vm.affineTag".into(),tag);
         let workers = self.new_table(); self.registered.push(workers); self.loaded.insert("nupp.vm.workers".into(), workers);
+        // The native worker bridge a LuaJIT host preloads: its presence is what
+        // `nupp.runtime.workersprovider` reads before it falls back to native
+        // lanes, which on the VM are `nupp.runtime.provider.workers`'s own.
+        let bridge = self.new_table(); self.registered.push(bridge); self.loaded.insert("nupp.workers.native".into(), bridge);
         let unwinds = self.new_table(); self.registered.push(unwinds); self.loaded.insert("nupp.vm.unwinds".into(), unwinds);
         let cancelled = self.new_table(); self.registered.push(cancelled);
         self.loaded.insert("nupp.vm.cancellation".into(), cancelled);

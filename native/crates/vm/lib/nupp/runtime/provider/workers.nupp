@@ -1,5 +1,9 @@
 @!internal
-module nupp.runtime.workersprovider
+module nupp.runtime.provider.workers
+
+-- The VM's worker lanes. `nupp.workers` selects them through
+-- `nupp.runtime.workersprovider` like any native provider, so a program's own
+-- provider still wins.
 
 local core: any = require("nupp.vm.tasks")
 local clock = require("nupp.vm.clock")
@@ -162,4 +166,4 @@ function workers.__registered(scope: any): integer
     return scope.registered as integer
 end
 
-export const provider = workers
+export = workers
