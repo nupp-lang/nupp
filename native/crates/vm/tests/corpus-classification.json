@@ -699,9 +699,9 @@
     },
     {
       "suite": "hotreloadguaranteetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "-",
-      "reason": "hot reload lane"
+      "reason": "indexes the hot reload guarantees against hotreloadtest and cheadertest cases, which the VM runs"
     },
     {
       "suite": "hotreloadtest",
@@ -1137,9 +1137,9 @@
     },
     {
       "suite": "runtimetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
-      "reason": "nupp run --watch on the VM: the hot reload lane's VM watch is not integrated ('op outside a function'), and a watched cheader or cdef reaches ffi"
+      "reason": "ported: runs on the VM; nupp run --watch patches bodies through the VM watch session"
     },
     {
       "suite": "rustabitest",
