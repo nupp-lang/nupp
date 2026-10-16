@@ -28,6 +28,12 @@ local cst = require("nupp.compiler.syntax.cst")
 
 local mutation = {}
 
+--- The bytes a path is spelled with: the separator, and the star that stands for
+--- anything beneath.
+const DOT = 46
+
+const STAR = 42
+
 --- The paths written beneath a binding, relative to it.
 local type Paths = {[string]: boolean}
 
@@ -194,21 +200,18 @@ local MAX_PATH_DEPTH = 3
 --- Joins a path beneath a binding onto a path that reaches the binding: a write
 --- of `.kind` through `s.inner` is a write of `.inner.kind` through `s`.
 local function joinPaths(prefix: string, suffix: string): string
-    if prefix:sub(-1) == "*" then
+    if prefix:byte(-1) == STAR then
         return prefix
     end
     local joined = suffix == "*" and prefix .. "*" or prefix .. suffix
     local depth = 0
-    local cut = nil
-    for position in joined:gmatch("()%.") do
+    local position = joined:find(".", 1, true)
+    while position do
         depth = depth + 1
         if depth > MAX_PATH_DEPTH then
-            cut = position
-            break
+            return joined:sub(1, position - 1) .. "*"
         end
-    end
-    if cut then
-        return joined:sub(1, cut - 1) .. "*"
+        position = joined:find(".", position + 1, true)
     end
 
     return joined
@@ -922,6 +925,13 @@ function mutation.prescan(root: any): mutation.Summaries
     )
 end
 
+--- Whether `path` lies beneath `prefix`: `prefix` followed by a dot, tested without
+--- building either string.
+local function startsSegment(path: string, prefix: string): boolean
+    local length = #prefix
+    return #path > length and path:byte(length + 1) == DOT and path:find(prefix, 1, true) == 1
+end
+
 --- Whether a binding may be written after a function literal at `offset` is
 --- made, so that the literal could run after the write: a write later in the
 --- source, or one anywhere in a loop the literal sits in. `path` names what the
@@ -938,11 +948,11 @@ function mutation.writtenAfter(token: any, offset: integer, path: string): boole
         if later then
             local wrote: string = write.path
             local reaches
-            if wrote:sub(-1) == "*" then
+            if wrote:byte(-1) == STAR then
                 local above = wrote:sub(1, -2)
-                reaches = path == above or path:sub(1, #above + 1) == above .. "."
+                reaches = path == above or startsSegment(path, above)
             else
-                reaches = wrote == path or path:sub(1, #wrote + 1) == wrote .. "."
+                reaches = wrote == path or startsSegment(path, wrote)
             end
             if reaches then
                 return true
