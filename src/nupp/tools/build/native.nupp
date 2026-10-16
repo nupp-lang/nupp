@@ -42,13 +42,16 @@ end
 --- compiler this machine has, so nothing here names a directory. Its progress
 --- goes to standard error and its answer to standard output; the capture merges
 --- them, so the answer is the last line that says anything.
-local function driven(compilerRoot: string, what: string, features: {string}): (string?, string)
+local function driven(compilerRoot: string, what: string, features: {string}, extra: string?): (string?, string)
     local driver = join(compilerRoot, "scripts/toolchain")
     -- os.execute reaches cmd.exe on Windows, which does not interpret a
     -- shebang. The driver belongs to the Git Bash environment used to launch
     -- Nupp, so name its shell explicitly there.
     local argv = windows and {"sh.exe", driver, what, table.concat(features, ",")}
         or {driver, what, table.concat(features, ",")}
+    if extra ~= nil then
+        argv[#argv + 1] = extra
+    end
     local code, text = process.capture(argv)
     if code ~= 0 then
         return nil, text
@@ -135,6 +138,23 @@ function stage.vmRuntime(facilities: {string}): string?, string?
         return nil, "the VM program runtime needs compiler source; use a source checkout"
     end
     local built, problem = driven(compilerRoot, "vm-runtime", facilities)
+    if not built then
+        return nil, "cannot build the VM program runtime:\n" .. problem
+    end
+
+    return built
+end
+
+--- Builds the runtime of one program with vector code: the program's image,
+--- read from the payload file at `payloadPath`, compiled ahead of time and
+--- linked with the runner archive and the native `facilities` it reaches.
+--- The result carries no code generator and runs only that image.
+function stage.vmProgramRuntime(facilities: {string}, payloadPath: string): string?, string?
+    local compilerRoot = envMod.compilerRoot()
+    if not compilerRoot then
+        return nil, "the VM program runtime needs compiler source; use a source checkout"
+    end
+    local built, problem = driven(compilerRoot, "vm-program", facilities, payloadPath)
     if not built then
         return nil, "cannot build the VM program runtime:\n" .. problem
     end

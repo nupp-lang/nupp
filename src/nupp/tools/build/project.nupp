@@ -912,7 +912,28 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             local stubPath, hostErr
             if vmProgram then
                 report:step("building the VM program runtime")
-                stubPath, hostErr = native.vmRuntime(facilities or {})
+                -- A program with vector code gets a runtime with its image
+                -- compiled in; any other is stamped onto the shared runtime.
+                local named: {string} = {}
+                local vector = false
+                for _, facility in ipairs(facilities or {}) do
+                    if facility == "vector" then
+                        vector = true
+                    else
+                        named[#named + 1] = facility
+                    end
+                end
+                if vector then
+                    local payloadPath = join(root, join(outDir, ".nupp-vm-program.payload"))
+                    local written, writeErr = writeFile(payloadPath, text)
+                    if not written then
+                        say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
+                        return 1
+                    end
+                    stubPath, hostErr = native.vmProgramRuntime(named, payloadPath)
+                else
+                    stubPath, hostErr = native.vmRuntime(named)
+                end
             else
                 stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
             end

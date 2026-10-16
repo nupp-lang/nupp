@@ -440,11 +440,12 @@ function project.program(
         sources
     )
     -- A function with vector instructions runs only compiled (`native_simd`'s
-    -- `required`), so a program holding one is linked with the code generator,
-    -- which compiles it on first call. The rest stay interpreter-only.
+    -- `required`), so a program holding one has its image compiled ahead of
+    -- time and linked into its runtime (`scripts/toolchain vm-program`): the
+    -- binary carries no code generator. The rest stay interpreter-only.
     for _, op in ipairs(NATIVE_OPS) do
         if image:find("\n  " .. op .. " ", 1, true) then
-            reached["jit"] = true
+            reached["vector"] = true
             break
         end
     end

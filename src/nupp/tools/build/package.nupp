@@ -599,7 +599,7 @@ local function programKey(mainName: string, embedded: string?, modules: {[string
     end
     local fingerprint = require("nupp.compiler.project.fingerprint")
     local digest = fingerprint.contentDigest(true)
-    local parts: {string} = {"vm-program/2", mainName, digest(embedded or ""), fingerprint.graphFingerprint(digest)}
+    local parts: {string} = {"vm-program/3", mainName, digest(embedded or ""), fingerprint.graphFingerprint(digest)}
     -- An instrumented image is a different program; an ordinary key is unchanged.
     if coverage then
         parts[#parts + 1] = "coverage"
