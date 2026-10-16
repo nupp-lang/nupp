@@ -3349,24 +3349,35 @@ Runtime specialization in the typed tier (`src/specialize.rs`, the
 specialized lowering in `src/jit.rs`), as the runtime plan's JIT section
 decided on 2026-10-16 and its design document
 (`~/projects/nupp-plans/todo/jit-specialization-design.md`) lays out. Off
-by default: `JIT_SPECIALIZE=1` turns on feedback and specialization,
+by default: `JIT_SPECIALIZE=1` turns on feedback and specialization of
+direct entries, `JIT_SPEC_FRAMES=1` also of heap-frame entries,
 `JIT_FEEDBACK=1` feedback alone, `JIT_SPEC_STATS=1` prints the counters at
-exit and `JIT_SPEC_TRACE=1` every plan.
+exit and `JIT_SPEC_TRACE=1` every plan and the weighing behind it.
 
 **Feedback.** Per dynamic site (`CallDyn`, `CallK`, `CallMethod`,
 `GetField`, `SetField`), up to three observed keys with counts and an
 overflow count: a call target's function id, or a receiver's shape, its
 metatable, or (for the Lua class idiom, whose objects are structural records
-with a metatable of their own) both. The Rust loop records in `step`, the
-threaded core in `h_calldyn` and `h_getfield` through `rt_observe`, and
-instrumented generic compiled code inline, calling out only for a key the
-site has not seen. Records live in `Interp::spec`, outside the heap, within
+with a metatable of their own) both. The Rust loop records in the site
+operations' arms of `step`, the threaded core in `h_calldyn` and
+`h_getfield` through `rt_observe`. Instrumented generic compiled code counts
+its calls and records only where it is already slow: method calls and field
+stores in the helper they always call, a field read where its site cache
+missed on a record. (Computing a call target's key inline at every dynamic
+call cost the parser 25% more compile time for specializations that did not
+pay, so compiled code does not record call targets.) Records live in `Interp::spec`, outside the heap, within
 a byte budget (`JIT_SPEC_BYTES`, 8 MiB) that covers sites and pc maps, is
 checked before anything is allocated, and remembers what it refused.
 
 **Specialized versions.** At `JIT_SPEC_CALLS` (1,000) calls of an
 instrumented direct entry, or entries of a heap-frame entry, the function is
-compiled again from a `Plan`: a method site becomes guards on the receiver's
+compiled again from a `Plan`, if it is worth it: the plan must have a
+method call, a field store or a field read that met several shapes, and
+those sites must have recorded at least `JIT_SPEC_BENEFIT` (2) slow
+executions per instruction of the function. A single dynamic target or a
+monomorphic field read rides along but never pays for a recompile; on the
+parser, versions for those alone cost more compile time (one large closure
+took 100 ms) than they saved. The plan's sites: a method site becomes guards on the receiver's
 shape or metatable (and, for a table or a metatabled record, a probe that
 no field of its own shadows the method) followed by a direct call to the
 method's compiled entry; a dynamic call with one target becomes the `CallK`
@@ -3377,6 +3388,31 @@ failed guard counts a miss and takes the generic helper in place. Past
 feedback the misses added; past `JIT_SPEC_VERSIONS` (3) versions it settles
 on its generic entry for good. Direct and heap-frame entries keep separate
 version counts. Object code never specializes.
+
+Measured (2026-10-16, interleaved, 5 repeats, load 12 to 22, whole
+processes including the eager compile; `tests/specialize-perf.py`):
+
+| workload | generic JIT | `JIT_SPECIALIZE=1` |
+| --- | ---: | ---: |
+| Lua class idiom (`classes.lua`), process wall | 319 ms | 169 ms (0.53) |
+| interface-typed records (`shapes.nupp`), process wall | 351 ms | 169 ms (0.48) |
+| interface calls, one record type / three | 101 / 137 ms | 23 / 23 ms |
+| Lua method calls, one class / three / replaced mid-run | 90 / 63 / 28 ms | 26 / 16 / 7 ms |
+| a field read in a function called once (no OSR) | 19 ms | 21 ms |
+| parser.nupp parse (`parsebench`, typed), process wall | 2.58 s | 2.67 s (1.03) |
+| peak resident set, all of the above | | within 1% |
+
+The heap-frame path (`--tasks`, `JIT_SPEC_FRAMES=1`) lost 5 to 9% on the
+class and interface benchmarks against generic frame entries: every call
+there is a boundary that returns to the driver, which no field guard saves,
+and the per-entry counting and recompiles cost more than the known-shape
+facts after a deopt exit gain. Feedback off costs nothing attributable on
+the interpreter: the compiler's interpreted `check` of the lexer ran 3%
+slower than the branch point both with the hooks in and with them compiled
+out, so the difference is layout, not the hooks. The compiler workloads
+(root emit, the lexer one-shot) run linked AOT, where specialization is off
+by construction; the compiler-speed lane's hot-site list names no site
+speculation would fix.
 
 **Invariants.**
 
