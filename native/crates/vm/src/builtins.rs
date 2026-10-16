@@ -1049,16 +1049,27 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 let hit = if pat.len() == 1 { s[start..].iter().position(|&c| c == pat[0]) } else { s[start..].windows(pat.len()).position(|w| w == &pat[..]) };
                 match hit { Some(k) => outs![Value::num((start + k + 1) as f64), Value::num((start + k + pat.len()) as f64)], None => outs![Value::NIL] }
             } else {
-                let s = bytes_of(it, arg(args, 0)); let n = s.len() as i64;
-                let mut init = int(args, 2, 1); if init < 0 { init += n + 1; } if init < 1 { init = 1; }
-                if init > n + 1 { init = n + 1; }
-                match pattern::find(&s, &pat, (init - 1) as usize) {
-                    Some((a, b, caps)) => {
+                // The match borrows the subject and copies out only what it
+                // returns: copying the subject made every call cost its whole
+                // length, and a decoder stepping through a large text with
+                // anchored patterns quadratic.
+                let found = {
+                    let mut scratch = Vec::new(); let s = bytes_ref(it, arg(args, 0), &mut scratch); let n = s.len() as i64;
+                    let mut init = int(args, 2, 1); if init < 0 { init += n + 1; } if init < 1 { init = 1; }
+                    if init > n + 1 { init = n + 1; }
+                    pattern::find(s, &pat, (init - 1) as usize).map(|(a, b, caps)| {
+                        let whole = if caps.is_empty() && !find { Some(s[a..b].to_vec()) } else { None };
+                        let pieces: Vec<Result<usize, Vec<u8>>> = caps.into_iter().map(|c| match c { pattern::Cap::Pos(p) => Ok(p), pattern::Cap::Span(x, y) => Err(s[x..y].to_vec()) }).collect();
+                        (a, b, whole, pieces)
+                    })
+                };
+                match found {
+                    Some((a, b, whole, pieces)) => {
                         let scope = it.open_scope();
                         let mut out = Outs::new();
                         if find { out.push(Value::num((a + 1) as f64)); out.push(Value::num(b as f64)); }
-                        if caps.is_empty() && !find { out.push(str_of(it, &s[a..b])); }
-                        for c in caps { let value = match c { pattern::Cap::Pos(p) => Value::num((p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[x..y]) }; it.handles.push(value); out.push(value); }
+                        if let Some(text) = whole { out.push(str_of(it, &text)); }
+                        for piece in pieces { let value = match piece { Ok(p) => Value::num((p + 1) as f64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); }
                         it.close_scope(scope);
                         out
                     }
@@ -1338,11 +1349,21 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
         1 => { for index in pos..keys_len { let k = it.iter_key(iter, index); it.iter_advance(iter); let v = it.get_index(obj, k); if v != Value::NIL { return outs![k, v]; } } outs![Value::NIL] }
         2 => { let i = pos + 1; let v = it.get_index(obj, Value::num(i as f64)); if v == Value::NIL { return outs![Value::NIL]; } it.iter_advance(iter); outs![Value::num(i as f64), v] }
         3 => {
-            let s = bytes_of(it, obj); let pat = bytes_of(it, it.iter_pattern(iter));
-            if pos > s.len() { return outs![Value::NIL]; }
-            match pattern::find(&s, &pat, pos) {
-                Some((a, b, caps)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if caps.is_empty() { outs![str_of(it, &s[a..b])] } else { let scope = it.open_scope(); let mut out = Outs::new(); for c in caps { let value = match c { pattern::Cap::Pos(p) => Value::num((p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[x..y]) }; it.handles.push(value); out.push(value); } it.close_scope(scope); out } }
-                None => { it.iter_set_pos(iter, s.len() + 1); outs![Value::NIL] }
+            // Borrowed, as `string.find` borrows it: a copy per step made a loop
+            // over a large text quadratic.
+            let pat = bytes_of(it, it.iter_pattern(iter));
+            let (len, found) = {
+                let mut scratch = Vec::new(); let s = bytes_ref(it, obj, &mut scratch);
+                if pos > s.len() { return outs![Value::NIL]; }
+                (s.len(), pattern::find(s, &pat, pos).map(|(a, b, caps)| {
+                    let whole = if caps.is_empty() { Some(s[a..b].to_vec()) } else { None };
+                    let pieces: Vec<Result<usize, Vec<u8>>> = caps.into_iter().map(|c| match c { pattern::Cap::Pos(p) => Ok(p), pattern::Cap::Span(x, y) => Err(s[x..y].to_vec()) }).collect();
+                    (a, b, whole, pieces)
+                }))
+            };
+            match found {
+                Some((a, b, whole, pieces)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if let Some(text) = whole { outs![str_of(it, &text)] } else { let scope = it.open_scope(); let mut out = Outs::new(); for piece in pieces { let value = match piece { Ok(p) => Value::num((p + 1) as f64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); } it.close_scope(scope); out } }
+                None => { it.iter_set_pos(iter, len + 1); outs![Value::NIL] }
             }
         }
         4 | 5 => {

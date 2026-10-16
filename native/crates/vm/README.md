@@ -2381,3 +2381,54 @@ the view's `__add`; the modules do view arithmetic through an `any`-typed
 helper. Still open from "Memory across workers": a region reaches a worker as
 a copy of its block, not a shared reference, and a heap array is copied
 rather than moved.
+
+
+## Coverage on the VM (2026-10-15)
+
+`nupp test --coverage` runs on the VM CLI and writes the same `coverage.json`,
+`lcov.info` and HTML pages. The generator's design carries over: statement,
+function and branch sites, a manifest per module in the build state, counters
+in `_G.__nuppCoverage.hits[path][key]`, and the runner's shard, which
+`nupp.tools.coverage` reads unchanged.
+
+- **One numbering.** `nupp.compiler.coverage` numbers a module's sites from
+  its checked syntax, in source order. The generator used to number them in
+  the order it happened to write probes; it now asks the same enumeration and
+  writes a probe only where it holds a site, so the two backends agree by
+  construction rather than by mirroring each other's traversal. A build
+  enumerates before the optimizer runs, since the VM lowers the unoptimized
+  source; a VM program build then records the lowering's own manifests.
+- **What the generator counted differently.** Making the numbering a property
+  of the syntax closed gaps the emission order hid: record methods are now
+  function sites, statements in blocks holding automatic cleanup owners are
+  counted wherever the cleanup region writes them, `if NAME = EXPR` clauses are
+  branches, a statement-owner region's statement is counted once, and comptime
+  functions and annotation schemas are no longer statement sites.
+- **The lowering.** `lower.emit` takes a coverage request naming which modules
+  to instrument. Each function of such a module reserves a register on entry,
+  loads its file's counts table into it once
+  (`nupp.runtime.coveragecounter`, carried in the image), and every site adds
+  one to its key there; a branch counts `id:true` or `id:false` by Lua
+  truthiness. Without a request the image is byte-identical to before (checked
+  on four modules against the previous lowering; `coveragetest` checks a
+  request naming nothing). `compile.image` instruments under `NUPP_COVERAGE=1`
+  and keeps no such image in the cache.
+- **Cost.** `narrowingtest` on the stamped runner, paired: 11.0 s plain, 38.4 s
+  covered (3.5x). A first version called the recorder at every site, as the
+  generated Lua does, and ran it in 156 s (12x); LuaJIT compiles that call
+  away and the interpreter does not.
+- **Parity.** `coveragetest` lowers a fixture and `nupp.compiler.switchplan`
+  both ways and compares the manifests; on the VM it also runs the fixture's
+  image and its generated Lua and compares every counter, and does the same
+  for loading `nupp.compiler.aot.scalar`.
+
+The report writer is slow on the VM: about six minutes to load the state and
+build the model, three to write the compiler's 496 pages. One page stalled for
+good: the highlighter appended each token to its line, so a generated file
+whose first line is a 172 KB prelude went quadratic. It now joins a line's
+pieces once (15 s to 0.6 s for that file on the VM).
+
+Not instrumented: functions lowered from a native SIMD plan. The page's
+"Generated Lua" view still shows the generator's output, which on a VM build is
+not what ran. `coveragetest` now covers `coveragereporttest`, because the VM
+runner leaves `pathtest` to LuaJIT and covered nothing.
