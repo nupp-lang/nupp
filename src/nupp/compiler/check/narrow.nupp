@@ -525,7 +525,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     -- The entry a name resolves to, without recording a read of it: this is asked
     -- on the way into a function literal, and a read here would count as one the
     -- literal made.
-    local function visibleEntry(name: string): any
+    local function visibleEntry(name: string): state.Binding?
         local sc = c.scope
         while sc do
             local entry = sc.vars[name]
@@ -540,10 +540,10 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     function facts.hideCapturedNarrowing(body)
         local restore: {{
-            entry: any?,
-            key: any?,
-            map: any?,
-            t: any
+            entry: state.Binding?,
+            key: string?,
+            map: {[string]: Type}?,
+            t: Type
         }} = {}
         -- The writes are recorded on the declaring tokens by the pass that reads
         -- the file, which nothing before this literal need have asked for yet.
@@ -551,7 +551,7 @@ function narrow.install(c: state.Checker): narrow.Ops
         local first = cst.firstToken(body)
         local offset = first and first.offset or 0
 
-        local function writtenLater(entry, path): boolean
+        local function writtenLater(entry: state.Binding, path: string): boolean
             local token = entry and entry.definition and entry.definition.token or nil
             return token ~= nil and mutation.writtenAfter(token, offset, path)
         end
@@ -580,10 +580,11 @@ function narrow.install(c: state.Checker): narrow.Ops
 
         return function()
             for _, item in ipairs(restore) do
-                if item.entry then
-                    item.entry.t = item.t
-                else
-                    item.map[item.key] = item.t
+                local entry, map, key = item.entry, item.map, item.key
+                if entry then
+                    entry.t = item.t
+                elseif map and key then
+                    map[key] = item.t
                 end
             end
         end
