@@ -217,8 +217,26 @@ pub struct StoragePayload { pub data: Vec<f64> }
 #[repr(C)]
 // Ordinary buffers retain Vec storage; native aggregates request an explicit
 // allocation alignment. The header still exposes only a logical byte span.
-pub enum ByteBuffer { Bytes(Vec<u8>), Aligned(AlignedBytes) }
+// A shared block is an immutable allocation several VMs hold by reference
+// (`crate::sharing`); a moved buffer is the husk an allocation left behind
+// when its ownership went to another VM.
+pub enum ByteBuffer { Bytes(Vec<u8>), Aligned(AlignedBytes), Shared(std::sync::Arc<crate::sharing::Block>), Moved }
 pub struct AlignedBytes { pointer: NonNull<u8>, length: usize, layout: std::alloc::Layout }
+// One owner at a time: the bytes are reached only through the owning object,
+// so handing the allocation to another thread hands all access with it.
+unsafe impl Send for AlignedBytes {}
+impl AlignedBytes {
+    /// The allocation's parts, which the caller now owns and must free with
+    /// `layout`.
+    pub(crate) fn into_raw(self) -> (NonNull<u8>, usize, std::alloc::Layout) {
+        let parts = (self.pointer, self.length, self.layout);
+        std::mem::forget(self);
+        parts
+    }
+    pub(crate) fn len(&self) -> usize { self.length }
+    pub(crate) fn alignment(&self) -> usize { self.layout.align() }
+    pub(crate) fn bytes(&self) -> &[u8] { unsafe { std::slice::from_raw_parts(self.pointer.as_ptr(), self.length) } }
+}
 impl Drop for AlignedBytes {
     fn drop(&mut self) { unsafe { std::alloc::dealloc(self.pointer.as_ptr(), self.layout); } }
 }
@@ -232,25 +250,25 @@ impl ByteBuffer {
             .unwrap_or_else(|| std::alloc::handle_alloc_error(layout));
         Self::Aligned(AlignedBytes { pointer, length, layout })
     }
-    pub fn is_fixed(&self) -> bool { matches!(self, Self::Aligned(_)) }
-    pub fn alignment(&self) -> usize { match self { Self::Bytes(_) => 1, Self::Aligned(b) => b.layout.align() } }
-    pub fn capacity(&self) -> usize { match self { Self::Bytes(b) => b.capacity(), Self::Aligned(b) => b.layout.size() } }
+    pub fn is_fixed(&self) -> bool { !matches!(self, Self::Bytes(_)) }
+    pub fn alignment(&self) -> usize { match self { Self::Bytes(_) | Self::Moved => 1, Self::Aligned(b) => b.layout.align(), Self::Shared(b) => b.alignment() } }
+    pub fn capacity(&self) -> usize { match self { Self::Bytes(b) => b.capacity(), Self::Aligned(b) => b.layout.size(), Self::Shared(b) => b.capacity(), Self::Moved => 0 } }
     pub fn extend_from_slice(&mut self, bytes: &[u8]) {
         match self {
             Self::Bytes(b) => b.extend_from_slice(bytes),
-            Self::Aligned(b) => {
-                let _ = b;
-                panic!("fixed native allocation cannot grow");
-            }
+            _ => panic!("fixed native allocation cannot grow"),
         }
     }
 }
 impl std::ops::Deref for ByteBuffer {
     type Target = [u8];
-    fn deref(&self) -> &[u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts(b.pointer.as_ptr(), b.length) } } }
+    fn deref(&self) -> &[u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts(b.pointer.as_ptr(), b.length) }, Self::Shared(b) => b.bytes(), Self::Moved => &[] } }
 }
+// A shared block's bytes are never written: every storage view over one is
+// read-only (`crate::sharing::is_shared`), so the mutable slice only mirrors
+// the pointer into the header.
 impl std::ops::DerefMut for ByteBuffer {
-    fn deref_mut(&mut self) -> &mut [u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer.as_ptr(), b.length) } } }
+    fn deref_mut(&mut self) -> &mut [u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer.as_ptr(), b.length) }, Self::Shared(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer(), b.len()) }, Self::Moved => &mut [] } }
 }
 pub struct BytesPayload { pub data: ByteBuffer }
 /// Iteration state for `pairs` (1, over a key snapshot), `ipairs` (2) and

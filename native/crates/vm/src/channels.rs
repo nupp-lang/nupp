@@ -21,7 +21,13 @@ pub(crate) struct Queue {
     id: u64,
     capacity: usize,
     closed: bool,
-    messages: VecDeque<Vec<u8>>,
+    messages: VecDeque<Message>,
+}
+/// A sent value's graph, and the shared blocks it names beside it: a region
+/// crosses a channel by reference, as it crosses into a worker.
+struct Message {
+    bytes: Vec<u8>,
+    attachments: crate::sharing::Attachments,
 }
 pub(crate) type Channel = Arc<Mutex<Queue>>;
 pub(crate) struct Codec {
@@ -37,15 +43,19 @@ impl ResourceCodec for Codec {
             .ok_or("unknown channel")?
             .lock()
             .map_err(|e| e.to_string())?;
-        let mut b = vec![if self.transfer { 0 } else { 1 }];
+        let mut b = vec![if self.transfer { 0 } else { 2 }];
         b.extend(q.id.to_le_bytes());
         if !self.transfer {
             b.extend((q.capacity as u64).to_le_bytes());
             b.push(q.closed as u8);
             b.extend((q.messages.len() as u64).to_le_bytes());
             for m in &q.messages {
-                b.extend((m.len() as u64).to_le_bytes());
-                b.extend(m);
+                b.extend((m.bytes.len() as u64).to_le_bytes());
+                b.extend(&m.bytes);
+                let mut attached = Vec::new();
+                m.attachments.write(&mut attached);
+                b.extend((attached.len() as u64).to_le_bytes());
+                b.extend(attached);
             }
         }
         Ok(b)
@@ -65,7 +75,7 @@ impl ResourceCodec for Codec {
         let mut b = data;
         let mode = take(&mut b, 1)?[0];
         let id = num(&mut b)?;
-        let restored = if mode == 1 {
+        let restored = if mode == 1 || mode == 2 {
             let cap = num(&mut b)?;
             if cap == 0 || cap > 1_000_000 {
                 return Err("invalid channel capacity".into());
@@ -79,7 +89,15 @@ impl ResourceCodec for Codec {
             for _ in 0..count {
                 let n = num(&mut b)?;
                 let n = usize::try_from(n).map_err(|_| "message too large")?;
-                messages.push_back(take(&mut b, n)?.to_vec());
+                let bytes = take(&mut b, n)?.to_vec();
+                let attachments = if mode == 2 {
+                    let n = num(&mut b)?;
+                    let n = usize::try_from(n).map_err(|_| "message too large")?;
+                    crate::sharing::Attachments::read(take(&mut b, n)?)?
+                } else {
+                    Default::default()
+                };
+                messages.push_back(Message { bytes, attachments });
             }
             Some(Queue {
                 id,
@@ -205,8 +223,13 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
                     return Answer::Event(object);
                 }
             }
-            let bytes = persist::save_graph(vm, &[at(1)], &Policies::default())
-                .unwrap_or_else(|e| vm.err(&e));
+            // Nothing moves through a channel: a send does not consume the
+            // sender's binding, so an owned array is copied. Shared blocks
+            // cross by reference.
+            let (bytes, attachments) = crate::sharing::send(vm, &[], |vm| {
+                persist::save_graph(vm, &[at(1)], &Policies::default())
+            })
+            .unwrap_or_else(|e| vm.err(&e));
             let mut q = channel.lock().unwrap();
             if q.closed {
                 vm.err("send on closed channel");
@@ -214,7 +237,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
             if q.messages.len() == q.capacity {
                 return Answer::Event(object);
             }
-            q.messages.push_back(bytes);
+            q.messages.push_back(Message { bytes, attachments });
             drop(q);
             crate::task_api::wake_event(vm, object);
             Answer::Values(vec![])
@@ -241,8 +264,10 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Answer {
                     vm.heap.channels.remove(&object);
                     vm.resources.remove(&object);
                 }
-                let values = persist::load_graph(vm, &b, &Policies::default(), None)
-                    .unwrap_or_else(|e| vm.err(&e));
+                let values = crate::sharing::receive(b.attachments, || {
+                    persist::load_graph(vm, &b.bytes, &Policies::default(), None)
+                })
+                .unwrap_or_else(|e| vm.err(&e));
                 Answer::Values(vec![values[0], Value::TRUE])
             } else {
                 Answer::Event(object)

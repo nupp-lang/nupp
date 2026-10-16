@@ -95,6 +95,8 @@ pub mod workers;
 pub mod supervision;
 
 mod channels;
+pub mod sharing;
+mod worker_context;
 
 mod coroutines;
 

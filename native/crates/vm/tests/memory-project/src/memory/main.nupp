@@ -185,9 +185,61 @@ local function logging(): nil
     assert(log.timestamp():match("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d $"), log.timestamp())
 end
 
+-- The storage provider's private view of where an allocation lives: a shared
+-- block has one address in every VM holding it, and a moved allocation keeps
+-- its address in the VM it moved to.
+local representation: any = require("nupp.mem.representation").storage
+
+local function regionAddress(region: sharedbytes.Region): number
+    return representation.address(((region as any)._handle as any).data) as number
+end
+
+local function arrayAddress(borrows values: heap.Array<int32>): number
+    @unsafe do
+        return representation.address((values as any).pointer) as number
+    end
+end
+
 --- What a worker reads of a region it was handed.
 function test.regionPrefix(region: sharedbytes.Region): string
     return region:slice(0, 5):toString()
+end
+
+--- What a worker reads of a region, and where the block it reads lives.
+function test.regionBlock(region: sharedbytes.Region): (string, number)
+    return region:slice(0, 5):toString(), regionAddress(region)
+end
+
+--- A region a worker makes and hands back.
+function test.makeRegion(text: string): (sharedbytes.Region, number)
+    local region = sharedbytes.copy(text)
+    return region, regionAddress(region)
+end
+
+--- Writes a moved array and moves it back.
+function test.fillMoved(takes frame: heap.Array<int32>, seed: integer): affine(heap.Array<int32>, heap.destroyArray)
+    with writable = frame:write() do
+        for index = 1, #writable do
+            writable[index] = (seed + index) as int32
+        end
+    end
+
+    return frame
+end
+
+--- Where a moved array arrived, and the sum of what it holds.
+function test.totalMoved(takes values: heap.Array<int32>): (integer, number)
+    local sum: integer = 0
+    do
+        local readable = values:read()
+        for index = 1, #readable do
+            sum = sum + readable[index]
+        end
+    end
+    local address = arrayAddress(values)
+    values:close()
+
+    return sum, address
 end
 
 local function workerRegions(): nil
@@ -196,11 +248,40 @@ local function workerRegions(): nil
     builder:append("built ")
     builder:append("bytes")
     local built = builder:freeze()
+    local large = sharedbytes.copy(string.rep("large", 200000))
     with scope = tasks.open() do
         const one = scope:fork(region, test.regionPrefix)
         const two = scope:fork(built, test.regionPrefix)
         assert(one:await() == "hello")
         assert(two:await() == "built")
+        -- By reference: the worker reads the block the caller holds.
+        const three = scope:fork(region:slice(7, 6), test.regionBlock)
+        const four = scope:fork(built, test.regionBlock)
+        const five = scope:fork(large, test.regionBlock)
+        local text, address = three:await()
+        assert(text == "worke" and address == regionAddress(region), "a region crosses by reference")
+        text, address = four:await()
+        assert(text == "built" and address == regionAddress(built), "a frozen builder crosses by reference")
+        text, address = five:await()
+        assert(text == "large" and address == regionAddress(large), "a large region crosses by reference")
+        -- A region a worker made comes back as the same block.
+        local made, madeAt = scope:fork("made in a worker", test.makeRegion):await()
+        assert(made:toString() == "made in a worker" and regionAddress(made) == madeAt)
+    end
+    collectgarbage()
+    assert(large:slice(0, 5):toString() == "large" and region:toString() == "hello, worker")
+end
+
+local function workerMoves(): nil
+    local frame = heap.allocate(ffi.typeof<int32>(), 1024)
+    const before = arrayAddress(frame)
+    with scope = tasks.open() do
+        frame = scope:fork(frame, 5, test.fillMoved):await()
+        -- Moved there and back: the same allocation, not a copy.
+        assert(arrayAddress(frame) == before, "a heap array moves rather than copies")
+        assert(frame:read()[1] == 6 and frame:read()[1024] == 1029)
+        local sum, address = scope:fork(frame, test.totalMoved):await()
+        assert(sum == (6 + 1029) * 1024 // 2 and address == before, "the worker owns the moved allocation")
     end
 end
 
@@ -227,6 +308,7 @@ function test.run(): number
     sharedRegions()
     logging()
     workerRegions()
+    workerMoves()
     detached()
     collectgarbage()
 

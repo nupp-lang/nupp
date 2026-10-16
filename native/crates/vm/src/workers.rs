@@ -20,6 +20,18 @@ pub struct Progress {
     pub values: Option<Vec<u8>>,
     pub compiled_entries: u64,
     pub compile_micros: u128,
+    /// Shared blocks and moved allocations the result graph names by index.
+    pub attachments: crate::sharing::Attachments,
+}
+impl Progress {
+    /// Rebuilds a settled task's results in `vm`, adopting the blocks and
+    /// allocations they carry.
+    pub fn load_values(self, vm: &mut Interp) -> Result<Vec<Value>> {
+        let values = self.values.ok_or("the task has not settled")?;
+        crate::sharing::receive(self.attachments, || {
+            persist::load_graph(vm, &values, &Policies::default(), None)
+        })
+    }
 }
 enum Reply {
     Step(Result<Progress>),
@@ -39,17 +51,38 @@ pub struct Worker {
 impl Worker {
     /// Copies a function, its captured graph, and arguments into an isolated VM.
     /// Native resources require an explicit transferable representation.
+    /// Shared blocks cross by reference and `nupp.mem.heap` arrays among the
+    /// arguments move (`crate::sharing`); the rest of the graph is copied.
     pub fn spawn(parent: &mut Interp, callee: Value, args: &[Value]) -> Result<Self> {
+        let scope = parent.open_scope();
+        let context = crate::worker_context::capture(parent, callee, args);
+        parent.handles.push(context);
         let mut roots = vec![callee];
         roots.extend_from_slice(args);
+        roots.push(context);
         let registry = parent.channel_registry.clone();
-        let graph = persist::save_graph_with(
-            parent,
-            &roots,
-            &Policies::default(),
-            Some(&mut crate::channels::codecs(registry.clone(), true)),
-            false,
-        )?;
+        let mut send = |parent: &mut Interp, roots: &[Value]| {
+            crate::sharing::send(parent, args, |parent| {
+                persist::save_graph_with(
+                    parent,
+                    roots,
+                    &Policies::default(),
+                    Some(&mut crate::channels::codecs(registry.clone(), true)),
+                    false,
+                )
+            })
+        };
+        let mut graph = send(parent, &roots);
+        if graph.is_err() && context != Value::NIL {
+            // Something the context reaches cannot cross (a method closing over
+            // a live coroutine, say). The body may never need it: send without
+            // it, which is what workers did before the context existed. A
+            // failed encoding detached nothing, so the retry starts clean.
+            *roots.last_mut().unwrap() = Value::NIL;
+            graph = send(parent, &roots);
+        }
+        parent.close_scope(scope);
+        let (graph, attachments) = graph?;
         let recipe = parent.code_events.clone();
         let linked_frames = parent.linked_frames.clone();
         Self::start(move || {
@@ -65,15 +98,19 @@ impl Worker {
                 }
             }
             vm.enable_scheduler()?;
-            let values = persist::load_graph_with(
-                &mut vm,
-                &graph,
-                &Policies::default(),
-                None,
-                Some(&mut crate::channels::codecs(registry, true)),
-                false,
-                None,
-            )?;
+            let mut values = crate::sharing::receive(attachments, || {
+                persist::load_graph_with(
+                    &mut vm,
+                    &graph,
+                    &Policies::default(),
+                    None,
+                    Some(&mut crate::channels::codecs(registry, true)),
+                    false,
+                    None,
+                )
+            })?;
+            let context = values.pop().unwrap_or(Value::NIL);
+            crate::worker_context::install(&mut vm, context);
             let task = vm.schedule(values[0], &values[1..], None)?;
             Ok((vm, task))
         })
@@ -245,6 +282,7 @@ impl Worker {
                                 vm.instruction_budget = None;
                                 let status =
                                     vm.scheduler.as_ref().unwrap().status(task).unwrap().clone();
+                                let mut attachments = Default::default();
                                 let values = if status == Status::Active {
                                     None
                                 } else {
@@ -257,11 +295,14 @@ impl Worker {
                                     } else {
                                         vec![vm.tasks[task.index].error]
                                     };
-                                    Some(persist::save_graph(
-                                        &mut vm,
-                                        &roots,
-                                        &Policies::default(),
-                                    )?)
+                                    // A settled task's results leave its VM:
+                                    // arrays among them move to the parent.
+                                    let (bytes, attached) =
+                                        crate::sharing::send(&mut vm, &roots, |vm| {
+                                            persist::save_graph(vm, &roots, &Policies::default())
+                                        })?;
+                                    attachments = attached;
+                                    Some(bytes)
                                 };
                                 let compile_micros = {
                                     #[cfg(feature = "jit")]
@@ -283,6 +324,7 @@ impl Worker {
                                     values,
                                     compiled_entries: vm.compiled_frame_entries,
                                     compile_micros,
+                                    attachments,
                                 })
                             })();
                             if out.send(Reply::Step(result)).is_err() {
@@ -400,7 +442,7 @@ impl Interp {
         if self.affine_meta(callee) != Value::NIL {
             return Err("worker bodies cannot transfer VM-local affine capabilities".into());
         }
-        let mut worker = Worker::spawn(self, callee, args)?;
+        let worker = Worker::spawn(self, callee, args)?;
         let task = self.schedule_inner(callee, args, deadline)?;
         self.scheduler
             .as_mut()
@@ -418,9 +460,9 @@ impl Interp {
             "generation",
             Value::num(task.generation as f64),
         );
-        let bytes = worker.snapshot()?;
-        let data = self.intern_bytes(&bytes);
-        put(self, record, "snapshot", data);
+        // The record's snapshot is written when the parent checkpoints
+        // (`snapshot_workers`), not here: a snapshot at the fork would copy
+        // every argument the crossing just shared or moved.
         let table = self.loaded["nupp.vm.workers"];
         self.set_index(table, Value::num(task.generation as f64), record);
         self.workers.insert(task.generation, worker);
@@ -459,6 +501,9 @@ impl Interp {
         for (task, record) in self.worker_records() {
             if !self.workers.contains_key(&task.generation) {
                 let data = field(self, record, "snapshot");
+                if !self.is_stringish(data) {
+                    return Err("a worker was lost before any checkpoint captured it".into());
+                }
                 let worker = Worker::restore_shared(
                     self.bytes_of(data).to_vec(),
                     self.channel_registry.clone(),
@@ -496,16 +541,15 @@ impl Interp {
             if let Some(p) = progress.filter(|p| p.status != Status::Active) {
                 self.worker_compiled_entries += p.compiled_entries;
                 self.worker_compile_micros += p.compile_micros;
-                let roots =
-                    match persist::load_graph(self, &p.values.unwrap(), &Policies::default(), None)
-                    {
+                let status = p.status.clone();
+                let roots = match p.load_values(self) {
                         Ok(v) => v,
                         Err(e) => {
                             events.push(self.worker_failed(task, e));
                             continue;
                         }
                     };
-                if p.status == Status::Completed {
+                if status == Status::Completed {
                     self.tasks[task.index].result = roots.first().copied().unwrap_or(Value::NIL);
                     self.tasks[task.index].results = roots;
                 } else if !cancelled {
@@ -513,7 +557,7 @@ impl Interp {
                 }
                 let table = self.loaded["nupp.vm.workers"];
                 self.set_index(table, Value::num(task.generation as f64), Value::NIL);
-                events.push(self.finish_scheduled(task.index, p.status));
+                events.push(self.finish_scheduled(task.index, status));
             } else {
                 if let Err(e) = worker.step(now) {
                     events.push(self.worker_failed(task, e));

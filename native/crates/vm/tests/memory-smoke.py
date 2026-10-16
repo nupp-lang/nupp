@@ -5,8 +5,9 @@ Usage: memory-smoke.py SEED --binary PATH --output DIRECTORY [--target TRIPLE]
 
 SEED is a VM compiler image built from this checkout (the lowering of
 `ffi.typeof<T>()` and of SoA rows lives in it). The fixture covers the VM's
-`nupp.mem.soa`, `nupp.mem.heap` and `nupp.mem.sharedbytes`, regions sent to a
-worker, `nupp.log`'s clock, and the host and GPU providers with nothing
+`nupp.mem.soa`, `nupp.mem.heap` and `nupp.mem.sharedbytes`, regions crossing
+into workers by reference and heap arrays moving to them and back,
+`nupp.log`'s clock, and the host and GPU providers with nothing
 attached, on every engine with incremental collection, the root oracle and
 quarantine.
 """
@@ -62,7 +63,8 @@ for engine in ("rust", "threaded", "jit", "frames"):
     last = result.stdout.strip().splitlines()[-1:] or [""]
     assert result.returncode == 0 and last[0] == "42", (engine, result.stdout[-4000:], result.stderr[-16000:])
     records.append(dict(engine=engine, passed=True))
-    print(f"{engine}: SoA slabs, heap arrays, shared regions, worker regions, logging, detached host and GPU passed",
+    print(f"{engine}: SoA slabs, heap arrays, shared regions, regions shared with workers, arrays moved to "
+          "workers, logging, detached host and GPU passed",
           flush=True)
 digest = lambda path: hashlib.sha256(Path(path).read_bytes()).hexdigest()
 report = dict(seedSha256=digest(args.seed), imageSha256=digest(image), binarySha256=digest(binary), layoutTarget=target,

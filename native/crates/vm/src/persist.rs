@@ -596,6 +596,8 @@ enum Node<'a> {
     Iter(u8, usize, Ref, Ref, Vec<Ref>),
     Slice(Ref, usize, usize),
     Resource(String, &'a [u8]),
+    /// A bytes owner `crate::sharing` encodes: a shared block or a moved allocation.
+    Sharing(u8, &'a [u8]),
 }
 fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
     Ok(match r.byte()? {
@@ -643,6 +645,7 @@ fn node_read<'a>(r: &mut Reader<'a>) -> Result<Node<'a>> {
         ),
         KIND_SLICE => Node::Slice(Ref::read(r)?, r.u32()?, r.u32()?),
         10 => Node::Resource(r.text()?, r.bytes()?),
+        tag @ crate::sharing::SHARED_BYTES..=crate::sharing::MOVED_BYTES => Node::Sharing(tag, r.bytes()?),
         _ => return Err("unknown object kind".into()),
     })
 }
@@ -776,6 +779,14 @@ fn save_graph_mode(
                 payload.bytes(&data)?;
                 index += 1;
                 continue;
+            }
+            if !plain {
+                if let Some((tag, data)) = crate::sharing::encode(vm, v)? {
+                    payload.byte(tag);
+                    payload.bytes(&data)?;
+                    index += 1;
+                    continue;
+                }
             }
             let p = v.as_obj().unwrap();
             let kind = unsafe { p.as_ref().kind };
@@ -1483,6 +1494,7 @@ fn load_graph_mode(
                         vm.new_table_sized(array.len(), fields.len() + extra.len() / 2)
                     }
                     Node::Record(s, ..) => vm.new_record(shape_ids[*s]),
+                    Node::Sharing(tag, data) => crate::sharing::decode(vm, *tag, data)?,
                     Node::Bytes(b, alignment) => {
                         let v = if *alignment != 0 { vm.heap_new_aligned_bytes(b.len(), *alignment) } else { vm.heap_new_bytes(b.len()) };
                         vm.bytes_mut(v).copy_from_slice(b);

@@ -324,7 +324,9 @@ pub(crate) fn physical_address(
     if readonly_value == Value::NIL {
         return None;
     }
-    let readonly = readonly_value.truthy() || vm.kind_of(owner) != Some(KIND_BYTES);
+    let readonly = readonly_value.truthy()
+        || vm.kind_of(owner) != Some(KIND_BYTES)
+        || crate::sharing::is_shared(vm, owner);
     if write && readonly {
         return None;
     }
@@ -848,6 +850,9 @@ fn view(vm: &Interp, value: Value) -> View {
     let offset = count(vm, view_field(vm, value, "offset"));
     let end = count(vm, view_field(vm, value, "end"));
     if offset > end || end > size {
+        if crate::sharing::is_moved(vm, owner) {
+            vm.err("nupp: storage was moved to another worker");
+        }
         vm.err("nupp: storage view is out of bounds");
     }
     let ty = view_field(vm, value, "descriptor");
@@ -868,7 +873,8 @@ fn view(vm: &Interp, value: Value) -> View {
         ty,
         element,
         readonly: view_field(vm, value, "readonly").truthy()
-            || vm.kind_of(owner) != Some(KIND_BYTES),
+            || vm.kind_of(owner) != Some(KIND_BYTES)
+            || crate::sharing::is_shared(vm, owner),
     }
 }
 fn make_view(vm: &mut Interp, v: View) -> Value {

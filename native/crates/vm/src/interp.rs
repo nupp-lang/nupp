@@ -1088,6 +1088,7 @@ impl Interp {
     pub fn install_globals(&mut self) {
         self.code_events.push(crate::persist::CodeEvent::Globals);
         crate::storage::install(self);
+        crate::sharing::install(self);
         crate::foreign::install(self);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
@@ -1713,7 +1714,7 @@ impl Interp {
     pub fn buf_finish(&mut self, buf: Value) -> Value {
         let h = hdr!(self, buf, "finish of a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
-        if matches!(h.byte_buffer().data, crate::heap::ByteBuffer::Aligned(_)) { self.err("fixed native storage cannot be resized or consumed") }
+        if h.byte_buffer().data.is_fixed() { self.err("fixed native storage cannot be resized or consumed") }
         let before = h.external_bytes();
         let bytes = std::mem::take(&mut h.byte_buffer().data);
         h.refresh();
@@ -1723,7 +1724,7 @@ impl Interp {
     pub fn buf_append(&mut self, buf: Value, text: &[u8]) {
         let h = hdr!(self, buf, "append to a non-buffer");
         if h.kind != KIND_BYTES { self.err("not a buffer") }
-        if matches!(h.byte_buffer().data, crate::heap::ByteBuffer::Aligned(_)) { self.err("fixed native storage cannot be resized or consumed") }
+        if h.byte_buffer().data.is_fixed() { self.err("fixed native storage cannot be resized or consumed") }
         let before = h.external_bytes();
         h.byte_buffer().data.extend_from_slice(text);
         h.refresh();

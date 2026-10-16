@@ -22,9 +22,10 @@ end -- released here
 
 On LuaJIT an allocation here sits outside the GC's allocation limit, which is
 the reason to reach for one there. The VM has no such limit: the array is
-managed storage, so it takes part in collection, snapshots and worker
-transfer, and releasing it drops the owner's reference rather than freeing the
-bytes under a view. Reading and writing are the operations
+managed storage, so it takes part in collection and snapshots, and releasing
+it drops the owner's reference rather than freeing the bytes under a view. An
+array handed to a worker moves: the worker adopts the allocation itself, with
+no copy, and a view the sender still held reports that the storage moved. Reading and writing are the operations
 [](nupp.mem.span) defines, and a live reader and a live writer over one array
 report `NUPP2607`.
 

@@ -37,11 +37,13 @@ builder:append("!")
 assert(builder:freeze():toString() == "ABCDE!")
 ```
 
-On the VM a region's block is managed: a string `copy` takes is the block
-itself, with no copy, and a builder's block is managed storage. A region
-crosses a worker boundary as the VM's workers carry every value, by copying
-its block into the worker; sharing one block between workers by reference is
-the runtime plan's open "Memory across workers" item.
+On the VM a region's block is an immutable allocation the runtime shares by
+reference: `copy` copies the string into one, `freeze` turns the builder's
+storage into one without copying, and a region crossing into a worker -- an
+argument, a result, a captured value -- carries the same block, whatever its
+size. Every VM holding a block reads it in place; the last one to let go frees
+it. A checkpoint writes the block's bytes once, and a restore in the same
+process shares the live block again.
 ]]
 
 local span = require("nupp.mem.span")
@@ -62,7 +64,8 @@ local foreignSpan = rawget(
 
 local sharedbytes = {}
 
--- One block: an immutable string, or the managed storage a builder froze. Its
+-- One block: a read-only byte view over a shared allocation (or, from a
+-- checkpoint written before blocks were shared, an immutable string). Its
 -- identity is this record's, so equal bytes in separate blocks stay unequal.
 local record Block
     @readonly data: any
@@ -86,7 +89,7 @@ end
 
 --- An immutable extent of an engine-owned block. Reading happens in place
 --- through a borrowed byte view, and `toString` is the one explicit copy into a
---- Lua string. On the VM a worker receives a copy of the block.
+--- Lua string. On the VM a worker receives the same block by reference.
 record sharedbytes.Region
     @private _handle: any
     @private _first: integer
@@ -185,10 +188,9 @@ function sharedbytes.Region:toString(): string
     return storage.string(bytesAt(self._handle as Block, self._first - 1), self._length) as string
 end
 
---- Takes `text` as an engine-owned region. Strings are immutable, so on the VM
---- the string itself is the block and nothing is copied.
+--- Copies `text` into an engine-owned region.
 function sharedbytes.copy(text: string): sharedbytes.Region
-    return wrap(newBlock(text), 1, #text)
+    return wrap(newBlock(storage.share(text)), 1, #text)
 end
 
 --- Reads a whole file directly into an engine-owned region.
@@ -201,7 +203,7 @@ function sharedbytes.readFile(path: string): (sharedbytes.Region?, string?)
         return nil, tostring(problem)
     end
 
-    return wrap(newBlock(text), 1, #(text as string)), nil
+    return wrap(newBlock(storage.share(text)), 1, #(text as string)), nil
 end
 
 --- An affine accumulator of engine storage. Appending grows one private
@@ -327,7 +329,7 @@ function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbyte
     if growing.reserved ~= nil then
         error("nupp: a region builder has an open reservation", 2)
     end
-    local block = newBlock(growing.bytes or storage.allocateBytes(0))
+    local block = newBlock(storage.share(growing.bytes or storage.allocateBytes(0)))
     local length = growing.length
     growing.bytes = nil
 

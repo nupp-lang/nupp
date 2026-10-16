@@ -84,6 +84,7 @@ pub const NAMES: &[&str] = &[
     "snapshot.save", "snapshot.prepare", "snapshot.loadInto", "snapshot.track", "snapshot.untrack", "snapshot.fileStrategy", "snapshot.durable",
     "snapshot.discard",
     "package.extensionLoader", "extension.load",
+    "sharing.share", "sharing.address",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -659,7 +660,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -1060,6 +1061,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let name = &NAMES[id as usize];
             if let Some(op) = name.strip_prefix("simd.") { return outs![crate::simd::call(it, op, args)]; }
             if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
+            if let Some(op) = name.strip_prefix("sharing.") { return outs![crate::sharing::call(it, op, args)]; }
             if let Some(op) = name.strip_prefix("wide.") { return outs![crate::numeric::wide_call(it, op, args)]; }
             if let Some(op) = name.strip_prefix("scalar.u64.") {
                 let op = match op { "andBits" => "and", "rotateLeft" => "rol", "rotateRight" => "ror", other => other };

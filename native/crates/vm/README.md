@@ -1284,8 +1284,9 @@ array descriptors, nested arrays, and pointer arithmetic within an owner.
 Copies permit overlapping ranges. String and cast views are read-only. Reads,
 writes, and requested extents are checked; signed and unsigned 64-bit elements
 retain their complete bits. Views keep their owners alive through collection.
-Worker transfer copies owned bytes, and binary graphs and checkpoints preserve
-shared views of an allocation.
+Binary graphs and checkpoints preserve shared views of an allocation. Worker
+transfer copied owned bytes until "Memory across workers" below: shared
+blocks now cross by reference and heap arrays move.
 
 The compiler consumes the checker's span adapters for indexed reads, writes,
 and lengths. Out-of-line instance functions enter the record's method table.
@@ -2335,9 +2336,10 @@ module that did became:
   slab is one managed allocation of words, each column a typed view
   (`castWritableElements`) of its segment, laid out as LuaJIT lays it out; a
   heap array is managed storage of its element descriptor; a region's block
-  is the string `copy` took (no copy) or a frozen builder's storage. All of it
-  is collected, checkpointed and copied to workers as storage is, so
-  `close` and a builder's `drop` only drop the reference.
+  is a shared block `copy` filled or a frozen builder's storage became. All of
+  it is collected and checkpointed as storage is, so `close` and a builder's
+  `drop` only drop the reference; regions and heap arrays cross workers as
+  "Memory across workers" describes.
 - **The lowering** (`metadata.expand`) makes `ffi.typeof<T>()` T's storage
   descriptor: a struct's declared `\0nupp:structType`, or raising its layout's
   reason where the target gives none, and the storage provider's scalar
@@ -2379,9 +2381,8 @@ dispatch `__eq` at all), so a block hands out one region per extent and
 identity is region equality. And `(view as any) + n` with an integer-typed `n`
 lowers as numeric addition and raises "expected a number" instead of calling
 the view's `__add`; the modules do view arithmetic through an `any`-typed
-helper. Still open from "Memory across workers": a region reaches a worker as
-a copy of its block, not a shared reference, and a heap array is copied
-rather than moved.
+helper. Regions now reach a worker by reference and heap arrays move ("Memory
+across workers").
 
 
 ## Coverage on the VM (2026-10-15)
@@ -3173,3 +3174,116 @@ its handler on a scratch task (`call_value`), which is most of what the
 vector section costs. Handing the handler a frame of the caller's task needs a
 delivery mode in the frame header (first result only, converted to a boolean
 for comparisons) that every return path on every tier honors.
+
+
+
+
+## Memory across workers (2026-10-16)
+
+A worker used to receive a copy of everything it was given. Now an immutable
+region crosses by reference and a heap array moves; both cost the same
+whatever their size. `src/sharing.rs` holds both, `persist.rs` hands it the
+bytes owners it answers for, and `workers.rs` and `channels.rs` carry the
+results beside their messages.
+
+**Shared blocks.** `ByteBuffer::Shared` is a bytes owner over an
+`Arc<sharing::Block>`: one immutable allocation any number of VMs hold, each
+through its own owner object, so every collector traces only its own heap and
+the last owner to be swept frees the bytes. Every storage view over a shared
+owner is read-only (`storage::view` and the physical fast path both ask), so
+readers never synchronize; publication and release are the reference count.
+`nupp.mem.sharedbytes` makes its blocks this way through the storage
+provider's `share`: `copy` copies its string once into one (as the name and
+LuaJIT's library say), `readFile` likewise, and `freeze` turns the builder's
+own allocation into the block without copying.
+
+**Moves.** A `nupp.mem.heap` array (a record of shape identity
+`nupp.mem.heap:Array`) reachable from a worker's arguments or a settled task's
+results moves: the crossing takes the `AlignedBytes` out of the sender's
+owner, leaving `ByteBuffer::Moved`, and the receiver's owner adopts the same
+allocation. The checker already allows such an array to cross only where the
+sender gives it up (`nupp.workers.spi`: a `takes` parameter or a result), so
+the sender has no binding left; a view it still reaches through an alias
+raises "storage was moved to another worker". Channel sends do not consume
+the sender's binding, so arrays are still copied through a channel, while
+regions cross channels by reference too.
+
+**The crossing.** `sharing::send` runs a graph encoding with an outbox:
+shared owners become attachment indexes, claimed arrays become move
+indexes, and only once the whole message encoded are the claimed allocations
+detached, so a failed encoding leaves the sender untouched. `receive` decodes
+with the attachments as an inbox; anything not adopted drops with it, so a
+delivery that fails after extraction (a callee the worker cannot start, a
+cancelled worker, a result the parent cannot load) frees a moved allocation
+exactly once. Ownership on failure is therefore: before the crossing the
+sender keeps it, after it the in-flight message owns it and frees it.
+
+**Checkpoints.** A checkpoint has nobody to share with, so it writes a block
+self-contained: its id (a random process nonce and a counter), alignment and
+bytes, once per owner object in the graph. Restoring looks the id up in a
+process-wide registry of live blocks (weak references, pruned as it grows)
+and shares the live block when its bytes match; otherwise it rebuilds the
+block once and registers it, so a restored worker naming the same id shares
+the parent's restored block. That is the channel registry's protocol. A
+moved husk checkpoints as a husk. A channel's queued messages keep their
+attachments in the same self-contained form (queue format 2; format 1
+still restores).
+
+**What a worker body needed besides.** Moving an array is only useful if the
+worker can write it, and that exposed two gaps unrelated to copying: a
+worker runs none of its modules' bodies, so record shapes whose methods are
+set as a module loads (the span implementations a heap array's `read` and
+`write` return) had none, and `_G.__nuppCleanupRegistry`, which `with`
+consults for an affine terminal, was empty. `src/worker_context.rs` finds
+what the body can reach -- its graph's objects, the functions they and their
+code name, the shapes those functions create or test, transitively through
+those shapes' methods -- and carries those shapes' methods and the registry
+entries those functions name. The worker loads the same code, so shape ids
+agree.
+
+`fork` no longer snapshots the new worker's whole VM into the parent at once:
+that snapshot copied every argument the crossing had just shared or moved,
+and the parent's own checkpoint refreshes every worker snapshot anyway
+(`snapshot_workers`). A worker record without a snapshot is only an error if
+the worker is lost before any checkpoint captured it.
+
+### Measured
+
+`cargo test --release --lib sharing::measure -- --ignored --nocapture`
+times one crossing between two VMs (encode with attachments, decode); the
+`worker_memory` measurement times a whole worker round trip (spawn, run,
+settle, results back). Best of seven and of five, on a machine at load
+average 26, so the small rows are noisy:
+
+| bytes | shared region | moved array | string, copied |
+| ---: | ---: | ---: | ---: |
+| crossing, 1 KiB | 29.5 us | 32.2 us | 2.6 us |
+| crossing, 1 MiB | 28.8 us | 29.9 us | 237.9 us |
+| crossing, 64 MiB | 34.9 us | 30.7 us | 14,562 us |
+| worker round trip, 1 KiB | 1.60 ms | 1.61 ms | 1.40 ms |
+| worker round trip, 1 MiB | 1.82 ms | 1.80 ms | 3.02 ms |
+| worker round trip, 64 MiB | 3.29 ms | 1.91 ms | 67.5 ms |
+
+A region or array crossing costs about 30 us at every size: the view's
+descriptor graph, not its bytes. Below tens of kilobytes a plain string's
+copy is still cheaper, the same guidance the LuaJIT libraries give.
+
+### Evidence
+
+`tests/worker_memory.rs` (collector stress on both sides): a 1 MiB block
+crossing into a worker and back as the same `Arc`, read-only shared views,
+an array moving and its stale sender view refused, a failed delivery,
+`tasks.fork` through the scheduler, graph and whole-VM checkpoints restoring
+onto the live block, channels carrying blocks by reference across a
+checkpoint, live workers checkpointed and restored sharing the parent's
+block, and a cancelled worker releasing what it was given.
+`tests/memory-smoke.py` adds regions crossing by reference (a slice, a frozen
+builder, a 1 MB region, a region a worker made coming back) and an array
+moved to a worker, written there, moved back and moved again, compared by
+address, on all four engines with incremental collection, the root oracle
+and quarantine.
+
+Open: a string crosses as a copy (its bytes live inline in the sender's
+heap; a region is the by-reference vehicle). Lent disjoint mutable regions
+under a join and the VM-free job entry belong to the parallel-jobs plan and
+are not started.
