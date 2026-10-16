@@ -5877,7 +5877,13 @@ function lower.emit(
             -- A module required again while it loads, by itself or through a
             -- cycle, gets the exports it is still filling, as the Lua backend's
             -- early publication gave it. A body that raises unpublishes them.
-            do
+            -- One that loads SPI providers publishes nothing early, as there: a
+            -- provider must not see a facade it has not finished initializing.
+            local loadsSpi = false
+            walkSyntax(rootNode.blocks[1], {}, function(n)
+                loadsSpi = loadsSpi or n.spiInterface ~= nil
+            end)
+            if not loadsSpi then
                 local package, loaded, key = chunk:reg(), chunk:reg(), chunk:reg()
                 chunk:op("Require", package, chunk:const("str", "package"))
                 chunk:op("GetField", loaded, package, chunk:const("str", "loaded"))
