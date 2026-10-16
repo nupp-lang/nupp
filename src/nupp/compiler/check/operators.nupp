@@ -562,7 +562,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 -- one list of two kinds of thing rather than two lists.
                 local t = pair[1] as Type
                 if not (t == T.any or isA(t, T.number) or isA(t, T.string)) then
-                    c.diag("NUPP2003", pair[2], ("cannot concatenate %s"):format(T.tostring(t)))
+                    c.diag("NUPP2003", pair[2] as Node, ("cannot concatenate %s"):format(T.tostring(t)))
                     plain = false
                 elseif t == T.any then
                     plain = false

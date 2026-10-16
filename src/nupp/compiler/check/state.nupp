@@ -271,7 +271,7 @@ end
 record state.Scope
     vars: {[string]: state.Binding}
     types: {[string]: Type}
-    packTypes: {[string]: any}
+    packTypes: {[string]: T.Pack}
     typeDefs: {[string]: any}
 
     --- Aliases hoisted to the top of the block and not yet resolved.
@@ -522,7 +522,7 @@ record state.Checker
 
     --- Records a `break` or `continue` leaving the innermost loop from here, so the
     --- place it lands joins what it knew.
-    recordLoopExit: function(kind: string, at: any): nil
+    recordLoopExit: function(kind: string, at: cst.Child?): nil
 
     --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
     --- signatures, and anything wrong with them is reported when the declaration itself
@@ -557,7 +557,7 @@ record state.Checker
 
     --- Reports a diagnostic, unless a surrounding `@allow` or a project's lint levels
     --- asked not to hear it.
-    diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)
+    diag: function(code: string, at: cst.Child?, msg: string, fixes: any?, details: any?)
 
     --- Makes a labeled secondary source location for a diagnostic.
     related: function(at: any, message: string, filename: string?): any?
@@ -573,10 +573,10 @@ record state.Checker
     --- The type a name resolves to, or nil.
     lookupType: function(name: string): (Type?, any?)
 
-    lookupPack: function(name: string): any
+    lookupPack: function(name: string): (T.Pack?, any)
 
     --- Records what a token means, for the editor and for go-to-definition.
-    markToken: function(tok: any, def: any, t: Type?, kind: string?)
+    markToken: function(tok: lexer.Token?, def: any, t: Type?, kind: string?)
 
     --- Records a compiler-recognized runtime requirement for this source file.
     recordEffect: function(effect: string)
@@ -606,12 +606,12 @@ record state.Checker
 
     --- Reports a projection that names nothing, with the reason the associated query
     --- gave, so every caller of that query reports the same way.
-    projectionFailed: function(at: any, head: Type, name: string, found: AssociatedLookup): nil
+    projectionFailed: function(at: cst.Child?, head: Type, name: string, found: AssociatedLookup): nil
 
     resolvePack: function(node: Node?): any
 
     --- Reports a vararg ownership mode a parameter list cannot honour.
-    checkVarargMode: function(mode: string?, modeToken: any, varargType: Type?, at: any)
+    checkVarargMode: function(mode: string?, modeToken: lexer.Token?, varargType: Type?, at: cst.Child?)
 
     --- The type a reference currently holds: what narrowing knows, else the declared or
     --- inferred type reached through its base.
@@ -646,7 +646,7 @@ record state.Checker
     --- against the contract its receiver declares. See nupp.compiler.check.metatable.
     checkMetatableLiteral: function(node: Node?, literalType: Type?, target: Type?)
 
-    checkMetamethodValue: function(at: any, name: string, valueT: Type, contract: Type, of: Type?)
+    checkMetamethodValue: function(at: cst.Child?, name: string, valueT: Type, contract: Type, of: Type?)
 
     --- Splits `function a.b:m` into the key naming its owner and the member token.
     funcOwner: function(fname: any): (string?, any)
@@ -693,7 +693,14 @@ record state.Checker
     validateTypeBounds: function(params: any, bounds: any, map: any, node: any)
 
     --- Binds a name in the current scope.
-    bindVar: function(name: string, t: Type, ann: boolean?, tok: any?, kind: string?, constant: boolean?): state.Binding
+    bindVar: function(
+        name: string,
+        t: Type,
+        ann: boolean?,
+        tok: lexer.Token?,
+        kind: string?,
+        constant: boolean?
+    ): state.Binding
 
     --- Checks a block, and a function body.
     checkBlock: function(block: Node?, scopeManaged: boolean?)
@@ -717,7 +724,7 @@ record state.Checker
     liveSuspensionObligation: function(): string?
 
     --- Checks that a value's declared cleanups exist and take it.
-    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?)
+    validateCleanups: function(valueT: Type?, cleanups: any, at: cst.Child?, code: string?)
 
     --- Advice for an unknown name a project module is named after.
     missingRequire: function(name: string): (string?, boolean, any)
@@ -813,9 +820,9 @@ record state.Checker
     -- Binding names, and the declarations that introduce them.
 
     --- Binds a type name, and a declaration's name in both namespaces.
-    bindType: function(name: string, t: Type?, tok: any?)
+    bindType: function(name: string, t: Type?, tok: lexer.Token?)
 
-    bindPack: function(name: string, p: any, tok: any?)
+    bindPack: function(name: string, p: any, tok: lexer.Token?)
 
     bindDeclaredType: function(stat: any, t: Type?)
 
@@ -827,14 +834,14 @@ record state.Checker
     bindGenerics: function(generics: any, role: string, predeclared: any?): (any, any, any, any, any, any)
 
     --- A fresh type parameter for a binder.
-    typevarAt: function(tok: any, role: string): Type
+    typevarAt: function(tok: lexer.Token, role: string): Type
 
     --- The domain a const binder was written with, or nil for a word that is not one.
-    constDomain: function(domainToken: any): string?
+    constDomain: function(domainToken: lexer.Token?): string?
 
-    constvarAt: function(tok: any, domain: string, role: string): T.ConstVar
+    constvarAt: function(tok: lexer.Token, domain: string, role: string): T.ConstVar
 
-    packvarAt: function(tok: any, role: string): any
+    packvarAt: function(tok: lexer.Token, role: string): T.PackVar
 
     --- The key a qualified declaration binds under, and the table it attaches to.
     declKey: function(stat: any): string
@@ -845,11 +852,11 @@ record state.Checker
     visibilityOf: function(stat: any): string
 
     --- Records where a name was declared, for the editor.
-    definition: function(tok: any, kind: string?): any
+    definition: function(tok: lexer.Token?, kind: string?): any
 
     --- Records a compiler-generated member with its own semantic identity while
     --- retaining a written token as its navigation origin.
-    generatedDefinition: function(tok: any, name: string, kind: string, identity: string): any
+    generatedDefinition: function(tok: lexer.Token?, name: string, kind: string, identity: string): any
 
     --- Resolves an alias hoisted to the top of its block, the first time anything names
     --- it.
@@ -908,7 +915,7 @@ record state.Checker
         paramModes: {string}?,
         destinationFor: (function(index: integer, head: {Type}): Type?)?
     ): any
-    checkPackDiscard: function(pack: any, first: integer, at: any): boolean
+    checkPackDiscard: function(pack: T.Pack, first: integer, at: cst.Child?): boolean
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.
     recordModuleField: function(target: Node, t: Type?, constant: boolean?, value: Node?)
