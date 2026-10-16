@@ -2719,10 +2719,11 @@ root balance only on success.
 
 ## Suites off the Lua generator and LuaJIT (2026-10-15)
 
-The 108 suites classified `port-required` either run on the VM now or are
-retired, so the next step can delete the Lua generator and the LuaJIT
-embedding without losing coverage silently. Of the 108, 72 run on the VM (71 suites and the `providerstate` helper), 12
-are retired and 24 stay `port-required`, each with what it still needs in
+The 108 suites classified `port-required` were ported, retired, or left
+with a named gap, so deleting the Lua generator and the LuaJIT embedding
+loses no coverage silently. Of the 108, 72 run on the VM (71 suites and the
+`providerstate` helper), 11 are retired and 25 stay `port-required` (hot
+reload among them, for the lane porting it), each with what it still needs in
 `corpus-classification.json`. The corpus run over every non-retired suite
 passed 152 of 183 on the threaded engine; a rerun of the suites fixed after
 it brought that to 156.
@@ -2820,7 +2821,7 @@ Still `port-required`, by what they need:
   namespaces are not lowered (`cheadertest`); a binding's `@lib/` library
   reaches dlopen unresolved (`projecttest`).
 - **`nupp.mem.heap` and `nupp.mem.sharedbytes`** still need `ffi` or the
-  engine host (`bundletest`, `stdlibtest`, `ownershiptest`, `runtimetest`).
+  engine host (`bundletest`, `ownershiptest`, `runtimetest`).
 - **Semantics**: integer `% 0` answers nan (`operatortest`); an `xpcall`
   handler runs after the unwind (`orexittest`); a generic constructor at
   integer unboxes a float (`methodtest`); a dead register keeps an unused

@@ -1331,7 +1331,7 @@
       "suite": "stdlibtest",
       "class": "port-required",
       "facilities": "load,env,ffi,string.buffer,getinfo,coroutine,spawn,lua-generator",
-      "reason": "nupp.mem.heap needs ffi; browser GPU handles want exact integers; an overloaded select call answers a number"
+      "reason": "browser GPU handles want exact integers, and an overloaded select call answers a number"
     },
     {
       "suite": "stringbuffernamespacetest",
