@@ -387,7 +387,11 @@ local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
 with scope = tasks.open() do
     local independent = scope:fork(jobs.nextCounter)
-    assert(independent:await() == 1, "the worker has the same SPI index and fresh provider state")
+    -- A LuaJIT worker is a fresh Lua state that runs its modules again, so its
+    -- provider starts over; a VM worker runs none of its modules' bodies and
+    -- receives the provider state its function reaches as a copy.
+    const fresh = rawget(_G, "__nupp_load_image") == nil and 1 or 101
+    assert(independent:await() == fresh, "the worker has the same SPI index and its own provider state")
     assert(counter.next() == 101, "worker initialization does not mutate the caller's provider")
     const left = scope:fork(6, jobs.square)
     const right = scope:fork(7, jobs.square)
@@ -698,7 +702,10 @@ print(deadlineOk, tasks.isCancelled(deadlineProblem),
 end
 print(polls > 0, shutdowns == 1)
 end)
-enqueue(app)
+-- The first turn is the driver's own, through the handle it owns; every later
+-- one is queued by a park, which names the running coroutine.
+local started, startProblem = coroutine.resume(app)
+if not started then error(startProblem, 0) end
 while coroutine.status(app) ~= "dead" or #runnable > 0 do
     polls = polls + 1
     suspension.poll()
@@ -954,8 +961,12 @@ print(owing)
     local built, builtOk = run(dir, "'" .. NUPP .. "' build")
     assert(builtOk, "the worker binary builds: " .. built)
     local output, ranOk = run(dir, EXECUTABLE)
+    -- A moved native array has to be freed by whoever holds it last, so its
+    -- unconsumed result stays listed for close. On the VM the array is managed
+    -- storage the undelivered result drops, and nothing stays owed.
+    local owed = stampsVmPrograms() and "0" or "1"
     assert(
-        ranOk and output == "true\ttrue\n1\n",
+        ranOk and output == "true\ttrue\n" .. owed .. "\n",
         "settled worker tasks left the scope and the unconsumed moved result stayed: " .. output
     )
     os.execute("rm -rf '" .. dir .. "'")
