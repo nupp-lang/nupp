@@ -1276,6 +1276,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nupp-counter-extension"
+version = "0.1.0"
+dependencies = [
+ "nupp-extension",
+]
+
+[[package]]
 name = "nupp-extension"
 version = "0.1.0"
 
@@ -1427,6 +1434,7 @@ dependencies = [
  "libffi",
  "libloading",
  "mimalloc",
+ "nupp-counter-extension",
  "nupp-extension",
  "nupp-native-abi",
  "nupp-native-checksum",

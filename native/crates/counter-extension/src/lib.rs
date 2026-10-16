@@ -1,6 +1,8 @@
-// The `demo.counter` module in Rust, against `tests/extension/counter.d.nupp`.
-// `embed_host` registers it in process, `counter_extension` exports it from a
-// shared library, and the embedding tests include it.
+//! `demo.counter`, a Nupp native module in Rust, declared by the VM crate's
+//! `tests/extension/counter.d.nupp`. Built as a shared library it is an
+//! extension a Nupp program loads with `require("demo.counter")`; the VM's
+//! `embed_host` example and embedding tests register the same module in
+//! process with [`module`].
 use nupp_extension::{Error, Module, Retained, Value};
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +11,8 @@ pub struct Counter {
     value: i64,
 }
 
-pub fn counter() -> Module {
+/// The module, ready to register or export.
+pub fn module() -> Module {
     let mut module = Module::new("demo.counter");
     let kind = module.saved_resource::<Counter>(
         "Counter",
@@ -85,3 +88,5 @@ pub fn counter() -> Module {
     module.function("fail", "function(message: string)", |call| Err(Error::Message(call.str(0)?.to_string())));
     module
 }
+
+nupp_extension::export!(module);

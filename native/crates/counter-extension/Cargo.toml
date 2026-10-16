@@ -1,0 +1,19 @@
+[package]
+name = "nupp-counter-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The `demo.counter` example module: a Nupp native extension written with the
+# Rust SDK. Built as `libcounter`, it is what a program whose declaration says
+# `@extension counter` loads; the VM's embedding example and tests register the
+# same module in process. It depends on the SDK alone, never on the VM.
+
+[lib]
+name = "counter"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+nupp-extension = { path = "../extension" }
