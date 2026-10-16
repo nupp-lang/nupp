@@ -36,6 +36,20 @@ function fixed.isStorageOnly(t: T.Type?): boolean
     return t ~= nil and STORAGE_ONLY[T.unwrapOwnership(t).tag] == true
 end
 
+--- The tags `fixed.storageOnlyValue` looks inside.
+local COMPOSITE: {
+    [string]: boolean
+} = {
+    nominal = true,
+    func = true,
+    array = true,
+    map = true,
+    tuple = true,
+    union = true,
+    intersection = true,
+    shape = true,
+}
+
 --- Finds a storage-only width that escaped into a value-shaped type. Pointers,
 --- C arrays, structs, and standard span element positions are the physical leaves
 --- where those names are meaningful and deliberately stop the walk.
@@ -48,6 +62,11 @@ function fixed.storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
         return raw
     end
     if raw.tag == "ptr" or raw.tag == "carray" or raw.tag == "ctype" or raw.tag == "const" then
+        return nil
+    end
+    -- Only these hold other types; anything else has nothing to look inside, and
+    -- needs no visited set to say so.
+    if not COMPOSITE[raw.tag] then
         return nil
     end
     seen = seen or {}
