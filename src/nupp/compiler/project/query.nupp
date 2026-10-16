@@ -20,51 +20,53 @@ between modules terminates.
 local query = {}
 
 --- A query a computation depended on, recorded while it ran.
-type query.Dep = {
+record query.Dep
     --- The query's name.
-    name: string,
+    name: string
 
     --- The key it was asked for.
     key: any
-}
+end
 
 --- A value set from outside, with the revision at which it last changed.
-type query.Input = {
-    value: any,
+record query.Input
+    value: any
     changedAt: integer
-}
+end
 
 --- What a derived query left behind.
-type query.Memo = {
+record query.Memo
     --- What it computed.
-    value: any,
+    value: any
 
     --- The revision at which that value last actually changed, which the early cutoff
     --- backdates when a recomputation lands on the same value.
-    changedAt: integer,
+    changedAt: integer
 
     --- The revision at which it was last known to be up to date.
-    verifiedAt: integer,
+    verifiedAt: integer
 
     --- Everything it read while computing, in order.
     deps: {query.Dep}
-}
+end
 
 --- A running computation, collecting what it reads.
-type query.Frame = {deps: {query.Dep}}
+record query.Frame
+    deps: {query.Dep}
+end
 
 --- How to compute one query.
 ---
 --- `q` is the query object, passed so a definition can read other queries; it is
 --- untyped here because Q is declared below in terms of this.
-type query.Def = {
+record query.Def
     --- Computes the value for a key.
-    fn: function(q: any, key: any): any,
+    fn: function(q: any, key: any): any
 
     --- Decides whether a recomputed value counts as unchanged. Optional: plain equality
     --- is right for interned types and scalars.
     eq: (function(a: any, b: any): boolean)?
-}
+end
 
 --- A query database: definitions, inputs, and everything memoized so far.
 record query.Q
@@ -118,7 +120,7 @@ end
 --- @param fn computes the value for a key
 --- @param eq decides "did the value really change", for the early cutoff
 function query.Q:define(name: string, fn: function(q: any, key: any): any, eq: (function(a: any, b: any): boolean)?)
-    self.defs[name] = {fn = fn, eq = eq}
+    self.defs[name] = new query.Def(fn = fn, eq = eq)
 end
 
 --- Sets an input, which bumps the revision and so invalidates whatever depended on it.
@@ -126,7 +128,7 @@ function query.Q:setInput(name: string, key: any, value: any)
     self.revision = self.revision + 1
     local byName = self.inputs[name] or {}
     self.inputs[name] = byName
-    byName[key] = {value = value, changedAt = self.revision}
+    byName[key] = new query.Input(value = value, changedAt = self.revision)
 end
 
 --- Removes an overlay, so a derived definition (a disk read, say) takes over again.
@@ -151,7 +153,7 @@ local depChangedAt: function(self: query.Q, name: string, key: any): integer
 local function record(self: query.Q, name: string, key: any)
     local top = self.stack[#self.stack]
     if top then
-        top.deps[#top.deps + 1] = {name = name, key = key}
+        top.deps[#top.deps + 1] = new query.Dep(name = name, key = key)
     end
 end
 
@@ -204,7 +206,7 @@ function query.Q:get(name: string, key: any): any
         -- entry again, and again, until the stack runs out. With it, the re-entrant
         -- edge reports what this entry last changed at, which is the same rule the
         -- computation path resolves a cycle by.
-        self.stack[#self.stack + 1] = {deps = {}}
+        self.stack[#self.stack + 1] = new query.Frame(deps = {})
         active = active or {}
         self.active[name] = active
         active[key] = true
@@ -234,7 +236,7 @@ function query.Q:get(name: string, key: any): any
     active = active or {}
     self.active[name] = active
     active[key] = true
-    self.stack[#self.stack + 1] = {deps = {}}
+    self.stack[#self.stack + 1] = new query.Frame(deps = {})
     local ok, value = pcall(def.fn, self, key)
     local frame = self.stack[#self.stack]
     self.stack[#self.stack] = nil
@@ -257,7 +259,7 @@ function query.Q:get(name: string, key: any): any
             value = entry.value
         end
     end
-    m[key] = {value = value, changedAt = changedAt, verifiedAt = self.revision, deps = frame.deps}
+    m[key] = new query.Memo(value = value, changedAt = changedAt, verifiedAt = self.revision, deps = frame.deps)
     record(self, name, key)
 
     return value
