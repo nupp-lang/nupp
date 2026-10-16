@@ -1,0 +1,36 @@
+[package]
+name = "nupp-vm-program"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The VM runtime as an archive a program binary is linked from: the runner of
+# `nupp-vm` (its `src/main.rs`, compiled here) with no code generator, and the
+# program's own ahead-of-time object linked beside it by
+# `scripts/toolchain vm-program`. The object defines `nupp_aot_table`; the
+# runner reads it where the `nupp-vm` binary reads generated Rust, so one
+# archive serves every program and a program build costs one native link.
+
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[features]
+default = ["aot-linked", "compiled-runtime"]
+# The runner's own conditions, under the names `src/main.rs` tests.
+aot-linked = []
+compiled-runtime = []
+# The native facilities a program may reach, as `nupp-vm` names them.
+native-ffi = ["nupp-vm/native-ffi"]
+compression = ["nupp-vm/compression"]
+net = ["nupp-vm/net"]
+http = ["nupp-vm/http"]
+
+[dependencies]
+nupp-vm = { path = "../vm", default-features = false, features = ["aot-linked"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow" }

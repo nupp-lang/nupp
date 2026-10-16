@@ -335,6 +335,54 @@ impl Compiler<ObjectModule> {
         Ok(())
     }
 
+    /// Defines `nupp_aot_table` (`compiled::LinkedTable`) over every frame
+    /// function compiled so far, so a runtime archive linked after the fact
+    /// finds them without generated Rust.
+    pub fn define_linked_table(&mut self, hash: [u8; 32], maps: &[u8]) -> Result<(), String> {
+        use cranelift_module::{DataDescription, FuncOrDataId};
+        use crate::compiled::{LINKED_TABLE_ENTRIES, LINKED_TABLE_MAPS, LINKED_TABLE_SIZE};
+        let problem = |e: cranelift_module::ModuleError| e.to_string();
+        let maps_id = self.module.declare_data("nupp_aot_table_maps", Linkage::Local, false, false).map_err(problem)?;
+        let mut data = DataDescription::new();
+        data.define(maps.to_vec().into_boxed_slice());
+        data.set_align(8);
+        self.module.define_data(maps_id, &data).map_err(problem)?;
+        let entries_id = self.module.declare_data("nupp_aot_table_entries", Linkage::Local, true, false).map_err(problem)?;
+        let mut data = DataDescription::new();
+        let mut bytes = vec![0u8; self.object_maps.len() * 24];
+        let mut functions = Vec::new();
+        for (row, (fid, len, _)) in self.object_maps.iter().enumerate() {
+            bytes[row * 24..row * 24 + 8].copy_from_slice(&(*fid as u64).to_le_bytes());
+            bytes[row * 24 + 16..row * 24 + 24].copy_from_slice(&(*len as u64).to_le_bytes());
+            match self.module.get_name(&format!("nupp_aot_{fid}")) {
+                Some(FuncOrDataId::Func(id)) => functions.push((row, id)),
+                _ => return Err(format!("function {fid} has no object symbol")),
+            }
+        }
+        data.define(bytes.into_boxed_slice());
+        data.set_align(8);
+        for (row, id) in functions {
+            let reference = self.module.declare_func_in_data(id, &mut data);
+            data.write_function_addr((row * 24 + 8) as u32, reference);
+        }
+        self.module.define_data(entries_id, &data).map_err(problem)?;
+        let table_id = self.module.declare_data("nupp_aot_table", Linkage::Export, true, false).map_err(problem)?;
+        let mut data = DataDescription::new();
+        let mut bytes = vec![0u8; LINKED_TABLE_SIZE];
+        bytes[0..8].copy_from_slice(&(crate::compiled::AOT_ABI as u64).to_le_bytes());
+        bytes[8..40].copy_from_slice(&hash);
+        bytes[40..48].copy_from_slice(&(self.object_maps.len() as u64).to_le_bytes());
+        bytes[56..64].copy_from_slice(&(maps.len() as u64).to_le_bytes());
+        data.define(bytes.into_boxed_slice());
+        data.set_align(8);
+        let entries = self.module.declare_data_in_data(entries_id, &mut data);
+        data.write_data_addr(LINKED_TABLE_ENTRIES as u32, entries, 0);
+        let blob = self.module.declare_data_in_data(maps_id, &mut data);
+        data.write_data_addr(LINKED_TABLE_MAPS as u32, blob, 0);
+        self.module.define_data(table_id, &data).map_err(problem)?;
+        Ok(())
+    }
+
     pub fn emit(self) -> Vec<u8> {
         self.module.finish().emit().unwrap()
     }

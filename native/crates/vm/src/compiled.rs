@@ -67,6 +67,61 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
 /// Old native stores can bypass it, so no v3 compatibility alias is exported.
 pub const AOT_ABI: u32 = 4;
 
+/// The linked-code table an object from `aot IMAGE OBJECT --frames` defines
+/// as `nupp_aot_table`, for a runtime linked after it was built: a program
+/// binary links the prebuilt `nupp-vm-program` archive with its own object
+/// rather than compiling a runtime around generated Rust. Each entry is a
+/// function id, its frame entry and its code length; `maps` is the stack-map
+/// blob the generated Rust embeds. An empty table (`count` 0) links nothing.
+#[repr(C)]
+pub struct LinkedTable {
+    pub abi: u64,
+    pub hash: [u8; 32],
+    pub count: u64,
+    pub entries: *const u64,
+    pub maps_len: u64,
+    pub maps: *const u8,
+}
+
+/// The table's byte size and pointer field offsets, which the object writer fills.
+pub const LINKED_TABLE_SIZE: usize = 72;
+pub const LINKED_TABLE_ENTRIES: usize = 48;
+pub const LINKED_TABLE_MAPS: usize = 64;
+
+impl LinkedTable {
+    fn rows(&self) -> &[u64] {
+        if self.count == 0 { return &[]; }
+        if self.abi != AOT_ABI as u64 {
+            eprintln!("aot: linked object uses runtime ABI {}, this runtime {}", self.abi, AOT_ABI);
+            std::process::exit(1);
+        }
+        unsafe { std::slice::from_raw_parts(self.entries, self.count as usize * 3) }
+    }
+    pub fn image_hash(&self) -> [u8; 32] { self.hash }
+    pub fn frame_entries(&self) -> Vec<(usize, u64)> {
+        self.rows().chunks(3).map(|row| (row[0] as usize, row[1])).collect()
+    }
+    /// Per compiled function: its start, code length and stack maps, as
+    /// `CODE_MAPS` holds them.
+    pub fn maps(&self) -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> {
+        let rows = self.rows();
+        if rows.is_empty() { return Vec::new(); }
+        let starts: std::collections::HashMap<u32, usize> = rows.chunks(3).map(|row| (row[0] as u32, row[1] as usize)).collect();
+        let data = unsafe { std::slice::from_raw_parts(self.maps, self.maps_len as usize) };
+        let mut pos = 0usize;
+        let mut next = || { let n = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()); pos += 4; n };
+        let count = next();
+        let mut out = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let fid = next(); let len = next() as usize; let nmap = next();
+            let mut maps = Vec::with_capacity(nmap as usize);
+            for _ in 0..nmap { let off = next(); let span = next(); let nslots = next(); let slots = (0..nslots).map(|_| next()).collect(); maps.push((off, span, slots)); }
+            out.push((starts[&fid], len, maps));
+        }
+        out
+    }
+}
+
 // Object code binds addresses through one versioned symbol. Refresh the view
 // on every access: a helper can append an image and grow its runtime tables.
 // Mutable data stays with the executing VM, including on worker threads.

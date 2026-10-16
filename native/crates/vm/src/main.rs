@@ -23,7 +23,13 @@ mod aot_link { include!(concat!(env!("OUT_DIR"), "/aot_entries.rs")); }
 const _: () = assert!(aot_link::ABI_VERSION == nupp_vm::compiled::AOT_ABI);
 
 #[cfg(feature = "aot")]
-fn emit_object(image_path: &str, output_path: &str, frames: bool) {
+/// `aot IMAGE OBJECT [--frames [--vector-only]]`: compiles the image's
+/// functions into a relocatable object for a runtime without a code
+/// generator. `--vector-only` compiles just the functions with vector
+/// instructions, which such a runtime cannot interpret; the rest stay on its
+/// interpreter. A frame object also defines `nupp_aot_table`, which a runtime
+/// linked from the `nupp-vm-program` archive reads.
+fn emit_object(image_path: &str, output_path: &str, frames: bool, vector_only: bool) {
     let text = std::fs::read_to_string(image_path).unwrap();
     let mut it = Interp::new();
     image::load(&mut it, &text).unwrap();
@@ -32,6 +38,7 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
     let (mut compiled, mut refused) = (Vec::new(), Vec::new());
     for (fid, f) in it.funcs.iter().enumerate() {
         if !frames && f.name.starts_with("module:") { continue; }
+        if vector_only && !image::needs_native(f) { continue; }
         match compiler.try_compile_object_mode(f, fid as u32, frames) {
             Ok(()) => compiled.push(fid),
             Err(e) => refused.push(format!("{fid}\t{}\t{e}", f.name)),
@@ -84,6 +91,9 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
             push(*off); push(*span); push(slots.len() as u32);
             for slot in slots { push(*slot); }
         }
+    }
+    if frames {
+        compiler.define_linked_table(hash, &map_bytes).unwrap_or_else(|e| { eprintln!("aot: linked table: {e}"); std::process::exit(1) });
     }
     eprintln!("aot: writing object");
     let bytes = compiler.emit();
@@ -149,7 +159,7 @@ fn show(it: &Interp, v: Value) -> String {
     match it.kind_of(v) { Some(k) => KIND_NAMES[k as usize].to_string(), None => format!("{:#x}", v.0) }
 }
 
-fn main() {
+pub(crate) fn main() {
     // Raises travel as panics between catch points; the default hook would
     // print each one. The runner reports the one that reaches it.
     if std::env::var("RUST_BACKTRACE").is_err() { std::panic::set_hook(Box::new(|_| {})); }
@@ -176,7 +186,12 @@ fn main() {
         args.insert(4, "main".into());
     }
     #[cfg(feature = "aot")]
-    if (args.len() == 4 || args.len() == 5 && args[4] == "--frames") && args[1] == "aot" { emit_object(&args[2], &args[3], args.len() == 5); return; }
+    if args.get(1).map(String::as_str) == Some("aot") && (4..=6).contains(&args.len()) {
+        let flags: Vec<&str> = args[4..].iter().map(String::as_str).collect();
+        let (frames, vector_only) = match flags.as_slice() { [] => (false, false), ["--frames"] => (true, false), ["--frames", "--vector-only"] => (true, true), _ => { eprintln!("usage: nupp-vm aot IMAGE OBJECT [--frames [--vector-only]]"); std::process::exit(2) } };
+        emit_object(&args[2], &args[3], frames, vector_only);
+        return;
+    }
     if args.len() == 3 && args[1] == "verify" {
         let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
         let mut it = Interp::new();
