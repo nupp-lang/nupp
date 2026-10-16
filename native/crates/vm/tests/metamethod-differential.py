@@ -4,10 +4,11 @@
 Usage: metamethod-differential.py (SEED | luajit) [--binary PATH] [--gc-stress]
                                   [--program NAME ...] [--write]
 
-Each `tests/metamethods/NAME.lua` exports `main`, which returns its output as
-one string. The reference is LuaJIT, or the stock `lua` for a program whose
-first line reads `-- reference: lua` (what LuaJIT does only under its 5.2
-compatibility build, such as `__len` and `__pairs` on tables). One image
+Each `tests/metamethods/NAME.lua` (or `.nupp`) exports `main`, which returns
+its output as one string. The reference is LuaJIT, or the stock `lua` for a
+program whose first line reads `-- reference: lua` (what LuaJIT does only
+under its 5.2 compatibility build, such as `__len` and `__pairs` on tables),
+or for a `.nupp` program the LuaJIT host running its generated Lua. One image
 carries every program, emitted by the SEED compiler image; each program then
 runs on the Rust loop, the threaded core and the typed tier (ordinary and
 frame entries), and must print
@@ -21,6 +22,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 
@@ -36,13 +38,27 @@ parser.add_argument("--write", action="store_true", help="save the image and ref
 parser.add_argument("--engine", action="append", choices=("rust", "threaded", "jit", "frames"))
 args = parser.parse_args()
 
-names = sorted(p.stem for p in programs_dir.glob("*.lua") if p.stem != "mmout")
+names = sorted(p.stem for p in list(programs_dir.glob("*.lua")) + list(programs_dir.glob("*.nupp")) if p.stem != "mmout")
 if args.program:
     names = [n for n in names if n in args.program]
 assert names, "no programs selected"
 
 
 def reference(name):
+    if (programs_dir / (name + ".nupp")).exists():
+        # A typed program's reference is the LuaJIT host running its generated Lua.
+        made = not (programs_dir / "build").exists()
+        driver = programs_dir / ("_driver_%d.lua" % os.getpid())
+        driver.write_text("io.write(require(%s).main())\n" % json.dumps(name))
+        try:
+            done = subprocess.run([str(root / "bin/nupp"), "run", driver.name], cwd=programs_dir, capture_output=True, text=True)
+        finally:
+            driver.unlink()
+            if made:
+                shutil.rmtree(programs_dir / "build", ignore_errors=True)
+        if done.returncode != 0:
+            sys.exit("%s failed under the LuaJIT host:\n%s" % (name, done.stderr))
+        return done.stdout
     first = (programs_dir / (name + ".lua")).read_text().split("\n", 1)[0]
     interpreter = "lua" if first.strip() == "-- reference: lua" else "luajit"
     code = 'package.path = %s .. "/?.lua;" .. package.path; io.write(require(%s).main())' % (

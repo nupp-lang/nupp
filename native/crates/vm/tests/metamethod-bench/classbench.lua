@@ -30,7 +30,7 @@ Vec.__concat = function(a, b) return tostring(a) .. tostring(b) end
 Vec.__tostring = function(a) return "(" .. a.x .. "," .. a.y .. ")" end
 function Vec:dot(o) return self.x * o.x + self.y * o.y end
 
-function M.main()
+local function methods()
     local sum = 0
     local objects = {Base.new(1), Leaf.new(2), Base.new(3), Leaf.new(4)}
     for _ = 1, 50000 do
@@ -39,6 +39,11 @@ function M.main()
             sum = sum + o:get() + o:step()
         end
     end
+    return sum
+end
+
+local function vectors()
+    local sum = 0
     local acc = vec(0, 0)
     local unit = vec(1, 2)
     local equal = 0
@@ -48,9 +53,24 @@ function M.main()
         if unit < acc then sum = sum + 1 end
         sum = sum + acc:dot(unit) % 7
     end
-    local text = 0
-    for _ = 1, 2000 do text = text + #(unit .. acc) + #tostring(unit) end
-    return sum + equal + #unit + text
+    return sum + equal, acc
+end
+
+local function text(acc)
+    local unit = vec(1, 2)
+    local n = 0
+    for _ = 1, 2000 do n = n + #(unit .. acc) + #tostring(unit) end
+    return n
+end
+
+M.methods = methods
+M.vectors = function() return (vectors()) end
+M.text = function() return text(vec(3, 4)) end
+
+function M.main()
+    local a = methods()
+    local b, acc = vectors()
+    return a + b + text(acc)
 end
 
 return M

@@ -742,13 +742,17 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(is_obj, chk, &[], slow, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64); let plain = b.ins().icmp_imm(IntCC::Equal, meta, 0); let is_rec = b.ins().band(is_rec, plain);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64);
                         // NO_SLOT_GUARD=1 drops the shape compare, for measuring what it costs
                         // on a workload whose shapes are known to be exact (the parser).
                         let hit = if no_slot_guard { is_rec } else { let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let same = b.ins().icmp_imm(IntCC::Equal, shape, sh as i64); b.ins().band(is_rec, same) };
                         b.ins().brif(hit, fast, &[], slow, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
-                        let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8); b.ins().jump(join, &[v.into()]);
+                        // A record with a metatable of its own answers a present slot here;
+                        // a nil asks `__index` through the helper.
+                        let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, (i as i32) * 8);
+                        let vnil = b.ins().icmp_imm(IntCC::Equal, v, NIL); let has_meta = b.ins().icmp_imm(IntCC::NotEqual, meta, 0); let ask = b.ins().band(vnil, has_meta);
+                        b.ins().brif(ask, slow, &[], join, &[v.into()]);
                         b.switch_to_block(slow); b.seal_block(slow);
                         let shv = b.ins().iconst(types::I64, sh as i64); let iv = b.ins().iconst(types::I64, i as i64); let c = hcall!("j_slot_get", &[tv, shv, iv]); let rres = b.inst_results(c)[0]; b.ins().jump(join, &[rres.into()]);
                         b.switch_to_block(join); b.seal_block(join);
@@ -846,7 +850,7 @@ impl<M: Module> Compiler<M> {
                         let in_range = b.ins().icmp(IntCC::UnsignedLessThan, idx0, len);
                         let vm = b.ins().band_imm(v, QNAN); let v_num = b.ins().icmp_imm(IntCC::NotEqual, vm, QNAN);
                         let object_flags = b.ins().load(types::I8, flags, o, 3);
-                        let schema = b.ins().band_imm(object_flags, crate::heap::F_STORAGE_SCHEMA as i64);
+                        let schema = b.ins().band_imm(object_flags, (crate::heap::F_STORAGE_SCHEMA | crate::heap::F_PROTO) as i64);
                         let plain = b.ins().icmp_imm(IntCC::Equal, schema, 0);
                         let c1 = b.ins().band(is_table, in_range); let c2 = b.ins().band(c1, v_num); let fast = b.ins().band(c2, plain);
                         b.ins().brif(fast, fast_b, &[], slow_b, &[]);
@@ -1217,14 +1221,16 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64); let plain = b.ins().icmp_imm(IntCC::Equal, meta, 0); let is_rec = b.ins().band(is_rec, plain);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64);
                         let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let shape1 = b.ins().uextend(types::I64, shape); let shape1 = b.ins().iadd_imm(shape1, 1);
                         let seen = b.ins().load(types::I64, flags, ca, 0);
                         let same = b.ins().icmp(IntCC::Equal, shape1, seen); let hit = b.ins().band(is_rec, same);
                         b.ins().brif(hit, fast, &[], probe, &[]);
                         b.switch_to_block(fast); b.seal_block(fast);
                         let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let idx = b.ins().load(types::I64, flags, ca, 8); let off = b.ins().ishl_imm(idx, 3); let a = b.ins().iadd(slots, off);
-                        let v = b.ins().load(types::I64, flags, a, 0); b.ins().jump(join, &[v.into()]);
+                        let v = b.ins().load(types::I64, flags, a, 0);
+                        let vnil = b.ins().icmp_imm(IntCC::Equal, v, NIL); let has_meta = b.ins().icmp_imm(IntCC::NotEqual, meta, 0); let ask = b.ins().band(vnil, has_meta);
+                        b.ins().brif(ask, helper, &[], join, &[v.into()]);
                         b.switch_to_block(probe); b.seal_block(probe);
                         if let Some(st) = stub_refs.as_ref() {
                             let nb = kval!(k);

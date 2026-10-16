@@ -167,7 +167,9 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     if let Some(st) = it.op_stats.as_mut() { let op = it.funcs[win.fid as usize].code[pc as usize]; *st.entry(crate::interp::op_name(&op)).or_insert(0) += 1; }
     // A raise inside the opcode becomes the error status: the core returns
     // and `run_threaded` re-raises where Rust frames can carry it.
+    let mark = it.handles.len();
     let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.step(tid, &win, pc as usize)));
+    if stepped.is_err() { it.handles.truncate(mark); }
     let r = match stepped {
         Ok(Step::Next(np)) => np as u32,
         Ok(Step::Reenter) => ST_REENTER,

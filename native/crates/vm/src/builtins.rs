@@ -1294,11 +1294,12 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_21 => {
             let callee = arg(args, 0); let rest = &args[1.min(args.len())..];
             let hook = std::panic::take_hook(); std::panic::set_hook(Box::new(|_| {}));
+            let mark = it.handles.len();
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.call_value(callee, rest)));
             std::panic::set_hook(hook);
             match outcome {
                 Ok(vals) => { let mut o = outs![Value::TRUE]; for v in vals { o.push(v); } o }
-                Err(payload) => { let v = if let Some(e) = payload.downcast_ref::<LuaError>() { Value(e.0) } else { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); it.intern(&msg) }; outs![Value::FALSE, v] }
+                Err(payload) => { it.handles.truncate(mark); let v = if let Some(e) = payload.downcast_ref::<LuaError>() { Value(e.0) } else { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); it.intern(&msg) }; outs![Value::FALSE, v] }
             }
         }
         N_22 => {

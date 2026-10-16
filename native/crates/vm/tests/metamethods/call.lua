@@ -40,4 +40,41 @@ function M.main()
     return done()
 end
 
+--- Handlers that raise, each caught by `pcall`: the crate test checks that
+--- every root the runtime took for the call was released.
+function M.raising()
+    local function fail() error("handler failed", 0) end
+    local callable = setmetatable({}, {__call = fail})
+    local mt = {__eq = fail, __lt = fail, __le = fail, __add = fail, __concat = fail, __len = fail, __index = fail, __newindex = fail, __unm = fail, __tostring = fail}
+    local a, b = setmetatable({}, mt), setmetatable({}, mt)
+    local cases = {
+        function() return callable(1, 2, 3) end,
+        function() return callable() end,
+        function() return a == b end,
+        function() return a < b end,
+        function() return a <= b end,
+        function() return a + 1 end,
+        function() return a .. "x" end,
+        function() return #a end,
+        function() return a.missing end,
+        function() a.missing = 1 end,
+        function() return -a end,
+        function() return tostring(a) end,
+        function() return pcall(callable) and callable() end,
+    }
+    local failed = 0
+    for _ = 1, 20 do
+        for i = 1, #cases do
+            if not pcall(cases[i]) then failed = failed + 1 end
+        end
+    end
+    return failed
+end
+
+--- A callable table that raises with nothing to catch it.
+function M.uncaught()
+    local callable = setmetatable({}, {__call = function() error("uncaught", 0) end})
+    return callable(1, 2, 3)
+end
+
 return M

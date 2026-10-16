@@ -954,11 +954,12 @@ impl Interp {
     /// pcall as values: ok first, then the results or the error value.
     pub fn pcall_values(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
         let hook = std::panic::take_hook(); std::panic::set_hook(Box::new(|_| {}));
+        let mark = self.handles.len();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, args)));
         std::panic::set_hook(hook);
         match outcome {
             Ok(mut vals) => { vals.insert(0, Value::TRUE); vals }
-            Err(payload) => { let v = self.error_value(payload); vec![Value::FALSE, v] }
+            Err(payload) => { self.handles.truncate(mark); let v = self.error_value(payload); vec![Value::FALSE, v] }
         }
     }
     /// Runs `body` and, when it raises, parks the value in `pending_error`
@@ -966,8 +967,11 @@ impl Interp {
     /// VM-level raise that compiled code and the threaded core return upward.
     #[inline]
     pub fn guarded(&mut self, body: impl FnOnce(&mut Interp) -> Value) -> Value {
+        // A raise unwinds every helper that pushed handles above this point
+        // before it could close its scope: they are released here.
+        let mark = self.handles.len();
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body(self)));
-        match r { Ok(v) => v, Err(p) => { let v = self.error_value(p); self.pending_error = Some(v); Value::ERROR } }
+        match r { Ok(v) => v, Err(p) => { self.handles.truncate(mark); let v = self.error_value(p); self.pending_error = Some(v); Value::ERROR } }
     }
     /// The value an unwinding error carries: `error`'s value, or the message.
     pub fn error_value(&mut self, payload: Box<dyn std::any::Any + Send>) -> Value {
@@ -1388,7 +1392,7 @@ impl Interp {
         if TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { let i = match h.kind { KIND_TABLE => if key.is_num() { 0 } else { 1 }, KIND_RECORD => if key.is_num() { 2 } else { 3 }, _ => 4 }; TABLE_COUNTS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if h.kind == KIND_TABLE && !key.is_num() { let n = h.table_ref().hash.len(); let b = if n == 0 { 5 } else if n <= 4 { 6 } else if n <= 16 { 7 } else if n <= 64 { 8 } else { 9 }; TABLE_COUNTS[b].fetch_add(1, std::sync::atomic::Ordering::Relaxed); } }
         match h.kind {
             KIND_TABLE => { let t = h.table_ref(); if key.is_num() { let n = key.as_num(); if n >= 1.0 && (n as usize) <= t.array.len() && n.fract() == 0.0 { return t.array[n as usize - 1]; } } *t.hash.get(&key).unwrap_or(&Value::NIL) }
-            KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { return a[n as usize - 1]; } } let sh = &self.heap.shapes[h.shape() as usize]; match sh.names.iter().position(|n| *n == key) { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
+            KIND_RECORD => { if key.is_num() { let n = key.as_num(); let a = h.record_array_ref(); if n >= 1.0 && (n as usize) <= a.len() && n.fract() == 0.0 { return a[n as usize - 1]; } } let sh = &self.heap.shapes[h.shape() as usize]; let slot = if key.is_num() { None } else { sh.slot_of(key) }; match slot { Some(i) => h.slots()[i], None => h.record_extra_ref().as_ref().and_then(|m| m.get(&key).copied()).unwrap_or(Value::NIL) } }
             // A userdata has no fields of its own: reads go to `__index`.
             KIND_USERDATA => Value::NIL,
             _ => self.op_error(OpErr::Index, tv),
@@ -1473,8 +1477,24 @@ impl Interp {
     }
     /// A slot access whose object is not of the shape the site assumed (a
     /// struct-shaped table cast to the record, say): by the slot's name.
-    pub fn slot_get_slow(&mut self, o: Value, shape: u32, slot: u16) -> Value { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.index(o, name) }
-    pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) { let name = self.heap.shapes[shape as usize].names[slot as usize]; self.newindex(o, name, v) }
+    /// A record of the shape with a metatable of its own reads and writes a
+    /// present slot raw: `__index` and `__newindex` ask only about absent keys.
+    pub fn slot_get_slow(&mut self, o: Value, shape: u32, slot: u16) -> Value {
+        if let Some(v) = self.present_slot(o, shape, slot) { return v; }
+        let name = self.heap.shapes[shape as usize].names[slot as usize]; self.index(o, name)
+    }
+    pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) {
+        if self.present_slot(o, shape, slot).is_some() && o.as_obj().is_some_and(|p| unsafe { p.as_ref().flags } & heap::F_STORAGE_SCHEMA == 0) { self.set_slot(o, slot as usize, v); return; }
+        let name = self.heap.shapes[shape as usize].names[slot as usize]; self.newindex(o, name, v)
+    }
+    #[inline]
+    fn present_slot(&self, o: Value, shape: u32, slot: u16) -> Option<Value> {
+        let p = o.as_obj()?;
+        let h = unsafe { p.as_ref() };
+        if h.kind != KIND_RECORD || h.shape() != shape { return None; }
+        let v = h.slots()[slot as usize];
+        (v != Value::NIL).then_some(v)
+    }
     /// An ordinary or shaped table's metatable, or nil.
     pub fn metatable_of(&self, t: Value) -> Value { match t.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_TABLE { h.table_ref().meta } else if h.kind == KIND_RECORD { h.record_extra_ref().as_ref().map(|extra| extra.meta).unwrap_or(Value::NIL) } else if h.kind == KIND_USERDATA { h.userdata().meta } else { Value::NIL } } None => Value::NIL } }
     /// Registers a method a record shape dispatches. Its declaration (the
@@ -1483,6 +1503,7 @@ impl Interp {
     pub(crate) fn set_method(&mut self, shape: u32, name: Value, f: Value) {
         self.heap.shapes[shape as usize].methods.insert(name, f);
         self.heap.shapes[shape as usize].mm_cache = 0;
+        self.heap.proto_epoch += 1;
         if self.heap.interned_key("\0nupp:recordType") == Some(name) && self.kind_of(f) == Some(KIND_TABLE) {
             unsafe { (*f.as_obj().unwrap().as_ptr()).flags |= heap::F_DECLARATION; }
             let shapes = self.heap.declarations.entry(f.0).or_default();
@@ -1493,6 +1514,7 @@ impl Interp {
     fn redeclare(&mut self, decl: Value, key: Value, v: Value) {
         let Some(shapes) = self.heap.declarations.get(&decl.0).cloned() else { return };
         self.redeclared_metamethods(&shapes, key);
+        self.heap.proto_epoch += 1;
         for shape in shapes {
             let methods = &mut self.heap.shapes[shape as usize].methods;
             if methods.contains_key(&key) {
@@ -1565,6 +1587,7 @@ impl Interp {
     /// lacks the key, including tables represented by record shapes.
     pub fn index(&mut self, t: Value, key: Value) -> Value {
         let mut t = t;
+        let mut receiver = true;
         for _ in 0..100 {
             // A string's fields are what the string metatable's `__index` answers.
             if self.is_stringish(t) { return self.string_field(t, key); }
@@ -1575,6 +1598,10 @@ impl Interp {
                 if h.kind == KIND_RECORD {
                     if let Some(method) = self.heap.shapes[h.shape() as usize].methods.get(&key) { return *method; }
                 }
+            }
+            if receiver {
+                receiver = false;
+                if let Some(v) = self.index_through_metatable(t, key) { return v; }
             }
             let h = self.metamethod(t, crate::metamethods::MM::Index);
             if h == Value::NIL { return Value::NIL; }
@@ -1916,10 +1943,12 @@ impl Interp {
         self.frame_mode |= self.frame_required;
         loop {
             if let Some(outcome) = self.resume_unwind(tid) { self.frame_mode=old; return outcome; }
+            let mark = self.handles.len();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && !self.frame_mode && self.execution_limit.is_none() { self.run_threaded(tid) } else { self.run_rust(tid) }}));
             match result {
                 Ok(o) => { self.frame_mode = old; return o; }
                 Err(e) => {
+                    self.handles.truncate(mark);
                     if self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) {
                         let value = self.error_value(e);
                         let handler = self.tasks[tid].protected.pop();
@@ -2508,11 +2537,12 @@ impl Interp {
         let args = self.call_args(tid, w.base + b as usize + 2, nargs);
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
+        let mark = self.handles.len();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, args.as_slice())));
         std::panic::set_hook(hook);
         match outcome {
             Ok(mut outs) => { outs.insert(0, Value::TRUE); self.deliver(regs, b as usize, &outs); }
-            Err(payload) => { let v = self.error_value(payload); self.deliver(regs, b as usize, &[Value::FALSE, v]); }
+            Err(payload) => { self.handles.truncate(mark); let v = self.error_value(payload); self.deliver(regs, b as usize, &[Value::FALSE, v]); }
         }
     }
     #[inline(never)]

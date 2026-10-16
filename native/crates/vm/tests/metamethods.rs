@@ -134,3 +134,57 @@ fn metamethods_match_luajit_on_every_tier() {
         vm.check_oracle();
     }
 }
+
+fn call_export(vm: &mut Interp, mode: Mode, name: &str) -> Result<Value, String> {
+    let module = vm.require("call");
+    let root = vm.register(module);
+    let key = vm.intern(name);
+    let function = vm.get_index(module, key);
+    let result = if frame(mode) {
+        let task = vm.schedule(function, &[], None).unwrap();
+        let events = vm.run_ready(1).unwrap();
+        match &events[0].status {
+            Status::Completed => Ok(vm.tasks[task.index].result),
+            Status::Failed(error) => Err(error.clone()),
+            status => panic!("{name} on {mode:?}: {status:?}"),
+        }
+    } else {
+        let value = vm.guarded(|vm| vm.call_value(function, &[]).first().copied().unwrap_or(Value::NIL));
+        if value == Value::ERROR {
+            let error = vm.pending_error.take().unwrap();
+            Err(String::from_utf8_lossy(vm.bytes_of(error)).into_owned())
+        } else {
+            Ok(value)
+        }
+    };
+    vm.release(root);
+    result
+}
+
+/// A handler that raises leaves no root behind: compiled code calling a
+/// callable table used to leave its arguments on the handle stack.
+#[test]
+fn raising_handlers_release_their_roots_on_every_tier() {
+    let modes = [
+        Mode::Rust,
+        Mode::Threaded,
+        #[cfg(feature = "jit")]
+        Mode::Typed,
+        #[cfg(feature = "jit")]
+        Mode::Frame,
+    ];
+    for mode in modes {
+        let mut vm = fixture(mode);
+        vm.require("call");
+        let (handles, registered) = (vm.handles.len(), vm.registered.iter().filter(|v| **v != Value::NIL).count());
+        // Twelve of the thirteen cases raise (the VM honors `__len`), twenty times.
+        assert_eq!(call_export(&mut vm, mode, "raising"), Ok(Value::num(240.0)), "{mode:?}");
+        assert_eq!(vm.handles.len(), handles, "caught raises left roots on {mode:?}");
+        let error = call_export(&mut vm, mode, "uncaught").unwrap_err();
+        assert!(error.contains("uncaught"), "{mode:?}: {error}");
+        assert_eq!(vm.handles.len(), handles, "an uncaught raise left roots on {mode:?}");
+        assert_eq!(vm.registered.iter().filter(|v| **v != Value::NIL).count(), registered, "{mode:?}");
+        vm.full_cycle();
+        vm.check_oracle();
+    }
+}

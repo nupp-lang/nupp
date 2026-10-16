@@ -56,6 +56,10 @@ pub const F_STORAGE_SCHEMA: u8 = 32;
 /// A table some record shape names as its declaration: a store to it may
 /// replace a method the shape dispatches (`Heap::declarations`).
 pub const F_DECLARATION: u8 = 64;
+/// A table some `__index` lookup walked as a metatable or an `__index`
+/// target: a store to it may change what a cached lookup answered, so it
+/// bumps `Heap::proto_epoch`, and the core's raw store fast paths refuse it.
+pub const F_PROTO: u8 = 128;
 
 /// The size class byte of an object allocated on its own.
 pub const CLASS_LARGE: u8 = 0xff;
@@ -459,6 +463,12 @@ pub struct Heap {
     /// The metamethod names as interned strings, filled on first use and
     /// held as roots so the bits stay valid; `VT_EMPTY` until then.
     pub mm_keys: [u64; crate::metamethods::COUNT],
+    /// Bumped by any store to an `F_PROTO` object or a shape's methods.
+    pub proto_epoch: u64,
+    /// `(metatable, key)` to what the `__index` chain answered and the epoch
+    /// it was answered in. Cleared when a sweep starts, before anything it
+    /// names can be freed and its address reused.
+    pub proto_cache: HashMap<(u64, u64), (u64, u64)>,
     #[cfg(feature = "allocation-metrics")]
     metrics: Option<crate::allocation_metrics::Handle>,
 }
@@ -472,7 +482,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT],
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -765,9 +775,12 @@ impl Heap {
 
     #[inline]
     pub fn schema_write(&mut self, object: NonNull<Header>) {
-        if unsafe { object.as_ref().flags & F_STORAGE_SCHEMA != 0 } {
+        let flags = unsafe { object.as_ref().flags };
+        if flags & (F_STORAGE_SCHEMA | F_PROTO) == 0 { return; }
+        if flags & F_STORAGE_SCHEMA != 0 {
             self.storage_version = self.storage_version.saturating_add(1);
         }
+        if flags & F_PROTO != 0 { self.proto_epoch += 1; }
     }
 
     /// The insertion barrier (4.2): storing a white child into a black parent
@@ -1013,6 +1026,7 @@ impl Heap {
                     self.mark_roots(roots);
                     if !self.gray.is_empty() || self.propagate_weak() { continue; }
                     self.clear_weak();
+                    self.proto_cache.clear();
                     self.phase = Phase::Sweeping;
                     self.marking = 0;
                     self.sweep_chunk = 0; self.sweep_slot = 0; self.sweep_large = 0;

@@ -125,6 +125,8 @@ static inline Value boolean(int b) { return b ? T_TRUE : T_FALSE; }
 #define F_INTERNED 1
 #define F_METATABLE 4
 #define F_STORAGE_SCHEMA 32
+// Stores to a table an `__index` lookup walked bump the runtime's epoch: helper.
+#define F_PROTO 128
 static inline uint64_t header3(uint64_t words, uint64_t nvar) { return (words << 33) | (nvar << 49); }
 static inline uint64_t frame_words_of(uint64_t h3) { return (h3 >> 33) & 0xffff; }
 
@@ -249,10 +251,14 @@ static Value h_getupval(ARGS) { Value clo = frame[2]; if (__builtin_expect(is_ob
 static Value h_getcell(ARGS) { Value c = regs[pc->b]; if (__builtin_expect(is_obj(c) && obj_kind(c) == KIND_CELL, 1)) { regs[pc->a] = ((Value*)obj_ptr(c))[0]; pc++; NEXT; } SLOW; }
 // Slots by offset, guarded by the shape the emitter assumed (imm): any
 // other shape takes the slow path, which reads the slot's name.
-static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { regs[pc->a] = ((Value*)obj_ptr(r))[pc->c]; pc++; NEXT; } SLOW; }
-static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & F_METATABLE) && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } } SLOW; }
-// A number stored into a slot needs no barrier: it is not a reference.
-static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & (F_METATABLE | F_STORAGE_SCHEMA)) && obj_aux(r) == (uint32_t)pc->imm, 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
+// A record with a metatable of its own reads a present slot raw too: only a
+// nil asks `__index`, and that is the helper's.
+static Value h_getslot(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(v != T_NIL || !(obj_flags(r) & F_METATABLE), 1)) { regs[pc->a] = v; pc++; NEXT; } } SLOW; }
+static Value h_getslotf(ARGS) { Value r = regs[pc->b]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && obj_aux(r) == (uint32_t)pc->imm, 1)) { Value v = ((Value*)obj_ptr(r))[pc->c]; if (__builtin_expect(is_num(v), 1)) { fregs[pc->a] = as_num(v); pc++; NEXT; } } SLOW; }
+// A number stored into a slot needs no barrier: it is not a reference. A
+// record with a metatable writes a present slot raw (`__newindex` asks only
+// about absent keys).
+static Value h_setslotf(ARGS) { Value r = regs[pc->a]; if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & (F_STORAGE_SCHEMA | F_PROTO)) && obj_aux(r) == (uint32_t)pc->imm && (!(obj_flags(r) & F_METATABLE) || ((Value*)obj_ptr(r))[pc->b] != T_NIL), 1)) { ((Value*)obj_ptr(r))[pc->b] = num(fregs[pc->c]); pc++; NEXT; } SLOW; }
 static Value h_len(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_STR || k == KIND_SLICE || (k == KIND_TABLE && *(const Value*)((uintptr_t)(v & PAYLOAD) + OFF_T_META) == T_NIL)) { regs[pc->a] = num((double)obj_len(v)); pc++; NEXT; } } SLOW; }
 static Value h_lenf(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_obj(v), 1)) { uint8_t k = obj_kind(v); if (k == KIND_STR || k == KIND_SLICE || (k == KIND_TABLE && *(const Value*)((uintptr_t)(v & PAYLOAD) + OFF_T_META) == T_NIL)) { fregs[pc->a] = (double)obj_len(v); pc++; NEXT; } } SLOW; }
 static Value h_strbyte(ARGS) {
@@ -386,12 +392,13 @@ static Value h_getfield(ARGS) {
     Value t = regs[pc->b];
     Value name = FUNC_OF(frame)->consts[pc->imm];
     if (__builtin_expect(is_obj(t), 1)) {
-        if (obj_kind(t) == KIND_RECORD && !(obj_flags(t) & F_METATABLE)) {
+        if (obj_kind(t) == KIND_RECORD) {
             uint32_t shape = obj_aux(t);
             // The shape's slot table: (name bits, slot) pairs, open addressing, as Heap::slot_of.
+            // With a metatable of its own, only a present value is answered here.
             const uint64_t* table = ctx->shapes[shape].table; uint64_t mask = ctx->shapes[shape].mask;
             uint64_t k = (((name >> 4) * 0x9E3779B97F4A7C15ull) >> 32) & mask;
-            for (;;) { uint64_t b = table[2 * k]; if (b == name) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; pc++; NEXT; } if (b == 0) break; k = (k + 1) & mask; }
+            for (;;) { uint64_t b = table[2 * k]; if (b == name) { Value v = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; if (v != T_NIL || !(obj_flags(t) & F_METATABLE)) { regs[pc->a] = v; pc++; NEXT; } break; } if (b == 0) break; k = (k + 1) & mask; }
         } else if (obj_kind(t) == KIND_TABLE) {
             // The hash part, probed in place; a nil answer with a metatable goes to the helper.
             const uint64_t* hp = *(const uint64_t* const*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_PTR); uint64_t mask = *(const uint64_t*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_MASK);
@@ -422,7 +429,7 @@ static Value h_getidxi(ARGS) {
 static Value h_setidxi(ARGS) {
     if (iregs[pc->b] > 9007199254740992ll || iregs[pc->b] < -9007199254740992ll) { SLOW; }
     Value t = regs[pc->a]; int64_t i = iregs[pc->b]; Value v = regs[pc->c];
-    if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE && !(obj_flags(t) & F_STORAGE_SCHEMA), 1)) {
+    if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE && !(obj_flags(t) & (F_STORAGE_SCHEMA | F_PROTO)), 1)) {
         uint64_t n = obj_len(t);
         // A nil at the end shrinks the array part (the border rule): helper.
         if (i >= 1 && (uint64_t)i <= n && (v != T_NIL || (uint64_t)i < n)) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
@@ -440,7 +447,7 @@ static Value h_setcell(ARGS) {
 static Value h_padresults(ARGS) { uint32_t n = pc->b; if (n > 8) { SLOW; } for (uint64_t i = ctx->last_nres; i < n; i++) regs[pc->a + i] = T_NIL; pc++; NEXT; }
 static Value h_setslot(ARGS) {
     Value r = regs[pc->a]; Value v = regs[pc->c];
-    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & (F_METATABLE | F_STORAGE_SCHEMA)) && obj_aux(r) == (uint32_t)pc->imm, 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
+    if (__builtin_expect(is_obj(r) && obj_kind(r) == KIND_RECORD && !(obj_flags(r) & (F_STORAGE_SCHEMA | F_PROTO)) && obj_aux(r) == (uint32_t)pc->imm && (!(obj_flags(r) & F_METATABLE) || ((Value*)obj_ptr(r))[pc->b] != T_NIL), 1)) { if (*ctx->marking) rt_barrier(ctx, r, v); ((Value*)obj_ptr(r))[pc->b] = v; pc++; NEXT; }
     SLOW;
 }
 // A read by a value key: an integral number within a table's array part in

@@ -154,4 +154,47 @@ impl Interp {
         self.close_scope(scope);
         result
     }
+    /// What a table with a metatable of its own answers for an absent `key`
+    /// through its `__index` chain, from the cache when nothing the chain
+    /// walked was written since. Every metatable and `__index` table walked
+    /// is flagged `F_PROTO`, whose stores bump the epoch. None when the chain
+    /// reaches a function, which the caller then calls.
+    pub(crate) fn index_through_metatable(&mut self, t: Value, key: Value) -> Option<Value> {
+        let p = t.as_obj()?;
+        let h = unsafe { p.as_ref() };
+        let own = match h.kind { KIND_TABLE => h.table_ref().meta != Value::NIL, KIND_RECORD => h.flags & heap::F_METATABLE != 0, _ => false };
+        if !own { return None; }
+        let meta = self.mm_table(t);
+        if let Some(&(v, epoch)) = self.heap.proto_cache.get(&(meta.0, key.0)) {
+            if epoch == self.heap.proto_epoch { return Some(Value(v)); }
+        }
+        let mut object = t;
+        let mut answer = Value::NIL;
+        let mut settled = false;
+        for _ in 0..100 {
+            Self::flag_proto(self.mm_table(object));
+            let handler = self.metamethod(object, MM::Index);
+            if handler == Value::NIL { settled = true; break; }
+            if !matches!(self.kind_of(handler), Some(KIND_TABLE | KIND_RECORD)) { return None; }
+            Self::flag_proto(handler);
+            let v = self.get_index(handler, key);
+            if v != Value::NIL { answer = v; settled = true; break; }
+            let hh = unsafe { handler.as_obj().unwrap().as_ref() };
+            if hh.kind == KIND_RECORD {
+                if let Some(&method) = self.heap.shapes[hh.shape() as usize].methods.get(&key) { answer = method; settled = true; break; }
+            }
+            object = handler;
+        }
+        // A chain that never ends raises where the caller walks it.
+        if !settled { return None; }
+        if self.heap.proto_cache.len() >= 4096 { self.heap.proto_cache.clear(); }
+        self.heap.proto_cache.insert((meta.0, key.0), (answer.0, self.heap.proto_epoch));
+        Some(answer)
+    }
+    fn flag_proto(v: Value) {
+        if let Some(p) = v.as_obj() {
+            let h = unsafe { &mut *p.as_ptr() };
+            if matches!(h.kind, KIND_TABLE | KIND_RECORD) { h.flags |= heap::F_PROTO; }
+        }
+    }
 }
