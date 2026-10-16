@@ -357,12 +357,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- Runs `fn` with the ternary depth cleared, as a bracketed context does, then
     --- restores it.
-    local function resetNoMethod(fn: any, ...: any): any
+    local function resetNoMethod<R>(fn: function(): R): R
         local saved = noMethod
         local savedArrow = noArrow
         noMethod = 0
         noArrow = 0
-        local r = fn(...)
+        local r = fn()
         noMethod = saved
         noArrow = savedArrow
 
@@ -1277,7 +1277,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- these children into the declaration that carries the annotation, and once
         -- they sit among a function's own tokens nothing else can tell them from code
         -- -- which is how they came to be emitted into the generated Lua.
-        local function packPunct(tok: any): any
+        local function packPunct(tok: Token): Token
             tok.typeBracket = true
 
             return tok
