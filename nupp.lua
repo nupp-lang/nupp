@@ -1,69 +1,3 @@
--- The languages a stamped binary can highlight a fenced block in. Scintillua
--- ships a hundred and sixty lexers and they are 1.7 MB, which is more than the
--- rest of the binary put together; these are the ones a technical document
--- actually fences, and a fence in anything else renders as escaped text the way
--- it does with no Scintillua at all.
---
--- Nupp itself is not here: it is highlighted by the compiler's own parser and
--- lexer, which agree about both tokens and contextual syntax. The project lexer
--- directory still carries a Nupp Scintillua lexer for Scintillua consumers.
---
--- Closed under embedding. A lexer loads another to highlight what it contains --
--- HTML reaches for CSS and JavaScript, Markdown for everything it fences -- so
--- leaving one out breaks the lexer that wanted it rather than only itself.
-local LEXERS = {
-    "lexer",
-    "awk",
-    "bash",
-    "batch",
-    "c",
-    "clojure",
-    "cmake",
-    "coffeescript",
-    "cpp",
-    "csharp",
-    "css",
-    "diff",
-    "dockerfile",
-    "elixir",
-    "erlang",
-    "fish",
-    "go",
-    "haskell",
-    "html",
-    "ini",
-    "java",
-    "javascript",
-    "json",
-    "julia",
-    "latex",
-    "lua",
-    "makefile",
-    "markdown",
-    "nim",
-    "perl",
-    "php",
-    "powershell",
-    "python",
-    "r",
-    "ruby",
-    "rust",
-    "scala",
-    "sql",
-    "swift",
-    "text",
-    "toml",
-    "typescript",
-    "xml",
-    "yaml",
-    "zig",
-}
-
-local bundledLexers = {}
-for _, name in ipairs(LEXERS) do
-    bundledLexers[#bundledLexers + 1] = "scintillua/lexers/" .. name .. ".lua"
-end
-
 -- The built-in project templates `nupp init` scaffolds from.
 --
 -- They live outside `src` on purpose. A template's filenames carry the
@@ -118,7 +52,6 @@ local RESOURCES = {
     {source = "src/nupp/io/uri/spi.nupp", output = "nupp/compiler/nupp/io/uri/spi.nupp"},
     {source = "src/nupp/util/spi.nupp", output = "nupp/compiler/nupp/util/spi.nupp"},
     {source = "src/nupp/runtime/target.nupp", output = "nupp/compiler/nupp/runtime/target.nupp"},
-    {source = "src/re.nupp", output = "nupp/compiler/re.nupp"},
     {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
     {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
     {source = "src/nupp/cli/init.nupp", output = "nupp/compiler/nupp/cli/init.nupp"},
@@ -358,6 +291,11 @@ local RESOURCES = {
     {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/nupp/events.nupp", output = "nupp/compiler/nupp/events.nupp"},
     {source = "src/nupp/text/utf8.nupp", output = "nupp/compiler/nupp/text/utf8.nupp"},
+    {source = "src/nupp/text/regex.nupp", output = "nupp/compiler/nupp/text/regex.nupp"},
+    {
+        source = "src/nupp/text/internal/regexhost.nupp",
+        output = "nupp/compiler/nupp/text/internal/regexhost.nupp"
+    },
     {source = "src/nupp/codec/base64.nupp", output = "nupp/compiler/nupp/codec/base64.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
     {source = "src/nupp/digest/init.nupp", output = "nupp/compiler/nupp/digest/init.nupp"},
@@ -490,54 +428,6 @@ end
 return {
     include = {"src", "tests/runner", "evals/lib"},
 
-    -- What `nupp doc` renders with. Both are installed into `.rocks`, a tree
-    -- this checkout owns, so two checkouts can want different versions without
-    -- either able to break the other's build by upgrading something. `bin/nupp`
-    -- and `tests/run` put that tree on the search path, and a build puts it
-    -- there for itself, so nothing here is installed globally.
-    dependencies = {
-        -- Every rock is pinned by a rockspec in `rocks/`, never by a name and
-        -- version a rock server resolves: each names one archive by URL and by
-        -- the digest LuaRocks checks before unpacking it, and `dist` bundles
-        -- what they install into the release binary. `rockDependencies = false`
-        -- keeps LuaRocks from reaching a server for what one of them depends on,
-        -- so everything installed is listed here.
-        --
-        -- Lunamark's rockspec names an obsolete native UTF-8 module. Its actual
-        -- retained dependencies are pinned here, and Nupp supplies the two UTF-8
-        -- operations Lunamark needs while constructing its parser.
-        lunamark_lpeg = {kind = "luarocks", rockspec = "rocks/lpeg-1.1.0-2.rockspec", rockDependencies = false,},
-        lunamark_cosmo = {kind = "luarocks", rockspec = "rocks/cosmo-16.06.04-1.rockspec", rockDependencies = false,},
-        lunamark_getopt = {
-            kind = "luarocks",
-            rockspec = "rocks/alt-getopt-0.8.0-2.rockspec",
-            rockDependencies = false,
-        },
-        -- Renders the markdown. The retained rocks it needs are listed above so
-        -- their dependency boundary is Nupp's rather than upstream's.
-        --
-        -- `bundle` is what a binary carries. The official `re.lua` frontend is Lua
-        -- payload; LPeg itself is a native host feature selected from the bundled
-        -- sources. Named rather than swept,
-        -- because the tree also holds a command-line program and its tests, which
-        -- nothing here ever asks for.
-        lunamark = {
-            kind = "luarocks",
-            rockspec = "rocks/lunamark-0.6.0-1.rockspec",
-            rockDependencies = false,
-            bundle = {"lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua", "re.lua",},
-        },
-        -- Syntax highlighting for fenced code in the generated site. Not
-        -- published on LuaRocks, so the rockspec beside it stands in for the one
-        -- upstream does not ship.
-        scintillua = {
-            kind = "luarocks",
-            rockspec = "rocks/scintillua-6.7-1.rockspec",
-            rockDependencies = false,
-            bundle = bundledLexers,
-        },
-    },
-
     build = {
         outDir = "build",
         default = "compiler",
@@ -562,7 +452,7 @@ return {
                 -- same modules an ordinary runner can load dynamically.
                 sources = {"tests/runner/main.nupp", "tests/runner/job.nupp", "src/nupp/**.nupp"},
 
-                nativeFeatures = {workers = true, lpeg = true},
+                nativeFeatures = {workers = true},
                 resources = RESOURCES,
                 stub = "nupp",
                 output = "build/nupp-test",
@@ -584,11 +474,6 @@ return {
                 kind = "binary",
                 description = "Stamp the compiler into a self-contained binary",
                 entries = {"nupp.tools.main"},
-                -- Carried, not just installed: a binary is handed to someone who
-                -- has no rock tree, and `nupp doc` is one of the commands it
-                -- claims to have.
-                dependencies = {"lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt", "lunamark", "scintillua",},
-
                 nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
                 stub = "nupp",
@@ -597,7 +482,6 @@ return {
             },
             docs = {
                 kind = "docs",
-                dependencies = {"lunamark_lpeg", "lunamark_cosmo", "lunamark_getopt", "lunamark", "scintillua",},
                 sources = {"src"},
                 format = "both",
                 outDir = "build/docs",
@@ -609,7 +493,6 @@ return {
                 favicon = "images/nupp-icon-32.png",
                 public = "docs/public",
                 customCss = "docs/public/nupp.css",
-                lexers = "docs/lexers",
                 -- Every diagnostic code, generated from what `nupp explain` knows and
                 -- appended to the handwritten page that says what a diagnostic is.
                 -- Listing them here instead would be a copy of the compiler's own

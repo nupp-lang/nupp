@@ -1,0 +1,6 @@
+-- The Markdown renderer the VM's documentation provider is written over:
+-- CommonMark with pipe tables, rendered to HTML by `pulldown-cmark`.
+local record Host
+    render: function(text: string): string
+end
+return Host

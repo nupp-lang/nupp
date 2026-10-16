@@ -25,7 +25,6 @@ libc = "0.2"
 [features]
 default = []
 application-entry = []
-lpeg = []
 native-files = ["nupp-native/files"]
 native-gpu = ["nupp-native/gpu"]
 native-net = ["nupp-native/net"]

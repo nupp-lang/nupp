@@ -19,7 +19,6 @@ local json = require("nupp.codec.json")
 local HOST_FEATURES: {
     string
 } = {
-    "lpeg",
     "native-checksum",
     "native-compression",
     "native-files",

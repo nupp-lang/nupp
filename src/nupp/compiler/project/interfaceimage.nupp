@@ -22,7 +22,7 @@ local T = require("nupp.compiler.types")
 
 local interfaceimage = {}
 
-interfaceimage.SCHEMA = 7
+interfaceimage.SCHEMA = 8
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 type interfaceimage.EncodeOptions = {
@@ -472,9 +472,6 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
             out.intrinsicAffineClaim = t.intrinsicAffineClaim == true
             out.managedCell = t.managedCell == true
             out.managedAlias = t.managedAlias == true
-            out.lpegPattern = t.lpegPattern == true
-            out.lpegLibrary = t.lpegLibrary == true
-            out.lpegPatternOrigin = intern(t.lpegPatternOrigin)
             out.runtimePath = t.runtimePath
             -- The stored fields in declaration order, which is not the member view's
             -- order and leaves out its methods: a record's slots, and the
@@ -1145,8 +1142,6 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
         nominal.intrinsicAffineClaim = node.intrinsicAffineClaim == true or nil
         nominal.managedCell = node.managedCell == true or nil
         nominal.managedAlias = node.managedAlias == true or nil
-        nominal.lpegPattern = node.lpegPattern == true or nil
-        nominal.lpegLibrary = node.lpegLibrary == true or nil
         nominal.runtimePath = node.runtimePath
         nominal.cdefName = node.cdefName
         nominal.cdefKind = node.cdefKind
@@ -1231,7 +1226,6 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
             (nominal.inheritedDefaults as {[string]: any})[entry.name] = edge(entry.owner)
         end
         nominal.inherentCleanup = node.inherentCleanup and cleanupOf(node.inherentCleanup) or nil
-        nominal.lpegPatternOrigin = optional(node.lpegPatternOrigin)
         nominal.constructors = edgeArray(node.constructors)
         nominal.constructorEntries = {}
         for position, result in ipairs(node.constructorResults or {}) do

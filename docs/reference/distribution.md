@@ -158,9 +158,8 @@ end
 
 The chunk is plain Lua and runs under a compatible `luajit` when that runtime
 also supplies every native feature the target resolved. A target with no native
-effects needs no stub; [](nupp.peg), for example, resolves native LPeg and
-therefore needs a feature-matched host or an LPeg module on LuaJIT's module
-path.
+effects needs no stub; one that reaches a native provider needs a
+feature-matched host or the provider library beside it.
 
 "Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
 backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
@@ -177,11 +176,11 @@ library declarations, so a program's resources and the compiler's behave
 identically and are read through one lookup.
 
 Rock modules ride in `package.preload` too, under the names `require` would have
-found them by in the tree they came from, so `require("lunamark")` resolves in a
+found them by in the tree they came from, so `require("pl.stringx")` resolves in a
 checkout, in a bundle, and in a stamped binary, and the program cannot tell
 which it is running in. A target names what it carries with the `bundle` globs
 on its [rock dependencies](../learn/projects/build.md#rock-dependencies); a rock tree
-also holds test scripts, command-line programs and lexers nobody asked for, and
+also holds test scripts, command-line programs and data nobody asked for, and
 a payload that swept the tree would carry all of it.
 
 ### Determinism
@@ -224,7 +223,7 @@ window and own an event loop before step 6; Nupp's own does none of that.
 
 ## Host source acquisition
 
-The compiler-owned toolchain builds pinned LuaJIT, LuaRocks and LPeg
+The compiler-owned toolchain builds pinned LuaJIT and LuaRocks
 sources rather than committing generated native artifacts or source archives.
 An ordinary cold build downloads
 the exact upstream files and verifies their SHA-256 digests before extraction
@@ -238,7 +237,7 @@ named archives in another directory and point the build at it:
 NUPP_HOST_SOURCE_DIR=/opt/nupp-sources \
 NUPP_HOST_OFFLINE=1 \
 ./scripts/toolchain host \
-  lpeg,native-files,native-net,native-process,native-tls,workers
+  native-files,native-net,native-process,native-tls,workers
 ```
 
 `NUPP_HOST_SOURCE_DIR` may be relative to the command's working directory,
@@ -248,7 +247,6 @@ their extracted directories:
 ```text
 LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
 luarocks-3.13.0.tar.gz
-lpeg-1.1.0.tar.gz
 ```
 
 Every supplied archive is checked against the same committed digest as a
@@ -310,8 +308,8 @@ the same macOS bytes unsigned.
 
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT, its selected LPeg module, and
-one feature-selected Rust provider archive. A stamped binary or provider is a
+The compiler-owned stub links LuaJIT and one feature-selected Rust provider
+archive. A stamped binary or provider is a
 distribution of what it links, so the notices ship in
 [`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
 and `host/notices/`. C-source notices are carried as they arrive in the pinned
@@ -454,18 +452,12 @@ A distributed binary is deliberately none of these things.
   sources needs a C compiler on the machine; prebuilt target-indexed C archives
   remain usable without one.
 
-  Nupp's compiler payload detects one native module, and its compiler-owned
-  host links exactly that feature: LPeg, which backs direct LPeg patterns and every
-  general `nupp.peg` matcher. Nupp supplies Lunamark's entity encoder and
-  reference-label normalizer from its own payload.
   Filesystem and network operations, TLS, clocks, payload trailer verification
   and child processes come from the feature-selected Rust native archive linked
-  into the host.
-  The official `re.lua` module remains ordinary Lua in the payload. Another
-  payload selects whatever its own code and bundled dependencies need; the
-  format has no opinion.
+  into the compiler-owned host. Another payload selects whatever its own code
+  and bundled dependencies need; the format has no opinion.
 - **It does not make Nupp a C project either.** The production host and native
-  resource owners are Rust. LuaJIT, LPeg, protected VM shims, and compiled AOT
+  resource owners are Rust. LuaJIT, protected VM shims, and compiled AOT
   code remain deliberate native boundaries; the complete ownership and support
   matrix is in [Native runtime and support](native-runtime.md).
 

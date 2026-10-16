@@ -96,12 +96,12 @@ function M.usesNativeLeafEqualityAndRefusesUnorderedKeys()
     end)
     test.matches(nanError, "value%.value")
 
-    -- A userdata leaf compares by identity: an LPeg pattern is one on every host.
-    local lpeg = require("lpeg")
-    local pattern = lpeg.P(1)
+    -- A userdata leaf compares by identity: a string buffer is one on every host.
+    local buffer = require("string.buffer")
+    local pattern = buffer.new()
     test.deepEqual({pattern = pattern}, {pattern = pattern})
     local patternError = test.raises(function()
-        test.deepEqual({pattern = lpeg.P(1)}, {pattern = lpeg.P(1)})
+        test.deepEqual({pattern = buffer.new()}, {pattern = buffer.new()})
     end)
     test.matches(patternError, "value%.pattern")
 

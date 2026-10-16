@@ -124,12 +124,10 @@ jobs:
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
+          path: ${{ runner.temp }}/nupp-ci-tools
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+            hashFiles('scripts/toolchain.pins') }}
 
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4

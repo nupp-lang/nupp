@@ -61,7 +61,6 @@ local rules = {
     {"^host/", {"native"}},
 
     {"^templates/", {"packaging"}},
-    {"^rocks/", {"packaging"}},
     {"^editors/", {"editors"}},
 
     -- The budget suite compiles these and holds what they compile to: an edit to

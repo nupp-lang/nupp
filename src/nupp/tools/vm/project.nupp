@@ -42,6 +42,8 @@ local HOST_MODULES: {
     ["nupp.vm.net"] = true,
     ["nupp.vm.http"] = true,
     ["nupp.vm.uri"] = true,
+    ["nupp.vm.regex"] = true,
+    ["nupp.vm.markdown"] = true,
     ["nupp.digest.internal.sha256"] = true,
 }
 
@@ -54,6 +56,8 @@ local FACILITIES: {
     ["nupp.vm.net"] = "net",
     ["nupp.vm.http"] = "http",
     ["nupp.vm.uri"] = "http",
+    ["nupp.vm.regex"] = "regex",
+    ["nupp.vm.markdown"] = "markdown",
 }
 
 -- Providers the source tree spells once for both runtimes: they reach the

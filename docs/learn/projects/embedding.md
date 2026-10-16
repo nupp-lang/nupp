@@ -91,7 +91,7 @@ Build the Rust-owned `libnupp` SDK from the repository root:
 
 ```bash
 SDK=$(./scripts/toolchain host-library \
-  lpeg,native-files,native-net,native-process,native-tls,workers)
+  native-files,native-net,native-process,native-tls,workers)
 cc -std=c11 -I"$SDK" host/examples/embed.c \
   -L"$SDK" -lnupp -Wl,-rpath,"$SDK" -o build/embed-nupp
 ```
@@ -118,7 +118,7 @@ exact-feature Rust native provider. Pass the `staticLinkFlags` array from
 and frameworks selected by the SDK features and the flag that makes the host
 executable export the provider's symbols (`-rdynamic` on Linux,
 `-Wl,--export-all-symbols` on Windows), without which LuaJIT cannot find them. The SDK
-does not require separate LuaJIT, LPeg, or provider archives.
+does not require separate LuaJIT or provider archives.
 
 The dynamic library exports what `host/include/nupp.exports` lists and nothing
 else: the `nupp_*` functions in the header, the native provider the runtime

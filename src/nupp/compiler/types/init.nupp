@@ -923,17 +923,6 @@ record types.Nominal
     --- Core checked-alias nominal.
     managedAlias: boolean?
 
-    --- The compiler-provided LPeg declaration whose generic argument is its capture
-    --- tuple.
-    lpegPattern: boolean?
-
-    --- The compiler-provided LPeg module record, used to preserve callback result
-    --- packs.
-    lpegLibrary: boolean?
-
-    --- The capture-carrying pattern declaration exported by that module.
-    lpegPatternOrigin: types.Nominal?
-
     --- Element type of a record's array part, when it declared one.
     arrayOf: types.Type?
 

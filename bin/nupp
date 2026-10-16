@@ -211,19 +211,10 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
         exit 1
     fi
     NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
-    # The development rock tree's Lua modules (lunamark, scintillua) are found
-    # the way the LuaJIT path below finds them; the VM loads no C modules.
-    if [ "${NUPP_LAUNCHER_ROCKS_ROOT:-}" != "$ROOT" ]; then
-        . "$ROOT/scripts/rocks.sh"
-        link_development_rocks "$ROOT"
-        NUPP_LAUNCHER_ROCKS_ROOT=$ROOT
-        export NUPP_LAUNCHER_ROCKS_ROOT
-    fi
-    LUA_PATH="$ROOT/.rocks/share/lua/5.1/?.lua;$ROOT/.rocks/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
     # Programs `nupp run` compiles have no linked entries; a deployed no-JIT
     # host refuses their SIMD functions, the developer CLI interprets them.
     SIMD_INTERPRET=${SIMD_INTERPRET:-1}
-    export NUPP_COMPILER_ROOT LUA_PATH SIMD_INTERPRET
+    export NUPP_COMPILER_ROOT SIMD_INTERPRET
     exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" nupp.tools.vm.root "$@"
 fi
 LUA_ROOT="$ROOT"
@@ -235,35 +226,6 @@ STAMP="$ROOT/build/.nupp-complete"
 LUA_BUILT="$LUA_ROOT/build/nupp/tools/main.lua"
 LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
-# Worked out once per process tree. The check is a `test` in a provisioned
-# checkout and costs a `git rev-parse` only where there is no tree to find,
-# but the suites run this launcher thousands of times and an answer that
-# cannot change should be reached for once.
-if [ "${NUPP_LAUNCHER_ROCKS_ROOT:-}" != "$ROOT" ]; then
-    . "$ROOT/scripts/rocks.sh"
-    link_development_rocks "$ROOT"
-    NUPP_LAUNCHER_ROCKS_ROOT=$ROOT
-    export NUPP_LAUNCHER_ROCKS_ROOT
-fi
-
-# The project's own rock tree, written by a build that declares a luarocks
-# dependency -- `nupp build --target bootstrapCompiler` and `--target docs`
-# between them install every rock this repository develops against. Exported
-# rather than passed
-# with -e, because the toolchain starts other interpreters — `nupp run`, the
-# configured test command — and a library the compiler can see should be one
-# they can see too. A trailing empty entry is where Lua substitutes the default
-# path, so nothing already installed is hidden.
-ROCKS="$ROOT/.rocks"
-LUA_ROCKS="$LUA_ROOT/.rocks"
-LUA_PATH="$LUA_ROCKS/share/lua/5.1/?.lua;$LUA_ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
-LUA_CPATH="$LUA_ROCKS/lib/lua/5.1/?.so;$LUA_ROCKS/lib/lua/5.1/?.dll;${LUA_CPATH:-;}"
-
-# A clean CI checkout has no development rock tree yet, but provisioning the
-# pinned toolchain has already built the exact LPeg the compiler needs. Use it
-# when it is complete without making the launcher provision anything itself.
-# That keeps help usable without a compiler and lets `.rocks` remain the normal
-# development source when it exists.
 # Worked out once per process tree rather than once per command.
 #
 # The prefix is a hash of the compiler pair, their version output, the machine
@@ -324,11 +286,6 @@ stage0_path() {
     printf '%s\n' "$STAGE0"
 }
 
-TOOLCHAIN_LPEG="$TOOLCHAIN_PREFIX/lpeg"
-if [ -f "$TOOLCHAIN_LPEG/.complete" ]; then
-    LUA_PATH="$TOOLCHAIN_LPEG/share/?.lua;$LUA_PATH"
-    LUA_CPATH="$TOOLCHAIN_LPEG/lib/?.so;$TOOLCHAIN_LPEG/lib/?.dll;$LUA_CPATH"
-fi
 # The interpreter this launcher is about to run under is the one an `@aot` entry
 # will be opened by, and on Windows such an entry has to name its import library
 # at link time. Say where it is rather than leaving it to be found on a PATH the
@@ -353,8 +310,8 @@ if [ -f "$TOOLCHAIN_LUAROCKS/.complete" ] && [ -z "${NUPP_LUAROCKS:-}" ]; then
     export PATH
 elif [ -z "${NUPP_LUAROCKS:-}" ]; then
     # Not installed yet. A build would otherwise run whichever `luarocks` is
-    # first on PATH, of any version and from anywhere, and install the rocks a
-    # release bundles with it. The shim provisions the pinned one on first use,
+    # first on PATH, of any version and from anywhere, and install a project's
+    # rocks with it. The shim provisions the pinned one on first use,
     # so a command that installs nothing costs nothing. Windows starts tools
     # natively and cannot run a shell script, so it keeps the PATH lookup; its
     # CI provisions the toolchain before any build.

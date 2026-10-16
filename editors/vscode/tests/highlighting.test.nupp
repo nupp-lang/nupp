@@ -213,12 +213,6 @@ local answer: integer = 42
 -- <- meta.embedded.block.nupp.nupp
 ]]
 
-@syntax("peg")
-local grammar = [[
-name <- [a-z]+ !.
--- <- meta.embedded.block.peg.nupp
-]]
-
 const MAX_TASKS: integer = 100
 -- <- storage.modifier.const.nupp
 --    ^^^^^^^^^ variable.other.constant.nupp

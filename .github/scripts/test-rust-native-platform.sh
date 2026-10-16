@@ -8,8 +8,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
-HOST_FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
+FEATURES=native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
+HOST_FEATURES=native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
 
 cd "$ROOT"
 
@@ -37,11 +37,10 @@ RUSTC=${NUPP_RUSTC:-$(rustup which rustc)}
 RUSTDOC=$(rustup which rustdoc)
 export RUSTC RUSTDOC
 
-# The host crate compiles its protected Lua stack shims and links LPeg at build
-# time. Name the same pinned prerequisites that production host builds use.
+# The host crate compiles its protected Lua stack shims at build time. Name the
+# same pinned prerequisite that production host builds use.
 NUPP_LUAJIT_PREFIX=$(./scripts/toolchain luajit)
-NUPP_LPEG_PREFIX=$(./scripts/toolchain lpeg)
-export NUPP_LUAJIT_PREFIX NUPP_LPEG_PREFIX
+export NUPP_LUAJIT_PREFIX
 
 "$CARGO" test --locked --package nupp-native-files --features lane
 "$CARGO" test --locked --package nupp-native-checksum
@@ -64,7 +63,7 @@ sdk=$(./scripts/toolchain host-library "$FEATURES")
 [ -f "$sdk/link.json" ]
 # Checksums are part of the base host; toolchain normalization omits their
 # compatibility feature from the Cargo feature list recorded in link.json.
-grep -F '"features": "lpeg,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
+grep -F '"features": "native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
     "$sdk/link.json" >/dev/null
 case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
@@ -78,7 +77,6 @@ esac
 TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-native-platform.XXXXXX")
 trap 'rm -rf "$TEMP"' EXIT HUP INT TERM
 cat > "$TEMP/host.lua" <<'LUA'
-assert(__nuppHost.hostFeatures.lpeg)
 assert(__nuppHost.hostFeatures["native-checksum"])
 assert(__nuppHost.hostFeatures["native-compression"])
 assert(__nuppHost.hostFeatures["native-files"])
@@ -97,7 +95,6 @@ assert(type(ffi.C.nuppNativeGpuCostMetadata) == "cdata")
 assert(__nuppHost.hostFeatures["native-net"])
 assert(__nuppHost.hostFeatures["native-process"])
 assert(__nuppHost.hostFeatures["native-tls"])
-assert(require("lpeg").P("rust-native-gate"):match("rust-native-gate") == 17)
 LUA
 "$host" "$TEMP/host.lua"
 

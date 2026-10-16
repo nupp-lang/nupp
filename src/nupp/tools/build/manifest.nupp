@@ -328,7 +328,6 @@ local DOCS_KEYS = {
     "favicon",
     "public",
     "customCss",
-    "lexers",
     "includePrivate",
     "pages",
     "diagnostics",

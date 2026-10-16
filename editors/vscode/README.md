@@ -109,9 +109,9 @@ functions, properties, types, and references using checker information.
 
 ## Embedded string syntax
 
-`@syntax("json")`, `@syntax("glsl")`, `@syntax("lua")`, `@syntax("nupp")`, and
-`@syntax("peg")` tell the editor what a directly initialized local or const long
-string contains. The annotation does not constrain the binding's type:
+`@syntax("json")`, `@syntax("glsl")`, `@syntax("lua")`, and `@syntax("nupp")`
+tell the editor what a directly initialized local or const long string
+contains. The annotation does not constrain the binding's type:
 
 ```nupp
 @syntax("json")
@@ -121,6 +121,6 @@ local config = dedent [[
 ```
 
 The annotation is type-erased and accepts any literal syntax name. The bundled
-extension embeds JSON, GLSL, Lua, Nupp, and PEG; long strings are required so
+extension embeds JSON, GLSL, Lua, and Nupp; long strings are required so
 their contents are not obscured by Lua escape sequences. `dedent` removes
 shared indentation, including when the closing delimiter follows its final line.

@@ -970,9 +970,9 @@ function metadata.expand(root, moduleName: string?)
         end
         root.vmQualifiedRequires = true
     end
-    -- The PEG runtime, `re` and the field codec are installed as the Lua
-    -- backend's bootstrap installed them, as module-level statements whose
-    -- locals the materialized grammars and codecs address.
+    -- The field codec is installed as the Lua backend's bootstrap installed
+    -- it, as module-level statements whose locals the materialized codecs
+    -- address.
     local installers = not root.vmFeatureInstallers and require("nupp.compiler.stdlib").vmInstallers(effects) or nil
     if installers then
         local parsed = require("nupp.compiler.syntax.parser").parse(installers, "=stdlib")

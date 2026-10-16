@@ -137,15 +137,10 @@ end
 --
 -- Each ceiling is about a tenth above what the file lowered to at the commit that
 -- set it. An edit to a benchmark moves its own numbers, and the message says which.
--- `peg-lpeg` is absent: the VM lowering has no `comptime` expression yet.
 local BYTECODE = {
     ["aos"] = 345,
     ["frames"] = 45,
-    ["json-lpeg"] = 1355,
-    ["nupp-lpeg-shapes"] = 480,
     ["optparser"] = 685,
-    ["peg-kernels"] = 460,
-    ["peg-result-packs"] = 205,
     ["presize"] = 108,
     ["soa"] = 617,
     ["trivia-record"] = 272,

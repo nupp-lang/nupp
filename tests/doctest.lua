@@ -1160,53 +1160,6 @@ function M.standardIOApiHasCompleteDocumentation()
     )
 end
 
-function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
-    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-    local module, errors = doc.extract(source, "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
-    assert(module, errors and errors[1] and errors[1].msg)
-
-    local peg
-    for _, item in ipairs(module.items) do
-        if item.name == "peg" then
-            peg = item
-        end
-    end
-    assert(peg, "the prelude did not document nupp.peg")
-    assert(peg.doc.text:find("## Expression syntax", 1, true), "nupp.peg has no expression guide")
-    assert(peg.doc.text:find("const Identifier = comptime do", 1, true), "nupp.peg has no static matcher example")
-    assert(
-        peg.doc.text:find("function(Definitions): nupp.peg.Peg<integer>", 1, true),
-        "nupp.peg has no definition factory example"
-    )
-
-    local expected = {Backend = true, Definitions = true, CompileOptions = true, Peg = true, compile = true,}
-    for _, member in ipairs(peg.members) do
-        if expected[member.name] then
-            assert(member.text ~= "", "nupp.peg." .. member.name .. " has no documentation")
-            expected[member.name] = nil
-        end
-        if member.name == "Peg" then
-            local match = nil
-            for _, nested in ipairs(member.members or {}) do
-                if nested.name == "match" then
-                    match = nested
-                end
-            end
-            assert(match and match.type:find("function", 1, true), "nupp.peg.Peg does not expose match")
-        elseif member.name == "compile" then
-            assert(#member.params == 2, "nupp.peg.compile lost its parameters")
-            assert(
-                member.params[1].text ~= "" and member.params[2].text ~= "",
-                "nupp.peg.compile parameters need documentation"
-            )
-            assert(#member.returns == 1 and member.returns[1].text ~= "", "nupp.peg.compile return needs documentation")
-        end
-    end
-    for name in pairs(expected) do
-        error("the prelude did not document nupp.peg." .. name)
-    end
-end
-
 function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     local module, errors = doc.extract(source, "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
@@ -1290,7 +1243,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply", ["nupp.peg"] = "compile",}
+    local expected = {["nupp.math.vec2"] = "add", ["nupp.math.quat"] = "multiply",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1870,90 +1823,43 @@ function M.linksOnlyTheDeclaredMembersOfAContainerSignature()
     )
 end
 
-function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
-    local root = HERE .. "/.."
-    highlight.configureScintillua(root, {lexers = "docs/lexers"})
-    local html = assert(
-        highlight.scintilluaSource(
-            table.concat(
-                {
-                    "@!internal",
-                    "local type Events<T> = {@readonly [K in keyof T as `${K}Changed`]: @nosuspend function(value: T.[K]): nil}",
-                    "local type Writable<T> = {@writeonly [K in writekeyof T]: writeof T.[K]}",
-                    "local type First<T> = T.[1]",
-                    "local function worker<P..., const Format: string>(...: unpackof Arguments<Format>): unpackof Results<Format>",
-                    "   yields (number) resumes (boolean)",
-                    "   return new Factory(count = 1_000)",
-                    "end",
-                    "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
-                    "local compiled = comptime do return {answer = 42} end",
-                    "@nosuspend do end",
-                    "with installation = nupp.suspension.host.install(cancel) do cancel() end",
-                    "local sealed interface Token end",
-                    "interface Matcher",
-                    "    associated type Result = R",
-                    "end",
-                },
-                "\n"
-            ),
-            "nupp"
-        )
-    )
-    assert(html:find("nuppdoc-token-meta", 1, true), html)
-    for _, keyword in ipairs({
-        "keyof",
-        "preserves",
-        "scoped",
-        "unpackof",
-        "with",
-        "writekeyof",
-        "writeof",
-        "sealed",
-    }) do
-        assert(html:find("keyword-" .. keyword, 1, true), html)
-    end
-    assert(html:find("keyword-yields", 1, true), html)
-    assert(html:find("keyword-resumes", 1, true), html)
-    assert(html:find("keyword-new", 1, true), html)
-    assert(html:find("keyword-associated-type", 1, true), html)
-    assert(html:find("nuppdoc-token-type", 1, true), html)
-    assert(html:find("nuppdoc-token-number", 1, true), html)
-    -- `comptime`/`@nosuspend` get the directive colour, not the ordinary keyword one.
-    assert(html:find('class="token directive nuppdoc-token-meta">comptime<', 1, true), html)
-    assert(html:find('class="token directive nuppdoc-token-meta">@nosuspend<', 1, true), html)
+-- Lua goes through the compiler's own lexer, which reads it exactly; nothing in
+-- it links, since a Lua name is not a Nupp declaration.
+function M.luaFencesAreHighlightedByTheNuppLexer()
+    local html = highlight.codeHtml("local count = 1 -- note\nreturn count .. 'x'", "lua")
+    assert(html:find('nuppdoc-token-keyword">local<', 1, true), html)
+    assert(html:find('nuppdoc-token-comment">-- note<', 1, true), html)
+    assert(html:find('nuppdoc-token-number">1<', 1, true), html)
+    assert(html:find('nuppdoc-token-string">&#39;x&#39;<', 1, true), html)
+    assert(not html:find("<a ", 1, true), html)
 end
 
-function M.scintilluaLexerHighlightsNuppPegGrammar()
-    local root = HERE .. "/.."
-    highlight.configureScintillua(root, {lexers = "docs/lexers"})
-    local html = assert(
-        highlight.scintilluaSource(
-            table.concat(
-                {
-                    "-- A complete list.",
-                    "start <- item (',' item)* !.",
-                    "item <- { [%a_][%w_]* } -> name / <fallback>",
-                    "fallback <- \"unknown\" ^+4",
-                },
-                "\n"
-            ),
-            "npeg"
-        )
-    )
-    assert(html:find("nuppdoc-token-comment", 1, true), html)
-    assert(html:find("nuppdoc-token-function", 1, true), html)
-    assert(html:find("nuppdoc-token-variable", 1, true), html)
-    assert(html:find("nuppdoc-token-string", 1, true), html)
-    assert(html:find("nuppdoc-token-type", 1, true), html)
-    assert(html:find("nuppdoc-token-number", 1, true), html)
-    assert(html:find("nuppdoc-token-operator", 1, true), html)
+-- The other languages a document fences are small tables of delimiters and
+-- keywords: enough to colour comments, strings and keywords, and nothing that
+-- would need a grammar. Anything else is escaped text.
+function M.tableDrivenFencesColourTheirTokens()
+    local shell = highlight.codeHtml('# build it\nif [ -n "$ROOT" ]; then ./bin/nupp build; fi', "bash")
+    assert(shell:find('nuppdoc-token-comment"># build it<', 1, true), shell)
+    assert(shell:find('keyword-if nuppdoc-token-keyword">if<', 1, true), shell)
+    assert(shell:find('nuppdoc-token-string">&quot;$ROOT&quot;<', 1, true), shell)
+    assert(shell:find('nuppdoc-token-function">./bin/nupp<', 1, true), shell)
+    local json = highlight.codeHtml('{"name": "x", "ok": true, "n": 3}', "json")
+    assert(json:find('nuppdoc-token-property">&quot;name&quot;<', 1, true), json)
+    assert(json:find('nuppdoc-token-string">&quot;x&quot;<', 1, true), json)
+    assert(json:find('nuppdoc-token-boolean">true<', 1, true), json)
+    assert(json:find('nuppdoc-token-number">3<', 1, true), json)
+    local c = highlight.codeHtml("#include <stdio.h>\nint main(void) { return 0; } /* done */", "c")
+    assert(c:find('nuppdoc-token-meta">#include &lt;stdio.h&gt;<', 1, true), c)
+    assert(c:find('nuppdoc-token-type">int<', 1, true), c)
+    assert(c:find('keyword-return nuppdoc-token-keyword">return<', 1, true), c)
+    assert(c:find('nuppdoc-token-comment">/* done */<', 1, true), c)
+    local diff = highlight.codeHtml("@@ -1 +1 @@\n-old\n+new", "diff")
+    assert(diff:find('nuppdoc-token-meta">@@ -1 +1 @@<', 1, true), diff)
+    assert(diff:find('nuppdoc-token-string">+new<', 1, true), diff)
+    local plain = highlight.codeHtml("<b>bold</b>", "llvm")
+    assert(plain == "&lt;b&gt;bold&lt;/b&gt;", plain)
 end
 
--- Without a manifest the command falls back to documenting ".", which drags
--- in every checkout, cache and worktree the project happens to contain.
--- `local` in a .d.nupp is not privacy: the prelude's bindings become globals
--- and a bundled module's locals are what it returns, so the file is public
--- surface throughout. An ordinary module keeps the opposite default.
 function M.documentsDeclarationFilesWithoutAskingForEverything()
     local declarations = table.concat(
         {
@@ -2905,7 +2811,7 @@ function M.siteMatchesTheNuppdocPageModel()
                 "Still part of the page.",
                 "",
                 "::: note Before you begin",
-                "Use **Lunamark** inside this callout.",
+                "Use **Markdown** inside this callout.",
                 ":::",
                 "",
                 "## Checked workflows",
@@ -3072,12 +2978,11 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('class="nuppdoc-page-nav"', 1, true), guide)
     assert(guide:find("Previous", 1, true), guide)
     assert(guide:find("Next", 1, true), guide)
-    assert(guide:find("nuppdoc-token-keyword", 1, true), "Scintillua did not highlight Lua")
-    assert(guide:find("nuppdoc-token-type", 1, true), "Scintillua did not highlight GLSL")
+    assert(guide:find("nuppdoc-token-keyword", 1, true), "the Lua fence was not highlighted")
     assert(guide:find('class="nuppdoc-code-group" role="radiogroup"', 1, true), "code tabs missing")
     assert(guide:find('class="nuppdoc-admonition nuppdoc-admonition-note"', 1, true), "admonition missing")
     assert(guide:find('<p class="nuppdoc-admonition-title">Before you begin</p>', 1, true), guide)
-    assert(guide:find("Use <strong>Lunamark</strong> inside this callout.", 1, true), guide)
+    assert(guide:find("Use <strong>Markdown</strong> inside this callout.", 1, true), guide)
     assert(guide:find('class="nuppdoc-code-tab"', 1, true), "code-tab labels missing")
     assert(guide:find('class="nuppdoc-code-block has-line-numbers"', 1, true), guide)
     assert(
@@ -3434,11 +3339,10 @@ function M.headingKindsRenderAsBadgesAndStayOutOfTheOutline()
     assert(html.markdownOutline("## Why _this_ matters")[1].name == "Why this matters")
 end
 
--- Markdown is lunamark's now. These are the cases the pattern-based renderer
--- it replaced got wrong, so they are the ones worth pinning.
-function M.markdownIsRenderedByLunamark()
+-- Markdown is CommonMark, rendered by the VM's provider. These are the cases the
+-- pattern-based renderer before it got wrong, so they are the ones worth pinning.
+function M.markdownIsRenderedAsCommonMark()
     local html = require("nupp.tools.doc.html")
-    local previousUtf8 = package.loaded["lua-utf8"]
     local cases = {
         {"**a *nested* b**", "<strong>a <em>nested</em> b</strong>"},
         {"a \\*escaped\\* b", "a *escaped* b"},
@@ -3468,12 +3372,12 @@ function M.markdownIsRenderedByLunamark()
     assert(asciiReference:find('href="/ascii"', 1, true), asciiReference)
     local exactUnicode = html.markdownHtml("[label][CAFÉ]\n\n[CAFÉ]: /exact", {})
     assert(exactUnicode:find('href="/exact"', 1, true), exactUnicode)
-    local differentUnicode = html.markdownHtml("[label][CAFÉ]\n\n[café]: /different", {})
-    assert(not differentUnicode:find('href="/different"', 1, true), differentUnicode)
-    assert(package.loaded["lua-utf8"] == previousUtf8, "the Lunamark adapter does not expose a lua-utf8 module")
+    -- CommonMark folds case in reference labels, Unicode letters included.
+    local foldedUnicode = html.markdownHtml("[label][CAFÉ]\n\n[café]: /folded", {})
+    assert(foldedUnicode:find('href="/folded"', 1, true), foldedUnicode)
 end
 
--- Fenced regions are lifted out before lunamark sees them, which is what keeps
+-- Fenced regions are lifted out before the renderer sees them, which is what keeps
 -- the fence options working: an info string is not something markdown parses.
 function M.fencedBlocksKeepTheirOptions()
     local html = require("nupp.tools.doc.html")
@@ -3590,8 +3494,8 @@ function M.collectionFrontmatterSurvivesWindowsLineEndings()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- Lunamark does not parse `:::` containers itself. The container is lifted out,
--- while its body goes through the same Lunamark parser as the surrounding page.
+-- CommonMark has no `:::` containers. The container is lifted out, while its body
+-- goes through the same renderer as the surrounding page.
 function M.aDeepDiveAdmonitionRendersCollapsed()
     local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml("::: deepdive\nBecause **of this**.\n:::", {})
@@ -3613,7 +3517,7 @@ function M.aDeepDiveAdmonitionRendersCollapsed()
     assert(titled:find(">Why the floor is a file name</summary>", 1, true), titled)
 end
 
-function M.admonitionsKeepLunamarkMarkdown()
+function M.admonitionsKeepTheirMarkdown()
     local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml(
         table.concat(
@@ -3654,7 +3558,7 @@ function M.admonitionsKeepLunamarkMarkdown()
     assert(nested:find(":::<", 1, true), nested)
 end
 
--- The id is Nupp's slug rather than lunamark's, and each heading keeps the
+-- The id is Nupp's slug rather than the renderer's, and each heading keeps the
 -- anchor the stylesheet draws.
 function M.headingsKeepTheirAnchors()
     local html = require("nupp.tools.doc.html")

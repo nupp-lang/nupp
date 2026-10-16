@@ -1800,9 +1800,9 @@ ENTRIES[
 ] = {
     code = "NUPP2003",
     summary = "An operator's operand types cannot support what it does",
-    rule = "Arithmetic, comparison, concatenation, length, and LPeg's pattern algebra each accept a fixed set of operand shapes or a metamethod contract that stands in for one. LPeg's `Pattern` operators are compiler-provided rather than ordinary metamethods: `*`, `+`, and `-` need operands whose capture shapes can be combined, `^` needs an integer exponent, `/` needs a string, integer, function, or table transform, and `%` needs a function accumulator. An operand outside what the operator accepts is reported rather than run to see what happens.",
-    wrong = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ \"two\"\nreturn pattern\n",
-    right = "local lpeg = require(\"lpeg\")\nlocal pattern = lpeg.P(\"a\") ^ 2\nreturn pattern\n",
+    rule = "Arithmetic, comparison, concatenation, and length each accept a fixed set of operand shapes or a metamethod contract that stands in for one. An operand outside what the operator accepts is reported rather than run to see what happens.",
+    wrong = "local count = \"two\" * 2\nreturn count\n",
+    right = "local count = 2 * 2\nreturn count\n",
     related = {"NUPP2005", "NUPP2006"},
     docs = "docs/reference/diagnostics.md#nupp2003",
 }
@@ -2225,10 +2225,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2417",
-    summary = "A PEG intrinsic call or finalized grammar is malformed",
-    rule = "Every nupp.peg intrinsic is checked against the pattern arguments it needs, and a finalized grammar is checked against PEG's own rules once assembled. Repetition is possessive and must consume at least one byte whenever it succeeds, so a nullable repetition such as ('')* is refused, and direct or indirect left recursion is refused because a top-down parser cannot re-enter a rule at the position it started.",
-    wrong = "const Bad: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('')*\")\nend\nreturn Bad\n",
-    right = "const Good: nupp.peg.Peg<integer> = comptime do\n    return nupp.peg.compile(\"('x')*\")\nend\nreturn Good\n",
+    summary = "A retired PEG grammar was malformed",
+    rule = "This diagnostic belonged to nupp.peg, which was removed along with LPeg. Match text with Lua patterns, or with nupp.text.regex where a pattern is not enough; a malformed regular expression is an ordinary runtime answer from regex.compile.",
     related = {"NUPP2415", "NUPP2416"},
     docs = "docs/reference/diagnostics.md#nupp2417",
 }

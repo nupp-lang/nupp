@@ -2028,6 +2028,8 @@ source position and Lua's wording.
 
 ## Native LPeg (2026-10-14)
 
+Removed on 2026-10-16 with PEG itself; see [No PEG](#no-peg-regex-and-markdown-providers-2026-10-16).
+
 `require("lpeg")` answers LPeg 1.1.0 implemented in `src/lpeg.rs`, so the
 `peg` runtime, `re` and Scintillua run on the VM with no C module. It is a
 port of the reference sources (lptree.c, lpcode.c, lpvm.c, lpcap.c): the same
@@ -3525,3 +3527,60 @@ budget. `tests/specialize-emit.py` writes the two images;
 345, 751 of 617): struct layout metadata grew their module chunks, while their
 kernels' counts are unchanged or lower. Whether to raise the ceilings is open.
 
+
+## No PEG: regex and Markdown providers (2026-10-16)
+
+PEG is dropped, as the plan's P0 decision had it, and with it the native LPeg
+of 2026-10-14: no third-party library is reimplemented. `src/lpeg.rs`, its
+tests and every hook are gone. The thirty `lpeg.*` builtin names stay in
+`NAMES` as `retired.lpeg.*` tombstones, because linked objects carry builtin
+ids and removing names from the middle would shift every later id; calling one
+raises "lpeg.X is no longer available". Userdata (heap kind 10) stays: the
+string buffer and the regex provider use it, and the arithmetic metamethod
+dispatch LPeg brought in is ordinary Lua semantics, now tested on tables in
+`tests/regex.rs`.
+
+On the compiler side `nupp.peg` (its prelude declaration, checker intrinsic,
+comptime materializer and runtime), `re`, the LPeg declarations and their
+capture-typing in the checker, `NUPP2417` (kept in `nupp explain` as a retired
+code) and the PEG benchmarks are removed. The interface image's schema moves to
+8, since its nominals lost the three LPeg flags.
+
+What replaces them:
+
+- **`nupp.text.regex`** is a typed module over the `regex` crate (1.13, from
+  the offline cache), installed as `nupp.vm.regex` by the `regex` facility
+  (`src/nregex.rs`, builtins appended as `nregex.*`). A compiled expression is a
+  userdata the collector drops; matching is over bytes with UTF-8-aware
+  classes, positions are 1-based and inclusive, and `findAll` follows the
+  crate's iterator: no empty match where the last one ended, stepping a whole
+  character past an empty match. The source tree's
+  `nupp.text.internal.regexhost` answers "regular expressions need the VM
+  runtime"; `lib/` replaces it.
+- **Markdown** for `nupp doc` is `pulldown-cmark` 0.13.4 (HTML writer only,
+  fetched once with the user's approval along with `pulldown-cmark-escape`
+  and `unicase`), installed as `nupp.vm.markdown` by the `markdown` facility
+  (`src/nmarkdown.rs`). The generator's interface to it is one function in
+  `nupp.tools.doc.markdownhost`: CommonMark with pipe tables in, HTML out.
+  Fences, containers, heading ids, badges and symbol links stay the
+  generator's, lifted out before rendering and rewritten after. Reference
+  labels now fold case as CommonMark says, Unicode included.
+- **Highlighting** uses the compiler's lexer for `nupp` and `lua`, and small
+  delimiter-and-keyword tables (`nupp.tools.doc.lexers`) for shell,
+  PowerShell, JSON, TOML, C, Rust, ABNF and diffs. Anything else is escaped
+  text. Scintillua, `docs/lexers` and the docs target's `lexers` key are gone.
+
+The development rock tree goes with lunamark and Scintillua: `.rocks`, the
+`rocks/` rockspecs, `scripts/rocks.sh`, the manifest's rock dependencies, and
+the `lpeg` toolchain component, pins and host feature. The pinned LuaRocks
+stays, because project rock dependencies still install with it.
+
+The LuaJIT runtime has neither engine: `nupp doc` there stops with a message
+and `regex.compile` answers that it needs the VM.
+
+```sh
+RUSTC_WRAPPER=sccache CARGO_TARGET_DIR=build/rust/target cargo test --release -p nupp-vm --offline --test regex --test markdown
+./bin/nupp test regextest doctest
+```
+
+The Rust tests run plain and under GC stress, oracle and quarantine.

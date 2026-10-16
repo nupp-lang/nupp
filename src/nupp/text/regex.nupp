@@ -1,0 +1,408 @@
+module nupp.text.regex
+
+--[[
+Regular expressions, for matching that Lua patterns cannot express:
+alternation, counted repetition, groups, named captures and Unicode classes.
+
+```nupp
+const regex = nupp.text.regex
+
+local date = assert(regex.compile("(?<year>[0-9]{4})-(?<month>[0-9]{2})"))
+local found = assert(date:exec("released 2026-10"))
+assert(found:text() == "2026-10")
+assert(found:group("month") == "10")
+assert(date:replaceAll("2026-10 and 2027-01", "$month/$year") == "10/2026 and 01/2027")
+```
+
+The syntax is the Rust `regex` crate's, which is the engine underneath:
+<https://docs.rs/regex/latest/regex/#syntax>. It has no backreferences and no
+lookaround, and in return a match takes time linear in the subject, whatever the
+pattern. A pattern that cannot be compiled is an ordinary answer:
+`regex.compile` returns nil and the crate's description of what is wrong.
+
+## Bytes and characters
+
+Subjects are Lua strings, so matching is over bytes and every position is a
+1-based byte offset, inclusive at both ends as `string.find` reports one. By
+default a pattern matches characters: `.` and the Unicode classes consume
+whole UTF-8 sequences and never split one. `{bytes = true}` matches bytes
+instead, for binary data or text that is not UTF-8:
+
+```nupp
+const regex = nupp.text.regex
+
+local word = assert(regex.compile("\\w+"))
+assert(word:match("naïve!") == "naïve")
+local octet = assert(regex.compile(".", {bytes = true}))
+assert(octet:match("ï") == "\xC3")
+```
+
+## Searching
+
+`isMatch` asks whether there is a match at all, `find` returns where the first
+one is, `match` returns its text, and `exec` returns a [](Match) that also
+carries every group. `matches` iterates over each successive non-overlapping
+match; an empty match is skipped where the previous match ended, so iteration
+always advances. Each of these takes an optional `init`, read as
+`string.find` reads it, and a search from `init` still sees the text before it
+when it tests `^` or `\b`.
+
+```nupp
+const regex = nupp.text.regex
+
+local number = assert(regex.compile("[0-9]+"))
+local total = 0
+for found in number:matches("3 apples and 14 pears") do
+    total = total + (tonumber(found:text()) as integer)
+end
+assert(total == 17)
+assert(number:find("item 42") == 6)
+```
+
+## Replacing and splitting
+
+`replace` changes the first match and `replaceAll` every one. A string
+replacement expands `$1` or `${name}` to a group and `$$` to a dollar sign; a
+function replacement receives the [](Match) and returns the text to put in its
+place. Both return the new string and how many matches were replaced. `split`
+returns the text between matches.
+
+```nupp
+const regex = nupp.text.regex
+
+local spaces = assert(regex.compile("\\s+"))
+assert(spaces:replaceAll("a  b   c", " ") == "a b c")
+local parts = spaces:split("one two  three")
+assert(#parts == 3 and parts[3] == "three")
+local upper = spaces:replace("x y", function(found: regex.Match): string
+    return "[" .. found:text() .. "]"
+end)
+assert(upper == "x[ ]y")
+```
+
+The engine is the VM runtime's. A host without one, such as the LuaJIT runtime,
+compiles nothing: `regex.compile` returns nil and says so.
+]]
+
+local host = require("nupp.text.internal.regexhost")
+
+--- How `regex.compile` reads a pattern. Each flag can also be set inside the
+--- pattern, as `(?i)` does for case.
+export type Options = {
+    --- Letters match either case.
+    caseInsensitive: boolean?,
+
+    --- `^` and `$` match at the start and end of every line, not only of the
+    --- subject.
+    multiLine: boolean?,
+
+    --- `.` also matches a newline.
+    dotMatchesNewline: boolean?,
+
+    --- Whitespace in the pattern is ignored and `#` starts a comment, so a long
+    --- pattern can be laid out over several lines.
+    ignoreWhitespace: boolean?,
+
+    --- The pattern matches bytes rather than UTF-8 characters.
+    bytes: boolean?,
+
+    --- Repetition is lazy unless written with `?`, the reverse of the usual.
+    swapGreed: boolean?
+}
+
+local function flagsOf(options: Options?): integer
+    if options == nil then
+        return 0
+    end
+    local flags: integer = 0
+    if options.caseInsensitive then
+        flags = flags + 1
+    end
+    if options.multiLine then
+        flags = flags + 2
+    end
+    if options.dotMatchesNewline then
+        flags = flags + 4
+    end
+    if options.ignoreWhitespace then
+        flags = flags + 8
+    end
+    if options.bytes then
+        flags = flags + 16
+    end
+    if options.swapGreed then
+        flags = flags + 32
+    end
+
+    return flags
+end
+
+--- One match: where it is in the subject, and what each group captured.
+--- @export
+export record Match
+    --- The subject that was searched.
+    @readonly subject: string
+
+    --- The 1-based byte the match starts at.
+    @readonly first: integer
+
+    --- The 1-based byte the match ends at, inclusive. An empty match ends one
+    --- byte before it starts.
+    @readonly last: integer
+
+    @private _positions: {integer}
+    @private _names: {[string]: integer}
+
+    --- The text the whole match covers.
+    --- @param self this match
+    --- @return the matched text, empty for an empty match
+    function text(self): string
+        return self.subject:sub(self.first, self.last)
+    end
+
+    --- Where a group matched.
+    --- @param self this match
+    --- @param group the group's number, 0 for the whole match, or its name
+    --- @return the group's first byte, or nil when the group took no part
+    --- @return the group's last byte, inclusive
+    function span(self, group: integer | string): (integer?, integer?)
+        local index: integer? = nil
+        if type(group) == "string" then
+            index = self._names[group as string]
+        else
+            index = group as integer
+        end
+        local first = index ~= nil and self._positions[2 * index + 1] or nil
+        if first == nil or first == 0 then
+            return nil, nil
+        end
+
+        return first, self._positions[2 * (index as integer) + 2]
+    end
+
+    --- What a group captured.
+    --- @param self this match
+    --- @param group the group's number, 0 for the whole match, or its name
+    --- @return the captured text, or nil when the group took no part or does not
+    ---     exist
+    function group(self, group: integer | string): string?
+        local first, last = self:span(group)
+        if first == nil then
+            return nil
+        end
+
+        return self.subject:sub(first, last as integer)
+    end
+
+    --- Every numbered group's text, in order, for destructuring.
+    --- @param self this match
+    --- @return one value per group after the whole match; a group that took no
+    ---     part is nil
+    function groups(self): ...string?
+        local count = #self._positions // 2 - 1
+        local values: {string?} = {}
+        for index = 1, count do
+            values[index] = self:group(index)
+        end
+
+        return unpack(values, 1, count)
+    end
+end
+
+local replaceMatches: function(
+    expression: Regex,
+    subject: string,
+    replacement: string | function(Match): string,
+    limit: integer
+): (string, integer)
+
+--- A compiled regular expression. Compile once and reuse it: compiling builds
+--- the automata a search runs, and is far more work than one search.
+--- @export
+export record Regex
+    --- The pattern this was compiled from.
+    @readonly pattern: string
+
+    @private _handle: any
+    @private _groupCount: integer
+    @private _names: {[string]: integer}
+
+    --- How many groups the pattern has, not counting the whole match.
+    --- @param self this expression
+    --- @return the number of groups
+    function groupCount(self): integer
+        return self._groupCount
+    end
+
+    --- Reports whether the subject holds a match.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param init the byte to start searching at, as `string.find` reads it
+    --- @return whether there is a match
+    function isMatch(self, subject: string, init: integer?): boolean
+        return host.isMatch(self._handle, subject, init)
+    end
+
+    --- Finds the first match.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param init the byte to start searching at, as `string.find` reads it
+    --- @return the match's first byte, or nil when there is none
+    --- @return the match's last byte, inclusive
+    function find(self, subject: string, init: integer?): (integer?, integer?)
+        return host.find(self._handle, subject, init)
+    end
+
+    --- The text of the first match.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param init the byte to start searching at, as `string.find` reads it
+    --- @return the matched text, or nil when there is none
+    function match(self, subject: string, init: integer?): string?
+        local first, last = host.find(self._handle, subject, init)
+        if first == nil then
+            return nil
+        end
+
+        return subject:sub(first, last as integer)
+    end
+
+    --- The first match with its groups.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param init the byte to start searching at, as `string.find` reads it
+    --- @return the match, or nil when there is none
+    function exec(self, subject: string, init: integer?): Match?
+        local positions = host.captures(self._handle, subject, init)
+        if positions == nil then
+            return nil
+        end
+
+        return new Match(
+            subject = subject,
+            first = positions[1],
+            last = positions[2],
+            _positions = positions,
+            _names = self._names
+        )
+    end
+
+    --- Iterates over every non-overlapping match, from the first.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param init the byte to start searching at, as `string.find` reads it
+    --- @return an iterator answering each match in turn, then nil
+    function matches(self, subject: string, init: integer?): function(): Match?
+        local spans = host.findAll(self._handle, subject, init, 0)
+        local index: integer = 0
+        return function(): Match?
+            index = index + 1
+            local first = spans[2 * index - 1]
+            if first == nil then
+                return nil
+            end
+
+            return self:exec(subject, first)
+        end
+    end
+
+    --- Replaces the first match.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param replacement the text to put in the match's place, with `$1`,
+    ---     `${name}` and `$$` expanded, or a function from the match to that text
+    --- @return the subject with the match replaced
+    --- @return 1 when a match was replaced, 0 when there was none
+    function replace(self, subject: string, replacement: string | function(Match): string): (string, integer)
+        return replaceMatches(self, subject, replacement, 1)
+    end
+
+    --- Replaces every non-overlapping match.
+    --- @param self this expression
+    --- @param subject the text to search
+    --- @param replacement the text to put in each match's place, with `$1`,
+    ---     `${name}` and `$$` expanded, or a function from each match to that text
+    --- @return the subject with every match replaced
+    --- @return how many matches were replaced
+    function replaceAll(self, subject: string, replacement: string | function(Match): string): (string, integer)
+        return replaceMatches(self, subject, replacement, 0)
+    end
+
+    --- Splits the subject at every match.
+    --- @param self this expression
+    --- @param subject the text to split
+    --- @param limit the most pieces to return; the last holds the rest of the
+    ---     subject. Every match splits when omitted.
+    --- @return the text before, between and after the matches, which may be
+    ---     empty strings
+    function split(self, subject: string, limit: integer?): {string}
+        local splits = limit ~= nil and limit - 1 or 0
+        if limit ~= nil and splits < 1 then
+            return {subject}
+        end
+        local spans = host.findAll(self._handle, subject, nil, splits)
+        local pieces: {string} = {}
+        local after = 1
+        for index = 1, #spans // 2 do
+            pieces[#pieces + 1] = subject:sub(after, spans[2 * index - 1] - 1)
+            after = spans[2 * index] + 1
+        end
+        pieces[#pieces + 1] = subject:sub(after)
+
+        return pieces
+    end
+end
+
+replaceMatches = function(
+    self: Regex,
+    subject: string,
+    replacement: string | function(Match): string,
+    limit: integer
+): (string, integer)
+    if type(replacement) == "string" then
+        return host.replace(self._handle, subject, replacement as string, limit)
+    end
+    local spans = host.findAll(self._handle, subject, nil, limit)
+    local count = #spans // 2
+    if count == 0 then
+        return subject, 0
+    end
+    local parts: {string} = {}
+    local after = 1
+    for index = 1, count do
+        local first, last = spans[2 * index - 1], spans[2 * index]
+        parts[#parts + 1] = subject:sub(after, first - 1)
+        local found = self:exec(subject, first) as Match
+        parts[#parts + 1] = (replacement as function(Match): string)(found)
+        after = last + 1
+    end
+    parts[#parts + 1] = subject:sub(after)
+
+    return table.concat(parts), count
+end
+
+--- Compiles a pattern.
+--- @param pattern the regular expression, in the `regex` crate's syntax
+--- @param options how to read the pattern
+--- @return the compiled expression, or nil when the pattern is malformed or no
+---     engine is available
+--- @return why it could not be compiled
+--- @export
+export function compile(pattern: string, options: Options?): (Regex?, string?)
+    local handle, problem = host.compile(pattern, flagsOf(options))
+    if handle == nil then
+        return nil, problem
+    end
+    local count, names = host.groups(handle)
+
+    return new Regex(pattern = pattern, _handle = handle, _groupCount = count, _names = names)
+end
+
+--- A pattern that matches exactly the given text, with every character the
+--- syntax gives a meaning escaped.
+--- @param text the literal text
+--- @return the pattern
+--- @export
+export function escape(text: string): string
+    return host.escape(text)
+end

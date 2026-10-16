@@ -37,8 +37,8 @@ host's remaining protected C shims use the MinGW ABI. Install it with
 `rustup toolchain install 1.98.0-x86_64-pc-windows-gnu --profile minimal`; the
 build refuses the ABI-incompatible MSVC Rust host rather than mixing objects.
 
-Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks
-and LPeg by pinned revision, refuses any archive whose SHA-256 is not the
+Everything else is provisioned. `scripts/toolchain` fetches LuaJIT and LuaRocks
+by pinned revision, refuses any archive whose SHA-256 is not the
 one written down, builds each with that compiler pair, and caches the result
 beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
@@ -67,13 +67,6 @@ pure-Lua codec instead. Neither route requires a C++ compiler, simdjson
 package, or JSON-specific native dependency. The simdjson binding under
 `bench/serde-spike/simdjson-native` is only a performance control.
 
-### LPeg
-
-**LPeg 1.1.** The compiler reads its own doc comments and manifests with
-`nupp.peg`, which resolves native LPeg. A checkout gets it with the other rocks
-`nupp doc` installs; `scripts/toolchain lpeg` builds the pinned one for a host
-binary to link.
-
 ### Offline and mirrored builds
 
 Three settings, shared with the host build's own fetching:
@@ -86,7 +79,7 @@ Three settings, shared with the host build's own fetching:
 
 A digest is checked whichever of these supplied the bytes, so a mirror that
 served something else is refused rather than compiled. A pin may also name
-mirrors of its own (`LPEG_MIRRORS`), tried in order when the origin cannot be
+mirrors of its own (`NAME_MIRRORS`), tried in order when the origin cannot be
 reached, and held to the same digest. `NUPP_TOOLCHAIN_DIR` moves where the
 built components land.
 
@@ -94,14 +87,12 @@ built components land.
 
 | Component | Needed for | Installed by |
 | --- | --- | --- |
-| `lunamark` | `nupp doc` | `nupp doc` |
-| `Scintillua` | highlighting in generated sites | `nupp doc` |
-| LuaRocks | installing those two | `scripts/toolchain luarocks` or your package manager |
+| LuaRocks | projects that declare rock dependencies | `scripts/toolchain luarocks` or your package manager |
 
-That table is about a checkout. A stamped binary carries what it needs already
-and needs nothing installed to check, compile, run or document a project. See
-[self-contained binary](#self-contained-binary) for what it carries and how to
-build one.
+`nupp doc` needs nothing installed: its Markdown renderer (`pulldown-cmark`) is
+part of the VM runtime, and fenced code is highlighted by Nupp's own lexer and a
+few small language tables. See [self-contained binary](#self-contained-binary)
+for what a stamped binary carries and how to build one.
 
 ## Building from a checkout
 
@@ -117,7 +108,7 @@ next command rather than by the next person who remembers to build.
 ### Shared toolchain cache
 
 Downloaded sources and the classic toolchain components land beside the
-repository's common Git directory, so every worktree shares LuaJIT and LPeg.
+repository's common Git directory, so every worktree shares LuaJIT.
 Rust host and provider outputs default to the worktree's `build/rust` and
 the worktree helper seeds that content-validated cache from the originating
 checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
@@ -163,30 +154,6 @@ Because the compiler's own sources are compiled by that release, they may only
 use language features it already understands. A feature reaches them a release
 later, once a tag carrying it is published and the pin moves to it.
 
-## Optional libraries
-
-Nothing to run: lunamark and Scintillua are declared in `nupp.lua` as
-dependencies of the documentation target, so the command that needs them
-installs them.
-
-```bash
-./bin/nupp doc
-```
-
-That installs both and their declared rocks into a project-local `.rocks` tree
-that `bin/nupp` and `tests/run` put on the search path. A Nupp binary's feature
-scan sees the LPeg calls in those bundled libraries and links that native module
-into its host. Nupp supplies Lunamark's entity encoder and reference-label
-normalizer from the payload. Their Lua files, including LPeg's official
-`re.lua`, remain in the payload. Two checkouts can hold different rock versions
-without either disturbing the other, and nothing lands in a global tree. See
-[rock dependencies](https://nupp.dev/learn/projects/build/#rock-dependencies)
-for declaring your own.
-
-`nupp doc` needs lunamark and stops with a message when it cannot install or
-load it. Scintillua degrades instead: a fence in a language it cannot load
-renders as escaped text without highlighting.
-
 ## Putting `nupp` on PATH
 
 Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
@@ -198,27 +165,18 @@ Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
 ./bin/nupp build --target dist
 ```
 
-That writes `build/dist/nupp`, a single file carrying the compiler, its
-standard library, and what it documents with, needing no LuaJIT installed
-alongside:
+That writes `build/dist/nupp`, a single file carrying the compiler and its
+standard library, needing no LuaJIT installed alongside:
 
 | Carried | How | For |
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
 | Rust native provider | linked into the stub | filesystem, networking, TLS, clocks, payload checks, and child processes |
 | Vendored JSON codec | in the payload | JSON, `--json`, and the LSP |
-| LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
-| LPeg `re.lua` | in the payload | runtime textual grammars |
-| Nupp PEG matcher shell | emitted in the payload | typed matching, search, and replacement |
-| Nupp UTF-8 adapter | in the payload | `nupp doc`'s entities and reference labels |
-| `lunamark` | in the payload | `nupp doc`'s markdown |
-| Scintillua (45) | in the payload | highlighting fences |
 
-The lexers are a chosen set rather than all hundred and sixty Scintillua ships.
-They are the languages a technical document actually fences, listed at the top
-of `nupp.lua`. A fence in something else renders as escaped text, which is what
-it does with no Scintillua at all. See
-[distribution](https://nupp.dev/reference/distribution/) for the
+This LuaJIT-hosted binary has no Markdown renderer or regular-expression
+engine: `nupp doc` and `nupp.text.regex` need the VM runtime, which carries
+both. See [distribution](https://nupp.dev/reference/distribution/) for the
 stub-and-payload format, and
 [carrying a rock into a bundle](https://nupp.dev/learn/projects/build/#carrying-a-rock-into-a-bundle)
 for carrying your own.

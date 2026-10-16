@@ -2615,104 +2615,6 @@ return m
     ),
 
     new reference.Section(
-        title = "PEG matchers",
-        codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2417"},
-        body = [=[
-`nupp.peg.compile(grammar, options?)` compiles LPeg-re-style byte grammar text
-at either phase into a typed matcher backed by native LPeg and selected Nupp
-specializations. In `comptime`, its opaque blueprint's capture shape supplies
-`nupp.peg.Peg<R...>` when unannotated. A literal runtime grammar infers the same
-type, and a dynamic string returns `Peg<...any>`. `Peg<R...>` satisfies
-`Matcher<R...>`, so a generic adapter can return `((R...) | (nil))`.
-
-`peg(subject, init)` and `peg:match(subject, init)` are equivalent. A recognizer
-returns the next 1-based byte position or nil. `init` defaults to 1 and may be
-negative, and matching is unanchored unless the grammar ends in `!.`. `isMatch`
-searches for a boolean result, `find` returns the half-open `first, next` range
-followed by the result pack, `forEachMatch` visits every non-overlapping
-`first, next, R...` result, and `replace` and `replaceAll` change the first
-match or each one. Empty matches advance one byte so iteration and replacement
-cannot stall. None of these operations allocates match records or result tuples.
-
-### Writing expressions
-
-The notation is LPeg 1.1 `re`, operator for operator, and the test suite runs
-the official `re` module as a differential oracle. Its own reference is the one
-to read: <https://www.inf.puc-rio.br/~roberto/lpeg/re.html>. Everything below is
-what Nupp adds to it or holds it to.
-
-A matcher has one result pack, inferred from the grammar's captures. Adjacent
-captures are adjacent native Lua results, so `{ [a-z]+ } ':' {}` is
-`Peg<(string, integer)>` and returns two values with nothing allocated between
-them; wrap repeated or open-ended captures in `{| ... |}` or `p -> {}` so the
-table comes from the grammar rather than the matcher. Every arm of an ordered
-choice must produce the same capture shape, which is what keeps the inferred
-pack true whichever arm matched.
-
-A `%name`, `-> name`, `=> name`, `>> name`, or `~> name` reads a value the
-caller supplies. A runtime grammar takes them in `{definitions = values}`. A
-static one cannot, because a `comptime` value closes over nothing, so it
-materializes as a factory whose parameter is a closed record holding exactly the
-names it used -- which makes a missing or misspelled one a compile error rather
-than a nil call mid-parse.
-
-A rejected grammar is `NUPP2417`: a reference that resolves to nothing, a
-duplicate rule name, a repetition whose body can match the empty string, arms of
-one choice disagreeing about captures, direct or indirect left recursion, or
-nesting past 256 levels. The materialization boundary and size limits stay
-`NUPP2414` through `NUPP2416`.
-
-### Compilation and backends
-
-Both phases produce one validated canonical PEG graph and matcher shell. The
-default `auto` backend recognizes fixed-width, repeated-byte, and packed scan
-shapes and emits straight-line Lua for them, and every other graph lowers
-directly to native LPeg. Nupp has no PEG bytecode or general interpreter:
-LPeg pattern userdata has no public traversable AST to recover capture types or
-optimization facts from, so Nupp owns the canonical graph and derives the result
-pack before lowering. `require("lpeg")` still returns native LPeg 1.1, with Nupp
-declarations tracking capture packs through ordinary pattern composition.
-
-`{backend = "lpeg"}` disables those Nupp specializations for reproducible
-backend comparisons. A runtime textual grammar compiles through LPeg's `re`
-module without `loadstring` and is cached by grammar. The expression syntax is
-LPeg 1.1 `re`.
-
-See the `nupp.peg` module reference for the complete operation contracts,
-native result packs, and explicit table captures.
-]=],
-        example = [=[
-local m = {}
-
-const Identifier: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile([[
-        [a-zA-Z_] [a-zA-Z_0-9]* !.
-    ]])
-end
-
-const Fields: nupp.peg.Peg<{string}> = comptime do
-    return nupp.peg.compile([[
-        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
-    ]])
-end
-
-function m.identifier(text: string): integer?
-    return Identifier(text)
-end
-
-function m.matcher(grammar: string): nupp.peg.Peg<...any>
-    return nupp.peg.compile(grammar)
-end
-
-function m.fields(text: string): {string}?
-    return Fields(text)
-end
-
-return m
-]=]
-    ),
-
-    new reference.Section(
         title = "Reflection and field codecs",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2418"},
         body = [=[
@@ -2738,7 +2640,7 @@ checker's process-local type identities. Annotation names, arguments, values,
 and referenced types take part in it, so changing serialization metadata
 invalidates a cached comptime result even when the field types are unchanged.
 
-`nupp.reflect.fieldCodec(nupp.reflect(R))` is the first non-PEG materializer.
+`nupp.reflect.fieldCodec(nupp.reflect(R))` is a materializer.
 For a record `R` it produces a `nupp.reflect.FieldCodec<R>` whose `encode`
 method copies exactly the record's present declared fields with `rawget`.
 Encoding and decoding are shallow; decoding selects the same fields from a

@@ -35,28 +35,15 @@ makes `nupp doc` ask which was meant. Two docs targets are two deliverables,
 usually writing to two directories, so a run that chooses between them on its
 own writes somewhere nobody asked for.
 
-### Renderer dependencies
+### Rendering
 
-`nupp doc` needs [lunamark](https://github.com/jgm/lunamark) and stops with a
-message if it is missing. Scintillua is optional: without it, a fence in a
-language it cannot load renders as escaped text. Both are ordinary [rock
-dependencies](../projects/build.md#rock-dependencies), so a docs target that declares them
-has them installed by the command that renders:
-
-```lua
-docs = {
-   kind = "docs",
-   dependencies = { "lunamark", "scintillua" },
-   sources = { "src" },
-}
-```
-
-Nupp supplies Lunamark's UTF-8 integration itself. Numeric and named character
-entities are encoded with `nupp.text.utf8`. Markdown reference labels collapse
-spaces, tabs and line endings and compare ASCII letters without case; non-ASCII
-UTF-8 bytes compare exactly. Thus `[name][CAFÉ]` and `[name][café]` are different
-references, while `[name][TAG]` and `[name][tag]` are the same. The rule is
-independent of the host locale and of a native Unicode casing-table revision.
+Markdown is CommonMark with pipe tables, rendered by
+[pulldown-cmark](https://github.com/pulldown-cmark/pulldown-cmark), which the VM
+runtime carries; a docs target declares no dependency for it. Everything Nupp
+adds to Markdown -- fences with captions and line numbers, containers, embeds,
+heading anchors and symbol links -- is handled by `nupp doc` around the
+renderer, so the Markdown itself is plain CommonMark. A runtime without the
+renderer, such as the LuaJIT one, stops with a message instead of rendering.
 
 ## Doc comments
 
@@ -390,7 +377,7 @@ back to a single stack.
 
 ### Admonitions
 
-An admonition is a titled aside whose body remains ordinary Lunamark Markdown:
+An admonition is a titled aside whose body remains ordinary Markdown:
 
 ````markdown
 ::: note Optional title
@@ -484,8 +471,10 @@ so it cannot drift from the file it documents.
 
 Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
 own parser and lexer, which agree about tokens and contextual syntax and can
-turn a name into a link into the API reference. Every other language goes to
-Scintillua.
+turn a name into a link into the API reference. `lua` goes through the same
+lexer, without links. Shell (`bash`, `sh`, `console`), PowerShell, JSON, TOML,
+C, Rust, ABNF and `diff` are coloured by small keyword-and-delimiter tables;
+any other language renders as plain escaped text.
 
 ### Links between pages
 

@@ -77,7 +77,7 @@ from source is the one thing that still needs a C compiler on the machine.
 Clone the repository only when you want to contribute to Nupp or work on the
 compiler itself. The
 [contributing guide](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md)
-covers the pinned Rust, C/C++, LuaJIT, LPeg, bootstrap, and worktree
+covers the pinned Rust, C/C++, LuaJIT, bootstrap, and worktree
 requirements without making them prerequisites for ordinary users.
 
 ## Start a project

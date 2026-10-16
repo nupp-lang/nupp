@@ -1,0 +1,26 @@
+@!internal
+module nupp.tools.doc.markdownhost
+
+--[[
+What renders Markdown for `nupp doc`: CommonMark with pipe tables, as HTML.
+
+The interface is one function, and deliberately narrow. Everything Nupp's
+documentation adds to Markdown -- fenced blocks with captions and line numbers,
+`:::` containers, heading ids and anchors, links to symbols -- is handled by
+[](nupp.tools.doc.html) before and after the renderer, which sees only plain
+CommonMark and a comment where each lifted block was.
+
+The renderer is the VM runtime's (`pulldown-cmark`, as `nupp.vm.markdown`); on
+the VM this module is replaced by one over it (`native/crates/vm/lib`). Anywhere
+else there is none, and `render` answers nil and a reason.
+]]
+
+local type Host = {render: function(text: string): (string?, string?)}
+
+local host: Host = {
+    render = function(_: string): (string?, string?)
+        return nil, "rendering Markdown needs the VM runtime"
+    end,
+}
+
+export = host

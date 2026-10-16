@@ -610,7 +610,6 @@ function coverage.read(path: string): (string?, any, string?)
 end
 
 function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
-    highlight.configureScintillua(".", {})
     local summary = aggregate(model.files, "")
     model.summary = summary
     -- Source text and generated Lua belong in their HTML pages, not in the machine

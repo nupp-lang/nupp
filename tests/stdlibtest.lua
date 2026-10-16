@@ -1589,12 +1589,6 @@ function M.nativeFeaturesAreResolvedEffects()
         "qualified nominals do not leak into the ambient type namespace"
     )
 
-    local lpeg = effectsOf("local parser = require('lpeg')")
-    assert(lpeg["native.lpeg"], "require('lpeg') records its native effect")
-    local re = effectsOf("local parser = require('re')")
-    assert(re["stdlib.lpeg.re"], "require('re') records its reference-module effect")
-    assert(native.expand(re)["native.lpeg"], "the re module brings native LPeg")
-
     local json = effectsOf("local json = require('nupp.codec.json')")
     assert(json["native.json"], "require('nupp.codec.json') records its JSON effect")
 
@@ -1622,9 +1616,9 @@ function M.nativeFeaturesAreResolvedEffects()
     assert(not shadowedIO["native.path"], "a local nupp.io is not the global facility")
 
     local shadowedRequire = effectsOf(
-        table.concat({"local require = function(_) return {} end", "require('lpeg')",}, "\n")
+        table.concat({"local require = function(_) return {} end", "require('nupp.codec.json')",}, "\n")
     )
-    assert(not shadowedRequire["native.lpeg"], "a local require is not the native module loader")
+    assert(not shadowedRequire["native.json"], "a local require is not the native module loader")
 
     local expected = {
         ["nupp.codec.json.encode({answer = 42})"] = "native.json",
@@ -2336,31 +2330,6 @@ function M.utf8ValidationCoversEveryShape()
     end
 end
 
-function M.lpegAndReUseTheNativeRuntime()
-    local lpeg = require("lpeg")
-    local P, R, V = lpeg.P, lpeg.R, lpeg.V
-    local C, Cc, Cp, Ct, Cg, Cb, Cs = lpeg.C, lpeg.Cc, lpeg.Cp, lpeg.Ct, lpeg.Cg, lpeg.Cb, lpeg.Cs
-    local identifier = C((R("az", "AZ") + P("_")) * (R("az", "AZ", "09") + P("_")) ^ 0):match("name9")
-    local fields = Ct(C(R("09") ^ 1) * (P(",") * C(R("09") ^ 1)) ^ 0):match("1,22,333")
-    local same = (Cg(C(R("az") ^ 1), "word") * P(":") * Cb("word")):match("echo:rest")
-    local grammar = P({"value", value = P("x") + P("(") * V("value") * P(")")})
-    local recursive = lpeg.match(grammar * -P(1), "((x))")
-    local substitution = Cs((C(R("09") ^ 1) / "[%0]" + P(1)) ^ 0):match("a12b")
-    local positions = Ct(Cp() * Cc("tag") * C(P("ok")) * Cp()):match("ok")
-    local version = lpeg.version
-    local reFirst, reSecond = require("re").match("item:42", "{[a-z]+} ':' {[0-9]+} !.")
-    testAssert.equal(identifier, "name9", "LPeg facade substring capture")
-    testAssert.equal(fields[3], "333", "LPeg facade table capture")
-    testAssert.equal(same, "echo", "LPeg facade back capture")
-    testAssert.equal(recursive, 6, "LPeg facade recursive grammar")
-    testAssert.equal(substitution, "a[12]b", "LPeg facade substitution")
-    testAssert.equal(positions[1], 1, "LPeg facade first position")
-    testAssert.equal(positions[4], 3, "LPeg facade final position")
-    testAssert.equal(version, "LPeg 1.1.0", "LPeg facade version field")
-    testAssert.equal(reFirst, "item", "bundled re first capture")
-    testAssert.equal(reSecond, "42", "bundled re second capture")
-end
-
 function M.nativeFeatureOverridesAreTriState()
     local automatic = {["native.tls"] = true, ["native.json"] = true}
     local resolved = native.resolve(automatic, {tls = false, path = true})
@@ -2368,8 +2337,8 @@ function M.nativeFeatureOverridesAreTriState()
     assert(resolved["native.json"], "an absent override remains automatic")
     assert(resolved["runtime.path"], "true adds an undetected feature")
 
-    local external = buildNative.sourceEffects("local lpeg = require('lpeg')", "rock.lua", sharedEnv)
-    assert(external["native.lpeg"], "bundled Lua contributes native LPeg")
+    local external = buildNative.sourceEffects("local json = require('nupp.codec.json')", "rock.lua", sharedEnv)
+    assert(external["native.json"], "bundled Lua contributes its native effects")
 end
 
 function M.selectOverloadsSeparateCountFromPackSelection()

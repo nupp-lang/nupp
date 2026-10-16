@@ -1,0 +1,57 @@
+@!internal
+module nupp.text.internal.regexhost
+
+--[[
+The engine behind [](nupp.text.regex).
+
+Regular expressions are the `regex` crate's, which the VM runtime carries as
+`nupp.vm.regex`; on the VM this module is replaced by one over it
+(`native/crates/vm/lib`). Anywhere else there is no engine: `compile` answers
+nil and a reason, and nothing else is reachable without a compiled expression.
+]]
+
+local UNAVAILABLE = "regular expressions need the VM runtime"
+
+local type Host = {
+    compile: function(pattern: string, flags: integer): (any?, string?),
+    isMatch: function(expression: any, subject: string, init: integer?): boolean,
+    find: function(expression: any, subject: string, init: integer?): (integer?, integer?),
+    captures: function(expression: any, subject: string, init: integer?): {integer}?,
+    groups: function(expression: any): (integer, {[string]: integer}),
+    replace: function(expression: any, subject: string, replacement: string, limit: integer): (string, integer),
+    escape: function(text: string): string,
+    findAll: function(expression: any, subject: string, init: integer?, limit: integer): {integer}
+}
+
+local function unavailable(): never
+    error(UNAVAILABLE, 2)
+end
+
+local host: Host = {
+    compile = function(_: string, _: integer): (any?, string?)
+        return nil, UNAVAILABLE
+    end,
+    isMatch = function(_: any, _: string, _: integer?): boolean
+        unavailable()
+    end,
+    find = function(_: any, _: string, _: integer?): (integer?, integer?)
+        unavailable()
+    end,
+    captures = function(_: any, _: string, _: integer?): {integer}?
+        unavailable()
+    end,
+    groups = function(_: any): (integer, {[string]: integer})
+        unavailable()
+    end,
+    replace = function(_: any, _: string, _: string, _: integer): (string, integer)
+        unavailable()
+    end,
+    escape = function(_: string): string
+        unavailable()
+    end,
+    findAll = function(_: any, _: string, _: integer?, _: integer): {integer}
+        unavailable()
+    end,
+}
+
+export = host

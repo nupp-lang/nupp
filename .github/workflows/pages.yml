@@ -43,10 +43,7 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
-      # The rocks come from the rockspecs in rocks/, each pinned to one archive
-      # and its digest. Installing one by name first, from a rock server, would
-      # leave the build nothing to check: it takes an installed version as is.
-      - name: Install documentation dependencies
+      - name: Build the documentation
         run: ./bin/nupp build --target docs
 
       - name: Build the website

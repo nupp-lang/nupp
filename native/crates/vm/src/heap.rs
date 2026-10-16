@@ -31,7 +31,7 @@ pub const KIND_BYTES: u8 = 7;
 pub const KIND_ITER: u8 = 8;
 pub const KIND_SLICE: u8 = 9;
 /// A host object: a metatable, one Lua value, and Rust data the runtime
-/// owns and drops with it (LPeg's patterns).
+/// owns and drops with it (string buffers, compiled regular expressions).
 pub const KIND_USERDATA: u8 = 10;
 pub const KIND_INTEGER: u8 = 12;
 pub const KIND_NAMES: [&str; 13] = ["freed", "string", "table", "record", "storage", "closure", "cell", "bytes", "iterator", "slice", "userdata", "reserved", "integer"];

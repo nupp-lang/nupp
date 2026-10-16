@@ -63,9 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          luarocks_dir=$(./scripts/toolchain luarocks)
-          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
-          export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
+          export NUPP_TOOLCHAIN_PREFIX
           ./bin/nupp fixpoint --binary
 
       - name: Select macOS release signing
@@ -111,12 +109,8 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          luarocks_dir=$(./scripts/toolchain luarocks)
-          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
-          export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
-          # The stub runs the compiler, which reads its own doc comments
-          # through nupp.peg, so it carries LPeg.
-          bootstrap_host=$(./scripts/toolchain host lpeg)
+          export NUPP_TOOLCHAIN_PREFIX
+          bootstrap_host=$(./scripts/toolchain host base)
           native_library=$(./scripts/toolchain native-rust files,process)
 
           # Stage 0 through the launcher, which stages the native file provider that
@@ -148,7 +142,7 @@ jobs:
           # One universal compiler-owned host per platform. It is a raw immutable
           # catalog artifact; end-user archives carry the stamped compiler below.
           catalog_host=$(./scripts/toolchain host \
-            lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
+            native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
           stub="nupp-host-${{ matrix.platform }}"
           cp "$catalog_host" "release/$stub"
           chmod +x "release/$stub"
@@ -301,9 +295,7 @@ jobs:
         run: |
           set -euo pipefail
           NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          luarocks_dir=$(./scripts/toolchain luarocks)
-          NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")
-          export NUPP_TOOLCHAIN_PREFIX NUPP_LUAROCKS
+          export NUPP_TOOLCHAIN_PREFIX
           ./bin/nupp fixpoint --binary
 
       - name: Download the platform-independent payload
@@ -317,7 +309,7 @@ jobs:
         run: |
           set -euo pipefail
           host=$(./scripts/toolchain host \
-            lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
+            native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
           mkdir -p build/release-host/release
           cp "$host" build/release-host/release/nupp-host.exe
 

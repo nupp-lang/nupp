@@ -407,10 +407,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
     config._coverage = opts.coverage == true
     if target.kind == "docs" then
-        -- A documentation target declares dependencies like any other, and its are the
-        -- renderer's own: lunamark is a rock, not something a checkout is expected to
-        -- have found its way to. Installed before the build rather than discovered
-        -- missing halfway through a page.
+        -- A documentation target declares dependencies like any other. They are
+        -- installed before the build rather than discovered missing halfway through
+        -- a page.
         local installed, depErr = buildDependencies(
             root,
             normalize(opts.outDir or target.outDir or "build"),
@@ -799,10 +798,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         local unresolved = {}
         for effect in pairs(resolvedEffects) do
             local feature = nativeFeatures.feature(effect)
-            -- A host module such as LPeg remains an ordinary require dependency.
             -- Provider sidecars need a modules or binary artifact.
-            local hostModule = feature and feature.externalModule == true
-            if feature == nil or feature.binary and not hostModule then
+            if feature == nil or feature.binary then
                 unresolved[#unresolved + 1] = effect
             end
         end

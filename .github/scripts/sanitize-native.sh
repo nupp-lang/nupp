@@ -34,12 +34,11 @@ SUPPRESSIONS=$ROOT/.github/sanitizers
 
 cd "$ROOT"
 
-# The host crate links the pinned LuaJIT and LPeg. Resolved before the
-# compiler and flags below are exported, so they are the ordinary cached
-# builds rather than instrumented ones under a key of their own.
+# The host crate links the pinned LuaJIT. Resolved before the compiler and
+# flags below are exported, so it is the ordinary cached build rather than an
+# instrumented one under a key of its own.
 NUPP_LUAJIT_PREFIX=$(./scripts/toolchain luajit)
-NUPP_LPEG_PREFIX=$(./scripts/toolchain lpeg)
-export NUPP_LUAJIT_PREFIX NUPP_LPEG_PREFIX
+export NUPP_LUAJIT_PREFIX
 
 # A dated nightly, so two runs of one commit build with the same compiler and
 # a report can be reproduced. Move it deliberately, like any other pin.
@@ -137,7 +136,7 @@ cargo_test --package nupp-native-http
 cargo_test --package nupp-native --no-default-features \
     --features compression,files,http,net,process,tls,uri,uuid
 cargo_test --package nupp-native-host --no-default-features \
-    --features lpeg,native-compression,native-files,native-net,native-process,native-tls,workers
+    --features native-compression,native-files,native-net,native-process,native-tls,workers
 
 # The provider exactly as scripts/test-rust-abi links it. The GPU is compiled
 # in because the smoke test asserts the feature set and that invalid GPU

@@ -18,10 +18,6 @@ START_POINT=${3:-HEAD}
 git -C "$ROOT" worktree add -b "$BRANCH" "$TASK_PATH" "$START_POINT"
 TASK_ROOT=$(git -C "$TASK_PATH" rev-parse --show-toplevel)
 
-if [ -d "$ROOT/.rocks" ] && [ ! -e "$TASK_ROOT/.rocks" ]; then
-    ln -s "$ROOT/.rocks" "$TASK_ROOT/.rocks"
-fi
-
 mkdir -p "$TASK_ROOT/build"
 
 # build/rust runs to a hundred gigabytes, so a plain copy per worktree fills a disk

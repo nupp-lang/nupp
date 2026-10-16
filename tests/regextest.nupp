@@ -1,0 +1,129 @@
+-- nupp.text.regex: the typed surface over the VM's `regex` crate provider.
+local regex = require("nupp.text.regex")
+local test = require("nupp.test")
+
+local M = {}
+
+-- The engine is the VM runtime's; elsewhere `compile` says there is none, and
+-- that answer is all there is to test.
+local function compiled(pattern: string, options: regex.Options?): regex.Regex
+    local expression, problem = regex.compile(pattern, options)
+    if expression == nil then
+        if problem == "regular expressions need the VM runtime" then
+            test.notExecuted(problem)
+        end
+        error(("%s did not compile: %s"):format(pattern, tostring(problem)), 2)
+    end
+
+    return expression
+end
+
+function M.compilingAnswersAReasonForAMalformedPattern(): nil
+    compiled("x")
+    local expression, problem = regex.compile("a(b")
+    test.equal(expression, nil)
+    test.matches(problem as string, "unclosed group")
+    test.equal(compiled("(a)(?<b>b)").pattern, "(a)(?<b>b)")
+    test.equal(compiled("(a)(?<b>b)"):groupCount(), 2)
+end
+
+function M.searchingReportsInclusivePositions(): nil
+    local digits = compiled("[0-9]+")
+    test.equal(digits:isMatch("item 42"), true)
+    test.equal(digits:isMatch("none"), false)
+    local first, last = digits:find("item 42 and 7")
+    test.equal(first, 6)
+    test.equal(last, 7)
+    test.equal(digits:match("item 42 and 7", 8), "7")
+    test.equal(digits:match("item 42 and 7", -1), "7")
+    test.equal(digits:match("none"), nil)
+    -- A search from `init` still sees what comes before it.
+    test.equal(compiled("\\bnd"):find("and", 2), nil)
+end
+
+function M.optionsChangeHowThePatternReads(): nil
+    test.equal(compiled("ITEM", {caseInsensitive = true}):match("an item"), "item")
+    test.equal(compiled("^b$", {multiLine = true}):find("a\nb\nc"), 3)
+    test.equal(compiled("a.b", {dotMatchesNewline = true}):match("a\nb"), "a\nb")
+    test.equal(compiled("a # letter\n b", {ignoreWhitespace = true}):match("ab"), "ab")
+    test.equal(compiled("a+", {swapGreed = true}):match("aaa"), "a")
+    test.equal(compiled(".", {bytes = true}):match("ï"), "\xC3")
+    test.equal(compiled("."):match("ï"), "ï")
+end
+
+function M.aMatchCarriesItsGroups(): nil
+    local date = compiled("(?<year>[0-9]{4})-(?<month>[0-9]{2})(x)?")
+    local found = date:exec("released 2026-10.") as regex.Match
+    test.equal(found:text(), "2026-10")
+    test.equal(found.first, 10)
+    test.equal(found.last, 16)
+    test.equal(found:group(0), "2026-10")
+    test.equal(found:group(1), "2026")
+    test.equal(found:group("month"), "10")
+    test.equal(found:group(3), nil, "a group that took no part")
+    test.equal(found:group("missing"), nil)
+    local year, month, unmatched = found:groups()
+    test.equal(year, "2026")
+    test.equal(month, "10")
+    test.equal(unmatched, nil)
+    local first, last = found:span("year")
+    test.equal(first, 10)
+    test.equal(last, 13)
+    test.equal(date:exec("no date"), nil)
+end
+
+function M.iterationVisitsEveryMatchAndAlwaysAdvances(): nil
+    local total = 0
+    for found in compiled("[0-9]+"):matches("3 apples and 14 pears") do
+        total = total + (tonumber(found:text()) as integer)
+    end
+    test.equal(total, 17)
+    local spans = {}
+    for found in compiled("a*"):matches("baaac") do
+        spans[#spans + 1] = ("%d-%d"):format(found.first, found.last)
+    end
+    test.equal(table.concat(spans, " "), "1-0 2-4 6-5")
+end
+
+function M.replacementExpandsGroupsOrCallsAFunction(): nil
+    local date = compiled("(?<year>[0-9]{4})-(?<month>[0-9]{2})")
+    local swapped, count = date:replaceAll("2026-10 and 2027-01", "$month/${year}")
+    test.equal(swapped, "10/2026 and 01/2027")
+    test.equal(count, 2)
+    local once, onceCount = date:replace("2026-10 and 2027-01", "[$0]")
+    test.equal(once, "[2026-10] and 2027-01")
+    test.equal(onceCount, 1)
+    local untouched, none = date:replaceAll("no dates", "x")
+    test.equal(untouched, "no dates")
+    test.equal(none, 0)
+    local bracketed = compiled("\\s+"):replaceAll("a  b c", function(found: regex.Match): string
+        return "[" .. #found:text() .. "]"
+    end)
+    test.equal(bracketed, "a[2]b[1]c")
+    test.equal((compiled("\\$"):replaceAll("$1", "$$")), "$1")
+end
+
+function M.splittingKeepsTheTextBetweenMatches(): nil
+    local spaces = compiled("\\s+")
+    local parts = spaces:split("one two  three")
+    test.equal(#parts, 3)
+    test.equal(parts[3], "three")
+    local limited = spaces:split("a b c d", 2)
+    test.equal(#limited, 2)
+    test.equal(limited[2], "b c d")
+    local edges = compiled(","):split(",a,")
+    test.equal(#edges, 3)
+    test.equal(edges[1], "")
+    test.equal(edges[3], "")
+    test.equal(#spaces:split("whole", 1), 1)
+end
+
+function M.escapingMatchesTheTextItself(): nil
+    compiled("x")
+    local escaped = regex.escape("a.b*(c)")
+    test.equal(escaped, "a\\.b\\*\\(c\\)")
+    test.equal(compiled(escaped):match("xa.b*(c)y"), "a.b*(c)")
+    test.equal(compiled(regex.escape("x\xFF"), {bytes = true}):match("ax\xFFb"), "x\xFF")
+end
+
+return M

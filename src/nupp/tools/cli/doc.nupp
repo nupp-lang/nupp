@@ -68,9 +68,9 @@ local function run(options: any): integer
     if not settings then
         return fail(report.UNKNOWN_NAME, settingsErr, "nupp.lua")
     end
-    -- What the docs target depends on is what the renderer loads. A project that names
-    -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
-    -- renders rather than reporting a library nobody was told to install.
+    -- What the docs target depends on is installed before it renders, so a page
+    -- that runs a rock's code on a fresh checkout finds it rather than reporting a
+    -- library nobody was told to install.
     local deps = require("nupp.tools.build.deps")
     local installed, depErr = deps.build(".", settings.outDir or "build", config as Config, {}, settings as Target)
     if not installed then

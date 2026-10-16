@@ -43,7 +43,6 @@
     "syntaxes/json.tmLanguage.json",
     "syntaxes/lua.tmLanguage.json",
     "syntaxes/nupp.tmLanguage.json",
-    "syntaxes/peg.tmLanguage.json",
     "README.md"
   ],
   "contributes": {
@@ -112,13 +111,6 @@
           "light": "./nupp.svg",
           "dark": "./nupp.svg"
         }
-      },
-      {
-        "id": "nupp-peg",
-        "aliases": [
-          "Nupp PEG",
-          "nupp-peg"
-        ]
       }
     ],
     "grammars": [
@@ -130,14 +122,8 @@
           "meta.embedded.block.json.nupp": "json",
           "meta.embedded.block.glsl.nupp": "glsl",
           "meta.embedded.block.lua.nupp": "lua",
-          "meta.embedded.block.nupp.nupp": "nupp",
-          "meta.embedded.block.peg.nupp": "nupp-peg"
+          "meta.embedded.block.nupp.nupp": "nupp"
         }
-      },
-      {
-        "language": "nupp-peg",
-        "scopeName": "source.nupp.peg",
-        "path": "./syntaxes/peg.tmLanguage.json"
       },
       {
         "scopeName": "source.nupp.embedded.json",

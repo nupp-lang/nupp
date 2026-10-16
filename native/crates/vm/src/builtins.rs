@@ -53,10 +53,12 @@ pub const NAMES: &[&str] = &[
     "error.site",
     "utf8.char", "utf8.lower", "utf8.upper", "utf8.len", "utf8.codepoint", "utf8.sub",
     "nfiles.info", "nfiles.readLink", "nfiles.createSymlink", "nfiles.setReadOnly", "nfiles.createDirectory", "nfiles.remove", "nfiles.rename", "nfiles.list", "nfiles.glob", "nfiles.read", "nfiles.write", "nfiles.append", "nfiles.writeAtomic", "nfiles.copy", "nfiles.open", "nfiles.fileRead", "nfiles.fileWrite", "nfiles.fileSeek", "nfiles.filePosition", "nfiles.fileSize", "nfiles.fileFlush", "nfiles.fileClose", "nfiles.currentDirectory", "nfiles.canonicalize", "nfiles.userFolder", "nfiles.applicationBase", "nfiles.executablePath", "nfiles.createTemporary",
-    // LPeg (`crate::lpeg::BUILTINS`, in that order).
-    "lpeg.ptree", "lpeg.pcode", "lpeg.match", "lpeg.B", "lpeg.V", "lpeg.C", "lpeg.Cc", "lpeg.Cmt", "lpeg.Cb", "lpeg.Carg", "lpeg.Cp", "lpeg.Cs", "lpeg.Ct", "lpeg.Cf", "lpeg.Cg",
-    "lpeg.P", "lpeg.S", "lpeg.R", "lpeg.utfR", "lpeg.locale", "lpeg.setmaxstack", "lpeg.type",
-    "lpeg.__mul", "lpeg.__add", "lpeg.__pow", "lpeg.__len", "lpeg.__div", "lpeg.__mod", "lpeg.__unm", "lpeg.__sub",
+    // Retired: LPeg lived here until it was removed (2026-10-16). The ids stay
+    // reserved, since linked objects carry builtin ids; calling one raises.
+    "retired.lpeg.ptree", "retired.lpeg.pcode", "retired.lpeg.match", "retired.lpeg.B", "retired.lpeg.V", "retired.lpeg.C", "retired.lpeg.Cc", "retired.lpeg.Cmt",
+    "retired.lpeg.Cb", "retired.lpeg.Carg", "retired.lpeg.Cp", "retired.lpeg.Cs", "retired.lpeg.Ct", "retired.lpeg.Cf", "retired.lpeg.Cg", "retired.lpeg.P",
+    "retired.lpeg.S", "retired.lpeg.R", "retired.lpeg.utfR", "retired.lpeg.locale", "retired.lpeg.setmaxstack", "retired.lpeg.type", "retired.lpeg.__mul", "retired.lpeg.__add",
+    "retired.lpeg.__pow", "retired.lpeg.__len", "retired.lpeg.__div", "retired.lpeg.__mod", "retired.lpeg.__unm", "retired.lpeg.__sub",
     // Provider primitives, installed as `nupp.vm.<family>` (`crate::interp::PROVIDER_FAMILIES`).
     "ncompression.encoderCreate", "ncompression.encoderWrite", "ncompression.encoderFlush", "ncompression.encoderFinish", "ncompression.encoderRelease",
     "ncompression.decoderCreate", "ncompression.decoderRead", "ncompression.decoderFinishInput", "ncompression.decoderRelease",
@@ -85,6 +87,11 @@ pub const NAMES: &[&str] = &[
     "snapshot.discard",
     "package.extensionLoader", "extension.load",
     "sharing.share", "sharing.address",
+    // Regular expressions (`crate::nregex::BUILTINS`, in that order).
+    "nregex.compile", "nregex.isMatch", "nregex.find", "nregex.captures", "nregex.groups", "nregex.replace",
+    "nregex.escape", "nregex.findAll",
+    // Markdown (`crate::nmarkdown`).
+    "nmarkdown.render",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -561,7 +568,7 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 enum Special {
     Plain,
     Extension,
-    Lpeg,
+    Retired,
     Sbuf,
     Snapshot,
     OsExit,
@@ -615,7 +622,7 @@ fn special_of(id: u32) -> Special {
 fn classify(name: &str) -> Special {
     if name.starts_with("foreign.") { return Special::Foreign; }
     if name == "package.extensionLoader" || name == "extension.load" { return Special::Extension; }
-    if name.starts_with("lpeg.") { return Special::Lpeg; }
+    if name.starts_with("retired.") { return Special::Retired; }
     if name.starts_with("sbuf.") { return Special::Sbuf; }
     if name.starts_with("snapshot.") { return Special::Snapshot; }
     if name.starts_with("tasks.vm") { return Special::TasksVm; }
@@ -660,7 +667,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
         || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
-        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
+        || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name.starts_with("nregex.") || name.starts_with("nmarkdown.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
     Special::Plain
 }
 
@@ -706,7 +713,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let name = NAMES[id as usize];
             return crate::foreign::call(it, name, args);
         }
-        Special::Lpeg => return crate::lpeg::call(it, NAMES[id as usize], args),
+        Special::Retired => it.err(&format!("{} is no longer available", &NAMES[id as usize]["retired.".len()..])),
         Special::Extension => {
             return if NAMES[id as usize] == "extension.load" { crate::extension::loader(it, args) } else { crate::extension::searcher(it, args) };
         }
@@ -1123,6 +1130,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if name.starts_with("nnet.") { return crate::nnet::call(it, name, args); }
             if name.starts_with("nhttp.") { return crate::nhttp::call(it, name, args); }
             if *name == "nuri.parse" { return crate::nhttp::parse_uri(it, args); }
+            if name.starts_with("nregex.") { return crate::nregex::call(it, name, args); }
+            if name.starts_with("nmarkdown.") { return crate::nmarkdown::call(it, name, args); }
             if name.starts_with("utf8.") { return crate::utf8lib::call(it, name, args); }
             if name.starts_with("terminal.") { return terminal(name, args); }
             if let Some(op) = name.strip_prefix("scalar.") { return scalar(it, op, args); }

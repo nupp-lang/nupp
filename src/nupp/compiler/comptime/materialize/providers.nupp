@@ -11,13 +11,6 @@ provider exercises the common path before a public provider depends on it.
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")
-local peg = require("nupp.compiler.comptime.materialize.peg") as {
-    installEvaluator: function(any, any, any, any),
-    method: function(any, any, string, any, any): (any, any),
-    operator: function(any, string, any, any, any): (any, any),
-    finalize: function(any, any): (any, any),
-    lower: function(any, any, any): (any, any, any, any)
-}
 local fieldcodec = require("nupp.compiler.comptime.materialize.fieldcodec") as {
     installEvaluator: function(any, any, any, any),
     finalize: function(any, any): (any, any),
@@ -128,7 +121,6 @@ function providers.installEvaluator(state: any, env: any)
         return opaque(state, provider, family, payload, at)
     end
 
-    peg.installEvaluator(state, env, newOpaque, provenance)
     fieldcodec.installEvaluator(state, env, newOpaque, provenance)
     typeprovider.installEvaluator(state, env, newOpaque, provenance)
     deriveprovider.installEvaluator(state, env, newOpaque, provenance, function(handle)
@@ -229,9 +221,6 @@ function providers.method(state: any, handle: any, name: string, args: any, at: 
 
         return handle, nil
     end
-    if entry.provider == "peg" then
-        return peg.method(state, handle, name, args, at)
-    end
 
     return nil, {
         code = "NUPP2411",
@@ -271,9 +260,6 @@ function providers.operator(state: any, op: string, left: any, right: any, at: a
             local equal = left == right
             return op == "==" and equal or not equal, nil
         end
-    end
-    if entry and entry.provider == "peg" then
-        return peg.operator(state, op, left, right, at)
     end
     if entry and entry.provider == "types" then
         return typeprovider.operator(state, op, left, right)
@@ -347,8 +333,6 @@ function providers.finalize(state: any, value: any): any, providers.Failure?
             }, nil
         end
         return finalizeTest(state, value)
-    elseif entry.provider == "peg" then
-        return peg.finalize(state, value)
     elseif entry.provider == "fieldcodec" then
         return fieldcodec.finalize(state, value)
     elseif entry.provider == "types" then
@@ -417,9 +401,7 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
         return nil, {code = "NUPP2415", message = "the comptime worker returned a malformed blueprint envelope"}
     end
     if envelope.provider ~= "compiler-test" then
-        if envelope.provider == "peg" then
-            return peg.lower(envelope, expected, env)
-        elseif envelope.provider == "fieldcodec" then
+        if envelope.provider == "fieldcodec" then
             return fieldcodec.lower(envelope, expected, env)
         elseif envelope.provider == "types" then
             return nil, {

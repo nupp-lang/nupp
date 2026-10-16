@@ -2,9 +2,9 @@
 # Provisions the native prerequisites Nupp builds against.
 #
 # Nupp asks for a C and a C++ compiler. Everything else it needs to build itself
-# -- the LuaJIT the compiler runs on and the LPeg the documentation renderer
-# parses with -- is fetched here from a pinned source, verified against a digest,
-# built with that compiler pair, and cached.
+# -- the LuaJIT the compiler runs on and the LuaRocks project dependencies install
+# with -- is fetched here from a pinned source, verified against a digest, built
+# with that compiler pair, and cached.
 #
 # This is the only thing that builds those. A component is asked for by name and
 # answers with the prefix it was installed under, so a caller composes paths
@@ -38,7 +38,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source stage0 stage0-image
+Components: luajit luarocks stage0 stage0-image
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -154,7 +154,7 @@ sha256() { sha256_stdin < "$1"; }
 
 # The pins that decide a native artifact, which is every pin but the stage-zero
 # one. That one names a Nupp release and a bundle of Lua; no C compiler ever
-# sees it, and keying LuaJIT, LPeg and every Rust crate on it would make the
+# sees it, and keying LuaJIT and every Rust crate on it would make the
 # one-line pin bump a stage-zero move asks for a from-scratch native rebuild on
 # machine that pulls it. Assignments only, so a comment is documentation rather
 # than a cache generation. A mirror list says where else the same bytes may be
@@ -384,7 +384,7 @@ source_tree() {
 #
 # It is the previous release's own compiler, lowered to one Lua file and
 # published as an asset of that release, and it is fetched here the way every
-# other pinned source is. What makes it different from LuaJIT or LPeg is that it
+# other pinned source is. What makes it different from LuaJIT is that it
 # is neither built nor platform-specific: one file of Lua, good on every machine
 # that has a LuaJIT new enough to parse generated Nupp, which the pins above
 # already guarantee. So it is cached by its own digest rather than under the
@@ -555,17 +555,6 @@ verify_notice() {
     if ! cmp -s "$noticeSource" "$committed"; then
         die "host/notices/$notice is not what $noticeSource says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
     fi
-}
-
-# LPeg ships its licence inside its manual rather than as a file, so the notice
-# beside it is checked for the clauses instead of byte for byte.
-verify_embedded_notice() {
-    noticeSource=$1 notice=$2
-    committed="$ROOT/host/notices/$notice"
-    for text in '2007-2023 Lua.org, PUC-Rio' 'Permission is hereby granted' 'THE SOFTWARE IS PROVIDED'; do
-        grep -qF "$text" "$noticeSource" && grep -qF "$text" "$committed" \
-            || die "host/notices/$notice no longer agrees with $noticeSource"
-    done
 }
 
 # --- one build at a time ----------------------------------------------------
@@ -888,7 +877,7 @@ EOF
 
 # The runtime a VM program binary is stamped onto: the interpreter with linked
 # entry support and native C calls, and of the facilities a program may reach
-# (compression, net, http, and jit, the code generator a program with vector
+# (compression, net, http, regex, markdown, and jit, the code generator a program with vector
 # instructions needs) the ones it names. Every source
 # state of one facility set shares a target directory, so an edit to the VM is
 # an incremental rebuild rather than a cold one beside every earlier result;
@@ -897,7 +886,7 @@ build_rust_vm_runtime() {
     facilities=$(normalize_rust_features "${1:-}")
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
         case "$facility" in
-            compression|net|http|jit) ;;
+            compression|net|http|regex|markdown|jit) ;;
             *) die "unknown VM runtime facility $facility" ;;
         esac
     done
@@ -962,13 +951,8 @@ select_host_features() {
     host_feature_words=$(printf '%s' "${1:-}" | tr ',' ' ')
     host_feature_words=$(printf '%s\n' $host_feature_words | LC_ALL=C sort -u | tr '\n' ' ')
     host_cargo_features=""
-    host_lpeg_prefix=""
     for feature in $host_feature_words; do
         case "$feature" in
-            lpeg)
-                host_lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
-                host_cargo_features="$host_cargo_features,lpeg"
-                ;;
             workers) host_cargo_features="$host_cargo_features,workers" ;;
             native-files|files|filesystem)
                 host_cargo_features="$host_cargo_features,native-files"
@@ -1106,7 +1090,7 @@ $(host_export_arguments)
 EOF
     fi
     NUPP_CC="$CC" \
-        NUPP_LUAJIT_PREFIX="$PREFIX/luajit" NUPP_LPEG_PREFIX="$host_lpeg_prefix" \
+        NUPP_LUAJIT_PREFIX="$PREFIX/luajit" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$expected" ] \
         || die "Cargo built nupp-native-host but did not write $expected"
@@ -1123,7 +1107,6 @@ EOF
 build_rust_embedding() {
     luajit_prefix=$1
     embedding_features=${2:-}
-    lpeg_prefix=${3:-}
     select_rust_tools
     rust_environment=$(rust_environment_material)
     digest=$({
@@ -1188,7 +1171,7 @@ EOF
     esac
     export_list="$out/nupp.exports"
     NUPP_CC="$CC" NUPP_EXPORT_LIST="$export_list" \
-        NUPP_LUAJIT_PREFIX="$luajit_prefix" NUPP_LPEG_PREFIX="$lpeg_prefix" \
+        NUPP_LUAJIT_PREFIX="$luajit_prefix" \
         RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_EMBED_OUT" ] \
         || die "Cargo built nupp-native-host but did not write $RUST_EMBED_OUT"
@@ -1230,21 +1213,6 @@ link_embedding_library() {
     done
     "$@" >&2 || die "cannot link libnupp.so from the embedding archive"
     mv "$RUST_EMBED_DYNAMIC_OUT.linked" "$RUST_EMBED_DYNAMIC_OUT"
-}
-
-shared_flags() {
-    case "$PLATFORM" in
-        darwin)  printf '%s' "-bundle -undefined dynamic_lookup" ;;
-        windows) printf '%s' "-shared" ;;
-        *)       printf '%s' "-shared" ;;
-    esac
-}
-
-module_extension() {
-    case "$PLATFORM" in
-        windows) printf '%s' ".dll" ;;
-        *)       printf '%s' ".so" ;;
-    esac
 }
 
 # The receipt the install leaves beside the interpreter. `scripts/luajit.sh`
@@ -1436,66 +1404,6 @@ EOF
     release_lock
 }
 
-# LPeg is built straight from its sources. It is a handful of files against the
-# Lua headers, and naming them is shorter than teaching its build system where
-# the staged LuaJIT is.
-build_lua_module() {
-    name=$1 out=$2 tree=$3 include=$4
-    shift 4
-    objects=""
-    for file in "$@"; do
-        object="$out/objects/$(basename "$file" .c).o"
-        mkdir -p "$out/objects"
-        "$CC" -c -O2 -fPIC -w -DNDEBUG -I"$include" -o "$object" "$tree/$file" >&2
-        objects="$objects $object"
-    done
-    mkdir -p "$out/lib"
-    # Both shapes, because both are wanted: a loadable module for an interpreter
-    # that requires it, and an archive for a host that links it in.
-    # shellcheck disable=SC2086
-    luaLibrary=""
-    if [ "$PLATFORM" = windows ]; then
-        luaLibrary="$PREFIX/luajit/lib/libluajit-5.1.dll.a"
-    fi
-    "$CC" $(shared_flags) -o "$out/lib/$name$(module_extension)" \
-        $objects $luaLibrary >&2
-    # shellcheck disable=SC2086
-    ar rcs "$out/lib/lib$name.a" $objects
-}
-
-# The pinned, verified LPeg source tree. A caller that compiles LPeg with a
-# compiler of its own wants the sources rather than this machine's build of
-# them, and wants them fetched through the same pin and the same notice check.
-lpeg_source() {
-    directory=$(expand_pin "$LPEG_DIRECTORY")
-    url=$(expand_pin "$LPEG_URL")
-    mirrors=$(expand_pin "$LPEG_MIRRORS")
-    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER" .tar.gz "$mirrors")
-    verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
-    printf '%s\n' "$tree"
-}
-
-build_lpeg() {
-    out="$PREFIX/lpeg"
-    # Before the lock, not inside it: these locks do not nest, and building
-    # LuaJIT under the LPeg lock would release the LPeg one on its way out.
-    include=$(luajit_include)
-    tree=$(lpeg_source)
-    take_lock lpeg "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    note "building LPeg with $CC"
-    rm -rf "$out"
-    build_lua_module lpeg "$out" "$tree" "$include" \
-        lpvm.c lpcap.c lptree.c lpcode.c lpprint.c lpcset.c
-    # The official frontend is Lua, and a caller that wants `re` wants it beside
-    # the module it parses with.
-    mkdir -p "$out/share"
-    cp "$tree/re.lua" "$out/share/re.lua"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 # --- the host ------------------------------------------------------------
 
 # A Rust staticlib flattens its dependency rlibs. On Windows GNU that includes
@@ -1578,7 +1486,6 @@ build_host() {
     features=${2:-}
     select_host_features "$features"
     selected_cargo_features=$host_cargo_features
-    selected_lpeg_prefix=$host_lpeg_prefix
     digest=$(printf '%s|%s|%s|%s' \
         "$kind" "$selected_cargo_features" "$(embedding_headers_digest)" "$(rust_sources_digest)" \
         | sha256_stdin | cut -c1-16)
@@ -1589,7 +1496,7 @@ build_host() {
     luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
 
     if [ "$kind" = library ]; then
-        build_rust_embedding "$luajit_prefix" "$selected_cargo_features" "$selected_lpeg_prefix"
+        build_rust_embedding "$luajit_prefix" "$selected_cargo_features"
         rust_embedding=$RUST_EMBED_OUT
         rust_dynamic=$RUST_EMBED_DYNAMIC_OUT
         dynamic_name=$(embedding_library_filename)
@@ -1702,7 +1609,6 @@ case "$1" in
     --all)
         build_luajit
         build_luarocks
-        build_lpeg
         # A checkout with no compiler needs this before it can run one, and a
         # warm is the moment to pay for it: an ordinary command in a built tree
         # never asks.
@@ -1755,10 +1661,6 @@ for component in "$@"; do
     case "$component" in
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
-        lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
-        # Assigned first: a substitution inside an argument loses its status,
-        # and a refused archive printed an empty prefix and succeeded.
-        lpeg-source) lpeg_tree=$(lpeg_source); native_path "$lpeg_tree" ;;
         stage0)   stage0 ;;
         stage0-image) stage0_image ;;
         *) note "unknown component $component"; usage ;;

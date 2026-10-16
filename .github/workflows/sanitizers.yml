@@ -65,10 +65,8 @@ jobs:
       - name: Leave the sanitizers their address space
         run: sudo sysctl -w vm.mmap_rnd_bits=28
 
-      - name: Provision LuaJIT and LPeg
-        run: |
-          ./scripts/toolchain luajit
-          ./scripts/toolchain lpeg
+      - name: Provision LuaJIT
+        run: ./scripts/toolchain luajit
 
       # clang, which the script defaults to, is on the runner image.
       - name: Run the native tests under ${{ matrix.name }}

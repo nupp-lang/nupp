@@ -150,7 +150,7 @@ end
 -- fetched and compiled without anything checking what arrived.
 function M.everyPinHasAVersionAndADigest()
     local recorded = pins()
-    for _, component in ipairs({"LUAJIT", "LUAROCKS", "LPEG",}) do
+    for _, component in ipairs({"LUAJIT", "LUAROCKS",}) do
         local marker = component == "LUAJIT" and "REV" or "VERSION"
         assert(recorded[component .. "_" .. marker], component .. " has no version or revision")
         local digest = recorded[component .. "_SHA256"]
@@ -163,7 +163,7 @@ end
 -- along, and the driver refuses to build a source whose notice has drifted. A
 -- pin for which no notice exists would make that check unreachable.
 function M.everyPinnedSourceHasANotice()
-    for _, notice in ipairs({"LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt",}) do
+    for _, notice in ipairs({"LuaJIT-COPYRIGHT.txt",}) do
         assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"), "host/notices/" .. notice .. " is missing")
     end
 end
@@ -175,16 +175,6 @@ function M.theDriverFetchesOnlyFromThePins()
     local driver = read(ROOT .. "/scripts/toolchain")
     local url = driver:match("https?://[^%s\"']+")
     assert(url == nil, "scripts/toolchain names a URL of its own: " .. tostring(url))
-end
-
---- A rockspec read the way LuaRocks reads one: as a chunk run in an empty table.
-local function rockspec(path)
-    local fields = {}
-    local chunk = assert(loadfile(path))
-    setfenv(chunk, fields)
-    chunk()
-
-    return fields
 end
 
 -- A build that installs a rock ran whichever `luarocks` was first on PATH when the
@@ -263,83 +253,6 @@ function M.anUnprovisionedLuaRocksIsThePinnedOneNotThePathOne()
     os.execute("rm -rf " .. quote(directory))
 end
 
--- The documentation rocks are bundled into the release binary, and they were
--- pinned by name and version alone: whatever the rock server, or the Git tag its
--- rockspec named, held on the day was what `dist` shipped. Each is now installed
--- from a rockspec in this tree naming one archive and the digest LuaRocks checks
--- before unpacking it, and nothing is resolved from a server for them.
-function M.everyBundledRockIsPinnedToAnArchiveDigest()
-    local manifest = dofile(ROOT .. "/nupp.lua")
-    local seen = 0
-    for name, dependency in pairs(manifest.dependencies) do
-        if dependency.kind == "luarocks" then
-            seen = seen + 1
-            local path = dependency.rockspec
-            assert(
-                type(path) == "string" and path:match("^rocks/[^/]+%.rockspec$"),
-                name .. " is not pinned by a rockspec in rocks/"
-            )
-            assert(dependency.version == nil and dependency.server == nil, name .. " asks a rock server for itself")
-            assert(
-                dependency.rockDependencies == false,
-                name .. " lets LuaRocks resolve its dependencies from a server"
-            )
-            local source = rockspec(ROOT .. "/" .. path).source
-            assert(source.url:match("^https://"), path .. " fetches over something other than HTTPS: " .. source.url)
-            assert(source.tag == nil and source.branch == nil, path .. " names a movable Git ref")
-            assert(source.url:match("%.tar%.gz$") or source.url:match("%.zip$"), path .. " does not name an archive")
-            assert(
-                type(source.md5) == "string" and #source.md5 == 32 and source.md5:match("^%x+$"),
-                path .. " has no digest for LuaRocks to check"
-            )
-        end
-    end
-    assert(seen >= 5, "the manifest lost its documentation rocks")
-
-    -- The LPeg rock is built from the archive the native LPeg is, which the pins
-    -- file holds to a SHA-256.
-    local recorded = pins()
-    local lpeg = rockspec(ROOT .. "/" .. manifest.dependencies.lunamark_lpeg.rockspec).source.url
-    assert(lpeg == recorded.LPEG_URL:gsub("%${LPEG_VERSION}", recorded.LPEG_VERSION), lpeg)
-
-    -- A step that installs one of them by name first leaves the build nothing to
-    -- check, since an installed version is taken as it is.
-    local pages = read(ROOT .. "/.github/workflows/pages.yml")
-    assert(not pages:find("install lpeg", 1, true), "the Pages build installs LPeg from a rock server")
-end
-
--- CI restores `.rocks` from a cache, and a build takes a rock installed at the
--- version it asks for as it is. The key hashed only the toolchain pins, so a
--- rockspec that moved to other bytes at the same version was served the tree
--- built from the old ones. Every rock is pinned in rocks/ (above), so that is
--- what each key covers.
-function M.everyRockTreeCacheKeyCoversTheRockspecs()
-    local handle = assert(io.popen("ls " .. quote(ROOT .. "/.github/workflows")))
-    local caches = 0
-    for name in handle:lines() do
-        if name:match("%.ya?ml$") then
-            -- A Windows checkout carries CRLF line endings; the pattern reads LF.
-            local text = read(ROOT .. "/.github/workflows/" .. name):gsub("\r\n", "\n")
-            local cursor = 1
-            while true do
-                local at = text:find("\n%s+%.rocks\n", cursor)
-                if not at then
-                    break
-                end
-                local key = text:match("key:[^\n]*\n([^\n]*\n[^\n]*)", at)
-                assert(
-                    key and key:find("hashFiles('scripts/toolchain.pins', 'rocks/**')", 1, true),
-                    name .. " caches .rocks under a key that ignores rocks/: " .. tostring(key)
-                )
-                caches = caches + 1
-                cursor = at + 1
-            end
-        end
-    end
-    handle:close()
-    assert(caches > 0, "no workflow caches .rocks, so this check checks nothing")
-end
-
 -- A tag on a third-party action is a name its owner can move to other code, and
 -- the release job runs one with the signing secrets in reach. Those are pinned
 -- to a commit. GitHub's own actions/* stay on their major tags by choice: they
@@ -375,15 +288,11 @@ function M.handCopiedPinsAgreeWithThePinsFile()
         notice:find("| `" .. recorded.LUAJIT_REV .. "` |", 1, true),
         "host/NOTICE.md names a LuaJIT revision other than LUAJIT_REV"
     )
-    assert(
-        notice:find("| `" .. recorded.LPEG_VERSION .. "` |", 1, true),
-        "host/NOTICE.md names an LPeg version other than LPEG_VERSION"
-    )
 
     -- The archive names an offline builder is told to supply.
     -- A Windows checkout carries CRLF line endings; the names are matched by line.
     local distribution = read(ROOT .. "/docs/reference/distribution.md"):gsub("\r\n", "\n")
-    for _, component in ipairs({"LUAJIT", "LUAROCKS", "LPEG"}) do
+    for _, component in ipairs({"LUAJIT", "LUAROCKS"}) do
         local archive = recorded[component .. "_DIRECTORY"]:gsub("%${([A-Z0-9_]+)}", recorded) .. ".tar.gz"
         assert(
             distribution:find("\n" .. archive .. "\n", 1, true),
@@ -429,129 +338,6 @@ function M.aWrongDigestRefusesToBuild()
         output:find("expected " .. pins().LUAJIT_SHA256, 1, true),
         "the refusal does not say what was expected:\n" .. output
     )
-end
-
--- A checkout copy whose LPeg pin names an archive this suite made, fetched by a
--- `curl` that answers from a table of hosts and logs each URL it was asked for.
--- The origin never answers, as it did not for run 36447903992; what each mirror
--- serves is the case's to say.
-local function lpegFromMirrors(serves)
-    local directory = temporary()
-    local root = directory .. "/root"
-    local bin = directory .. "/bin"
-    local staging = directory .. "/staging/lpeg-9.9.9"
-    for _, path in ipairs({
-        root .. "/scripts/patches",
-        root .. "/host/notices",
-        bin,
-        staging,
-        directory .. "/served"
-    }) do
-        assert(os.execute("mkdir -p " .. quote(path)) == 0)
-    end
-    local licence = "Copyright 2007-2023 Lua.org, PUC-Rio.\nPermission is hereby granted\n"
-        .. "THE SOFTWARE IS PROVIDED\n"
-    write(root .. "/host/notices/LPeg-LICENSE.txt", licence)
-    write(staging .. "/lptree.c", "/* fixture marker */\n")
-    write(staging .. "/lpeg.html", licence)
-    local tarball = directory .. "/lpeg-9.9.9.tar.gz"
-    assert(os.execute("tar czf " .. quote(tarball) .. " -C " .. quote(directory .. "/staging") .. " lpeg-9.9.9") == 0)
-    local digestCommand = "{ shasum -a 256 2>/dev/null || sha256sum; } < " .. quote(tarball) .. " | cut -c1-64"
-    local pipe = assert(io.popen("sh -c " .. quote(digestCommand)))
-    local digest = pipe:read("*l")
-    pipe:close()
-    assert(digest and #digest == 64, "cannot digest the fixture archive")
-
-    local pinsText = read(ROOT .. "/scripts/toolchain.pins")
-        :gsub("\nLPEG_VERSION=[^\n]*", "\nLPEG_VERSION=9.9.9")
-        :gsub("\nLPEG_SHA256=[^\n]*", "\nLPEG_SHA256=" .. digest)
-        :gsub("\nLPEG_URL=[^\n]*", "\nLPEG_URL='https://origin.invalid/lpeg-${LPEG_VERSION}.tar.gz'")
-        :gsub(
-            "\nLPEG_MIRRORS=[^\n]*",
-            "\nLPEG_MIRRORS='https://first.invalid/lpeg-${LPEG_VERSION}.tar.gz "
-            .. "https://second.invalid/lpeg-${LPEG_VERSION}.tar.gz'"
-        )
-    local driver = root .. "/scripts/toolchain"
-    write(driver, read(DRIVER))
-    write(root .. "/scripts/toolchain.pins", pinsText)
-    write(root .. "/scripts/patches/luajit.patch", read(ROOT .. "/scripts/patches/luajit.patch"))
-    for host, what in pairs(serves) do
-        write(directory .. "/served/" .. host, what == "archive" and read(tarball) or what)
-    end
-    write(
-        bin .. "/curl",
-        [[#!/bin/sh
-while [ "$#" -gt 0 ]; do
-    case "$1" in
-        --output) destination=$2; shift ;;
-        -*) ;;
-        *) url=$1 ;;
-    esac
-    shift
-done
-printf '%s\n' "$url" >> "$NUPP_TEST_SERVED/log"
-host=${url#https://}
-host=${host%%/*}
-[ -f "$NUPP_TEST_SERVED/$host" ] || { echo "curl: (6) Could not resolve host: $host" >&2; exit 6; }
-cp "$NUPP_TEST_SERVED/$host" "$destination"
-]]
-    )
-    assert(os.execute("chmod +x " .. quote(driver) .. " " .. quote(bin .. "/curl")) == 0)
-    local compiler = fakeCompiler(directory, "fake-cc", "fixed")
-    local status, output = run(
-        {
-            NUPP_TOOLCHAIN_DIR = directory .. "/cache",
-            NUPP_CC = compiler,
-            NUPP_CXX = compiler,
-            NUPP_TEST_SERVED = directory .. "/served",
-            PATH = forPath(bin) .. ":$PATH",
-        },
-        "lpeg-source",
-        driver
-    )
-    local log = io.open(directory .. "/served/log", "rb")
-    local asked = log and log:read("*a") or ""
-    if log then
-        log:close()
-    end
-
-    return status, output, asked, digest, directory
-end
-
--- The origin being down is not the archive being unavailable. Each mirror is
--- asked in turn and held to the same digest: the first answers with other bytes
--- and is refused, and the second, which has the pinned archive, is what is used.
-function M.anUnreachableOriginFallsBackToAMirrorWithTheSameDigest()
-    local status, output, asked, _, directory = lpegFromMirrors({
-        ["first.invalid"] = "a page that is not the archive",
-        ["second.invalid"] = "archive",
-    })
-    assert(status == 0, "no mirror was used when the origin was down:\n" .. output)
-    assert(
-        asked == "https://origin.invalid/lpeg-9.9.9.tar.gz\n"
-        .. "https://first.invalid/lpeg-9.9.9.tar.gz\n"
-        .. "https://second.invalid/lpeg-9.9.9.tar.gz\n",
-        "the origin and mirrors were not asked in order:\n" .. asked
-    )
-    assert(output:find("refusing to cache or compile it; trying https://second.invalid", 1, true), output)
-    assert(output:find("/sources/lpeg-9.9.9", 1, true), "the tree was not printed:\n" .. output)
-    os.execute("rm -rf " .. quote(directory))
-end
-
--- A mirror is a place to look and nothing else. When every one of them serves
--- something other than the pinned archive, the build stops rather than taking the
--- last answer, and says what it expected.
-function M.mirrorsThatServeOtherBytesAreRefused()
-    local status, output, asked, digest, directory = lpegFromMirrors({
-        ["first.invalid"] = "a page that is not the archive",
-        ["second.invalid"] = "another page that is not the archive",
-    })
-    assert(status ~= 0, "a mirror's wrong bytes were used:\n" .. output)
-    assert(output:find("expected " .. digest, 1, true), "the refusal does not say what was expected:\n" .. output)
-    assert(select(2, asked:gsub("\n", "")) == 3, "not every mirror was tried:\n" .. asked)
-    local cached = io.open(directory .. "/cache/archives/lpeg-9.9.9.tar.gz", "rb")
-    assert(cached == nil, "a refused download was left in the archive cache")
-    os.execute("rm -rf " .. quote(directory))
 end
 
 -- A finished LuaJIT is checked against the receipt its install left, not believed

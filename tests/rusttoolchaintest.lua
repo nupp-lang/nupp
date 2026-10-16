@@ -821,7 +821,7 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
     assert(gate:find("$channel-x86_64-pc-windows-gnu", 1, true), "the gate does not select Windows GNU Rust")
     assert(
         gate:find(
-            "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers",
+            "native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers",
             1,
             true
         ),
@@ -846,14 +846,7 @@ function M.retainedPlatformsGateTheExactRustNativeArtifacts()
         countOccurrences(release, "./bin/nupp fixpoint --binary") == 2,
         "the retained release matrix does not verify binary packaging fixpoints"
     )
-    assert(
-        countOccurrences(release, 'NUPP_LUAROCKS=$(cat "$luarocks_dir/.executable")') == 3,
-        "release jobs do not use the platform-specific pinned LuaRocks executable"
-    )
-    assert(
-        not release:find("scripts/toolchain luarocks)/bin/luarocks", 1, true),
-        "release jobs assume the Unix LuaRocks installation layout"
-    )
+    assert(not release:find("luarocks", 1, true), "a release job installs rocks, and nothing it builds has any")
     assert(release:find("shasum -a 256 -c SHA256SUMS", 1, true), "Unix packaging has no archive fixpoint")
     assert(release:find("release archive checksum mismatch", 1, true), "Windows packaging has no archive fixpoint")
 end

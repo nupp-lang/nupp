@@ -22,7 +22,6 @@ type native.Feature = {
     providerFeature: string?,
     library: string?,
     binary: boolean?,
-    externalModule: boolean?,
     override: boolean?,
     requires: {string}?,
     runtimeModule: string?,
@@ -261,10 +260,6 @@ local FEATURES: {[string]: native.Feature} = {
     },
 
     ["runtime.test"] = {name = "test", module = "nupp.test", runtimeModule = "nupp.test", portableRuntime = true,},
-    ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true, externalModule = true,},
-    [
-        "stdlib.lpeg.re"
-    ] = {name = "lpeg_re", module = "re", runtimeModule = "re", portableRuntime = true, requires = {"native.lpeg"},},
     -- The native JSON effect binds the package-private codec provider.
     [
         "native.json"
@@ -311,23 +306,6 @@ local FEATURES: {[string]: native.Feature} = {
     -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
     -- exists to attribute the module rather than to select anything.
     ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.text.utf8"},},
-    [
-        "stdlib.peg"
-    ] = {
-        portableRuntime = true,
-        name = "peg",
-        runtimeModule = "nupp.compiler.runtime.peg",
-        requires = {"native.lpeg"},
-    },
-    [
-        "stdlib.peg.compile"
-    ] = {
-        name = "peg_compile",
-        portableRuntime = true,
-        globals = {"nupp.peg.compile"},
-        runtimeModule = "nupp.compiler.runtime.peg",
-        requires = {"native.lpeg"},
-    },
     [
         "stdlib.fieldcodec"
     ] = {
@@ -722,7 +700,7 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         for index = 2, #parts do
             if index == #parts and t then
                 decorate(t, parts[index], effect)
-                -- A qualified nominal such as `record nupp.peg` also binds its
+                -- A qualified nominal such as `record nupp.reflect` also binds its
                 -- declaration table under the dotted prefix. Source reaches that
                 -- metatable value even when the intrinsic `nupp` shape describes the
                 -- same path as a nominal instance, so both identities carry the

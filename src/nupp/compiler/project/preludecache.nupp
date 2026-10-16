@@ -62,8 +62,8 @@ its counter, so an image means what it says only in an arena that numbered
 everything before the prelude the way the writer's did. Read over any other, a
 restored type and a live one share an id, and a key built from that id finds
 whichever the arena met first -- or the image's keys find the live types and the
-image's nominals are not the ones they point at, so `nupp.peg.compile` returns a
-`Peg<...any>` that is not the `Peg<...any>` it is annotated with.
+image's nominals are not the ones they point at, so a prelude function returns a
+nominal that is not the one its caller is annotated with.
 
 "The first environment in a process" was meant to be that condition, and is not
 one: a module reloaded over a live `nupp.compiler.types` is a first environment

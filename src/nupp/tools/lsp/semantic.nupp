@@ -309,7 +309,7 @@ end
 
 --- Formats whose grammars the bundled VS Code extension embeds. `@syntax` accepts any
 --- literal name, but only these names have a grammar that needs semantic-token masking.
-local EMBEDDED_STRING_FORMATS = {json = true, glsl = true, lua = true, nupp = true, peg = true}
+local EMBEDDED_STRING_FORMATS = {json = true, glsl = true, lua = true, nupp = true}
 
 --- String literals directly initialized under `@syntax("format")`. Their TextMate
 --- region is embedded in the named grammar, so sending a broad `string` semantic token

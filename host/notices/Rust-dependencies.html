@@ -14,6 +14,7 @@
   <h2>Packages</h2>
   <ul id="locked-packages">
     <li data-crate="adler2@2.0.1"><a href="https://github.com/oyvindln/adler2">adler2 2.0.1</a> — 0BSD OR MIT OR Apache-2.0</li>
+    <li data-crate="aho-corasick@1.1.5"><a href="https://github.com/BurntSushi/aho-corasick">aho-corasick 1.1.5</a> — Unlicense OR MIT</li>
     <li data-crate="allocator-api2@0.2.21"><a href="https://github.com/zakarumych/allocator-api2">allocator-api2 0.2.21</a> — MIT OR Apache-2.0</li>
     <li data-crate="android_system_properties@0.1.6"><a href="https://github.com/nical/android_system_properties">android_system_properties 0.1.6</a> — MIT OR Apache-2.0</li>
     <li data-crate="anyhow@1.0.104"><a href="https://github.com/dtolnay/anyhow">anyhow 1.0.104</a> — MIT OR Apache-2.0</li>
@@ -170,6 +171,8 @@
     <li data-crate="presser@0.3.1"><a href="https://github.com/EmbarkStudios/presser">presser 0.3.1</a> — MIT OR Apache-2.0</li>
     <li data-crate="proc-macro2@1.0.107"><a href="https://github.com/dtolnay/proc-macro2">proc-macro2 1.0.107</a> — MIT OR Apache-2.0</li>
     <li data-crate="profiling@1.0.18"><a href="https://github.com/aclysma/profiling">profiling 1.0.18</a> — MIT OR Apache-2.0</li>
+    <li data-crate="pulldown-cmark@0.13.4"><a href="https://github.com/raphlinus/pulldown-cmark">pulldown-cmark 0.13.4</a> — MIT</li>
+    <li data-crate="pulldown-cmark-escape@0.11.0"><a href="https://github.com/raphlinus/pulldown-cmark">pulldown-cmark-escape 0.11.0</a> — MIT</li>
     <li data-crate="quote@1.0.47"><a href="https://github.com/dtolnay/quote">quote 1.0.47</a> — MIT OR Apache-2.0</li>
     <li data-crate="r-efi@6.0.0"><a href="https://github.com/r-efi/r-efi">r-efi 6.0.0</a> — MIT OR Apache-2.0 OR LGPL-2.1-or-later</li>
     <li data-crate="range-alloc@0.1.5"><a href="https://github.com/gfx-rs/range-alloc">range-alloc 0.1.5</a> — MIT OR Apache-2.0</li>
@@ -177,6 +180,9 @@
     <li data-crate="raw-window-metal@1.1.0"><a href="https://github.com/rust-windowing/raw-window-metal">raw-window-metal 1.1.0</a> — MIT OR Apache-2.0</li>
     <li data-crate="redox_syscall@0.5.18"><a href="https://gitlab.redox-os.org/redox-os/syscall">redox_syscall 0.5.18</a> — MIT</li>
     <li data-crate="regalloc2@0.15.2"><a href="https://github.com/bytecodealliance/regalloc2">regalloc2 0.15.2</a> — Apache-2.0 WITH LLVM-exception</li>
+    <li data-crate="regex@1.13.1"><a href="https://github.com/rust-lang/regex">regex 1.13.1</a> — MIT OR Apache-2.0</li>
+    <li data-crate="regex-automata@0.4.18"><a href="https://github.com/rust-lang/regex">regex-automata 0.4.18</a> — MIT OR Apache-2.0</li>
+    <li data-crate="regex-syntax@0.8.11"><a href="https://github.com/rust-lang/regex">regex-syntax 0.8.11</a> — MIT OR Apache-2.0</li>
     <li data-crate="region@3.0.2"><a href="https://github.com/darfink/region-rs">region 3.0.2</a> — MIT</li>
     <li data-crate="renderdoc-sys@1.1.0"><a href="https://github.com/ebkalderon/renderdoc-rs">renderdoc-sys 1.1.0</a> — MIT OR Apache-2.0</li>
     <li data-crate="reqwest@0.13.4"><a href="https://github.com/seanmonstar/reqwest">reqwest 0.13.4</a> — MIT OR Apache-2.0</li>
@@ -240,6 +246,7 @@
     <li data-crate="tracing-core@0.1.36"><a href="https://github.com/tokio-rs/tracing">tracing-core 0.1.36</a> — MIT</li>
     <li data-crate="try-lock@0.2.5"><a href="https://github.com/seanmonstar/try-lock">try-lock 0.2.5</a> — MIT</li>
     <li data-crate="typenum@1.20.1"><a href="https://github.com/paholg/typenum">typenum 1.20.1</a> — MIT OR Apache-2.0</li>
+    <li data-crate="unicase@2.10.0"><a href="https://github.com/seanmonstar/unicase">unicase 2.10.0</a> — MIT OR Apache-2.0</li>
     <li data-crate="unicode-ident@1.0.24"><a href="https://github.com/dtolnay/unicode-ident">unicode-ident 1.0.24</a> — (MIT OR Apache-2.0) AND Unicode-3.0</li>
     <li data-crate="unicode-width@0.2.2"><a href="https://github.com/unicode-rs/unicode-width">unicode-width 0.2.2</a> — MIT OR Apache-2.0</li>
     <li data-crate="untrusted@0.9.0"><a href="https://github.com/briansmith/untrusted">untrusted 0.9.0</a> — ISC</li>
@@ -3844,6 +3851,9 @@ limitations under the License.
       <li>petgraph 0.8.3</li>
       <li>pkg-config 0.3.34</li>
       <li>pollster 0.4.0</li>
+      <li>regex-automata 0.4.18</li>
+      <li>regex-syntax 0.8.11</li>
+      <li>regex 1.13.1</li>
       <li>renderdoc-sys 1.1.0</li>
       <li>ring 0.17.14</li>
       <li>rustc-hash 1.1.0</li>
@@ -3860,6 +3870,7 @@ limitations under the License.
       <li>stable_deref_trait 1.2.1</li>
       <li>tikv-jemalloc-sys 0.7.1+5.3.1-0-g81034ce1f1373e37dc865038e1bc8eeecf559ce8</li>
       <li>tikv-jemallocator 0.7.0</li>
+      <li>unicase 2.10.0</li>
       <li>unicode-width 0.2.2</li>
       <li>url 2.5.8</li>
       <li>uuid 1.26.0</li>
@@ -7106,6 +7117,36 @@ DEALINGS IN THE SOFTWARE.
     <h3>MIT License</h3>
     <p>Used by:</p>
     <ul>
+      <li>pulldown-cmark-escape 0.11.0</li>
+      <li>pulldown-cmark 0.13.4</li>
+    </ul>
+    <pre>The MIT License
+
+Copyright 2015 Google Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+</pre>
+  </section>
+  <section>
+    <h3>MIT License</h3>
+    <p>Used by:</p>
+    <ul>
       <li>spin 0.10.1</li>
     </ul>
     <pre>The MIT License (MIT)
@@ -7192,6 +7233,7 @@ SOFTWARE.
     <h3>MIT License</h3>
     <p>Used by:</p>
     <ul>
+      <li>aho-corasick 1.1.5</li>
       <li>memchr 2.8.3</li>
       <li>termcolor 1.4.1</li>
       <li>walkdir 2.5.0</li>

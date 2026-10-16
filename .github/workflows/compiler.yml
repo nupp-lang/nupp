@@ -219,12 +219,10 @@ jobs:
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
+          path: ${{ runner.temp }}/nupp-ci-tools
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+            hashFiles('scripts/toolchain.pins') }}
 
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
@@ -252,7 +250,7 @@ jobs:
       - name: Bootstrap the compiler
         run: ./bin/nupp build
 
-      - name: Install the development rocks
+      - name: Build the bootstrap compiler and the documentation
         run: |
           ./bin/nupp build --target bootstrapCompiler
           ./bin/nupp build --target docs
@@ -323,26 +321,17 @@ jobs:
           sparse-checkout-cone-mode: false
 
       # After the checkout rather than before it: `actions/checkout` cleans the
-      # workspace, and `.rocks` is ignored, so anything restored first would be
-      # removed again before a step could use it.
-      #
-      # The key carries what pins both halves: the toolchain pins for the tools,
-      # and the rockspecs in rocks/ for `.rocks`, which is every rock nupp.lua
-      # installs (toolchaintest holds it to that). A build takes an installed
-      # rock at its version as it is, so a tree restored from other rockspecs
-      # would be used unchecked. nupp.lua itself is left out: it changes several
-      # times a week for reasons that install nothing. Editing either rebuilds
-      # every platform's tools, which is a few minutes on a change nobody makes
-      # weekly.
+      # workspace, so anything restored first would be removed again before a
+      # step could use it. The key is the toolchain pins, which is everything
+      # the tools are built from; nupp.lua is left out, since it changes several
+      # times a week for reasons that build no tool.
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
+          path: ${{ runner.temp }}/nupp-ci-tools
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+            hashFiles('scripts/toolchain.pins') }}
 
       # Each entry validates its own content, so an approximate match is useful
       # here where it would not be above: a lock file that moved on rebuilds the
@@ -440,7 +429,7 @@ jobs:
           Get-ChildItem build/lib
           dumpbin /dependents build/lib/nupp_native_dev.dll
 
-      - name: Install the development rocks
+      - name: Build the bootstrap compiler and the documentation
         shell: bash
         run: |
           ./bin/nupp build --target bootstrapCompiler
@@ -718,12 +707,10 @@ jobs:
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
+          path: ${{ runner.temp }}/nupp-ci-tools
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+            hashFiles('scripts/toolchain.pins') }}
 
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
@@ -757,12 +744,10 @@ jobs:
       - name: Restore the pinned build tools
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ runner.temp }}/nupp-ci-tools
-            .rocks
+          path: ${{ runner.temp }}/nupp-ci-tools
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'rocks/**') }}
+            hashFiles('scripts/toolchain.pins') }}
 
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
@@ -780,7 +765,7 @@ jobs:
       - name: Bootstrap the compiler
         run: ./bin/nupp build
 
-      - name: Install the development rocks
+      - name: Build the bootstrap compiler and the documentation
         run: |
           ./bin/nupp build --target bootstrapCompiler
           ./bin/nupp build --target docs

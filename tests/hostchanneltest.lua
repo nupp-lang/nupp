@@ -87,7 +87,7 @@ end
 
 -- The SDK features the hosted runtime needs: time for scope deadlines, and
 -- nothing else the scenarios reach.
-local SDK_FEATURES = "lpeg"
+local SDK_FEATURES = "base"
 
 local function run(command)
     local pipe = assert(io.popen(command .. " 2>&1; printf '\n__status__:%s' $?"))

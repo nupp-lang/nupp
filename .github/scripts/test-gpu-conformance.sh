@@ -26,8 +26,7 @@ cargo test -p nupp-native-gpu adapter_compute_round_trip_when_available \
 )
 
 typed=$bench/build/typed
-export LUA_PATH="$typed/?.lua;$typed/?/init.lua;$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;"
-export LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;"
+export LUA_PATH="$typed/?.lua;$typed/?/init.lua;$root/build/?.lua;;"
 export NUPP_NATIVE_LIBRARY="$typed/lib/nupp_native"
 export GEMM_M=64 GEMM_N=64 GEMM_K=64
 

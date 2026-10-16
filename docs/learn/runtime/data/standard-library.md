@@ -103,7 +103,7 @@ intrinsic namespaces and the declared modules:
   [](nupp.suspension.host) is the other side of waiting: what a host installs to
   decide which coroutine runs while something is parked.
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
-- [](nupp.peg) compiles byte-oriented parsing-expression grammars.
+- [](nupp.text.regex) matches regular expressions where Lua patterns are not enough.
 
 See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the
 browser provider, and [workers.md](../concurrency/workers.md) for the worker

@@ -223,9 +223,9 @@ end
 -- made exactly that arena: after each suite they unload the modules it loaded,
 -- which takes `nupp.compiler.project.env` and keeps `nupp.compiler.types`, so the
 -- next suite's first environment read the stored prelude over the last suite's
--- checked one. `nupp.peg.compile` then answered a `Peg<...any>` that was not the
--- `Peg<...any>` it was annotated with, and `examplestest` failed on whichever
--- machine put the two suites in one lane.
+-- checked one. A prelude function then answered a nominal that was not the one
+-- its caller was annotated with (it was `nupp.peg.compile`'s `Peg<...any>`), and
+-- `examplestest` failed on whichever machine put the two suites in one lane.
 function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
     local saved = {}
     for name, value in pairs(package.loaded) do
@@ -291,10 +291,10 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
         )
 
-        local source = "local function loadMatcher(configuration: string): nupp.peg.Peg<...any>\n"
-            .. "    return nupp.peg.compile(configuration)\n"
+        local source = "local function poll(): nupp.HotReloadPoll\n"
+            .. "    return nupp.hotreload.poll()\n"
             .. "end\n"
-            .. "return loadMatcher\n"
+            .. "return poll\n"
         local parsed = require("nupp.compiler.syntax.parser").parse(source, "prelude-identity.nupp")
         local found = {}
         for _, diagnostic in ipairs(require("nupp.compiler.check").check(parsed, "prelude-identity.nupp", env)) do

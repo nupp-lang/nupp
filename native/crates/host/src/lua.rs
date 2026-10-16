@@ -238,11 +238,6 @@ unsafe extern "C" {
     fn nupp_lua_poll_suspension(state: *mut LuaState, error: *mut LuaError) -> c_int;
 }
 
-#[cfg(feature = "lpeg")]
-unsafe extern "C" {
-    fn luaopen_lpeg(state: *mut LuaState) -> c_int;
-}
-
 pub(crate) struct Lua {
     state: NonNull<LuaState>,
     owned: bool,
@@ -333,13 +328,6 @@ impl Lua {
     pub(crate) fn install_compiled_features(&self, open_libraries: bool) -> Result<(), String> {
         // CRCs are part of the base native provider in every host.
         self.add_feature(c"native-checksum")?;
-        #[cfg(feature = "lpeg")]
-        {
-            self.add_feature(c"lpeg")?;
-            if open_libraries {
-                self.preload_c(c"lpeg", luaopen_lpeg)?;
-            }
-        }
         #[cfg(feature = "native-files")]
         self.add_feature(c"native-files")?;
         #[cfg(feature = "native-compression")]

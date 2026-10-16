@@ -312,10 +312,7 @@ local function bundleText(
             ):format(feature, "nupp: payload requires host feature " .. feature)
         end
         if not component then
-            local preloads = {
-                {feature = "lpeg", modules = {"lpeg"}},
-                {feature = "workers", modules = {"nupp.workers.native"}},
-            }
+            local preloads = {{feature = "workers", modules = {"nupp.workers.native"}},}
             for _, feature in ipairs(preloads) do
                 if not selected[feature.feature] then
                     for _, moduleName in ipairs(feature.modules) do

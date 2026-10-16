@@ -125,7 +125,6 @@ if os.getenv("NUPP_COVERAGE") == "1" then
 end
 
 function M.highlightsLongCommentsAcrossSourceLines()
-    highlight.configureScintillua(ROOT, {})
     local nupp = highlight.codeLines("--[[ outer\ninside\n]]\nlocal value = 1", "nupp")
     assert(nupp[1]:find("nuppdoc-token-comment", 1, true))
     assert(nupp[2]:find("nuppdoc-token-comment", 1, true))

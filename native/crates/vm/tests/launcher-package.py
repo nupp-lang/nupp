@@ -111,7 +111,6 @@ else:
         self.assertIn("does not match", self.run_command([self.root / "scripts/vm-cli", "status"], ok=False).stderr)
 
     def test_legacy_worker_reuses_parent_provider_after_source_edit(self):
-        write(self.root / "scripts/rocks.sh", "link_development_rocks() { :; }\n")
         write(self.root / "scripts/luajit.sh", "select_luajit() { return 0; }\n")
         write(self.root / "build/nupp/tools/main.lua", "unused fake compiler\n")
         write(self.root / "scripts/toolchain", '''#!/bin/sh

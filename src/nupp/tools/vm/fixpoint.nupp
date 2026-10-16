@@ -52,7 +52,13 @@ function fixpoint.run(root: string, outDir: string, say: function(line: string):
     if seed == nil or seed == "" then
         return failed("the VM fixpoint starts from the running VM compiler image")
     end
-    local runtime, problem = require("nupp.tools.build.native").vmRuntime({"compression", "http", "net"})
+    local runtime, problem = require("nupp.tools.build.native").vmRuntime({
+        "compression",
+        "http",
+        "net",
+        "regex",
+        "markdown"
+    })
     if runtime == nil then
         return failed(tostring(problem))
     end

@@ -10,7 +10,6 @@ const EXPORT_LIST_ENV: &str = "NUPP_EXPORT_LIST";
 
 fn main() {
     println!("cargo:rerun-if-env-changed={LUAJIT_PREFIX_ENV}");
-    println!("cargo:rerun-if-env-changed=NUPP_LPEG_PREFIX");
     println!("cargo:rerun-if-env-changed=NUPP_CC");
     println!("cargo:rerun-if-env-changed=CC");
     println!("cargo:rerun-if-env-changed=CFLAGS");
@@ -56,18 +55,6 @@ fn main() {
         );
         println!("cargo:rustc-link-arg=-Wl,-dead_strip_dylibs");
     }
-    if env::var_os("CARGO_FEATURE_LPEG").is_some() {
-        let prefix = PathBuf::from(
-            env::var_os("NUPP_LPEG_PREFIX")
-                .expect("the lpeg host feature requires NUPP_LPEG_PREFIX"),
-        );
-        println!(
-            "cargo:rustc-link-search=native={}",
-            prefix.join("lib").display()
-        );
-        println!("cargo:rustc-link-lib=static=lpeg");
-    }
-
     export_list(&repository, &prefix, &target());
 
     let vmdef = lua_module(&prefix, "vmdef");

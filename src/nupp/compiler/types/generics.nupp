@@ -1788,9 +1788,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         return cached
     end
     local inst = cached or allocateInstantiation(n, map)
-    inst.lpegPattern = n.lpegPattern
-    inst.lpegLibrary = n.lpegLibrary
-    inst.lpegPatternOrigin = n.lpegPatternOrigin
     inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
     inst.fieldDefaults = n.fieldDefaults

@@ -3,29 +3,31 @@ module nupp.tools.doc.html
 --[[
 Markdown as HTML.
 
-The markdown itself is lunamark's, which is a PEG grammar rather than a pile of
-patterns, and so gets the things patterns get wrong: nested emphasis, escapes,
-a link whose URL contains a bracket, a `*` inside a code span.
+The Markdown itself is CommonMark with pipe tables, rendered by the provider in
+[](nupp.tools.doc.markdownhost) -- `pulldown-cmark` on the VM -- which gets the
+things patterns get wrong: nested emphasis, escapes, a link whose URL contains a
+bracket, a `*` inside a code span.
 
-What is not lunamark's is the fenced blocks and `:::` containers. A fence here
+What is not the renderer's is the fenced blocks and `:::` containers. A fence here
 carries more than a language, taking an optional `[caption]` and `:line-numbers`
 with an optional start, and a `::: code-group` gathers several fences into one tabbed
 widget. Note, info, tip, warning, danger, see-also, and deep-dive containers
-become admonitions whose bodies are still rendered by lunamark. Rather than
-teach a markdown grammar about any of that, every custom region is lifted out before
-lunamark sees the document and an HTML comment is left in its place; markdown
-does not touch a comment, so the rendered block goes back exactly where it came
-from afterwards.
+become admonitions whose bodies are still ordinary Markdown. Rather than teach a
+Markdown grammar about any of that, every custom region is lifted out before the
+renderer sees the document and an HTML comment is left in its place; CommonMark
+passes a comment through untouched, so the rendered block goes back exactly where
+it came from afterwards.
 Reading the fences here also avoids the trap of reading them back out of the
 output, where the whole info string has been folded into one class attribute
 and `lua [caption]` no longer matches `lua`.
 
 Headings are the other thing kept: the id is Nupp's own slug, and each carries
-the anchor link the site's stylesheet expects. A heading a generated page ends
-with the kind of what it names -- `` ### `string.format` _function_ `` -- keeps
-that word out of its text and renders it as the badge the module pages carry, so
-the outline beside the page lists the declaration rather than the declaration
-and its kind.
+the anchor link the site's stylesheet expects. The renderer writes a heading as a
+plain `<hN>`; each is rewritten afterwards, in order, from the heading read out of
+the source. A heading a generated page ends with the kind of what it names --
+`` ### `string.format` _function_ `` -- keeps that word out of its text and
+renders it as the badge the module pages carry, so the outline beside the page
+lists the declaration rather than the declaration and its kind.
 ]]
 const {type Links} = require("nupp.tools.doc.urls")
 
@@ -33,7 +35,7 @@ local stringsMod = require("nupp.tools.doc.strings")
 local highlightMod = require("nupp.tools.doc.highlight")
 local urlsMod = require("nupp.tools.doc.urls")
 local syntax = require("nupp.compiler.syntax.docsyntax")
-local utf8 = require("nupp.text.utf8")
+local markdownhost = require("nupp.tools.doc.markdownhost")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId
@@ -379,9 +381,9 @@ local function extractBlocks(text, links, rendered)
 end
 
 -- The slug of each heading, in the order they appear, and the document with the kind
--- badges taken out of them. lunamark hands the writer a heading's rendered content,
--- which is HTML by then; the id has to come from the source text, so it is computed
--- here and matched up by position. A badge is lifted for the same reason -- emphasis
+-- badges taken out of them. The renderer's heading holds rendered content, which is
+-- HTML by then; the id has to come from the source text, so it is computed here and
+-- matched up by position. A badge is lifted for the same reason -- emphasis
 -- the grammar rendered would be part of the heading's text, and the writer puts it back
 -- as a pill once the name has been rendered without it.
 local function headingSlugs(text)
@@ -402,123 +404,56 @@ local function headingSlugs(text)
     return slugs, table.concat(out, "\n")
 end
 
--- One parser, built once: lunamark compiles a PEG grammar, which is not something to do
--- per doc comment. The heading state it reads is reset by every call into markdownHtml,
--- which is the only caller.
-local parse, headings, headingIndex, headingShiftBy = nil, {}, 0, 1
+-- The renderer's `<hN>` headings, in order, rewritten with the id, badge and
+-- anchor the source heading at the same position calls for, and moved down
+-- `shift` levels.
+local function rewriteHeadings(rendered: string, headings: {any}, shift: integer): string
+    local index: integer = 0
+    return (rendered:gsub("<h([1-6])>(.-)</h%1>", function(depth: string, content: string): string
+        index = index + 1
+        local heading = headings[index]
+        local id = heading and heading.id or "section"
+        local label = heading and heading.text or ""
+        local level = tostring(math.min((tonumber(depth) as integer) + shift, 6))
 
--- Lunamark 0.6 asks for the `lua-utf8` rock in two places. Nupp supplies the
--- two operations for the duration of parser construction instead of carrying a
--- native compatibility library in every compiler host. Numeric and named HTML
--- entities use the standard library encoder. Reference labels deliberately fold
--- ASCII only: their non-ASCII UTF-8 bytes are exact and independent of the C
--- locale or of a particular Unicode casing-table revision.
-local function referenceLower(text: string): string
-    return (text:gsub("[A-Z]", function(character: string): string
-        return string.char((string.byte(character) as integer) + 32)
+        return "<h" .. level .. ' id="' .. htmlEscape(
+            id
+        ) .. '">' .. content .. (
+            heading and heading.badge and kindBadge(heading.badge) or ""
+        ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+            id
+        ) .. '" aria-label="Link to ' .. htmlEscape(label) .. '">#</a></h' .. level .. ">"
     end))
 end
 
-local function lunamarkParser(): any
-    local lunamark: any = require("lunamark")
-    local writer = lunamark.writer.html.new()
-    writer.header = function(content, level)
-        headingIndex = headingIndex + 1
-        local heading = headings[headingIndex]
-        local id = heading and heading.id or "section"
-        local label = heading and heading.text or ""
-        level = math.min(level + headingShiftBy, 6)
-
-        return {
-            "<h",
-            level,
-            ' id="',
-            htmlEscape(id),
-            '">',
-            content,
-            heading and heading.badge and kindBadge(heading.badge) or "",
-            '<a class="nuppdoc-header-anchor" href="#',
-            htmlEscape(id),
-            '" aria-label="Link to ',
-            htmlEscape(label),
-            '">#</a></h',
-            level,
-            ">"
-        }
-    end
-
-    return lunamark.reader.markdown.new(writer, {
-        fenced_code_blocks = true,
-        header_attributes = true,
-        pipe_tables = true,
-    })
-end
-
-local function buildParser()
-    local previousPreload = package.preload["lua-utf8"]
-    local previousLoaded = package.loaded["lua-utf8"]
-    package.loaded["lua-utf8"] = nil
-    package.preload["lua-utf8"] = function()
-        return {char = utf8.encode, lower = referenceLower}
-    end
-    local ok, built = pcall(lunamarkParser)
-    rawset(package.preload, "lua-utf8", previousPreload)
-    rawset(package.loaded, "lua-utf8", previousLoaded)
-    if not ok then
-        return nil, built
-    end
-
-    return built
-end
-
 markdownHtml = function(text: string?, links: Links?, headingShift: integer?): string
-    -- A Windows checkout hands the page to us with CRLF endings. The grammar is
-    -- line-oriented, and the fenced-block pass rebuilds its input with LF, so
-    -- normalize before either one sees a stray carriage return.
+    -- A Windows checkout hands the page to us with CRLF endings. The fenced-block
+    -- pass is line-oriented and rebuilds its input with LF, so normalize before it
+    -- sees a stray carriage return.
     text = tostring(text or ""):gsub("\r\n?", "\n")
     if text == "" then
         return ""
     end
-    if not parse then
-        local built, err = buildParser()
-        if not built then
-            error(
-                "nupp doc needs lunamark; declare it as a luarocks "
-                .. "dependency of the docs target and it is installed with "
-                .. "the build ("
-                .. tostring(
-                    err
-                ) .. ")",
-                0
-            )
-        end
-        parse = built
-    end
     local rendered = {}
-    -- The trailing blank line is not decoration: without one lunamark reads the last
-    -- block as a bare run of inline text rather than a paragraph, and a doc comment
-    -- almost never ends with one. Every block then wraps the same way, which is what a
-    -- table cell full of them depends on.
     local prepared = extractBlocks(text .. "\n", links, rendered)
     -- After the fences are lifted out, so that a link written inside a code block is
-    -- code rather than a reference, and before lunamark, so that what it reads is an
-    -- ordinary markdown link by then.
+    -- code rather than a reference, and before the renderer, so that what it reads is
+    -- an ordinary markdown link by then.
     if links then
         prepared = rewriteSymbolLinks(prepared, function(name: string): string?
             return links[name]
         end)
     end
     local slugs, withoutBadges = headingSlugs(prepared)
-    headings, headingIndex, prepared = slugs, 0, withoutBadges
-    headingShiftBy = headingShift == nil and 1 or headingShift
-    -- Annotated because the parser is reached through an untyped rock: without this the
-    -- rendered document arrives as `any` and the replacement pass below narrows it to
-    -- whatever `gsub` handed back second.
-    local out: string = parse(prepared .. "\n")
+    local document, problem = markdownhost.render(withoutBadges .. "\n")
+    if document == nil then
+        error("nupp doc cannot render Markdown: " .. tostring(problem), 0)
+    end
+    local out = rewriteHeadings(document, slugs, headingShift == nil and 1 or headingShift)
     out = out:gsub("<!%-%-nuppdoc%-block%-(%d+)%-%->", function(index)
         -- A block's markup is returned by a function so that a `%` in it is never read
         -- as a capture reference.
-        return rendered[tonumber(index)] or ""
+        return rendered[tonumber(index) as integer] or ""
     end)
 
     return trim(out)

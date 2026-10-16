@@ -20,12 +20,14 @@ name = "nupp-vm"
 path = "src/main.rs"
 
 [features]
-default = ["jit", "c-headers", "native-ffi", "compression", "net", "http"]
+default = ["jit", "c-headers", "native-ffi", "compression", "net", "http", "regex", "markdown"]
 # The native facilities a program may reach. A program binary's runtime links
 # the ones its program does; the compiler's links all of them.
 compression = ["dep:nupp-native-compression"]
 net = ["dep:nupp-native-net", "dep:nupp-native-tls"]
 http = ["dep:nupp-native-http", "dep:url"]
+regex = ["dep:regex"]
+markdown = ["dep:pulldown-cmark"]
 # Optional in-process C declaration inspection for compiler hosts.
 c-headers = ["dep:libloading", "dep:serde_json"]
 # Dynamic native C calls and callback trampolines.
@@ -68,6 +70,12 @@ cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
 sha2 = "0.10"
 crc32fast = "1.5"
+# `nupp.text.regex`: matching beyond Lua patterns (`src/nregex.rs`).
+regex = { version = "1.13", optional = true }
+# `nupp doc`: CommonMark with tables rendered to HTML (`src/nmarkdown.rs`).
+# Added 2026-10-16 at 0.13.4 to replace lunamark, which needed LPeg; only the
+# HTML writer is enabled, not the command-line tool's getopts.
+pulldown-cmark = { version = "0.13.4", optional = true, default-features = false, features = ["html"] }
 libc = "0.2"
 
 # Initial experiment targets. Other targets retain the default allocator.

@@ -465,7 +465,7 @@ local defaults = [[
 ]]
 ```
 
-The bundled VS Code extension recognizes JSON, GLSL, Lua, Nupp, and PEG when the
+The bundled VS Code extension recognizes JSON, GLSL, Lua, and Nupp when the
 initializer is a long string; other names remain available to tools that
 understand them. See [editors.md](../learn/tooling/editors.md#visual-studio-code) for
 what the extension provides.

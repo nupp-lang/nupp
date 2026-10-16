@@ -328,20 +328,24 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
         [
             "src/main.nupp"
         ] = [[
-const Matcher: nupp.peg.Peg<integer> = comptime do
-    return nupp.peg.compile("'ok'")
+local record Position
+    x: number
 end
 
-return Matcher("ok")
+const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    return nupp.reflect.fieldCodec(nupp.reflect(Position))
+end
+
+return PositionCodec:encode(new Position(x = 1))
 ]],
     })
     local cold, coldStats = {}, {}
     testAssert.equal(project.build(dir, {produced = cold, stats = coldStats}), 0)
     testAssert.equal(#cold.materializations, 1, "the cold build reports its materialization")
     local observation = cold.materializations[1]
-    testAssert.equal(observation.provider, "peg", "provider observation")
-    testAssert.equal(observation.schema, 5, "provider schema")
-    testAssert.equal(observation.backend, "auto", "selected backend")
+    testAssert.equal(observation.provider, "fieldcodec", "provider observation")
+    testAssert.equal(observation.schema, 2, "provider schema")
+    testAssert.equal(observation.backend, "keyed", "selected backend")
     assert(observation.blueprintSize > 0 and observation.generatedSize > 0, "bounded sizes are reported")
     testAssert.equal(observation.abis.runtimeExpression, 2, "runtime-expression ABI")
     testAssert.equal(observation.blueprint, nil, "the public record omits the canonical payload")
@@ -1043,7 +1047,7 @@ function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
     records[linux] = originalLinux
     write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
 
-    write(dir .. "/main.nupp", 'local lpeg = require("lpeg")\nreturn lpeg\n')
+    write(dir .. "/main.nupp", 'local workers = require("nupp.workers")\nreturn workers\n')
     testAssert.equal(
         project.build(dir, {
             platform = linux
@@ -1253,7 +1257,7 @@ return {
    build = {targets = {site = {
       kind = "docs", sources = {"src"}, dependencies = {"lunamark"},
       format = "both", name = "N", github = "https://example.com",
-      logo = "l.svg", public = "p", customCss = "c.css", lexers = "lx",
+      logo = "l.svg", public = "p", customCss = "c.css",
       includePrivate = true,
       pages = {{path = "", title = "H", layout = "home", source = "i.md",
          redirects = {"old"}}, {glob = {"docs/**.md"}, base = "docs",
@@ -1287,16 +1291,16 @@ return {include = {"src"}, build = {targets = {app = {
         return config, err, task
     end
 
-    local config, err, task = load("{lpeg = true, path = true, uuid = false}")
+    local config, err, task = load("{json = true, path = true, uuid = false}")
     assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
-    testAssert.equal(task.nativeFeatures.lpeg, true, "task reports forced inclusion")
+    testAssert.equal(task.nativeFeatures.json, true, "task reports forced inclusion")
     testAssert.equal(task.nativeFeatures.path, true, "new native providers can be forced in")
     testAssert.equal(task.nativeFeatures.uuid, false, "new native providers can be forced out")
 
     local _, unknown = load("{jsoon = true}")
     assert(unknown and unknown:find("nativeFeatures names no feature jsoon", 1, true), tostring(unknown))
-    local _, wrongType = load("{lpeg = 'yes'}")
-    assert(wrongType and wrongType:find("nativeFeatures.lpeg must be true or false", 1, true), tostring(wrongType))
+    local _, wrongType = load("{json = 'yes'}")
+    assert(wrongType and wrongType:find("nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
 end
 
 function M.subprocessPreservesEmptyArguments()

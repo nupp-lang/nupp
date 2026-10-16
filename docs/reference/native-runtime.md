@@ -18,7 +18,7 @@ The boundary is deliberately narrow:
 | language and compiler | Nupp | types, effects, ownership, suspension policy, feature selection, AOT analysis and emission |
 | native provider | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes, and GPU resources |
 | host | Rust | payload discovery, LuaJIT state lifetime, native preload registration, workers, components, embedding handles, and shutdown |
-| VM and compatibility modules | C | LuaJIT and the retained LPeg module |
+| VM | C | LuaJIT |
 | generated AOT | C, platform object code, or shader code | compiler-admitted kernels and their bindings |
 
 Rust resources cross into LuaJIT as fixed-width values and generational
@@ -47,7 +47,6 @@ GPU-free program does not acquire WGPU.
 | child processes and pipes | `process` | `native-process` |
 | native GPU compute | `gpu` | provider archive |
 | workers and shared immutable bytes | host-owned | `workers` |
-| `nupp.peg`, raw `lpeg`, and `re` | retained LPeg | `lpeg` |
 
 `tls` includes the Rust network implementation, and the compiler's HTTP effect
 closure also selects URI handling. Builds stage the provider ABI in a dynamic
@@ -143,8 +142,6 @@ Rust is the default language for repository-owned native mechanisms, not a
 claim that every executable byte is Rust. Native builds still retain:
 
 - pinned LuaJIT, its allocator, garbage collector, JIT, stack, and C API;
-- LPeg 1.1 for `nupp.peg`, raw `lpeg` and `re` compatibility, and compiler
-  documentation parsing;
 - `native/crates/host/c/lua_shim.c` and `worker_shim.c`, which contain the
   protected LuaJIT stack, userdata, callback, and longjmp boundary while Rust
   owns every persistent host and worker resource;

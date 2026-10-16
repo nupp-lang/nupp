@@ -31,6 +31,10 @@ pub mod ncompression;
 pub mod nnet;
 #[cfg(feature = "http")]
 pub mod nhttp;
+#[cfg(feature = "regex")]
+mod nregex;
+#[cfg(feature = "markdown")]
+mod nmarkdown;
 
 // A runtime built without a facility still names its builtins, so an image
 // that reaches one loads; the call says which facility this runtime lacks.
@@ -59,6 +63,19 @@ pub mod nhttp {
     }
     pub fn parse_uri(it: &mut crate::interp::Interp, _: &[crate::value::Value]) -> crate::builtins::Outs {
         it.err("this runtime was built without HTTP")
+    }
+}
+#[cfg(not(feature = "regex"))]
+mod nregex {
+    pub fn call(it: &mut crate::interp::Interp, _: &str, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without regular expressions")
+    }
+    pub fn install(_: &mut crate::interp::Interp) {}
+}
+#[cfg(not(feature = "markdown"))]
+mod nmarkdown {
+    pub fn call(it: &mut crate::interp::Interp, _: &str, _: &[crate::value::Value]) -> crate::builtins::Outs {
+        it.err("this runtime was built without Markdown")
     }
 }
 pub mod utf8lib;
@@ -101,8 +118,6 @@ pub mod sharing;
 mod worker_context;
 
 mod coroutines;
-
-mod lpeg;
 
 mod strbuf;
 

@@ -1,0 +1,24 @@
+-- The regular-expression primitives the VM's regex provider is written over:
+-- the `regex` crate's byte-oriented engine. A compiled expression is an opaque
+-- host value. Positions are 1-based and inclusive, as `string.find` reports
+-- them, and `init` follows `string.find`'s rules.
+local record Host
+    compile: function(pattern: string, flags: integer): (any?, string?)
+    isMatch: function(expression: any, subject: string, init: integer?): boolean
+    find: function(expression: any, subject: string, init: integer?): (integer?, integer?)
+
+    --- Each group's first and last byte in pairs, the whole match first; a
+    --- group that did not take part holds 0 and 0.
+    captures: function(expression: any, subject: string, init: integer?): {integer}?
+
+    --- How many groups follow the whole match, and each named group's number.
+    groups: function(expression: any): (integer, {[string]: integer})
+
+    replace: function(expression: any, subject: string, replacement: string, limit: integer): (string, integer)
+    escape: function(text: string): string
+
+    --- Each successive non-overlapping match's first and last byte in pairs,
+    --- at most `limit` of them (every one when `limit` is 0).
+    findAll: function(expression: any, subject: string, init: integer?, limit: integer): {integer}
+end
+return Host

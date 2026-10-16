@@ -252,13 +252,10 @@ their Lua adapters but stage no native artifact. At `-O1` and above the build
 recomputes these effects from the post-folding tree, so a use found only in a
 constant-dead branch or loop is removed with that code.
 
-The registry also recognizes compiler-provided modules. `require("lpeg")`
-selects native LPeg 1.1, while `require("re")` selects the bundled official Lua
-frontend and implies LPeg. Every `nupp.peg` matcher also selects LPeg: Nupp may
-emit a faster kernel for a recognized static graph, but the typed matcher shell
-and general lowering share the same native feature. A local table named `nupp`,
-or a computed `require`, does not claim a compiler feature: only the resolved
-global path and literal module name do.
+The registry also recognizes compiler-provided modules: `require("nupp.codec.json")`
+selects the native JSON provider. A local table named `nupp`, or a computed
+`require`, does not claim a compiler feature: only the resolved global path and
+literal module name do.
 
 ### Feature overrides
 
@@ -270,16 +267,14 @@ keeps the detected answer.
 ```lua
 nativeFeatures = {
    json = true,
-   lpeg = true,
    uuid = true
 }
 ```
 
-The forceable binary feature names are `json`, `lpeg`, `path`,
-`uri`, `uuid`, `files`, `process`, `workers`, and `http`. The registered module
-effects include `nupp.codec.json`, native `lpeg`, and the Lua `re`
-module that requires it. Bundled LuaRock modules are checked too, so Lunamark
-contributes LPeg even when application source does not require it directly.
+The forceable binary feature names are `json`, `path`, `uri`, `uuid`, `files`,
+`process`, `workers`, and `http`. The registered module effects include
+`nupp.codec.json`. Bundled LuaRock modules are checked too, so a rock that
+requires a provider contributes it even when application source does not.
 Forced removal is an expert escape hatch:
 if reachable code still requires that provider, the resulting program fails at
 runtime in the usual way.
@@ -423,9 +418,7 @@ so a sysroot remains relocatable after the archive is installed elsewhere.
 Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
 Ship the target's `lib` directory with a binary unless its selected stub links
 the provider itself; a Lua payload cannot embed a shared library. A one-file
-`bundle` target rejects providers that need sidecars. Host-supplied modules such
-as LPeg remain ordinary `require` dependencies and must be available in the
-runtime that loads the bundle. See
+`bundle` target rejects providers that need sidecars. See
 [distribution.md](../../reference/distribution.md#limits) for what a stamped
 binary can and cannot carry.
 
@@ -467,12 +460,11 @@ The keys the target itself reads:
 | `favicon` | Icon linked from every page |
 | `public` | Directory copied to the output root, for images and downloads |
 | `customCss` | Stylesheet appended after the default theme |
-| `lexers` | Directory of project Scintillua lexers, searched before the bundled ones |
 | `includePrivate` | Renders what privacy rules hide: unexported declarations, internal modules, and private members |
 | `pages` | Handwritten pages: a `glob` over a tree, a `directory`, or one `source` at one `path` |
 | `diagnostics` | The generated diagnostic index, and the page it is appended to |
 | `stdlib` | The generated LuaJIT standard library page |
-| `dependencies` | Rocks to install before rendering, `lunamark` among them |
+| `dependencies` | Rocks to install before rendering |
 
 The appended `customCss` overrides the documented `--nuppdoc-*` custom
 properties without changing other documentation targets. A page entry also
@@ -967,14 +959,14 @@ two search-path entries that reach it.
 ```lua
 dependencies = {
    -- From the LuaRocks server, at the version named here.
-   lunamark = {
+   penlight = {
       kind = "luarocks",
-      version = "0.6.0-1"
+      version = "1.14.0-3"
    },
    -- From a rockspec in the project, for a library upstream does not publish.
-   scintillua = {
+   mylib = {
       kind = "luarocks",
-      rockspec = "rocks/scintillua-6.7-1.rockspec"
+      rockspec = "rocks/mylib-1.0-1.rockspec"
    },
    -- From sources that ship with the project: `luarocks make`, no fetch.
    tinyrock = {
@@ -1050,17 +1042,16 @@ A bundle and a binary are one file, and one file cannot bring a rock tree along.
 into:
 
 ```lua
-lunamark = {
+penlight = {
    kind = "luarocks",
-   version = "0.6.0-1",
-   bundle = { "lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua",
-      "re.lua" }
+   version = "1.14.0-3",
+   bundle = { "pl/**.lua" }
 }
 ```
 
 Each selected file becomes a `package.preload` entry under the name `require`
-would have found it by in the tree, so `lunamark/writer/html.lua` becomes
-`lunamark.writer.html`, and a `foo/init.lua` becomes `foo`. The same `require`
+would have found it by in the tree, so `pl/stringx.lua` becomes `pl.stringx`,
+and a `foo/init.lua` becomes `foo`. The same `require`
 therefore resolves in a checkout, in a bundle, and in a stamped binary, and the
 program cannot tell which it is running in.
 
@@ -1129,8 +1120,7 @@ rather than leaving that to be inferred from how long it took.
 
 ### Can a one-file bundle carry a native library?
 
-No. A bundle contains Lua chunks. It can require a host-supplied module such as
-LPeg, but cannot embed a shared library. A binary that uses native providers
+No. A bundle contains Lua chunks, and cannot embed a shared library. A binary that uses native providers
 ships their sidecars or links them into its host. See
 [distribution.md](../../reference/distribution.md#limits) for the whole boundary.
 

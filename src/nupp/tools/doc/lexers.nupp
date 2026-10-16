@@ -1,0 +1,368 @@
+module nupp.tools.doc.lexers
+
+--[[
+Token styles for the fence languages a technical document actually uses that
+are not Nupp or Lua: shell, PowerShell, JSON, TOML, C, Rust, ABNF and diffs.
+
+Nupp and Lua are highlighted by the compiler's own lexer and parser, which know
+both languages exactly. These are not grammars. Each language is a small table
+-- its comment and string delimiters and its keywords -- read by one scanner,
+and a construct the table does not describe is left uncoloured rather than
+guessed at. A fence in any other language renders as plain escaped text.
+]]
+
+local lexers = {}
+
+--- A run of source and the style it carries, covering every byte in order. A
+--- run with no style is whitespace or text the language table does not colour.
+type lexers.Span = {
+    text: string,
+    style: string?
+}
+
+--- What one language's scanner looks for.
+local type Spec = {
+    lineComments: {string}?,
+    blockComments: {{string}}?,
+
+    --- `#` starts a comment only where a word could start, as in a shell.
+    wordComments: boolean?,
+    quotes: string?,
+
+    --- A backslash escapes the next character inside a string.
+    escapes: boolean?,
+    keywords: {[string]: boolean}?,
+    constants: {[string]: boolean}?,
+    types: {[string]: boolean}?,
+
+    --- Keywords match without regard to case.
+    foldCase: boolean?,
+
+    --- `$name` and `${...}` are variables.
+    variables: boolean?,
+
+    --- A line whose first non-blank character is `#` is a directive.
+    directives: boolean?,
+
+    --- A string directly followed by `:` is a key.
+    stringKeys: boolean?,
+
+    --- A bare word followed by `=` at the start of a line is a key.
+    lineKeys: boolean?,
+
+    --- The first word of a command is the command, as in a shell.
+    commands: boolean?,
+
+    --- Characters a word may contain past its first.
+    word: string?
+}
+
+local function set(words: string): {[string]: boolean}
+    local out: {[string]: boolean} = {}
+    for word in words:gmatch("%S+") do
+        out[word] = true
+    end
+
+    return out
+end
+
+local SHELL: Spec = {
+    wordComments = true,
+    quotes = "\"'`",
+    escapes = true,
+    keywords = set(
+        "if then else elif fi for while until do done case esac in function select return break continue export local readonly unset set shift exit source"
+    ),
+    variables = true,
+    commands = true,
+    word = "[%w_%-%.%/]",
+}
+
+local POWERSHELL: Spec = {
+    lineComments = {"#"},
+    blockComments = {{"<#", "#>"}},
+    quotes = "\"'",
+    keywords = set(
+        "if elseif else foreach for while do until switch function param return break continue throw try catch finally begin process end in"
+    ),
+    constants = set("$true $false $null"),
+    foldCase = true,
+    variables = true,
+    commands = true,
+    word = "[%w_%-]",
+}
+
+local JSON: Spec = {quotes = "\"", escapes = true, constants = set("true false null"), stringKeys = true,}
+
+local TOML: Spec = {
+    lineComments = {"#"},
+    quotes = "\"'",
+    escapes = true,
+    constants = set("true false inf nan"),
+    lineKeys = true,
+    word = "[%w_%-%.]",
+}
+
+local C: Spec = {
+    lineComments = {"//"},
+    blockComments = {{"/*", "*/"}},
+    quotes = "\"'",
+    escapes = true,
+    keywords = set(
+        "auto break case const continue default do else enum extern for goto if inline register restrict return sizeof static struct switch typedef union volatile while class namespace template typename public private protected virtual new delete using"
+    ),
+    types = set(
+        "void char short int long float double signed unsigned bool size_t ssize_t int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t uintptr_t intptr_t"
+    ),
+    constants = set("true false NULL nullptr"),
+    directives = true,
+}
+
+local RUST: Spec = {
+    lineComments = {"//"},
+    blockComments = {{"/*", "*/"}},
+    quotes = "\"",
+    escapes = true,
+    keywords = set(
+        "as async await break const continue crate dyn else enum extern fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait type unsafe use where while"
+    ),
+    types = set(
+        "bool char str u8 u16 u32 u64 u128 usize i8 i16 i32 i64 i128 isize f32 f64 String Vec Option Result Box"
+    ),
+    constants = set("true false None Some Ok Err"),
+}
+
+local ABNF: Spec = {lineComments = {";"}, quotes = "\"", lineKeys = true, word = "[%w%-]",}
+
+local SPECS: {
+    [string]: Spec
+} = {
+    bash = SHELL,
+    sh = SHELL,
+    shell = SHELL,
+    console = SHELL,
+    zsh = SHELL,
+    powershell = POWERSHELL,
+    ps1 = POWERSHELL,
+    json = JSON,
+    jsonc = JSON,
+    toml = TOML,
+    c = C,
+    h = C,
+    cpp = C,
+    ["c++"] = C,
+    rust = RUST,
+    rs = RUST,
+    abnf = ABNF,
+}
+
+local function startsWith(source: string, at: integer, prefix: string): boolean
+    return source:sub(at, at + #prefix - 1) == prefix
+end
+
+-- Where a quoted run that opens at `at` ends, inclusive; the end of the source
+-- when it never closes.
+local function stringEnd(source: string, at: integer, quote: string, escapes: boolean): integer
+    local index: integer = at + 1
+    while index <= #source do
+        local char = source:sub(index, index)
+        if escapes and char == "\\" then
+            index = index + 2
+        elseif char == quote then
+            return index
+        else
+            index = index + 1
+        end
+    end
+
+    return #source
+end
+
+local function keywordStyle(spec: Spec, word: string): string?
+    local key = spec.foldCase and word:lower() or word
+    if spec.keywords and spec.keywords[key] then
+        return "keyword"
+    elseif spec.constants and spec.constants[key] then
+        return "boolean"
+    elseif spec.types and spec.types[key] then
+        return "type"
+    end
+
+    return nil
+end
+
+local function scan(source: string, spec: Spec): {lexers.Span}
+    local spans: {lexers.Span} = {}
+
+    local function emit(text: string, style: string?)
+        if text ~= "" then
+            spans[#spans + 1] = {text = text, style = style}
+        end
+    end
+
+    local wordPattern = spec.word or "[%w_]"
+    local index: integer = 1
+    -- Whether nothing but blanks precede `index` on its line, and whether the
+    -- next word starts a command.
+    local lineStart, commandNext = true, true
+    while index <= #source do
+        local char = source:sub(index, index)
+        local handled = false
+        if char == "\n" then
+            emit(char)
+            index = index + 1
+            lineStart, commandNext = true, true
+            handled = true
+        elseif char:match("%s") then
+            local blank = source:match("^[ \t\r]+", index) as string
+            emit(blank)
+            index = index + #blank
+            handled = true
+        end
+        if not handled and spec.directives and lineStart and char == "#" then
+            local line = source:match("^[^\n]*", index) as string
+            emit(line, "meta")
+            index = index + #line
+            handled = true
+        end
+        if not handled then
+            for _, prefix in ipairs(spec.lineComments or {}) do
+                if startsWith(source, index, prefix) then
+                    local line = source:match("^[^\n]*", index) as string
+                    emit(line, "comment")
+                    index = index + #line
+                    handled = true
+                    break
+                end
+            end
+        end
+        if not handled and spec.wordComments and char == "#" then
+            local previous = index > 1 and source:sub(index - 1, index - 1) or " "
+            if previous:match("[%s;|&(]") then
+                local line = source:match("^[^\n]*", index) as string
+                emit(line, "comment")
+                index = index + #line
+                handled = true
+            end
+        end
+        if not handled then
+            for _, pair in ipairs(spec.blockComments or {}) do
+                if startsWith(source, index, pair[1]) then
+                    local close = source:find(pair[2], index + #pair[1], true)
+                    local last = close and close + #pair[2] - 1 or #source
+                    emit(source:sub(index, last), "comment")
+                    index = last + 1
+                    handled = true
+                    break
+                end
+            end
+        end
+        if not handled and spec.quotes and spec.quotes:find(char, 1, true) then
+            local last = stringEnd(source, index, char, spec.escapes == true)
+            local text = source:sub(index, last)
+            local key = spec.stringKeys and source:match("^%s*:", last + 1) ~= nil
+            emit(text, key and "property" or "string")
+            index = last + 1
+            handled = true
+        end
+        if not handled and spec.variables and char == "$" then
+            local braced = source:match("^%${[^}\n]*}?", index)
+            local named = braced or source:match("^%$[%w_]+", index) or source:match("^%$[%?#@%*!%$%-0-9]", index)
+            if named then
+                local text = named as string
+                emit(text, keywordStyle(spec, text) or "variable")
+                index = index + #text
+                commandNext = false
+                handled = true
+            end
+        end
+        if not handled and char:match("%d") then
+            local number = source:match("^%d[%w%.]*", index) as string
+            emit(number, "number")
+            index = index + #number
+            handled = true
+        end
+        if not handled and char:match("[%a_]") then
+            local word = source:match("^[%a_]" .. wordPattern .. "*", index) as string
+            local style = keywordStyle(spec, word)
+            if not style and spec.lineKeys and lineStart and source:match("^%s*=", index + #word) then
+                style = "property"
+            elseif not style and spec.commands and commandNext then
+                style = "function"
+            elseif not style and source:match("^%(", index + #word) then
+                style = "function"
+            end
+            emit(word, style)
+            index = index + #word
+            -- A keyword such as `then` or `do` leaves the next word a command.
+            commandNext = style == "keyword"
+            handled = true
+        end
+        if not handled then
+            emit(char, char:match("[%p]") and "operator" or nil)
+            index = index + 1
+            if spec.commands and (char == "|" or char == ";" or char == "&" or char == "(") then
+                commandNext = true
+            end
+        end
+        if char ~= " " and char ~= "\t" and char ~= "\n" then
+            lineStart = false
+        end
+    end
+
+    return spans
+end
+
+-- A unified diff, a line at a time: what it adds, removes and where.
+local function diff(source: string): {lexers.Span}
+    local spans: {lexers.Span} = {}
+    for line, ending in source:gmatch("([^\n]*)(\n?)") do
+        if line == "" and ending == "" then
+            break
+        end
+        local style: string? = nil
+        if line:match("^@@") or line:match("^diff ") or line:match("^index ") then
+            style = "meta"
+        elseif line:match("^%+%+%+") or line:match("^%-%-%-") then
+            style = "keyword"
+        elseif line:match("^%+") then
+            style = "string"
+        elseif line:match("^%-") then
+            style = "comment"
+        end
+        spans[#spans + 1] = {text = line, style = style}
+        if ending ~= "" then
+            spans[#spans + 1] = {text = ending}
+        end
+    end
+
+    return spans
+end
+
+--- Whether a fence language has a table here.
+--- @param language the fence's language, as written
+--- @return whether `spans` can colour it
+function lexers.knows(language: string): boolean
+    local name = language:lower()
+    return SPECS[name] ~= nil or name == "diff" or name == "patch"
+end
+
+--- Splits a source into styled runs.
+--- @param source the code
+--- @param language the fence's language, as written
+--- @return the runs, covering every byte in order, or nil for a language with no
+---     table here
+function lexers.spans(source: string, language: string): {lexers.Span}?
+    local name = language:lower()
+    if name == "diff" or name == "patch" then
+        return diff(source)
+    end
+    local spec = SPECS[name]
+    if not spec then
+        return nil
+    end
+
+    return scan(source, spec)
+end
+
+export = lexers

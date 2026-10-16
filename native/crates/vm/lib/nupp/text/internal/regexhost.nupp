@@ -1,0 +1,12 @@
+@!internal
+module nupp.text.internal.regexhost
+
+--[[
+The VM's engine behind [](nupp.text.regex): the `regex` crate, which the
+runtime installs as `nupp.vm.regex`. The checkout's own copy of this module
+answers that no engine is available; this one replaces it on the VM.
+]]
+
+const host = require("nupp.vm.regex")
+
+export = host

@@ -44,32 +44,6 @@ The same rule reaches `nupp.lua`: the pinned release reads that manifest, so a
 manifest key it does not know about fails every build before anything is
 compiled.
 
-### The development rock tree
-
-`.rocks` holds the rocks this repository develops against -- lunamark and
-scintillua for the documentation site, and what those pull in. It is ignored,
-so a fresh checkout has none, and the suites that need one fail rather than
-skip, reading as missing modules. The documentation build writes it, as CI
-does:
-
-```sh
-./bin/nupp build --target docs
-```
-
-LuaRocks itself comes from `scripts/toolchain luarocks` and `bin/nupp` finds it
-there, so nothing has to be installed on the machine first.
-
-A worktree never builds its own: `bin/nupp` and `tests/run` link the
-originating checkout's tree on first use, whether the worktree came from the
-helper below or from a bare `git worktree add`. So provision the checkout, and
-a worktree is provisioned by the same act. An existing `.rocks` is never
-replaced, a link that is dangling included.
-
-That leaves one case where those suites still fail as missing modules: a main
-checkout nobody has run the documentation build in. It is the case the build
-above answers, and linking is deliberately declined there rather than
-reaching for whatever a parent directory holds.
-
 ### Worktree setup
 
 Use the repository helper so a new worktree seeds the content-validated
@@ -85,9 +59,8 @@ When `sccache` is installed, `bin/nupp`, `scripts/toolchain` and
 Rust dependency once; set it yourself for direct `cargo` commands.
 
 Use task-specific branch and directory names. Never replace an existing
-cache or `.rocks` path; inspect it instead. Run subsequent Nupp commands from
-the task worktree. Removing the completed worktree removes its `.rocks`
-symlink and local seeded caches, not the originating checkout's dependencies or
+cache path; inspect it instead. Run subsequent Nupp commands from the task
+worktree. Removing the completed worktree removes its local seeded caches, not
 the repository-wide native cache.
 
 Remove your own worktree once its work has landed on `main`, and not before: a
