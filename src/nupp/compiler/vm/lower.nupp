@@ -70,7 +70,8 @@ function lower.emit(
     environment: boolean?,
     listing: table?,
     layoutTarget: string?,
-    coverage: lower.CoverageRequest?
+    coverage: lower.CoverageRequest?,
+    reuse: table?
 ): string
     local out = {}
     local assignedNames = {}
@@ -129,6 +130,12 @@ function lower.emit(
     -- (`function R:m()`, `x is R`).
     local shapes, shapeOrder = {}, {}
     local shapesByNominal = setmetatable({}, {__mode = "k"})
+    -- Reusing modules lowered by an earlier emit (`nupp.compiler.vm.relink`):
+    -- the shape registry is read and written through its recording proxies.
+    local linker = reuse and require("nupp.compiler.vm.relink").new(reuse) or nil
+    if linker then
+        shapes, shapesByNominal = linker.watch(shapes, shapesByNominal, shapeOrder)
+    end
     local currentModule = nil
     local nativePlans = {}
 
@@ -4908,6 +4915,21 @@ function lower.emit(
             return
         end
         local runtime = coverage and name == COVERAGE_RUNTIME
+        -- A kept fragment carries no coverage probes, so a covered emit lowers.
+        local kept = linker and not coverage and linker.fragment(name, path)
+        if kept then
+            for _, entry in ipairs(kept.deps) do
+                local dep = type(entry) == "table" and entry.name or entry
+                local depPath = modulePath(dep, type(entry) == "table")
+                if depPath then
+                    compileModule(dep, depPath)
+                end
+            end
+            if linker.replay(name, kept, functions, modules, moduleOrder, pendingModules) then
+                currentModule = name
+                return
+            end
+        end
         local tree: table = runtime
             and require("nupp.compiler.syntax.parser").parse(COVERAGE_RUNTIME_SOURCE, "=(coverage)").root as table
             or check(name, path)
@@ -4953,6 +4975,7 @@ function lower.emit(
         end
         currentModule = name
         covered = moduleCoverage
+        local capture = linker and not coverage and linker.begin(name, #functions, #pendingModules)
         nativePlans = require("nupp.compiler.vm.native").plans(rootNode)
         for _, s in ipairs(stats) do
             if s.kind == "recordDecl" or s.kind == "cdefStruct" then
@@ -5071,6 +5094,9 @@ function lower.emit(
         modules[name] = chunk
         moduleOrder[#moduleOrder + 1] = name
         covered = nil
+        if capture then
+            linker.finish(capture, chunk.id, #functions, deps, pendingModules)
+        end
     end
 
     for _, name in ipairs(extras) do
@@ -5109,6 +5135,11 @@ function lower.emit(
         emit(table.concat(parts, " "))
     end
     for _, f in ipairs(functions) do
+        if f.rendered then
+            -- A function a kept module's replay placed, already relocated.
+            emit(f.rendered)
+            goto continue
+        end
         local inspected = nil
         local firstOut = #out + 1
         if listing and f.module == entryName then
@@ -5184,6 +5215,10 @@ function lower.emit(
             -- inspector shows of the image without the rest of the graph.
             inspected.image = table.concat(out, "\n", firstOut, #out)
         end
+        if linker then
+            linker.wrote(f, out, firstOut)
+        end
+        ::continue::
     end
     -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
     -- and error positions. A chunk's own name (`=name` or `@path`) is kept.
@@ -5195,6 +5230,11 @@ function lower.emit(
         emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))
     end
     emit("entry " .. modules[entryName].id)
+    if linker then
+        linker.keep(functions)
+        local reused: any = reuse
+        reused.stats = linker.stats
+    end
     local result = table.concat(out, "\n") .. "\n"
     if os.getenv("EMIT_SURVEY") then
         local rows = {};

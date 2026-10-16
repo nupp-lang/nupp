@@ -1,0 +1,876 @@
+module nupp.tools.vm.emitcache
+
+--[[
+What a VM image emit keeps for the next one.
+
+`nupp.compiler.vm.relink` replays a module's lowering when it is handed the
+fragment an earlier emit kept for it. This decides when a fragment may be
+handed back, which is when the checked tree the module was lowered from would
+come out the same: its own bytes, and everything its check read, unchanged.
+
+What a check reads besides its source is the environment: the modules it loads
+(`env.loaded`), and the project index it consults to resolve names. Every
+check made while an emit runs -- the explicit check of a module being lowered,
+and the environment's own check of each module loaded on the way -- is
+bracketed, and each records the modules it read and the index entries it
+looked up. A module the environment checked also gets its interface encoded
+the way a parallel check worker hands one to another
+(`nupp.compiler.project.interfaceimage`), kept, and digested with source
+positions left out, so a body edit that leaves the interface alone leaves the
+digest alone.
+
+A module whose bytes and recorded reads are unchanged, and whose dependencies
+are all in that state too, is clean: its recorded interface stands without a
+check. When a check needs a clean module, its kept interface is decoded into
+this run's identities and installed as what the environment loaded, so
+checking a changed module costs that module, not everything it requires. Any
+other module a check needs is checked as before.
+
+A kept fragment carries the interface digest of every module in its check's
+closure, and the index answers that closure looked up, as they were when it
+was lowered. It is handed back when each of those is still what it was: a
+clean module's recorded digest, and a changed module's from checking it now.
+That is the cutoff: an edit to a function body checks that module and nothing
+that requires it.
+
+The stamp is everything outside the key that lowering depends on: the
+subsystem of the compiler that checks and lowers (`nupp.tools.vm.project` and
+what it requires), the declarations it carries, the manifest's value, the
+search roots, the layout target. Like every store this is plain data, never
+load-bearing: a miss lowers from source, which is what an emit did before.
+]]
+
+local fs = require("nupp.compiler.fs")
+local storeMod = require("nupp.compiler.project.store")
+local fingerprint = require("nupp.compiler.project.fingerprint")
+local envMod = require("nupp.compiler.project.env")
+local checkMod = require("nupp.compiler.check")
+local interfaceimage = require("nupp.compiler.project.interfaceimage")
+local T = require("nupp.compiler.types")
+
+local emitcache = {}
+
+--- Bumped when what is kept changes shape or meaning.
+const FORMAT = "vm-root-emit/1"
+
+--- Variables that make an emit report or stub as it goes. A replay would skip the
+--- report, so an emit asked for one keeps nothing.
+const REPORTING = {"EMIT_SURVEY", "EMIT_TRACE", "EMIT_STUBS", "DEBUG_REGS"}
+
+--- The index tables a check looks names up in, by key.
+const INDEX_TABLES = {
+    "byName",
+    "byPath",
+    "modules",
+    "annotationsByName",
+    "moduleBasenames",
+    "declaredModules",
+    "internalModules",
+    "internalTrees",
+    "moduleDefinitions",
+}
+
+--- What the last session did, for tests and the emit's summary line.
+emitcache.last = nil as any
+
+--- Writes `value` as text two equal values spell the same way. Keys are visited
+--- sorted; `skip` names keys left out.
+local function canonical(value: any, out: {string}, skip: {[string]: boolean}?, depth: integer?): nil
+    local kind = type(value)
+    if kind == "string" then
+        out[#out + 1] = "s" .. tostring(#(value as string)) .. ":" .. (value as string)
+    elseif kind == "number" then
+        out[#out + 1] = "n" .. ("%.17g"):format(value as number)
+    elseif kind == "boolean" or kind == "nil" then
+        out[#out + 1] = kind:sub(1, 1) .. tostring(value)
+    elseif kind == "table" then
+        if depth ~= nil and depth <= 0 then
+            out[#out + 1] = "{...}"
+            return
+        end
+        local keys: {any} = {}
+        for key in pairs(value as table) do
+            if not (skip and type(key) == "string" and skip[key as string]) then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys, function(left: any, right: any): boolean
+            local a = type(left) .. ":" .. tostring(left)
+            local b = type(right) .. ":" .. tostring(right)
+            return a < b
+        end)
+        out[#out + 1] = "{"
+        for _, key in ipairs(keys) do
+            canonical(key, out, skip, nil)
+            out[#out + 1] = "="
+            canonical((value as table)[key], out, skip, depth and depth - 1 or nil)
+            out[#out + 1] = ","
+        end
+        out[#out + 1] = "}"
+    else
+        out[#out + 1] = "<" .. kind .. ">"
+    end
+end
+
+-- An index answer as text: what a header says about each declaration, without the
+-- positions and the types it was given, which the declaring module's check fills in.
+const INDEX_SKIP: {[string]: boolean} = {token = true, type = true, definition = true, moduleToken = true}
+
+local function indexText(value: any): string
+    local out: {string} = {}
+    canonical(value, out, INDEX_SKIP, 4)
+
+    return table.concat(out)
+end
+
+-- Tables that are copies of a source token: their positions say where, not what.
+const POSITION_KEYS: {[string]: boolean} = {line = true, col = true, offset = true}
+
+--- An interface image as text two checks agree on whenever a dependent's check could
+--- not tell their modules apart: positions dropped from the tokens it copies, and the
+--- offsets in identities this module declares (`path NUL offset NUL kind`, a binder's
+--- `path:offset:name`) replaced by their order. An edit that moves declarations
+--- without adding, removing or reordering any leaves this text alone.
+local function interfaceText(image: any, path: string): string
+    local escaped = path:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+    local pattern = "(" .. escaped .. "[:%z])(%d+)([:%z])"
+    local offsets: {[string]: boolean} = {}
+
+    local function collect(value: any): nil
+        if type(value) == "string" then
+            for _, digits in (value as string):gmatch(pattern) do
+                offsets[digits as string] = true
+            end
+        elseif type(value) == "table" then
+            for key, item in pairs(value as table) do
+                collect(key)
+                collect(item)
+            end
+        end
+    end
+
+    collect(image)
+    local sorted: {string} = {}
+    for digits in pairs(offsets) do
+        sorted[#sorted + 1] = digits
+    end
+    table.sort(sorted, function(left: string, right: string): boolean
+        return (tonumber(left) or 0) < (tonumber(right) or 0)
+    end)
+    local ordinal: {[string]: string} = {}
+    for index, digits in ipairs(sorted) do
+        ordinal[digits] = "#" .. tostring(index)
+    end
+    local out: {string} = {}
+
+    local function write(value: any): nil
+        local kind = type(value)
+        if kind == "string" then
+            local text = (value as string):gsub(pattern, function(before: string, digits: string, after: string): string
+                return before .. (ordinal[digits] or digits) .. after
+            end)
+            out[#out + 1] = "s" .. tostring(#text) .. ":" .. text
+        elseif kind == "number" then
+            out[#out + 1] = "n" .. ("%.17g"):format(value as number)
+        elseif kind == "boolean" or kind == "nil" then
+            out[#out + 1] = kind:sub(1, 1) .. tostring(value)
+        elseif kind == "table" then
+            local token = type((value as table).text) == "string"
+            local keys: {any} = {}
+            for key in pairs(value as table) do
+                local positional = token and type(key) == "string" and POSITION_KEYS[key as string]
+                if key ~= "fingerprint" and not positional then
+                    keys[#keys + 1] = key
+                end
+            end
+            table.sort(keys, function(left: any, right: any): boolean
+                return type(left) .. ":" .. tostring(left) < type(right) .. ":" .. tostring(right)
+            end)
+            out[#out + 1] = "{"
+            for _, key in ipairs(keys) do
+                write(key)
+                out[#out + 1] = "="
+                write((value as table)[key])
+                out[#out + 1] = ","
+            end
+            out[#out + 1] = "}"
+        else
+            out[#out + 1] = "<" .. kind .. ">"
+        end
+    end
+
+    write(image)
+
+    return table.concat(out)
+end
+
+--- Opens the cache under `dir` for an emit checking in `env`, or nil when the
+--- emit keeps nothing. `carried` holds the source of modules that have no file.
+function emitcache.open(dir: string, env: any, config: table, carried: {[string]: string}?): any
+    for _, variable in ipairs(REPORTING) do
+        if os.getenv(variable) then
+            return nil
+        end
+    end
+    local self: any = {}
+    local digest = fingerprint.contentDigest()
+    local stats = {
+        checked = 0,
+        restored = 0,
+        lowered = 0,
+        replayed = 0,
+        rejected = 0,
+        kept = 0,
+        unkept = 0,
+        forced = 0,
+    }
+    self.stats = stats
+    emitcache.last = self
+
+    local configText: {string} = {}
+    canonical(config, configText, nil, 8)
+    local stamp = digest(
+        table.concat(
+            {
+                FORMAT,
+                fingerprint.subsystemFingerprint({"nupp.tools.vm.project"}, dir, digest),
+                fingerprint.declarationFingerprint(digest),
+                table.concat(configText),
+                table.concat(env.roots or {}, "\1"),
+                tostring(env.layoutTarget or require("nupp.compiler.targetlayout").hostKey()),
+            },
+            "\0"
+        )
+    )
+    local indexFile = dir .. "/index.buf"
+    local indexStore = storeMod.openValue(indexFile, stamp)
+    local recorded: {[string]: any} = {}
+    if type(indexStore.value) == "table" and type(indexStore.value.modules) == "table" then
+        recorded = indexStore.value.modules
+    end
+
+    -- NUPP_VM_RELINK_TRACE says why a module is lowered again.
+    local tracing = os.getenv("NUPP_VM_RELINK_TRACE") ~= nil
+
+    local function trace(name: string, why: string): nil
+        if tracing then
+            io.stderr:write("emitcache: lowering ", name, " again: ", why, "\n")
+        end
+    end
+
+    -- Every check this run made, by module: the environment's (`checked`) and the
+    -- lowering's own (`lowered`).
+    local checked: {[string]: any} = {}
+    local lowered: {[string]: any} = {}
+    local frames: {any} = {}
+    local lowering: string? = nil
+
+    local sources: {[string]: string} = {}
+
+    local function sourceDigest(name: string, path: string?): string
+        if not path then
+            return ""
+        end
+        local carriedText = carried and carried[name]
+        if carriedText and (path as string):sub(1, 2) == "=(" then
+            return digest(carriedText)
+        end
+        local known = sources[path as string]
+        if known then
+            return known
+        end
+        local text = fs.readFile(path as string)
+        local answer = text and digest(text) or ""
+        sources[path as string] = answer
+
+        return answer
+    end
+
+    local function pathOf(name: string): string?
+        return envMod.resolvedModulePath(env, name)
+    end
+
+    -- The index answer `key` (table NUL name) names, as text.
+    local projectIndex: any = env.projectIndex
+
+    local function indexAnswer(key: string): string
+        local tableName, name = key:match("^([^%z]+)%z(.*)$")
+        local subtable = tableName and projectIndex and rawget(projectIndex, tableName)
+        if type(subtable) ~= "table" then
+            return "<none>"
+        end
+        local backing = getmetatable(subtable) and (getmetatable(subtable) as any).backing or subtable
+
+        return indexText(backing[name])
+    end
+
+    -- Index reads, through proxies that note each key a check looks up.
+    if type(projectIndex) == "table" then
+        for _, tableName in ipairs(INDEX_TABLES) do
+            local backing = projectIndex[tableName]
+            if type(backing) == "table" then
+                projectIndex[tableName] = setmetatable({}, {
+                    backing = backing,
+                    __index = function(_: any, key: any): any
+                        local frame = frames[#frames]
+                        if frame and type(key) == "string" then
+                            frame.reads[tableName .. "\0" .. (key as string)] = true
+                        end
+
+                        return backing[key]
+                    end,
+                    __newindex = function(_: any, key: any, value: any)
+                        backing[key] = value
+                    end,
+                })
+            end
+        end
+    end
+
+    -- Module reads, through a proxy over what the environment has loaded. A clean
+    -- module a check asks for is restored from the interface its last check kept
+    -- (`restore`, below) rather than checked again.
+    local loadedBacking: {[string]: any} = {}
+    for name, record in pairs(env.loaded as table) do
+        loadedBacking[name] = record
+    end
+    local restore: function(string): boolean = function(_: string): boolean
+        return false
+    end
+    env.loaded = setmetatable({}, {
+        __index = function(_: any, name: any): any
+            local frame = frames[#frames]
+            if frame and type(name) == "string" and name ~= frame.name then
+                frame.loads[name] = true
+            end
+            local record = loadedBacking[name]
+            if record == nil and type(name) == "string" and restore(name as string) then
+                record = loadedBacking[name]
+            end
+
+            return record
+        end,
+        __newindex = function(_: any, name: any, record: any)
+            loadedBacking[name] = record
+        end,
+    })
+
+    local projectPaths: {string} = {}
+    if type(projectIndex) == "table" then
+        local modules = getmetatable(projectIndex.modules) and (getmetatable(projectIndex.modules) as any).backing
+            or projectIndex.modules
+        for _, path in pairs(modules or {}) do
+            projectPaths[#projectPaths + 1] = path
+        end
+        table.sort(projectPaths)
+    end
+
+    -- Nominals by declaration key, for decoding a kept interface into this run's
+    -- identities: the project index's, and every one a check or a restore of this
+    -- run has made.
+    local nominals: {[string]: any} = {}
+    for key, nominal in pairs((env.projectNominals or {}) as table) do
+        nominals[key] = nominal
+    end
+
+    -- A module's interface, encoded the way a parallel check worker hands one to
+    -- another, and its digest: what a dependent's check can read of it.
+    local function interfaceOf(name: string, path: string, moduleType: any, exports: any): (string, any)
+        local exported: any = {}
+        for key, value in pairs((exports or {}) as table) do
+            exported[key] = value
+        end
+        local semantic = {
+            interface = {
+                type = moduleType,
+                nominalEffectFingerprint = exported.nominalEffectFingerprint,
+                deriveInterfaceFingerprint = exported.deriveInterfaceFingerprint,
+            },
+            exports = exported,
+            diags = {},
+            annotations = env.annotations and env.annotations:definedBy(path) or {},
+            path = path,
+        }
+        -- A fresh arena table, so nothing is referenced from an earlier image; it
+        -- names every type the image reaches, whose nominals later restores reuse.
+        local origins: {[any]: any} = {}
+        local ok, image = pcall(interfaceimage.encode, {[name] = semantic}, {
+            projectPaths = projectPaths,
+            origins = origins,
+            arenas = {},
+        })
+        if not ok or type(image) ~= "table" then
+            -- Nothing to compare: every reader of it is checked again.
+            return "unencodable:" .. tostring({}), nil
+        end
+        for source in pairs(origins) do
+            local key = type(source) == "table" and source.tag == "nominal" and source.declarationKey or nil
+            if type(key) == "string" and nominals[key as string] == nil then
+                nominals[key as string] = source
+            end
+        end
+        -- Named for the module rather than the process that encoded it, so images
+        -- kept from different runs never share a namespace.
+        image.fingerprint = "vm-root-emit:" .. name
+
+        return digest(interfaceText(image, path)), image
+    end
+
+    -- Bracket every check of this environment's.
+    local original = checkMod.check
+    checkMod.check = function(parsed: any, path: any, checkEnv: any, opts: any): (any, any, any, any)
+        if checkEnv ~= env then
+            return original(parsed, path, checkEnv, opts)
+        end
+        local moduleName = type(opts) == "table" and opts.moduleName or nil
+        local frame = {
+            name = moduleName or lowering or "?",
+            path = path,
+            environment = moduleName ~= nil,
+            loads = {},
+            reads = {},
+        }
+        frames[#frames + 1] = frame
+        local ok, diags, moduleType, exports, extra = pcall(original, parsed, path, checkEnv, opts)
+        frames[#frames] = nil
+        if not ok then
+            error(diags, 0)
+        end
+        if frame.environment then
+            stats.checked = stats.checked + 1
+            frame.iface, frame.image = interfaceOf(frame.name, path, moduleType, exports)
+            checked[frame.name] = frame
+        else
+            lowered[frame.name] = frame
+        end
+
+        return diags, moduleType, exports, extra
+    end
+
+    -- Whether a recorded module's own inputs are as recorded: its bytes, its path,
+    -- and the index answers its check looked up.
+    local freshMemo: {[string]: boolean} = {}
+
+    local function fresh(name: string): boolean
+        local known = freshMemo[name]
+        if known ~= nil then
+            return known
+        end
+        local entry = recorded[name]
+        local path = pathOf(name)
+        local answer = type(entry) == "table"
+            and (entry.path or false) == (path or false)
+            and entry.source == sourceDigest(name, path)
+            and type(entry.loads) == "table"
+            and type(entry.reads) == "table"
+        if answer then
+            for key, seen in pairs(entry.reads as table) do
+                if indexAnswer(key as string) ~= seen then
+                    answer = false
+                    break
+                end
+            end
+        end
+        if not answer and tracing and entry then
+            io.stderr:write("emitcache: ", name, " changed\n")
+        end
+        freshMemo[name] = answer == true
+
+        return answer == true
+    end
+
+    -- The recorded modules in groups that require each other (strongly connected
+    -- in what their checks read), so whether a group is clean is asked of a graph
+    -- without cycles.
+    local group: {[string]: integer} = {}
+    local members: {{string}} = {}
+    do
+        local index: {[string]: integer} = {}
+        local low: {[string]: integer} = {}
+        local stack: {string} = {}
+        local onStack: {[string]: boolean} = {}
+        local counter: integer = 0
+
+        local function connect(name: string): nil
+            counter = counter + 1
+            index[name], low[name] = counter, counter
+            stack[#stack + 1] = name
+            onStack[name] = true
+            local entry = recorded[name]
+            for dep in pairs(type(entry) == "table" and type(entry.loads) == "table" and entry.loads or {}) do
+                if recorded[dep] ~= nil then
+                    if index[dep] == nil then
+                        connect(dep)
+                        low[name] = math.min(low[name] as integer, low[dep] as integer)
+                    elseif onStack[dep] then
+                        low[name] = math.min(low[name] as integer, index[dep] as integer)
+                    end
+                end
+            end
+            if low[name] == index[name] then
+                local list: {string} = {}
+                members[#members + 1] = list
+                while true do
+                    local top = table.remove(stack) as string
+                    onStack[top] = nil
+                    group[top] = #members
+                    list[#list + 1] = top
+                    if top == name then
+                        break
+                    end
+                end
+            end
+        end
+
+        local names: {string} = {}
+        for name in pairs(recorded) do
+            names[#names + 1] = name
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            if index[name] == nil then
+                connect(name)
+            end
+        end
+    end
+
+    -- A group is clean when every member is fresh, every read inside it saw the
+    -- interface the member it read has recorded, and every module outside it that
+    -- a member read has the interface it saw: recorded, for a clean module, or
+    -- from checking it now. That is the cutoff -- a module whose dependency
+    -- changed only in its body is still clean -- and a changed module is checked
+    -- only when something asks what its interface is now.
+    local groupClean: {[integer]: boolean} = {}
+    local interfaceNow: function(string): string
+
+    local function isClean(name: string): boolean
+        local id = group[name]
+        if id == nil then
+            return false
+        end
+        local known = groupClean[id]
+        if known ~= nil then
+            return known
+        end
+        -- Asked again from inside its own question: through a dependency checked
+        -- now, whose reads reach back. Not clean is the safe answer.
+        groupClean[id] = false
+        local answer = true
+        for _, member in ipairs(members[id]) do
+            if not fresh(member) then
+                answer = false
+                break
+            end
+        end
+        if answer then
+            for _, member in ipairs(members[id]) do
+                for dep, seen in pairs(recorded[member].loads as table) do
+                    local now = group[dep] == id and recorded[dep].iface or interfaceNow(dep)
+                    if now ~= seen then
+                        answer = false
+                        break
+                    end
+                end
+                if not answer then
+                    break
+                end
+            end
+        end
+        groupClean[id] = answer
+
+        return answer
+    end
+
+    -- The interface `name` has now: this run's check of it, its recorded one when it
+    -- is clean, or else a check made now.
+    interfaceNow = function(name: string): string
+        local frame = checked[name]
+        if frame then
+            return frame.iface
+        end
+        if isClean(name) then
+            return recorded[name].iface
+        end
+        local path = pathOf(name)
+        if not path then
+            return env.bundled and env.bundled[name] and "bundled" or "none"
+        end
+        stats.forced = stats.forced + 1
+        envMod.resolveModule(env, name)
+        frame = checked[name]
+        if frame then
+            return frame.iface
+        end
+
+        return "unchecked:" .. sourceDigest(name, path)
+    end
+
+    -- Loads and index reads of a module as this run knows them.
+    local function edgesOf(name: string): (any, any)
+        local frame = checked[name]
+        if frame then
+            return frame.loads, frame.reads
+        end
+        if isClean(name) then
+            return recorded[name].loads, recorded[name].reads
+        end
+        interfaceNow(name)
+        frame = checked[name]
+        if frame then
+            return frame.loads, frame.reads
+        end
+
+        return {}, {}
+    end
+
+    local function fragmentFile(name: string): string
+        return dir .. "/modules/" .. name .. ".buf"
+    end
+
+    local function interfaceFile(name: string): string
+        return dir .. "/interfaces/" .. name .. ".buf"
+    end
+
+    -- Restoring a clean module: its dependencies first, which the interface refers to
+    -- by declaration key, then the interface its last check kept, decoded into this
+    -- run's identities and installed as what the environment loaded. Anything
+    -- missing or refused leaves the module to be checked, as it would have been.
+    -- NUPP_VM_EMIT_RESTORE=0 checks every module a check needs.
+    local restoring: {[string]: boolean} = {}
+    local restoreEnabled = os.getenv("NUPP_VM_EMIT_RESTORE") ~= "0"
+    restore = function(name: string): boolean
+        if not restoreEnabled or restoring[name] or not isClean(name) then
+            return false
+        end
+        local path = pathOf(name)
+        local entry = recorded[name]
+        if not path or entry.declared == nil then
+            return false
+        end
+        local image = storeMod.openValue(interfaceFile(name), stamp).value
+        if type(image) ~= "table" then
+            return false
+        end
+        restoring[name] = true
+        -- The reads made here are the restore's, not the check that asked.
+        frames[#frames + 1] = {name = name, loads = {}, reads = {}}
+        for dep in pairs(entry.loads as table) do
+            if loadedBacking[dep] == nil and not restoring[dep] and pathOf(dep) then
+                envMod.resolveModule(env, dep)
+            end
+        end
+        local added: {string} = {}
+        local tracked = setmetatable({}, {
+            __index = nominals,
+            __newindex = function(_: any, key: any, value: any)
+                nominals[key] = value
+                added[#added + 1] = key
+            end,
+        })
+        local ok, semantics = pcall(interfaceimage.decode, image, {nominals = tracked})
+        frames[#frames] = nil
+        restoring[name] = nil
+        local semantic = ok and type(semantics) == "table" and (semantics as any)[name] or nil
+        if not semantic then
+            for _, key in ipairs(added) do
+                nominals[key] = nil
+            end
+            if tracing then
+                io.stderr:write("emitcache: checking ", name, ": its interface did not restore\n")
+            end
+            return false
+        end
+        for _, definition in ipairs(semantic.annotations or {}) do
+            env.annotations:define(definition)
+        end
+        local record = {
+            inProgress = false,
+            path = path,
+            type = semantic.interface and semantic.interface.type or T.any,
+            exports = semantic.exports,
+            declared = entry.declared,
+        }
+        loadedBacking[name] = record
+        env.loadedPaths[path] = record
+        stats.restored = stats.restored + 1
+
+        return true
+    end
+
+    local reuse: any = {}
+    self.reuse = reuse
+
+    function reuse.fragment(name: string, path: string): any
+        local kept = storeMod.openValue(fragmentFile(name), stamp).value
+        if type(kept) ~= "table" or type(kept.snapshot) ~= "table" or type(kept.reads) ~= "table" then
+            trace(name, "nothing kept")
+            return nil
+        end
+        if kept.path ~= path or kept.source ~= sourceDigest(name, path) then
+            trace(name, "its source changed")
+            return nil
+        end
+        for key, answer in pairs(kept.reads as table) do
+            if indexAnswer(key as string) ~= answer then
+                trace(name, "the project index answers " .. (key:gsub("%z", " ")) .. " differently")
+                return nil
+            end
+        end
+        for dep, seen in pairs(kept.snapshot as table) do
+            if interfaceNow(dep as string) ~= seen then
+                trace(name, "the interface of " .. dep .. " changed")
+                return nil
+            end
+        end
+
+        return kept.fragment
+    end
+
+    function reuse.keep(name: string, fragment: any): nil
+        local frame = lowered[name]
+        local path = frame and frame.path or (carried and carried[name] and "=(" .. name .. ")") or nil
+        if not path then
+            return
+        end
+        -- The closure the check read, with each module's interface and every index
+        -- answer any of them looked up.
+        local snapshot: {[string]: string} = {}
+        local reads: {[string]: string} = {}
+        local pending: {string} = {}
+
+        local function visit(loads: any, looked: any)
+            for dep in pairs(loads or {}) do
+                if snapshot[dep] == nil then
+                    snapshot[dep] = ""
+                    pending[#pending + 1] = dep
+                end
+            end
+            for key in pairs(looked or {}) do
+                reads[key] = reads[key] or indexAnswer(key)
+            end
+        end
+
+        visit(frame and frame.loads, frame and frame.reads)
+        while #pending > 0 do
+            local dep = table.remove(pending)
+            visit(edgesOf(dep))
+        end
+        for dep in pairs(snapshot) do
+            snapshot[dep] = interfaceNow(dep)
+        end
+        local kept = storeMod.openValue(fragmentFile(name), stamp)
+        kept.set({
+            path = path,
+            source = sourceDigest(name, path),
+            snapshot = snapshot,
+            reads = reads,
+            fragment = fragment,
+        })
+        kept.save()
+    end
+
+    --- Runs `check` as the check of `name` that lowering will read.
+    --- @raises any what `check` raises
+    function self.lowering(name: string, check: function(): any): any
+        local previous = lowering
+        lowering = name
+        local ok, result = pcall(check)
+        lowering = previous
+        if not ok then
+            error(result, 0)
+        end
+
+        return result
+    end
+
+    --- Restores the checker and writes what this run learned.
+    function self.close(linked: any): nil
+        if linked then
+            stats.lowered = linked.lowered or 0
+            stats.replayed = linked.replayed or 0
+            stats.rejected = linked.rejected or 0
+            stats.kept = linked.kept or 0
+            stats.unkept = linked.unkept or 0
+        end
+        -- Every entry this run did not check again stays: the next run asks of each
+        -- whether it is still clean.
+        local modules: {[string]: any} = {}
+        for name, entry in pairs(recorded) do
+            modules[name] = entry
+        end
+        local names: {string} = {}
+        for name in pairs(checked) do
+            names[#names + 1] = name
+        end
+        for _, name in ipairs(names) do
+            local frame = checked[name]
+            local reads: {[string]: string} = {}
+            for key in pairs(frame.reads) do
+                reads[key] = indexAnswer(key)
+            end
+            local loads: {[string]: string} = {}
+            for dep in pairs(frame.loads) do
+                loads[dep] = interfaceNow(dep)
+            end
+            local record = loadedBacking[name]
+            modules[
+                name
+            ] = {
+                path = pathOf(name) or false,
+                source = sourceDigest(name, pathOf(name)),
+                iface = frame.iface,
+                loads = loads,
+                reads = reads,
+                declared = type(record) == "table" and record.declared == true,
+            }
+            if frame.image then
+                local kept = storeMod.openValue(interfaceFile(name), stamp)
+                kept.set(frame.image)
+                kept.save()
+            end
+        end
+
+        -- What a check read that no check of this run's made -- the modules the
+        -- environment loaded before the emit began, a name only the bundled
+        -- declarations answer -- is recorded as it reads now, with no loads of its
+        -- own, so the modules that read it can be clean.
+        local function leaf(dep: string)
+            if modules[dep] == nil then
+                local path = pathOf(dep)
+                modules[
+                    dep
+                ] = {
+                    path = path or false,
+                    source = sourceDigest(dep, path),
+                    iface = interfaceNow(dep),
+                    loads = {},
+                    reads = {},
+                }
+            end
+        end
+
+        local read: {string} = {}
+        for _, made in ipairs({checked, lowered}) do
+            for _, frame in pairs(made) do
+                for dep in pairs(frame.loads) do
+                    read[#read + 1] = dep
+                end
+            end
+        end
+        for _, dep in ipairs(read) do
+            leaf(dep)
+        end
+        indexStore.set({modules = modules})
+        indexStore.save()
+        checkMod.check = original
+    end
+
+    --- Restores the checker without writing anything, after a failed emit.
+    function self.abandon(): nil
+        checkMod.check = original
+    end
+
+    return self
+end
+
+export = emitcache

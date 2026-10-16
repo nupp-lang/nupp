@@ -76,7 +76,8 @@ function fixpoint.run(root: string, outDir: string, say: function(line: string):
                 "--output",
                 stage
             },
-            {cwd = root, env = {NUPP_COMPILER_ROOT = root}}
+            -- From the sources alone: no stage replays what an earlier emit kept.
+            {cwd = root, env = {NUPP_COMPILER_ROOT = root, NUPP_VM_EMIT_CACHE = ""}}
         )
         if status ~= 0 or not fs.exists(stage) then
             return failed(("stage %d did not build"):format(index))

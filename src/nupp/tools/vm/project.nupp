@@ -95,6 +95,9 @@ end
 --- Check and lower `entry` and what it reaches under `config`, the manifest
 --- the project's modules resolve through. `carried` names modules whose
 --- source is generated data rather than a file: parsed, never checked.
+--- `cacheDir`, when given, is where per-module lowering is kept for the next
+--- emit and found from the last (`nupp.tools.vm.emitcache`).
+--- @raises string when a source cannot be read, checked or lowered.
 local function emitProject(
     root: string,
     config: table,
@@ -104,7 +107,8 @@ local function emitProject(
     inspection: table?,
     carried: {[string]: string}?,
     reached: {[string]: boolean}?,
-    coverage: lower.CoverageRequest?
+    coverage: lower.CoverageRequest?,
+    cacheDir: string?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -136,8 +140,47 @@ local function emitProject(
     if inspection then
         entry = envMod.moduleNameForPath(env, inspection.path) or entry
     end
+    -- What an earlier emit lowered and nothing it read has changed since is
+    -- replayed rather than checked and lowered again (`nupp.tools.vm.emitcache`).
+    local started = os.time()
+    local cache: any = cacheDir
+        and not inspection
+        and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried)
+        or nil
 
-    return lower.emit(
+    local function checked(name: string, path: string): table
+        local data = carried and carried[name]
+        if data then
+            local parsed = parser.parse(data, path)
+            assert(#parsed.errors == 0, "carried module " .. name .. " did not parse")
+            return parsed.root
+        end
+        -- An inspector lowers what an editor holds, which need not be saved.
+        local source = inspection and inspection.text and path == inspection.path and inspection.text
+            or assert(fs.readFile(path), "cannot read " .. path)
+        local parsed = parser.parse(source, path)
+        assert(#parsed.errors == 0, "parse failed: " .. path)
+        local ok, diagnostics = pcall(checkMod.check, parsed, path, env as any, {})
+        if not ok then
+            error("check failed: " .. name .. " (" .. path .. "): " .. tostring(diagnostics), 0)
+        end
+        for _, d in ipairs(diagnostics) do
+            if d.severity == "error" or not d.severity then
+                error(
+                    name .. ":" .. tostring(
+                        d.line
+                    ) .. ":" .. tostring(d.col) .. ": " .. tostring(d.code) .. " " .. tostring(d.msg)
+                )
+            end
+        end
+        -- What the module publishes decides which records its witnesses link.
+        (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
+
+        return parsed.root
+    end
+
+    local ok, image = pcall(
+        lower.emit,
         entry,
         extras,
         function(name: string, soft: boolean?): string?
@@ -155,52 +198,55 @@ local function emitProject(
             return project.resolve(env, compilerRoot, name, soft)
         end,
         function(name: string, path: string): table
-            local data = carried and carried[name]
-            if data then
-                local parsed = parser.parse(data, path)
-                assert(#parsed.errors == 0, "carried module " .. name .. " did not parse")
-                return parsed.root
+            if cache then
+                return cache.lowering(name, function(): any
+                    return checked(name, path)
+                end)
             end
-            -- An inspector lowers what an editor holds, which need not be saved.
-            local source = inspection and inspection.text and path == inspection.path and inspection.text
-            or assert(fs.readFile(path), "cannot read " .. path)
-            local parsed = parser.parse(source, path)
-            assert(#parsed.errors == 0, "parse failed: " .. path)
-            local ok, diagnostics = pcall(checkMod.check, parsed, path, env as any, {})
-            if not ok then
-                error("check failed: " .. name .. " (" .. path .. "): " .. tostring(diagnostics), 0)
-            end
-            for _, d in ipairs(diagnostics) do
-                if d.severity == "error" or not d.severity then
-                    error(
-                        name .. ":" .. tostring(
-                            d.line
-                        ) .. ":" .. tostring(d.col) .. ": " .. tostring(d.code) .. " " .. tostring(d.msg)
-                    )
-                end
-            end
-            -- What the module publishes decides which records its witnesses link.
-            (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
 
-            return parsed.root
+            return checked(name, path)
         end,
         nil,
         inspection and inspection.functions or nil,
         env.layoutTarget,
-        coverage
+        coverage,
+        cache and cache.reuse or nil
     )
+    if not ok then
+        if cache then
+            cache.abandon()
+        end
+        error(image, 0)
+    end
+    if cache then
+        cache.close(cache.reuse.stats)
+        local stats = cache.stats
+        io.stderr:write(
+            (
+                "vm emit: %d %s lowered, %d replayed (%d refused); %d checked, %d restored; %ds\n"
+            ):format(
+                stats.lowered,
+                stats.lowered == 1 and "module" or "modules",
+                stats.replayed,
+                stats.rejected,
+                stats.checked,
+                stats.restored,
+                os.time() - started
+            )
+        )
+    end
+
+    return image as string
 end
 
---- Read, check and lower a project using the compiler's module resolver.
---- Explicit include roots allow bootstrapping before manifest execution.
---- @raises string when a source cannot be read, checked or lowered.
-function project.emit(
+local function emitFrom(
     root: string,
     entry: string,
     extras: string?,
     includes: string?,
     hostBootstrap: boolean?,
-    inspection: table?
+    inspection: table?,
+    cacheDir: string?
 ): string
     if not hostBootstrap then
         triviaarena.installDefault(tableProvider)
@@ -218,7 +264,33 @@ function project.emit(
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").source(root, config)}
         or nil
 
-    return emitProject(root, config, entry, names(extras), hostBootstrap, inspection, carried)
+    return emitProject(root, config, entry, names(extras), hostBootstrap, inspection, carried, nil, nil, cacheDir)
+end
+
+--- Read, check and lower a project using the compiler's module resolver.
+--- Explicit include roots allow bootstrapping before manifest execution.
+--- `NUPP_VM_EMIT_CACHE`, when set, names where the emit keeps what it lowered
+--- and finds what an earlier one kept (`project.emitCached`).
+--- @raises string when a source cannot be read, checked or lowered.
+function project.emit(
+    root: string,
+    entry: string,
+    extras: string?,
+    includes: string?,
+    hostBootstrap: boolean?,
+    inspection: table?
+): string
+    local cacheDir = os.getenv("NUPP_VM_EMIT_CACHE")
+
+    return emitFrom(root, entry, extras, includes, hostBootstrap, inspection, cacheDir ~= "" and cacheDir or nil)
+end
+
+--- `project.emit`, keeping per-module lowering under `cacheDir` and replaying
+--- what an earlier emit kept there whose inputs are unchanged. The image is the
+--- one an emit without the cache writes, byte for byte.
+--- @raises string when a source cannot be read, checked or lowered.
+function project.emitCached(root: string, entry: string, extras: string?, includes: string?, cacheDir: string): string
+    return emitFrom(root, entry, extras, includes, nil, nil, cacheDir)
 end
 
 --- `path` as a program image names it: relative to the project, or to the

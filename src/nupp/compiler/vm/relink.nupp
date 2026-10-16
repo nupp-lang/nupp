@@ -1,0 +1,827 @@
+module nupp.compiler.vm.relink
+
+--[[
+Per-module reuse inside one `lower.emit`.
+
+An image is one numbering: function ids count across every module in the order
+the modules are lowered, and shape ids count across every record, structural
+constructor and export record in the order lowering first meets them. A module's
+lowered code is therefore not a function of the module alone. This keeps what
+it is a function of and replays it, so an emit that reuses a module writes the
+bytes a fresh lowering of it would have written.
+
+What lowering a module reads besides its own checked tree is the shape
+registry: the tables that map a record's nominal (or its declaration key) to its
+shape, a bare record name to the shapes declared under it, and a structural
+field list to its shape. While a module is lowered fresh, those tables are read
+and written through proxies that keep, in order, every read with its answer,
+every write, and every shape allocated. Replaying a module runs that log
+against the registry as it stands at the module's turn: allocations are made
+again in the same order, writes are made again, and every read must give the
+answer it gave before. One that does not means a fresh lowering could take a
+different path, so the replay is undone and the module is lowered from source.
+
+Each kept function is the image text lowering wrote for it, with the numbers
+that depend on the rest of the image replaced by placeholders: the module's
+own function ids (relative to its first function, and in the names anonymous
+functions take from their id) and every shape operand. A shape the module
+allocated is named by its position among the module's allocations; any other
+by its text without index (`canonicalKey`), which must name exactly one shape
+when the module is replayed. Relocating a kept function at its original base
+reproduces the original text exactly, or the module is not kept.
+
+A record is registered by its nominal object and, when it has one, by its
+declaration key, the two together; a read by object that finds nothing is
+followed by the read by key, which decides. So a read by object is kept only
+when it found a shape, and replayed as the read by key. A nominal without a
+declaration key (a generic instantiation, whose origin has one) is answered by
+object identity alone, which no later process can repeat: a module registering
+such a nominal for another module's record is not kept, nor is one whose read
+of one found another module's shape. One whose read found nothing is kept, and
+its replay fails if a module lowered fresh in the meantime has registered a
+record of that name for the same declaring module.
+]]
+
+local relink = {}
+
+--- Bumped whenever a kept fragment's shape or meaning changes.
+relink.FORMAT = "vm-relink/1"
+
+--- Operand positions (1-based, after the opcode) that carry a function id, per
+--- opcode, as the VM's image loader relocates them.
+relink.FUNCTION_OPERANDS = {Call = 1, CallT = 1, CallK = 1, NewClosure = 2} as {[string]: integer}
+
+--- Operand positions that carry a shape index.
+relink.SHAPE_OPERANDS = {
+    NewRecord = 2,
+    GetSlot = 4,
+    SetSlot = 4,
+    GetSlotF = 4,
+    SetSlotF = 4,
+    TagCheckRec = 3,
+    IsRec = 3,
+    SetMethod = 1,
+} as {[string]: integer}
+
+local function int(text: string): integer
+    return assert(tonumber(text), "not a number: " .. text) as integer
+end
+
+local function words(line: string): {string}
+    local out: {string} = {}
+    for word in line:gmatch("%S+") do
+        out[#out + 1] = word
+    end
+
+    return out
+end
+
+local function lines(text: string): {string}
+    local out: {string} = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        out[#out + 1] = line
+    end
+
+    return out
+end
+
+--- A plain-data copy of a struct layout, which a store can keep.
+local function plain(value: any, seen: {[any]: boolean}?): any
+    if type(value) ~= "table" then
+        local kind = type(value)
+        if kind == "function" or kind == "userdata" or kind == "thread" then
+            return nil
+        end
+        return value
+    end
+    local visited = seen or {}
+    if visited[value] then
+        return nil
+    end
+    visited[value] = true
+    local copy: {[any]: any} = {}
+    for key, item in pairs(value as table) do
+        if type(key) == "string" or type(key) == "number" then
+            copy[key] = plain(item, visited)
+        end
+    end
+    visited[value] = nil
+
+    return copy
+end
+
+-- The module a nominal was declared in, the way lowering names it.
+local function declaringModule(t: any): string?
+    local owner = t.moduleName
+        or type(t.runtimeDeclarationKey) == "string" and (t.runtimeDeclarationKey as string):match("^([^%z]+)")
+        or nil
+    if type(owner) == "string" and (owner as string):find("^[%w_.]+$") then
+        return owner as string
+    end
+
+    return nil
+end
+
+--- A linker for one emit. `reuse` supplies kept fragments (`fragment(name,
+--- path)`) and takes new ones (`keep(name, fragment)`).
+function relink.new(reuse: any): any
+    local self: any = {}
+    local backingShapes: any = nil
+    local backingNominals: any = nil
+    local shapeOrder: any = nil
+    -- Records another module registered by a nominal without a declaration key.
+    local foreignKeyless: {[string]: boolean} = {}
+    local capture: any = nil
+    local captures: {any} = {}
+    local owners: {[integer]: any} = {}
+    local keyMemo: any = setmetatable({}, {__mode = "k"})
+    local index: {[string]: any} = {}
+    local indexedUpTo = 0
+
+    self.stats = {replayed = 0, lowered = 0, rejected = 0, unkept = 0, kept = 0}
+
+    local function shallowKey(shape: any): string
+        return tostring(shape.name) .. "/" .. tostring(shape.module or "")
+    end
+
+    -- A shape's text without its index: what names a shape another module
+    -- allocated. Only asked of shapes that are finished.
+    local function canonicalKey(shape: any): string
+        local known = keyMemo[shape]
+        if known then
+            return known
+        end
+        local parts: {
+            string
+        } = {
+            tostring(shape.name),
+            tostring(shape.module or ""),
+            shape.physical and ("physical:" .. tostring(shape.layout and shape.layout.identity)) or "",
+        }
+        for _, slot in ipairs(shape.slots or {}) do
+            local ty = tostring(slot.ty)
+            local target = ty:match("^rec:(%d+)$")
+            if target then
+                local held = shapeOrder[int(target) + 1]
+                ty = "rec:" .. (held and shallowKey(held) or "?")
+            end
+            parts[#parts + 1] = tostring(slot.name) .. ":" .. ty
+        end
+        local key = table.concat(parts, "|")
+        keyMemo[shape] = key
+
+        return key
+    end
+
+    -- The one shape among the first `bound` with this text, or nil when there is
+    -- none or more than one.
+    local function resolveKey(key: string, bound: integer): any
+        if indexedUpTo > bound then
+            index = {}
+            indexedUpTo = 0
+        end
+        while indexedUpTo < bound do
+            indexedUpTo = indexedUpTo + 1
+            local shape = shapeOrder[indexedUpTo]
+            local text = canonicalKey(shape)
+            local entry = index[text]
+            if entry then
+                entry.count = entry.count + 1
+            else
+                index[text] = {count = 1, shape = shape}
+            end
+        end
+        local entry = index[key]
+        if entry and entry.count == 1 then
+            return entry.shape
+        end
+
+        return nil
+    end
+
+    local function keylessKey(t: any): string
+        return tostring(declaringModule(t) or "?") .. "\0" .. tostring(t.name)
+    end
+
+    -- The module's own number for `shape`, assigned the first time it is named:
+    -- a record is registered before it is numbered, so a write can name a shape
+    -- the registry does not hold yet.
+    local function ownNumber(shape: any): integer
+        local k = capture.ownIndex[shape]
+        if not k then
+            k = #capture.own + 1
+            capture.own[k] = shape
+            capture.ownIndex[shape] = k
+        end
+
+        return k
+    end
+
+    -- Shapes allocated since the last event, as allocation events.
+    local function flush(): nil
+        while capture.allocated < #shapeOrder do
+            capture.allocated = capture.allocated + 1
+            local k = ownNumber(shapeOrder[capture.allocated])
+            capture.events[#capture.events + 1] = {"a", k}
+            capture.allocatedOwn[k] = true
+            capture.seen = {}
+        end
+    end
+
+    local function ref(shape: any): string
+        local own = capture.ownIndex[shape]
+        if own then
+            return "#" .. tostring(own)
+        end
+        local id = shape.id
+        if type(id) ~= "number" or shapeOrder[id + 1] ~= shape then
+            return "#" .. tostring(ownNumber(shape))
+        end
+
+        return "=" .. canonicalKey(shape)
+    end
+
+    local function encode(value: any, write: boolean): string
+        if value == nil then
+            return "-"
+        end
+        if value.slots ~= nil then
+            return ref(value)
+        end
+        if write then
+            return "L"
+        end
+        local refs: {string} = {}
+        for i, shape in ipairs(value as {any}) do
+            refs[i] = ref(shape)
+        end
+
+        return "L" .. table.concat(refs, "\1")
+    end
+
+    local function nominalKey(key: any): string
+        if type(key) == "string" then
+            return "k" .. (key as string)
+        end
+        if type(key) == "table" and type(key.declarationKey) == "string" then
+            return "o" .. (key.declarationKey as string)
+        end
+
+        return "u" .. keylessKey(key)
+    end
+
+    local function logRead(key: string, value: any): nil
+        -- A nominal with a declaration key is registered under the key wherever it
+        -- is registered as an object, so a read by object that finds nothing is
+        -- followed by the read by key that decides; one that finds a shape is
+        -- answered by the key as well.
+        if value == nil and key:sub(1, 1) == "o" then
+            return
+        end
+        flush()
+        local answer = encode(value, false)
+        local signature = key .. "\2" .. answer
+        if capture.seen[signature] then
+            return
+        end
+        capture.seen[signature] = true
+        if key:sub(1, 1) == "u" and answer:sub(1, 1) == "=" then
+            capture.unkept = capture.unkept or "reads another module's keyless record"
+        end
+        capture.events[#capture.events + 1] = {"r", key, answer}
+    end
+
+    local function logWrite(key: string, value: any): nil
+        flush()
+        capture.events[#capture.events + 1] = {"w", key, encode(value, true)}
+        capture.seen = {}
+    end
+
+    --- Routes the registry through logging proxies; returns them in place of
+    --- `shapes` and `shapesByNominal`.
+    function self.watch(shapes: any, nominals: any, order: any): (any, any)
+        backingShapes, backingNominals, shapeOrder = shapes, nominals, order
+        local shapesProxy = setmetatable({}, {
+            __index = function(_: any, key: any): any
+                local value = backingShapes[key]
+                if capture then
+                    logRead("s" .. tostring(key), value)
+                end
+
+                return value
+            end,
+            __newindex = function(_: any, key: any, value: any)
+                backingShapes[key] = value
+                if capture then
+                    logWrite("s" .. tostring(key), value)
+                end
+            end,
+        })
+        local nominalsProxy = setmetatable({}, {
+            __index = function(_: any, key: any): any
+                local value = backingNominals[key]
+                if capture then
+                    logRead(nominalKey(key), value)
+                end
+
+                return value
+            end,
+            __newindex = function(_: any, key: any, value: any)
+                backingNominals[key] = value
+                if type(key) == "table" and type(key.declarationKey) ~= "string" then
+                    if capture and value and value.module ~= capture.name then
+                        foreignKeyless[keylessKey(key)] = true
+                        capture.unkept = capture.unkept or "registers another module's keyless record"
+                    end
+                end
+                if capture then
+                    logWrite(nominalKey(key), value)
+                end
+            end,
+        })
+
+        return shapesProxy, nominalsProxy
+    end
+
+    --- The kept fragment for `name` at `path`, when the caller has one it vouches
+    --- for.
+    function self.fragment(name: string, path: string): any
+        local fragment = reuse.fragment(name, path)
+        if type(fragment) ~= "table" or fragment.format ~= relink.FORMAT then
+            return nil
+        end
+
+        return fragment
+    end
+
+    --- Starts recording the fresh lowering of `name`, whose first function will
+    --- be `firstFunction` (a count of those before it).
+    function self.begin(name: string, firstFunction: integer, firstQueued: integer): any
+        capture = {
+            name = name,
+            firstFunction = firstFunction,
+            firstQueued = firstQueued,
+            allocated = #shapeOrder,
+            own = {},
+            ownIndex = {},
+            allocatedOwn = {},
+            events = {},
+            seen = {},
+            unkept = os.getenv("NUPP_VM_RELINK_UNKEPT"),
+        }
+
+        return capture
+    end
+
+    --- Finishes the recording `started`: the module's chunk is function
+    --- `chunkId`, and it required `deps` in that order.
+    function self.finish(started: any, chunkId: integer, functionCount: integer, deps: {any}, pending: {string}): nil
+        flush()
+        capture = nil
+        started.lastFunction = functionCount
+        started.chunk = chunkId - started.firstFunction
+        started.deps = {}
+        for i, entry in ipairs(deps) do
+            started.deps[i] = type(entry) == "table" and {name = entry.name, soft = entry.soft == true} or entry
+        end
+        started.queued = {}
+        local firstQueued: integer = started.firstQueued
+        for i = firstQueued + 1, #pending do
+            started.queued[#started.queued + 1] = pending[i]
+        end
+        -- What the module allocated, finished now: slots naming a shape by
+        -- position here or by text elsewhere.
+        started.shapes = {}
+        for k, shape in ipairs(started.own) do
+            if not started.allocatedOwn[k] then
+                started.unkept = started.unkept or "names a shape it never numbered"
+            end
+            local slots: {any} = {}
+            for i, slot in ipairs(shape.slots or {}) do
+                local ty: any = slot.ty
+                local target = type(ty) == "string" and (ty as string):match("^rec:(%d+)$") or nil
+                if target then
+                    local held = shapeOrder[int(target) + 1]
+                    local own = started.ownIndex[held]
+                    ty = own and {own = own} or {ext = canonicalKey(held)}
+                end
+                slots[i] = {name = slot.name, ty = ty}
+            end
+            local listed = false
+            local list = backingShapes[shape.name]
+            if type(list) == "table" and list.slots == nil then
+                for _, member in ipairs(list as {any}) do
+                    listed = listed or member == shape
+                end
+            end
+            local node: any = nil
+            if shape.physical and shape.node and shape.node.resolvedType then
+                local declared = shape.node.resolvedType
+                node = {runtimeDeclarationKey = declared.runtimeDeclarationKey, cdefIdentity = declared.cdefIdentity,}
+            end
+            started.shapes[
+                k
+            ] = {
+                name = shape.name,
+                module = shape.module,
+                physical = shape.physical == true,
+                layout = plain(shape.layout),
+                node = node,
+                slots = slots,
+                listed = listed,
+            }
+        end
+        started.texts = {}
+        for id = started.firstFunction, functionCount - 1 do
+            owners[id] = started
+        end
+        captures[#captures + 1] = started
+        self.stats.lowered = self.stats.lowered + 1
+    end
+
+    --- Called with each function's image text as the output is written.
+    function self.wrote(f: any, out: {string}, first: integer): nil
+        local owner = owners[f.id]
+        if owner then
+            owner.texts[f.id - owner.firstFunction + 1] = table.concat(out, "\n", first, #out)
+        end
+    end
+
+    -- Placeholders: \1F<n>\2 is the module's n-th function, \1S<n>\2 its n-th
+    -- shape reference.
+    local function relocate(text: string, base: integer, shapes: {any}): string
+        local functions = text:gsub("\1F(%d+)\2", function(n: string): string
+            return tostring(base + int(n))
+        end)
+        local result = functions:gsub("\1S(%d+)\2", function(n: string): string
+            return tostring(shapes[int(n)].id)
+        end)
+
+        return result
+    end
+
+    -- The kept form of one function's text, or nil and why when it cannot be kept.
+    local function placeholders(
+        started: any,
+        functions: {any},
+        text: string,
+        refs: {any},
+        refIndex: {[any]: integer}
+    ): (string?, string?)
+        local first: integer = started.firstFunction
+        local last: integer = started.lastFunction
+
+        local function functionId(token: string): string?
+            local id = tonumber(token)
+            if not id or id < first or id >= last then
+                return nil
+            end
+
+            return "\1F" .. tostring(id - first) .. "\2"
+        end
+
+        local function shapeRef(token: string): string?
+            local id = tonumber(token)
+            local shape = id and shapeOrder[id + 1]
+            if not shape then
+                return nil
+            end
+            local n = refIndex[shape]
+            if not n then
+                local own = started.ownIndex[shape]
+                refs[#refs + 1] = own and {own = own} or {ext = canonicalKey(shape)}
+                n = #refs
+                refIndex[shape] = n
+            end
+
+            return "\1S" .. tostring(n) .. "\2"
+        end
+
+        local out: {string} = {}
+        for i, line in ipairs(lines(text)) do
+            if i == 1 then
+                local parts = words(line)
+                if parts[1] ~= "function" then
+                    return nil, "unexpected function header"
+                end
+                -- An anonymous function is named `<parent>.fn<id>`: each such
+                -- segment naming one of the module's functions, as that function's
+                -- own name ends, is relative.
+                local name = parts[2]
+                local rewritten = name:gsub("()%.fn(%d+)", function(at: integer, digits: string): string?
+                    local id = int(digits)
+                    local target = functions[id + 1]
+                    local upTo = name:sub(1, at + 2 + #digits)
+                    if target and id >= first and id < last and (target.name as string):gsub("%s", "_") == upTo then
+                        return ".fn\1F" .. tostring(id - first) .. "\2"
+                    end
+
+                    return nil
+                end)
+                parts[2] = rewritten
+                local own = functionId(parts[3])
+                if not own then
+                    return nil, "function id outside the module"
+                end
+                parts[3] = own
+                out[i] = table.concat(parts, " ")
+            elseif line:sub(1, 2) == "  " then
+                local opcode = line:match("^  (%S+)")
+                local functionAt = opcode and relink.FUNCTION_OPERANDS[opcode]
+                local shapeAt = opcode and relink.SHAPE_OPERANDS[opcode]
+                if opcode == "const" and line:match("^  const %d+ func ") then
+                    functionAt = 3
+                end
+                if functionAt or shapeAt then
+                    local parts = words(line:sub(3))
+                    if functionAt then
+                        local placed = parts[functionAt + 1] and functionId(parts[functionAt + 1])
+                        if not placed then
+                            return nil, "names a function outside the module"
+                        end
+                        parts[functionAt + 1] = placed
+                    end
+                    if shapeAt then
+                        local placed = parts[shapeAt + 1] and shapeRef(parts[shapeAt + 1])
+                        if not placed then
+                            return nil, "names an unknown shape"
+                        end
+                        parts[shapeAt + 1] = placed
+                    end
+                    out[i] = "  " .. table.concat(parts, " ")
+                else
+                    out[i] = line
+                end
+            else
+                out[i] = line
+            end
+        end
+
+        return table.concat(out, "\n"), nil
+    end
+
+    --- After the image is written: hands every module lowered fresh to `keep`.
+    function self.keep(functions: {any}): nil
+        for _, started in ipairs(captures) do
+            local unkept = started.unkept
+            local refs: {any} = {}
+            local refIndex: {[any]: integer} = {}
+            local texts: {string} = {}
+            local count = (started.lastFunction - started.firstFunction) as integer
+            for i = 1, count do
+                if unkept then
+                    break
+                end
+                local original = started.texts[i]
+                if not original then
+                    unkept = "a function was not written"
+                    break
+                end
+                local kept, problem = placeholders(started, functions, original, refs, refIndex)
+                if not kept then
+                    unkept = problem
+                    break
+                end
+                texts[i] = kept as string
+            end
+            if not unkept then
+                -- The placeholders must give back exactly what was written.
+                local shapes: {any} = {}
+                for n, r in ipairs(refs) do
+                    shapes[n] = r.own and started.own[r.own] or resolveKey(r.ext, #shapeOrder)
+                    if not shapes[n] then
+                        unkept = "a shape it names is ambiguous"
+                        break
+                    end
+                end
+                for i = 1, count do
+                    if unkept then
+                        break
+                    end
+                    if relocate(texts[i], started.firstFunction, shapes) ~= started.texts[i] then
+                        unkept = "its text does not relocate to itself"
+                    end
+                end
+            end
+            if unkept then
+                self.stats.unkept = self.stats.unkept + 1
+                if os.getenv("NUPP_VM_RELINK_TRACE") then
+                    io.stderr:write("relink: not keeping ", started.name, ": ", tostring(unkept), "\n")
+                end
+            else
+                self.stats.kept = self.stats.kept + 1
+                reuse.keep(started.name, {
+                    format = relink.FORMAT,
+                    deps = started.deps,
+                    queued = started.queued,
+                    chunk = started.chunk,
+                    functions = texts,
+                    shapes = started.shapes,
+                    events = started.events,
+                    refs = refs,
+                })
+            end
+        end
+    end
+
+    --- Replays `fragment` as module `name`'s lowering, appending its functions to
+    --- `functions`. False, with nothing changed, when the registry no longer
+    --- answers the way it did.
+    function self.replay(
+        name: string,
+        fragment: any,
+        functions: {any},
+        modules: {[string]: any},
+        moduleOrder: {string},
+        pending: {string}
+    ): boolean
+        local before = #shapeOrder
+        local undo: {any} = {}
+        local own: {any} = {}
+        local ownIndex: {[any]: integer} = {}
+        local ownKeyless: {[string]: any} = {}
+
+        local function set(target: any, key: any, value: any)
+            undo[#undo + 1] = {target, key, target[key]}
+            target[key] = value
+        end
+
+        local function rollback(why: string): boolean
+            for i = #undo, 1, -1 do
+                local entry = undo[i]
+                entry[1][entry[2]] = entry[3]
+            end
+            for i = #shapeOrder, before + 1, -1 do
+                shapeOrder[i] = nil
+            end
+            if indexedUpTo > before then
+                index = {}
+                indexedUpTo = 0
+            end
+            self.stats.rejected = self.stats.rejected + 1
+            if os.getenv("NUPP_VM_RELINK_TRACE") then
+                io.stderr:write("relink: lowering ", name, " again: ", why, "\n")
+            end
+
+            return false
+        end
+
+        local function resolve(text: string): any
+            local marker = text:sub(1, 1)
+            if marker == "#" then
+                return own[int(text:sub(2))]
+            elseif marker == "=" then
+                return resolveKey(text:sub(2), before)
+            end
+
+            return nil
+        end
+
+        local function current(value: any): string
+            if value == nil then
+                return "-"
+            end
+
+            local function one(shape: any): string
+                local k = ownIndex[shape]
+                if k then
+                    return "#" .. tostring(k)
+                end
+
+                return "=" .. canonicalKey(shape)
+            end
+
+            if value.slots ~= nil then
+                return one(value)
+            end
+            local refs: {string} = {}
+            for i, shape in ipairs(value as {any}) do
+                refs[i] = one(shape)
+            end
+
+            return "L" .. table.concat(refs, "\1")
+        end
+
+        -- Every shape the module allocates exists from the start, unnumbered: a
+        -- record is registered before it is numbered.
+        for k, described in ipairs(fragment.shapes) do
+            local shape: any = {name = described.name, module = described.module, slots = {}, slotIndex = {}}
+            if described.physical then
+                shape.physical = true
+                shape.layout = described.layout
+                shape.node = described.node and {resolvedType = described.node} or nil
+            end
+            own[k] = shape
+            ownIndex[shape] = k
+        end
+        for _, event in ipairs(fragment.events) do
+            local kind = event[1]
+            if kind == "a" then
+                local shape = own[event[2]]
+                local described = fragment.shapes[event[2]]
+                if not shape or shape.id ~= nil then
+                    return rollback("damaged fragment")
+                end
+                shape.id = #shapeOrder
+                shapeOrder[#shapeOrder + 1] = shape
+                if described.listed then
+                    local list = backingShapes[described.name]
+                    if type(list) ~= "table" or list.slots ~= nil then
+                        return rollback("a record list it extends is missing")
+                    end
+                    set(list, #list + 1, shape)
+                end
+            elseif kind == "w" then
+                local key, value = event[2] as string, event[3] as string
+                local marker, rest = key:sub(1, 1), key:sub(2)
+                if marker == "s" then
+                    if value == "L" then
+                        local existing = backingShapes[rest]
+                        if type(existing) ~= "table" or existing.slots ~= nil then
+                            set(backingShapes, rest, {})
+                        end
+                    else
+                        local shape = resolve(value)
+                        if not shape then
+                            return rollback("a shape it registers is ambiguous")
+                        end
+                        set(backingShapes, rest, shape)
+                    end
+                else
+                    local shape = resolve(value)
+                    if not shape then
+                        return rollback("a shape it registers is ambiguous")
+                    end
+                    -- A registration by object comes with one by key, which is
+                    -- what a replay can repeat.
+                    if marker == "k" then
+                        set(backingNominals, rest, shape)
+                    elseif marker == "u" then
+                        ownKeyless[rest] = shape
+                    end
+                end
+            elseif kind == "r" then
+                local key, answer = event[2] as string, event[3] as string
+                local marker, rest = key:sub(1, 1), key:sub(2)
+                local value: any = nil
+                if marker == "s" then
+                    value = backingShapes[rest]
+                elseif marker == "k" then
+                    value = backingNominals[rest]
+                elseif marker == "o" then
+                    value = backingNominals[rest]
+                else
+                    if foreignKeyless[rest] then
+                        return rollback("another module registered a record it looked up")
+                    end
+                    value = ownKeyless[rest]
+                end
+                if current(value) ~= answer then
+                    return rollback("the registry answers " .. (key:gsub("%z", "/")) .. " differently")
+                end
+            end
+        end
+        -- Slots naming another shape, now that every shape it allocates exists.
+        for k, described in ipairs(fragment.shapes) do
+            local shape = own[k]
+            if not shape then
+                return rollback("damaged fragment")
+            end
+            for i, slot in ipairs(described.slots) do
+                local ty: any = slot.ty
+                if type(ty) == "table" then
+                    local held = ty.own and own[ty.own] or ty.ext and resolveKey(ty.ext, before) or nil
+                    if not held then
+                        return rollback("a record a slot holds is ambiguous")
+                    end
+                    ty = "rec:" .. tostring(held.id)
+                end
+                shape.slotIndex[slot.name] = i - 1
+                shape.slots[i] = {name = slot.name, ty = ty}
+            end
+        end
+        local shapes: {any} = {}
+        for n, r in ipairs(fragment.refs) do
+            shapes[n] = r.own and own[r.own] or r.ext and resolveKey(r.ext, before) or nil
+            if not shapes[n] then
+                return rollback("a shape its code names is ambiguous")
+            end
+        end
+        local base = #functions
+        for i, text in ipairs(fragment.functions) do
+            functions[base + i] = {id = base + i - 1, module = name, rendered = relocate(text, base, shapes)}
+        end
+        modules[name] = {id = base + fragment.chunk}
+        moduleOrder[#moduleOrder + 1] = name
+        for _, queued in ipairs(fragment.queued) do
+            pending[#pending + 1] = queued
+        end
+        self.stats.replayed = self.stats.replayed + 1
+
+        return true
+    end
+
+    return self
+end
+
+export = relink
