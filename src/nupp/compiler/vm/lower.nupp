@@ -1855,6 +1855,47 @@ function lower.emit(
         return dst, "v"
     end
 
+    -- SoA row views have no Lua metatable either: a row, a row's field and a
+    -- projected column are checked methods of the VM's `nupp.mem.soa` view,
+    -- which owns the columns. `receiver` is the view, `arguments` its operands.
+    local function soaAccess(f, method, receiver, arguments, value, dst)
+        dst = dst or f:reg()
+        -- The call reads its operands from consecutive registers, so all of them
+        -- are claimed before any operand's own temporaries are.
+        local base = f:reg()
+        local operands = {f:reg()}
+        for _ = 1, value and #arguments + 1 or #arguments do
+            operands[#operands + 1] = f:reg()
+        end
+        exprAs(f, receiver, "v", operands[1])
+        for index, argument in ipairs(arguments) do
+            if type(argument) == "number" then
+                f:op("K", operands[index + 1], f:const("num", argument))
+            else
+                exprAs(f, argument, "v", operands[index + 1])
+            end
+        end
+        if value then
+            f:op("Move", operands[#operands], value)
+        end
+        f:op("CallMethod", f:const("str", method), base, #operands)
+        if not value then
+            f:op("Move", dst, base)
+        end
+
+        return dst, "v"
+    end
+
+    -- The view, row index and field ordinal of `rows[i].name` over a SoA view.
+    local function soaField(node)
+        local row = node.kind == "dotIndex" and node.soaField and node.obj
+        if row and row.kind == "bracketIndex" and row.soaRow then
+            return row.obj, row.expr, node.soaField.ordinal
+        end
+
+        return nil
+    end
+
     expr = function(f, node, dst, want)
         local k = node.kind
         if k == "paren" then
@@ -1867,6 +1908,21 @@ function lower.emit(
         -- checked library methods even when the view has no Lua metatable.
         if k == "bracketIndex" and node.indexedAccess and node.indexedAccess.adapter == "span" then
             return spanAccess(f, node, nil, (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil)
+        end
+        if node.soaFieldProjection and (k == "dotIndex" or k == "bracketIndex") then
+            local free = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+            return soaAccess(f, "fieldBySlot", node.obj, {node.soaFieldProjection.ordinal}, nil, free)
+        end
+        if k == "bracketIndex" and node.soaRow then
+            local free = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+            return soaAccess(f, "get", node.obj, {node.expr}, nil, free)
+        end
+        do
+            local view, index, ordinal = soaField(node)
+            if view then
+                local free = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+                return soaAccess(f, "getField", view, {index, ordinal}, nil, free)
+            end
         end
         if k == "unop" and node.indexedLength and node.operand then
             local d = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or f:reg()
@@ -3113,6 +3169,9 @@ function lower.emit(
                     f:op("SetField", globals, f:const("str", name), valueReg)
                 end
             end
+        elseif target.kind == "dotIndex" and soaField(target) then
+            local view, index, ordinal = soaField(target)
+            soaAccess(f, "setField", view, {index, ordinal}, valueReg)
         elseif target.kind == "dotIndex" then
             local shape = shapeOf(target.obj.inferredType)
             local o = exprAs(f, target.obj, "v")
@@ -3135,6 +3194,10 @@ function lower.emit(
         elseif target.kind == "bracketIndex" then
             if target.indexedAccess and target.indexedAccess.adapter == "span" then
                 spanAccess(f, target, valueReg)
+                return
+            end
+            if target.soaRow then
+                soaAccess(f, "set", target.obj, {target.expr}, valueReg)
                 return
             end
             local o = exprAs(f, target.obj, "v")

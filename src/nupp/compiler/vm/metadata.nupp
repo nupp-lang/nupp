@@ -721,6 +721,56 @@ local function witnesses(root)
     return links
 end
 
+-- The VM storage scalar a `ctype<T>` names, by the type's tag.
+local STORAGE_SCALARS: {
+    [string]: string
+} = {
+    int8 = "int8",
+    uint8 = "uint8",
+    int16 = "int16",
+    uint16 = "uint16",
+    int32 = "int32",
+    uint32 = "uint32",
+    int64 = "int64",
+    uint64 = "uint64",
+    integer = "integer",
+    float = "float",
+    number = "number",
+    boolean = "boolean",
+}
+
+-- What `ffi.typeof<T>()` is on the VM, which has no `ffi`: the storage
+-- descriptor `carray` and the storage provider take. A struct's is the one its
+-- declaration defines; a scalar's is the provider's canonical descriptor.
+local function storageDescriptor(call)
+    local witness = call.inferredType
+    local subject = witness and witness.tag == "ctype" and witness.of or nil
+    if subject and subject.tag == "nominal" and subject.declKind == "struct" and call.ffiTypeName then
+        -- A declaration whose layout this target cannot give has no descriptor;
+        -- its layout record says why.
+        local reason = field(field(path(call.ffiTypeName), "\0nupp:structLayout"), "error")
+        return node("binop", {
+            op = {text = "or"},
+            lhs = field(path(call.ffiTypeName), "\0nupp:structType"),
+            rhs = node("call", {obj = name("error"), args = node("args", {exprs = {reason, data(2)}})})
+        })
+    end
+    local scalar = subject and STORAGE_SCALARS[subject.tag]
+    if scalar then
+        return node("call", {
+            obj = field(required("nupp.runtime.provider.nativestorage"), "scalar"),
+            args = node("args", {exprs = {data(scalar)}})
+        })
+    end
+
+    return node("call", {
+        obj = name("error"),
+        args = node("args", {
+            exprs = {data("nupp: this ffi.typeof names no VM storage type"), data(2)}
+        })
+    })
+end
+
 function metadata.expand(root)
     local seen = {}
     local managed = false
@@ -744,13 +794,50 @@ function metadata.expand(root)
         managed = true
     end
 
+    -- Makes `current` the parenthesized `replacement`, in place, so every parent
+    -- holding the node sees the new expression.
+    local function replaceExpression(current, replacement)
+        for index = #current, 1, -1 do
+            current[index] = nil
+        end
+        current.kind = "paren"
+        current.expr = replacement
+        current.obj, current.args, current.name = nil, nil, nil
+        current.ffiIntrinsic = nil
+        current[1] = replacement
+    end
+
     local function visit(current)
         if type(current) ~= "table" or seen[current] then
             return
         end
         seen[current] = true
         managed = managed or current.requiresManagedRuntime == true
-        if current.kind == "call" and current.ownershipIntrinsic == "manage" then
+        if current.kind == "call" and current.ffiIntrinsic == "typeof" then
+            replaceExpression(current, storageDescriptor(current))
+        elseif current.kind == "call" and current.soaLayout and current.soaOperation then
+            -- The SoA intrinsics take the checker's declared-field specification,
+            -- as the Lua backend's layout helper does; the VM's `nupp.mem.soa`
+            -- measures the fields from the row's storage descriptor.
+            local spec = current.soaLayout
+            local arguments = current.args and current.args.exprs or {}
+            local raw = data({name = spec.name, spec = spec.spec, printed = spec.printed})
+            local soa = required("nupp.mem.soa")
+            local lowered
+            if current.soaOperation == "allocate" then
+                lowered = call(field(soa, "_allocate"), {arguments[1] or data(nil), arguments[2] or data(nil), raw})
+            else
+                lowered = call(field(soa, "_layout"), {raw, arguments[1] or data(nil)})
+            end
+            for index = #current, 1, -1 do
+                current[index] = nil
+            end
+            current.obj, current.args = lowered.obj, lowered.args
+            current.soaLayout, current.soaOperation = nil, nil
+            for _, child in ipairs(lowered) do
+                current[#current + 1] = child
+            end
+        elseif current.kind == "call" and current.ownershipIntrinsic == "manage" then
             local value = "\0managed:value"
             local cleanup = call(name("nupp"), {name(value)})
             cleanup.ownershipIntrinsic = "attemptAll"
