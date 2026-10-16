@@ -1132,6 +1132,10 @@ local MARKS = {MARK_TYPEVAR, MARK_PACKVAR, MARK_CONSTVAR, MARK_PROJECTION}
 
 --- The marks `key`'s parts carry, which is what the thing built from them inherits.
 local function inheritedMarks(key: string): string
+    -- Every mark begins with `!`, so a key without one carries none.
+    if not key:find("!", 1, true) then
+        return ""
+    end
     local marks = ""
     for _, mark in ipairs(MARKS) do
         if key:find(mark, 1, true) then
@@ -3722,9 +3726,14 @@ function types.hasTypevar(t: types.Type): boolean
     -- the nominal's identity is intentionally opaque, so its type arguments are not in
     -- its id and the wrapper cannot inherit their marks. Fall back to its structural
     -- parts only when the fast summary did not answer.
-    local marked = t.id:find(MARK_TYPEVAR, 1, true) ~= nil
-        or t.id:find(MARK_PACKVAR, 1, true) ~= nil
-        or t.id:find(MARK_CONSTVAR, 1, true) ~= nil
+    local id = t.id
+    -- Every mark begins with `!`, so an id without one carries none.
+    local marked = id:find("!", 1, true) ~= nil
+        and (
+            id:find(MARK_TYPEVAR, 1, true) ~= nil
+            or id:find(MARK_PACKVAR, 1, true) ~= nil
+            or id:find(MARK_CONSTVAR, 1, true) ~= nil
+        )
     if marked then
         return true
     end
