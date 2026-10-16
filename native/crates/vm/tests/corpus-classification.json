@@ -21,9 +21,9 @@
     },
     {
       "suite": "annotatedluatest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn,lua-generator",
-      "reason": "passes case by case, but its serialization migration cases take minutes each in the VM checker and the suite exceeds the corpus's 600 s budget"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; its migration cases share one checking environment"
     },
     {
       "suite": "annotationtest",
@@ -335,7 +335,7 @@
       "suite": "bundletest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,coroutine,spawn",
-      "reason": "binaries reaching nupp.mem.heap or nupp.mem.sharedbytes need ffi or the engine host; a rebuilt binary named after its entry's namespace collides with the Lua modules build in build/; the VM program check refuses a coroutine passed to a thread parameter that nupp check accepts"
+      "reason": "a worker forked with a record whose field was made dynamic refuses it ('value does not match the declared type of field id of Payload'); a scheduler that parks the main coroutine needs a whole-VM checkpoint for coroutine continuations"
     },
     {
       "suite": "bytecodelistingtest",
@@ -591,9 +591,9 @@
     },
     {
       "suite": "filestest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn",
-      "reason": "a transfer parked under a suspension handler calls a userdata in the corpus image (passes through nupp run)"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; it reaches the VM's own files provider rather than staging the native one"
     },
     {
       "suite": "fixedwidthtest",
@@ -873,9 +873,9 @@
     },
     {
       "suite": "nettest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "one case fails in the corpus image only: a providerstate stream has no close method after a refused setKeepAlive (passes through nupp run)"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "neutralpolicytest",
@@ -995,7 +995,7 @@
       "suite": "perfbudgettest",
       "class": "portable",
       "facilities": "getinfo,spawn",
-      "reason": "pure Lua against compiler modules within the subset"
+      "reason": "pure Lua against compiler modules within the subset; aos and soa exceed their bytecode budgets since struct layout metadata grew their module chunks (kernels unchanged)"
     },
     {
       "suite": "prefercomptimetest",
@@ -1139,7 +1139,7 @@
       "suite": "runtimetest",
       "class": "port-required",
       "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
-      "reason": "nupp run --watch on the VM fails ('op outside a function') and its native cases need ffi"
+      "reason": "nupp run --watch on the VM: the hot reload lane's VM watch is not integrated ('op outside a function'), and a watched cheader or cdef reaches ffi"
     },
     {
       "suite": "rustabitest",
@@ -1329,9 +1329,9 @@
     },
     {
       "suite": "stdlibtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,env,ffi,string.buffer,getinfo,coroutine,spawn,lua-generator",
-      "reason": "browser GPU handles want exact integers, and an overloaded select call answers a number"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "stringbuffernamespacetest",
@@ -1479,9 +1479,9 @@
     },
     {
       "suite": "uritest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn",
-      "reason": "the browser URI provider (nupp.runtime.browser.uri) is not carried by the VM image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; the corpus image carries the browser URI provider the suite names"
     },
     {
       "suite": "utilbitsettest",
@@ -1515,9 +1515,9 @@
     },
     {
       "suite": "vmimagecachetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,spawn",
-      "reason": "loads the built Lua tree's fingerprint module under a source chunk name to stand in for an image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; the fingerprint module is instanced from source with the runtime's answers as its globals"
     },
     {
       "suite": "withsuspensiontest",

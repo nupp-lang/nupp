@@ -1141,8 +1141,9 @@ bootstrap packaging remains separate migration work.
 `corpus-classification.json` preserves the P0 classifications. `corpus-smoke.py`
 emits unchanged Lua suites and their checked Nupp dependencies on the VM, then
 runs each suite in a fresh VM process and records every result. It rejects image
-construction failures, failed cases, unavailable capabilities, and incomplete
-results. The initial 2026-10-12 run covered all 100 portable test suites:
+construction failures, failed cases, and incomplete results. A case gated on a
+capability the runtime lacks (`test.requireCapability`) is listed under the
+suite's `notExecuted` with that capability rather than counted as a failure. The initial 2026-10-12 run covered all 100 portable test suites:
 45 passed, 54 failed, and one timed out. It reported 742 passing case or hook
 results, 297 failures, and one unavailable capability. The baseline also
 contains three portable helper modules, 117 suites requiring ports, 32 retired
@@ -3485,3 +3486,42 @@ instance field, the version cap, deopt exits with each live value kind and
 a pending cleanup, a patched body, checkpoint neutrality and the byte
 budget. `tests/specialize-emit.py` writes the two images;
 `tests/specialize-perf.py` times the class and interface benchmarks.
+
+## The last port-required suites (2026-10-16)
+
+`annotatedluatest`, `filestest`, `nettest`, `stdlibtest`, `uritest` and
+`vmimagecachetest` run on the VM; `bundletest` and `runtimetest` stay
+`port-required` with what they need in `corpus-classification.json`.
+
+- **`nupp bc`** lowers the inspected file alone, as `nupp run` does, against
+  the project's check stores. Lowering its whole graph produced the same
+  instructions for the file and checked everything it required on every call:
+  28 s per benchmark before, 2.5 s after.
+- **VM program builds** check the target's modules and generate no Lua.
+  Writing it put the entry's namespace directory where the binary goes
+  (`app.main` wrote `build/app/main.lua` beside a binary named `app`), so a
+  rebuild failed. Resources are read from their sources.
+- **Lowering**: a `pcall` assigned to an earlier local placed its window at
+  the destination and wrote its arguments over the locals declared after it;
+  it now starts above the live registers unless the destination is the top
+  (the `nettest` and `filestest` failures).
+- **Arithmetic**: an exact integer meeting a fractional double (`1.5 % 1`) is
+  floating-point arithmetic rather than an "expected an exact integer" error.
+- **Corpus harness**: each suite keeps a compiler cache
+  (`build/.nupp-corpus-cache/SUITE`, `NUPP_CACHE_DIR`) between runs, as the Lua
+  runner gives each shard one; the corpus image carries a browser runtime
+  module a suite requires by name; capability-gated cases are listed apart.
+- **Suites**: `filestest` and `uritest` reach the VM's own providers instead
+  of staging native ones; `vmimagecachetest` instances the fingerprint module
+  from source; `annotatedluatest` shares one checking environment across its
+  migration plans (`migrate.plan` takes one), since each case otherwise
+  checked the derive and serde libraries again, minutes apiece interpreted;
+  `bundletest` gates its native region transfer and shared-bytes accounting
+  cases on LuaJIT and expects what VM workers carry (a copy of the provider
+  state a function reaches, nothing owed for a managed array). The
+  generated-Lua size budget retired with the generator.
+
+`perfbudgettest`'s `aos` and `soa` now exceed their bytecode budgets (456 of
+345, 751 of 617): struct layout metadata grew their module chunks, while their
+kernels' counts are unchanged or lower. Whether to raise the ceilings is open.
+
