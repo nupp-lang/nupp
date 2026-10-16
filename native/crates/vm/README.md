@@ -3287,3 +3287,50 @@ Open: a string crosses as a copy (its bytes live inline in the sender's
 heap; a region is the by-reference vehicle). Lent disjoint mutable regions
 under a join and the VM-free job entry belong to the parallel-jobs plan and
 are not started.
+
+## Semantics the ported suites found (2026-10-16)
+
+The semantic gaps listed above as still `port-required` are closed:
+
+- **Module chunks** read `...`: `require` passes the module name and `nupp
+  run` the program's arguments. Only a chunk whose top level reads `...` is
+  vararg, so every other chunk stays compilable.
+- **Integer `%` and `//`** by zero are nan or an infinity, as the language and
+  LuaJIT answer, so their results never enter an integer register: a local
+  that holds one, or is ever assigned one, keeps a float register, and the
+  integer fast paths do not take them.
+- **xpcall's handler** runs where the error is raised, before any frame or
+  cleanup unwinds, on both the builtin path and the frame driver's protected
+  record. A scratch task records the task whose builtin started it, so
+  `debug.traceback` and `debug.getinfo` levels continue through builtins as
+  Lua's stack runs through C functions, and a handler sees the raising frame.
+- **Generic fields**: a field a generic record declares at a type parameter
+  holds whatever the record's own code stored there, and `as T` erases, so a
+  read of one does not enter a typed register on the instantiation's word.
+- **Record declarations** are held through their shape only while an instance
+  of the shape is marked, as an instance's metatable holds its declaration
+  under LuaJIT; constructing one names the declaration, so the code that can
+  make an instance keeps it. A `local record` type nothing uses is collected,
+  and its shape forgets it before the sweep. The diagnosis above was a dead
+  register; it was the shape.
+- **Type functions**: an input an application supplies is the one its blueprint
+  names, before a source an in-process envelope carries, so a cached result
+  never answers another application with a look-alike local record. A self
+  binder another environment's declaration already claimed (interning is per
+  process, nominals per environment) stays that declaration's, which is what
+  gave a bounded generic's derived `Debug` a `T` it could not render.
+- **`package.imageLoader`** answers a module an image loaded at run time
+  declared only until `require` has loaded it; after `package.loaded` forgets
+  it, the loaders behind reload it, and loading a newer image makes that image
+  current again. The running image keeps answering for its own modules.
+- **Providers**: the VM's clocks, worker lanes and suspension implementation
+  are the native providers (`nupp.runtime.provider.nativetime`,
+  `.workers`, `.suspension`) the shared facades select through SPI, so a
+  program's own provider wins as on LuaJIT. The VM registers
+  `nupp.workers.native` as the bridge marker the selection reads.
+- **`math.random`** keeps its state in the VM: each worker VM draws its own
+  stream, and a checkpoint restores the sequence where it was.
+
+The derive path-spelling case compared a project file with a file outside the
+project, which are two modules; it now spells one file two ways, and the images
+agree.
