@@ -3019,7 +3019,8 @@ function M.siteMatchesTheNuppdocPageModel()
     -- carrying a copy that can drift from it
     local details = readFile(dir .. "/site/reference/details/index.html")
     assert(details:find('<div class="nuppdoc-code-block" data-lang="abnf">', 1, true), details)
-    assert(details:find('rule = &quot;literal&quot; / other', 1, true), details)
+    assert(details:find('nuppdoc-token-property">rule</span>', 1, true), details)
+    assert(details:find('nuppdoc-token-string">&quot;literal&quot;</span>', 1, true), details)
     assert(not details:find("<<<", 1, true), "embed directive was left in the rendered page")
 
     local module = readFile(dir .. "/site/modules/math/index.html")
