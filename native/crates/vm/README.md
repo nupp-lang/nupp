@@ -1367,10 +1367,11 @@ the VM by default. Child compiler processes inherit that exact installation.
 Installation verifies the image and its root help command, then atomically
 selects an immutable generation under `.nupp/vm-cli`. Existing workers retain
 their generation when another is installed, and `nupp clean` preserves the
-installation. Source edits require explicitly rebuilding and installing a new
-image; `status` reports source changes and verifies the artifact hashes. A
-checkout without an installation uses the existing bootstrap. Release and
-bootstrap distribution remain open.
+installation. `bin/nupp` rebuilds and installs a new generation itself when a
+compiler source is newer than the stamp the last install left (see "The
+launcher rebuilds the VM CLI" below); `status` reports source changes and
+verifies the artifact hashes. A checkout without an installation uses the
+existing bootstrap. Release and bootstrap distribution remain open.
 
 An explicit image overrides the installed generation for one invocation:
 
@@ -2441,3 +2442,156 @@ Not instrumented: functions lowered from a native SIMD plan. The page's
 "Generated Lua" view still shows the generator's output, which on a VM build is
 not what ran. `coveragetest` now covers `coveragereporttest`, because the VM
 runner leaves `pathtest` to LuaJIT and covered nothing.
+
+
+## Incremental root emits (2026-10-15)
+
+`scripts/vm-cli build` re-emitted the whole root image for any edit: check and
+lower all 338 modules, 400-700 s VM-hosted. An emit now keeps, per module,
+what lowering it produced and what that depended on, and the next emit
+replays every module whose inputs are unchanged. The image is byte-identical
+to an emit from nothing; `nupp fixpoint` emits without the cache.
+
+**Relinking** (`nupp.compiler.vm.relink`). `lower.emit` numbers functions and
+shapes across the whole image, so a module's lowering is a function of its
+checked tree and of the shape registry it read on the way: which records,
+structural constructors and export records were already numbered. While a
+module is lowered fresh, the registry's two tables (by nominal or
+declaration key, and by bare name) are read and written through proxies that
+log every read with its answer, every write, and every shape allocated, in
+order. The module's functions are kept as the image text lowering wrote, with
+its own function ids (and the `fn<id>` in anonymous functions' names) made
+relative and every shape operand -- the operands the image loader relocates:
+`NewRecord`, `Get/SetSlot[F]`, `IsRec`, `TagCheckRec`, `SetMethod`, slot
+`rec:` types -- named by position among the module's allocations or by the
+shape's text. Relocating at the original base must reproduce the original
+text, or the module is not kept. A replay runs the log against the registry
+as it stands at the module's turn: allocations again in order, writes again,
+and each read must answer as it did; one that does not undoes the replay and
+lowers the module from source. Function and shape ids therefore come out as a
+fresh lowering assigns them whatever moved before the module.
+
+A registration by nominal object always comes with one by declaration key, so
+a read by object is kept only when it found a shape and replayed as the read
+by key. Nominals without a key (generic instantiations, whose origin has one)
+are answered by identity alone; a module that registers one for another
+module's record, or reads one and finds another module's shape, is not kept.
+
+**When a module may be replayed** (`nupp.tools.vm.emitcache`). Every check an
+emit makes -- the explicit check lowering reads, and the environment's check of
+each module loaded on the way -- is bracketed, recording the modules it read
+(`env.loaded`, through a proxy) and the project-index entries it looked up.
+Each environment-checked module's interface is encoded the way parallel check
+workers hand one to another (`interfaceimage`), kept, and digested with token
+positions dropped and the offsets in its own declaration keys replaced by
+their order, so a body edit leaves the digest alone. A kept fragment carries
+the interface digest of every module in its check's closure and the index
+answers that closure looked up; it is replayed when each still holds.
+
+A module is *clean* when its bytes and index reads are as recorded and every
+module it read has the interface it saw. Clean-ness is decided per strongly
+connected group of the recorded load graph, lazily: a changed dependency is
+checked only when something asks for its interface, which is the cutoff. When
+a check needs a clean module, its kept interface is decoded into the run's
+identities and installed in `env.loaded` instead of checking it, dependencies
+first; anything refused falls back to a check. So a leaf edit checks the leaf,
+not the ~300 modules it requires.
+
+The cache lives under `build/vm-cli/emit-cache` (`NUPP_VM_EMIT_CACHE`, or
+`project.emitCached`), stamped with the subsystem fingerprint of
+`nupp.tools.vm.project` (the checker and lowering it reaches), the carried
+declarations, the manifest's value, the roots and the layout target. Every
+part is plain data and never load-bearing: a miss lowers from source.
+`NUPP_VM_RELINK_TRACE=1` says why each module was lowered again;
+`NUPP_VM_EMIT_RESTORE=0` checks every module a check needs.
+
+Restoring makes the image depend on the interface image carrying everything
+lowering reads of a type, and the first full-scale comparison found what it
+did not: a decoded record counted its methods among its stored fields
+(`fieldOrder` was rebuilt from the member view), so a derive's reflected
+construction contract grew a parameter per method and `nupp.tools.cli.root`
+lowered differently. Parallel check workers decode the same images, so they
+had the same divergence. Images now carry `fieldOrder` (schema 7).
+
+Order dependence that remains: a shared nominal's `runtimePath` is set by
+whichever module's check names it last, and the VM metadata lowering reads
+it; and in a require cycle, which member the environment enters first decides
+what the others see in progress. An incremental emit checks fewer modules, in
+a different order. No image has differed from its emit-from-nothing since the
+`fieldOrder` fix, but the order is not proven irrelevant; the identity suites
+are what would say so.
+
+### Measured
+
+The root image (338 modules), on this machine while other agents' emits ran.
+"Emit" is the `vm emit:` line's own time; "rebuild" is what the launcher
+reports, emit plus loading the 21 MB seed image, writing the new one, a no-op
+Cargo build and installation (verifier and `--help`). VM-hosted emits run on
+the pinned, linked generation.
+
+| what changed | lowered | replayed | checked | restored | VM emit | VM rebuild | LuaJIT emit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| nothing (cold cache, captures) | 338 | 0 | 342 | 0 | 331 s | 340 s | 165-171 s |
+| a leaf's body (`tools.cli.explain`) | 1 | 337 | 1 | 60 | 4 s | 13 s | 8 s |
+| the body of a module 31 others import (`tools.cli.report`) | 1 | 337 | 1 | 58 | 5 s | 14 s | 8 s |
+| that module's exported signature | 32 | 306 | 30 | 298 | 21 s | 30 s | 20 s |
+
+An emit from nothing takes 242 s LuaJIT-hosted here; capturing costs it the
+interface encodings and the fragment files. Each incremental image was
+compared with an emit from nothing of the same sources (LuaJIT-hosted, which
+writes the VM-hosted image byte for byte), and the cold VM-hosted emit with
+the LuaJIT one: all identical. `tests/vmemitcachetest.lua` holds the same
+cases on a small project: a leaf, a widely imported module's body, an
+exported record gaining a field, renumbering everything after an early
+module, and a damaged fragment.
+
+Linking is what the rebuild leaves to the background: the AOT of the root
+image takes 120-128 s and the linked runtime's Cargo build 21-24 s (12-48 s
+more the first time a checkout builds the AOT tool). The linked runtime runs
+a warm `nupp check` of `lexer.nupp` in 0.94 s against the interpreter's
+1.06 s, and a cold check of `check/expr.nupp` in 9.6 s against 11.5 s; it
+also makes the pinned emitter faster once it is re-pinned to it. Installing
+the interpreter first keeps a leaf edit's rebuild at 13 s instead of 2.5 min.
+
+## The launcher rebuilds the VM CLI (2026-10-15)
+
+`bin/nupp` keeps the installed generation current the way it keeps `build/`
+current on the LuaJIT path. Every install leaves `.nupp/vm-cli/stamp` carrying
+the time its build *started* (an installation older than that has its
+`current` file's time); a file under `src`, `templates`, the VM crate's
+`src`/`lib`/`decls`/`csrc`, the crates it links, the workspace manifests or
+`scripts/vm-cli` newer than the stamp means the generation has not seen that
+edit, and the command rebuilds before it runs:
+
+```sh
+python3 scripts/vm-cli build --seed pinned --no-aot   # what the launcher runs
+```
+
+- **One rebuild per checkout.** It runs under `.nupp/vm-cli-build.lock`, a
+  directory holding the builder's pid; a command that finds it held waits, then
+  runs what that build installed. A lock whose holder is gone is taken.
+- **A failure keeps the previous generation.** The launcher says the compiler
+  did not build, shows the end of `.nupp/vm-cli/rebuild.log`, and runs the
+  generation it has. `.nupp/vm-cli/failed` remembers the failure, so later
+  commands say so instead of retrying until another source changes.
+- **What bypasses it.** An explicit `NUPP_VM_CLI_IMAGE` (and with it every
+  worker and child command a compiler starts, which inherit it),
+  `NUPP_ENGINE=luajit`, `NUPP_VM_AUTO_REBUILD=0`, help, and `__` worker
+  commands.
+- **The emitter is pinned.** The rebuild lowers with the generation whose
+  lowering the emit cache holds (`.nupp/vm-cli/emitter`), not the newest one: a
+  generation built after an edit to the checker or the lowering has a
+  different stamp, and lowering with it would start the cache cold on every
+  second rebuild of somebody working on them. That is the same one-pass
+  semantics `--seed vm` always had, with an older seed. An explicit
+  `scripts/vm-cli build` moves the pin to the installed generation, a pinned
+  generation that cannot lower the sources falls back to the installed one,
+  and `nupp fixpoint` remains the self-hosting check.
+- **Interpreter first, linked in the background.** The rebuild installs an
+  interpreter-only runtime, then starts `scripts/vm-cli link`
+  (NUPP_VM_AUTO_LINK=0 skips it), which compiles the image's functions into a
+  runtime in its own Cargo target directory and installs that pair under the
+  build lock -- only while that generation is still the selected one; if a
+  newer one was installed meanwhile it links that instead.
+- **Old generations are pruned** after a day, except the selected and pinned
+  ones; a generation is immutable and a running command keeps reading its own.
