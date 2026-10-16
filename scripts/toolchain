@@ -877,7 +877,8 @@ EOF
 
 # The runtime a VM program binary is stamped onto: the interpreter with linked
 # entry support and native C calls, and of the facilities a program may reach
-# (compression, net, http, regex, markdown, and jit, the code generator a program with vector
+# (compression, net, http, regex, markdown, c-headers, the C declaration reader
+# a compiler reaches, and jit, the code generator a program with vector
 # instructions needs) the ones it names. Every source
 # state of one facility set shares a target directory, so an edit to the VM is
 # an incremental rebuild rather than a cold one beside every earlier result;
@@ -886,7 +887,7 @@ build_rust_vm_runtime() {
     facilities=$(normalize_rust_features "${1:-}")
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
         case "$facility" in
-            compression|net|http|regex|markdown|jit) ;;
+            compression|net|http|regex|markdown|jit|c-headers) ;;
             *) die "unknown VM runtime facility $facility" ;;
         esac
     done

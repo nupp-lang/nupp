@@ -58,6 +58,7 @@ local FACILITIES: {
     ["nupp.vm.uri"] = "http",
     ["nupp.vm.regex"] = "regex",
     ["nupp.vm.markdown"] = "markdown",
+    ["nupp.compiler.nativecdecl"] = "c-headers",
 }
 
 -- Providers the source tree spells once for both runtimes: they reach the
