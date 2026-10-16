@@ -14,6 +14,20 @@ local NESTED = {
 }
 local LIMIT = 32
 
+-- The key a module's own writes are recorded under beside its definitions. Every call
+-- into an exact module export asks for one, so each module's key is built once.
+local moduleKeys: {[string]: string} = {}
+
+local function moduleKey(name: string): string
+    local key = moduleKeys[name]
+    if not key then
+        key = "module:" .. name
+        moduleKeys[name] = key
+    end
+
+    return key
+end
+
 local function definition(node)
     return node and node.kind == "name" and node.token and node.token.definition or nil
 end
@@ -444,7 +458,7 @@ local function markUnstable(root)
         while node and (node.kind == "dotIndex" or node.kind == "bracketIndex") do
             node = node.obj
         end
-        return node and node.requiredModule and "module:" .. node.requiredModule or definition(node)
+        return node and node.requiredModule and moduleKey(node.requiredModule) or definition(node)
     end
 
     local function collect(node, depth)
@@ -488,7 +502,7 @@ local function markUnstable(root)
                     changed[def] = true
                 end
                 if target.qualifiedModule then
-                    changed["module:" .. target.qualifiedModule] = true
+                    changed[moduleKey(target.qualifiedModule)] = true
                 end
             end
         elseif node.kind == "call" or node.kind == "methodCall" then
@@ -556,7 +570,7 @@ local function markUnstable(root)
                 and (parent.kind == "returnStmt" or parent.kind == "exportStmt")
             if not receiver and not binding and not exportedOwner then
                 if moduleName then
-                    changed["module:" .. moduleName] = true
+                    changed[moduleKey(moduleName)] = true
                 end
                 if def then
                     changed[def] = true
@@ -585,7 +599,7 @@ local function markUnstable(root)
     end
     for def, moduleName in pairs(modules) do
         if changed[def] then
-            changed["module:" .. moduleName] = true
+            changed[moduleKey(moduleName)] = true
         end
     end
 
@@ -613,7 +627,7 @@ local function markUnstable(root)
                 callee.exactCallExport
                 or callee.token and callee.token.definition and callee.token.definition.exactCallExport
             )
-        if changed[base(callee)] or exact and changed["module:" .. exact.module] then
+        if changed[base(callee)] or exact and changed[moduleKey(exact.module)] then
             node.unstableFact = true
             if node.kind == "call" then
                 node.unstableCall = true
