@@ -1498,9 +1498,11 @@ impl Interp {
         }
     }
     /// A field read by name as `GetField` answers it: a string's fields are the
-    /// string library's, so `s.sub` reads the method `s:sub` calls.
+    /// string library's and a reducer's are its methods, so `s.sub` reads the
+    /// method `s:sub` calls.
     pub(crate) fn field(&mut self, t: Value, name: Value) -> Value {
         if self.is_stringish(t) { return self.string_field(t, name); }
+        if let Some(method) = crate::simd_reduce::method(self, t, name) { return method; }
         self.index(t, name)
     }
     /// A field of a string: what the string metatable's `__index` answers,
@@ -2545,7 +2547,8 @@ impl Interp {
             // Stored fields keep the shape probe; absent fields may be methods.
             // An empty slot may still name a method the record assigns later.
             KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) if h.slots()[i] != Value::NIL => h.slots()[i], _ => self.index(r!(t), name) } }
-            _ => self.op_error(OpErr::Index, r!(t)),
+            // A reducer's methods, read before a call's arguments as `CallMethod` reads them.
+            _ => match crate::simd_reduce::method(self, r!(t), name) { Some(method) => method, None => self.op_error(OpErr::Index, r!(t)) },
         };
         r!(d) = v;
     }
