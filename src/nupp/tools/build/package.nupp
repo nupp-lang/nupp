@@ -137,7 +137,9 @@ local function carriedResources(
                 key = staged:sub(#namespaceRoot + 1)
             end
             if key then
-                local text, readErr = readFile(staged)
+                -- Read from the source the staged copy is made from: a VM program's
+                -- build stages nothing.
+                local text, readErr = readFile(source)
                 if not text then
                     return nil, nil, readErr
                 end

@@ -2434,8 +2434,22 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
     if checkOnly then
+        -- A VM program's build checks rather than generates: its image is lowered
+        -- from the sources these records name, so it takes them as a build's
+        -- would, and the effects they reach.
+        local effects = {}
+        if checkState == nil then
+            newState.modules = {}
+            for _, name in ipairs(order) do
+                newState.modules[name] = records[name]
+                for _, effect in ipairs(records[name].effects or {}) do
+                    effects[effect] = true
+                end
+            end
+        end
         return {
             outputs = {},
+            effects = effects,
             materializations = materializations,
             derives = derives,
             optimizationRemarks = optimizationRemarks,
