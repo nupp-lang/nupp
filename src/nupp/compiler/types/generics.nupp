@@ -505,7 +505,6 @@ reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budge
         answer = generics.rebind(answer, {[entry.selfBinder] = head})
     end
     local key = head.id .. "." .. name
-    local label = T.tostring(head) .. "." .. name
     if budget.active[key] then
         -- Met twice on one chain. Record the loop from where it was entered and stop,
         -- leaving the projection standing: `any` here would turn a program that cannot
@@ -521,10 +520,11 @@ reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budge
                 end
             end
             for j = from or #budget.path, #budget.path do
-                loop[#loop + 1] = budget.path[j].label
+                local step = budget.path[j]
+                loop[#loop + 1] = T.tostring(step.head) .. "." .. step.name
                 keys[#keys + 1] = budget.path[j].key
             end
-            loop[#loop + 1] = label
+            loop[#loop + 1] = T.tostring(head) .. "." .. name
             table.sort(keys)
             budget.cycle = loop
             budget.cycleKeys = keys
@@ -533,7 +533,9 @@ reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budge
         return T.projection(head, name)
     end
     budget.active[key] = true
-    budget.path[#budget.path + 1] = {key = key, label = label}
+    -- The label is rendered only if a cycle is found: rendering a type costs more than
+    -- every other step here.
+    budget.path[#budget.path + 1] = {key = key, head = head, name = name}
     -- Recursing with the state is what makes this a fixed point: an answer that is
     -- itself a projection reduces here rather than being handed back half done.
     -- Recursing through the evaluator, not through substitution: the answer may be a
@@ -712,7 +714,8 @@ local type ReductionBudget = {
     --- declarations that show one name from reporting each other's cycle.
     path: {{
         key: string,
-        label: string
+        head: Type,
+        name: string
     }},
 
     --- Projections whose head reduced to `any`, in the order met. What later tells a
@@ -1684,11 +1687,65 @@ local instantiations: {[string]: T.Nominal} = {}
 -- `generics.instantiate` of the same application completes in place.
 local pendingInstantiations: {[T.Nominal]: boolean} = {}
 
+--- What one member map of an instantiation was filled from and with: the
+--- declaration's map and the entries read from it, and the instantiation's map and
+--- what was written into it.
+local record MapFill
+    source: {[string]: T.Type}?
+    read: {[string]: T.Type}
+    count: number
+    target: {[string]: T.Type}
+    written: {[string]: T.Type}
+end
+
+--- An instantiation reached while another one's members were being filled, with the
+--- arguments it was reached with.
+local record FillDependency
+    instance: T.Nominal
+    map: Bindings
+end
+
+--- What the last fill of an instantiation's members read and wrote.
+---
+--- A refresh substitutes every member again, which is most of what instantiating
+--- costs. When the declaration still holds what the last fill read, the arguments are
+--- the same, nothing has written over what the fill wrote, and the same holds for every
+--- instantiation the fill reached, substituting again would intern nothing new and
+--- write back exactly what is there, so the refresh is skipped.
+local record InstantiationFill
+    declaration: T.Nominal
+    map: Bindings
+    mapCount: number
+    maps: {MapFill}
+    supertypeSource: {T.Type}?
+    supertypeRead: {T.Type}
+    supertypes: {T.Type}
+    supertypeValues: {T.Type}
+    dependencies: {FillDependency}
+end
+
+local fills: {[T.Nominal]: InstantiationFill} = setmetatable({}, {__mode = "k"}) as {[T.Nominal]: InstantiationFill}
+
+--- The instantiations a fill under way has reached, when one is.
+local fillDependencies: {FillDependency}? = nil
+
+local function copyBindings(map: Bindings): Bindings, number
+    local copy: Bindings = {}
+    local count = 0
+    for binder, stands in pairs(map) do
+        copy[binder] = stands
+        count += 1
+    end
+
+    return copy, count
+end
+
 --- Substitution can intern new types and packs, so visit member names in a stable
 --- order. Recollect them on every refresh: declarations can still gain members.
-local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]: T.Type}?, map: Bindings)
+local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]: T.Type}?, map: Bindings): MapFill
+    local fill = new MapFill(source = source, read = {}, count = 0, target = into, written = {})
     if not source then
-        return
+        return fill
     end
     local names: {string} = {}
     for name in pairs(source) do
@@ -1698,27 +1755,173 @@ local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]:
     for _, name in ipairs(names) do
         local member = source[name]
         if member then
-            into[name] = substWith(member, map, PRESERVE)
+            fill.read[name] = member
+            fill.count += 1
+            local value = substWith(member, map, PRESERVE)
+            into[name] = value
+            fill.written[name] = value
         end
     end
+
+    return fill
 end
 
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
 --- that cached identity must therefore pick up members declared afterward.
 local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
-    fillInstantiationMap(inst.byname, declaration.byname, map)
-    fillInstantiationMap(inst.writeByname, declaration.writeByname, map)
-    fillInstantiationMap(inst.staticByname, declaration.staticByname, map)
-    fillInstantiationMap(inst.staticWriteByname, declaration.staticWriteByname, map)
-    fillInstantiationMap(inst.metamethods, declaration.metamethods, map)
+    local outer = fillDependencies
+    local dependencies: {FillDependency} = {}
+    fillDependencies = dependencies
+    local maps: {
+        MapFill
+    } = {
+        fillInstantiationMap(inst.byname, declaration.byname, map),
+        fillInstantiationMap(inst.writeByname, declaration.writeByname, map),
+        fillInstantiationMap(inst.staticByname, declaration.staticByname, map),
+        fillInstantiationMap(inst.staticWriteByname, declaration.staticWriteByname, map),
+        fillInstantiationMap(inst.metamethods, declaration.metamethods, map),
+    }
     -- What the declaration includes is filled in as it is checked, the same as its
     -- members, so an instantiation made before the `is` list was read carried none of
     -- it. A declaration standing for itself is made at exactly that point.
-    inst.supertypes = {}
-    for j, parent in ipairs(declaration.supertypes or {}) do
-        inst.supertypes[j] = substWith(parent, map, PRESERVE)
+    local supertypes: {T.Type} = {}
+    inst.supertypes = supertypes
+    local supertypeSource = declaration.supertypes
+    local supertypeRead: {T.Type} = {}
+    local supertypeValues: {T.Type} = {}
+    for j, parent in ipairs(supertypeSource or {}) do
+        supertypeRead[j] = parent
+        local value = substWith(parent, map, PRESERVE)
+        supertypes[j] = value
+        supertypeValues[j] = value
     end
+    fillDependencies = outer
+    local copy, count = copyBindings(map)
+    fills[
+        inst
+    ] = new InstantiationFill(
+        declaration = declaration,
+        map = copy,
+        mapCount = count,
+        maps = maps,
+        supertypeSource = supertypeSource,
+        supertypeRead = supertypeRead,
+        supertypes = supertypes,
+        supertypeValues = supertypeValues,
+        dependencies = dependencies
+    )
+end
+
+--- Whether a member map still holds what its last fill read and wrote.
+local function mapFillCurrent(fill: MapFill, source: {[string]: T.Type}?, target: {[string]: T.Type}): boolean
+    if source ~= fill.source or target ~= fill.target then
+        return false
+    end
+    if source then
+        local count = 0
+        for name, member in pairs(source) do
+            if fill.read[name] ~= member then
+                return false
+            end
+            count += 1
+        end
+        if count ~= fill.count then
+            return false
+        end
+    end
+    for name, value in pairs(fill.written) do
+        if target[name] ~= value then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Whether two lists hold the same values in the same order.
+local function sameList(left: {T.Type}, right: {T.Type}): boolean
+    if #left ~= #right then
+        return false
+    end
+    for j = 1, #left do
+        if left[j] ~= right[j] then
+            return false
+        end
+    end
+
+    return true
+end
+
+--- Whether refilling `inst` from `declaration` under `map` would write exactly what
+--- its last fill did. See `InstantiationFill`.
+local function fillCurrent(
+    inst: T.Nominal,
+    declaration: T.Nominal,
+    map: Bindings,
+    visiting: {[T.Nominal]: boolean}?
+): boolean
+    local fill = fills[inst]
+    if not fill or fill.declaration ~= declaration then
+        return false
+    end
+    local count = 0
+    for binder, stands in pairs(map) do
+        if fill.map[binder] ~= stands then
+            return false
+        end
+        count += 1
+    end
+    if count ~= fill.mapCount then
+        return false
+    end
+    local maps = fill.maps
+    if not mapFillCurrent(maps[1], declaration.byname, inst.byname)
+        or not mapFillCurrent(maps[2], declaration.writeByname, inst.writeByname)
+        or not mapFillCurrent(maps[3], declaration.staticByname, inst.staticByname)
+        or not mapFillCurrent(maps[4], declaration.staticWriteByname, inst.staticWriteByname)
+        or not mapFillCurrent(maps[5], declaration.metamethods, inst.metamethods)
+    then
+        return false
+    end
+    local supertypeSource = declaration.supertypes
+    if supertypeSource ~= fill.supertypeSource
+        or not sameList(supertypeSource or {}, fill.supertypeRead)
+        or inst.supertypes ~= fill.supertypes
+        or not sameList(fill.supertypes, fill.supertypeValues)
+    then
+        return false
+    end
+    if #fill.dependencies == 0 then
+        return true
+    end
+    local seen: {[T.Nominal]: boolean} = visiting or {}
+    seen[inst] = true
+    for _, dependency in ipairs(fill.dependencies) do
+        local reached = dependency.instance
+        if not seen[reached] then
+            local reachedFill = fills[reached]
+            if not reachedFill then
+                return false
+            end
+            -- Reached with other arguments than it was last filled with, a refresh
+            -- would fill it with these.
+            local reachedCount = 0
+            for binder, stands in pairs(dependency.map) do
+                if reachedFill.map[binder] ~= stands then
+                    return false
+                end
+                reachedCount += 1
+            end
+            if reachedCount ~= reachedFill.mapCount
+                or not fillCurrent(reached, reachedFill.declaration, reachedFill.map, seen)
+            then
+                return false
+            end
+        end
+    end
+
+    return true
 end
 
 local function instantiationKey(n: T.Nominal, map: Bindings): string
@@ -1788,11 +1991,23 @@ function generics.reserveInstantiation(n: T.Nominal, map: Bindings): T.Nominal
     return inst
 end
 
+local instantiateNominal: function(n: T.Nominal, map: Bindings): T.Nominal
+
 --- The nominal `n` stands for once its parameters hold `map`.
 ---
 --- @param n the generic declaration
 --- @param map what each binder stands for
 function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
+    local inst = instantiateNominal(n, map)
+    local dependencies = fillDependencies
+    if dependencies then
+        dependencies[#dependencies + 1] = new FillDependency(instance = inst, map = (copyBindings(map)))
+    end
+
+    return inst
+end
+
+instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     local key = instantiationKey(n, map)
     local outermost = refreshingInstantiations == nil
     local refreshed = refreshingInstantiations or {}
@@ -1803,7 +2018,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     elseif cached then
         if not refreshed[key] then
             refreshed[key] = true
-            fillInstantiationMembers(cached, n, map)
+            if not fillCurrent(cached, n, map, nil) then
+                fillInstantiationMembers(cached, n, map)
+            end
         end
         if outermost then
             refreshingInstantiations = nil
