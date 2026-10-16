@@ -83,6 +83,8 @@ host_extras = [
     "nupp.compiler.project.store", "nupp.compiler.project.fingerprint",
     "nupp.compiler.hash", "nupp.compiler.project.preludecache",
     "nupp.runtime.provider.nativeprocess",
+    # cheader asks for its host services by computed name.
+    "nupp.compiler.shellsyntax", "nupp.compiler.process",
 ]
 extras = [row["suite"] for row in selected if row["suite"] not in args.unavailable_module] + host_extras
 def emission_failure(problem):
