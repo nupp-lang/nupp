@@ -23,6 +23,8 @@ state, and scheduling operations never resolve the service again.
 
 local effects = require("nupp.runtime.browser.effects")
 local contract = require("nupp.suspension.spi")
+-- Plain threads: the VM's owned coroutines cannot be kept in `_installed`.
+local coroutines = require("nupp.suspension.internal.coroutines")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}
@@ -609,7 +611,7 @@ function suspension.installDriver(value: suspension.Handler): affine(contract.In
 end
 
 function suspension.create<A..., R...>(body: function(A...): R...): thread
-    local co = coroutine.create(body)
+    local co = coroutines.create(body)
     local inherited = installation()
     if inherited ~= nil then
         suspension._installed[co] = inherited
