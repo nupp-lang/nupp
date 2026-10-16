@@ -175,14 +175,20 @@ function typeblueprint.validate(envelope: any, permittedReferences: any?): any, 
                 why = "type blueprint names an unknown primitive " .. tostring(node.name)
             end
         elseif node.kind == "reference" then
-            local reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
+            -- An input this application supplied is the one it names, before any
+            -- source the envelope carries: an envelope evaluated in process keeps
+            -- the sources of the application that produced it, and a cached one
+            -- answers a later application whose inputs share only fingerprints,
+            -- such as two local records declared alike.
+            local reference = nil
             local explicitlyPermitted = false
-            if (type(reference) ~= "table" or not reference.source)
-                and type(node.referenceId) == "string"
-                and type(permittedReferences) == "table"
-            then
+            if type(node.referenceId) == "string" and type(permittedReferences) == "table" then
                 reference = permittedReferences[node.referenceId]
                 explicitlyPermitted = reference ~= nil
+            end
+            if type(reference) ~= "table" or not reference.source then
+                reference = type(envelope.references) == "table" and envelope.references[node.reference] or nil
+                explicitlyPermitted = false
             end
             if (type(reference) ~= "table" or not reference.source) and type(permittedReferences) == "table" then
                 for _, permitted in pairs(permittedReferences) do
