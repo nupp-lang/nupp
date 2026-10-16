@@ -52,6 +52,10 @@ impl Drop for Transfer {
 pub struct Transfers { next: u64, clients: HashMap<u64, Client>, transfers: HashMap<u64, Transfer> }
 impl Transfers {
     fn id(&mut self) -> u64 { self.next += 1; self.next }
+    /// Open handles by kind, for the checkpoint's refusal (`crate::snapshot`).
+    pub(crate) fn open_counts(&self) -> [(&'static str, usize); 2] {
+        [("HTTP client", self.clients.len()), ("HTTP transfer", self.transfers.len())]
+    }
     /// Drops a transfer handle, and its registration once nothing reports it.
     fn release(&mut self, id: u64) -> bool {
         let Some(entry) = self.transfers.remove(&id) else { return false };

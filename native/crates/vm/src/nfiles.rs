@@ -8,7 +8,12 @@ use std::path::{Path, PathBuf};
 
 /// Open files by handle number; a handle is spent by `fileClose`.
 #[derive(Default)]
-pub struct Files { next: u64, open: std::collections::HashMap<u64, OpenFile> }
+pub struct Files {
+    pub(crate) next: u64,
+    pub(crate) open: std::collections::HashMap<u64, OpenFile>,
+    /// What a checkpoint needs to reopen each handle (`crate::snapshot`).
+    pub(crate) snapshot: crate::snapshot::FileTracking,
+}
 
 fn text(it: &Interp, v: Value) -> PathBuf {
     let bytes = if it.is_stringish(v) { it.bytes_of(v).to_vec() } else { Vec::new() };
@@ -110,14 +115,15 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "copy" => { let r = std::fs::copy(text(it, arg(args, 0)), text(it, arg(args, 1))).map(drop); done(it, r) }
         "open" => {
             let mode = match it.bytes_of(arg(args, 1)) { b"r" => OpenMode::Read, b"w" => OpenMode::Write, b"a" => OpenMode::Append, b"r+" => OpenMode::ReadWrite, b"w+" => OpenMode::ReadWriteTruncate, b"a+" => OpenMode::ReadAppend, _ => { let m = it.intern("invalid file mode"); let mut o = Outs::new(); o.push(Value::NIL); o.push(m); return o; } };
-            match OpenFile::open(&text(it, arg(args, 0)), mode) {
-                Ok(file) => { let id = it.nfiles.next; it.nfiles.next += 1; it.nfiles.open.insert(id, file); let mut o = Outs::new(); o.push(Value::num(id as f64)); o }
+            let path = text(it, arg(args, 0));
+            match OpenFile::open(&path, mode) {
+                Ok(file) => { let id = it.nfiles.next; it.nfiles.next += 1; it.nfiles.open.insert(id, file); it.nfiles.snapshot.opened(id, &path, mode); let mut o = Outs::new(); o.push(Value::num(id as f64)); o }
                 Err(e) => failed(it, e),
             }
         }
         "fileRead" | "fileWrite" | "fileSeek" | "filePosition" | "fileSize" | "fileFlush" | "fileClose" => {
             let id = arg(args, 0).as_num() as u64;
-            if op == "fileClose" { it.nfiles.open.remove(&id); return Outs::new(); }
+            if op == "fileClose" { it.nfiles.open.remove(&id); it.nfiles.snapshot.closed(id); return Outs::new(); }
             let Some(file) = it.nfiles.open.get(&id) else { let m = it.intern("the file is closed"); let mut o = Outs::new(); o.push(Value::NIL); o.push(m); return o; };
             match op {
                 "fileRead" => {

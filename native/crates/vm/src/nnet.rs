@@ -34,6 +34,16 @@ pub struct Resources {
 }
 impl Resources {
     fn id(&mut self) -> u64 { self.next += 1; self.next }
+    /// Open handles by kind, for the checkpoint's refusal (`crate::snapshot`).
+    pub(crate) fn open_counts(&self) -> [(&'static str, usize); 5] {
+        [
+            ("network listener", self.listeners.len()),
+            ("pending connection", self.connects.len()),
+            ("network stream", self.streams.len()),
+            ("datagram socket", self.datagrams.len()),
+            ("TLS session", self.sessions.len()),
+        ]
+    }
 }
 
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }

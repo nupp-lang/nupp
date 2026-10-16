@@ -110,6 +110,34 @@ impl OpenFile {
         })
     }
 
+    /// Reopens an existing file with the access `mode` names, at `position`.
+    /// Unlike `open`, it never creates or truncates: a restored handle must
+    /// find what the captured one wrote, not an empty file.
+    pub fn reopen(path: &Path, mode: OpenMode, position: u64) -> io::Result<Self> {
+        if position > MAX_EXACT_INTEGER {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the file cursor exceeds Nupp's exact integer range",
+            ));
+        }
+        let mut options = OpenOptions::new();
+        let appending = matches!(mode, OpenMode::Append | OpenMode::ReadAppend);
+        match mode {
+            OpenMode::Read => options.read(true),
+            OpenMode::Write => options.write(true),
+            OpenMode::Append => options.append(true),
+            OpenMode::ReadWrite | OpenMode::ReadWriteTruncate => options.read(true).write(true),
+            OpenMode::ReadAppend => options.read(true).append(true),
+        };
+        Ok(Self {
+            state: Mutex::new(FileState {
+                file: options.open(path)?,
+                position,
+                appending,
+            }),
+        })
+    }
+
     pub fn read(&self, output: &mut [u8]) -> io::Result<usize> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
         let position = state.position;

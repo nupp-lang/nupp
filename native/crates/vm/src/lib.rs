@@ -77,6 +77,7 @@ pub mod jit;
 pub mod compiled;
 
 pub mod persist;
+pub mod snapshot;
 
 pub mod scheduler;
 

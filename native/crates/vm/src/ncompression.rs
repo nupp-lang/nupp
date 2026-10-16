@@ -9,6 +9,12 @@ use std::collections::HashMap;
 /// Live encoders and decoders by handle; a handle is spent by its release.
 #[derive(Default)]
 pub struct Streams { next: u64, encoders: HashMap<u64, Encoder>, decoders: HashMap<u64, Decoder> }
+impl Streams {
+    /// Open handles by kind, for the checkpoint's refusal (`crate::snapshot`).
+    pub(crate) fn open_counts(&self) -> [(&'static str, usize); 2] {
+        [("compression encoder", self.encoders.len()), ("compression decoder", self.decoders.len())]
+    }
+}
 
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 /// A failure: `nils` empty results, then the message where the provider's

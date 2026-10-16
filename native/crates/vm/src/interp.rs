@@ -1164,6 +1164,7 @@ impl Interp {
         for (name, builtin) in [("save", "vm.saveValue"), ("load", "vm.loadValue"), ("loadInto", "vm.loadInto"), ("saveData", "vm.saveData"), ("loadData", "vm.loadData")] { let k = self.intern(name); self.set_index(persistence, k, Value::builtin(crate::builtins::id_of(builtin).unwrap())); }
         self.loaded.insert("nupp.vm.persist".into(), persistence);
         crate::supervision::install(self);
+        crate::snapshot::install(self);
         crate::lpeg::install(self);
         crate::strbuf::install(self);
         let package = self.new_table(); self.registered.push(package);

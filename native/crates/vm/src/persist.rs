@@ -1284,12 +1284,30 @@ pub fn load_into(
     if h.kind != KIND_RECORD {
         return Err("in-place load requires a record".into());
     }
+    load_into_with(vm, data, target, policies, None)
+}
+/// `load_into` with resource codecs; `crate::snapshot` stages its resources.
+pub(crate) fn load_into_with(
+    vm: &mut Interp,
+    data: &[u8],
+    target: Value,
+    policies: &Policies,
+    codecs: Option<&mut ResourceCodecs>,
+) -> Result<Value> {
+    let p = target
+        .as_obj()
+        .filter(|p| vm.heap.is_live_slot(*p))
+        .ok_or("in-place target is not live")?;
+    let h = unsafe { p.as_ref() };
+    if h.kind != KIND_RECORD {
+        return Err("in-place load requires a record".into());
+    }
     let out = load_graph_with(
         vm,
         data,
         policies,
         Some(SlotTy::Record(h.shape())),
-        None,
+        codecs,
         false,
         Some(target),
     )?;
@@ -1669,6 +1687,8 @@ pub fn save_vm(
     }
     safepoint(vm)?;
     vm.snapshot_workers()?;
+    // Standard providers' handles take part through sentinel resources.
+    crate::snapshot::before_checkpoint(vm, codecs);
     if let Some(&clock) = vm.loaded.get("nupp.vm.clock") {
         let now = Value::num(vm.clock.now());
         crate::task_api::put(vm, clock, "_checkpointNow", now);
@@ -2066,6 +2086,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     let mut vm = Interp::new();
     vm.channel_registry=registry;
     codecs.insert(crate::channels::KIND.into(),Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
+    crate::snapshot::install_codecs(codecs);
     let n = r.count()?;
     for _ in 0..n {
         match r.byte()? {

@@ -81,6 +81,7 @@ pub const NAMES: &[&str] = &[
     "foreign.load", "foreign.invokeCallback", "foreign.string",
     "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
     "table.new", "cleanup.describe", "file.setvbuf", "file.flush",
+    "snapshot.save", "snapshot.prepare", "snapshot.loadInto", "snapshot.track", "snapshot.untrack", "snapshot.fileStrategy", "snapshot.durable",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -544,6 +545,7 @@ enum Special {
     Plain,
     Lpeg,
     Sbuf,
+    Snapshot,
     OsExit,
     DebugTraceback,
     ErrorSite,
@@ -596,6 +598,7 @@ fn classify(name: &str) -> Special {
     if name.starts_with("foreign.") { return Special::Foreign; }
     if name.starts_with("lpeg.") { return Special::Lpeg; }
     if name.starts_with("sbuf.") { return Special::Sbuf; }
+    if name.starts_with("snapshot.") { return Special::Snapshot; }
     if name.starts_with("tasks.vm") { return Special::TasksVm; }
     if name == "io.stdin.read" || name == "io.stdout.flush" || name == "io.stderr.flush" || name == "io.flush" || name == "io.stdout.setvbuf" || name == "io.stderr.setvbuf" { return Special::IoStdinRead; }
     if name == "io.popen" { return Special::IoPopen; }
@@ -691,6 +694,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::Lpeg => return crate::lpeg::call(it, NAMES[id as usize], args),
         Special::Sbuf => return crate::strbuf::call(it, NAMES[id as usize], args),
+        Special::Snapshot => return crate::snapshot::call_builtin(it, NAMES[id as usize], args),
         Special::TasksVm => {
             let name = NAMES[id as usize];
             return match crate::task_api::call(it, 0, name, args) {
