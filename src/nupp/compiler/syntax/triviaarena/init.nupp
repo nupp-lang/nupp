@@ -63,7 +63,10 @@ local function provider(): Provider
         -- Embedded hosts may install another provider before reaching this path;
         -- normal compiler entry points default to the FFI one where LuaJIT's FFI
         -- exists. The VM has none, so it takes the table arena.
-        selected = load(pcall(require, "ffi") and "ffi" or "table")
+        local hasFfi = pcall(function(): any
+            return require("ffi")
+        end)
+        selected = load(hasFfi and "ffi" or "table")
     end
 
     return selected as Provider

@@ -306,7 +306,10 @@ local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
 -- or give it a 32-bit `time_t`, and neither fails to resolve. The VM has no `ffi`
 -- module, and its `os.time` is an ordinary builtin, so it keeps that.
 local clock: any = os.time
-local hasFfi, ffi = pcall(require, "ffi")
+-- A literal require, so the module graph still names every module this loads.
+local hasFfi, ffi = pcall(function(): any
+    return require("ffi")
+end)
 if hasFfi then
     pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
     local resolved, fn = pcall(function(): any
