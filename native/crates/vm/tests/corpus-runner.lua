@@ -20,13 +20,31 @@ function runner.main(argv)
         end
     end
     table.sort(names)
-    local passed, failed = 0, 0
+    local passed, failed, notExecuted = 0, 0, 0
     local json = require("nupp.codec.json")
     local test = require("nupp.test")
 
+    -- A case that declared a capability this runtime lacks (`test.requireCapability`)
+    -- did not run, and says which capability; it is counted apart rather than as a
+    -- failure. Any other way a case stops short, a skip included, still fails.
+    local function gated(problem, context)
+        if not test.isNotExecuted(problem) or not context then
+            return false
+        end
+        for _, capability in ipairs(context.capabilities or {}) do
+            if capability.available == false then
+                return true
+            end
+        end
+        return false
+    end
+
     local function report(name, ok, problem, context)
+        local unavailable = not ok and gated(problem, context)
         if ok then
             passed = passed + 1
+        elseif unavailable then
+            notExecuted = notExecuted + 1
         else
             failed = failed + 1
         end
@@ -81,7 +99,16 @@ function runner.main(argv)
         report("afterAll", false, cleanupProblem)
     end
     fixtures.close()
-    io.write(json.encode({suite = argv[1], passed = passed, failed = failed, total = passed + failed}), "\n")
+    io.write(
+        json.encode({
+            suite = argv[1],
+            passed = passed,
+            failed = failed,
+            notExecuted = notExecuted,
+            total = passed + failed + notExecuted
+        }),
+        "\n"
+    )
 
     return failed == 0 and 0 or 1
 end

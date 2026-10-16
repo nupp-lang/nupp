@@ -163,15 +163,23 @@ def execute(row):
     summary = next((line for line in reversed(records) if "total" in line), {})
     cases = [item for item in records if isinstance(item.get("ok"), bool)]
     passed = sum(item["ok"] for item in cases)
-    failed = len(cases) - passed
+    # A case gated on a capability this runtime lacks reports not-executed with
+    # the capability it declared unavailable; the runner counts it apart.
+    gated = [item for item in cases if not item["ok"] and item.get("disposition") == "not-executed"
+             and any(c.get("available") is False for c in (item.get("capabilities") or []))]
+    failed = len(cases) - passed - len(gated)
     complete = summary.get("total", 0) > 0 and summary.get("total") == len(cases)
     complete = complete and summary.get("passed") == passed and summary.get("failed") == failed
+    complete = complete and summary.get("notExecuted", 0) == len(gated)
     outcome = "timeout" if timed_out else "passed" if status == 0 and complete and failed == 0 else "failed"
     record = dict(row, status=outcome, exitStatus=status, passed=passed, failed=failed, total=len(cases),
+                  notExecuted=[{"name": item["name"], "capabilities": [c.get("name") for c in item["capabilities"]
+                                                                       if c.get("available") is False]}
+                               for item in gated],
                   completed=complete, durationSeconds=round(time.monotonic() - started, 3))
     if outcome != "passed":
         record["error"] = stderr.decode("utf-8", errors="replace")[-8000:]
-        record["failureSamples"] = [item for item in cases if item["ok"] is False][:8]
+        record["failureSamples"] = [item for item in cases if item["ok"] is False and item not in gated][:8]
     return record
 
 
