@@ -1833,18 +1833,14 @@ impl Interp {
     /// builtin's caller, read from the frame chain and the line table. A
     /// compiled caller keeps no chain, so it answers nothing.
     /// `debug.getinfo(level)`'s frame: level 1 is the function that called the
-    /// builtin, each further level its caller. `Err` past the last frame; `Ok`
+    /// builtin, each further level its caller, past a builtin that called it. `Err` past the last frame; `Ok`
     /// with no line or function where the caller is compiled and keeps no frame.
     pub(crate) fn frame_at_level(&self, level: usize) -> Result<(Option<usize>, u32, Value), ()> {
         let Some(tid) = self.caller_task() else { return if level <= 1 { Ok((self.caller_function(), 0, Value::NIL)) } else { Err(()) } };
-        let t = &self.tasks[tid];
-        if t.stack.is_empty() { return Err(()); }
-        let mut s = t.cur;
-        for _ in 1..level.max(1) {
-            let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
-            if caller == NONE { return Err(()); }
-            s = caller as usize;
-        }
+        // Through the builtins that called a task, as Lua's levels run through
+        // C functions: an xpcall handler's caller is the frame that raised.
+        let Some(&(task, s)) = self.frame_chain(tid).get(level.max(1) - 1) else { return Err(()) };
+        let t = &self.tasks[task];
         let h0 = t.stack[s];
         let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
         let line = self.funcs.get(fid).and_then(|f| f.debug.get(pc.saturating_sub(1))).map(|d| d.0).unwrap_or(0);
