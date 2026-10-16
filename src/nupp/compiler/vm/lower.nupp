@@ -75,6 +75,10 @@ function lower.emit(
 ): string
     local out = {}
     local assignedNames = {}
+    -- Names the module ever assigns a `%` or `//` result, by name: a zero
+    -- divisor makes those nan or an infinity whatever the checker says, which
+    -- an integer register cannot hold.
+    local remainderNames = {}
     local SURVEY = {}
     local SURVEY_EXAMPLE = {}
 
@@ -907,9 +911,22 @@ function lower.emit(
         return n.primitiveUntrusted == true
     end
 
+    -- `%` and `//` over integers are integers only for a nonzero divisor: by
+    -- zero they are nan or an infinity (`7 % 0`, `7 // 0`), as on LuaJIT.
+    local function isRemainder(n)
+        while n and n.kind == "paren" do
+            n = n.expr
+        end
+
+        return n ~= nil and n.kind == "binop" and (tokText(n.op) == "%" or tokText(n.op) == "//")
+    end
+
     local function isIntegerish(n)
         if n.kind == "paren" then
             return isIntegerish(n.expr)
+        end
+        if isRemainder(n) or (n.kind == "name" and remainderNames[tokText(n.token)]) then
+            return false
         end
         if n.kind == "number" then
             local text = tokText(n.token);
@@ -4065,9 +4082,16 @@ function lower.emit(
                 -- answer anything, so only an annotation makes it a number slot.
                 local inferred = value and not untrustedValue(value) and value.inferredType or nil
                 if not absent and not f.captured[name] and (ty or not assignedNames[name]) then
-                    if isInteger(ty) or (not ty and isInteger(inferred)) then
+                    if (isInteger(ty) or (not ty and isInteger(inferred)))
+                        and not isRemainder(value)
+                        and not remainderNames[name]
+                    then
                         class = "i"
-                    elseif isNumeric(ty) or (not ty and isNumeric(inferred)) then
+                    elseif isInteger(ty)
+                        or (not ty and isInteger(inferred))
+                        or isNumeric(ty)
+                        or (not ty and isNumeric(inferred))
+                    then
                         class = "f"
                     end
                 end
@@ -5788,12 +5812,21 @@ function lower.emit(
         -- Names the module assigns to anywhere, by name: a `local function` not
         -- among them keeps its closure for the module's life.
         assignedNames = {}
+        remainderNames = {}
         walkSyntax(rootNode.blocks[1], {}, function(n)
             if n.kind == "assignStmt" then
-                for _, t in ipairs(n.targets) do
+                for i, t in ipairs(n.targets) do
                     if t.kind == "name" then
                         assignedNames[tokText(t.token)] = true
+                        if isRemainder(n.exprs[i]) then
+                            remainderNames[tokText(t.token)] = true
+                        end
                     end
+                end
+            elseif n.kind == "compoundAssign" and n.target.kind == "name" then
+                local opText = tokText(n.op)
+                if opText == "%=" or opText == "//=" then
+                    remainderNames[tokText(n.target.token)] = true
                 end
             end
         end)
