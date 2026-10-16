@@ -9,6 +9,15 @@ local envMod = require("nupp.compiler.project.env")
 
 local M = {}
 
+-- One environment for every serialization case: each requires the derive and
+-- serde libraries, and a fresh environment checks them again, which on the VM
+-- is minutes per case.
+local shared
+local function sharedEnv()
+    shared = shared or envMod.new(".", {cache = false})
+    return shared
+end
+
 -- A LuaCATS library is written in stubs: `function love.window.fromPixels(v) end`
 -- beside a `---@return number`. In a declaration tree the empty body is the
 -- declaration, not a function that forgot to return, so it is taken rather than
@@ -454,7 +463,7 @@ writer:close()
 assert(buffer:tostring() == '{"user_name":"Ada"}')
 assert(user:debug():find("Ada", 1, true))
 ]]
-    local plan, problem = migrate.plan(source, "serialization-migration.nupp")
+    local plan, problem = migrate.plan(source, "serialization-migration.nupp", nil, sharedEnv())
     assert(plan, problem)
     assert(plan.destination == plan.source and plan.dialect == "serde")
     assert(not plan.text:find("@json", 1, true), plan.text)
@@ -465,11 +474,10 @@ assert(user:debug():find("Ada", 1, true))
     assert(plan.text:find("omitEmpty = true", 1, true), plan.text)
     local parsed = parser.parse(plan.text, plan.destination)
     testAssert.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
-    local env = envMod.new(".", {cache = false})
-    local diagnostics = check.check(parsed, plan.destination, env)
+    local diagnostics = check.check(parsed, plan.destination, sharedEnv())
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg .. "\n" .. plan.text)
     program.run(parsed, "serialization_migration", plan.destination)
-    local again = assert(migrate.plan(plan.text, plan.destination))
+    local again = assert(migrate.plan(plan.text, plan.destination, nil, sharedEnv()))
     assert(#again.edits == 0 and again.text == plan.text, "migration is not idempotent")
 end
 
@@ -493,7 +501,7 @@ local handwritten = new Handwritten()
 assert(handwritten:writeJSON("x") == Handwritten.fromJSON("x"))
 return selected
 ]]
-    local plan, problem = migrate.plan(source, "shadowed-migration.nupp")
+    local plan, problem = migrate.plan(source, "shadowed-migration.nupp", nil, sharedEnv())
     assert(plan, problem)
     assert(plan.text:find(".binding(Value)", 1, true), plan.text)
     assert(plan.text:find("serde.of(2)", 1, true), plan.text)
@@ -512,7 +520,7 @@ end
 local record Parent child: Child end
 return Parent.fromJSON('{"child":{"wire":"value"}}')
 ]]
-    local plan, problem = migrate.plan(source, "nested-policy.nupp")
+    local plan, problem = migrate.plan(source, "nested-policy.nupp", nil, sharedEnv())
     assert(plan == nil and problem:find("nested JSON policies", 1, true), tostring(problem))
     plan, problem = migrate.plan(
         [[
@@ -521,7 +529,9 @@ local record Conflict
     function writeJSON(self): nil end
 end
 ]],
-        "conflicting-migration.nupp"
+        "conflicting-migration.nupp",
+        nil,
+        sharedEnv()
     )
     assert(plan == nil and problem:find("handwritten member", 1, true), tostring(problem))
 end
@@ -536,12 +546,11 @@ local record Child value: string end
 local restored, problem = Parent.fromJSON('{"child":{"value":"forward"}}')
 assert(restored ~= nil and problem == nil and restored.child.value == "forward")
 ]]
-    local plan, problem = migrate.plan(source, "forward-policy.nupp")
+    local plan, problem = migrate.plan(source, "forward-policy.nupp", nil, sharedEnv())
     assert(plan, problem)
     local parsed = parser.parse(plan.text, plan.destination)
     assert(#parsed.errors == 0)
-    local env = envMod.new(".", {cache = false})
-    local diagnostics = check.check(parsed, plan.destination, env)
+    local diagnostics = check.check(parsed, plan.destination, sharedEnv())
     testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     program.run(parsed, "forward_policy", plan.destination)
 end
@@ -564,7 +573,7 @@ local record Envelope
 end
 local value = Envelope.fromJSON('{}')
 ]]
-    local plan, problem = migrate.plan(source, "record-union.nupp")
+    local plan, problem = migrate.plan(source, "record-union.nupp", nil, sharedEnv())
     assert(plan == nil and tostring(problem):find("explicit union adapter", 1, true), tostring(problem))
 end
 

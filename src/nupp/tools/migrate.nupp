@@ -132,12 +132,12 @@ end
 
 -- Migration uses checked module and declaration identities. A same-named method
 -- on an unrelated value is never evidence that it belongs to serialization.
-local function serdePlan(source: string, path: string): (migrate.Plan?, string?, any)
+local function serdePlan(source: string, path: string, given: table?): (migrate.Plan?, string?, any)
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then
         return nil, parsed.errors[1].msg, parsed.errors[1]
     end
-    local env = require("nupp.compiler.project.env").new(".", {cache = false})
+    local env = given or require("nupp.compiler.project.env").new(".", {cache = false})
     require("nupp.compiler.check").check(parsed, path, env as {[string]: any}, {legacySerializationMigration = true})
     local lexer = require("nupp.compiler.syntax.lexer")
     local edits: {migrate.Edit} = {}
@@ -580,17 +580,21 @@ end
 --- Plans a source-family migration. Extension dispatch belongs here, not in a
 --- command, so the editor gets the same refusal for unsupported inputs.
 ---
+--- A Nupp source is checked in `env` when one is given, which lets a caller
+--- planning several share what checking their requires worked out; otherwise
+--- in a fresh environment of the working directory.
+---
 --- @return the plan
 --- @return why there is none, as a line
 --- @return the same reason as a diagnostic, with its code and, for a parse error,
 ---   its position
-function migrate.plan(source: string, path: string, dialect: string?): (migrate.Plan?, string?, any)
+function migrate.plan(source: string, path: string, dialect: string?, env: table?): (migrate.Plan?, string?, any)
     if path:match("%.nupp$") then
         if dialect ~= nil and dialect ~= "auto" and dialect ~= "serde" then
             local message = "a Nupp source migration requires the serde dialect"
             return nil, message, {filename = path, code = "NUPP0003", msg = message}
         end
-        return serdePlan(source, path)
+        return serdePlan(source, path, env)
     end
     if not path:match("%.lua$") then
         local message = "unsupported migration source extension in " .. path
