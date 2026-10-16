@@ -2715,3 +2715,132 @@ Linux and Windows execution evidence. Compiled code that calls a callable
 table which raises leaves the call's arguments on the handle stack; this is
 not specific to foreign functions, and the Rust test checks compiled-tier
 root balance only on success.
+
+
+## Suites off the Lua generator and LuaJIT (2026-10-15)
+
+The 108 suites classified `port-required` either run on the VM now or are
+retired, so the next step can delete the Lua generator and the LuaJIT
+embedding without losing coverage silently. Of the 108, 72 run on the VM (71 suites and the `providerstate` helper), 12
+are retired and 24 stay `port-required`, each with what it still needs in
+`corpus-classification.json`. The corpus run over every non-retired suite
+passed 152 of 183 on the threaded engine; a rerun of the suites fixed after
+it brought that to 156.
+
+How a suite runs Nupp without the generator:
+
+- **`tests/program.lua`** lowers a checked fragment with
+  `nupp.compiler.vm.lower` and loads the image with `__nupp_load_image`, laying
+  structs out for the host target. A fragment's `require` of a module the
+  running image does not carry compiles that module from source, as `nupp
+  test` does for a suite. Under LuaJIT it falls back to generated Lua; that
+  branch is the one line to delete with the generator.
+- **`tests/providerstate.lua`** instances a module by lowering its Nupp source
+  in environment mode (the mode `loadfile` chunks use), so each instance gets
+  its own `require` where LuaJIT used `setfenv`. Instances are registered under
+  a name of their own: an image registers the modules it declares, and an
+  instance named as the module answered the process's later `require` of it.
+- Assertions on the text of generated Lua were dropped, or retargeted to
+  behavior (counting side effects) or to the image text where they encoded a
+  semantic property such as erasure. Build and bundle cases build VM program
+  binaries and run them.
+
+The suites found these gaps in the VM, now closed:
+
+- **Lowering**: binding patterns, `continue`, `e or return/break/continue`,
+  `comptime do ... end` values and materialized values (with the PEG runtime,
+  `re` and the keyed field codec installed as the Lua bootstrap did),
+  interpolated and backtick strings, `&&`/`||`/`!=`/`!`, untyped bitwise
+  operators, safe-navigation assignment targets, `is` against `where`
+  refinements, `nupp.admit`, `%?` in formats, `nupp.log` severity sites as
+  the intrinsic (level test at the site, module and line constants),
+  annotation schemas and comptime helpers erased, a narrow unsigned
+  complement kept in its width, `new` of a struct or qualified record
+  another module declares, and records declared in a record's body as its
+  members. Evaluation order now matches Lua's: assignment targets, span
+  targets included, before values (held across a multiple assignment and
+  stored right to left), a dynamic
+  receiver's method before its arguments, a pluck's shared path once, and a
+  compound assignment's table and key once. A `break` or `continue` in a
+  `repeat`'s condition belongs to the enclosing loop, whose body owners close
+  after the condition reads them.
+- **Ownership**: a moved owner given a new value, or an optional owner filled
+  later, is re-armed in its cleanup slot (`RearmAt`); an owned temporary
+  loaned for one statement closes at its end; a field taken from a
+  self-closing record is cleared; an absent optional aggregate is not
+  destructured; each owner of `local a, b = ...` is registered as it is
+  acquired; a `cdef` function named as a terminal is registered, and a
+  cleanup whose callback is not bytecode runs in place instead of taking the
+  process down. A body failure with suppressed cleanup failures prints as all
+  of them.
+- **Modules**: a declared module publishes its exports before its body runs,
+  so require cycles see them, and unpublishes them when the body raises; a
+  foreign record's module is loaded before the record is built.
+- **Runtime library**: `__eq`; `rawequal` by value; `math.random`,
+  `randomseed` and the rest of Lua 5.1's `math`; `table.new`; `bit` operands
+  rounded as `tobit` and `tohex` widths clipped; `string.buffer` refusing
+  negative counts; `select` refusing a non-number; `collectgarbage("step")`;
+  `file:setvbuf`/`flush`; `tonumber` refusing a bad base; Lua's wording for a
+  require cycle and for `loadfile` of a missing file; `debug.getinfo` naming
+  the calling chunk (every chunk shares one module name), answering nil past
+  the outermost frame, and giving `func`, `currentline` and `linedefined`;
+  `error(msg, 2)` adds no position under `pcall`; `nupp.log` loads without
+  `ffi`; a child's working directory may be a path value. Compiled and
+  threaded field reads answer a string's fields from the string library and
+  a reducer's methods, as the interpreter's `GetField` does: the AOT-linked
+  CLI raised "attempt to index a string value" on `path.sub` once a method
+  was read before its arguments.
+- **C declarations** (libclang): parameter names, anonymous enums and
+  members, only a unit's own structs, "size is unknown" for incomplete types,
+  and the header line a declaration error is on. A bare library name (`from
+  'z'`) loads as `ffi.load` spells it.
+- **Programs**: a binary carries its build's whole source set (computed
+  requires, the SPI index, generated C bindings) and the rock modules its
+  target names, preloads `nupp.embedded`, and installs `nupp.reflect` when it
+  reads it. A program that compiles grammars at run time gets
+  `nupp.peg.compile` from one call; the full PEG runtime is installed only
+  for materialized grammars.
+
+Retired, with what they tested: the Lua optimizer (`optimizetest`,
+`passpermutationtest`, `concatbuffertest`), the generator's own invariants
+(`loweringinvarianttest`), hot reload (`hotreloadtest`,
+`hotreloadguaranteetest`; `nupp.tools.hotsession` is built on the generator),
+LuaJIT cdata (`bulkcolumntest`, `sharedbytestest`), the generator's one-lane
+SIMD routing (`simdlanetest`), the LuaJIT native process provider's C ABI
+(`processprovidertest`), and the LuaJIT embedding (`hostembeddingtest`,
+`hostbinarytest`, `hostchanneltest`, whose files stay until `native/crates/host`
+is deleted, since CI's native gate runs them).
+
+Still `port-required`, by what they need:
+
+- **C layout**: bitfields, pointer, nullable-pointer, fixed-array, union and
+  generic struct fields in VM struct storage, counted-pointer arguments and
+  out-parameter results (`cdeftest`, `structtest`, `layouttest`,
+  `importctest`, `ownershiptest`, `simdfixedlanestest`); `cheader(...)`
+  namespaces are not lowered (`cheadertest`); a binding's `@lib/` library
+  reaches dlopen unresolved (`projecttest`).
+- **`nupp.mem.heap` and `nupp.mem.sharedbytes`** still need `ffi` or the
+  engine host (`bundletest`, `stdlibtest`, `ownershiptest`, `runtimetest`).
+- **Semantics**: integer `% 0` answers nan (`operatortest`); an `xpcall`
+  handler runs after the unwind (`orexittest`); a generic constructor at
+  integer unboxes a float (`methodtest`); a dead register keeps an unused
+  local type alive (`runtimereflectiontest`); comptime type caches lose a
+  local record's identity (`typeleveltest`); materialized grammars with
+  predicates fail in the generated matcher (`pegmaterializetest`); a bounded
+  generic field's derived `Debug` sees `T` as opaque (`derivetest`).
+- **Tools and hosts**: a module-level `...` is dropped because a module chunk
+  is not vararg (`clitest`); `nupp run --watch` (`runtimetest`); the VM lib's
+  time, workers and suspension providers bypass SPI selection (`spitest`); the
+  browser URI provider is not in the image (`uritest`); a VM program check
+  refuses a coroutine for a `thread` parameter and a rebuilt binary collides
+  with the Lua modules build (`bundletest`).
+- **Corpus only**: `nettest` and `filestest` each pass through `nupp run` but
+  fail one case in the shared corpus image; `annotatedluatest` passes case by
+  case but its migration cases outlast the 600 s suite budget.
+
+Outside the 108: `perfbudgettest`'s generated-Lua case reports not-executed,
+which the corpus runner counts as a failure, and `serdecontracttest` exceeds
+the suite budget; both predate this work. A VM image keeps answering a module
+name an earlier image declared after `package.loaded` forgets it
+(`package.imageLoader` reads every registration), which `declaredmoduletest`
+now sidesteps with a module of its own.
