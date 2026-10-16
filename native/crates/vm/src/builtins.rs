@@ -83,6 +83,7 @@ pub const NAMES: &[&str] = &[
     "table.new", "cleanup.describe", "file.setvbuf", "file.flush",
     "snapshot.save", "snapshot.prepare", "snapshot.loadInto", "snapshot.track", "snapshot.untrack", "snapshot.fileStrategy", "snapshot.durable",
     "snapshot.discard",
+    "package.extensionLoader", "extension.load",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -544,6 +545,7 @@ pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new())
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Special {
     Plain,
+    Extension,
     Lpeg,
     Sbuf,
     Snapshot,
@@ -597,6 +599,7 @@ fn special_of(id: u32) -> Special {
 }
 fn classify(name: &str) -> Special {
     if name.starts_with("foreign.") { return Special::Foreign; }
+    if name == "package.extensionLoader" || name == "extension.load" { return Special::Extension; }
     if name.starts_with("lpeg.") { return Special::Lpeg; }
     if name.starts_with("sbuf.") { return Special::Sbuf; }
     if name.starts_with("snapshot.") { return Special::Snapshot; }
@@ -694,6 +697,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             return crate::foreign::call(it, name, args);
         }
         Special::Lpeg => return crate::lpeg::call(it, NAMES[id as usize], args),
+        Special::Extension => {
+            return if NAMES[id as usize] == "extension.load" { crate::extension::loader(it, args) } else { crate::extension::searcher(it, args) };
+        }
         Special::Sbuf => return crate::strbuf::call(it, NAMES[id as usize], args),
         Special::Snapshot => return crate::snapshot::call_builtin(it, NAMES[id as usize], args),
         Special::TasksVm => {
@@ -808,6 +814,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let body=it.affine_take_drop(arg(args,0)); if body!=Value::NIL { return it.call_outs(body,args); } return Outs::new();
         }
         _ => {}
+    }
+    // A host function reached from a frame that cannot park runs to its end.
+    if id >= crate::extension::FUNCTION_BASE {
+        return crate::extension::call(it, id, args, false).unwrap_or_else(|_| unreachable!("a call that cannot park suspended"));
     }
     // A host service reached from a frame that cannot park: compiled code
     // without a frame record, or a native caller. Contracts 6.2 and 6.4.

@@ -57,6 +57,7 @@ nupp-native-net = { path = "../net", optional = true }
 nupp-native-tls = { path = "../tls", optional = true }
 nupp-native-http = { path = "../http", optional = true }
 nupp-native-abi = { path = "../abi" }
+nupp-extension = { path = "../extension" }
 url = { version = "2.5", optional = true }
 nupp-native-process = { path = "../process" }
 cranelift-codegen = { version = "0.135", optional = true }

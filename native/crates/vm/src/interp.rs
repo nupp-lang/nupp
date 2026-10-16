@@ -402,6 +402,8 @@ pub struct Interp {
     pub(crate) processes: crate::process::State,
     pub(crate) temporary_paths: std::collections::HashMap<Value, crate::temporary::Owner>,
     pub(crate) foreign: crate::foreign::State,
+    /// Host modules: registered in process or loaded from native extensions.
+    pub extensions: crate::extension::State,
     pub(crate) physical_fields: crate::storage::PhysicalCache,
     pub native_files: std::collections::HashMap<Value, std::fs::File>,
     /// Files the standard library's provider opened through `nfiles.open`.
@@ -582,7 +584,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -1023,6 +1025,10 @@ impl Interp {
     pub fn host_call(&mut self, id: u32, args: &[Value]) -> Result<crate::builtins::Outs, u64> {
         use crate::host::{Req, HOST_BASE};
         crate::scheduler::checkpoint(self);
+        if id >= crate::extension::FUNCTION_BASE {
+            let parks = self.persistence_hook_depth == 0 && self.nonsuspending_cleanup == 0 && self.callback_depth.get() == 0;
+            return crate::extension::call(self, id, args, parks);
+        }
         let k = (id - HOST_BASE) as usize;
         if (self.persistence_hook_depth != 0 || self.nonsuspending_cleanup != 0 || self.callback_depth.get() != 0) && k < 5 { self.err("this callback cannot park for host services"); }
         let text = |it: &Interp, i: usize| -> String { args.get(i).map(|v| it.bytes_of(*v)).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default() };
@@ -1053,6 +1059,7 @@ impl Interp {
     /// Turns a completion into values and resumes the task that waited on it.
     pub fn complete(&mut self, key: u64, done: crate::host::Done) {
         use crate::host::Done;
+        let done = match done { Done::Extension(id, completion) => return crate::extension::complete(self, key, (id, completion)), done => done };
         let tid = self.host_waiters.remove(&key).expect("completion for no waiter");
         let scope = self.open_scope();
         let mut outs: Vec<Value> = Vec::new();
@@ -1066,6 +1073,7 @@ impl Interp {
             Done::Exit(Err(e)) => push_err(self, &mut outs, e),
             Done::List(Ok(names)) => { let t = self.new_table(); self.handles.push(t); for (i, n) in names.iter().enumerate() { let s = self.heap_new_string(n); self.handles.push(s); self.set_index(t, Value::num((i + 1) as f64), s); } outs.push(t); }
             Done::List(Err(e)) => push_err(self, &mut outs, e),
+            Done::Extension(..) => unreachable!(),
         }
         // The values are held by the scope until the task's registers hold them.
         self.resume_with(tid, &outs);
@@ -1176,7 +1184,7 @@ impl Interp {
               let v = self.heap_new_string(&text); let vh = self.register(v); let k = self.intern(name); self.set_index(package, k, v); self.release(vh);
           } }
         { let loaders = self.new_table(); self.registered.push(loaders);
-          for (i, name) in ["package.preloadLoader", "package.imageLoader"].iter().enumerate() { self.set_index(loaders, Value::num(i as f64 + 1.0), Value::builtin(crate::builtins::id_of(name).unwrap())); }
+          for (i, name) in ["package.preloadLoader", "package.imageLoader", "package.extensionLoader"].iter().enumerate() { self.set_index(loaders, Value::num(i as f64 + 1.0), Value::builtin(crate::builtins::id_of(name).unwrap())); }
           let k = self.intern("loaders"); self.set_index(package, k, loaders);
           let k = self.intern("searchers"); self.set_index(package, k, loaders); }
         let g = self.new_table(); self.registered.push(g);

@@ -69,6 +69,9 @@ pub mod image;
 pub mod image_modules;
 pub mod payload;
 pub mod host;
+pub mod declaration;
+pub mod extension;
+pub mod embed;
 pub mod threaded;
 #[cfg(feature = "jit")]
 pub mod jit;

@@ -13,11 +13,18 @@ pub const HOST_NAMES: &[&str] = &["readFile", "writeFile", "sleep", "run", "list
 pub const PARKING: usize = 4;
 
 pub enum Req { ReadFile(String), WriteFile(String, Vec<u8>), Sleep(u64), Run(String, Vec<String>), ListDir(String) }
-pub enum Done { Text(Result<String, String>), Unit(Result<(), String>), Exit(Result<(i64, String), String>), List(Result<Vec<String>, String>) }
+pub enum Done { Text(Result<String, String>), Unit(Result<(), String>), Exit(Result<(i64, String), String>), List(Result<Vec<String>, String>), Extension(u32, crate::extension::Completion) }
+
+/// Sends one completion for a key `Host::defer` issued, from any thread.
+pub struct Completer(Sender<(u64, Done)>);
+impl Completer {
+    pub fn send(&self, key: u64, done: Done) { let _ = self.0.send((key, done)); }
+}
 
 pub struct Host {
     tx: Sender<(u64, Req)>,
     rx: Receiver<(u64, Done)>,
+    done: Sender<(u64, Done)>,
     pub(crate) next: u64,
     pub(crate) threads: usize,
     pub outstanding: usize,
@@ -45,8 +52,11 @@ impl Host {
                 if done_tx.send((key, done)).is_err() { return; }
             });
         }
-        Host { tx, rx, next: 1, threads, outstanding: 0 }
+        Host { tx, rx, done: done_tx, next: 1, threads, outstanding: 0 }
     }
+    /// A key for a request served outside the pool (a host function that
+    /// suspended), counted as outstanding until its completion arrives.
+    pub fn defer(&mut self) -> (u64, Completer) { let key = self.next; self.next += 1; self.outstanding += 1; (key, Completer(self.done.clone())) }
     pub fn submit(&mut self, req: Req) -> u64 { let key = self.next; self.next += 1; self.outstanding += 1; self.tx.send((key, req)).expect("host thread"); key }
     /// A completion if one has arrived.
     pub fn poll(&mut self) -> Option<(u64, Done)> { let r = self.rx.try_recv().ok(); if r.is_some() { self.outstanding -= 1; } r }

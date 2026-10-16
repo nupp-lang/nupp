@@ -474,6 +474,10 @@ fn refs_read(r: &mut Reader) -> Result<Vec<Ref>> {
     (0..n).map(|_| Ref::read(r)).collect()
 }
 fn builtin_name(id: u32) -> Result<String> {
+    // A host function by its per-VM id, which a checkpoint keeps by name.
+    if id >= crate::extension::FUNCTION_BASE {
+        return Ok(format!("hostfn.{}", id - crate::extension::FUNCTION_BASE));
+    }
     if let Some(n) = crate::builtins::NAMES.get(id as usize) {
         return Ok((*n).into());
     }
@@ -485,6 +489,9 @@ fn builtin_name(id: u32) -> Result<String> {
     Err("unknown builtin".into())
 }
 fn builtin_id(name: &str) -> Result<u32> {
+    if let Some(index) = name.strip_prefix("hostfn.") {
+        return index.parse::<u32>().ok().filter(|i| *i < crate::extension::FUNCTION_BASE).map(|i| crate::extension::FUNCTION_BASE + i).ok_or_else(|| format!("unknown builtin {name}"));
+    }
     crate::builtins::id_of(name)
         .or_else(|| {
             name.strip_prefix("host.").and_then(|n| {
@@ -694,6 +701,8 @@ impl GraphWriter {
             return Ok(Ref::Func(f as usize));
         }
         if let Some(id) = v.as_builtin() {
+            // Host function ids hold only within the code they were made for.
+            self.functions |= id >= crate::extension::FUNCTION_BASE;
             return Ok(Ref::Builtin(builtin_name(id)?));
         }
         if v.is_num() || [Value::NIL, Value::FALSE, Value::TRUE].contains(&v) {

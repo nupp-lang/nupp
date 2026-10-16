@@ -1,0 +1,38 @@
+--[[
+A counter kept in native code: the module the embedding and extension tests
+register in process, load from a C library and load from a Rust library.
+]]
+--- @extension counter
+local record Counter
+    --- `a + b`, computed natively.
+    add: function(a: integer, b: integer): integer
+
+    --- A counter resource starting at `start`.
+    new: function(start: integer): any
+
+    --- Adds `n` to `counter` and answers its value.
+    bump: function(counter: any, n: integer): integer
+
+    --- Closes `counter`; using it afterwards raises.
+    close: function(counter: any)
+
+    --- Calls `f(x)` and answers its result plus one.
+    apply: function(f: function(integer): integer, x: integer): integer
+
+    --- Keeps `f` past this call, until `forget`.
+    keep: function(f: function(integer): integer)
+
+    --- Calls the kept function with `x`.
+    callKept: function(x: integer): integer
+
+    --- Releases the kept function.
+    forget: function()
+
+    --- `text` reversed, answered from another thread after `ms` milliseconds.
+    later: function(text: string, ms: integer): string
+
+    --- Raises `message` from native code.
+    fail: function(message: string)
+end
+
+return Counter

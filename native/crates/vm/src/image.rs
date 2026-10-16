@@ -129,6 +129,11 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
                 }
             }
             "source" => { let f = cur.as_mut().ok_or(format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
+            // The declaration of a module a native extension provides.
+            "extension" if cur.is_none() => {
+                if parts.len() != 3 || !parts[2].starts_with('"') { return Err(format!("line {ln}: extension NAME \"DECLARATION\"")); }
+                crate::extension::declare(it, parts[1], &unquote(parts[2])).map_err(|e| format!("line {ln}: {e}"))?;
+            }
             name => {
                 let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
                 let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };

@@ -3,7 +3,7 @@
 use crate::{builtins::Outs, interp::Interp, value::Value};
 
 #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
-mod native {
+pub(crate) mod native {
     use super::*;
     use crate::{
         heap::{KIND_RECORD, KIND_STR, KIND_TABLE},
@@ -799,7 +799,7 @@ mod native {
     /// The file name LuaJIT's `ffi.load` asks the platform for: a bare name
     /// gains the platform's extension when it has none and, on POSIX, the
     /// `lib` prefix when it lacks one. A path is left as written.
-    fn canonical_name(name: &str) -> String {
+    pub(crate) fn canonical_name(name: &str) -> String {
         #[cfg(windows)]
         {
             if name.contains(['/', '\\']) || name.contains('.') {
@@ -831,7 +831,7 @@ mod native {
     /// the calling module's source directory, which for a generated binding is
     /// inside the build directory the library was built into, then the
     /// running executable's, which a program binary ships beside its libraries.
-    fn search_bases(vm: &Interp) -> Vec<std::path::PathBuf> {
+    pub(crate) fn search_bases(vm: &Interp) -> Vec<std::path::PathBuf> {
         let mut bases = Vec::new();
         let current = std::env::current_dir().ok();
         let module = vm.caller_function().and_then(|fid| {

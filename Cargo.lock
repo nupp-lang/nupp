@@ -1276,6 +1276,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nupp-extension"
+version = "0.1.0"
+
+[[package]]
 name = "nupp-native"
 version = "0.1.0"
 dependencies = [
@@ -1423,6 +1427,7 @@ dependencies = [
  "libffi",
  "libloading",
  "mimalloc",
+ "nupp-extension",
  "nupp-native-abi",
  "nupp-native-checksum",
  "nupp-native-compression",

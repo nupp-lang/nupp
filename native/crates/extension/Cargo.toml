@@ -1,0 +1,13 @@
+[package]
+name = "nupp-extension"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The versioned C ABI of Nupp native extensions (`nupp_extension.h` in the VM
+# crate) and a Rust SDK over it. An extension depends on this crate alone: it
+# never links the VM, so it does not depend on Rust's ABI or the VM's layouts.
+
+[lib]
+path = "src/lib.rs"
