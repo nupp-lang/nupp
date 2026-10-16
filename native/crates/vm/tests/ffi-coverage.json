@@ -431,31 +431,39 @@
       "id": "layout.union",
       "capability": "Unions and overlapping field storage",
       "reference": "semantics#clang;api#ffi_new",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "native_aggregates.rs::natural_union_bytes_match_independent_c_oracle",
+        "foreign.rs::union_and_nested_union_byvalue_signatures_roundtrip",
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Set union.bits to0x3f800000 and read union.real; pass/return union.",
         "expected": "Bits alias exactly with value1.0 and correct target ABI.",
         "nativeOracleSymbols": [
           "ffi_test_union"
-        ]
+        ],
+        "note": "Union fields of structs, overlapping members, and unions passed and returned by value alone and nested in a struct."
       }
     },
     {
       "id": "layout.bitfield",
       "capability": "Signed/unsigned bitfields within storage containers",
       "reference": "semantics#clang;api#ffi_new",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Set FfiBits low7,middle-8,high0x123456; compare native accessor and neighboring fields.",
         "expected": "Width truncation, sign extension and shared-container preservation match C.",
         "nativeOracleSymbols": [
           "ffi_test_bits",
           "ffi_test_layout"
-        ]
+        ],
+        "note": "System V and Microsoft bitfield rules in targetlayout; the VM re-derives each placement under the host rule. Signed/unsigned/boolean bitfields up to 64-bit units read and written by Nupp and by C agree; widths wrap and neighbors are preserved. A bitfield crossing its storage unit is refused, as LuaJIT refuses packed ones. Only aarch64 macOS executed."
       }
     },
     {
@@ -470,7 +478,8 @@
         "expected": "sizeof5,value offset1; unaligned access semantics correct.",
         "nativeOracleSymbols": [
           "ffi_test_layout"
-        ]
+        ],
+        "note": "No Nupp declaration form is packed and import-c refuses #pragma pack and packed structs, so nothing packed reaches VM storage; a descriptor claiming a bitfield that crosses its unit is refused."
       }
     },
     {
@@ -818,16 +827,19 @@
       "id": "pointer.argument-lifetime",
       "capability": "Native argument temporary lifetimes and retained pointers",
       "reference": "semantics#cdata_array;semantics#cdata_arith;semantics#cdata_comp;semantics#gc",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Pass temporary array/string through call; later access only with retained owner.",
         "expected": "Temporary stays live until return; saved native pointers require explicit retained owner.",
         "nativeOracleSymbols": [
           "ffi_test_copy",
           "ffi_test_strlen"
-        ]
+        ],
+        "note": "Struct pointer fields keep their storage or foreign-pointer referents alive through a per-owner ephemeron reference table; counted spans keep their owners alive for the call; storage whose pointer fields are set is refused by checkpoints and worker sends."
       }
     },
     {
@@ -952,10 +964,14 @@
       "id": "native.calls-aggregate",
       "capability": "By-value aggregate arguments/results",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign.rs::native_aggregate_hfa_and_large_return_preserve_value_semantics",
+        "foreign.rs::union_and_nested_union_byvalue_signatures_roundtrip",
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Roundtrip Pair, mixed Integers, Large and Union from C.",
         "expected": "ABI classifications, hidden returnpointer and padding work across target architectures.",
         "nativeOracleSymbols": [
@@ -963,7 +979,8 @@
           "ffi_test_integers",
           "ffi_test_large",
           "ffi_test_union"
-        ]
+        ],
+        "note": "cdef signatures pass and return C structs and unions by value, named by declaration; unions and structs holding bitfields pass as the per-eightbyte classification-equivalent struct. Only aarch64 macOS executed."
       }
     },
     {
@@ -990,16 +1007,20 @@
       "id": "native.calls-varargs",
       "capability": "Native varargs and documented default promotions",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign.rs::independent_c_scalar_calls_variadics_errno_and_closed_handles",
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Call integer summation with explicitboxedints, double summation with Lua/Nuppnumbers and floatcdata.",
         "expected": "Explicitinteger carriers remaininteger; defaultnumber/float promotion to double correct.",
         "nativeOracleSymbols": [
           "ffi_test_varargs_int",
           "ffi_test_varargs_double"
-        ]
+        ],
+        "note": "Variadic cdef functions type their extra arguments per call by the default promotions (number double, exact integer 64-bit, boolean int, string/storage/foreign pointer address)."
       }
     },
     {
@@ -1181,7 +1202,7 @@
         "scenario": "Try callback typedefs with varargs and Pair argument/result.",
         "expected": "Rejection matches documented LuaJIT unsupportedscope; no silent partial callback.",
         "nativeOracleSymbols": [],
-        "note": "Variadic callbacks and aggregate or function-by-value callback parameters and results are refused when the callback is declared."
+        "note": "Variadic callbacks and aggregate or function-by-value callback parameters and results stay refused when the callback is declared: LuaJIT's limit, and a trampoline cannot count a variadic caller's arguments. A retained callback stored in a function pointer field binds to the field's C signature."
       }
     },
     {
@@ -1299,13 +1320,15 @@
       "reference": "api#ffi_offsetof",
       "status": "partial",
       "evidence": [
-        "struct-layout-coverage.json"
+        "struct-layout-coverage.json",
+        "clayout-smoke.py (clayout-project against ffi/clayout.c; rust, threaded, jit, frames under GC stress)"
       ],
       "acceptance": {
         "state": "existing-narrow",
         "scenario": "Query normalfield andbitfield.",
         "expected": "Correct byteoffset andoptional bitcoordinates.",
-        "nativeOracleSymbols": []
+        "nativeOracleSymbols": [],
+        "note": "layoutof reports offset, size, alignment, padding and C spelling per field, and bitOffset/bitWidth for a bitfield, whose offset and size are its storage unit's."
       }
     },
     {
@@ -1941,5 +1964,35 @@
         }
       ]
     }
+  },
+  "clayoutAcceptance": {
+    "date": "2026-10-16",
+    "target": "aarch64-apple-darwin",
+    "fixtures": [
+      "ffi/clayout.c",
+      "clayout-project/src/nupp/tests/clayout.nupp"
+    ],
+    "drivers": [
+      "clayout-smoke.py"
+    ],
+    "rust": {
+      "command": "cargo test --release -p nupp-vm --offline --test foreign --test storage --test native_aggregates --test foreign_loader",
+      "passed": true
+    },
+    "acceptedSlice": [
+      "Bitfields under the host rule, read and written by Nupp and C, including signed, boolean and 40/20-bit fields in 64-bit units",
+      "Pointer, nullable-pointer, union, fixed-array, array-of-struct and C function pointer struct fields, with referents kept alive by the struct",
+      "Instances of generic structs as storage types of their own",
+      "countedBy span arguments of any integer count type, equal-length checks before C, spans of structs",
+      "out scalar, struct and owned-pointer slots after the status, nil on a failed Success rule",
+      "Structs and unions by value; per-call typed variadic arguments",
+      "cheader namespaces binding functions on first use and answering enum constants",
+      "Checkpoint and worker refusal of storage holding process addresses"
+    ],
+    "limits": [
+      "Only aarch64 macOS executed; the Microsoft bitfield rule and x86-64 union classification are untested on their targets.",
+      "Variadic callbacks stay refused.",
+      "No packed declarations exist to lay out."
+    ]
   }
 }

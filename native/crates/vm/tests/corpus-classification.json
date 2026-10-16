@@ -369,15 +369,15 @@
     },
     {
       "suite": "cdeftest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "C bitfields and counted-pointer argument mappings have no VM layout or mapping"
+      "reason": "runs on the VM: C bitfields, pointer, union and generic struct fields, counted pointers, out slots and cheader namespaces are lowered"
     },
     {
       "suite": "cheadertest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,env,ffi,getinfo,spawn,lua-generator",
-      "reason": "cheader(...) namespaces are not lowered by the VM"
+      "reason": "runs on the VM: C bitfields, pointer, union and generic struct fields, counted pointers, out slots and cheader namespaces are lowered"
     },
     {
       "suite": "checktest",
@@ -717,9 +717,9 @@
     },
     {
       "suite": "importctest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "layoutof cannot answer for imported structs holding bitfields, callbacks or unions"
+      "reason": "runs on the VM: C bitfields, pointer, union and generic struct fields, counted pointers, out slots and cheader namespaces are lowered"
     },
     {
       "suite": "incrementaltest",
@@ -777,9 +777,9 @@
     },
     {
       "suite": "layouttest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "VM struct storage has no pointer, nullable-pointer, fixed-array or generic struct fields, and layoutof reports no ctype spelling"
+      "reason": "runs on the VM: C bitfields, pointer, union and generic struct fields, counted pointers, out slots and cheader namespaces are lowered"
     },
     {
       "suite": "lexertest",
@@ -947,7 +947,7 @@
       "suite": "ownershiptest",
       "class": "port-required",
       "facilities": "load,env,ffi,getinfo,coroutine,spawn,lua-generator",
-      "reason": "C out-parameter result mappings and the pin intrinsic are not lowered; nupp.mem.heap needs ffi; attemptAll stops at the first failing step"
+      "reason": "nupp.attemptAll runs no step when the suite lowers it as a fragment (calls stay empty), though `nupp run` of the same source attempts every step"
     },
     {
       "suite": "packtest",
@@ -1049,7 +1049,7 @@
       "suite": "projecttest",
       "class": "port-required",
       "facilities": "load,ffi,jit,string.buffer,getinfo,spawn",
-      "reason": "a binding's @lib/ library is handed to dlopen unresolved; cross-target stamping and the incremental check counts differ on the VM"
+      "reason": "cross-target stamping and the incremental check counts differ on the VM"
     },
     {
       "suite": "providerconformancetest",
@@ -1199,7 +1199,7 @@
       "suite": "simdfixedlanestest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "simd.transpose is missing from the VM simd library and generic structs cannot be stored"
+      "reason": "simd.transpose and stored simd.Vector<T, simd.Fixed<N>> struct fields have no VM lowering"
     },
     {
       "suite": "simdfleetequivalencetest",
@@ -1341,9 +1341,9 @@
     },
     {
       "suite": "structtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "C bitfields have no modeled VM layout"
+      "reason": "runs on the VM: C bitfields, pointer, union and generic struct fields, counted pointers, out slots and cheader namespaces are lowered"
     },
     {
       "suite": "substitutiontest",

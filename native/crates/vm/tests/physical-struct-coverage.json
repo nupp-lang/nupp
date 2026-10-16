@@ -13,12 +13,9 @@
   "sourceForeign": "Checked scalar cdef signatures, readonly const pointees and cstring parameters; libc abs/strlen/memcmp acceptance. Runtime direct foreign API has broader coverage separately.",
   "remaining": [
     "Packed layouts and explicit alignment source metadata",
-    "Bitfield ABI rules",
-    "Generic structs",
-    "Managed and pointer struct fields",
-    "Full cdef signature lowering including callbacks, variadics, out/count mappings and by-value aggregates",
     "Full LuaJIT FFI compatibility",
-    "Actual Tecs snapshot integration"
+    "Actual Tecs snapshot integration",
+    "Managed (GC record) struct fields; pointer fields to records"
   ],
   "sourceSha256": {
     "src/nupp/compiler/vm/lower.nupp": "a8a2888e9f618b5c16e671e7bdbc28d2df32db5e1885ccf16b4399ca97b1f76c",
@@ -358,5 +355,15 @@
       "tests/interfaceimagetest.lua": "478aefcf825a2efb67e851c8cbde3adae2f6d18fd7e28aef7c5d8af0e42d9bdc"
     }
   },
-  "diffCheckPassed": true
+  "diffCheckPassed": true,
+  "clayout": {
+    "date": "2026-10-16",
+    "evidence": "clayout-smoke.py; see ffi-coverage.json clayoutAcceptance",
+    "storage": [
+      "Bitfields under System V and Microsoft rules, host-checked",
+      "Pointer and function pointer fields with an ephemeron reference table per owner",
+      "Union, fixed-array and generic-instance fields"
+    ],
+    "sourceForeign": "countedBy spans, out slots with status rules, by-value structs and unions, per-call variadics, cheader namespaces"
+  }
 }

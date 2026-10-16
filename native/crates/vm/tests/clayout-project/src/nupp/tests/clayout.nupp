@@ -1,0 +1,455 @@
+module nupp.tests.clayout
+
+--[[
+C layouts and call mappings on the VM, against `tests/ffi/clayout.c`, which the
+C compiler lays out. Each side reads what the other wrote: bitfields, pointer,
+nested union, fixed-array and callback fields, counted pointers and out
+parameters.
+]]
+
+local array = require("nupp.mem.array")
+const tasks = require("nupp.tasks")
+local foreign = require("nupp.foreign")
+
+cdef struct clayout_flags
+    offset: uint32
+    missing: boolean:1
+    type_colon: boolean:1
+    break_op: boolean:1
+    mode: uint16:3
+    level: uint16:5
+    delta: int32:4
+    wide: uint64:40
+    span: int64:20
+    tail: uint8
+end
+
+cdef struct clayout_marks
+    offset: uint32
+    f1: boolean:1
+    f2: boolean:1
+    f3: boolean:1
+    f4: boolean:1
+    f5: boolean:1
+    f6: boolean:1
+    f7: boolean:1
+    f8: boolean:1
+    f9: boolean:1
+    f10: boolean:1
+    f11: boolean:1
+    f12: boolean:1
+    f13: boolean:1
+    f14: boolean:1
+    f15: boolean:1
+    f16: boolean:1
+    f17: boolean:1
+    f18: boolean:1
+    f19: boolean:1
+    f20: boolean:1
+    f21: boolean:1
+    f22: boolean:1
+    f23: boolean:1
+end
+
+cdef union clayout_value
+    i: int32
+    d: number
+    bytes: uint8[12]
+end
+
+cdef struct clayout_inner
+    a: int8
+    b: number
+end
+
+cdef struct clayout_node
+    next: clayout_node*?
+    value: int32
+end
+
+cdef struct clayout_mixed
+    flag: boolean
+    inner: clayout_inner
+    value: clayout_value
+    matrix: float[6]
+    pair: clayout_inner[2]
+    head: clayout_node*?
+    callback: (function(int32): int32)?
+    mode: uint16:3
+    level: uint16:5
+    id: int64
+end
+
+cdef union clayout_hfa
+    a: float[2]
+    b: float[2]
+end
+
+cdef struct clayout_tagged
+    tag: int32
+    value: clayout_value
+end
+
+cdef function clayout_value_int(v: clayout_value): int32 from"clayout"
+cdef function clayout_hfa_sum(v: clayout_hfa): float from"clayout"
+cdef function clayout_hfa_make(a: float, b: float): clayout_hfa from"clayout"
+cdef function clayout_tagged_read(t: clayout_tagged): number from"clayout"
+cdef function clayout_tagged_make(tag: int32, value: number): clayout_tagged from"clayout"
+cdef function clayout_flags_by_value(f: clayout_flags): int64 from"clayout"
+cdef struct clayout_text
+    bytes: uint8[64]
+end
+
+cdef function clayout_format(borrows output: uint8*, capacity: uint64, format: cstring, ...): int32 from"clayout"
+cdef function clayout_flags_get(f: const clayout_flags*, which: int32): int64 from"clayout"
+cdef function clayout_flags_set(f: clayout_flags*, which: int32, value: int64) from"clayout"
+cdef function clayout_flags_size(): uint64 from"clayout"
+cdef function clayout_flags_align(): uint64 from"clayout"
+cdef function clayout_flags_tail_offset(): uint64 from"clayout"
+cdef function clayout_marks_size(): uint64 from"clayout"
+cdef function clayout_marks_count(m: const clayout_marks*): int32 from"clayout"
+cdef function clayout_mixed_size(): uint64 from"clayout"
+cdef function clayout_mixed_align(): uint64 from"clayout"
+cdef function clayout_mixed_offset(which: int32): uint64 from"clayout"
+cdef function clayout_mixed_read(m: const clayout_mixed*): int64 from"clayout"
+cdef function clayout_mixed_link_static(m: clayout_mixed*) from"clayout"
+cdef function clayout_node_value(node: const clayout_node*?): int32 from"clayout"
+cdef function clayout_sum(borrows values: const int32* countedBy(count), count: uint64): int64 from"clayout"
+cdef function clayout_scale(
+    borrows output: int32* countedBy(count),
+    borrows input: const int32* countedBy(count),
+    count: uint32,
+    factor: int32
+) from"clayout"
+cdef function clayout_inner_total(
+    borrows items: const clayout_inner* countedBy(count),
+    count: int32
+): int32 from"clayout"
+cdef function clayout_describe(
+    borrows output: uint8* countedBy(capacity),
+    capacity: uint64,
+    out length: uint64*
+): int32 from"clayout"
+cdef function clayout_create(seed: uint64, out handle: uint64*): Success<int32, 0> from"clayout"
+cdef function clayout_fill(seed: int32, out inner: clayout_inner*) from"clayout"
+cdef function clayout_release(takes pointer: voidptr) from"clayout"
+cdef function clayout_allocate(
+    size: uint64,
+    out result: affine(voidptr, clayout_release)*
+): Success<int32, 0> from"clayout"
+
+-- A generic struct: each instance is a storage type of its own. A type
+-- parameter has a layout only behind a pointer, which never needs its pointee's.
+local struct Ref<T>
+    target: T*?
+    count: int32
+
+    function counted(self): int32
+        return self.count * 2
+    end
+end
+
+local struct Holder
+    nodes: Ref<clayout_node>
+    inners: Ref<clayout_inner>
+    tag: int8
+end
+
+local test = {}
+
+local function refuses(expected: string, f: function(): any): nil
+    const ok, problem = pcall(f)
+    assert(not ok, "expected a refusal containing " .. expected)
+    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+end
+
+local function equal(actual: any, expected: any, what: string): nil
+    assert(actual == expected, what .. ": " .. tostring(actual) .. " ~= " .. tostring(expected))
+end
+
+local function bitfields(): nil
+    const layout = layoutof(clayout_flags)
+    equal(layout.size, tonumber(clayout_flags_size()), "flags size")
+    equal(layout.alignment, tonumber(clayout_flags_align()), "flags alignment")
+    equal(layout.fields[10].offset, tonumber(clayout_flags_tail_offset()), "the field after the bitfields")
+    equal(layoutof(clayout_marks).size, tonumber(clayout_marks_size()), "23 one-bit flags")
+
+    -- The VM writes, C reads.
+    const f = new clayout_flags()
+    f.offset = 123456
+    f.missing = true
+    f.break_op = true
+    f.mode = 5
+    f.level = 19
+    f.delta = -3
+    f.wide = 0x12345678ab
+    f.span = -1234
+    f.tail = 200
+    collectgarbage("collect")
+    const expected: {number} = {123456, 1, 0, 1, 5, 19, -3, 0x12345678ab, -1234, 200}
+    for which = 1, 10 do
+        equal(tonumber(clayout_flags_get(f, which)), expected[which], "C reads field " .. which)
+    end
+    -- A value wraps to its field's width, as C's conversion does, and leaves
+    -- its neighbors alone.
+    f.mode = 9
+    equal(f.mode, 1, "mode wraps to three bits")
+    equal(f.level, 19, "level is untouched")
+    f.delta = 7
+    equal(f.delta, 7, "the largest four-bit signed value")
+    f.delta = 8
+    equal(f.delta, -8, "one past it wraps negative")
+
+    -- C writes, the VM reads.
+    const g = new clayout_flags()
+    clayout_flags_set(g, 3, 1)
+    clayout_flags_set(g, 6, 31)
+    clayout_flags_set(g, 7, -8)
+    clayout_flags_set(g, 8, 0xffffffffff)
+    clayout_flags_set(g, 9, -524288)
+    equal(g.type_colon, true, "a boolean bitfield reads back a boolean")
+    equal(g.missing, false, "its neighbor stays false")
+    equal(g.level, 31, "a full five-bit field")
+    equal(g.delta, -8, "a signed bitfield sign-extends")
+    equal(tonumber(g.wide), 0xffffffffff, "a forty-bit field")
+    equal(tonumber(g.span), -524288, "a signed 64-bit-unit bitfield")
+
+    const m = new clayout_marks()
+    m.f1 = true
+    m.f9 = true
+    m.f23 = true
+    equal(clayout_marks_count(m), 102, "C finds the flags where the VM put them")
+end
+
+local function mixed(): nil
+    const layout = layoutof(clayout_mixed)
+    equal(layout.size, tonumber(clayout_mixed_size()), "mixed size")
+    equal(layout.alignment, tonumber(clayout_mixed_align()), "mixed alignment")
+    const names = {"flag", "inner", "value", "matrix", "pair", "head", "callback", "id"}
+    for _, field in ipairs(layout.fields) do
+        for which, name in ipairs(names) do
+            if field.name == name then
+                equal(field.offset, tonumber(clayout_mixed_offset(which)), "offset of " .. name)
+            end
+        end
+    end
+    equal(layout.fields[6].ctype, "clayout_node *", "a pointer keeps its pointee in its spelling")
+
+    const m = new clayout_mixed()
+    const first = new clayout_node(nil, 1)
+    const second = new clayout_node(nil, 2)
+    first.next = second
+    @unsafe do
+        m.head = first
+    end
+    -- The list is reachable only through pointer fields now; the struct holding
+    -- them keeps its referents alive.
+    collectgarbage("collect")
+    collectgarbage("collect")
+    const doubler = foreign.retain(function(value: int32): int32
+        return value * 2
+    end)
+    m.callback = doubler
+    m.value.i = 300
+    m.flag = true
+    m.matrix[5] = 4.5
+    m.pair[1].a = 6
+    m.mode = 3
+    m.level = 2
+    m.id = 1000000
+    -- 1 + 2 + 10 + 300 + 1000 + 45 + 6 + 30000 + 200000 + 1000000
+    equal(tonumber(clayout_mixed_read(m)), 1231364, "C reads every field the VM wrote")
+    @unsafe do
+        const head = m.head
+        assert(head ~= nil and head.value == 1, "a pointer field reads back what it was given")
+        const linked = head.next
+        assert(linked ~= nil and linked.value == 2, "and is followed to its pointee")
+    end
+    equal(m.callback, doubler, "a callback field reads back its retained callback")
+
+    -- A copy carries what its pointer fields refer to.
+    const copy = new clayout_mixed()
+    copy.inner = m.inner
+    const holder = new clayout_node(nil, 5)
+    holder.next = first
+    const moved = new clayout_node(nil, 0)
+    moved.next = holder.next
+    @unsafe do
+        const followed = moved.next
+        assert(followed ~= nil and followed.value == 1, "a pointer copied from another struct")
+    end
+
+    -- An address C wrote is a foreign pointer: it passes back to C.
+    clayout_mixed_link_static(m)
+    @unsafe do
+        equal(clayout_node_value(m.head), 77, "C's own pointer passes back to C")
+    end
+    m.head = nil
+    equal(m.head, nil, "a cleared pointer field reads nil")
+    foreign.release(doubler)
+    m.callback = nil
+
+    -- Storage that holds process addresses cannot be saved or sent.
+    first.next = nil
+end
+
+local function counted(): nil
+    const values = array.scalar(array.int32, 4)
+    with w = values:write() do
+        for i = 1, 4 do
+            w[i] = (i * 10) as int32
+        end
+    end
+    equal(tonumber(clayout_sum(values:read())), 100, "a counted span reaches C with its length")
+    equal(tonumber(clayout_sum(values:read():slice(2, 3))), 50, "a slice reaches C at its first element")
+    equal(tonumber(clayout_sum(values:read():slice(1, 0))), 0, "an empty span")
+
+    const scaled = array.scalar(array.int32, 4)
+    with w = scaled:write() do
+        clayout_scale(w, values:read(), 3)
+    end
+    do
+        local r = scaled:read()
+        equal(r[4], 120, "C wrote through the writable span")
+    end
+    const short = array.scalar(array.int32, 2)
+    local ok: boolean, problem: any = true, nil
+    with w = short:write() do
+        ok, problem = pcall(clayout_scale, w, values:read(), 3)
+    end
+    assert(
+        not ok and tostring(problem):find("spans counted by count must have equal lengths", 1, true) ~= nil,
+        tostring(problem)
+    )
+
+    const items = array.newArray(new clayout_inner(), 3)
+    with w = items:write() do
+        for i = 1, 3 do
+            w[i].a = i
+            w[i].b = i * 10
+        end
+    end
+    equal(clayout_inner_total(items:read()), 66, "a span of structs")
+
+    -- A caller's buffer, and the length C reports through an out parameter.
+    const buffer = array.bytes(32)
+    local status: int32, length: uint64 = 0, 0
+    with w = buffer:write() do
+        status, length = clayout_describe(w)
+    end
+    equal(status, 0, "the description fit")
+    equal(tonumber(length), 11, "its length came back")
+    do
+        local r = buffer:read()
+        equal(r[1], string.byte("n"), "and C filled the buffer")
+    end
+    const tiny = array.bytes(4)
+    with w = tiny:write() do
+        status, length = clayout_describe(w)
+    end
+    equal(status, 2, "a buffer too small")
+    equal(tonumber(length), 11, "still learns the length")
+end
+
+local function outputs(): nil
+    const status, handle = clayout_create(14)
+    equal(status, 0, "status first")
+    equal(tonumber(handle), 42, "then the out slot")
+    const failed, absent = clayout_create(0)
+    equal(failed, 7, "a failure status")
+    equal(absent, nil, "leaves its outputs nil")
+
+    const inner = clayout_fill(4)
+    equal(inner.a, 4, "a struct out slot is a struct value")
+    equal(inner.b, 6, "filled by C")
+
+    const allocated, pointer = clayout_allocate(64)
+    equal(allocated, 0, "allocated")
+    if pointer then
+        nupp.drop(pointer)
+    end
+end
+
+local function byValue(): nil
+    const v = new clayout_value()
+    v.i = 41
+    equal(clayout_value_int(v), 41, "a union by value")
+    const h = clayout_hfa_make(1.5, 2.5)
+    equal(h.b[1], 2.5, "a union returned by value")
+    equal(clayout_hfa_sum(h), 4, "a floating-point union by value")
+    const t = clayout_tagged_make(1, 2.25)
+    equal(t.value.d, 2.25, "a struct holding a union, returned by value")
+    t.tag = 2
+    t.value.i = 9
+    equal(clayout_tagged_read(t), 9, "and passed by value")
+    const f = new clayout_flags()
+    f.mode = 3
+    f.level = 4
+    f.delta = -1
+    equal(tonumber(clayout_flags_by_value(f)), 3 + 400 - 10000, "a struct holding bitfields by value")
+end
+
+local function variadic(): nil
+    const buffer = new clayout_text()
+    const text = buffer.bytes
+    const written = clayout_format(text, 64, "%s %g %.1f %d", "x", 7, 2.5, true)
+    equal(written, 9, "a variadic call's extra arguments reach C promoted")
+    equal(text[0], string.byte("x"), "and C wrote through the fixed one")
+    equal(text[8], string.byte("1"), "a boolean is an int")
+end
+
+local function generic(): nil
+    const node = new clayout_node(nil, 9)
+    const ref = new Ref<clayout_node>(nil, 21)
+    ref.target = node
+    equal(ref:counted(), 42, "an instance's fields and its declaration's methods")
+    @unsafe do
+        const target = ref.target
+        assert(target ~= nil and target.value == 9, "a generic pointer field")
+    end
+    const other = new Ref<clayout_inner>(nil, 1)
+    equal(other.count, 1, "another instance of the same declaration")
+    const holder = new Holder()
+    holder.nodes = ref
+    holder.tag = 3
+    equal(holder.nodes.count, 21, "instances nest by value")
+    equal(layoutof(Holder).size, 40, "laid out by their own fields")
+end
+
+--- What a worker reads of a node it was sent.
+function test.nodeValue(node: clayout_node): int32
+    return node.value
+end
+
+local function sent(): nil
+    const first = new clayout_node(nil, 1)
+    const second = new clayout_node(nil, 2)
+    first.next = second
+    -- A struct whose pointer field is set holds a process address, which
+    -- another VM cannot keep.
+    const ok, problem = pcall(function(): any
+        with scope = tasks.open() do
+            return scope:fork(first, test.nodeValue):await()
+        end
+    end)
+    assert(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
+    first.next = nil
+    with scope = tasks.open() do
+        equal(scope:fork(first, test.nodeValue):await(), 1, "a cleared one is copied")
+    end
+end
+
+function test.run(): number
+    sent()
+    generic()
+    variadic()
+    bitfields()
+    byValue()
+    mixed()
+    counted()
+    outputs()
+
+    return 42
+end
+
+export = test

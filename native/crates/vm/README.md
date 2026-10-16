@@ -3632,3 +3632,86 @@ closure identity, line-only moves, every refusal, appended closures, a
 self-patching activation, a parked task across a checkpoint), and
 `tests/hotreloadtest.lua` on the VM, including `nupp run --watch` processes
 that edit a required module and the loop that polls.
+
+## C layouts and call mappings (2026-10-16)
+
+Struct storage and `cdef` signatures now cover what C declarations of real
+libraries use, checked against a library the system C compiler lays out
+(`tests/ffi/clayout.c`); each side reads what the other wrote.
+
+**Layouts.** `targetlayout` models bitfields under the two rule families its
+targets use: the System V rule (GCC and Clang on Linux, macOS, AArch64 and
+Emscripten: a bitfield takes the next free bits unless it would cross a
+boundary of its declared type's size) and Microsoft's (consecutive bitfields
+share a unit only while their declared types have the same size and the unit
+has room). A bitfield's `offset` and `size` are its storage unit's, as
+LuaJIT's `offsetof` answers, with `bitOffset` and `bitWidth` beside them. The
+VM re-derives every placement under the host's rule and refuses a descriptor
+that disagrees, and it refuses a bitfield crossing its storage unit, which
+only packing produces and LuaJIT does not support either. Reads sign-extend
+signed fields and give booleans back as booleans; writes wrap to the field's
+width and leave the unit's other bits alone. Nupp has no packed or
+over-aligned declaration form, and `import-c` refuses `#pragma pack` and
+`packed` structs, so there is nothing packed to lay out.
+
+Struct fields may be pointers (`T*`, `T*?`, `cstring`, `voidptr`), C
+function pointers, unions, fixed arrays of structs and instances of generic
+structs. A pointer field holds the address C reads, and the VM keeps what it
+points at alive: each byte owner has an ephemeron table from field offset to
+the storage value or foreign pointer last stored there, so a referent lives
+exactly as long as the struct holding it. Reading the field gives back that
+value while the bytes still hold its address; an address C wrote is a
+foreign pointer holding nothing, which passes back to C. An aggregate copy
+carries the references with the bytes. A function pointer field holds a
+retained callback (`nupp.foreign.retain`), bound to the field's C signature
+when it is stored; a plain function is refused, since no call is there to
+lend it a trampoline. Storage whose pointer fields are set holds process
+addresses, so a checkpoint and a worker send refuse it ("clear them before it
+is saved or sent"). `layoutof` reports each field's C spelling (`ctype`),
+`void *` for a function pointer. A generic struct has a layout once its type
+arguments are known: each instance is its own storage type, its identity the
+declaration's followed by the arguments, defined where it is first
+constructed and sharing the declaration's methods. A type parameter can only
+sit behind a pointer, which is what the checker already required.
+
+**Call mappings.** A `cdef` signature's mappings run in the runtime rather
+than as generated wrappers:
+
+- `borrows p: T* countedBy(n)` takes a `nupp.mem.span` span (a write span for
+  a mutable pointee), passes its first element's address and fills `n` with
+  its length; spans counted by one count must have equal lengths, checked
+  before C is entered. The count may be any C integer type now, and the
+  span's elements must be what the pointer points at.
+- `out p: T*` of a scalar or struct is a slot the call lends C and hands back
+  filled; `out p: affine(T, cleanup)*` and `out p: T* borrows (source)` hand
+  back the pointer C wrote, holding the library and the call's arguments.
+  Outputs follow the status in C order, and a `Success<T, N>` or
+  `Failure<T, N>` status rule makes them nil when the call failed. Counted
+  pointers and out parameters may share a signature, which is the shape of
+  a "fill this buffer and say how long the answer is" call.
+- Structs and unions pass and return by value, named by their declaration.
+  libffi has neither unions nor bitfields, so a union, or a struct holding
+  bitfields, passes as the struct its target classifies the same way: per
+  eight bytes, floats where every member there is floating point (of one
+  type on AArch64, where only that is a homogeneous aggregate), an integer
+  word no wider than the aggregate's alignment otherwise.
+- A variadic function's extra arguments are typed per call by C's default
+  promotions, as LuaJIT types them: a number is a double, an exact integer
+  keeps its 64 bits and signedness, a boolean is an int, and a string,
+  storage or a foreign pointer is an address.
+
+Variadic callbacks stay refused: a C caller of one passes arguments a
+trampoline cannot count, which is LuaJIT's limit too. `nupp.pin(pointer,
+anchor)` gives back the pointer; a foreign pointer gains an edge to the
+anchor, and storage already holds its owner.
+
+**Headers.** `cheader(path, library)` lowers to a library namespace
+(`foreign.namespace`) whose functions bind on first use, as LuaJIT resolves
+`ffi.load` symbols when indexed, so a header may declare what its library
+lacks; enum members answer their values. A function whose signature has no
+VM mapping raises when it is used, naming why.
+
+Evidence: `tests/clayout-smoke.py` builds the oracle and runs
+`tests/clayout-project` on the Rust, threaded, JIT and compiled-frame engines
+under collector stress with the root oracle and quarantine;
+`tests/foreign.rs` passes unions and a struct holding one by value both ways.
