@@ -163,3 +163,52 @@ fn getmetatable_answers_record_declarations() {
     run(false);
     run(true);
 }
+
+/// A record's declaration is held through its shape only while an instance
+/// is alive, as an instance's metatable holds it under LuaJIT: a `local
+/// record` type nothing uses any more is collected, and its instances keep
+/// answering `getmetatable` until then.
+#[test]
+fn a_declaration_lives_as_long_as_its_instances() {
+    const DECLARING: &str = r#"
+shape 0 Item value:any
+function declare 0 0 8 1 :v
+const 0 str "\000nupp:recordType"
+NewTable 1
+SetMethod 0 0 1
+NewRecord 2 0
+RetN 1 2
+end
+entry 0
+"#;
+    for interleaved in [false, true] {
+        let mut it = Interp::new();
+        image::load(&mut it, DECLARING).unwrap();
+        it.install_globals();
+        it.heap.oracle = true;
+        it.heap.stress_steps = interleaved;
+        let made = it.call_value(Value::func(0), &[]);
+        let (declaration, record) = (made[0], made[1]);
+        let record_root = it.register(record);
+        let weak = it.new_table();
+        let weak_root = it.register(weak);
+        let meta = it.new_table();
+        let meta_root = it.register(meta);
+        let mode = it.intern("__mode");
+        let values = it.intern("v");
+        it.set_index(meta, mode, values);
+        it.call_value(Value::builtin(nupp_vm::builtins::id_of("setmetatable").unwrap()), &[weak, meta]);
+        it.set_index(weak, Value::num(1.0), declaration);
+        it.full_cycle();
+        it.check_oracle();
+        assert_eq!(it.get_index(weak, Value::num(1.0)), declaration, "a live instance keeps its declaration");
+        let getmetatable = Value::builtin(nupp_vm::builtins::id_of("getmetatable").unwrap());
+        assert_eq!(it.call_value(getmetatable, &[record])[0], declaration);
+        it.release(record_root);
+        it.full_cycle();
+        it.check_oracle();
+        assert_eq!(it.get_index(weak, Value::num(1.0)), Value::NIL, "an unused declaration is collected");
+        it.release(meta_root);
+        it.release(weak_root);
+    }
+}

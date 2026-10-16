@@ -469,7 +469,8 @@ pub struct Heap {
     /// marking ends, before the sweep frees the referents.
     weak: Vec<(NonNull<Header>, u8)>,
     /// The shapes each declaration table (`F_DECLARATION`) declares, by the
-    /// table's bits. Shapes keep their declarations alive, so the bits hold.
+    /// table's bits. A shape keeps its declaration alive while an instance of
+    /// it is, so the bits hold; an entry goes when its table dies.
     pub declarations: HashMap<u64, Vec<u32>>,
     /// The interned `"__mode"` key's bits for this cycle, or nil's bits when
     /// no such string exists (so no metatable can name a mode).
@@ -487,6 +488,14 @@ pub struct Heap {
     /// it was answered in. Cleared when a sweep starts, before anything it
     /// names can be freed and its address reused.
     pub proto_cache: HashMap<(u64, u64), (u64, u64)>,
+    /// The interned `"\0nupp:recordType"` key's bits for this cycle, and the
+    /// shapes an instance of which this cycle marked. A shape's declaration
+    /// (its record type, the table a `local record` creates) is held through
+    /// the shape only while the shape has a live instance, as an instance's
+    /// metatable holds it under LuaJIT; the code that constructs one names
+    /// the declaration itself. So a record type nothing uses is collected.
+    record_type_key: u64,
+    live_shapes: Vec<bool>,
     #[cfg(feature = "allocation-metrics")]
     metrics: Option<crate::allocation_metrics::Handle>,
 }
@@ -500,7 +509,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -705,6 +714,9 @@ impl Heap {
         let n = self.shapes[shape as usize].names.len();
         let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<RecordExtra>>>(), roots);
         unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<RecordExtra>>).write(None); }
+        // Allocated black during marking, so never scanned: its shape's
+        // declaration is held for it here.
+        if self.phase == Phase::Marking { if let Some(live) = self.live_shapes.get_mut(shape as usize) { *live = true; } }
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
@@ -857,6 +869,9 @@ impl Heap {
         // metatable naming `__mode` holds the string, so it stays alive and
         // keeps these bits for the cycle.
         self.mode_key = self.interned.get(&b"__mode"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
+        self.record_type_key = self.interned.get(&b"\0nupp:recordType"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
+        self.live_shapes.clear();
+        self.live_shapes.resize(self.shapes.len(), false);
         self.mark_roots(roots);
     }
 
@@ -951,8 +966,27 @@ impl Heap {
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().shape_root_slots += self.shapes.iter().map(|s| s.names.len() + 2 * s.methods.len()).sum::<usize>() as u64; }
         let gray = &mut self.gray;
-        for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.values()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } } }
+        let (key, declarations, live) = (self.record_type_key, &self.declarations, &self.live_shapes);
+        for (id, s) in self.shapes.iter().enumerate() {
+            let held = |k: &Value, v: &Value| k.0 != key || live.get(id).copied().unwrap_or(true) || !declarations.contains_key(&v.0);
+            for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.iter().filter(|(k, v)| held(k, v)).map(|(_, v)| v)) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } }
+        }
         for &k in &self.mm_keys { if let Some(p) = Value(k).as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } }
+    }
+
+    /// Once marking is done: a declaration no live instance or reference
+    /// kept is dropped from its shapes before the sweep frees it.
+    fn clear_dead_declarations(&mut self) {
+        let dead = |bits: u64| Value(bits).as_obj().is_some_and(|p| unsafe { (*p.as_ptr()).color == COLOR_WHITE });
+        let key = Value(self.record_type_key);
+        let gone: Vec<(u64, Vec<u32>)> = self.declarations.iter().filter(|&(&bits, _)| dead(bits)).map(|(&bits, shapes)| (bits, shapes.clone())).collect();
+        for (bits, shapes) in gone {
+            self.declarations.remove(&bits);
+            for shape in shapes {
+                let methods = &mut self.shapes[shape as usize].methods;
+                if methods.get(&key).is_some_and(|v| v.0 == bits) { methods.remove(&key); self.proto_epoch += 1; }
+            }
+        }
     }
 
     /// Every reference an object holds, by kind: the one walk the marker, the
@@ -974,6 +1008,10 @@ impl Heap {
         if h.kind == KIND_TABLE && h.table_ref().meta != Value::NIL {
             let mode = self.weak_mode(h);
             if mode != 0 { self.scan_weak(p, mode); return; }
+        }
+        if h.kind == KIND_RECORD {
+            let shape = h.shape() as usize;
+            if let Some(live) = self.live_shapes.get_mut(shape) { *live = true; }
         }
         let gray = &mut self.gray;
         #[cfg(feature = "allocation-metrics")]
@@ -1045,6 +1083,7 @@ impl Heap {
                     if !self.gray.is_empty() || self.propagate_weak() { continue; }
                     self.clear_weak();
                     self.proto_cache.clear();
+                    self.clear_dead_declarations();
                     self.phase = Phase::Sweeping;
                     self.marking = 0;
                     self.sweep_chunk = 0; self.sweep_slot = 0; self.sweep_large = 0;
