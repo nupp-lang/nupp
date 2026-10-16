@@ -7,7 +7,7 @@ The compiler-private storage contract for lexer trivia.
 
 The selected provider is installed by an alternate compiler entry before the lexer
 creates an arena. Ordinary native compiler entry points need no setup and resolve the
-LuaJIT provider lazily. Selection therefore costs one branch per parsed file and no
+LuaJIT provider lazily, or the table provider where there is no LuaJIT FFI. Selection therefore costs one branch per parsed file and no
 branch per token or trivia record.
 ]]
 
@@ -61,8 +61,9 @@ end
 local function provider(): Provider
     if selected == nil then
         -- Embedded hosts may install another provider before reaching this path;
-        -- normal compiler entry points default to the FFI one here.
-        selected = load("ffi")
+        -- normal compiler entry points default to the FFI one where LuaJIT's FFI
+        -- exists. The VM has none, so it takes the table arena.
+        selected = load(pcall(require, "ffi") and "ffi" or "table")
     end
 
     return selected as Provider
