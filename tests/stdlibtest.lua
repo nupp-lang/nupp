@@ -1021,9 +1021,15 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
         not duplicateBuffer and tostring(duplicateBufferProblem):find("duplicate buffer handle", 1, true),
         tostring(duplicateBufferProblem)
     )
+    -- A fractional count is refused: by the library's own check under LuaJIT, and
+    -- on the VM already where a dynamic caller hands it to an integer parameter.
+    local function fractionalRefused(problem, own)
+        problem = tostring(problem)
+        return problem:find(own, 1, true) ~= nil or problem:find("expected an exact integer", 1, true) ~= nil
+    end
     local fractionalBuffer, fractionalBufferProblem = pcall(context.buffer, context, element, 1.5)
     assert(
-        not fractionalBuffer and tostring(fractionalBufferProblem):find("portable limit", 1, true),
+        not fractionalBuffer and fractionalRefused(fractionalBufferProblem, "portable limit"),
         tostring(fractionalBufferProblem)
     )
     returned = {buffer = 7}
@@ -1066,7 +1072,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     )
     local fractionalDispatch, fractionalDispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
     assert(
-        not fractionalDispatch and tostring(fractionalDispatchProblem):find("dispatch count", 1, true),
+        not fractionalDispatch and fractionalRefused(fractionalDispatchProblem, "dispatch count"),
         tostring(fractionalDispatchProblem)
     )
     returned = {kernel = 8}
