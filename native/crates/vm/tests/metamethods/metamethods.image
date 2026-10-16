@@ -124,6 +124,7 @@ function p 3 0 24 8 :v vararg
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 12
+  FToI 5 0
   GetCell 11 2
   K 12 0
   FBox 14 0
@@ -132,22 +133,21 @@ function p 3 0 24 8 :v vararg
   Move 9 13
   CallK 2 11 8 1 1
   PadResults 8 1
-  FToI 5 0
   SetIdxI 3 5 8
   FAdd 0 0 3
   Jmp -14
-  K 8 2
-  Move 5 3
-  K 6 3
-  CallDyn 8 4 2
-  PadResults 4 1
-  GetCell 9 1
-  GetCell 10 1
-  LenF 0 10
+  GetCell 4 1
+  GetCell 5 1
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 9 3 4
+  K 10 2
+  Move 7 3
+  K 8 3
+  CallDyn 10 6 2
+  PadResults 6 1
+  SetIdxI 4 3 6
   RetNil
 end
 function done 4 0 17 2 :v
@@ -1011,9 +1011,9 @@ function M.raising.fn31 31 0 13 2 :v
   const 1 str "missing"
   lines 0 60x4
   GetUpval 1 0
-  K 2 0
-  GetCell 3 1
-  SetField 3 1 2
+  GetCell 2 1
+  K 3 0
+  SetField 2 1 3
   RetNil
 end
 function M.raising.fn32 32 0 13 2 :v
@@ -1179,10 +1179,10 @@ function M.main 38 0 60 7 :v
   NewCell 12 13
   NewClosure 14 40 15 0
   SetCell 12 14
-  Move 15 12
-  NewClosure 13 41 14 1
-  GetCell 16 10
-  SetField 16 1 13
+  GetCell 13 10
+  Move 16 12
+  NewClosure 14 41 15 1
+  SetField 13 1 14
   K 16 2
   CallK 39 11 15 1 1
   PadResults 15 1
@@ -1657,7 +1657,7 @@ function M.main 53 0 165 14 :v
   const 36 str "hot loop"
   const 37 str "through calls"
   const 38 str "x"
-  lines 0 5x8 6x2 7x5 8x30 9x9 10x13 11x2 12x20 13x7 14x9 15x6 16x2 17x6 18x15 19x4 20x4 21x42 23 24x6 25x5 26x5 27x8 29x4 30x3 31x5 32x20 33 34 35 36x16 37x2 38x16 39x4 40x2 41x4 42x2 43x4 44x5 45x5 46x4 47x5 48x5 49x5 50x2 51x2 52x5 53x5 54x6 55x4 56 57x6 58x16 59x4 60x2 61x5 62x2 63x20 64 65x6 66x6 67x13 70x6 71 72 73x46 74x10
+  lines 0 5x8 6x2 7x5 8x30 9x9 10x13 11x2 12x20 13x7 14x9 15x6 16x2 17x6 18x15 19x4 20x4 21x42 23 24x6 25x5 26x5 27x8 29x4 30x3 31x5 32x20 33 34 35 36x16 37x2 38x16 39x4 40x2 41x4 42x2 43x4 44x5 45x5 46x6 47x5 48x5 49x5 50x2 51x2 52x5 53x5 54x6 55x4 56 57x6 58x16 59x4 60x2 61x5 62x2 63x20 64 65x6 66x6 67x13 70x6 71 72 73x46 74x10
   GetUpval 1 0
   GetCell 5 1
   GetField 4 5 0
@@ -1963,10 +1963,12 @@ function M.main 53 0 165 14 :v
   Move 93 10
   CallDyn 95 91 2
   PadResults 91 1
-  K 91 28
-  K 92 28
-  SetField 89 12 91
-  SetField 90 12 92
+  Move 91 89
+  Move 92 90
+  K 93 28
+  K 94 28
+  SetField 92 12 94
+  SetField 91 12 93
   K 92 29
   Eq 93 89 90
   Ne 94 89 90
@@ -2048,18 +2050,18 @@ function M.main 53 0 165 14 :v
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 14
+  FToI 5 0
   K 116 2
   NewRecord 117 4
-  FK 5 5
-  FMod 6 0 5
-  FBox 118 6
+  FK 6 5
+  FMod 7 0 6
+  FBox 118 7
   SetSlot 117 0 118 4
   Move 113 117
   Move 114 110
   CallDyn 116 112 2
   PadResults 112 1
-  FToI 7 0
-  SetIdxI 111 7 112
+  SetIdxI 111 5 112
   FAdd 0 0 3
   Jmp -16
   K 112 1
@@ -2201,22 +2203,22 @@ function M.main.fn58 58 0 11 2 :v
   Nil 1
   Ret 1
 end
-function M.main.fn59 59 2 16 6 vv:v
+function M.main.fn59 59 2 17 6 vv:v
   source eq
   const 0 str "n"
   const 1 false 
   lines 0 31x12
   GetUpval 3 0
-  GetField 4 1 0
-  GetField 5 2 0
-  Concat 4 4 5
+  GetCell 4 3
   GetCell 5 3
-  GetCell 6 3
-  LenF 0 6
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 5 3 4
+  GetField 6 1 0
+  GetField 7 2 0
+  Concat 6 6 7
+  SetIdxI 4 3 6
   K 4 1
   Ret 4
 end
@@ -2785,7 +2787,7 @@ function M.main 74 0 56 13 :v
   NewCell 18 19
   GetCell 19 18
   GetCell 20 18
-  SetField 20 26 19
+  SetField 19 26 20
   Move 21 18
   NewClosure 19 76 20 1
   GetCell 22 18
@@ -2808,7 +2810,7 @@ function M.main 74 0 56 13 :v
   NewCell 19 20
   GetCell 20 19
   GetCell 21 19
-  SetField 21 26 20
+  SetField 20 26 21
   Move 22 19
   NewClosure 20 79 21 1
   GetCell 23 19
@@ -2828,7 +2830,7 @@ function M.main 74 0 56 13 :v
   NewCell 20 21
   GetCell 21 20
   GetCell 22 20
-  SetField 22 26 21
+  SetField 21 26 22
   Move 23 20
   NewClosure 21 81 22 1
   GetCell 24 20
@@ -2885,6 +2887,10 @@ function M.main 74 0 56 13 :v
   Move 25 29
   Move 34 29
   Move 35 30
+  LenF 0 22
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
   Move 37 35
   CallMethod 28 36 1
   PadResults 36 1
@@ -2892,10 +2898,6 @@ function M.main 74 0 56 13 :v
   CallMethod 27 37 1
   PadResults 37 1
   Concat 36 36 37
-  LenF 0 22
-  FToI 1 0
-  IK 2 1
-  IAdd 3 1 2
   SetIdxI 22 3 36
   Jmp -23
   K 24 33
@@ -2978,9 +2980,9 @@ function M.main 74 0 56 13 :v
   Move 35 52
   CallDyn 8 24 67
   PadResults 24 1
-  Nil 24
-  GetCell 25 19
-  SetField 25 28 24
+  GetCell 24 19
+  Nil 25
+  SetField 24 28 25
   K 25 38
   IK 0 2
   GetIdxI 37 21 0
@@ -3103,12 +3105,12 @@ function M.main 74 0 56 13 :v
   Len 32 41
   CallDyn 8 28 4
   PadResults 28 1
-  NewClosure 28 89 29 0
-  GetCell 33 1
-  Require 31 57
-  CallDyn 33 30 1
-  PadResults 30 1
-  SetField 30 58 28
+  GetCell 31 1
+  Require 29 57
+  CallDyn 31 28 1
+  PadResults 28 1
+  NewClosure 32 89 33 0
+  SetField 28 58 32
   K 29 59
   GetCell 43 1
   K 41 60
@@ -3126,12 +3128,12 @@ function M.main 74 0 56 13 :v
   Move 37 51
   CallDyn 8 28 65
   PadResults 28 1
-  Nil 28
-  GetCell 32 1
-  Require 30 57
-  CallDyn 32 29 1
-  PadResults 29 1
-  SetField 29 58 28
+  GetCell 31 1
+  Require 29 57
+  CallDyn 31 28 1
+  PadResults 28 1
+  Nil 32
+  SetField 28 58 32
   K 29 61
   K 41 62
   K 44 53
@@ -3219,17 +3221,17 @@ function M.main.fn75 75 2 19 6 vv:v
   const 1 str "got "
   lines 0 8x18
   GetUpval 3 0
-  K 7 0
-  Move 5 2
-  CallDyn 7 4 1
-  PadResults 4 1
-  GetCell 8 3
-  GetCell 9 3
-  LenF 0 9
+  GetCell 4 3
+  GetCell 5 3
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 8 3 4
+  K 9 0
+  Move 7 2
+  CallDyn 9 6 1
+  PadResults 6 1
+  SetIdxI 4 3 6
   K 4 1
   K 8 0
   Move 6 2
@@ -4216,8 +4218,8 @@ function M.main 107 0 49 10 :v
   PadResults 12 1
   K 13 2
   SetField 12 3 13
-  K 13 4
   IK 0 2
+  K 13 4
   SetIdxI 12 0 13
   K 13 5
   SetField 12 6 13
@@ -4362,8 +4364,8 @@ function M.main 107 0 49 10 :v
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 5
-  FBox 21 0
   FToI 5 0
+  FBox 21 0
   SetIdxI 20 5 21
   FAdd 0 0 3
   Jmp -7
@@ -4373,11 +4375,11 @@ function M.main 107 0 49 10 :v
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 7
-  FK 5 2
-  FMul 6 0 5
-  FBox 21 6
-  FToI 7 0
-  SetIdxI 20 7 21
+  FToI 5 0
+  FK 6 2
+  FMul 7 0 6
+  FBox 21 7
+  SetIdxI 20 5 21
   FAdd 0 0 3
   Jmp -9
   K 22 24
@@ -4483,24 +4485,24 @@ function M.main.fn108 108 3 22 6 vvv:v
   lines 0x2 10x26
   GetUpval 4 0
   GetUpval 5 1
-  K 9 0
-  Move 7 2
-  CallDyn 9 6 1
-  PadResults 6 1
-  K 7 1
-  Concat 6 6 7
-  K 10 0
-  Move 8 3
-  CallDyn 10 7 1
-  PadResults 7 1
-  Concat 6 6 7
+  GetCell 6 4
   GetCell 7 4
-  GetCell 8 4
-  LenF 0 8
+  LenF 0 7
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 7 3 6
+  K 11 0
+  Move 9 2
+  CallDyn 11 8 1
+  PadResults 8 1
+  K 9 1
+  Concat 8 8 9
+  K 12 0
+  Move 10 3
+  CallDyn 12 9 1
+  PadResults 9 1
+  Concat 8 8 9
+  SetIdxI 6 3 8
   K 11 2
   GetCell 12 5
   Move 7 12
@@ -4536,9 +4538,9 @@ function M.main.fn110 110 0 13 2 :v
   const 1 str "x"
   lines 0 30x4
   GetUpval 1 0
-  K 2 0
-  GetCell 3 1
-  SetField 3 1 2
+  GetCell 2 1
+  K 3 0
+  SetField 2 1 3
   RetNil
 end
 function M.main.fn111 111 3 20 2 vvv:v
@@ -4583,12 +4585,12 @@ function M.main.fn114 114 0 16 2 :v
   const 1 str "y"
   lines 0 49x7
   GetUpval 1 0
-  K 2 0
-  GetCell 6 1
-  Nil 4
-  CallDyn 6 3 1
-  PadResults 3 1
-  SetField 3 1 2
+  GetCell 5 1
+  Nil 3
+  CallDyn 5 2 1
+  PadResults 2 1
+  K 6 0
+  SetField 2 1 6
   RetNil
 end
 function M.main.fn115 115 3 30 2 vvv:v
@@ -4992,20 +4994,20 @@ function M.main 117 0 94 14 :v
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 16
+  FToI 5 0
   K 72 3
   NewRecord 73 4
-  FK 5 7
-  FMul 6 0 5
-  FK 7 31
-  FMod 8 6 7
-  FBox 74 8
+  FK 6 7
+  FMul 7 0 6
+  FK 8 31
+  FMod 9 7 8
+  FBox 74 9
   SetSlot 73 0 74 4
   Move 69 73
   Move 70 67
   CallDyn 72 68 2
   PadResults 68 1
-  FToI 9 0
-  SetIdxI 66 9 68
+  SetIdxI 66 5 68
   FAdd 0 0 3
   Jmp -18
   K 71 36
@@ -5021,10 +5023,10 @@ function M.main 117 0 94 14 :v
   FCmpLe 4 0 2
   JmpIfIZero 4 7
   FToI 5 0
-  GetIdxI 70 66 5
-  GetField 69 70 37
   FToI 6 0
-  SetIdxI 68 6 69
+  GetIdxI 70 66 6
+  GetField 69 70 37
+  SetIdxI 68 5 69
   FAdd 0 0 3
   Jmp -9
   K 70 38
@@ -5092,70 +5094,70 @@ function M.main 117 0 94 14 :v
   Move 77 86
   RetN 70 128
 end
-function M.main.fn118 118 2 17 6 vv:v
+function M.main.fn118 118 2 19 6 vv:v
   source order
   const 0 str "lt"
   const 1 str "v"
   lines 0 9x16
   GetUpval 3 0
-  K 5 0
-  GetField 6 1 1
-  GetField 7 2 1
-  Concat 4 6 7
-  Concat 4 5 4
+  GetCell 4 3
   GetCell 5 3
-  GetCell 6 3
-  LenF 0 6
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 5 3 4
+  K 7 0
+  GetField 8 1 1
+  GetField 9 2 1
+  Concat 6 8 9
+  Concat 6 7 6
+  SetIdxI 4 3 6
   GetField 5 1 1
   GetField 6 2 1
   Lt 4 5 6
   Ret 4
 end
-function M.main.fn119 119 2 17 6 vv:v
+function M.main.fn119 119 2 19 6 vv:v
   source order
   const 0 str "le"
   const 1 str "v"
   lines 0 10x16
   GetUpval 3 0
-  K 5 0
-  GetField 6 1 1
-  GetField 7 2 1
-  Concat 4 6 7
-  Concat 4 5 4
+  GetCell 4 3
   GetCell 5 3
-  GetCell 6 3
-  LenF 0 6
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 5 3 4
+  K 7 0
+  GetField 8 1 1
+  GetField 9 2 1
+  Concat 6 8 9
+  Concat 6 7 6
+  SetIdxI 4 3 6
   GetField 5 1 1
   GetField 6 2 1
   Le 4 5 6
   Ret 4
 end
-function M.main.fn120 120 2 17 6 vv:v
+function M.main.fn120 120 2 19 6 vv:v
   source order
   const 0 str "lt"
   const 1 str "v"
   lines 0 18x16
   GetUpval 3 0
-  K 5 0
-  GetField 6 1 1
-  GetField 7 2 1
-  Concat 4 6 7
-  Concat 4 5 4
+  GetCell 4 3
   GetCell 5 3
-  GetCell 6 3
-  LenF 0 6
+  LenF 0 5
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 5 3 4
+  K 7 0
+  GetField 8 1 1
+  GetField 9 2 1
+  Concat 6 8 9
+  Concat 6 7 6
+  SetIdxI 4 3 6
   GetField 5 1 1
   GetField 6 2 1
   Lt 4 5 6
@@ -5407,15 +5409,15 @@ function M.main 136 0 47 7 :v
   Move 15 19
   Move 24 19
   Move 25 20
+  LenF 0 12
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
   Move 27 24
   K 28 9
   Move 29 25
   Concat 26 28 29
   Concat 26 27 26
-  LenF 0 12
-  FToI 1 0
-  IK 2 1
-  IAdd 3 1 2
   SetIdxI 12 3 26
   Jmp -21
   K 14 10
@@ -5729,7 +5731,7 @@ function M.main.fn137.fn138 138 2 22 2 vv:v
   Jmp 0
   RetNil
 end
-function M.main.fn139 139 1 18 6 v:v
+function M.main.fn139 139 1 20 6 v:v
   source pairs
   const 0 builtin tostring
   const 1 str "self"
@@ -5737,19 +5739,19 @@ function M.main.fn139 139 1 18 6 v:v
   const 3 num 1
   lines 0 21x20
   GetUpval 2 0
-  K 6 0
-  GetCell 8 2
-  GetField 7 8 1
-  Eq 4 1 7
-  CallDyn 6 3 1
-  PadResults 3 1
-  GetCell 7 2
-  GetCell 8 2
-  LenF 0 8
+  GetCell 3 2
+  GetCell 4 2
+  LenF 0 4
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 7 3 3
+  K 8 0
+  GetCell 10 2
+  GetField 9 10 1
+  Eq 6 1 9
+  CallDyn 8 5 1
+  PadResults 5 1
+  SetIdxI 3 3 5
   K 3 2
   NewRecord 6 20
   K 7 3
@@ -6114,49 +6116,53 @@ function M.main 161 0 29 9 :v
   SetSlotF 5 1 0 31
   Move 4 5
   Add 5 3 4
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
   K 9 0
   Move 7 5
   CallDyn 9 6 1
   PadResults 6 1
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 9 0
   Sub 7 4 3
   CallDyn 9 6 1
   PadResults 6 1
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 9 0
   K 10 1
   Mul 7 3 10
   CallDyn 9 6 1
   PadResults 6 1
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 9 0
   Neg 7 3
   CallDyn 9 6 1
   PadResults 6 1
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 9 0
   NewRecord 10 31
-  FK 0 1
-  SetSlotF 10 0 0 31
-  FK 0 2
-  SetSlotF 10 1 0 31
+  FK 4 1
+  SetSlotF 10 0 4 31
+  FK 4 2
+  SetSlotF 10 1 4 31
   Eq 7 3 10
   CallDyn 9 6 1
   PadResults 6 1
@@ -6174,11 +6180,11 @@ function M.main 161 0 29 9 :v
   CallDyn 10 7 1
   PadResults 7 1
   Concat 6 6 7
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 9 0
   Lt 7 3 4
   CallDyn 9 6 1
@@ -6197,19 +6203,19 @@ function M.main 161 0 29 9 :v
   CallDyn 10 7 1
   PadResults 7 1
   Concat 6 6 7
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   Move 6 3
   K 7 3
   Concat 6 6 7
+  SetIdxI 2 3 6
   LenF 0 2
   FToI 1 0
   IK 2 1
   IAdd 3 1 2
-  SetIdxI 2 3 6
   K 17 0
   K 19 4
   CallDyn 3 18 1
@@ -6223,10 +6229,6 @@ function M.main 161 0 29 9 :v
   Move 14 25
   CallDyn 17 6 64
   PadResults 6 1
-  LenF 0 2
-  FToI 1 0
-  IK 2 1
-  IAdd 3 1 2
   SetIdxI 2 3 6
   NewRecord 7 31
   FK 0 0
@@ -6258,6 +6260,10 @@ function M.main 161 0 29 9 :v
   Jmp 0
   FAdd 0 0 3
   Jmp -19
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
   K 11 0
   Move 9 6
   CallDyn 11 8 1
@@ -6269,10 +6275,6 @@ function M.main 161 0 29 9 :v
   CallDyn 12 9 1
   PadResults 9 1
   Concat 8 8 9
-  LenF 0 2
-  FToI 1 0
-  IK 2 1
-  IAdd 3 1 2
   SetIdxI 2 3 8
   K 12 8
   Move 9 2
@@ -6561,11 +6563,11 @@ function M.main 163 0 59 8 :v
   FK 3 1
   FCmpLe 4 0 2
   JmpIfIZero 4 8
+  FToI 5 0
   K 22 4
   Move 20 17
   CallDyn 22 19 1
   PadResults 19 1
-  FToI 5 0
   SetIdxI 18 5 19
   FAdd 0 0 3
   Jmp -10
@@ -6826,19 +6828,19 @@ function M.main 171 0 63 7 :v
   Move 15 22
   Move 27 22
   NewCell 28 23
-  Move 31 12
-  Move 32 28
-  NewClosure 29 174 30 2
-  GetCell 33 10
-  K 34 14
-  GetCell 35 28
-  Concat 34 34 35
-  SetIdx 33 34 29
+  GetCell 29 10
+  K 30 14
+  GetCell 31 28
+  Concat 30 30 31
+  Move 33 12
+  Move 34 28
+  NewClosure 31 174 32 2
+  SetIdx 29 30 31
   Jmp -19
-  Move 15 12
-  NewClosure 13 175 14 1
-  GetCell 16 10
-  SetField 16 15 13
+  GetCell 13 10
+  Move 16 12
+  NewClosure 14 175 15 1
+  SetField 13 15 14
   K 16 2
   CallK 172 11 15 1 1
   PadResults 15 1
@@ -7063,32 +7065,32 @@ function M.main 171 0 63 7 :v
   NewCell 33 34
   GetCell 34 33
   GetCell 35 33
-  SetField 35 40 34
+  SetField 34 40 35
   Nil 34
   Nil 35
   NewCell 34 35
   Move 38 33
   NewClosure 36 184 37 1
   SetCell 34 36
-  Move 37 34
-  NewClosure 35 185 36 1
-  GetCell 38 33
-  SetField 38 41 35
-  Move 37 34
-  NewClosure 35 186 36 1
-  GetCell 38 33
-  SetField 38 42 35
-  Move 37 34
-  NewClosure 35 187 36 1
-  GetCell 38 33
-  SetField 38 43 35
-  Move 37 34
-  NewClosure 35 188 36 1
-  GetCell 38 33
-  SetField 38 15 35
-  NewClosure 35 189 36 0
-  GetCell 37 33
-  SetField 37 44 35
+  GetCell 35 33
+  Move 38 34
+  NewClosure 36 185 37 1
+  SetField 35 41 36
+  GetCell 35 33
+  Move 38 34
+  NewClosure 36 186 37 1
+  SetField 35 42 36
+  GetCell 35 33
+  Move 38 34
+  NewClosure 36 187 37 1
+  SetField 35 43 36
+  GetCell 35 33
+  Move 38 34
+  NewClosure 36 188 37 1
+  SetField 35 15 36
+  GetCell 35 33
+  NewClosure 36 189 37 0
+  SetField 35 44 36
   GetCell 38 34
   K 36 32
   CallK 184 38 35 1 1
