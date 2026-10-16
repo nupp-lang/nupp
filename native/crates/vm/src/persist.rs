@@ -1793,6 +1793,7 @@ pub fn save_vm(
     save_roots(&mut w, &mut roots, &vm.extra[..vm.extra_n])?;
     w.u32(vm.last_nres)?;
     w.u64(vm.parks);
+    w.u64(vm.random_state);
     match &vm.host {
         None => w.byte(0),
         Some(host) => {
@@ -2180,6 +2181,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     let last_nres = r.u32()?;
     if last_nres > crate::interp::MAX_RESULTS { return Err("invalid result count".into()); }
     let parks = r.u64()?;
+    let random_state = r.u64()?;
     let host = match r.byte()? {
         0 => None,
         1 => {
@@ -2301,6 +2303,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     }
     vm.last_nres = last_nres;
     vm.parks = parks;
+    vm.random_state = random_state;
     vm.resources.clear();
     for (id, kind) in resources {
         if kind != crate::channels::KIND { vm.resources.insert(get_root(&roots, id)?, kind); }

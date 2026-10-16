@@ -664,28 +664,23 @@ fn classify(name: &str) -> Special {
     Special::Plain
 }
 
-thread_local! {
-    // Lua's math.random state: per thread, as each worker VM runs on its own.
-    static RANDOM_STATE: std::cell::Cell<u64> = const { std::cell::Cell::new(0x9e37_79b9_7f4a_7c15) };
-}
-
 /// `math.random` and `math.randomseed` with Lua 5.1's argument rules, over
 /// SplitMix64: `random()` in [0, 1), `random(m)` in [1, m], `random(m, n)`
 /// in [m, n].
 fn random(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     if name == "math.randomseed" {
         let seed = crate::numeric::double(it, arg(args, 0));
-        RANDOM_STATE.with(|s| s.set((seed as i64 as u64) ^ seed.to_bits() ^ 0x9e37_79b9_7f4a_7c15));
+        it.random_state = (seed as i64 as u64) ^ seed.to_bits() ^ 0x9e37_79b9_7f4a_7c15;
         return Outs::new();
     }
-    let bits = RANDOM_STATE.with(|s| {
-        let next = s.get().wrapping_add(0x9e37_79b9_7f4a_7c15);
-        s.set(next);
+    let bits = {
+        let next = it.random_state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        it.random_state = next;
         let mut z = next;
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         z ^ (z >> 31)
-    });
+    };
     let unit = (bits >> 11) as f64 / (1u64 << 53) as f64;
     let (low, high) = match args.len() {
         0 => return outs![Value::num(unit)],

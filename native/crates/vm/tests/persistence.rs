@@ -871,3 +871,28 @@ fn restore_keeps_table_iteration_order() {
     let after: Vec<String> = other.table_keys(roots[0]).iter().map(|k| String::from_utf8_lossy(other.bytes_of(*k)).into_owned()).collect();
     assert_eq!(after, before);
 }
+
+/// `math.random`'s state belongs to the VM: a checkpoint taken mid-stream
+/// restores the sequence where it was, and a second VM draws its own stream.
+#[test]
+fn random_streams_restore_with_a_checkpoint() {
+    let call = |vm: &mut Interp, name: &str, args: &[Value]| -> Vec<Value> {
+        let id = nupp_vm::builtins::id_of(name).unwrap();
+        vm.call_value(Value::builtin(id), args)
+    };
+    let draws = |vm: &mut Interp| -> Vec<Value> {
+        let bound = [Value::num(1000.0)];
+        (0..16).map(|i| call(vm, "math.random", if i % 2 == 0 { &[] } else { &bound })[0]).collect()
+    };
+    let mut vm = fixture();
+    call(&mut vm, "math.randomseed", &[Value::num(42.0)]);
+    let warmup = draws(&mut vm);
+    let data = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    let expected = draws(&mut vm);
+    let mut other = fixture();
+    call(&mut other, "math.randomseed", &[Value::num(42.0)]);
+    assert_eq!(draws(&mut other), warmup, "a seed starts the same stream in every VM");
+    assert_eq!(draws(&mut other), expected, "another VM's draws do not advance this one");
+    let mut restored = persist::load_vm(&data, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    assert_eq!(draws(&mut restored), expected, "the restored VM draws the sequence the checkpoint left");
+}
