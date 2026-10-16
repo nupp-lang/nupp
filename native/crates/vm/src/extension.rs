@@ -327,9 +327,8 @@ fn sync_names(vm: &mut Interp) {
     vm.extensions.functions.resize(n, None);
 }
 
-fn function_record(module: &Rc<Instance>, name: &str, id: u32) -> Option<Rc<Function>> {
+fn function_record(module: &Rc<Instance>, name: &str) -> Option<Rc<Function>> {
     let (entry, signature) = module.functions.get(name)?;
-    let _ = id;
     Some(Rc::new(Function {
         module: module.clone(),
         name: format!("{}.{name}", module.name),
@@ -381,7 +380,7 @@ fn install(vm: &mut Interp, module: &Rc<Instance>) -> Value {
             }
         };
         let id = FUNCTION_BASE + index as u32;
-        vm.extensions.functions[index] = function_record(module, name, id);
+        vm.extensions.functions[index] = function_record(module, name);
         if existing.is_none() {
             let k = vm.intern(name);
             vm.set_index(table, k, Value::builtin(id));
@@ -826,7 +825,8 @@ fn value_of(call: &mut Context, slot: &abi::Slot, t: Option<&Ty>, position: &str
         (Some(Ty::Int64), abi::INTEGER) => scalar(vm)?,
         (Some(Ty::Integer), abi::INTEGER) => {
             let i = unsafe { slot.value.integer };
-            if i.unsigned_abs() > 1 << 53 {
+            // An integer is a double known to be integral: it must hold `i` exactly.
+            if (i as f64) as i128 != i as i128 {
                 return Err(format!("{name} returned {i} as {position}, which an integer cannot hold exactly"));
             }
             Value::num(i as f64)

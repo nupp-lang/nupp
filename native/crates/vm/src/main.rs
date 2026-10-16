@@ -120,6 +120,14 @@ fn drive(it: &mut Interp, ts: &[usize]) {
     }
 }
 
+/// Native extension resources save and restore through their types' hooks;
+/// a restore reloads each extension's library before its resources.
+fn extension_codecs() -> nupp_vm::persist::ResourceCodecs {
+    let mut codecs = nupp_vm::persist::ResourceCodecs::new();
+    codecs.insert(nupp_vm::extension::RESOURCE_KIND.into(), Box::new(nupp_vm::extension::Codec::default()));
+    codecs
+}
+
 fn show(it: &Interp, v: Value) -> String {
     if let Some(i) = nupp_vm::numeric::integer(v) { return i.magnitude().to_string(); }
     if v.is_num() { return builtins::num_text(v.as_num()); }
@@ -188,7 +196,7 @@ fn main() {
     let t0 = cpu_now();
     let mut it = if restoring {
         let data = std::fs::read(&args[2]).unwrap_or_else(|e| { eprintln!("checkpoint {}: {e}", args[2]); std::process::exit(1) });
-        nupp_vm::persist::load_vm(&data, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("restore: {e}"); std::process::exit(1) })
+        nupp_vm::persist::load_vm(&data, &Default::default(), &mut extension_codecs()).unwrap_or_else(|e| { eprintln!("restore: {e}"); std::process::exit(1) })
     } else {
         let text = match program.take() { Some(found) => found.image, None => std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) }) };
         let mut vm = Interp::new();
@@ -397,7 +405,7 @@ fn main() {
         println!("median {:.6} ms over {repeat}\tmin {:.6} ms", m * 1e3, samples[0] * 1e3);
     }
     if let Some(path) = checkpoint {
-        let bytes = nupp_vm::persist::save_vm(&mut it, &Default::default(), &mut Default::default()).unwrap_or_else(|e| { eprintln!("checkpoint: {e}"); std::process::exit(1) });
+        let bytes = nupp_vm::persist::save_vm(&mut it, &Default::default(), &mut extension_codecs()).unwrap_or_else(|e| { eprintln!("checkpoint: {e}"); std::process::exit(1) });
         std::fs::write(&path, &bytes).unwrap_or_else(|e| { eprintln!("checkpoint {path}: {e}"); std::process::exit(1) });
         eprintln!("checkpoint: wrote {} bytes", bytes.len());
     }
