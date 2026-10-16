@@ -2419,6 +2419,9 @@ local PROCESS_ISOLATED = {
     runtimereflectiontest = true,
     serdetest = true,
     typeleveltest = true,
+    -- Imports cheadertest as a fixture; its top level asks the shell for an
+    -- absolute checkout path on hosts where debug information is relative.
+    hotreloadguaranteetest = true,
     projectlinktest = true,
     spipackagetest = true,
     spitest = true,

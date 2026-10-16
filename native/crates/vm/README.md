@@ -2803,13 +2803,13 @@ The suites found these gaps in the VM, now closed:
 
 Retired, with what they tested: the Lua optimizer (`optimizetest`,
 `passpermutationtest`, `concatbuffertest`), the generator's own invariants
-(`loweringinvarianttest`), hot reload (`hotreloadtest`,
-`hotreloadguaranteetest`; `nupp.tools.hotsession` is built on the generator),
-LuaJIT cdata (`bulkcolumntest`, `sharedbytestest`), the generator's one-lane
-SIMD routing (`simdlanetest`), the LuaJIT native process provider's C ABI
-(`processprovidertest`), and the LuaJIT embedding (`hostembeddingtest`,
-`hostbinarytest`, `hostchanneltest`, whose files stay until `native/crates/host`
-is deleted, since CI's native gate runs them).
+(`loweringinvarianttest`), LuaJIT cdata (`bulkcolumntest`, `sharedbytestest`),
+the generator's one-lane SIMD routing (`simdlanetest`), the LuaJIT native
+process provider's C ABI (`processprovidertest`), and the LuaJIT embedding
+(`hostembeddingtest`, `hostbinarytest`, `hostchanneltest`). Their files stay
+until what they test is deleted, since the LuaJIT runner still runs them; the
+VM runner defers them. Hot reload (`hotreloadtest`, `hotreloadguaranteetest`)
+stays `port-required` for the hot reload lane.
 
 Still `port-required`, by what they need:
 

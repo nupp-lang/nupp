@@ -323,7 +323,7 @@
       "suite": "bulkcolumntest",
       "class": "retired",
       "facilities": "load,ffi,string.buffer,getinfo,lua-generator",
-      "reason": "tested bulk-copying LuaJIT cdata columns with string.buffer:putcdata and ffi.copy; the VM has no cdata, and layoutof strides are covered by layouttest"
+      "reason": "tests bulk-copying LuaJIT cdata columns with string.buffer:putcdata and ffi.copy; the VM has no cdata and layouttest covers layoutof strides; the file goes with the LuaJIT engine"
     },
     {
       "suite": "bundleddeclstest",
@@ -425,7 +425,7 @@
       "suite": "concatbuffertest",
       "class": "retired",
       "facilities": "load,string.buffer,getinfo,lua-generator",
-      "reason": "tested the Lua optimizer's OPT-5 concat-buffer pass and its remarks, deleted with the optimizer"
+      "reason": "tests the Lua optimizer's OPT-5 concat-buffer pass and its remarks; the file goes with the optimizer and the generator"
     },
     {
       "suite": "conststrtest",
@@ -699,15 +699,15 @@
     },
     {
       "suite": "hotreloadguaranteetest",
-      "class": "retired",
+      "class": "port-required",
       "facilities": "-",
-      "reason": "indexed the hot-reload documentation's promises to hotreloadtest and the --watch cases; hot reload goes with the generator"
+      "reason": "hot reload lane"
     },
     {
       "suite": "hotreloadtest",
-      "class": "retired",
+      "class": "port-required",
       "facilities": "load,ffi,jit,spawn,lua-generator",
-      "reason": "tested the Lua generator's watch and patch modes (nupp.tools.hotsession builds on nupp.compiler.lua.gen); the VM lowering has no hot-reload mode, so hot reload goes with the generator"
+      "reason": "hot reload lane"
     },
     {
       "suite": "httpnativetest",
@@ -803,7 +803,7 @@
       "suite": "loweringinvarianttest",
       "class": "retired",
       "facilities": "load,getinfo,spawn,lua-generator",
-      "reason": "tested the Lua generator's inventory of functions built inside loops, a LuaJIT trace concern"
+      "reason": "tests the Lua generator's inventory of functions built inside loops, a LuaJIT trace concern; the file goes with the generator"
     },
     {
       "suite": "lspclitest",
@@ -911,13 +911,13 @@
       "suite": "optimizeprograms",
       "class": "retired",
       "facilities": "-",
-      "reason": "helper of optimizetest and passpermutationtest, deleted with them"
+      "reason": "helper of optimizetest and passpermutationtest; goes with them"
     },
     {
       "suite": "optimizetest",
       "class": "retired",
       "facilities": "load,env,debug-hooks,getinfo,lua-generator",
-      "reason": "tested the Lua optimizer's passes, presizing, remarks and level agreement, deleted with the optimizer"
+      "reason": "tests the Lua optimizer's passes, presizing, remarks and level agreement; the file goes with the optimizer and the generator"
     },
     {
       "suite": "orexittest",
@@ -977,7 +977,7 @@
       "suite": "passpermutationtest",
       "class": "retired",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "checked that every subset of the Lua optimizer's passes agrees, deleted with the optimizer"
+      "reason": "checks that every subset of the Lua optimizer's passes agrees; the file goes with the optimizer and the generator"
     },
     {
       "suite": "pathtest",
@@ -1025,7 +1025,7 @@
       "suite": "processprovidertest",
       "class": "retired",
       "facilities": "load",
-      "reason": "tested the LuaJIT native process provider's mapping of its C ABI statuses through ffi; the VM's provider (native/crates/vm/lib) calls the runtime's process builtins, covered by process_host.rs"
+      "reason": "tests the LuaJIT native process provider's C ABI, which the VM replaces with its own process provider (processnativetest); the file goes with that provider"
     },
     {
       "suite": "processtest",
@@ -1181,7 +1181,7 @@
       "suite": "sharedbytestest",
       "class": "retired",
       "facilities": "ffi",
-      "reason": "tested nupp.mem.sharedbytes, whose blocks came from the LuaJIT engine host through ffi; the VM has no sharedbytes provider"
+      "reason": "tests nupp.mem.sharedbytes blocks the LuaJIT engine host hands out through ffi; the VM has no sharedbytes provider; the file goes with the engine host"
     },
     {
       "suite": "simdequivalencedrivertest",
@@ -1211,7 +1211,7 @@
       "suite": "simdlanetest",
       "class": "retired",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "tested the Lua generator's one-lane simd.lane routing of a preferred species, which has its real width on the VM; simdfixedlanestest covers the width-independent behavior"
+      "reason": "tests the Lua generator's one-lane simd.lane routing of a preferred species, which has its real width on the VM (simdfixedlanestest covers the width-independent behavior); the file goes with the generator"
     },
     {
       "suite": "simdmapinventorytest",
