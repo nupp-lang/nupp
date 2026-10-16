@@ -569,6 +569,15 @@ impl Interp {
         Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, convention, policy, body: self.spec.body(fid), chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos })
     }
 
+    /// A plan with exactly these sites, for `convention`, against the VM's
+    /// current epoch and body: what a test or a later selection algorithm
+    /// hands to the same validation, compile and installation.
+    pub fn spec_plan_with(&mut self, fid: u32, convention: Convention, sites: HashMap<usize, SiteSpec>) -> Plan {
+        if self.spec.limits.chaos != 0 && self.spec.chaos.is_none() { self.spec.chaos = Some(Box::new(self.spec.limits.chaos)); }
+        self.spec.symbols += 1;
+        Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, convention, policy: Policy::specialized(convention), body: self.spec.body(fid), chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos }
+    }
+
     /// The plan for a generic version for `convention`, instrumented with
     /// feedback hooks; `tier_calls` 0 leaves tiering to someone else.
     pub fn spec_generic_plan(&mut self, fid: u32, convention: Convention, tier_calls: u32) -> Option<Plan> {

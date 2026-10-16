@@ -200,3 +200,45 @@ pub fn check_dominance(uses: &[FactUse]) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::effects::{of_helper, of_op};
+
+    #[test]
+    fn effects_end_mutable_facts_and_definitions_end_all_of_a_register() {
+        let mut f = Facts::default();
+        f.block_start(0);
+        f.establish(1, FactKind::Shape(7), 1);
+        f.establish(0, FactKind::Epoch(3), 1);
+        f.after(of_op(&Op::Move(2, 3)));
+        assert_eq!(f.shape(1, 2), Some(7));
+        assert!(f.epoch(3, 2), "a register move mutates nothing");
+        f.after(of_op(&Op::SetField(4, 0, 5)));
+        assert!(!f.epoch(3, 4), "a store may change what the epoch guarded");
+        assert_eq!(f.shape(1, 4), Some(7), "a shape is permanent");
+        f.establish(0, FactKind::Epoch(3), 5);
+        f.after(of_helper("a helper nobody classified"));
+        assert!(!f.epoch(3, 6), "an unknown helper is assumed to mutate and reenter");
+        f.after(of_op(&Op::NewTable(6)));
+        assert_eq!(f.shape(1, 7), Some(7));
+        f.define(1);
+        assert_eq!(f.shape(1, 8), None, "a new value in the register has no facts");
+        f.establish(2, FactKind::Shape(9), 8);
+        f.after(of_op(&Op::CallDyn(0, 0, 0)));
+        assert_eq!(f.shape(2, 9), None, "a frame transfer reloads every register");
+        f.establish(2, FactKind::Shape(9), 9);
+        f.block_start(10);
+        assert_eq!(f.shape(2, 10), None, "facts do not cross a join");
+        assert!(check_dominance(&f.uses).is_ok());
+    }
+
+    #[test]
+    fn a_use_outside_its_guards_block_fails_the_check() {
+        let bad = [FactUse { reg: Some(1), established: 3, established_block: 0, used: 5, used_block: 4 }];
+        assert!(check_dominance(&bad).is_err());
+        let late = [FactUse { reg: Some(1), established: 6, established_block: 0, used: 5, used_block: 0 }];
+        assert!(check_dominance(&late).is_err());
+    }
+}
