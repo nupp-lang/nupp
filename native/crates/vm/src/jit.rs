@@ -80,6 +80,10 @@ pub struct Compiler<M: Module> {
     /// What the next compile specializes on or instruments (`specialize`);
     /// taken by that compile.
     pub plan: Option<crate::specialize::Plan>,
+    /// The last compile's heap-frame recovery points and fact uses, for its
+    /// version record and its checks.
+    pub last_recovery: Vec<crate::specialize::recovery::FrameState>,
+    pub last_fact_uses: Vec<crate::specialize::facts::FactUse>,
 }
 
 pub type Jit = Compiler<JITModule>;
@@ -120,21 +124,24 @@ impl Compiler<JITModule> {
         unsafe { module.free_memory(); }
     }
     pub fn try_compile(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
-        let (id, primary, code_len, maps) = self.compile_function(f, fid, false)?;
-        self.module.finalize_definitions().unwrap();
-        let start_addr = self.module.get_finalized_function(primary) as usize;
-        CODE_MAPS.lock().unwrap().push((start_addr, start_addr + code_len, maps));
-        self.registered.0.push((start_addr, start_addr + code_len));
-        Ok(self.module.get_finalized_function(id))
+        self.compile_version(f, fid, false).map(|c| c.entry as *const u8)
     }
     /// Heap-frame entry. Returns the bytecode PC at the next runtime boundary.
     pub fn compile_frame(&mut self, f: &Function, fid: u32) -> Result<*const u8, String> {
-        let (id, primary, code_len, maps) = self.compile_function(f, fid, true)?;
+        self.compile_version(f, fid, true).map(|c| c.entry as *const u8)
+    }
+    /// Compiles and finalizes one version, registering its stack maps before
+    /// anything can call it; what it compiled under is in `plan` (taken), and
+    /// its recovery points and fact uses are left in `last_recovery` and
+    /// `last_fact_uses`.
+    pub fn compile_version(&mut self, f: &Function, fid: u32, frame: bool) -> Result<crate::specialize::versions::CompiledCode, String> {
+        let (id, primary, code_len, maps) = self.compile_function(f, fid, frame)?;
         self.module.finalize_definitions().unwrap();
         let start = self.module.get_finalized_function(primary) as usize;
+        let n = maps.len();
         CODE_MAPS.lock().unwrap().push((start, start + code_len, maps));
         self.registered.0.push((start, start + code_len));
-        Ok(self.module.get_finalized_function(id))
+        Ok(crate::specialize::versions::CompiledCode { entry: self.module.get_finalized_function(id) as u64, start, len: code_len, maps: n, registered: true })
     }
 
 }
@@ -195,7 +202,7 @@ impl<M: Module> Compiler<M> {
             module.declare_function(name, Linkage::Import, &sig).unwrap()
         });
         let ctx = module.make_context();
-        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new(), plan: None }
+        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new(), plan: None, last_recovery: Vec::new(), last_fact_uses: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -358,6 +365,11 @@ impl<M: Module> Compiler<M> {
         // runtime to answer its guards' misses.
         let plan = self.plan.take().filter(|_| self.runtime_data.is_none());
         let version = plan.as_ref().map(|p| p.version).unwrap_or(0);
+        let convention = crate::specialize::policy::Convention::of(frame);
+        if let Some(p) = plan.as_ref() { if p.convention != convention { return Err(format!("a {:?} plan for a {convention:?} compile", p.convention)); } }
+        let body = plan.as_ref().map(|p| p.body).unwrap_or(0);
+        let mut recovery: Vec<crate::specialize::recovery::FrameState> = Vec::new();
+        let fact_uses: Vec<crate::specialize::facts::FactUse>;
         let suffix = if version == 0 { String::new() } else { format!(".v{version}") };
         // A vararg function keeps its surplus arguments in the interpreter's
         // frame, which compiled code has no window onto.
@@ -485,7 +497,6 @@ impl<M: Module> Compiler<M> {
             // Specialized sites, unless the function is a typed kernel whose
             // values the native proofs track.
             let spec_sites: HashMap<usize, crate::specialize::SiteSpec> = if typed_native || !simd_locals.is_empty() { HashMap::new() } else { plan.as_ref().map(|p| p.sites.clone()).unwrap_or_default() };
-            let deopt = frame && plan.as_ref().is_some_and(|p| p.deopt);
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
             let frame_resumes = if typed_native { crate::native_simd::resumes(f) } else { crate::frame::resumes(f) };
@@ -609,11 +620,10 @@ impl<M: Module> Compiler<M> {
             // The i8 condition behind a boxed boolean register, so a branch on
             // it tests the comparison directly instead of the boxed word.
             let mut cond_of: HashMap<u8, Value> = HashMap::new();
-            // In a deopt-exit entry, the shape a guard proved for a register
-            // holds until the register is redefined (a record's shape is
-            // permanent), the block ends, or a boundary reloads the frame.
-            let mut known_shape: HashMap<u8, u32> = HashMap::new();
-            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; cond_of.remove(&($i as u8)); known_shape.remove(&($i as u8)); b.def_var(rvars[$i as usize], v); if !simd_locals.is_empty() { let zero = b.ins().iconst(types::I64, 0); b.def_var(simd_locals[$i as usize], zero); } } }
+            // What guards proved, for the code after them (`specialize::facts`).
+            let mut facts = crate::specialize::facts::Facts::default();
+            let mut pending_effects: Option<crate::effects::Effects> = None;
+            macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; cond_of.remove(&($i as u8)); facts.define($i as u8); b.def_var(rvars[$i as usize], v); if !simd_locals.is_empty() { let zero = b.ins().iconst(types::I64, 0); b.def_var(simd_locals[$i as usize], zero); } } }
             // A helper call whose result is checked for the error sentinel: a
             // raise inside the helper leaves through `err_block`.
             macro_rules! hcall { ($name:expr, $args:expr) => {{ let c = b.ins().call(helper_refs[$name], $args); let r = b.inst_results(c)[0]; let is_err = b.ins().icmp_imm(IntCC::Equal, r, ERROR); let cont = b.create_block(); b.ins().brif(is_err, err_block, &[], cont, &[]); b.switch_to_block(cont); b.seal_block(cont); c }} }
@@ -671,22 +681,33 @@ impl<M: Module> Compiler<M> {
             // window), the exit is counted, and the entry returns the
             // operation's pc for the interpreter to run. Nothing of the
             // operation has happened yet, so nothing runs twice.
+            // The one emitter of a heap frame's live values
+            // (`specialize::recovery`): boundaries, polls and exits store every
+            // value live into the operation at `$at` by its recipe.
+            macro_rules! spill_state { ($at:expr, $point:expr) => {{
+                let state = crate::specialize::recovery::FrameState::at(f, fid, body, $at, $point, &frame_live.as_ref().unwrap().0[$at]);
+                for r in &state.recipes {
+                    use crate::specialize::recovery::Class;
+                    let var = match r.class { Class::Value => rvars[r.reg as usize], Class::Int => ivars[r.reg as usize], Class::Float => fvars[r.reg as usize], Class::Vector => vvars[r.reg as usize] };
+                    let v = b.use_var(var); b.ins().store(flags, v, params[0], (r.word * 8) as i32);
+                }
+                recovery.push(state);
+            }} }
             macro_rules! deopt_exit { ($at:expr, $value:expr) => {{
                 let (at, value): (usize, Value) = ($at, $value);
-                let live = &frame_live.as_ref().unwrap().0[at];
-                for (class, vars, off, stride) in [(0, &rvars, crate::interp::HDR, 1), (1, &ivars, f.off_i(), 1), (2, &fvars, f.off_f(), 1), (3, &vvars, f.off_v(), 2)] {
-                    for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((off + stride * i) * 8) as i32); } }
-                }
-                let fv = b.ins().iconst(types::I64, fid as i64); let pv = b.ins().iconst(types::I64, at as i64);
-                b.ins().call(helper_refs["j_spec_deopt"], &[fv, pv, value]);
+                spill_state!(at, crate::specialize::recovery::Point::Exit);
+                let fv = b.ins().iconst(types::I64, fid as i64); let pv = b.ins().iconst(types::I64, at as i64); let bv = b.ins().iconst(types::I64, body as i64);
+                b.ins().call(helper_refs["j_spec_deopt"], &[fv, pv, value, bv]);
                 let r = b.ins().iconst(types::I64, at as i64); b.ins().return_(&[r]);
             }} }
             for (pc, op) in f.code.iter().enumerate() {
+                // The previous operation's effects end the facts they may falsify.
+                if let Some(e) = pending_effects.take() { facts.after(e); }
                 if let Some(&blk) = blocks.get(&pc) {
                     if !terminated { b.ins().jump(blk, &[]); }
                     b.switch_to_block(blk);
                     cond_of.clear();
-                    known_shape.clear();
+                    facts.block_start(pc);
                     terminated = false;
                 }
                 if terminated { continue; }
@@ -720,10 +741,7 @@ impl<M: Module> Compiler<M> {
                     Some(cont)
                 } else { None };
                 if frame && (crate::frame::boundary(op) || poll_cont.is_some()) {
-                    let live = &frame_live.as_ref().unwrap().0[pc];
-                    for (class, vars, off, stride) in [(0, &rvars, crate::interp::HDR, 1), (1, &ivars, f.off_i(), 1), (2, &fvars, f.off_f(), 1), (3, &vvars, f.off_v(), 2)] {
-                        for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) { let v = b.use_var(var); b.ins().store(flags, v, params[0], ((off + stride * i) * 8) as i32); } }
-                    }
+                    spill_state!(pc, if poll_cont.is_some() { crate::specialize::recovery::Point::Poll } else { crate::specialize::recovery::Point::Boundary });
                     if poll_cont.is_none() {
                         let pcv = b.ins().iconst(types::I64, pc as i64);
                         let c = hcall!("j_frame_step", &[pcv]);
@@ -752,7 +770,7 @@ impl<M: Module> Compiler<M> {
                                 if changed && live[class].contains(i as u8) { let v = b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32); b.def_var(var, v); }
                             }
                         }
-                        known_shape.clear();
+                        facts.transfer();
                         continue;
                     }
                     let next = b.ins().iconst(types::I64, pc as i64);
@@ -776,6 +794,21 @@ impl<M: Module> Compiler<M> {
                     None => None,
                 };
                 macro_rules! force_miss { ($miss:expr) => { if let Some(out) = forced { let go = b.create_block(); b.ins().brif(out, $miss, &[], go, &[]); b.switch_to_block(go); b.seal_block(go); } } }
+                // The site's assumption: its dependencies, its miss action and
+                // the fact it leaves (`specialize::facts`).
+                let assumption = spec_here.as_ref().and_then(|s| crate::specialize::facts::assumption(s, pc, op, plan.as_ref().map_or(0, |p| p.epoch), convention).ok());
+                // The shared miss action: a deopt exit on the heap-frame path,
+                // else the counted miss followed by the site's generic code.
+                macro_rules! miss_action { ($value:expr, $generic:block) => {{
+                    let value: Value = $value;
+                    if assumption.as_ref().is_some_and(|a| a.miss == crate::specialize::facts::MissAction::Exit) { deopt_exit!(pc, value); } else {
+                        { let fv = b.ins().iconst(types::I64, fid_const); let pv = b.ins().iconst(types::I64, pc as i64); b.ins().call(helper_refs["j_spec_miss"], &[fv, pv, value]); }
+                        $generic
+                    }
+                }} }
+                // A fact the site's guards proved, for the operations after it.
+                macro_rules! establish { () => { if let Some((reg, kind)) = assumption.as_ref().and_then(|a| a.establishes) { facts.establish(reg, kind, pc); } } }
+                pending_effects = Some(crate::effects::of_op(op));
                 match *op {
                     Op::CallMethod(k, base, nargs) if matches!(spec_here, Some(crate::specialize::SiteSpec::Method(_))) => {
                         // The receiver's shape (or metatable) picks the method the
@@ -790,9 +823,12 @@ impl<M: Module> Compiler<M> {
                         let generic = b.create_block(); b.set_cold_block(generic);
                         force_miss!(miss);
                         let chk = b.create_block(); let objb = b.create_block();
-                        let ea = b.ins().iconst(types::I64, p.epoch_addr); let e = b.ins().load(types::I64, flags, ea, 0); let current = b.ins().icmp_imm(IntCC::Equal, e, p.epoch as i64);
-                        b.ins().brif(current, chk, &[], miss, &[]);
+                        if facts.epoch(p.epoch, pc) { b.ins().jump(chk, &[]); } else {
+                            let ea = b.ins().iconst(types::I64, p.epoch_addr); let e = b.ins().load(types::I64, flags, ea, 0); let current = b.ins().icmp_imm(IntCC::Equal, e, p.epoch as i64);
+                            b.ins().brif(current, chk, &[], miss, &[]);
+                        }
                         b.switch_to_block(chk); b.seal_block(chk);
+                        facts.establish(0, crate::specialize::facts::FactKind::Epoch(p.epoch), pc);
                         let tag = b.ins().band_imm(recv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
                         b.ins().brif(is_obj, objb, &[], miss, &[]);
                         b.switch_to_block(objb); b.seal_block(objb);
@@ -866,8 +902,7 @@ impl<M: Module> Compiler<M> {
                         }
                         b.ins().jump(miss, &[]);
                         b.switch_to_block(miss); b.seal_block(miss);
-                        { let fv = b.ins().iconst(types::I64, fid_const); let pv = b.ins().iconst(types::I64, pc as i64); b.ins().call(helper_refs["j_spec_miss"], &[fv, pv, recv]); }
-                        b.ins().jump(generic, &[]);
+                        miss_action!(recv, { b.ins().jump(generic, &[]); });
                         b.switch_to_block(generic); b.seal_block(generic);
                         let addr = args_slot_pad!(base, argc);
                         let nv = b.ins().iconst(types::I64, nargs as i64); let name = kval!(k);
@@ -924,8 +959,7 @@ impl<M: Module> Compiler<M> {
                         for i in 1..want { outs.push(b.ins().load(types::I64, flags, xa, ((i - 1) * 8) as i32)); }
                         let ba: Vec<BlockArg> = outs.iter().map(|v| BlockArg::Value(*v)).collect(); b.ins().jump(join, &ba);
                         b.switch_to_block(miss); b.seal_block(miss);
-                        { let fv = b.ins().iconst(types::I64, fid_const); let pv = b.ins().iconst(types::I64, pc as i64); b.ins().call(helper_refs["j_spec_miss"], &[fv, pv, cv]); }
-                        b.ins().jump(generic, &[]);
+                        miss_action!(cv, { b.ins().jump(generic, &[]); });
                         b.switch_to_block(generic); b.seal_block(generic);
                         let addr = args_slot_pad!(base, argc);
                         let nv = b.ins().iconst(types::I64, nargs as i64);
@@ -950,7 +984,7 @@ impl<M: Module> Compiler<M> {
                         let miss = b.create_block(); b.set_cold_block(miss);
                         force_miss!(miss);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let known = known_shape.get(&t).copied().and_then(|s| cases.iter().find(|c| c.0 == s).copied());
+                        let known = facts.shape(t, pc).and_then(|s| cases.iter().find(|c| c.0 == s).copied());
                         let read = |b: &mut FunctionBuilder, slot: u16, join: Block, miss: Block| {
                             let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, slot as i32 * 8);
                             let fl = b.ins().uload8(types::I64, flags, o, 3); let meta = b.ins().band_imm(fl, crate::heap::F_METATABLE as i64);
@@ -977,13 +1011,11 @@ impl<M: Module> Compiler<M> {
                             b.ins().jump(miss, &[]);
                         }
                         b.switch_to_block(miss); b.seal_block(miss);
-                        if deopt { deopt_exit!(pc, tv); } else {
-                            { let fv = b.ins().iconst(types::I64, fid_const); let pv = b.ins().iconst(types::I64, pc as i64); b.ins().call(helper_refs["j_spec_miss"], &[fv, pv, tv]); }
-                            let name = kval!(k); let c = hcall!("j_get_field", &[tv, name]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);
-                        }
+                        miss_action!(tv, { let name = kval!(k); let c = hcall!("j_get_field", &[tv, name]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]); });
                         b.switch_to_block(join); b.seal_block(join);
                         let r = b.block_params(join)[0]; setr!(d, r);
-                        if deopt && d != t && cases.len() == 1 { known_shape.insert(t, cases[0].0); }
+                        // The result replaced the receiver's register: no fact for it.
+                        if d != t { establish!(); }
                     }
                     Op::SetField(t, k, v) if matches!(spec_here, Some(crate::specialize::SiteSpec::Store { .. })) => {
                         // The one shape seen, its slot written at a fixed offset with
@@ -995,7 +1027,7 @@ impl<M: Module> Compiler<M> {
                         let done = b.create_block(); let miss = b.create_block(); b.set_cold_block(miss);
                         force_miss!(miss);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        if known_shape.get(&t) != Some(&s) {
+                        if facts.shape(t, pc) != Some(s) {
                             let objb = b.create_block(); let rec = b.create_block();
                             let tag = b.ins().band_imm(tv, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
                             b.ins().brif(is_obj, objb, &[], miss, &[]);
@@ -1022,12 +1054,9 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(write); b.seal_block(write);
                         b.ins().store(flags, vv, slots, slot as i32 * 8); b.ins().jump(done, &[]);
                         b.switch_to_block(miss); b.seal_block(miss);
-                        if deopt { deopt_exit!(pc, tv); } else {
-                            { let fv = b.ins().iconst(types::I64, fid_const); let pv = b.ins().iconst(types::I64, pc as i64); b.ins().call(helper_refs["j_spec_miss"], &[fv, pv, tv]); }
-                            let name = kval!(k); hcall!("j_set_field", &[tv, name, vv]); b.ins().jump(done, &[]);
-                        }
+                        miss_action!(tv, { let name = kval!(k); hcall!("j_set_field", &[tv, name, vv]); b.ins().jump(done, &[]); });
                         b.switch_to_block(done); b.seal_block(done);
-                        if deopt { known_shape.insert(t, s); }
+                        establish!();
                     }
                     Op::IK(d, k) => { seti!(d, b.ins().iconst(types::I64, k)); }
                     Op::IAdd(d, x, y) => { let (p, q) = (iv!(x), iv!(y)); seti!(d, b.ins().iadd(p, q)); }
@@ -1914,6 +1943,7 @@ impl<M: Module> Compiler<M> {
                     Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..) | Op::Defer(..) | Op::DeferMethod(..) | Op::Disarm(..) | Op::DisarmAt(..) | Op::RearmAt(..) | Op::Unwind(..) | Op::Park(..) | Op::Checkpoint | Op::VarargN(..) | Op::VarargTable(..) => unreachable!(),
                 }
             }
+            fact_uses = std::mem::take(&mut facts.uses);
             if !terminated { b.ins().jump(exit, &[]); }
             b.switch_to_block(exit);
             note_one_result!();
@@ -1971,6 +2001,8 @@ impl<M: Module> Compiler<M> {
             self.module.clear_context(&mut self.ctx);
             Some(wid)
         } else { None };
+        self.last_recovery = recovery;
+        self.last_fact_uses = fact_uses;
         self.compile_micros.push((f.name.clone(), start.elapsed().as_micros()));
         Ok((wrapper.unwrap_or(id), id, code_len, maps))
     }

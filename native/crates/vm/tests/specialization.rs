@@ -54,8 +54,11 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
         match tier {
             Tier::Eager => for id in 0..vm.funcs.len() {
                 if vm.funcs[id].name.starts_with("module:") { continue; }
-                jit.plan = vm.spec_baseline_plan(id as u32);
-                if let Ok(entry) = jit.try_compile(&vm.funcs[id].clone(), id as u32) { vm.entries[id] = entry as u64; vm.spec_installed(id as u32, entry as u64); }
+                let entry = match vm.spec_baseline_plan(id as u32) {
+                    Some(plan) => vm.spec_compile_with(&mut jit, id as u32, plan).ok().and_then(|v| vm.spec_install(v).ok()),
+                    None => jit.try_compile(&vm.funcs[id].clone(), id as u32).ok().map(|p| p as u64),
+                };
+                if let Some(entry) = entry { vm.entries[id] = entry; }
             },
             Tier::Lazy => vm.jit_threshold = 50,
             _ => vm.enable_scheduler().unwrap(),

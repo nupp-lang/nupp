@@ -114,43 +114,8 @@ impl Interp {
 /// These operations can change frame ownership or enter arbitrary Nupp code.
 /// A helper executes them against the heap frame and returns a transfer status;
 /// a park always leaves native code before the scheduler runs another task.
-pub(crate) fn boundary(op: &Op) -> bool {
-    matches!(
-        op,
-        Op::Call(..)
-            | Op::CallT(..)
-            | Op::CallDyn(..)
-            | Op::CallK(..)
-            | Op::StorageLen(..)
-            | Op::FLoad(..)
-            | Op::FStore(..)
-            | Op::VLoad(..)
-            | Op::VStore(..)
-            | Op::VLoadM(..)
-            | Op::VStoreM(..)
-            | Op::CallMethod(..)
-            | Op::PCall(..)
-            | Op::Ret(..)
-            | Op::RetN(..)
-            | Op::RetNil
-            | Op::FRet(..)
-            | Op::Park(..)
-            | Op::Checkpoint
-            | Op::AffineEnter
-            | Op::AffineMark(..)
-            | Op::CleanupLive(..)
-            | Op::Defer(..)
-            | Op::DeferMethod(..)
-            | Op::Disarm(..)
-            | Op::DisarmAt(..)
-            | Op::RearmAt(..)
-            | Op::Unwind(..)
-            | Op::VarargN(..)
-            | Op::VarargTable(..)
-            | Op::Require(..)
-            | Op::RequireV(..)
-    )
-}
+/// The classification is `effects::of_op`'s transfer class.
+pub(crate) fn boundary(op: &Op) -> bool { crate::effects::of_op(op).transfers() }
 
 #[cfg(all(test, feature = "jit"))]
 mod tests {

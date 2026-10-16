@@ -34,6 +34,14 @@
 //!    the generic path.
 use std::collections::HashMap;
 
+pub mod facts;
+pub mod policy;
+pub mod recovery;
+pub mod versions;
+
+use policy::{Convention, Policy};
+use versions::{InstallError, Version, VersionState};
+
 use crate::heap::{SlotTy, F_METATABLE, KIND_CLOSURE, KIND_RECORD, KIND_TABLE};
 use crate::interp::{Interp, Op};
 use crate::value::Value;
@@ -133,6 +141,8 @@ pub struct Versions {
     pub active: bool,
     /// The generic entry, kept to return to.
     pub baseline: u64,
+    /// The installed version's id (`State::versions`), if any.
+    pub current: Option<u32>,
 }
 
 impl FuncFeedback {
@@ -158,6 +168,9 @@ pub struct Limits {
     /// Slow executions a version's sites must have recorded per instruction
     /// of the function before it is compiled (`JIT_SPEC_BENEFIT`).
     pub benefit: u32,
+    /// Bytes of code and version metadata retained for the VM's life; past
+    /// it, no more specialized versions compile (`JIT_SPEC_CODE_BYTES`).
+    pub code_bytes: usize,
     /// `JIT_SPEC_CHAOS`: every n-th specialized site execution fails its
     /// guard on purpose; 0 is off.
     pub chaos: u64,
@@ -166,7 +179,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         let n = |k: &str, d: u64| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
-        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize, chaos: n("JIT_SPEC_CHAOS", 0), benefit: n("JIT_SPEC_BENEFIT", 2) as u32 }
+        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize, chaos: n("JIT_SPEC_CHAOS", 0), code_bytes: n("JIT_SPEC_CODE_BYTES", 32 << 20) as usize, benefit: n("JIT_SPEC_BENEFIT", 2) as u32 }
     }
 }
 
@@ -179,6 +192,10 @@ pub struct Stats {
     pub deopts: u64,
     pub settled: u64,
     pub invalidated: u64,
+    /// Versions `install` refused as stale.
+    pub refused: u64,
+    /// Deopt exits from a version of a body since replaced.
+    pub stale_exits: u64,
 }
 
 /// The VM's specialization state. Transient: never saved, never traced.
@@ -205,6 +222,19 @@ pub struct State {
     pub stats: Stats,
     /// The chaos counter (`Plan::chaos_addr`), when the mode is on.
     pub chaos: Option<Box<u64>>,
+    /// Each function's body identity: bumped when its body is replaced, so a
+    /// version planned for the old body can neither install nor be exited
+    /// from as the new one.
+    pub bodies: Vec<u64>,
+    /// Every version compiled, installed or not: retained until teardown.
+    pub versions: Vec<Version>,
+    /// Feedback records reset while compiled code may still count into them.
+    pub retired: Vec<Box<FuncFeedback>>,
+    /// Field-cache banks of replaced bodies: code of the old body that is
+    /// still running holds their address.
+    pub retired_caches: Vec<Box<[[u64; 2]]>>,
+    /// Bytes `versions` and `retired` hold.
+    pub code_bytes: usize,
 }
 
 impl Default for State {
@@ -212,7 +242,7 @@ impl Default for State {
         let specialize = std::env::var_os("JIT_SPECIALIZE").is_some_and(|v| v != "0");
         let feedback = specialize || std::env::var_os("JIT_FEEDBACK").is_some_and(|v| v != "0");
         let frames = specialize && std::env::var_os("JIT_SPEC_FRAMES").is_some_and(|v| v != "0");
-        State { feedback, specialize, frames, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default(), chaos: None }
+        State { feedback, specialize, frames, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default(), chaos: None, bodies: Vec::new(), versions: Vec::new(), retired: Vec::new(), retired_caches: Vec::new(), code_bytes: 0 }
     }
 }
 
@@ -238,6 +268,9 @@ impl State {
     }
     /// What a function's record costs: itself, its sites and its pc map.
     pub fn cost(code_len: usize, sites: usize) -> usize { std::mem::size_of::<FuncFeedback>() + sites * std::mem::size_of::<Site>() + code_len * std::mem::size_of::<u32>() }
+    /// A function's current body identity.
+    pub fn body(&self, fid: u32) -> u64 { self.bodies.get(fid as usize).copied().unwrap_or(0) }
+    pub fn version(&self, id: u32) -> Option<&Version> { self.versions.iter().find(|v| v.id == id) }
     pub fn get(&self, fid: u32) -> Option<&FuncFeedback> { self.funcs.get(fid as usize).and_then(|f| f.as_deref()) }
     /// The site record at a pc, if the function has feedback there.
     pub fn site(&self, fid: u32, pc: usize) -> Option<&Site> {
@@ -324,7 +357,7 @@ pub enum Guard {
     RecordMeta { shape: u32, meta: u64, slot: Option<u16>, nslots: u32 },
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MethodCase {
     pub guard: Guard,
     /// The method value the plan resolved, live while the epoch holds.
@@ -335,7 +368,7 @@ pub struct MethodCase {
     pub nparams: u8,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SiteSpec {
     /// `CallMethod`: the receiver cases, tried in order.
     Method(Vec<MethodCase>),
@@ -345,6 +378,10 @@ pub enum SiteSpec {
     Field(Vec<(u32, u16)>),
     /// `SetField`: one shape's slot, and whether the slot is declared a number.
     Store { shape: u32, slot: u16, number: bool },
+}
+
+impl SiteSpec {
+    pub fn kind(&self) -> &'static str { match self { SiteSpec::Method(_) => "method", SiteSpec::Target { .. } => "target", SiteSpec::Field(_) => "field", SiteSpec::Store { .. } => "store" } }
 }
 
 /// What baseline code is instrumented with.
@@ -370,8 +407,11 @@ pub struct Plan {
     /// `Heap::marking`, for the barrier a specialized store takes.
     pub marking_addr: i64,
     pub hooks: Option<Hooks>,
-    /// A heap-frame entry: guard failures leave through deopt exits.
-    pub deopt: bool,
+    /// The entry convention and the policy the version is compiled under.
+    pub convention: Convention,
+    pub policy: Policy,
+    /// The body identity the plan was made from (`State::bodies`).
+    pub body: u64,
     /// `JIT_SPEC_CHAOS=n`: the counter every specialized site decrements,
     /// failing its guard when it reaches zero (then reset to `chaos_period`);
     /// zero when off. A test mode: it makes every miss and exit path run.
@@ -433,11 +473,12 @@ impl Interp {
         true
     }
 
-    fn plan_site(&mut self, fid: u32, pc: usize, op: Op, frame: bool) -> Option<SiteSpec> {
+    fn plan_site(&mut self, fid: u32, pc: usize, op: Op, policy: &Policy) -> Option<SiteSpec> {
+        if !policy.allows(&op) { return None; }
         let site = *self.spec.site(fid, pc)?;
         let consts = &self.funcs[fid as usize].consts;
         match op {
-            Op::CallMethod(k, _, nargs) if !frame && nargs < 64 => {
+            Op::CallMethod(k, _, nargs) if nargs < 64 => {
                 let name = consts[k as usize];
                 let mut cases = Vec::new();
                 for key in site.seen()? {
@@ -463,7 +504,7 @@ impl Interp {
                 }
                 Some(SiteSpec::Method(cases))
             }
-            Op::CallDyn(_, _, nargs) if !frame && nargs < 64 => {
+            Op::CallDyn(_, _, nargs) if nargs < 64 => {
                 let key = site.mono()?;
                 let (fid, bare) = match key & TAG { K_FN => ((key & !TAG) as u32, false), K_BARE => ((key & !TAG) as u32, true), _ => return None };
                 let callee = self.funcs.get(fid as usize)?;
@@ -493,15 +534,17 @@ impl Interp {
         }
     }
 
-    /// The plan for a specialized version of `fid` from its feedback; None
-    /// when no site would be specialized.
-    pub fn spec_plan(&mut self, fid: u32, frame: bool) -> Option<Plan> {
+    /// The plan for a specialized version of `fid` for `convention` from its
+    /// feedback; None when no site would be specialized or none pays.
+    pub fn spec_plan(&mut self, fid: u32, convention: Convention) -> Option<Plan> {
         if self.spec.limits.chaos != 0 && self.spec.chaos.is_none() { self.spec.chaos = Some(Box::new(self.spec.limits.chaos)); }
+        let frame = convention.frame();
+        let policy = Policy::specialized(convention);
         let code = self.funcs.get(fid as usize)?.code.clone();
         let mut sites = HashMap::new();
         for (pc, &op) in code.iter().enumerate() {
             if !is_site(&op) { continue; }
-            if let Some(s) = self.plan_site(fid, pc, op, frame) { sites.insert(pc, s); }
+            if let Some(s) = self.plan_site(fid, pc, op, &policy) { sites.insert(pc, s); }
         }
         // A version is worth compiling for a site the generic code handles
         // slowly: a method call (always a helper), a field store (always a
@@ -520,21 +563,85 @@ impl Interp {
         if std::env::var_os("JIT_SPEC_TRACE").is_some() { eprintln!("spec: {} weighs {slow} slow executions against {needed}", self.funcs[fid as usize].name); }
         // A heap-frame entry's fields exit rather than merge, which is the
         // point of its version (stage 3); its sites are not counted.
-        if !frame && (slow == 0 || slow < needed) { return None; }
+        if sites.is_empty() || !frame && (slow == 0 || slow < needed) { return None; }
         self.spec.get(fid)?;
         self.spec.symbols += 1;
-        Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame, chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos })
+        Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, convention, policy, body: self.spec.body(fid), chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos })
     }
 
-    /// The plan for an instrumented generic version: feedback hooks only.
-    pub fn spec_baseline_plan(&mut self, fid: u32) -> Option<Plan> {
+    /// The plan for a generic version for `convention`, instrumented with
+    /// feedback hooks; `tier_calls` 0 leaves tiering to someone else.
+    pub fn spec_generic_plan(&mut self, fid: u32, convention: Convention, tier_calls: u32) -> Option<Plan> {
         if !self.spec.specialize { return None; }
-        let tier_calls = self.spec.limits.tier_calls;
+        let body = self.spec.body(fid);
         let code = &self.funcs.get(fid as usize)?.code;
         let ff = self.spec.func(fid, code)?;
         let hooks = Hooks { func_addr: &*ff as *const FuncFeedback as i64, sites_addr: ff.sites.as_ptr() as i64, site_of: ff.site_of.to_vec(), tier_calls };
         self.spec.symbols += 1;
-        Some(Plan { version: self.spec.symbols, hooks: Some(hooks), epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, ..Plan::default() })
+        Some(Plan { version: self.spec.symbols, hooks: Some(hooks), epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, convention, policy: Policy::generic(true, tier_calls), body, ..Plan::default() })
+    }
+
+    /// The plan for the eager tier's instrumented direct entries.
+    pub fn spec_baseline_plan(&mut self, fid: u32) -> Option<Plan> {
+        let tier = self.spec.limits.tier_calls;
+        self.spec_generic_plan(fid, Convention::Direct, tier)
+    }
+
+    /// Checks a version against the VM and makes it the function's entry for
+    /// its convention: its stack maps registered, its body still the
+    /// function's, each dependency still holding. A refused version is kept
+    /// (its code exists and stays charged) but never becomes an entry, so
+    /// the entry it would have replaced stays valid.
+    pub fn spec_install(&mut self, mut version: Version) -> Result<u64, InstallError> {
+        let check = (|| {
+            if !version.code.registered { return Err(InstallError::NotRegistered); }
+            if version.body != self.spec.body(version.fid) { return Err(InstallError::StaleBody); }
+            for &d in &version.deps {
+                let holds = match d {
+                    facts::Dependency::ProtoEpoch(e) => e == self.heap.proto_epoch,
+                    facts::Dependency::Metatable(m) => Value(m).as_obj().is_some_and(|p| self.heap.is_live_slot(p)),
+                    _ => true,
+                };
+                if !holds { return Err(InstallError::StaleDependency(d)); }
+            }
+            Ok(())
+        })();
+        let (fid, convention, id, entry) = (version.fid, version.convention, version.id, version.code.entry);
+        if let Err(e) = check {
+            self.spec.stats.refused += 1;
+            version.state = VersionState::Refused(format!("{e:?}"));
+            self.spec.versions.push(version);
+            return Err(e);
+        }
+        let generic = version.generic();
+        version.state = VersionState::Installed;
+        // The version it replaces is retired: no new entries reach it, while
+        // running code and callers holding its address keep it alive.
+        if let Some(ff) = self.spec.funcs.get(fid as usize).and_then(|f| f.as_deref()) {
+            if let Some(old) = ff.kind(convention.frame()).current { if let Some(v) = self.spec.versions.iter_mut().find(|v| v.id == old) { v.state = VersionState::Retired; } }
+        }
+        self.spec.versions.push(version);
+        if let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) {
+            let v = ff.kind_mut(convention.frame());
+            v.current = Some(id);
+            if generic { v.baseline = entry; v.active = false; } else { v.active = true; }
+        }
+        if convention.frame() {
+            #[cfg(feature = "compiled-runtime")]
+            { self.frame_entries.resize(self.funcs.len(), 0); self.frame_entries[fid as usize] = entry; }
+        } else {
+            self.entries.resize(self.funcs.len(), 0);
+            self.entries[fid as usize] = entry;
+        }
+        Ok(entry)
+    }
+
+    /// The version record of a compile, charged to the code budget.
+    pub fn spec_version(&mut self, fid: u32, plan_meta: (u32, u64, Convention, Policy, Vec<facts::Dependency>, usize, usize), code: versions::CompiledCode, recovery: Vec<recovery::FrameState>) -> Version {
+        let (id, body, convention, policy, deps, sites, feedback) = plan_meta;
+        let v = Version { id, fid, body, convention, policy, code, deps, sites, recovery, feedback, state: VersionState::Ready };
+        self.spec.code_bytes += v.bytes();
+        v
     }
 
     /// Records the generic entry an eager compile installed for `fid`.
@@ -544,8 +651,18 @@ impl Interp {
 
     /// Drops what the VM learned about `fid` and every version specialized
     /// from it, for a body that changed (a hot patch): the next calls run its
-    /// generic entry and feedback starts over.
+    /// generic entry and feedback starts over. Nothing is freed: compiled
+    /// code may still count into the old record, so it is retired and stays
+    /// charged; the body identity moves on, so no version planned from the
+    /// old body installs, and an exit from one is recognized as stale.
     pub fn invalidate_specializations(&mut self, fid: u32) {
+        if self.spec.bodies.len() <= fid as usize { self.spec.bodies.resize(fid as usize + 1, 0); }
+        self.spec.symbols += 1;
+        self.spec.bodies[fid as usize] = self.spec.symbols as u64;
+        for v in self.spec.versions.iter_mut().filter(|v| v.fid == fid) { if v.state == VersionState::Installed { v.state = VersionState::Retired; } }
+        // The new body's sites get a fresh field-cache bank on their next
+        // entry; the old one stays alive for code of the old body.
+        if let Some(bank) = self.field_caches.remove(&fid) { self.spec.code_bytes += bank.len() * 16; self.spec.retired_caches.push(bank); }
         let Some(slot) = self.spec.funcs.get_mut(fid as usize) else { return };
         let Some(ff) = slot.take() else { return };
         self.spec.sites -= ff.sites.len();
@@ -560,6 +677,8 @@ impl Interp {
         }
         #[cfg(feature = "compiled-runtime")]
         if let Some(e) = self.frame_entries.get_mut(fid as usize) { *e = 0; }
+        self.spec.code_bytes += State::cost(ff.site_of.len(), ff.sites.len());
+        self.spec.retired.push(ff);
     }
 }
 
@@ -567,29 +686,46 @@ impl Interp {
 
 #[cfg(feature = "jit")]
 impl Interp {
-    fn spec_compile(&mut self, fid: u32, plan: Plan, frame: bool) -> Option<u64> {
-        let mut jit = self.jit.take()?;
+    /// Validates, compiles and records one version of `fid` with `jit`; the
+    /// caller installs it. A plan that fails validation or a compile that
+    /// fails leaves nothing behind but the error.
+    pub fn spec_compile_with(&mut self, jit: &mut crate::jit::Jit, fid: u32, plan: Plan) -> Result<Version, String> {
+        let f = self.funcs[fid as usize].clone();
+        let checked = facts::validate(&plan, &f, self.spec.body(fid))?;
+        let mut deps: Vec<facts::Dependency> = checked.iter().flat_map(|a| a.deps.iter().copied()).collect();
+        deps.dedup();
+        let feedback = plan.hooks.as_ref().map_or(0, |h| h.func_addr as usize);
+        let meta = (plan.version, plan.body, plan.convention, plan.policy, deps, plan.sites.len(), feedback);
+        let frame = plan.convention.frame();
+        jit.plan = Some(plan);
+        let code = jit.compile_version(&f, fid, frame);
+        jit.plan = None;
+        let code = code?;
+        facts::check_dominance(&jit.last_fact_uses).map_err(|e| format!("{}: {e}", f.name))?;
+        let recovery = std::mem::take(&mut jit.last_recovery);
+        Ok(self.spec_version(fid, meta, code, recovery))
+    }
+
+    fn spec_compile(&mut self, fid: u32, plan: Plan) -> Result<Version, String> {
+        let mut jit = self.jit.take().ok_or("no compiler")?;
         jit.extra_addr = self.extra.as_ptr() as i64;
         jit.last_nres_addr = &self.last_nres as *const _ as i64;
         jit.entries_addr = self.entries.as_ptr() as i64;
         jit.calltab_addr = self.calltab.as_ptr() as i64;
         jit.probe_addr = self.shape_probe.as_ptr() as i64;
         jit.cur_closure_addr = crate::compiled::closure_address() as i64;
-        jit.plan = Some(plan);
-        let f = self.funcs[fid as usize].clone();
-        let result = if frame { jit.compile_frame(&f, fid) } else { jit.try_compile(&f, fid) };
-        jit.plan = None;
+        let result = self.spec_compile_with(&mut jit, fid, plan);
         self.jit = Some(jit);
-        result.ok().map(|p| p as u64)
+        result
     }
 
-    /// Compiles `fid`'s generic entry, instrumented when specialization is
-    /// on: the lazy tier's compile.
+    /// Compiles and installs `fid`'s instrumented generic direct entry with
+    /// no tier-up counting: the lazy tier's compile, whose interpreter
+    /// feedback decides instead.
     pub fn spec_compile_baseline(&mut self, fid: u32) -> Option<u64> {
-        let plan = self.spec_baseline_plan(fid)?;
-        let entry = self.spec_compile(fid, plan, false)?;
-        if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.kinds[DIRECT].baseline = entry; }
-        Some(entry)
+        let plan = self.spec_generic_plan(fid, Convention::Direct, 0)?;
+        let version = self.spec_compile(fid, plan).ok()?;
+        self.spec_install(version).ok()
     }
 
     /// The specialized version from current feedback, installed as the
@@ -600,25 +736,21 @@ impl Interp {
         let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) else { return };
         if ff.kind(frame).settled { return; }
         ff.misses = 0; ff.deopts = 0;
-        if ff.kind(frame).specialized >= max { return self.settle(fid, frame); }
-        let Some(plan) = self.spec_plan(fid, frame) else { return self.settle(fid, frame) };
+        if ff.kind(frame).specialized >= max || self.spec.code_bytes >= self.spec.limits.code_bytes { return self.settle(fid, frame); }
+        let Some(plan) = self.spec_plan(fid, Convention::of(frame)) else { return self.settle(fid, frame) };
         let n = plan.sites.len() as u64;
         if std::env::var_os("JIT_SPEC_TRACE").is_some() {
             let mut sites: Vec<_> = plan.sites.iter().collect(); sites.sort_by_key(|(pc, _)| **pc);
             eprintln!("spec: {} v{} {}{}", self.funcs[fid as usize].name, plan.version, if frame { "frame " } else { "" }, sites.iter().map(|(pc, s)| format!("{pc}:{s:?}")).collect::<Vec<_>>().join(" "));
         }
-        let Some(entry) = self.spec_compile(fid, plan, frame) else { return self.settle(fid, frame) };
-        let ff = self.spec.funcs[fid as usize].as_deref_mut().unwrap();
-        let v = ff.kind_mut(frame); v.specialized += 1; v.active = true;
+        let Ok(version) = self.spec_compile(fid, plan) else { return self.settle(fid, frame) };
+        if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.kind_mut(frame).specialized += 1; }
+        if self.spec_install(version).is_err() { return; }
         self.spec.stats.versions += 1; self.spec.stats.sites += n;
-        if frame {
-            #[cfg(feature = "compiled-runtime")]
-            { self.frame_entries.resize(self.funcs.len(), 0); self.frame_entries[fid as usize] = entry; }
-        } else {
-            self.entries[fid as usize] = entry;
-        }
     }
 
+    /// Past its caps or with nothing worth specializing: the generic version
+    /// becomes the entry again, through the same installation rules.
     fn settle(&mut self, fid: u32, frame: bool) {
         if std::env::var_os("JIT_SPEC_TRACE").is_some() { eprintln!("spec: {} {}settles", self.funcs[fid as usize].name, if frame { "frame " } else { "" }); }
         let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) else { return };
@@ -626,14 +758,23 @@ impl Interp {
         v.settled = true;
         self.spec.stats.settled += 1;
         if !v.active { return; }
-        v.active = false;
         let baseline = v.baseline;
-        if baseline == 0 { return; }
-        if frame {
-            #[cfg(feature = "compiled-runtime")]
-            { self.frame_entries[fid as usize] = baseline; }
-        } else {
-            self.entries[fid as usize] = baseline;
+        if baseline == 0 { v.active = false; return; }
+        // The generic version's record, installed again.
+        let generic = self.spec.versions.iter().rev().find(|x| x.fid == fid && x.convention == Convention::of(frame) && x.generic() && x.code.entry == baseline).cloned();
+        match generic {
+            Some(g) => { let _ = self.spec_install(g); }
+            None => {
+                // A generic entry compiled before specialization was on (the
+                // eager tier's own loop) has no record: published directly.
+                v.active = false;
+                if frame {
+                    #[cfg(feature = "compiled-runtime")]
+                    { self.frame_entries[fid as usize] = baseline; }
+                } else {
+                    self.entries[fid as usize] = baseline;
+                }
+            }
         }
     }
 
@@ -653,13 +794,9 @@ impl Interp {
         if first {
             self.frame_entries.resize(self.funcs.len(), 0);
             if self.frame_entries[fid as usize] == 0 {
-                if let Some(mut plan) = self.spec_baseline_plan(fid) {
-                    plan.deopt = true;
-                    if let Some(hooks) = plan.hooks.as_mut() { hooks.tier_calls = 0; }
-                    let entry = self.spec_compile(fid, plan, true).unwrap_or(u64::MAX);
-                    self.frame_entries[fid as usize] = entry;
-                    if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.kinds[FRAME].baseline = entry; }
-                }
+                let installed = self.spec_generic_plan(fid, Convention::Frame, 0).and_then(|plan| self.spec_compile(fid, plan).ok()).and_then(|v| self.spec_install(v).ok());
+                // A function the typed tier refuses runs on the interpreter.
+                if installed.is_none() { self.frame_entries[fid as usize] = u64::MAX; }
             }
         }
         if hot { self.spec.stats.tier_ups += 1; self.respecialize(fid, true); }
@@ -727,10 +864,14 @@ pub extern "C" fn j_spec_miss(fid: u64, pc: u64, value: u64) -> u64 {
 /// A deopt exit: the frame holds every live value and the interpreter is
 /// about to run the guarded operation at `pc`.
 #[unsafe(no_mangle)]
-pub extern "C" fn j_spec_deopt(fid: u64, pc: u64, value: u64) -> u64 {
+pub extern "C" fn j_spec_deopt(fid: u64, pc: u64, value: u64, body: u64) -> u64 {
     let _frame = enter_helper();
     let it = vm();
     it.spec.stats.deopts += 1;
+    // An exit names the body its version was compiled from; one from a body
+    // since replaced resumes all the same (the frame is the interpreter's),
+    // but its feedback no longer describes this function.
+    if body != it.spec.body(fid as u32) { it.spec.stats.stale_exits += 1; return 0; }
     let key = receiver_key(Value(value));
     note(it, fid as u32, pc as usize, key);
     let limit = it.spec.limits.deopt_limit;
@@ -779,7 +920,7 @@ pub fn helpers() -> Vec<(&'static str, *const u8, usize)> {
     vec![
         ("j_spec_tier_up", j_spec_tier_up as *const u8, 1),
         ("j_spec_miss", j_spec_miss as *const u8, 3),
-        ("j_spec_deopt", j_spec_deopt as *const u8, 3),
+        ("j_spec_deopt", j_spec_deopt as *const u8, 4),
         ("j_spec_set_field", j_spec_set_field as *const u8, 4),
         ("j_spec_call_method", j_spec_call_method as *const u8, 4),
         ("j_spec_note_receiver", j_spec_note_receiver as *const u8, 2),

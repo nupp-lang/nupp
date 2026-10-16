@@ -87,6 +87,8 @@ pub mod scheduler;
 
 mod frame;
 
+pub mod effects;
+
 mod cleanup;
 
 mod task_api;

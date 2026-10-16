@@ -270,8 +270,13 @@ fn main() {
             let f = it.funcs[fid].clone();
             if f.name.starts_with("module:") || compiled >= limit || skip.iter().any(|n| *n == f.name) { continue; }
             if !only.is_empty() && !only.iter().any(|n| *n == f.name) { continue; }
-            j.plan = it.spec_baseline_plan(fid as u32);
-            match j.try_compile(&f, fid as u32) { Ok(ptr) => { it.entries[fid] = ptr as u64; it.spec_installed(fid as u32, ptr as u64); compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
+            // With specialization on, an instrumented generic version, compiled
+            // and installed through its version record.
+            let result = match it.spec_baseline_plan(fid as u32) {
+                Some(plan) => it.spec_compile_with(&mut j, fid as u32, plan).and_then(|v| it.spec_install(v).map_err(|e| format!("{e:?}"))),
+                None => j.try_compile(&f, fid as u32).map(|p| p as u64),
+            };
+            match result { Ok(entry) => { it.entries[fid] = entry; compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
         }
         let compile_s = cpu_now() - tj;
         if std::env::var("JIT_LIST").is_ok() { for (n, us) in &j.compile_micros { eprintln!("jit\t{n}\t{us} us"); } }

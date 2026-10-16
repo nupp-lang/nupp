@@ -733,17 +733,19 @@ impl Interp {
         let Some(mut j) = self.jit.take() else { return };
         let f = self.funcs[fid as usize].clone();
         if !f.name.starts_with("module:") {
-            let t0 = std::time::Instant::now();
-            if let Ok(p) = j.try_compile(&f, fid) { self.entries[fid as usize] = p as u64; self.lazy_compiled += 1; }
-            self.lazy_micros += t0.elapsed().as_micros() as u64;
-            // With specialization on, interpreter feedback picks the version.
-            if self.spec.specialize && self.entries[fid as usize] != 0 {
-                self.spec_installed(fid, self.entries[fid as usize]);
+            // With specialization on, the generic entry is installed as a
+            // version record and interpreter feedback picks what follows.
+            if self.spec.specialize {
                 self.jit = Some(j);
-                self.respecialize(fid, false);
+                let t0 = std::time::Instant::now();
+                if self.spec_compile_baseline(fid).is_some() { self.lazy_compiled += 1; self.respecialize(fid, false); }
+                self.lazy_micros += t0.elapsed().as_micros() as u64;
                 if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }
                 return;
             }
+            let t0 = std::time::Instant::now();
+            if let Ok(p) = j.try_compile(&f, fid) { self.entries[fid as usize] = p as u64; self.lazy_compiled += 1; }
+            self.lazy_micros += t0.elapsed().as_micros() as u64;
         }
         if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }
         self.jit = Some(j);
