@@ -1507,9 +1507,14 @@ impl Interp {
     }
     pub fn is_stringish(&self, v: Value) -> bool { v.as_obj().map(|p| unsafe { (*p.as_ptr()).is_stringish() }).unwrap_or(false) }
     /// Forgets what was derived from a function's body after a hot patch
-    /// replaced it: liveness, vector requirements, field caches, and a
-    /// compiled frame entry, which is built again from the new body on demand.
+    /// replaced it: specialized versions and feedback, liveness, vector
+    /// requirements, field caches, and a compiled frame entry, which is built
+    /// again from the new body on demand.
     pub(crate) fn invalidate_function(&mut self, fid: u32) {
+        // First, so specialization retires the field-cache bank that compiled
+        // code of the old body may still point at, rather than dropping it.
+        #[cfg(feature = "jit")]
+        self.invalidate_specializations(fid);
         self.dead_register_maps.remove(&fid);
         self.field_caches.remove(&fid);
         if let Some(required) = self.native_required.get_mut(fid as usize) { *required = self.funcs[fid as usize].code.iter().any(crate::native_simd::required); }
