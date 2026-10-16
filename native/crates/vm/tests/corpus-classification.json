@@ -9,9 +9,9 @@
     },
     {
       "suite": "allowtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,getinfo",
-      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "analysisquerytest",
@@ -23,13 +23,13 @@
       "suite": "annotatedluatest",
       "class": "port-required",
       "facilities": "load,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "passes case by case, but its serialization migration cases take minutes each in the VM checker and the suite exceeds the corpus's 600 s budget"
     },
     {
       "suite": "annotationtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,getinfo,coroutine,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "aotblockguardtest",
@@ -153,9 +153,9 @@
     },
     {
       "suite": "argumentplucktest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "assert",
@@ -165,9 +165,9 @@
     },
     {
       "suite": "asserttest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "associatedcompletetest",
@@ -225,9 +225,9 @@
     },
     {
       "suite": "associatedsyntaxtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "associatedtoolingtest",
@@ -237,9 +237,9 @@
     },
     {
       "suite": "automaticdestructiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,coroutine,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "base64test",
@@ -267,9 +267,9 @@
     },
     {
       "suite": "benchtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "binderidentitytest",
@@ -279,9 +279,9 @@
     },
     {
       "suite": "bindingpatterntest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "bootstraptest",
@@ -315,9 +315,9 @@
     },
     {
       "suite": "buildtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "bulkcolumntest",
@@ -327,15 +327,15 @@
     },
     {
       "suite": "bundleddeclstest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "jit,string.buffer,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "bundletest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,coroutine,spawn",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "binaries reaching nupp.mem.heap or nupp.mem.sharedbytes need ffi or the engine host; a rebuilt binary named after its entry's namespace collides with the Lua modules build in build/; the VM program check refuses a coroutine passed to a thread parameter that nupp check accepts"
     },
     {
       "suite": "bytecodelistingtest",
@@ -351,33 +351,33 @@
     },
     {
       "suite": "cachestamptest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,string.buffer,getinfo,spawn",
-      "reason": "uses string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "carraytest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "cdecltest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "cdeftest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "C bitfields and counted-pointer argument mappings have no VM layout or mapping"
     },
     {
       "suite": "cheadertest",
       "class": "port-required",
       "facilities": "load,env,ffi,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "cheader(...) namespaces are not lowered by the VM"
     },
     {
       "suite": "checktest",
@@ -393,15 +393,15 @@
     },
     {
       "suite": "clidoctest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "jit,getinfo,spawn",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "clitest",
       "class": "port-required",
       "facilities": "load,ffi,jit,getinfo,spawn,aot",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "a module-level ... does not reach a program nupp run starts on the VM (run.nupp hands the arguments to an entry chunk that is not vararg)"
     },
     {
       "suite": "compilerpacktest",
@@ -411,15 +411,15 @@
     },
     {
       "suite": "compressionprovidertest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "comptimetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,jit,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "concatbuffertest",
@@ -429,9 +429,9 @@
     },
     {
       "suite": "conststrtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "corpustest",
@@ -459,15 +459,15 @@
     },
     {
       "suite": "declaredmoduletest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "deriveacceptancetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "derivematerializetest",
@@ -485,7 +485,7 @@
       "suite": "derivetest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "a bounded generic field's derived Debug describes T as opaque on the VM; derive identities name <chunk> for a file outside the project, so the image depends on path spelling"
     },
     {
       "suite": "diagnosticgoldentest",
@@ -495,9 +495,9 @@
     },
     {
       "suite": "digestprovidertest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "digesttest",
@@ -513,21 +513,21 @@
     },
     {
       "suite": "doctest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,jit,string.buffer,getinfo,spawn",
-      "reason": "uses jit, string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "doexpressiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "effectregiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "effecttransporttest",
@@ -573,15 +573,15 @@
     },
     {
       "suite": "ffitest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "fieldcodecmaterializetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "filecomponenttest",
@@ -593,13 +593,13 @@
       "suite": "filestest",
       "class": "port-required",
       "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "a transfer parked under a suspension handler calls a userdata in the corpus image (passes through nupp run)"
     },
     {
       "suite": "fixedwidthtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "fleettest",
@@ -627,9 +627,9 @@
     },
     {
       "suite": "fmtimportstest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "fmttest",
@@ -657,9 +657,9 @@
     },
     {
       "suite": "generatedloadtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "gentest",
@@ -711,39 +711,39 @@
     },
     {
       "suite": "httpnativetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,spawn",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "importctest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "layoutof cannot answer for imported structs holding bitfields, callbacks or unions"
     },
     {
       "suite": "incrementaltest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi,string.buffer,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "indexedassignmenttest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "inlinemethodtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "interfaceimagetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "intersectiontest",
@@ -779,7 +779,7 @@
       "suite": "layouttest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "VM struct storage has no pointer, nullable-pointer, fixed-array or generic struct fields, and layoutof reports no ctype spelling"
     },
     {
       "suite": "lexertest",
@@ -789,9 +789,9 @@
     },
     {
       "suite": "loggingtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "loopclosuretest",
@@ -813,9 +813,9 @@
     },
     {
       "suite": "lsptest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi,jit,getinfo,spawn",
-      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "lua51compattest",
@@ -825,9 +825,9 @@
     },
     {
       "suite": "materializeirtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "materializeobservetest",
@@ -845,7 +845,7 @@
       "suite": "methodtest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "a generic constructor overload instantiated at integer unboxes a float argument (expected an integer)"
     },
     {
       "suite": "narrowingtest",
@@ -861,21 +861,21 @@
     },
     {
       "suite": "nativefoundationstest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,jit,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "netnativetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi,jit,getinfo,spawn",
-      "reason": "uses ffi, jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "nettest",
       "class": "port-required",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "one case fails in the corpus image only: a providerstate stream has no close method after a refused setKeepAlive (passes through nupp run)"
     },
     {
       "suite": "neutralpolicytest",
@@ -891,21 +891,21 @@
     },
     {
       "suite": "nosuspendlooptest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,coroutine,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "nosuspendtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,coroutine,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "operatortest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "integer % 0 answers nan instead of LuaJIT's integral result"
     },
     {
       "suite": "optimizeprograms",
@@ -923,7 +923,7 @@
       "suite": "orexittest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "an xpcall handler runs after the stack unwound, so the protected wrappers' layout differs"
     },
     {
       "suite": "overloaddoctest",
@@ -939,15 +939,15 @@
     },
     {
       "suite": "ownershipregiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,env,jit,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "ownershiptest",
       "class": "port-required",
       "facilities": "load,env,ffi,getinfo,coroutine,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "C out-parameter result mappings and the pin intrinsic are not lowered; nupp.mem.heap needs ffi; attemptAll stops at the first failing step"
     },
     {
       "suite": "packtest",
@@ -957,21 +957,21 @@
     },
     {
       "suite": "parallelcheckprotocoltest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "string.buffer",
-      "reason": "uses string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "parallelchecktest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi,getinfo,spawn",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "parsertest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi,getinfo",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "passpermutationtest",
@@ -981,15 +981,15 @@
     },
     {
       "suite": "pathtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "pegmaterializetest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "materialized grammars with predicates raise 'expected a number' in the PEG runtime"
     },
     {
       "suite": "perfbudgettest",
@@ -999,9 +999,9 @@
     },
     {
       "suite": "prefercomptimetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "preludecachetest",
@@ -1017,9 +1017,9 @@
     },
     {
       "suite": "processnativetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "processprovidertest",
@@ -1029,9 +1029,9 @@
     },
     {
       "suite": "processtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,coroutine",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "profiletest",
@@ -1041,27 +1041,27 @@
     },
     {
       "suite": "projectlinktest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,coroutine,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "projecttest",
       "class": "port-required",
       "facilities": "load,ffi,jit,string.buffer,getinfo,spawn",
-      "reason": "uses ffi, jit, string.buffer: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "a binding's @lib/ library is handed to dlopen unresolved; cross-target stamping and the incremental check counts differ on the VM"
     },
     {
       "suite": "providerconformancetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "providerstate",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,env",
-      "reason": "uses env: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "helper: instances a provider module by lowering its source in environment mode, each with its own require"
     },
     {
       "suite": "publicclitest",
@@ -1077,9 +1077,9 @@
     },
     {
       "suite": "raisestest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "referencetest",
@@ -1133,13 +1133,13 @@
       "suite": "runtimereflectiontest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "a dead register keeps an unused local type alive past its owner"
     },
     {
       "suite": "runtimetest",
       "class": "port-required",
       "facilities": "load,ffi,jit,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "nupp run --watch on the VM fails ('op outside a function') and its native cases need ffi"
     },
     {
       "suite": "rustabitest",
@@ -1155,9 +1155,9 @@
     },
     {
       "suite": "selfhosttest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "sendabletest",
@@ -1173,9 +1173,9 @@
     },
     {
       "suite": "serdetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "sharedbytestest",
@@ -1199,7 +1199,7 @@
       "suite": "simdfixedlanestest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "simd.transpose is missing from the VM simd library and generic structs cannot be stored"
     },
     {
       "suite": "simdfleetequivalencetest",
@@ -1245,9 +1245,9 @@
     },
     {
       "suite": "simdprimitivedifferentialtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "jit,aot",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "simdreducerdifferentialtest",
@@ -1293,57 +1293,57 @@
     },
     {
       "suite": "spanloweringtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "spiinterfacetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,coroutine,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "spinavigationtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "spipackagetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "spirepresentationtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "spitest",
       "class": "port-required",
       "facilities": "load",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "the VM lib's time, workers and suspension providers replace their facades directly rather than through SPI selection"
     },
     {
       "suite": "stdlibtest",
       "class": "port-required",
       "facilities": "load,env,ffi,string.buffer,getinfo,coroutine,spawn,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "nupp.mem.heap needs ffi; browser GPU handles want exact integers; an overloaded select call answers a number"
     },
     {
       "suite": "stringbuffernamespacetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,string.buffer,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "structtest",
       "class": "port-required",
       "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "C bitfields have no modeled VM layout"
     },
     {
       "suite": "substitutiontest",
@@ -1359,27 +1359,27 @@
     },
     {
       "suite": "switchplantest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "switchtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "systemtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "tableintrinsictest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "targetprofiletest",
@@ -1407,9 +1407,9 @@
     },
     {
       "suite": "templatetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,debug-hooks,getinfo,spawn",
-      "reason": "uses debug-hooks: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "testrunnertest",
@@ -1437,9 +1437,9 @@
     },
     {
       "suite": "tlstest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "toolchaintest",
@@ -1449,9 +1449,9 @@
     },
     {
       "suite": "toollayeringtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "typedtest",
@@ -1463,7 +1463,7 @@
       "suite": "typeleveltest",
       "class": "port-required",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "comptime type caches lose a local record's nominal identity (NUPP2001)"
     },
     {
       "suite": "typeprovidertest",
@@ -1473,21 +1473,21 @@
     },
     {
       "suite": "unusedtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "uritest",
       "class": "port-required",
       "facilities": "load,spawn",
-      "reason": "loads generated Lua to run a program; runs the image instead"
+      "reason": "the browser URI provider (nupp.runtime.browser.uri) is not carried by the VM image"
     },
     {
       "suite": "utilbitsettest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "ffi",
-      "reason": "uses ffi: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "utilstoretest",
@@ -1521,9 +1521,9 @@
     },
     {
       "suite": "withsuspensiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "drives the Lua generator or AOT lowering for a feature that survives; re-targets to the image"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "workerstartuptest",
@@ -1533,9 +1533,9 @@
     },
     {
       "suite": "worktreetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "jit,getinfo,spawn",
-      "reason": "uses jit: outside the Lua subset or replaced by typed FFI and runtime services"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "zoneintrinsictest",
