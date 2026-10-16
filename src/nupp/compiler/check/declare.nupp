@@ -1882,6 +1882,18 @@ function declare.install(
             -- nested type names must not leak beside it.
             c.pushScope()
             n.selfType = c.typevarAt(stat.name, "self")
+            -- Binders are interned by site, and a process can hold several
+            -- environments that check one site, each with its own nominal: a test
+            -- beside the environment its program loader makes, or two lanes. One
+            -- already bound to another environment's declaration stays that
+            -- declaration's; rebinding it would point the other's methods here.
+            local existing = (n.selfType as T.TypeVar).bound
+            if existing ~= nil and existing ~= n then
+                n.selfType = T.typevar(
+                    stat.name.text,
+                    tostring(c.filename) .. ":" .. tostring(stat.name.offset) .. ":self:" .. n.id
+                )
+            end
             -- Bounded by the declaration it stands in, which is what lets `self.Item`
             -- find the requirement stated beside it. Narrow on purpose: only this
             -- binder gains a bound, so an arbitrary unbounded `T` stays unprojectable
