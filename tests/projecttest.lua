@@ -1291,16 +1291,19 @@ return {include = {"src"}, build = {targets = {app = {
         return config, err, task
     end
 
-    local config, err, task = load("{json = true, path = true, uuid = false}")
+    local config, err, task = load("{compression = true, path = true, uuid = false}")
     assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
-    testAssert.equal(task.nativeFeatures.json, true, "task reports forced inclusion")
+    testAssert.equal(task.nativeFeatures.compression, true, "task reports forced inclusion")
     testAssert.equal(task.nativeFeatures.path, true, "new native providers can be forced in")
     testAssert.equal(task.nativeFeatures.uuid, false, "new native providers can be forced out")
 
     local _, unknown = load("{jsoon = true}")
     assert(unknown and unknown:find("nativeFeatures names no feature jsoon", 1, true), tostring(unknown))
-    local _, wrongType = load("{json = 'yes'}")
-    assert(wrongType and wrongType:find("nativeFeatures.json must be true or false", 1, true), tostring(wrongType))
+    local _, wrongType = load("{compression = 'yes'}")
+    assert(
+        wrongType and wrongType:find("nativeFeatures.compression must be true or false", 1, true),
+        tostring(wrongType)
+    )
 end
 
 function M.subprocessPreservesEmptyArguments()

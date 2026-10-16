@@ -266,13 +266,14 @@ keeps the detected answer.
 
 ```lua
 nativeFeatures = {
-   json = true,
-   uuid = true
+   compression = true,
+   uuid = false
 }
 ```
 
-The forceable binary feature names are `json`, `path`, `uri`, `uuid`, `files`,
-`process`, `workers`, and `http`. The registered module effects include
+The forceable feature names are the binary ones: `compression`, `crc`, `files`,
+`gpu`, `http`, `net`, `path`, `process`, `sharedbytes`, `time`, `tls`, `uri`,
+`uuid`, and `workers`. The registered module effects include
 `nupp.codec.json`. Bundled LuaRock modules are checked too, so a rock that
 requires a provider contributes it even when application source does not.
 Forced removal is an expert escape hatch:
