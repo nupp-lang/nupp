@@ -5798,6 +5798,17 @@ function lower.emit(
             end
         end)
         markCaptures(chunk, rootBody)
+        -- A module chunk is vararg, as a Lua chunk is: `require` passes it the
+        -- module name and `nupp run` the program's arguments. Only a chunk that
+        -- reads `...` keeps them, which leaves every other one compilable.
+        walkSyntax(rootNode.blocks[1], {}, function(n)
+            if n.kind == "funcbody" or n.kind == "shortfn" then
+                return false
+            end
+            if n.kind == "vararg" then
+                chunk.vararg = true
+            end
+        end)
         if environment then
             chunk.sig, chunk.nparams, chunk.vararg = {"v"}, 1, true
             local context = chunk:reg()
