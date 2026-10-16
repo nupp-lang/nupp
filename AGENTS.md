@@ -80,6 +80,10 @@ and turns the formatting hook on:
 ./scripts/worktree example-task /private/tmp/nupp-example-task main
 ```
 
+When `sccache` is installed, `bin/nupp`, `scripts/toolchain` and
+`scripts/vm-cli` set `RUSTC_WRAPPER=sccache`, so parallel worktrees compile each
+Rust dependency once; set it yourself for direct `cargo` commands.
+
 Use task-specific branch and directory names. Never replace an existing
 cache or `.rocks` path; inspect it instead. Run subsequent Nupp commands from
 the task worktree. Removing the completed worktree removes its `.rocks`

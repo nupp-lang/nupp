@@ -634,6 +634,13 @@ take_lock() {
 select_rust_tools() {
     CARGO=${NUPP_CARGO:-cargo}
     RUSTC=${NUPP_RUSTC:-rustc}
+    # A content-addressed compiler cache shared by every checkout and worktree on
+    # the machine, when one is installed: parallel worktrees then compile each
+    # dependency once. It changes no output, so it is not part of any cache key.
+    if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then
+        RUSTC_WRAPPER=sccache
+        export RUSTC_WRAPPER
+    fi
     # Asked for before reading it, so a tree without one is reported by the line
     # below rather than by `sed` naming a path on standard error. Every caller
     # here captures only standard output, so that stray line arrives wherever

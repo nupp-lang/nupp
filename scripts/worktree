@@ -80,6 +80,25 @@ if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     touch "$TASK_ROOT/build/.nupp-complete"
 fi
 
+# The VM compiler. A checkout with no installed VM CLI falls back to the LuaJIT
+# path, which rebuilds the compiler from stage zero (an hour and more), so seed
+# the new worktree from a checkout that has one: this one, or else the worktree
+# that has the start point checked out. The generations are immutable and the
+# emit cache validates its own keys, so the first command rebuilds incrementally
+# from what was copied (seconds) instead of from nothing.
+VM_ORIGIN=""
+if [ -e "$ROOT/.nupp/vm-cli/current" ]; then
+    VM_ORIGIN=$ROOT
+else
+    VM_ORIGIN=$(git -C "$ROOT" worktree list --porcelain | awk -v ref="refs/heads/$START_POINT" '
+        /^worktree /{path=substr($0, 10)} $0 == "branch " ref {print path; exit}')
+    [ -n "$VM_ORIGIN" ] && [ -e "$VM_ORIGIN/.nupp/vm-cli/current" ] || VM_ORIGIN=""
+fi
+if [ -n "$VM_ORIGIN" ] && [ "$VM_ORIGIN" != "$TASK_ROOT" ]; then
+    copy_if_absent "$VM_ORIGIN/.nupp/vm-cli" "$TASK_ROOT/.nupp/vm-cli"
+    copy_if_absent "$VM_ORIGIN/build/vm-cli/emit-cache" "$TASK_ROOT/build/vm-cli/emit-cache"
+fi
+
 # `core.hooksPath` is one setting for the whole repository, worktrees included,
 # so this is idempotent and the last worktree to be made does not undo it for
 # the others. Set here rather than left to be remembered: the hook exists to
@@ -90,5 +109,5 @@ if [ "$(git -C "$TASK_ROOT" config core.hooksPath || true)" != ".githooks" ]; th
 fi
 
 echo "created $TASK_ROOT"
-echo "seeded compiler, test scheduling, and native build caches where available"
+echo "seeded compiler, VM CLI, test scheduling, and native build caches where available"
 echo "hooks: .githooks (pre-push checks formatting; --no-verify skips it)"

@@ -10,6 +10,12 @@
 # pinned in the tree. Nothing here is committed, and nothing here is fetched
 # until a command finds no compiler to run -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Cargo builds the compiler starts (native providers, VM runtimes) share one
+# content-addressed compiler cache across worktrees when sccache is installed.
+if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then
+    RUSTC_WRAPPER=sccache
+    export RUSTC_WRAPPER
+fi
 # A verified local VM package is an installed compiler snapshot. Publish a new
 # snapshot with scripts/vm-cli install; source edits do not rebuild its workers.
 # Pin the selected immutable generation in the environment before any child can
