@@ -14,9 +14,9 @@
 #
 # The C that build scripts compile is instrumented through CFLAGS: the cc
 # crate reads it (the AOT runtime, ring), and so does the host's own build
-# script (the LuaJIT shims). LuaJIT itself and LPeg are the pinned prebuilt
-# archives and stay uninstrumented: accesses made inside them are not
-# checked, and nothing they do is reported.
+# script (the LuaJIT shims). LuaJIT itself is the pinned prebuilt archive and
+# stays uninstrumented: accesses made inside it are not checked, and nothing
+# it does is reported.
 #
 # One crate is left out, the same one for both sanitizers: nupp-native-gpu
 # drives a Vulkan/Metal driver through wgpu. The driver is an uninstrumented

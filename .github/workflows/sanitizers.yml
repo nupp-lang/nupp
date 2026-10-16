@@ -41,7 +41,7 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
-      # LuaJIT and LPeg for the host crate. Restored and never saved: the
+      # LuaJIT for the host crate. Restored and never saved: the
       # entry belongs to the compiler matrix, and a manual run should not
       # churn it.
       - name: Restore the provisioned toolchain
