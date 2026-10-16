@@ -604,6 +604,7 @@ impl Interp {
     pub fn spec_install(&mut self, mut version: Version) -> Result<u64, InstallError> {
         let check = (|| {
             if !version.code.registered { return Err(InstallError::NotRegistered); }
+            if !version.convention.frame() && version.fid as usize >= self.entries.len() { return Err(InstallError::NoEntrySlot); }
             if version.body != self.spec.body(version.fid) { return Err(InstallError::StaleBody); }
             for &d in &version.deps {
                 let holds = match d {
@@ -639,7 +640,7 @@ impl Interp {
             #[cfg(feature = "compiled-runtime")]
             { self.frame_entries.resize(self.funcs.len(), 0); self.frame_entries[fid as usize] = entry; }
         } else {
-            self.entries.resize(self.funcs.len(), 0);
+            // Never resized here: compiled code holds the table's address.
             self.entries[fid as usize] = entry;
         }
         Ok(entry)

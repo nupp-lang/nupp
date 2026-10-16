@@ -77,4 +77,7 @@ pub enum InstallError {
     StaleBody,
     /// A dependency no longer holds (the epoch moved, a metatable died).
     StaleDependency(Dependency),
+    /// The entry table has no slot for the function, and growing it would
+    /// move the table compiled code reads.
+    NoEntrySlot,
 }

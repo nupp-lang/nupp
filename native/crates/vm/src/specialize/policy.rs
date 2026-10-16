@@ -49,7 +49,10 @@ impl Policy {
     /// heap-frame path, so only field sites specialize there.
     pub fn specialized(convention: Convention) -> Policy {
         let direct = !convention.frame();
-        Policy { instrument: false, tier_calls: 0, method: direct, target: direct, field: true, store: true }
+        // `JIT_SPEC_KINDS=method,target,field,store` narrows them, for bisection.
+        let kinds = std::env::var("JIT_SPEC_KINDS").ok();
+        let on = |k: &str| kinds.as_deref().is_none_or(|s| s.split(',').any(|x| x == k));
+        Policy { instrument: false, tier_calls: 0, method: direct && on("method"), target: direct && on("target"), field: on("field"), store: on("store") }
     }
     /// Whether this policy specializes `op`.
     pub fn allows(&self, op: &Op) -> bool {

@@ -28,6 +28,10 @@ fn fixture(tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> { fixture_of(IMAGE, ti
 fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
     let mut vm = Box::new(Interp::new());
     image::load(&mut vm, text).unwrap();
+    // As the CLI does: the entry table is sized before the globals add
+    // functions of their own, so it is shorter than the function list, and
+    // nothing may grow it once compiled code holds its address.
+    vm.entries = vec![0; vm.funcs.len()];
     vm.install_globals();
     vm.spec.feedback = spec != Spec::Off;
     vm.spec.specialize = spec == Spec::Specialize;
@@ -37,7 +41,6 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
     vm.spec.limits.tier_calls = 200;
     vm.spec.limits.miss_limit = 50;
     vm.spec.limits.deopt_limit = 20;
-    vm.entries.resize(vm.funcs.len(), 0);
     if tier != Tier::Rust { vm.prepare_threaded(); }
     if matches!(tier, Tier::Eager | Tier::Lazy | Tier::Frames) {
         use nupp_vm::{compiled, jit::Jit};
@@ -52,7 +55,7 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
         jit.probe_addr = vm.shape_probe.as_ptr() as i64;
         compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
         match tier {
-            Tier::Eager => for id in 0..vm.funcs.len() {
+            Tier::Eager => for id in 0..vm.entries.len() {
                 if vm.funcs[id].name.starts_with("module:") { continue; }
                 let entry = match vm.spec_baseline_plan(id as u32) {
                     Some(plan) => vm.spec_compile_with(&mut jit, id as u32, plan).ok().and_then(|v| vm.spec_install(v).ok()),
