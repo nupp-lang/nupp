@@ -363,7 +363,7 @@ def linked_runtime(image, out, target):
     # The object is read by the build script, which does not see a changed
     # file behind an unchanged variable.
     (ROOT / "native/crates/vm/src/lib.rs").touch()
-    return cargo("aot-linked,c-headers,native-ffi,compression,net,http", target, {"NUPP_AOT_OBJECT": str(obj)},
+    return cargo("aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown", target, {"NUPP_AOT_OBJECT": str(obj)},
                  default_features=False)
 
 
