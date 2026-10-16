@@ -1516,7 +1516,10 @@ impl Interp {
         #[cfg(feature = "jit")]
         self.invalidate_specializations(fid);
         self.dead_register_maps.remove(&fid);
-        self.field_caches.remove(&fid);
+        // Code of the old body may still hold its field-cache bank (with the
+        // code generator, specialization has already retired it); a patch is
+        // rare, so the bank is kept for the life of the process.
+        if let Some(bank) = self.field_caches.get_mut(fid as usize).and_then(Option::take) { Box::leak(bank); }
         if let Some(required) = self.native_required.get_mut(fid as usize) { *required = self.funcs[fid as usize].code.iter().any(crate::native_simd::required); }
         #[cfg(feature = "compiled-runtime")]
         if let Some(entry) = self.frame_entries.get_mut(fid as usize) { *entry = 0; }
