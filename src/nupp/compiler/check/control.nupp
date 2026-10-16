@@ -1004,7 +1004,7 @@ function control.install(c: state.Checker): state.StatHandlers
             if expr and token and #stat.exprs == 1 and token.text == "self" then
                 c.infer(expr)
                 local body = c.functionBodies[#c.functionBodies]
-                local receiver = body and body.params and body.params[1] and body.params[1].name
+                local receiver = body and body.params and body.params[1] and (body.params[1] as cst.Param).name
                 valid = receiver ~= nil and token.definition == receiver.definition
             end
             if not valid then

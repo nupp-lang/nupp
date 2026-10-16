@@ -386,11 +386,11 @@ record state.Checker
     --- returning a borrow is permitted there and only there.
     borrowReturnStack: {any}
 
-    varargPackStack: {any}
+    varargPackStack: {T.Pack | false}
 
-    yieldPackStack: {any}
+    yieldPackStack: {T.Pack | false}
 
-    resumePackStack: {any}
+    resumePackStack: {T.Pack | false}
     protocolStack: {any}
 
     --- The affine fields a consuming function still has to discharge.
@@ -438,7 +438,7 @@ record state.Checker
     --- Function bodies currently being checked, used to attach deferred JIT-boundary
     --- findings to the function that must be disabled rather than to the callback it
     --- happens to pass.
-    functionBodies: {any}
+    functionBodies: {cst.Funcbody | cst.Shortfn}
 
     --- Hidden loop variables handed out so far, so each takes a distinct name.
     loopOwnerCount: integer?
