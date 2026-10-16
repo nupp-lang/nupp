@@ -1588,7 +1588,7 @@ end
 --- single surviving member is returned unwrapped and none at all is `never`, `any`
 --- swallows the rest, and `table` drops beside a structure it is already gradual
 --- toward.
-function types.union(members: {types.Type}): types.Type
+local function unionOf(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
     local functionByContract: {[string]: integer} = {}
@@ -1652,6 +1652,45 @@ function types.union(members: {types.Type}): types.Type
     end
 
     return intern(internKey, new types.Union(tag = "union", members = flat, hasNil = hasNil))
+end
+
+--- Unions of two members already built, by the members in the order they were given.
+---
+--- Most unions are two members, and most of those are something or nil, asked for over
+--- and over. Every type a union is built from is interned and never leaves its arena,
+--- so the same two give the same union for the life of the process. A nominal's order
+--- reads its name and a union member is flattened, so neither is cached here.
+local unionPairs: {[types.Type]: {[types.Type]: types.Type}} = setmetatable({}, {
+    __mode = "k"
+}) as {[types.Type]: {[types.Type]: types.Type}}
+
+function types.union(members: {types.Type}): types.Type
+    if #members ~= 2 then
+        return unionOf(members)
+    end
+    local first, second = members[1], members[2]
+    if not first
+        or not second
+        or first.tag == "nominal"
+        or first.tag == "union"
+        or second.tag == "nominal"
+        or second.tag == "union"
+    then
+        return unionOf(members)
+    end
+    local known = unionPairs[first]
+    local cached = known and known[second]
+    if cached then
+        return cached
+    end
+    local made = unionOf(members)
+    if not known then
+        known = setmetatable({}, {__mode = "k"}) as {[types.Type]: types.Type}
+        unionPairs[first] = known
+    end
+    known[second] = made
+
+    return made
 end
 
 --- Adds `t` to an intersection under construction, flattening nested intersections.
@@ -2562,23 +2601,34 @@ end
 
 --- Interns a fixed-head pack with an optional tail.
 function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?, names: {string}?): types.Pack
-    local hs: {string}, ms, copied = {}, {}, {}
+    -- The key is built straight from the arguments, and the pack's own copies only
+    -- when the arena has not seen it: most packs asked for already exist.
+    local keyParts: {string} = {}
     local named = false
-    local copiedNames: {string} = {}
-    for j, t in ipairs(head or {}) do
-        copied[j], hs[j] = t, t.id
-        ms[j] = modes and modes[j] or "plain"
-        copiedNames[j] = names and names[j] or ""
-        named = named or copiedNames[j] ~= ""
-    end
-    local keyParts = {}
-    for j, id in ipairs(hs) do
-        keyParts[j] = ms[j] .. ":" .. id .. (copiedNames[j] ~= "" and ("=" .. copiedNames[j]) or "")
+    if head then
+        for j, t in ipairs(head) do
+            local mode = modes and modes[j] or "plain"
+            local name = names and names[j] or ""
+            if name ~= "" then
+                named = true
+                keyParts[j] = mode .. ":" .. t.id .. "=" .. name
+            else
+                keyParts[j] = mode .. ":" .. t.id
+            end
+        end
     end
     local key = "pack(" .. table.concat(keyParts, ",") .. packTailId(tail) .. ")"
     local found = packArena[key]
     if found then
         return found
+    end
+    local copied: {types.Type}, ms: {string}, copiedNames: {string} = {}, {}, {}
+    if head then
+        for j = 1, #keyParts do
+            copied[j] = head[j]
+            ms[j] = modes and modes[j] or "plain"
+            copiedNames[j] = names and names[j] or ""
+        end
     end
     local made = new types.Pack(tag = "pack", head = copied, modes = ms, tail = tail)
     if named then
@@ -3155,6 +3205,24 @@ local FUNC_FIELDS: {
     "borrowsResult",
 }
 
+--- The same names as a set, for refusing a misspelled override.
+local FUNC_FIELD_SET: {[string]: boolean} = {}
+
+for _, name in ipairs(FUNC_FIELDS) do
+    FUNC_FIELD_SET[name] = true
+end
+
+--- A field of the copy `types.funcWith` makes: the override when one is given, where
+--- `false` clears the field, and otherwise what the original holds.
+local function pick(overrides: {[string]: any}, name: string, value: any): any
+    local override = overrides[name]
+    if override ~= nil then
+        return override or nil
+    end
+
+    return value
+end
+
 --- The same function with some of its fields replaced, interned as `types.func` would
 --- intern it.
 ---
@@ -3172,53 +3240,42 @@ local FUNC_FIELDS: {
 --- @raises string when `overrides` names a field no function has, which is a
 ---     misspelling
 function types.funcWith(fn: types.Func, overrides: {[string]: any}): types.Type
-    local known: {[string]: boolean} = {}
-    local field: {[string]: any} = {}
-    for _, name in ipairs(FUNC_FIELDS) do
-        known[name] = true
-        local value = (fn as any)[name]
-        local override = overrides[name]
-        if override ~= nil then
-            value = override or nil
-        end
-        field[name] = value
-    end
     for name in pairs(overrides) do
-        if not known[name] then
+        if not FUNC_FIELD_SET[name] then
             error("types.funcWith: a function has no field " .. tostring(name))
         end
     end
 
     return types.func(
-        field.params,
-        field.rets,
-        field.vararg,
-        field.paramModes,
-        field.predicate,
-        field.typeParams,
-        field.typeBounds,
-        field.borrowsParam,
-        field.borrowsSelf,
-        field.borrowsParams,
-        field.ffiOut,
-        field.varargType,
-        field.noreturn,
-        field.paramPack,
-        field.retPack,
-        field.packParams,
-        field.yieldPack,
-        field.resumePack,
-        field.noYield,
-        field.paramNames,
-        field.preservesResults,
-        field.foreign,
-        field.constParams,
-        field.paramKinds,
-        field.partitionResults,
-        field.comptimeOnly,
-        field.explicitPreserves,
-        field.sendable,
-        field.borrowsResult
+        pick(overrides, "params", fn.params),
+        pick(overrides, "rets", fn.rets),
+        pick(overrides, "vararg", fn.vararg),
+        pick(overrides, "paramModes", fn.paramModes),
+        pick(overrides, "predicate", fn.predicate),
+        pick(overrides, "typeParams", fn.typeParams),
+        pick(overrides, "typeBounds", fn.typeBounds),
+        pick(overrides, "borrowsParam", fn.borrowsParam),
+        pick(overrides, "borrowsSelf", fn.borrowsSelf),
+        pick(overrides, "borrowsParams", fn.borrowsParams),
+        pick(overrides, "ffiOut", fn.ffiOut),
+        pick(overrides, "varargType", fn.varargType),
+        pick(overrides, "noreturn", fn.noreturn),
+        pick(overrides, "paramPack", fn.paramPack),
+        pick(overrides, "retPack", fn.retPack),
+        pick(overrides, "packParams", fn.packParams),
+        pick(overrides, "yieldPack", fn.yieldPack),
+        pick(overrides, "resumePack", fn.resumePack),
+        pick(overrides, "noYield", fn.noYield),
+        pick(overrides, "paramNames", fn.paramNames),
+        pick(overrides, "preservesResults", fn.preservesResults),
+        pick(overrides, "foreign", fn.foreign),
+        pick(overrides, "constParams", fn.constParams),
+        pick(overrides, "paramKinds", fn.paramKinds),
+        pick(overrides, "partitionResults", fn.partitionResults),
+        pick(overrides, "comptimeOnly", fn.comptimeOnly),
+        pick(overrides, "explicitPreserves", fn.explicitPreserves),
+        pick(overrides, "sendable", fn.sendable),
+        pick(overrides, "borrowsResult", fn.borrowsResult)
     )
 end
 

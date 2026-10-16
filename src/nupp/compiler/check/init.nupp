@@ -1142,7 +1142,8 @@ function checkMod.check(
         nominalEffectEntries = {},
         conformanceEffects = {},
         constModulePaths = {},
-        moduleLocalAnnotated = false
+        moduleLocalAnnotated = false,
+        aliasCount = 0
     } as state.Checker
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}

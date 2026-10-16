@@ -473,6 +473,10 @@ record state.Checker
     --- Whether the expression just checked may have mutated narrowed state.
     callMayMutate: boolean
 
+    --- How many bindings have been made as copies of another reference. While none
+    --- have, a write has no copies to tell, so it skips walking every scope for them.
+    aliasCount: number
+
     --- Reference roots passed to calls in the statement currently checked.
     callMutationRoots: {[string]: boolean}?
 

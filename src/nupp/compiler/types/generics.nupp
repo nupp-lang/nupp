@@ -398,23 +398,38 @@ end
 -- One pure substitution can reach the same nominal through several parameters,
 -- results, or structural fields. Keep those visits together, but never hold this
 -- scope across evaluation callbacks or later checker declarations.
+
+--- A refresh scope nested in `previous`: it reads what `previous` holds and keeps
+--- what it adds to itself, so a walk that fails leaves `previous` as it was and one
+--- that succeeds hands its additions on with `closeRefreshLayer`. Layered rather
+--- than copied, because a nested walk would otherwise copy every key above it.
+local function openRefreshLayer(previous: {[string]: boolean}?): {[string]: boolean}
+    if previous == nil then
+        return {}
+    end
+
+    return setmetatable({}, {__index = previous}) as {[string]: boolean}
+end
+
+--- Hands what a layer added on to the scope it was opened in.
+local function closeRefreshLayer(previous: {[string]: boolean}?, refreshed: {[string]: boolean}): nil
+    if previous then
+        for key, visited in pairs(refreshed) do
+            previous[key] = visited
+        end
+    end
+end
+
 local function substitutionWalk(operation: any, value: any, map: Bindings, unmapped: string): any
     local previous = refreshingInstantiations
-    local refreshed: {[string]: boolean} = {}
-    for key, visited in pairs(previous or {}) do
-        refreshed[key] = visited
-    end
+    local refreshed = openRefreshLayer(previous)
     refreshingInstantiations = refreshed
     local ok, result = pcall(operation, value, map, unmapped)
     refreshingInstantiations = previous
     if not ok then
         error(result, 0)
     end
-    if previous then
-        for key, visited in pairs(refreshed) do
-            previous[key] = visited
-        end
-    end
+    closeRefreshLayer(previous, refreshed)
 
     return result
 end
@@ -1707,20 +1722,28 @@ local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal,
 end
 
 local function instantiationKey(n: T.Nominal, map: Bindings): string
-    local parts = {n.id}
-    for _, tv in ipairs(n.typeParams or {}) do
-        parts[#parts + 1] = "type:" .. (map[tv] or T.any).id
+    -- Appended in place: a declaration has a parameter or two, and a list to join
+    -- them would cost more than the joining.
+    local key = n.id
+    if n.typeParams then
+        for _, tv in ipairs(n.typeParams) do
+            key = key .. "|type:" .. (map[tv] or T.any).id
+        end
     end
-    for _, pv in ipairs(n.packParams or {}) do
-        local argument = map[pv] as T.Pack?
-        parts[#parts + 1] = "pack:" .. (argument and argument.id or "unbound")
+    if n.packParams then
+        for _, pv in ipairs(n.packParams) do
+            local argument = map[pv] as T.Pack?
+            key = key .. "|pack:" .. (argument and argument.id or "unbound")
+        end
     end
-    for _, cv in ipairs(n.constParams or {}) do
-        local value = map[cv] as T.ConstTerm?
-        parts[#parts + 1] = "const:" .. (value and value.id or "unbound")
+    if n.constParams then
+        for _, cv in ipairs(n.constParams) do
+            local value = map[cv] as T.ConstTerm?
+            key = key .. "|const:" .. (value and value.id or "unbound")
+        end
     end
 
-    return table.concat(parts, "|")
+    return key
 end
 
 local function allocateInstantiation(n: T.Nominal, map: Bindings): T.Nominal
@@ -1972,10 +1995,7 @@ function generics.completeInstantiations(applications: {{
     map: Bindings
 }}): nil
     local previous = refreshingInstantiations
-    local refreshed: {[string]: boolean} = {}
-    for key, visited in pairs(previous or {}) do
-        refreshed[key] = visited
-    end
+    local refreshed = openRefreshLayer(previous)
     refreshingInstantiations = refreshed
     local ok, problem = pcall(function(): nil
         for _, application in ipairs(applications) do

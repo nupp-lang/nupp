@@ -24,6 +24,9 @@ local state = require("nupp.compiler.check.state")
 
 local narrow = {}
 
+--- The byte a path separates its segments with.
+const DOT = 46
+
 local isA = relations.isA
 local subtract = narrowing.subtract
 local truthiness = narrowing.truthiness
@@ -254,14 +257,22 @@ function narrow.install(c: state.Checker): narrow.Ops
     -- Assigning through a reference invalidates what was known about it and anything
     -- reached through it.
 
+    --- Whether `path` names something beneath `key`: `key` followed by a dot. The
+    --- byte test settles most paths without building a string for them.
+    local function beneath(path: string, key: string): boolean
+        local length = #key
+        return #path > length and path:byte(length + 1) == DOT and path:find(key, 1, true) == 1
+    end
+
     --- Forgets what was known about a reference and anything under it.
     function facts.clearNarrowed(key: string)
         local sc = c.scope
         while sc do
-            if sc.narrowed then
-                for k in pairs(sc.narrowed) do
-                    if k == key or k:sub(1, #key + 1) == key .. "." then
-                        sc.narrowed[k] = nil
+            local narrowed = sc.narrowed
+            if narrowed then
+                for k in pairs(narrowed) do
+                    if k == key or beneath(k, key) then
+                        narrowed[k] = nil
                     end
                 end
             end
@@ -269,13 +280,14 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
     end
 
-    function facts.clearNarrowedBelow(key)
+    function facts.clearNarrowedBelow(key: string)
         local sc = c.scope
         while sc do
-            if sc.narrowed then
-                for k in pairs(sc.narrowed) do
-                    if k:sub(1, #key + 1) == key .. "." then
-                        sc.narrowed[k] = nil
+            local narrowed = sc.narrowed
+            if narrowed then
+                for k in pairs(narrowed) do
+                    if beneath(k, key) then
+                        narrowed[k] = nil
                     end
                 end
             end
@@ -316,12 +328,16 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     -- Assigning to a name, or to anything a copied discriminant came from, makes the
     -- copy say nothing about it any more.
-    function facts.clearAliases(key)
+    function facts.clearAliases(key: string)
+        -- Nothing in this file has been bound as a copy, so nothing speaks for `key`.
+        if c.aliasCount == 0 then
+            return
+        end
         local sc = c.scope
         while sc do
             for name, entry in pairs(sc.vars) do
                 local from = entry.aliasPath
-                if name == key or (from and (from == key or from:sub(1, #key + 1) == key .. ".")) then
+                if name == key or (from and (from == key or beneath(from, key))) then
                     entry.aliasNode, entry.aliasPath = nil, nil
                 end
             end
@@ -331,12 +347,15 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     -- A copy of a copy speaks for the original too, so the path is followed as
     -- far as it goes.
-    function facts.clearAliasesBelow(key)
+    function facts.clearAliasesBelow(key: string)
+        if c.aliasCount == 0 then
+            return
+        end
         local sc = c.scope
         while sc do
             for _, entry in pairs(sc.vars) do
                 local from = entry.aliasPath
-                if from and from:sub(1, #key + 1) == key .. "." then
+                if from and beneath(from, key) then
                     entry.aliasNode, entry.aliasPath = nil, nil
                 end
             end
@@ -344,18 +363,23 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
     end
 
-    function facts.aliasTarget(key)
-        local resolved = nil
-        local seen = {}
+    function facts.aliasTarget(key: string): string?
+        local resolved: string? = nil
+        local seen: {[string]: boolean}? = nil
         local current = key
         while true do
-            local root, suffix = current:match("^([^.]+)(.*)$")
-            local entry = root and not seen[root] and c.lookupEntry(root) or nil
-            if not (entry and entry.aliasPath) then
+            -- The leading name, as `^([^.]+)` reads it: none when the path starts
+            -- with a dot.
+            local dot = current:find(".", 1, true)
+            local root = dot == nil and current or dot > 1 and current:sub(1, dot - 1) or nil
+            local entry = root and not (seen and seen[root]) and c.lookupEntry(root) or nil
+            local aliasPath = entry and entry.aliasPath
+            if not (root and aliasPath) then
                 break
             end
+            seen = seen or {}
             seen[root] = true
-            current = entry.aliasPath .. suffix
+            current = dot and aliasPath .. current:sub(dot) or aliasPath
             resolved = current
         end
 
@@ -374,6 +398,9 @@ function narrow.install(c: state.Checker): narrow.Ops
     }}
         local out = {}
         local canonical = facts.aliasTarget(key) or key
+        if c.aliasCount == 0 then
+            return out
+        end
         local sc = c.scope
         local seen = {}
         while sc do
@@ -381,7 +408,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 if entry.aliasPath and not seen[name] then
                     seen[name] = true
                     local origin = facts.aliasTarget(name) or entry.aliasPath
-                    if canonical:sub(1, #origin + 1) == origin .. "." then
+                    if beneath(canonical, origin) then
                         out[#out + 1] = {name = name, path = name .. canonical:sub(#origin + 1)}
                     end
                 end
