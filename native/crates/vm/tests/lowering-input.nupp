@@ -195,6 +195,18 @@ function api.run(): number
     end
     assert(seen == 5016, seen)
 
+    -- Arithmetic over an `any` operand dispatches `__add`, whose answer need
+    -- not be a number: the checker's `number` for it is an approximation, so
+    -- an unannotated local holding it stays a boxed value.
+    local adds: any = setmetatable({}, {
+        __add = function(_: any, b: any): any
+            return "added " .. tostring(b)
+        end
+    })
+    local three: integer = 3
+    local sum = (adds as any) + three
+    assert(tostring(sum) == "added 3", tostring(sum))
+
     return t.x + #tostring(why) + receiver:value()
 end
 

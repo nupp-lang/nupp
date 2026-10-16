@@ -739,6 +739,16 @@ function lower.emit(
         return false
     end
 
+    -- Whether a value's numeric type is the checker's approximation for
+    -- arithmetic that reached an `any` operand rather than a proof.
+    local function untrustedValue(n)
+        if n.kind == "paren" then
+            return untrustedValue(n.expr)
+        end
+
+        return n.primitiveUntrusted == true
+    end
+
     local function isIntegerish(n)
         if n.kind == "paren" then
             return isIntegerish(n.expr)
@@ -3360,10 +3370,14 @@ function lower.emit(
                 -- Indexed reads and open result packs may be absent even when
                 -- their element type is numeric. Preserve nil until narrowed.
                 local absent = mayBeAbsent(value)
+                -- Arithmetic over an `any` operand is typed `number` as an
+                -- approximation the checker marks untrusted: a metamethod may
+                -- answer anything, so only an annotation makes it a number slot.
+                local inferred = value and not untrustedValue(value) and value.inferredType or nil
                 if not absent and not f.captured[name] and (ty or not assignedNames[name]) then
-                    if isInteger(ty) or (not ty and value and isInteger(value.inferredType)) then
+                    if isInteger(ty) or (not ty and isInteger(inferred)) then
                         class = "i"
-                    elseif isNumeric(ty) or (not ty and value and isNumeric(value.inferredType)) then
+                    elseif isNumeric(ty) or (not ty and isNumeric(inferred)) then
                         class = "f"
                     end
                 end
