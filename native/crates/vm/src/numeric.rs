@@ -125,7 +125,7 @@ pub fn compare(x: Value, y: Value) -> Option<Ordering> {
 pub fn negate(vm: &mut Interp, x: Value) -> Value {
     if let Some(i) = integer(x) { return vm.box_integer(Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }); }
     if !x.is_num() {
-        let handler = vm.meta_field(x, "__unm");
+        let handler = vm.metamethod(x, crate::metamethods::MM::Unm);
         if handler != Value::NIL { return vm.call_value(handler, &[x, x]).first().copied().unwrap_or(Value::NIL); }
         match crate::builtins::coerce_number(vm, x) { Some(n) => return Value::num(-n), None => vm.op_error(crate::interp::OpErr::Arith, x) }
     }
@@ -133,9 +133,10 @@ pub fn negate(vm: &mut Interp, x: Value) -> Value {
 }
 pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>) -> Value {
     if kind.is_none() && matches!(op, "add" | "sub" | "mul" | "div" | "mod" | "pow" | "idiv") && !(is_numeric(x) && is_numeric(y)) {
-        let name = match op { "add" => "__add", "sub" => "__sub", "mul" => "__mul", "div" => "__div", "mod" => "__mod", "pow" => "__pow", _ => "__idiv" };
-        let mut handler = vm.meta_field(x, name);
-        if handler == Value::NIL { handler = vm.meta_field(y, name); }
+        use crate::metamethods::MM;
+        let mm = match op { "add" => MM::Add, "sub" => MM::Sub, "mul" => MM::Mul, "div" => MM::Div, "mod" => MM::Mod, "pow" => MM::Pow, _ => MM::IDiv };
+        let mut handler = vm.metamethod(x, mm);
+        if handler == Value::NIL { handler = vm.metamethod(y, mm); }
         if handler != Value::NIL {
             return vm.call_value(handler, &[x, y]).first().copied().unwrap_or(Value::NIL);
         }

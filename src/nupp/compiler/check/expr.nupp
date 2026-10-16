@@ -228,6 +228,13 @@ function expr.install(c: state.Checker): nil
     -- Numeric operands
     ---------------------------------------------------------------------
 
+    --- Whether a plain `.lua` file's operand may carry a metatable: a table, or
+    --- a value of unknown type. Lua decides its operators and calls at run
+    --- time, so such a file is not refused them and their result is unknown.
+    c.dynamicOperand = function(t)
+        return not (c.opts and c.opts.strict) and (t == T.any or isA(t, T.table_))
+    end
+
     c.numericOperand = function(t, node, op)
         if t == T.any or isA(t, T.number) then
             return true

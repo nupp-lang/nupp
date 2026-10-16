@@ -19,6 +19,7 @@ mod simd_exec;
 mod allocation_metrics;
 pub mod heap;
 pub mod interp;
+pub mod metamethods;
 pub mod builtins;
 mod clock;
 mod datetime;

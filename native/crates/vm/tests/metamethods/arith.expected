@@ -1,0 +1,18 @@
+table op table add(v1,v2) sub(v1,v2) mul(v1,v2) div(v1,v2) mod(v1,v2) pow(v1,v2)
+table op number add(v1,1) sub(v1,1) mul(v1,1) div(v1,1) mod(v1,1) pow(v1,1)
+number op table add(1,v1) sub(1,v1) mul(1,v1) div(1,v1) mod(1,v1) pow(1,v1)
+string op table add(s,v1) mul(3,v1)
+unary minus unm(v1,v1)
+left operand first left right
+right operand when left has none right right
+numeric strings 11 12 8 1 -2 16
+missing handler false attempt to perform arithmetic on a table value
+missing on both false attempt to perform arithmetic on a table value
+bad string false attempt to perform arithmetic on a string value
+unary missing false attempt to perform arithmetic on a table value
+nil operand false attempt to perform arithmetic on a nil value
+hot loop 5050 true
+values 2500 -2500 true false
+errors propagate false mul failed
+first result only 1 1
+no result is nil nil

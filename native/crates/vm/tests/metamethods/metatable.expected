@@ -1,0 +1,13 @@
+getmetatable true nil true
+protected read locked
+protected write false cannot change a protected metatable
+protected clear false cannot change a protected metatable
+unlocked true
+false still protects false false
+cleared nil
+string metatable true
+bad metatable false
+bad target false
+shared metatable shared shared true
+metatable is its own __index self
+rawequal true false 2

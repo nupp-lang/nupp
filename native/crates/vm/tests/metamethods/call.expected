@@ -1,0 +1,16 @@
+arguments c 1 2
+no arguments c nil nil
+results 3 3
+pcall true c x nil
+constructor idiom 42 true
+varargs 3 1 nil 3
+spread 2 4 5
+as field c f nil
+hot loop 20300
+through a call 10 c q nil
+not callable false attempt to call a table value
+handler not callable false attempt to call a table value
+before false attempt to call a table value
+after now
+errors propagate false call failed
+tail call 7

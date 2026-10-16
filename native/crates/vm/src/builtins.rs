@@ -528,14 +528,28 @@ pub fn tostring(it: &mut Interp, v: Value) -> Vec<u8> {
     if v == Value::TRUE { return b"true".to_vec(); }
     if v == Value::FALSE { return b"false".to_vec(); }
     if it.is_stringish(v) { return it.bytes_of(v).to_vec(); }
-    let handler = it.meta_field(v, "__tostring");
-    if handler != Value::NIL {
-        let values = it.call_value(handler, &[v]);
-        let text = values.first().copied().unwrap_or(Value::NIL);
-        if !it.is_stringish(text) { it.err("__tostring must return a string"); }
-        return it.bytes_of(text).to_vec();
+    let text = tostring_value(it, v);
+    if it.is_stringish(text) { return it.bytes_of(text).to_vec(); }
+    if text.is_num() || crate::numeric::integer(text).is_some() { return tostring(it, text); }
+    it.lua_error("'__tostring' must return a string")
+}
+/// What `tostring` answers: a value's `__tostring` result as the handler
+/// returned it (LuaJIT does not convert it), else its text.
+pub fn tostring_value(it: &mut Interp, v: Value) -> Value {
+    if it.kind_of(v) == Some(crate::heap::KIND_STR) { return v; }
+    if matches!(it.kind_of(v), Some(crate::heap::KIND_TABLE | crate::heap::KIND_RECORD | crate::heap::KIND_USERDATA)) {
+        let handler = it.metamethod(v, crate::metamethods::MM::ToString);
+        if handler != Value::NIL {
+            let scope = it.open_scope(); it.handles.extend_from_slice(&[v, handler]);
+            let text = it.call_value(handler, &[v]).first().copied().unwrap_or(Value::NIL);
+            it.close_scope(scope);
+            return text;
+        }
+        let text = format!("{}: {:#x}", type_name(it, v), v.0);
+        return it.string_of(text.as_bytes());
     }
-    format!("{}: {:#x}", type_name(it, v), v.0).into_bytes()
+    let text = tostring(it, v);
+    it.string_of(&text)
 }
 
 pub static CALLS: std::sync::Mutex<Vec<u64>> = std::sync::Mutex::new(Vec::new());
@@ -1287,12 +1301,24 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 Err(payload) => { let v = if let Some(e) = payload.downcast_ref::<LuaError>() { Value(e.0) } else { let msg = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default(); it.intern(&msg) }; outs![Value::FALSE, v] }
             }
         }
-        N_22 => { let t = arg(args, 0); let keys = it.table_keys(t); let itv = it.new_iter_keys(1, t, keys); outs![itv, t, Value::NIL] }
+        N_22 => {
+            let t = arg(args, 0);
+            // `__pairs` answers the iteration triple (Lua 5.2, LuaJIT's 5.2
+            // compatibility build), honored here without a flag.
+            let handler = it.metamethod(t, crate::metamethods::MM::Pairs);
+            if handler != Value::NIL {
+                let scope = it.open_scope(); it.handles.extend_from_slice(&[t, handler]);
+                let r = it.call_value(handler, &[t]);
+                it.close_scope(scope);
+                return outs![r.first().copied().unwrap_or(Value::NIL), r.get(1).copied().unwrap_or(Value::NIL), r.get(2).copied().unwrap_or(Value::NIL)];
+            }
+            let keys = it.table_keys(t); let itv = it.new_iter_keys(1, t, keys); outs![itv, t, Value::NIL]
+        }
         N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::num(0.0)] }
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
-        N_26 => { let v = arg(args, 0); if it.kind_of(v) == Some(crate::heap::KIND_STR) { return outs![v]; } let s = tostring(it, v); outs![it.string_of(&s)] }
-        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); if !(2..=36).contains(&base) { it.err("bad argument #2 to 'tonumber' (base out of range)"); } let n = if base == 10 { let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) }; lua_number(body).map(|x| if negative { -x } else { x }) } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
+        N_26 => { let v = arg(args, 0); outs![tostring_value(it, v)] }
+        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) }; lua_number(body).map(|x| if negative { -x } else { x }) } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
         N_30 => {
@@ -1326,7 +1352,14 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_32 => outs![Value::boolean(it.values_equal(arg(args, 0), arg(args, 1)))],
         N_33 => { let v = it.get_index(arg(args, 0), arg(args, 1)); outs![v] }
         N_34 => { it.set_index(arg(args, 0), arg(args, 1), arg(args, 2)); outs![arg(args, 0)] }
-        N_35 => { let t = arg(args, 0); it.set_metatable(t, arg(args, 1)); outs![t] }
+        N_35 => {
+            let t = arg(args, 0);
+            // A metatable naming `__metatable` is protected, as in Lua.
+            if matches!(it.kind_of(t), Some(crate::heap::KIND_TABLE | crate::heap::KIND_RECORD)) && it.metatable_of(t) != Value::NIL && it.metamethod(t, crate::metamethods::MM::Metatable) != Value::NIL {
+                it.lua_error("cannot change a protected metatable");
+            }
+            it.set_metatable(t, arg(args, 1)); outs![t]
+        }
         N_36 => outs![it.getmetatable_value(arg(args, 0))],
         // The bit library: 32-bit two's complement, as LuaJIT's, operands
         // normalized by `tobit`.
@@ -1369,8 +1402,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         53 => {
             let t = arg(args, 0); let cmp = arg(args, 1); let n = it.array_len(t);
             let mut v: Vec<Value> = (1..=n).map(|k| it.get_index(t, Value::num(k as f64))).collect();
-            if cmp == Value::NIL {
+            let plain = v.iter().all(|x| crate::numeric::is_numeric(*x)) || v.iter().all(|x| it.is_stringish(*x));
+            if cmp == Value::NIL && plain {
                 v.sort_by(|a, b| { if crate::numeric::is_numeric(*a) && crate::numeric::is_numeric(*b) { crate::numeric::compare(*a, *b).unwrap_or(std::cmp::Ordering::Equal) } else { it.bytes_of(*a).cmp(it.bytes_of(*b)) } });
+            } else if cmp == Value::NIL {
+                // Lua's `<`: mixed kinds raise as the operator does, and
+                // tables order by their shared `__lt`.
+                let mark = it.open_scope(); for x in &v { it.handles.push(*x); }
+                v.sort_by(|a, b| { if it.order(*a, *b, false).truthy() { std::cmp::Ordering::Less } else if it.order(*b, *a, false).truthy() { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } });
+                it.close_scope(mark);
             } else {
                 // Values under comparison live in `v`, which the collector cannot see:
                 // every one is rooted for the duration.

@@ -1,0 +1,19 @@
+same metatable true false false true 4
+identity skips the handler true false false 4
+shared handler, two metatables true false 6
+different handlers false false true
+one side only false false true
+other types false false false false false false
+result is a boolean true false true
+in branches 202020
+operand order lr,rl,lr
+added later: before false
+added later: after true
+removed false
+metatable replaced true false
+metatable cleared false false
+table keys stay raw nil a
+errors propagate false eq failed
+not inherited through __index false
+hot loop 500 2450
+through calls true false false true true true false

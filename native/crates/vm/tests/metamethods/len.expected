@@ -1,0 +1,10 @@
+handler 10 3
+receives the operand true
+non-number result long
+strings ignore it 3
+before 1
+after 99
+hot loop 5050 100
+errors propagate false len failed
+plain 3 0
+not inherited through __index 0

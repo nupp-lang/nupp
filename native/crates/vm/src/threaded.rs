@@ -317,7 +317,7 @@ pub extern "C" fn rt_len(ctx: *mut Ctx, v: u64) -> u64 {
 pub extern "C" fn rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
-    let r = it.guarded(|it| Value::boolean(it.lua_equal(Value(x), Value(y))));
+    let r = it.guarded(|it| Value::boolean(it.equals(Value(x), Value(y))));
     if r == Value::ERROR { ctx.status = ST_ERROR; return 0; }
     (r == Value::TRUE) as u32
 }

@@ -1,0 +1,20 @@
+lt true false false
+le true false true
+gt swaps false true
+ge swaps false true
+log lt12,lt21,lt11,le12,le21,le11,lt21,lt12,le21,le12
+le falls back to not lt true false true false
+fallback log lt21,lt12,lt11,lt12
+result is a boolean true false true
+different handlers false attempt to compare two table values
+mixed types false attempt to compare table with number
+mixed types reversed false attempt to compare number with table
+plain tables false attempt to compare two table values
+plain tables le false attempt to compare two table values
+number and string false attempt to compare number with string
+strings true false true true true
+numbers true true false false true
+shared handler, two metatables true false true
+errors propagate false lt failed
+table.sort uses __lt 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30
+hot loop 465435

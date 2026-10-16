@@ -514,6 +514,9 @@ record state.Checker
     --- Whether an operand is numeric, reporting when it is not.
     numericOperand: function(t: Type, node: any, op: string): boolean
 
+    --- Whether a plain Lua file's operand may dispatch a metamethod.
+    dynamicOperand: function(t: Type): boolean
+
     --- What has been put on the table this file returns, by name. A module is written
     --- `local M = {}` and filled in one statement at a time, so what it exports is what
     --- was added to it rather than what the constructor said.

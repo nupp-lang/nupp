@@ -1,0 +1,21 @@
+function handler got missing got 1 raw nil missing,1
+table handler red 5 nil nil
+chain A B C nil
+chain sees a later write late
+classes base1 derived2 derived3
+hot method calls 1200
+patched base patched derived derived
+removed override patched patched
+handler added later: before nil
+handler added later: after now
+handler replaced table now
+metatable cleared nil
+errors propagate false no field thing
+index nil false attempt to index a nil value
+index number false attempt to index a number value
+first result only 1 1
+string methods ABC xxx 2
+string method added HEY!
+string index function true nil
+memoized 330 10
+key types number number string boolean table

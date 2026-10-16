@@ -495,6 +495,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 end
                 return c.applyContract(mm, {t}, {operand}, node, "__unm")
             end
+            if c.dynamicOperand(t) then
+                return T.any
+            end
             c.numericOperand(t, node, op)
             if t.tag == "int64" or t.tag == "uint64" then
                 capabilities.require(c, "int64", opTok)
@@ -664,6 +667,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 node.unsafeOwnershipOperation = "unchecked pointer arithmetic"
                 return leftPayload
             end
+            if c.dynamicOperand(lt) or c.dynamicOperand(rt) then
+                return T.any
+            end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             if lt == T.any or rt == T.any then
@@ -716,6 +722,10 @@ function operators.install(c: state.Checker): state.ExprHandlers
             -- it may be a table carrying a `__concat` -- so a rewrite that assumes
             -- primitive string building (`OPT-5`) must refuse it, while the check above
             -- must allow it.
+            if c.dynamicOperand(lt) or c.dynamicOperand(rt) then
+                node.plainConcat = false
+                return T.any
+            end
             local plain = true
             for _, pair in ipairs({{lt, lhs}, {rt, rhs}}) do
                 -- Each pair holds a type beside the expression it came from, which is
@@ -830,7 +840,9 @@ function operators.install(c: state.Checker): state.ExprHandlers
                     c.applyContract(mm, {left, right}, {leftNode, rightNode}, node, mmName)
                 else
                     local lf, rf = orderingFamily(lt), orderingFamily(rt)
-                    if not (lf == "any" or rf == "any" or (lf and lf == rf)) then
+                    if not (
+                        lf == "any" or rf == "any" or (lf and lf == rf) or c.dynamicOperand(lt) or c.dynamicOperand(rt)
+                    ) then
                         c.diag(
                             "NUPP2003",
                             node,

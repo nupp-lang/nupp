@@ -1,0 +1,11 @@
+handler 1=a,2=b,3=c
+next over another table x 1
+handler arguments true
+no handler k v
+added later 0
+state and control 1 s
+state and control 2 s
+state and control 3 s
+errors propagate false pairs failed
+hot loop 100
+ipairs stays raw 3

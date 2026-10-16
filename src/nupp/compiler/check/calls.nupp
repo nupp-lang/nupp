@@ -2192,7 +2192,7 @@ function calls.install(c: state.Checker): calls.Ops
         if calleeT == T.any or (calleeT.tag ~= "func" and not overloads) then
             -- A `new` whose operand was already refused is not also a bad call: the
             -- program said what it meant, and one diagnostic says why it cannot be met.
-            if calleeT ~= T.any and not node.newReported then
+            if calleeT ~= T.any and not node.newReported and not c.dynamicOperand(calleeT) then
                 c.diag("NUPP2005", node, ("%s is not callable"):format(T.tostring(calleeT)))
             end
             -- still check the argument expressions themselves

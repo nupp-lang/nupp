@@ -1,0 +1,10 @@
+tostring T(1)
+format %s T(1) and T(2)
+non-string result 42
+errors propagate false ts failed
+before table: ADDR
+after late
+not inherited through __index true
+copied down base 3
+hot loop 50 50
+plain values 1 1.5 nil true s

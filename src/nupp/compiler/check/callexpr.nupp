@@ -1704,6 +1704,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 dynamicNode.assertNever = first == T.never
             end
         end
+        -- A plain `.lua` file's metatable is whatever the program put there, so
+        -- what `setmetatable` answers may be called, compared or operated on
+        -- through any metamethod: Lua decides at run time, and so does the VM.
+        if calleeName == "setmetatable"
+            and not (c.opts and c.opts.strict)
+            and globalsForAssert
+            and c.lookupEntry("setmetatable") == globalsForAssert.setmetatable
+        then
+            first, rets, pack = T.any, {T.any}, T.pack({T.any})
+        end
         if node.kind == "call" and stringFormatIntrinsic(c, callee) then
             local format = literalString(argExprs[1])
             local plan = format and debugFormatPlan(format) or nil

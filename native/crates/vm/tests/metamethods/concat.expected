@@ -1,0 +1,14 @@
+table .. table [a|b]
+table .. string [a|s] [s|a]
+table .. number [a|1] [2|a]
+chain x[a|y] [a|[x|b]] p[q|a]
+plain ab 12 1.5 x10
+missing false attempt to concatenate a table value
+missing right false attempt to concatenate a table value
+boolean false attempt to concatenate a boolean value
+nil false attempt to concatenate a nil value
+left first left right left
+table.concat stays raw false
+hot loop ++++++++++++++++++++
+errors propagate false concat failed
+non-string result 43

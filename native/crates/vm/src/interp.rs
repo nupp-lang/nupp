@@ -888,7 +888,7 @@ impl Interp {
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
             let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
             let h = unsafe { &*p.as_ptr() };
-            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE | KIND_RECORD => { let f = self.call_handler(callee); if f == Value::NIL { self.err("call of a table without __call") } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
+            match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE | KIND_RECORD | KIND_USERDATA => { let f = self.call_handler(callee); if !self.is_function(f) { self.op_error(OpErr::Call, callee) } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
         let entry = self.entry_of(fid);
         if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
@@ -1354,15 +1354,7 @@ impl Interp {
     }
     /// `x == y` as Lua sees it: value equality, then for two tables or two
     /// userdata the `__eq` handler both share (Lua 5.1), called with both.
-    pub fn lua_equal(&mut self, x: Value, y: Value) -> bool {
-        if self.values_equal(x, y) { return true; }
-        if x.as_obj().is_none() || y.as_obj().is_none() || self.is_stringish(x) || self.is_stringish(y) { return false; }
-        let kind = crate::builtins::type_name(self, x);
-        if kind != crate::builtins::type_name(self, y) || (kind != "table" && kind != "userdata") { return false; }
-        let handler = self.meta_field(x, "__eq");
-        if handler == Value::NIL || handler != self.meta_field(y, "__eq") { return false; }
-        self.call_value(handler, &[x, y]).first().is_some_and(|v| v.truthy())
-    }
+    pub fn lua_equal(&mut self, x: Value, y: Value) -> bool { self.equals(x, y) }
     /// A table key by content: a slice or an uninterned string is looked up
     /// as the interned string with those bytes, or none, in which case the
     /// key is absent.
@@ -1490,6 +1482,7 @@ impl Interp {
     /// methods, as a program patching a class does, reaches the shape too.
     pub(crate) fn set_method(&mut self, shape: u32, name: Value, f: Value) {
         self.heap.shapes[shape as usize].methods.insert(name, f);
+        self.heap.shapes[shape as usize].mm_cache = 0;
         if self.heap.interned_key("\0nupp:recordType") == Some(name) && self.kind_of(f) == Some(KIND_TABLE) {
             unsafe { (*f.as_obj().unwrap().as_ptr()).flags |= heap::F_DECLARATION; }
             let shapes = self.heap.declarations.entry(f.0).or_default();
@@ -1499,6 +1492,7 @@ impl Interp {
     /// A store to a declaration table: a method its shapes dispatch follows it.
     fn redeclare(&mut self, decl: Value, key: Value, v: Value) {
         let Some(shapes) = self.heap.declarations.get(&decl.0).cloned() else { return };
+        self.redeclared_metamethods(&shapes, key);
         for shape in shapes {
             let methods = &mut self.heap.shapes[shape as usize].methods;
             if methods.contains_key(&key) {
@@ -1567,27 +1561,13 @@ impl Interp {
         }
         self.heap.account_resize(before, h.external_bytes());
     }
-    pub(crate) fn meta_field(&mut self, t: Value, name: &str) -> Value {
-        let mut meta = self.metatable_of(t);
-        if meta == Value::NIL {
-            if let Some(object) = t.as_obj() {
-                let header = unsafe { object.as_ref() };
-                if header.kind == KIND_RECORD {
-                    if let Some(key) = self.heap.interned_key("\0nupp:recordType") {
-                        meta = self.heap.shapes[header.shape() as usize].methods.get(&key).copied().unwrap_or(Value::NIL);
-                    }
-                }
-            }
-        }
-        if meta == Value::NIL { return Value::NIL; }
-        if let Some(value) = crate::storage::metamethod(self, t, meta, name) { return value; }
-        match self.heap.intern_lookup(name) { Some(key) => self.get_index(meta, key), None => Value::NIL }
-    }
     /// A read that follows `__index` (a function or a table) when a table
     /// lacks the key, including tables represented by record shapes.
     pub fn index(&mut self, t: Value, key: Value) -> Value {
         let mut t = t;
         for _ in 0..100 {
+            // A string's fields are what the string metatable's `__index` answers.
+            if self.is_stringish(t) { return self.string_field(t, key); }
             let v = self.get_index(t, key);
             if v != Value::NIL { return v; }
             if let Some(p) = t.as_obj() {
@@ -1596,7 +1576,7 @@ impl Interp {
                     if let Some(method) = self.heap.shapes[h.shape() as usize].methods.get(&key) { return *method; }
                 }
             }
-            let h = self.meta_field(t, "__index");
+            let h = self.metamethod(t, crate::metamethods::MM::Index);
             if h == Value::NIL { return Value::NIL; }
             if h.as_obj().map(|p| matches!(unsafe { (*p.as_ptr()).kind }, KIND_TABLE | KIND_RECORD)).unwrap_or(false) { t = h; continue; }
             let outs = self.call_value(h, &[t, key]);
@@ -1609,7 +1589,7 @@ impl Interp {
     /// metatable has one; raw otherwise.
     pub fn newindex(&mut self, t: Value, key: Value, v: Value) {
         if self.metatable_of(t) != Value::NIL && self.get_index(t, key) == Value::NIL {
-            let h = self.meta_field(t, "__newindex");
+            let h = self.metamethod(t, crate::metamethods::MM::NewIndex);
             if h != Value::NIL {
                 if h.as_obj().map(|p| matches!(unsafe { (*p.as_ptr()).kind }, KIND_TABLE | KIND_RECORD)).unwrap_or(false) { return self.newindex(h, key, v); }
                 self.call_value(h, &[t, key, v]); return;
@@ -1622,7 +1602,7 @@ impl Interp {
     pub fn length(&mut self, value: Value) -> Value {
         match self.kind_of(value) {
             Some(kind @ (KIND_TABLE | KIND_RECORD | KIND_USERDATA)) => {
-                let handler = self.meta_field(value, "__len");
+                let handler = self.metamethod(value, crate::metamethods::MM::Len);
                 if handler == Value::NIL {
                     if kind == KIND_USERDATA { self.op_error(OpErr::Len, value); }
                     return Value::num(self.array_len(value) as f64);
@@ -1646,7 +1626,9 @@ impl Interp {
         }
     }
     /// The function behind a callable table (`__call`), or nil.
-    pub fn call_handler(&mut self, t: Value) -> Value { self.meta_field(t, "__call") }
+    pub fn call_handler(&mut self, t: Value) -> Value { self.metamethod(t, crate::metamethods::MM::Call) }
+    /// Whether a value is a function: a closure, a bare function or a builtin.
+    pub fn is_function(&self, v: Value) -> bool { v.as_func().is_some() || v.as_builtin().is_some() || self.kind_of(v) == Some(KIND_CLOSURE) }
     pub fn get_field(&self, t: Value, name: Value) -> Value { self.get_index(t, name) }
     pub fn set_field(&mut self, t: Value, name: Value, v: Value) { self.set_index(t, name, v) }
     /// Named bytecode writes preserve record slot contracts; rawset stays raw.
@@ -1725,8 +1707,8 @@ impl Interp {
         // through `__concat`, the left operand's first, as Lua's does.
         let plain = |it: &Interp, v: Value| it.is_stringish(v) || crate::numeric::is_numeric(v);
         if !plain(self, x) || !plain(self, y) {
-            let handler = if plain(self, x) { Value::NIL } else { self.meta_field(x, "__concat") };
-            let handler = if handler == Value::NIL && !plain(self, y) { self.meta_field(y, "__concat") } else { handler };
+            let handler = if plain(self, x) { Value::NIL } else { self.metamethod(x, crate::metamethods::MM::Concat) };
+            let handler = if handler == Value::NIL && !plain(self, y) { self.metamethod(y, crate::metamethods::MM::Concat) } else { handler };
             if handler != Value::NIL {
                 let scope = self.open_scope(); self.handles.extend_from_slice(&[x, y, handler]);
                 let v = self.call_value(handler, &[x, y]).first().copied().unwrap_or(Value::NIL);
@@ -1904,11 +1886,11 @@ impl Interp {
             let (a, b) = (self.bytes_of(x), self.bytes_of(y));
             return Value::boolean(if or_equal { a <= b } else { a < b });
         }
-        let handler = |it: &mut Interp, name: &str| { let h = it.meta_field(x, name); if h != Value::NIL && h == it.meta_field(y, name) { h } else { Value::NIL } };
-        let direct = handler(self, if or_equal { "__le" } else { "__lt" });
+        let handler = |it: &mut Interp, mm: crate::metamethods::MM| { let h = it.metamethod(x, mm); if h != Value::NIL && h == it.metamethod(y, mm) { h } else { Value::NIL } };
+        let direct = handler(self, if or_equal { crate::metamethods::MM::Le } else { crate::metamethods::MM::Lt });
         if direct != Value::NIL { return Value::boolean(self.call_value(direct, &[x, y]).first().is_some_and(|v| v.truthy())); }
         if or_equal {
-            let swapped = handler(self, "__lt");
+            let swapped = handler(self, crate::metamethods::MM::Lt);
             if swapped != Value::NIL { return Value::boolean(!self.call_value(swapped, &[y, x]).first().is_some_and(|v| v.truthy())); }
         }
         let (a, b) = (crate::builtins::type_name(self, x), crate::builtins::type_name(self, y));
@@ -2075,8 +2057,8 @@ impl Interp {
                     Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mod", None); }
                     Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "div", None); }
                     Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
-                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(self.lua_equal(x, y)) }
-                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = Value::boolean(!self.lua_equal(x, y)) }
+                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); let e = self.equals(x, y); r!(d) = Value::boolean(e) }
+                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); let e = self.equals(x, y); r!(d) = Value::boolean(!e) }
                     Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
                     Op::Neg(d, a) => { let x = r!(a); r!(d) = crate::numeric::negate(self, x); }
                     Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
@@ -2370,7 +2352,7 @@ impl Interp {
         let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
         let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
-        if matches!(h.kind, KIND_TABLE | KIND_RECORD) {
+        if matches!(h.kind, KIND_TABLE | KIND_RECORD | KIND_USERDATA) {
             let args = self.call_args(tid, base + b as usize + 1, nargs);
             let outs = self.call_value(callee, args.as_slice()); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
         }

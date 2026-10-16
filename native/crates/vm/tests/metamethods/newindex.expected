@@ -1,0 +1,11 @@
+function handler a=1,2=two nil 1 two 5
+absent from the table, so the handler again a=1,2=two,a=10 10
+table handler nil 1 2
+chain nil nil v
+errors propagate false read-only: x
+rawset bypasses 2
+hot loop 100 200
+handler added later 3 nil
+key removed then written via handler
+assign to nil false attempt to index a nil value
+class newindex number string

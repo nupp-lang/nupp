@@ -2998,9 +2998,11 @@ function lower.emit(
                 -- time: string concatenation associates, and nesting it right as
                 -- the grammar does would hold a register per operand.
                 local parts = {}
+                local dispatching = false
 
                 local function flatten(n)
                     if n.kind == "binop" and tokText(n.op) == ".." then
+                        dispatching = dispatching or n.plainConcat ~= true
                         flatten(n.lhs);
                         flatten(n.rhs)
                     else
@@ -3010,11 +3012,26 @@ function lower.emit(
 
                 flatten(node)
                 local mark = f.nregs
-                exprAs(f, parts[1], "v", dst)
-                for i = 2, #parts do
-                    f.nregs = math.max(mark, f.declTop or 0)
-                    local b = exprAs(f, parts[i], "v")
-                    f:op("Concat", dst, dst, b)
+                if dispatching and #parts > 2 then
+                    -- An operand that may carry `__concat` sees the chain as
+                    -- Lua builds it: every operand evaluated in order, then
+                    -- joined from the right, so `a .. t .. b` asks `t .. b` first.
+                    local held = {}
+                    for i = 1, #parts do
+                        held[i] = f:reg()
+                        exprAs(f, parts[i], "v", held[i])
+                    end
+                    f:op("Concat", dst, held[#parts - 1], held[#parts])
+                    for i = #parts - 2, 1, -1 do
+                        f:op("Concat", dst, held[i], dst)
+                    end
+                else
+                    exprAs(f, parts[1], "v", dst)
+                    for i = 2, #parts do
+                        f.nregs = math.max(mark, f.declTop or 0)
+                        local b = exprAs(f, parts[i], "v")
+                        f:op("Concat", dst, dst, b)
+                    end
                 end
             else
                 local a = exprAs(f, node.lhs, "v");

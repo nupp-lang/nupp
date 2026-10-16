@@ -370,6 +370,10 @@ pub struct Shape {
     pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
     pub methods: HashMap<Value, Value>,
+    /// Which metamethods the shape's declaration holds, as `metamethods::MM`
+    /// bits, with `metamethods::CACHED` once computed; zero until then and
+    /// after any store that may change the answer.
+    pub mm_cache: u32,
 }
 
 /// Who can enumerate the roots (4.5): every task's registers, every frame's
@@ -448,6 +452,13 @@ pub struct Heap {
     /// The interned `"__mode"` key's bits for this cycle, or nil's bits when
     /// no such string exists (so no metatable can name a mode).
     mode_key: u64,
+    /// One bit per metamethod name (`metamethods::MM`) whose string has ever
+    /// been interned. A key that was never a string is in no table, so an
+    /// operation whose bit is clear has no metamethod to find.
+    pub mm_seen: u32,
+    /// The metamethod names as interned strings, filled on first use and
+    /// held as roots so the bits stay valid; `VT_EMPTY` until then.
+    pub mm_keys: [u64; crate::metamethods::COUNT],
     #[cfg(feature = "allocation-metrics")]
     metrics: Option<crate::allocation_metrics::Handle>,
 }
@@ -461,7 +472,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(),
+        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT],
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -472,7 +483,7 @@ impl Heap {
         let mask = (size - 1) as u64;
         let mut table = vec![(0u64, 0u32); size];
         for (i, n) in names.iter().enumerate() { let mut k = slot_hash(n.0) & mask; while table[k as usize].0 != 0 { k = (k + 1) & mask; } table[k as usize] = (n.0, i as u32); }
-        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new(), table, mask });
+        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new(), table, mask, mm_cache: 0 });
         (self.shapes.len() - 1) as u32
     }
 
@@ -587,6 +598,7 @@ impl Heap {
         let v = self.new_string_bytes(s, roots);
         let p = v.as_obj().unwrap();
         unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(s); }
+        if s.starts_with(b"__") { self.mm_seen |= crate::metamethods::bit_of(s); }
         self.interned.insert(s.into(), p);
         v
     }
@@ -909,6 +921,7 @@ impl Heap {
         if let Some(m) = &self.metrics { m.borrow_mut().shape_root_slots += self.shapes.iter().map(|s| s.names.len() + 2 * s.methods.len()).sum::<usize>() as u64; }
         let gray = &mut self.gray;
         for s in &self.shapes { for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.values()) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } } }
+        for &k in &self.mm_keys { if let Some(p) = Value(k).as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } }
     }
 
     /// Every reference an object holds, by kind: the one walk the marker, the
@@ -1146,6 +1159,7 @@ impl Heap {
         let mut n = 0;
         roots.each_root(&mut |v| { n += 1; if let Some(p) = v.as_obj() { if self.is_live_slot(p) { stack.push((p, format!("root #{n}"))); } } });
         for s in &self.shapes { for &nm in s.names.iter().chain(s.methods.keys()).chain(s.methods.values()) { if let Some(p) = nm.as_obj() { stack.push((p, "shape".into())); } } }
+        for &k in &self.mm_keys { if let Some(p) = Value(k).as_obj() { stack.push((p, "metamethod name".into())); } }
         while let Some((p, via)) = stack.pop() {
             if !seen.insert(p.as_ptr() as usize) { continue; }
             let h = unsafe { &*p.as_ptr() };

@@ -125,15 +125,6 @@ static inline Value boolean(int b) { return b ? T_TRUE : T_FALSE; }
 #define F_INTERNED 1
 #define F_METATABLE 4
 #define F_STORAGE_SCHEMA 32
-// Equal words are equal; two interned strings with different words are not;
-// other object pairs may be equal by content (slices, long strings).
-static inline int values_equal(Ctx* ctx, Value x, Value y) {
-    if (is_num(x) && is_num(y)) return as_num(x) == as_num(y);
-    if (x == y) return 1;
-    if (!is_obj(x) || !is_obj(y)) return 0;
-    if ((obj_flags(x) & F_INTERNED) && (obj_flags(y) & F_INTERNED)) return 0;
-    return (int)rt_eq_slow(ctx, x, y);
-}
 static inline uint64_t header3(uint64_t words, uint64_t nvar) { return (words << 33) | (nvar << 49); }
 static inline uint64_t frame_words_of(uint64_t h3) { return (h3 >> 33) & 0xffff; }
 
@@ -184,11 +175,25 @@ ARITH(h_sub, num(p - q))
 ARITH(h_mul, num(p * q))
 ARITH(h_lt, boolean(p < q))
 ARITH(h_le, boolean(p <= q))
+// Equal words are equal; two interned strings with different words are not.
+// Two distinct objects that are not both interned strings ask the helper,
+// which compares content and then consults `__eq`, which may run code: the
+// frame is re-read afterwards, as after a field read.
+static inline int eq_values(const Ins* pc, Value* regs, Ctx* ctx, uint64_t* frame) {
+    Value x = regs[pc->b], y = regs[pc->c];
+    if (is_num(x) && is_num(y)) return as_num(x) == as_num(y);
+    if (x == y) return 1;
+    if (!is_obj(x) || !is_obj(y)) return 0;
+    if ((obj_flags(x) & F_INTERNED) && (obj_flags(y) & F_INTERNED)) return 0;
+    NOTE_PC;
+    return (int)rt_eq_slow(ctx, x, y);
+}
+#define RELOAD_FRAME do { frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + FUNC_OF(frame)->off_i); fregs = (double*)(frame + FUNC_OF(frame)->off_f); } while (0)
 static Value h_eq(ARGS) {
-    int e = values_equal(ctx, regs[pc->b], regs[pc->c]); CHECK_ERR; regs[pc->a] = boolean(e); pc++; NEXT;
+    int e = eq_values(pc, regs, ctx, frame); CHECK_ERR; RELOAD_FRAME; regs[pc->a] = boolean(e); pc++; NEXT;
 }
 static Value h_ne(ARGS) {
-    int e = values_equal(ctx, regs[pc->b], regs[pc->c]); CHECK_ERR; regs[pc->a] = boolean(!e); pc++; NEXT;
+    int e = eq_values(pc, regs, ctx, frame); CHECK_ERR; RELOAD_FRAME; regs[pc->a] = boolean(!e); pc++; NEXT;
 }
 static Value h_not(ARGS) { regs[pc->a] = boolean(!truthy(regs[pc->b])); pc++; NEXT; }
 static Value h_neg(ARGS) { Value x = regs[pc->b]; if (__builtin_expect(is_num(x), 1)) { regs[pc->a] = num(-as_num(x)); pc++; NEXT; } SLOW; }

@@ -107,7 +107,7 @@ fn text_of(it: &mut Interp, v: Value, position: usize) -> Vec<u8> {
     if it.is_stringish(v) { return it.bytes_of(v).to_vec(); }
     if crate::numeric::is_numeric(v) { return crate::builtins::tostring(it, v); }
     if is_buffer(it, v) { return buffer(it, v, "put").bytes().to_vec(); }
-    if it.meta_field(v, "__tostring") != Value::NIL { return crate::builtins::tostring(it, v); }
+    if it.metamethod(v, crate::metamethods::MM::ToString) != Value::NIL { return crate::builtins::tostring(it, v); }
     fail(it, &format!("bad argument #{position} to 'put' (string/number/__tostring expected, got {})", type_name(it, v)))
 }
 
