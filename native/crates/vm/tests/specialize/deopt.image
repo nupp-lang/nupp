@@ -1,0 +1,412 @@
+shape 0 P2 identity=deopt:P2 x:num y:num
+shape 1 P3 identity=deopt:P3 z:num x:num y:num
+shape 2 Lease identity=deopt:Lease state:any
+shape 3 struct:closed closed:any
+function module:deopt 0 0 28 2 :v
+  source deopt
+  const 0 str "__index"
+  const 1 str "\000nupp:recordType"
+  const 2 str "_G"
+  const 3 str "__nuppCleanupRegistry"
+  const 4 str "deopt#destroyLease"
+  const 5 str "run"
+  const 6 str "main"
+  lines 7x3 9 13x5 18x5 24x5 28x12 32x6 36x7 55x5 63x5 68x8 100x4 104x2
+  NewTableN 3 0 0
+  Move 2 3
+  NewCell 1 2
+  NewTableN 2 0 0
+  NewTableN 4 0 0
+  NewCell 3 4
+  GetCell 5 3
+  SetField 5 0 5
+  SetMethod 0 1 5
+  NewTableN 5 0 0
+  NewCell 4 5
+  GetCell 6 4
+  SetField 6 0 6
+  SetMethod 1 1 6
+  NewTableN 6 0 0
+  NewCell 5 6
+  GetCell 7 5
+  SetField 7 0 7
+  SetMethod 2 1 7
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  NewClosure 8 1 9 0
+  SetCell 6 8
+  GetCell 10 6
+  Require 11 2
+  GetField 12 11 3
+  JmpIf 12 2
+  NewTableN 12 0 0
+  SetField 11 3 12
+  SetField 12 4 10
+  Nil 7
+  Nil 8
+  NewCell 7 8
+  Move 11 5
+  NewClosure 9 2 10 1
+  SetCell 7 9
+  Nil 8
+  Nil 9
+  NewCell 8 9
+  Move 12 6
+  Move 13 7
+  NewClosure 10 3 11 2
+  SetCell 8 10
+  Nil 9
+  Nil 10
+  NewCell 9 10
+  NewClosure 11 5 12 0
+  SetCell 9 11
+  Nil 10
+  Nil 11
+  NewCell 10 11
+  NewClosure 12 6 13 0
+  SetCell 10 12
+  Move 13 3
+  Move 14 4
+  Move 15 10
+  Move 16 9
+  Move 17 8
+  NewClosure 11 7 12 5
+  GetCell 18 1
+  SetField 18 5 11
+  Move 13 1
+  NewClosure 11 8 12 1
+  GetCell 14 1
+  SetField 14 6 11
+  GetCell 11 1
+  Ret 11
+end
+function destroyLease 1 1 16 2 v:v
+  source deopt
+  const 0 str "closed"
+  const 1 num 1
+  lines 29x7
+  GetSlot 2 1 0 2
+  GetSlot 5 1 0 2
+  GetField 4 5 0
+  K 6 1
+  Add 3 4 6
+  SetField 2 0 3
+  RetNil
+end
+function lease 2 1 13 2 v:v
+  source deopt
+  lines 0 33x3
+  GetUpval 2 0
+  NewRecord 3 2
+  SetSlot 3 0 1 2
+  Ret 3
+end
+function weigh 3 3 34 13 vvv:v
+  source deopt
+  const 0 num 3
+  const 1 num 0.5
+  const 2 num 1
+  const 3 num 2
+  const 4 str "ww"
+  const 5 num 0
+  const 6 str "x"
+  const 7 builtin assert
+  const 8 str "closed"
+  lines 0x2 37x2 38x3 39x6 40 41x3 44 45x7 46x2 47x15 48x8 50
+  GetUpval 4 0
+  GetUpval 5 1
+  K 7 0
+  NewCell 6 7
+  K 9 1
+  Mul 8 3 9
+  NewCell 7 8
+  NewTableN 9 2 0
+  K 10 2
+  SetIdx 9 10 1
+  K 10 3
+  SetIdx 9 10 1
+  Move 8 9
+  K 9 4
+  Move 12 6
+  Move 13 7
+  NewClosure 10 4 11 2
+  K 11 5
+  GetCell 15 5
+  Move 13 2
+  CallK 2 15 12 1 1
+  PadResults 12 1
+  Move 16 12
+  GetCell 17 4
+  Defer 12 17
+  GetField 18 1 6
+  FUnbox 0 18
+  GetCell 18 7
+  FUnbox 1 18
+  FMul 2 0 1
+  GetCell 19 6
+  FUnbox 3 19
+  FAdd 4 2 3
+  LenF 5 8
+  FAdd 6 4 5
+  CallK 4 10 20 0 1
+  PadResults 20 1
+  FUnbox 7 20
+  FAdd 8 6 7
+  LenF 9 9
+  FAdd 10 8 9
+  FBox 11 10
+  K 21 7
+  GetSlot 23 16 0 2
+  GetField 22 23 8
+  K 24 5
+  Le 19 24 22
+  CallDyn 21 18 1
+  PadResults 18 1
+  Unwind 0
+  Ret 11
+end
+function bump 4 0 15 2 :v
+  source deopt
+  lines 0x2 42x4
+  GetUpval 1 0
+  GetUpval 2 1
+  GetCell 3 2
+  GetCell 4 1
+  Add 5 3 4
+  Ret 5
+end
+function sumx 5 2 16 8 vv:v
+  source deopt
+  const 0 num 0
+  const 1 str "x"
+  lines 56 57x6 58x7 60
+  K 3 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  FToI 5 0
+  GetIdxI 5 1 5
+  GetField 4 5 1
+  Mul 6 4 2
+  Add 3 3 6
+  FAdd 0 0 3
+  Jmp -9
+  Ret 3
+end
+function shift 6 2 14 2 vv:v
+  source deopt
+  const 0 str "x"
+  lines 64x3 65x2
+  GetField 3 1 0
+  Add 4 3 2
+  SetField 1 0 4
+  GetField 3 1 0
+  Ret 3
+end
+function M.run 7 0 27 9 :v
+  source deopt
+  const 0 num 0
+  const 1 num 2
+  const 2 num 3
+  const 3 num 1
+  const 4 builtin tostring
+  const 5 str " closed="
+  const 6 str "closed"
+  const 7 str " sums="
+  const 8 str " moved="
+  lines 0x5 69x4 70 71x6 72x13 74x6 75x15 77x2 78x2 79x6 80x6 81x10 83 84x6 85x8 87x6 88x8 90 91x6 92x12 94x6 95x14 97x26
+  GetUpval 1 0
+  GetUpval 2 1
+  GetUpval 3 2
+  GetUpval 4 3
+  GetUpval 5 4
+  NewRecord 7 3
+  K 8 0
+  SetSlot 7 0 8 3
+  Move 6 7
+  K 7 0
+  FK 1 1
+  FMov 0 1
+  FK 2 3000
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 13
+  GetCell 13 5
+  NewRecord 14 0
+  SetSlotF 14 0 0 0
+  FK 5 1
+  SetSlotF 14 1 5 0
+  Move 9 14
+  Move 10 6
+  K 11 1
+  CallK 3 13 8 3 1
+  PadResults 8 1
+  Add 7 7 8
+  FAdd 0 0 3
+  Jmp -15
+  FK 1 1
+  FMov 0 1
+  FK 2 300
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 15
+  GetCell 13 5
+  NewRecord 14 1
+  FK 5 0
+  SetSlotF 14 0 5 1
+  SetSlotF 14 1 0 1
+  FK 5 1
+  SetSlotF 14 2 5 1
+  Move 9 14
+  Move 10 6
+  K 11 1
+  CallK 3 13 8 3 1
+  PadResults 8 1
+  Add 7 7 8
+  FAdd 0 0 3
+  Jmp -17
+  NewTableN 9 0 0
+  Move 8 9
+  NewTableN 10 0 0
+  Move 9 10
+  FK 1 1
+  FMov 0 1
+  FK 2 8
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 16
+  FToI 5 0
+  NewRecord 10 0
+  SetSlotF 10 0 0 0
+  FK 6 0
+  SetSlotF 10 1 6 0
+  SetIdxI 8 5 10
+  FToI 5 0
+  NewRecord 10 1
+  FK 6 0
+  SetSlotF 10 0 6 1
+  SetSlotF 10 1 0 1
+  FK 6 0
+  SetSlotF 10 2 6 1
+  SetIdxI 9 5 10
+  FAdd 0 0 3
+  Jmp -18
+  K 10 0
+  FK 1 1
+  FMov 0 1
+  FK 2 1500
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 8
+  GetCell 15 4
+  Move 12 8
+  K 13 1
+  CallK 5 15 11 2 1
+  PadResults 11 1
+  Add 10 10 11
+  FAdd 0 0 3
+  Jmp -10
+  FK 1 1
+  FMov 0 1
+  FK 2 200
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 8
+  GetCell 15 4
+  Move 12 9
+  K 13 2
+  CallK 5 15 11 2 1
+  PadResults 11 1
+  Add 10 10 11
+  FAdd 0 0 3
+  Jmp -10
+  K 11 0
+  FK 1 1
+  FMov 0 1
+  FK 2 3000
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 12
+  GetCell 16 3
+  NewRecord 17 0
+  SetSlotF 17 0 0 0
+  FK 5 1
+  SetSlotF 17 1 5 0
+  Move 13 17
+  K 14 3
+  CallK 6 16 12 2 1
+  PadResults 12 1
+  Add 11 11 12
+  FAdd 0 0 3
+  Jmp -14
+  FK 1 1
+  FMov 0 1
+  FK 2 300
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 14
+  GetCell 16 3
+  NewRecord 17 1
+  FK 5 0
+  SetSlotF 17 0 5 1
+  SetSlotF 17 1 0 1
+  FK 5 1
+  SetSlotF 17 2 5 1
+  Move 13 17
+  K 14 1
+  CallK 6 16 12 2 1
+  PadResults 12 1
+  Add 11 11 12
+  FAdd 0 0 3
+  Jmp -16
+  K 15 4
+  Move 13 7
+  CallDyn 15 12 1
+  PadResults 12 1
+  K 13 5
+  Concat 12 12 13
+  K 16 4
+  GetField 14 6 6
+  CallDyn 16 13 1
+  PadResults 13 1
+  Concat 12 12 13
+  K 13 7
+  Concat 12 12 13
+  K 16 4
+  Move 14 10
+  CallDyn 16 13 1
+  PadResults 13 1
+  Concat 12 12 13
+  K 13 8
+  Concat 12 12 13
+  K 16 4
+  Move 14 11
+  CallDyn 16 13 1
+  PadResults 13 1
+  Concat 12 12 13
+  Ret 12
+end
+function M.main 8 0 23 2 :v
+  source deopt
+  const 0 str "run"
+  lines 0 101x12
+  GetUpval 1 0
+  GetCell 12 1
+  GetField 11 12 0
+  CallDyn 11 13 0
+  Move 2 13
+  Move 3 14
+  Move 4 15
+  Move 5 16
+  Move 6 17
+  Move 7 18
+  Move 8 19
+  Move 9 20
+  RetN 2 128
+end
+module deopt 0 deopt.nupp
+entry 0

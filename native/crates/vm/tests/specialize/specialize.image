@@ -1,0 +1,2972 @@
+shape 0 struct:hits,x hits:any x:any
+shape 1 struct:__index __index:any
+shape 2 struct:n n:any
+shape 3 struct:v v:any
+shape 4 struct:n,name,run n:any name:any run:any
+shape 5 Dog identity=poly:Dog legs:num
+shape 6 Bird identity=poly:Bird legs:num wings:num
+shape 7 Fish identity=poly:Fish legs:num
+shape 8 struct:value value:any
+shape 9 struct:other other:any
+shape 10 struct:extra,value extra:any value:any
+shape 11 Circle identity=shapes:Circle name:str r:num
+shape 12 Rect identity=shapes:Rect name:str w:num h:num
+shape 13 Square identity=shapes:Square name:str side:num
+shape 14 struct:x x:any
+shape 15 struct:__mode __mode:any
+shape 16 struct:f f:any
+function module:classes 0 0 29 2 :v
+  source classes
+  const 0 str "__index"
+  const 1 str "new"
+  const 2 str "get"
+  const 3 str "step"
+  const 4 str "touch"
+  const 5 builtin setmetatable
+  const 6 str "add"
+  const 7 num 1
+  const 8 str "monomorphic"
+  const 9 num 20000
+  const 10 num 2
+  const 11 str "polymorphic"
+  const 12 num 3
+  const 13 str "patched"
+  const 14 num 40000
+  const 15 num 4
+  const 16 str "callbacks"
+  const 17 num 300000
+  const 18 num 5
+  const 19 str "representations"
+  const 20 str "main"
+  const 21 str "bench"
+  lines 7x2 9x3 10x3 11x4 12x3 13x3 14x3 16x10 17x3 18x4 19x3 21x10 22x3 23x4 24x3 26x3 27x3 28x4 29x3 33x5 43x5 52x3 60x5 73x5 79x3 92x2 107 124x43 132x3 140x3 154
+  NewTableN 2 0 0
+  Move 1 2
+  NewTableN 4 0 0
+  Move 3 4
+  NewCell 2 3
+  GetCell 3 2
+  GetCell 4 2
+  SetField 3 0 4
+  Move 5 2
+  NewClosure 3 1 4 1
+  GetCell 6 2
+  SetField 6 1 3
+  NewClosure 3 2 4 0
+  GetCell 5 2
+  SetField 5 2 3
+  NewClosure 3 3 4 0
+  GetCell 5 2
+  SetField 5 3 3
+  NewClosure 3 4 4 0
+  GetCell 5 2
+  SetField 5 4 3
+  K 8 5
+  NewTableN 9 0 0
+  Move 5 9
+  NewRecord 10 1
+  GetCell 11 2
+  SetSlot 10 0 11 1
+  Move 6 10
+  CallDyn 8 4 2
+  PadResults 4 1
+  NewCell 3 4
+  GetCell 4 3
+  GetCell 5 3
+  SetField 4 0 5
+  Move 6 3
+  NewClosure 4 5 5 1
+  GetCell 7 3
+  SetField 7 1 4
+  NewClosure 4 6 5 0
+  GetCell 6 3
+  SetField 6 3 4
+  K 9 5
+  NewTableN 10 0 0
+  Move 6 10
+  NewRecord 11 1
+  GetCell 12 3
+  SetSlot 11 0 12 1
+  Move 7 11
+  CallDyn 9 5 2
+  PadResults 5 1
+  NewCell 4 5
+  GetCell 5 4
+  GetCell 6 4
+  SetField 5 0 6
+  Move 7 4
+  NewClosure 5 7 6 1
+  GetCell 8 4
+  SetField 8 1 5
+  NewClosure 5 8 6 0
+  GetCell 7 4
+  SetField 7 3 5
+  NewTableN 7 0 0
+  Move 6 7
+  NewCell 5 6
+  GetCell 6 5
+  GetCell 7 5
+  SetField 6 0 7
+  Move 8 5
+  NewClosure 6 9 7 1
+  GetCell 9 5
+  SetField 9 1 6
+  NewClosure 6 10 7 0
+  GetCell 8 5
+  SetField 8 6 6
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  NewClosure 8 11 9 0
+  SetCell 6 8
+  Nil 7
+  Nil 8
+  NewCell 7 8
+  NewClosure 9 12 10 0
+  SetCell 7 9
+  Move 10 4
+  Move 11 6
+  NewClosure 8 13 9 2
+  Move 11 2
+  Move 12 4
+  Move 13 3
+  Move 14 7
+  NewClosure 9 14 10 4
+  Nil 10
+  Nil 11
+  NewCell 10 11
+  NewClosure 12 15 13 0
+  SetCell 10 12
+  Move 13 4
+  Move 14 10
+  NewClosure 11 16 12 2
+  Move 14 5
+  NewClosure 12 18 13 1
+  NewClosure 13 22 14 0
+  NewTableN 16 5 0
+  K 17 7
+  NewRecord 18 4
+  K 19 8
+  SetSlot 18 1 19 4
+  SetSlot 18 2 8 4
+  K 19 9
+  SetSlot 18 0 19 4
+  SetIdx 16 17 18
+  K 17 10
+  NewRecord 18 4
+  K 19 11
+  SetSlot 18 1 19 4
+  SetSlot 18 2 9 4
+  K 19 9
+  SetSlot 18 0 19 4
+  SetIdx 16 17 18
+  K 17 12
+  NewRecord 18 4
+  K 19 13
+  SetSlot 18 1 19 4
+  SetSlot 18 2 11 4
+  K 19 14
+  SetSlot 18 0 19 4
+  SetIdx 16 17 18
+  K 17 15
+  NewRecord 18 4
+  K 19 16
+  SetSlot 18 1 19 4
+  SetSlot 18 2 12 4
+  K 19 17
+  SetSlot 18 0 19 4
+  SetIdx 16 17 18
+  K 17 18
+  NewRecord 18 4
+  K 19 19
+  SetSlot 18 1 19 4
+  SetSlot 18 2 13 4
+  K 19 14
+  SetSlot 18 0 19 4
+  SetIdx 16 17 18
+  Move 15 16
+  NewCell 14 15
+  Move 17 14
+  NewClosure 15 24 16 1
+  SetField 1 20 15
+  Move 17 14
+  NewClosure 15 25 16 1
+  SetField 1 21 15
+  Ret 1
+end
+function Base.new 1 1 28 2 v:v
+  source classes
+  const 0 builtin setmetatable
+  const 1 num 0
+  lines 0 11x18
+  GetUpval 2 0
+  K 12 0
+  NewRecord 16 0
+  SetSlot 16 1 1 0
+  K 17 1
+  SetSlot 16 0 17 0
+  Move 14 16
+  GetCell 18 2
+  Move 15 18
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function Base.:get 2 1 12 2 v:v
+  source classes
+  const 0 str "x"
+  lines 12x2
+  GetField 2 1 0
+  Ret 2
+end
+function Base.:step 3 1 12 2 v:v
+  source classes
+  const 0 num 1
+  lines 13x2
+  K 2 0
+  Ret 2
+end
+function Base.:touch 4 1 14 2 v:v
+  source classes
+  const 0 str "hits"
+  const 1 num 1
+  lines 14x5
+  GetField 3 1 0
+  K 4 1
+  Add 2 3 4
+  SetField 1 0 2
+  RetNil
+end
+function Middle.new 5 1 28 2 v:v
+  source classes
+  const 0 builtin setmetatable
+  const 1 num 0
+  lines 0 18x18
+  GetUpval 2 0
+  K 12 0
+  NewRecord 16 0
+  SetSlot 16 1 1 0
+  K 17 1
+  SetSlot 16 0 17 0
+  Move 14 16
+  GetCell 18 2
+  Move 15 18
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function Middle.:step 6 1 12 2 v:v
+  source classes
+  const 0 num 2
+  lines 19x2
+  K 2 0
+  Ret 2
+end
+function Leaf.new 7 1 28 2 v:v
+  source classes
+  const 0 builtin setmetatable
+  const 1 num 0
+  lines 0 23x18
+  GetUpval 2 0
+  K 12 0
+  NewRecord 16 0
+  SetSlot 16 1 1 0
+  K 17 1
+  SetSlot 16 0 17 0
+  Move 14 16
+  GetCell 18 2
+  Move 15 18
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function Leaf.:step 8 1 12 2 v:v
+  source classes
+  const 0 num 3
+  lines 24x2
+  K 2 0
+  Ret 2
+end
+function Counter.new 9 0 27 2 :v
+  source classes
+  const 0 builtin setmetatable
+  const 1 num 0
+  lines 0 28x17
+  GetUpval 1 0
+  K 11 0
+  NewRecord 15 2
+  K 16 1
+  SetSlot 15 0 16 2
+  Move 13 15
+  GetCell 17 1
+  Move 14 17
+  CallDyn 11 12 2
+  Move 2 12
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  RetN 2 128
+end
+function Counter.:add 10 2 14 2 vv:v
+  source classes
+  const 0 str "n"
+  lines 29x4
+  GetField 4 1 0
+  Add 3 4 2
+  SetField 1 0 3
+  RetNil
+end
+function update 11 1 17 8 v:v
+  source classes
+  const 0 num 0
+  const 1 str "get"
+  const 2 str "step"
+  const 3 str "touch"
+  lines 34 35x6 36x2 37x8 38x5 40
+  K 2 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 15
+  FToI 5 0
+  GetIdxI 3 1 5
+  Move 6 3
+  CallMethod 1 5 1
+  PadResults 5 1
+  Add 4 2 5
+  Move 6 3
+  CallMethod 2 5 1
+  PadResults 5 1
+  Add 2 4 5
+  Move 5 3
+  CallMethod 3 4 1
+  PadResults 4 1
+  FAdd 0 0 3
+  Jmp -17
+  Ret 2
+end
+function measure 12 1 17 8 v:v
+  source classes
+  const 0 num 0
+  const 1 str "get"
+  const 2 str "step"
+  lines 44 45x6 46x2 47x10 49
+  K 2 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 12
+  FToI 5 0
+  GetIdxI 3 1 5
+  Move 6 3
+  CallMethod 1 5 1
+  PadResults 5 1
+  Add 4 2 5
+  Move 6 3
+  CallMethod 2 5 1
+  PadResults 5 1
+  Add 2 4 5
+  FAdd 0 0 3
+  Jmp -14
+  Ret 2
+end
+function monomorphic 13 1 19 8 v:v
+  source classes
+  const 0 str "new"
+  const 1 num 0
+  const 2 str "hits"
+  lines 0x2 53x2 54x15 55 56x13 57x5
+  GetUpval 2 0
+  GetUpval 3 1
+  NewTableN 5 0 0
+  Move 4 5
+  FK 1 1
+  FMov 0 1
+  FK 2 16
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 9
+  FToI 5 0
+  GetCell 9 2
+  GetField 8 9 0
+  FBox 6 0
+  CallDyn 8 5 1
+  PadResults 5 1
+  SetIdxI 4 5 5
+  FAdd 0 0 3
+  Jmp -11
+  K 5 1
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 9 3
+  Move 7 4
+  CallK 11 9 6 1 1
+  PadResults 6 1
+  Add 5 5 6
+  FAdd 0 0 3
+  Jmp -9
+  IK 0 1
+  GetIdxI 8 4 0
+  GetField 7 8 2
+  Add 6 5 7
+  Ret 6
+end
+function polymorphic 14 1 24 10 v:v
+  source classes
+  const 0 num 0
+  const 1 str "new"
+  const 2 num 1
+  lines 0x4 61x2 62x6 63x3 64x33 66 67x13 68
+  GetUpval 2 0
+  GetUpval 3 1
+  GetUpval 4 2
+  GetUpval 5 3
+  NewTableN 7 0 0
+  Move 6 7
+  FK 1 1
+  FMov 0 1
+  FK 2 16
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 36
+  FK 6 3
+  FMod 7 0 6
+  FToI 5 7
+  FToI 6 0
+  IBox 10 5
+  K 11 0
+  Eq 9 10 11
+  JmpIfNot 9 5
+  GetCell 13 2
+  GetField 12 13 1
+  FBox 10 0
+  CallDyn 12 9 1
+  PadResults 9 1
+  Move 8 9
+  JmpIf 8 10
+  IBox 11 5
+  K 12 2
+  Eq 10 11 12
+  JmpIfNot 10 5
+  GetCell 14 4
+  GetField 13 14 1
+  FBox 11 0
+  CallDyn 13 10 1
+  PadResults 10 1
+  Move 8 10
+  Move 7 8
+  JmpIf 7 6
+  GetCell 10 3
+  GetField 9 10 1
+  FBox 12 0
+  CallDyn 9 11 1
+  PadResults 11 1
+  Move 7 11
+  SetIdxI 6 6 7
+  FAdd 0 0 3
+  Jmp -38
+  K 7 0
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 11 5
+  Move 9 6
+  CallK 12 11 8 1 1
+  PadResults 8 1
+  Add 7 7 8
+  FAdd 0 0 3
+  Jmp -9
+  Ret 7
+end
+function steps 15 1 15 8 v:v
+  source classes
+  const 0 num 0
+  const 1 str "step"
+  lines 74 75x13 76
+  K 2 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  FToI 5 0
+  GetIdxI 4 1 5
+  CallMethod 1 3 1
+  PadResults 3 1
+  Add 2 2 3
+  FAdd 0 0 3
+  Jmp -9
+  Ret 2
+end
+function patched 16 1 23 8 v:v
+  source classes
+  const 0 str "new"
+  const 1 num 0
+  const 2 str "step"
+  const 3 builtin math.floor
+  const 4 num 2
+  lines 0x2 80x2 81x15 82 83x2 84x6 85x12 86x7 88x2 89
+  GetUpval 2 0
+  GetUpval 3 1
+  NewTableN 5 0 0
+  Move 4 5
+  FK 1 1
+  FMov 0 1
+  FK 2 8
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 9
+  FToI 5 0
+  GetCell 9 2
+  GetField 8 9 0
+  FBox 6 0
+  CallDyn 8 5 1
+  PadResults 5 1
+  SetIdxI 4 5 5
+  FAdd 0 0 3
+  Jmp -11
+  K 5 1
+  GetCell 7 2
+  GetField 6 7 2
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 19
+  FBox 8 0
+  K 12 3
+  K 13 4
+  Div 10 1 13
+  CallDyn 12 9 1
+  PadResults 9 1
+  Eq 7 8 9
+  JmpIfNot 7 4
+  GetCell 7 2
+  NewClosure 8 17 9 0
+  SetField 7 2 8
+  Jmp 0
+  GetCell 10 3
+  Move 8 4
+  CallK 15 10 7 1 1
+  PadResults 7 1
+  Add 5 5 7
+  FAdd 0 0 3
+  Jmp -21
+  GetCell 7 2
+  SetField 7 2 6
+  Ret 5
+end
+function patched.fn17 17 0 11 2 :v
+  source classes
+  const 0 num 100
+  lines 85x2
+  K 1 0
+  Ret 1
+end
+function callbacks 18 1 21 9 v:v
+  source classes
+  const 0 str "new"
+  const 1 num 0
+  const 2 num 1
+  const 3 str "add"
+  const 4 str "n"
+  lines 0 93x4 94 95 96 97 98x6 99x5 100x12 101x6 103x3
+  GetUpval 2 0
+  GetCell 6 2
+  GetField 5 6 0
+  CallDyn 5 3 0
+  PadResults 3 1
+  NewClosure 4 19 5 0
+  NewClosure 5 20 6 0
+  NewClosure 6 21 7 0
+  K 7 1
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 23
+  Move 9 5
+  FBox 10 0
+  CallK 19 4 8 2 1
+  PadResults 8 1
+  Add 7 7 8
+  FK 5 97
+  FMod 6 0 5
+  FBox 9 6
+  K 10 1
+  Eq 8 9 10
+  JmpIfNot 8 6
+  Move 9 6
+  FBox 10 0
+  CallK 19 4 8 2 1
+  PadResults 8 1
+  Add 7 7 8
+  Jmp 0
+  Move 9 3
+  K 10 2
+  CallMethod 3 8 2
+  PadResults 8 1
+  FAdd 0 0 3
+  Jmp -25
+  GetField 9 3 4
+  Add 8 7 9
+  Ret 8
+end
+function apply 19 2 23 2 vv:v
+  source classes
+  lines 94x11
+  Move 13 2
+  CallDyn 1 12 1
+  Move 3 12
+  Move 4 13
+  Move 5 14
+  Move 6 15
+  Move 7 16
+  Move 8 17
+  Move 9 18
+  Move 10 19
+  RetN 3 128
+end
+function double 20 1 13 2 v:v
+  source classes
+  const 0 num 2
+  lines 95x3
+  K 3 0
+  Mul 2 1 3
+  Ret 2
+end
+function negate 21 1 12 2 v:v
+  source classes
+  lines 96x2
+  Neg 2 1
+  Ret 2
+end
+function representations 22 1 18 8 v:v
+  source classes
+  const 0 num 0
+  lines 108x3 109x14 110x2 119 120x13 121
+  NewTableN 4 0 0
+  Move 3 4
+  NewCell 2 3
+  FK 1 1
+  FMov 0 1
+  FK 2 8
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 8
+  GetCell 3 2
+  FToI 5 0
+  NewRecord 4 3
+  FBox 5 0
+  SetSlot 4 0 5 3
+  SetIdxI 3 5 4
+  FAdd 0 0 3
+  Jmp -10
+  Move 5 2
+  NewClosure 3 23 4 1
+  K 4 0
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  FBox 8 0
+  Eq 6 8 1
+  CallDyn 3 5 1
+  PadResults 5 1
+  Add 4 4 5
+  FAdd 0 0 3
+  Jmp -9
+  Ret 4
+end
+function total 23 1 18 8 v:v
+  source classes
+  const 0 num 0
+  const 1 num 3
+  const 2 str "7"
+  const 3 str "v"
+  lines 0 111 112x7 113x3 114x9 115x4 117
+  GetUpval 2 0
+  K 3 0
+  FK 1 1
+  FMov 0 1
+  GetCell 4 2
+  LenF 2 4
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 16
+  GetCell 6 2
+  FToI 5 0
+  GetIdxI 5 6 5
+  Move 6 1
+  JmpIfNot 6 3
+  FBox 7 0
+  K 8 1
+  Eq 6 7 8
+  JmpIfNot 6 3
+  K 6 2
+  SetField 5 3 6
+  Jmp 0
+  GetField 6 5 3
+  Add 3 3 6
+  FAdd 0 0 3
+  Jmp -18
+  Ret 3
+end
+function M.main 24 0 46 6 :v
+  source classes
+  const 0 builtin ipairs
+  const 1 str "name"
+  const 2 str "="
+  const 3 builtin tostring
+  const 4 str "run"
+  const 5 builtin math.floor
+  const 6 str "n"
+  const 7 num 20
+  const 8 builtin table.concat
+  const 9 str " "
+  lines 0 133x2 134x18 135x36 137x13
+  GetUpval 1 0
+  NewTableN 3 0 0
+  Move 2 3
+  K 6 0
+  GetCell 9 1
+  Move 8 9
+  CallDyn 6 7 1
+  PadResults 7 3
+  Move 3 7
+  Move 4 8
+  Move 5 9
+  Move 11 4
+  Move 12 5
+  CallDyn 3 10 2
+  PadResults 10 2
+  Nil 14
+  Eq 14 10 14
+  JmpIf 14 39
+  Move 5 10
+  Move 15 10
+  Move 16 11
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  GetField 17 16 1
+  K 18 2
+  Concat 17 17 18
+  K 29 3
+  GetField 30 16 4
+  K 32 5
+  GetField 35 16 6
+  K 36 7
+  Div 34 35 36
+  CallDyn 32 33 1
+  Move 32 33
+  Move 33 34
+  Move 34 35
+  Move 35 36
+  Move 36 37
+  Move 37 38
+  Move 38 39
+  Move 39 40
+  CallDyn 30 31 64
+  Move 19 31
+  Move 20 32
+  Move 21 33
+  Move 22 34
+  Move 23 35
+  Move 24 36
+  Move 25 37
+  Move 26 38
+  CallDyn 29 18 64
+  PadResults 18 1
+  Concat 17 17 18
+  SetIdxI 2 3 17
+  Jmp -46
+  K 12 8
+  Move 14 2
+  K 15 9
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function M.bench 25 0 46 8 :v
+  source classes
+  const 0 num 0
+  const 1 builtin ipairs
+  const 2 str "os"
+  const 3 str "clock"
+  const 4 str "run"
+  const 5 str "n"
+  const 6 builtin string.format
+  const 7 str "%s %.1f ms (%s)"
+  const 8 str "name"
+  const 9 builtin tostring
+  const 10 str "total %.1f ms"
+  const 11 builtin table.concat
+  const 12 str "\010"
+  lines 0 141x2 142 143x18 144x6 145x4 146x10 147x3 148x23 150x10 151x13
+  GetUpval 1 0
+  NewTableN 3 0 0
+  Move 2 3
+  K 3 0
+  K 7 1
+  GetCell 10 1
+  Move 9 10
+  CallDyn 7 8 1
+  PadResults 8 3
+  Move 4 8
+  Move 5 9
+  Move 6 10
+  Move 12 5
+  Move 13 6
+  CallDyn 4 11 2
+  PadResults 11 2
+  Nil 15
+  Eq 15 11 15
+  JmpIf 15 49
+  Move 6 11
+  Move 16 11
+  Move 17 12
+  Require 20 2
+  GetField 21 20 3
+  Move 20 21
+  CallDyn 20 18 0
+  PadResults 18 1
+  FUnbox 0 18
+  GetField 21 17 4
+  GetField 19 17 5
+  CallDyn 21 18 1
+  PadResults 18 1
+  Require 21 2
+  GetField 22 21 3
+  Move 21 22
+  CallDyn 21 19 0
+  PadResults 19 1
+  FUnbox 2 19
+  FSub 3 2 0
+  FK 4 1000
+  FMul 5 3 4
+  FMov 1 5
+  FUnbox 2 3
+  FAdd 3 2 1
+  FBox 3 3
+  LenF 2 2
+  FToI 3 2
+  IK 4 1
+  IAdd 5 3 4
+  K 33 6
+  K 20 7
+  GetField 21 17 8
+  FBox 22 1
+  K 34 9
+  Move 36 18
+  CallDyn 34 35 1
+  Move 23 35
+  Move 24 36
+  Move 25 37
+  Move 26 38
+  Move 27 39
+  Move 28 40
+  Move 29 41
+  Move 30 42
+  CallDyn 33 19 67
+  PadResults 19 1
+  SetIdxI 2 5 19
+  Jmp -56
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 6
+  K 5 10
+  Move 6 3
+  CallDyn 8 4 2
+  PadResults 4 1
+  SetIdxI 2 3 4
+  K 13 11
+  Move 15 2
+  K 16 12
+  CallDyn 13 14 2
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  RetN 4 128
+end
+function module:poly 26 0 30 2 :v
+  source poly
+  const 0 str "__index"
+  const 1 str "\000nupp:recordType"
+  const 2 str "speak"
+  const 3 str "main"
+  lines 6x2 8 13x8 20x8 28x8 35x5 43x5 51x5 55x5 59x12 125x3 129
+  NewTableN 2 0 0
+  Move 1 2
+  NewTableN 2 0 0
+  NewTableN 4 0 0
+  NewCell 3 4
+  GetCell 5 3
+  SetField 5 0 5
+  SetMethod 5 1 5
+  NewClosure 6 27 7 0
+  SetMethod 5 2 6
+  SetField 5 2 6
+  NewTableN 5 0 0
+  NewCell 4 5
+  GetCell 6 4
+  SetField 6 0 6
+  SetMethod 6 1 6
+  NewClosure 7 28 8 0
+  SetMethod 6 2 7
+  SetField 6 2 7
+  NewTableN 6 0 0
+  NewCell 5 6
+  GetCell 7 5
+  SetField 7 0 7
+  SetMethod 7 1 7
+  NewClosure 8 29 9 0
+  SetMethod 7 2 8
+  SetField 7 2 8
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  NewClosure 8 30 9 0
+  SetCell 6 8
+  Nil 7
+  Nil 8
+  NewCell 7 8
+  NewClosure 9 31 10 0
+  SetCell 7 9
+  Nil 8
+  Nil 9
+  NewCell 8 9
+  NewClosure 10 32 11 0
+  SetCell 8 10
+  Nil 9
+  Nil 10
+  NewCell 9 10
+  NewClosure 11 33 12 0
+  SetCell 9 11
+  Nil 10
+  Nil 11
+  NewCell 10 11
+  Move 14 4
+  Move 15 3
+  Move 16 5
+  Move 17 6
+  Move 18 8
+  Move 19 7
+  Move 20 9
+  NewClosure 12 34 13 7
+  SetCell 10 12
+  Move 13 10
+  NewClosure 11 38 12 1
+  SetField 1 3 11
+  Ret 1
+end
+function Dog:speak 27 1 12 2 v:v
+  source poly
+  const 0 str "woof"
+  lines 16x2
+  K 2 0
+  Ret 2
+end
+function Bird:speak 28 1 12 2 v:v
+  source poly
+  const 0 str "tweet"
+  lines 24x2
+  K 2 0
+  Ret 2
+end
+function Fish:speak 29 1 12 2 v:v
+  source poly
+  const 0 str "..."
+  lines 31x2
+  K 2 0
+  Ret 2
+end
+function chorus 30 1 25 12 v:v
+  source poly
+  const 0 str "speak"
+  const 1 builtin table.concat
+  const 2 str ","
+  lines 36x2 37x6 38x11 40x13
+  NewTableN 3 0 0
+  Move 2 3
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 11
+  LenF 5 2
+  FToI 6 5
+  IK 7 1
+  IAdd 8 6 7
+  FToI 9 0
+  GetIdxI 4 1 9
+  CallMethod 0 3 1
+  PadResults 3 1
+  SetIdxI 2 8 3
+  FAdd 0 0 3
+  Jmp -13
+  K 12 1
+  Move 14 2
+  K 15 2
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function legs 31 1 14 8 v:v
+  source poly
+  const 0 num 0
+  const 1 str "legs"
+  lines 44 45x6 46x6 48
+  K 2 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 6
+  FToI 5 0
+  GetIdxI 4 1 5
+  GetField 3 4 1
+  Add 2 2 3
+  FAdd 0 0 3
+  Jmp -8
+  Ret 2
+end
+function field 32 1 12 2 v:v
+  source poly
+  const 0 str "value"
+  lines 52x2
+  GetField 2 1 0
+  Ret 2
+end
+function plus 33 2 13 2 vv:v
+  source poly
+  lines 56x2
+  Add 3 1 2
+  Ret 3
+end
+function run 34 0 42 13 :v
+  source poly
+  const 0 num 0
+  const 1 str "mono="
+  const 2 builtin tostring
+  const 3 str ":"
+  const 4 num 1
+  const 5 num 9
+  const 6 str "sub"
+  const 7 str "speak"
+  const 8 str "patched="
+  const 9 str "poly="
+  const 10 num 20
+  const 11 num 40
+  const 12 num 2
+  const 13 num 3
+  const 14 num 400
+  const 15 num 10
+  const 16 true 
+  const 17 str "fields="
+  const 18 str "1"
+  const 19 str "arith="
+  const 20 str "callbacks="
+  const 21 builtin table.concat
+  const 22 str " "
+  lines 0x7 60x2 61x2 62x6 63x10 65 66x6 67x7 69x23 71x2 72 73x2 76x16 77 78x7 79x5 80 81x6 82x7 84x23 85x17 86 87x6 88x6 89x5 90x3 91x4 94x4 95x10 98x11 99 100x6 101x7 103x5 104x18 105x8 113 114x6 115x2 116x4 117x3 119x6 121x11 122x13
+  GetUpval 1 0
+  GetUpval 2 1
+  GetUpval 3 2
+  GetUpval 4 3
+  GetUpval 5 4
+  GetUpval 6 5
+  GetUpval 7 6
+  NewTableN 9 0 0
+  Move 8 9
+  NewTableN 10 0 0
+  Move 9 10
+  FK 1 1
+  FMov 0 1
+  FK 2 40
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 10
+  LenF 5 9
+  FToI 6 5
+  IK 7 1
+  IAdd 8 6 7
+  NewRecord 10 5
+  FK 9 4
+  SetSlotF 10 0 9 5
+  SetIdxI 9 8 10
+  FAdd 0 0 3
+  Jmp -12
+  K 10 0
+  FK 1 1
+  FMov 0 1
+  FK 2 300
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 14 6
+  Move 12 9
+  CallK 31 14 11 1 1
+  PadResults 11 1
+  Add 10 10 11
+  FAdd 0 0 3
+  Jmp -9
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 11 1
+  K 15 2
+  Move 13 10
+  CallDyn 15 12 1
+  PadResults 12 1
+  Concat 11 11 12
+  K 12 3
+  Concat 11 11 12
+  GetCell 17 4
+  Move 19 9
+  CallK 30 17 18 1 1
+  PadResults 18 1
+  Move 13 18
+  K 14 4
+  K 15 5
+  CallMethod 6 12 3
+  PadResults 12 1
+  Concat 11 11 12
+  SetIdxI 8 3 11
+  GetCell 12 2
+  Move 11 12
+  GetField 12 11 7
+  NewClosure 13 35 14 0
+  SetField 11 7 13
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 13 8
+  GetCell 19 4
+  Move 21 9
+  CallK 30 19 20 1 1
+  PadResults 20 1
+  Move 15 20
+  K 16 4
+  K 17 5
+  CallMethod 6 14 3
+  PadResults 14 1
+  Concat 13 13 14
+  SetIdxI 8 3 13
+  SetField 11 7 12
+  IK 0 7
+  NewRecord 13 6
+  FK 1 2
+  SetSlotF 13 0 1 6
+  FK 1 2
+  SetSlotF 13 1 1 6
+  SetIdxI 9 0 13
+  IK 0 19
+  NewRecord 13 7
+  FK 1 0
+  SetSlotF 13 0 1 7
+  SetIdxI 9 0 13
+  K 13 0
+  FK 1 1
+  FMov 0 1
+  FK 2 300
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 17 6
+  Move 15 9
+  CallK 31 17 14 1 1
+  PadResults 14 1
+  Add 13 13 14
+  FAdd 0 0 3
+  Jmp -9
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 14 9
+  K 18 2
+  Move 16 13
+  CallDyn 18 15 1
+  PadResults 15 1
+  Concat 14 14 15
+  K 15 3
+  Concat 14 14 15
+  GetCell 20 4
+  Move 22 9
+  CallK 30 20 21 1 1
+  PadResults 21 1
+  Move 16 21
+  K 17 10
+  K 18 11
+  CallMethod 6 15 3
+  PadResults 15 1
+  Concat 14 14 15
+  SetIdxI 8 3 14
+  NewTableN 15 3 0
+  K 16 4
+  NewRecord 17 8
+  K 18 4
+  SetSlot 17 0 18 8
+  SetIdx 15 16 17
+  K 16 12
+  NewRecord 17 8
+  K 18 12
+  SetSlot 17 0 18 8
+  SetIdx 15 16 17
+  K 16 13
+  NewRecord 17 9
+  K 18 13
+  SetSlot 17 0 18 9
+  SetIdx 15 16 17
+  Move 14 15
+  K 15 0
+  FK 1 1
+  FMov 0 1
+  FK 2 500
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 32
+  FK 6 1
+  FMov 5 6
+  LenF 7 14
+  FK 8 1
+  FCmpLe 9 5 7
+  JmpIfIZero 9 12
+  GetCell 19 5
+  FToI 10 5
+  GetIdxI 17 14 10
+  CallK 32 19 16 1 1
+  PadResults 16 1
+  Nil 18
+  Ne 17 16 18
+  JmpIfNot 17 2
+  Add 15 15 16
+  Jmp 0
+  FAdd 5 5 8
+  Jmp -14
+  FBox 17 0
+  K 18 14
+  Eq 16 17 18
+  JmpIfNot 16 8
+  IK 5 2
+  NewRecord 16 10
+  K 17 15
+  SetSlot 16 1 17 10
+  K 17 16
+  SetSlot 16 0 17 10
+  SetIdxI 14 5 16
+  Jmp 0
+  FAdd 0 0 3
+  Jmp -34
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 16 17
+  K 20 2
+  Move 18 15
+  CallDyn 20 17 1
+  PadResults 17 1
+  Concat 16 16 17
+  SetIdxI 8 3 16
+  K 16 0
+  FK 1 1
+  FMov 0 1
+  FK 2 1000
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 20 7
+  Move 17 16
+  FBox 18 0
+  CallK 33 20 16 2 1
+  PadResults 16 1
+  FAdd 0 0 3
+  Jmp -9
+  GetCell 21 7
+  K 18 18
+  K 19 12
+  CallK 33 21 17 2 1
+  PadResults 17 1
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 18 19
+  K 22 2
+  Move 20 16
+  CallDyn 22 19 1
+  PadResults 19 1
+  Concat 18 18 19
+  K 19 3
+  Concat 18 18 19
+  K 22 2
+  Move 20 17
+  CallDyn 22 19 1
+  PadResults 19 1
+  Concat 18 18 19
+  SetIdxI 8 3 18
+  NewTableN 19 2 0
+  K 20 4
+  NewClosure 21 36 22 0
+  SetIdx 19 20 21
+  K 20 12
+  NewClosure 21 37 22 0
+  SetIdx 19 20 21
+  Move 18 19
+  K 19 0
+  FK 1 1
+  FMov 0 1
+  FK 2 2000
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 15
+  IK 5 1
+  GetIdxI 20 18 5
+  FToI 5 0
+  IK 6 1500
+  ICmpSLt 7 6 5
+  JmpIfIZero 7 3
+  IK 8 2
+  GetIdxI 20 18 8
+  Jmp 0
+  FBox 22 0
+  CallDyn 20 21 1
+  PadResults 21 1
+  Add 19 19 21
+  FAdd 0 0 3
+  Jmp -17
+  LenF 0 8
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 20 20
+  K 24 2
+  Move 22 19
+  CallDyn 24 21 1
+  PadResults 21 1
+  Concat 20 20 21
+  SetIdxI 8 3 20
+  K 29 21
+  Move 31 8
+  K 32 22
+  CallDyn 29 30 2
+  Move 20 30
+  Move 21 31
+  Move 22 32
+  Move 23 33
+  Move 24 34
+  Move 25 35
+  Move 26 36
+  Move 27 37
+  RetN 20 128
+end
+function run.fn35 35 1 12 2 v:v
+  source poly
+  const 0 str "arf"
+  lines 74x2
+  K 2 0
+  Ret 2
+end
+function run.fn36 36 1 13 2 v:v
+  source poly
+  const 0 num 1
+  lines 107x3
+  K 2 0
+  Add 3 1 2
+  Ret 3
+end
+function run.fn37 37 1 13 2 v:v
+  source poly
+  const 0 num 2
+  lines 110x3
+  K 2 0
+  Mul 3 1 2
+  Ret 3
+end
+function M.main 38 0 22 2 :v
+  source poly
+  lines 0 126x11
+  GetUpval 1 0
+  GetCell 11 1
+  CallK 34 11 12 0 8
+  Move 2 12
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  RetN 2 128
+end
+function module:shapes 39 0 30 2 :v
+  source shapes
+  const 0 str "__index"
+  const 1 str "\000nupp:recordType"
+  const 2 str "area"
+  const 3 str "grow"
+  const 4 str "main"
+  const 5 str "bench"
+  lines 6x2 8 15x11 28x11 42x11 55x8 65x5 73x6 87x5 97x5 105x6 119x6 127x9 144x3 153x3 168
+  NewTableN 2 0 0
+  Move 1 2
+  NewTableN 2 0 0
+  NewTableN 4 0 0
+  NewCell 3 4
+  GetCell 5 3
+  SetField 5 0 5
+  SetMethod 11 1 5
+  NewClosure 6 40 7 0
+  SetMethod 11 2 6
+  SetField 5 2 6
+  NewClosure 8 41 9 0
+  SetMethod 11 3 8
+  SetField 5 3 8
+  NewTableN 5 0 0
+  NewCell 4 5
+  GetCell 6 4
+  SetField 6 0 6
+  SetMethod 12 1 6
+  NewClosure 7 42 8 0
+  SetMethod 12 2 7
+  SetField 6 2 7
+  NewClosure 9 43 10 0
+  SetMethod 12 3 9
+  SetField 6 3 9
+  NewTableN 6 0 0
+  NewCell 5 6
+  GetCell 7 5
+  SetField 7 0 7
+  SetMethod 13 1 7
+  NewClosure 8 44 9 0
+  SetMethod 13 2 8
+  SetField 7 2 8
+  NewClosure 10 45 11 0
+  SetMethod 13 3 10
+  SetField 7 3 10
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  Move 10 3
+  Move 11 4
+  Move 12 5
+  NewClosure 8 46 9 3
+  SetCell 6 8
+  Nil 7
+  Nil 8
+  NewCell 7 8
+  NewClosure 9 47 10 0
+  SetCell 7 9
+  Nil 8
+  Nil 9
+  NewCell 8 9
+  Move 12 7
+  NewClosure 10 48 11 1
+  SetCell 8 10
+  Nil 9
+  Nil 10
+  NewCell 9 10
+  NewClosure 11 49 12 0
+  SetCell 9 11
+  Nil 10
+  Nil 11
+  NewCell 10 11
+  NewClosure 12 50 13 0
+  SetCell 10 12
+  Nil 11
+  Nil 12
+  NewCell 11 12
+  Move 15 10
+  NewClosure 13 51 14 1
+  SetCell 11 13
+  Nil 12
+  Nil 13
+  NewCell 12 13
+  Move 16 6
+  NewClosure 14 53 15 1
+  SetCell 12 14
+  Nil 13
+  Nil 14
+  NewCell 13 14
+  Move 17 12
+  Move 18 11
+  Move 19 9
+  Move 20 8
+  NewClosure 15 54 16 4
+  SetCell 13 15
+  Move 16 13
+  NewClosure 14 59 15 1
+  SetField 1 4 14
+  Move 16 13
+  NewClosure 14 60 15 1
+  SetField 1 5 14
+  Ret 1
+end
+function Circle:area 40 1 12 7 v:v
+  source shapes
+  lines 20x7
+  FK 0 3
+  GetSlotF 1 1 1 11
+  FMul 2 0 1
+  GetSlotF 3 1 1 11
+  FMul 4 2 3
+  FBox 2 4
+  Ret 2
+end
+function Circle:grow 41 2 13 6 vv:v
+  source shapes
+  lines 24x7
+  GetSlotF 0 1 1 11
+  FUnbox 1 2
+  FAdd 2 0 1
+  FBox 3 2
+  FUnbox 3 3
+  SetSlotF 1 1 3 11
+  RetNil
+end
+function Rect:area 42 1 12 5 v:v
+  source shapes
+  lines 34x5
+  GetSlotF 0 1 1 12
+  GetSlotF 1 1 2 12
+  FMul 2 0 1
+  FBox 2 2
+  Ret 2
+end
+function Rect:grow 43 2 13 6 vv:v
+  source shapes
+  lines 38x7
+  GetSlotF 0 1 1 12
+  FUnbox 1 2
+  FAdd 2 0 1
+  FBox 3 2
+  FUnbox 3 3
+  SetSlotF 1 1 3 12
+  RetNil
+end
+function Square:area 44 1 12 5 v:v
+  source shapes
+  lines 47x5
+  GetSlotF 0 1 1 13
+  GetSlotF 1 1 1 13
+  FMul 2 0 1
+  FBox 2 2
+  Ret 2
+end
+function Square:grow 45 2 13 6 vv:v
+  source shapes
+  lines 51x7
+  GetSlotF 0 1 1 13
+  FUnbox 1 2
+  FAdd 2 0 1
+  FBox 3 2
+  FUnbox 3 3
+  SetSlotF 1 1 3 13
+  RetNil
+end
+function makeShape 46 2 18 6 vv:v
+  source shapes
+  const 0 num 0
+  const 1 str "circle"
+  const 2 num 1
+  const 3 str "rect"
+  const 4 str "square"
+  lines 0x3 56x4 57x4 58x13 60x11 62x8
+  GetUpval 3 0
+  GetUpval 4 1
+  GetUpval 5 2
+  FUnbox 1 1
+  FUnbox 2 2
+  FMod 3 1 2
+  FMov 0 3
+  FBox 7 0
+  K 8 0
+  Eq 6 7 8
+  JmpIfNot 6 9
+  NewRecord 6 11
+  K 7 1
+  SetSlot 6 0 7 11
+  FUnbox 1 1
+  FK 2 5
+  FMod 3 1 2
+  SetSlotF 6 1 3 11
+  Ret 6
+  Jmp 15
+  FBox 7 0
+  K 8 2
+  Eq 6 7 8
+  JmpIfNot 6 11
+  NewRecord 6 12
+  K 7 3
+  SetSlot 6 0 7 12
+  FUnbox 1 1
+  FK 2 7
+  FMod 3 1 2
+  SetSlotF 6 1 3 12
+  FK 1 2
+  SetSlotF 6 2 1 12
+  Ret 6
+  Jmp 0
+  NewRecord 6 13
+  K 7 4
+  SetSlot 6 0 7 13
+  FUnbox 1 1
+  FK 2 3
+  FMod 3 1 2
+  SetSlotF 6 1 3 13
+  Ret 6
+end
+function total 47 1 15 8 v:v
+  source shapes
+  const 0 num 0
+  const 1 str "area"
+  lines 66 67x6 68x7 70
+  K 2 0
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  FToI 5 0
+  GetIdxI 4 1 5
+  CallMethod 1 3 1
+  PadResults 3 1
+  Add 2 2 3
+  FAdd 0 0 3
+  Jmp -9
+  Ret 2
+end
+function sweep 48 2 20 15 vv:v
+  source shapes
+  const 0 num 0
+  const 1 num 1
+  const 2 str "grow"
+  lines 0 74 75x6 76x5 77x6 78x6 79x5 80x15 84
+  GetUpval 3 0
+  K 4 0
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 2
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 37
+  GetCell 8 3
+  Move 6 1
+  CallK 47 8 5 1 1
+  PadResults 5 1
+  Add 4 4 5
+  FK 5 64
+  FMod 6 0 5
+  FBox 6 6
+  K 7 0
+  Eq 5 6 7
+  JmpIfNot 5 24
+  FK 6 1
+  FMov 5 6
+  LenF 7 1
+  FK 8 1
+  FCmpLe 9 5 7
+  JmpIfIZero 9 17
+  FToI 10 5
+  GetIdxI 6 1 10
+  K 7 1
+  CallMethod 2 5 2
+  PadResults 5 1
+  FToI 10 5
+  GetIdxI 6 1 10
+  GetField 7 6 2
+  Move 9 6
+  FK 11 1
+  FNeg 12 11
+  FBox 10 12
+  CallDyn 7 8 2
+  PadResults 8 1
+  Move 5 8
+  FAdd 5 5 8
+  Jmp -19
+  Jmp 0
+  FAdd 0 0 3
+  Jmp -39
+  Ret 4
+end
+function names 49 2 16 13 vv:v
+  source shapes
+  const 0 num 0
+  const 1 str "name"
+  lines 88 89x6 90x6 91x9 94
+  K 3 0
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 2
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 15
+  FK 6 1
+  FMov 5 6
+  LenF 7 1
+  FK 8 1
+  FCmpLe 9 5 7
+  JmpIfIZero 9 7
+  FToI 10 5
+  GetIdxI 5 1 10
+  GetField 4 5 1
+  Len 6 4
+  Add 3 3 6
+  FAdd 5 5 8
+  Jmp -9
+  FAdd 0 0 3
+  Jmp -17
+  Ret 3
+end
+function reduce 50 3 18 8 vvv:v
+  source shapes
+  lines 98 99x6 100x8 102
+  Move 4 3
+  FK 1 1
+  FMov 0 1
+  LenF 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 8
+  Move 5 4
+  FToI 5 0
+  GetIdxI 8 1 5
+  Move 6 8
+  CallDyn 2 4 2
+  PadResults 4 1
+  FAdd 0 0 3
+  Jmp -10
+  Ret 4
+end
+function folds 51 1 21 8 v:v
+  source shapes
+  const 0 num 0
+  lines 0 106x2 107x6 108x5 110 111x6 112x9 116
+  GetUpval 2 0
+  NewTableN 4 0 0
+  Move 3 4
+  FK 1 1
+  FMov 0 1
+  FK 2 32
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 5
+  FToI 5 0
+  FBox 4 0
+  SetIdxI 3 5 4
+  FAdd 0 0 3
+  Jmp -7
+  K 4 0
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 9
+  GetCell 10 2
+  Move 6 3
+  NewClosure 7 52 11 0
+  K 8 0
+  CallK 50 10 5 3 1
+  PadResults 5 1
+  Add 4 4 5
+  FAdd 0 0 3
+  Jmp -11
+  Ret 4
+end
+function folds.fn52 52 2 13 2 vv:v
+  source shapes
+  lines 113x2
+  Add 3 1 2
+  Ret 3
+end
+function build 53 2 19 8 vv:v
+  source shapes
+  lines 0 120x2 121x6 122x9 124
+  GetUpval 3 0
+  NewTableN 5 0 0
+  Move 4 5
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 9
+  FToI 5 0
+  GetCell 9 3
+  FBox 6 0
+  Move 7 2
+  CallK 46 9 5 2 1
+  PadResults 5 1
+  SetIdxI 4 5 5
+  FAdd 0 0 3
+  Jmp -11
+  Ret 4
+end
+function phases 54 1 25 2 v:v
+  source shapes
+  const 0 num 1
+  const 1 str "monomorphic"
+  const 2 num 2
+  const 3 str "polymorphic"
+  const 4 num 3
+  const 5 str "fields"
+  const 6 num 4
+  const 7 str "callbacks"
+  lines 0x4 127 128x49
+  GetUpval 3 0
+  GetUpval 4 1
+  GetUpval 5 2
+  GetUpval 6 3
+  NewCell 2 1
+  NewTableN 7 4 0
+  K 8 0
+  NewTableN 9 2 0
+  K 10 0
+  K 11 1
+  SetIdx 9 10 11
+  K 10 2
+  Move 13 3
+  Move 14 2
+  Move 15 6
+  NewClosure 11 55 12 3
+  SetIdx 9 10 11
+  SetIdx 7 8 9
+  K 8 2
+  NewTableN 9 2 0
+  K 10 0
+  K 11 3
+  SetIdx 9 10 11
+  K 10 2
+  Move 13 3
+  Move 14 2
+  Move 15 6
+  NewClosure 11 56 12 3
+  SetIdx 9 10 11
+  SetIdx 7 8 9
+  K 8 4
+  NewTableN 9 2 0
+  K 10 0
+  K 11 5
+  SetIdx 9 10 11
+  K 10 2
+  Move 13 3
+  Move 14 5
+  Move 15 2
+  NewClosure 11 57 12 3
+  SetIdx 9 10 11
+  SetIdx 7 8 9
+  K 8 6
+  NewTableN 9 2 0
+  K 10 0
+  K 11 7
+  SetIdx 9 10 11
+  K 10 2
+  Move 13 4
+  Move 14 2
+  NewClosure 11 58 12 2
+  SetIdx 9 10 11
+  SetIdx 7 8 9
+  Ret 7
+end
+function phases.fn55 55 0 32 2 :v
+  source shapes
+  const 0 num 32
+  const 1 num 1
+  const 2 num 2000
+  lines 0x3 130x20
+  GetUpval 1 0
+  GetUpval 2 1
+  GetUpval 3 2
+  GetCell 13 3
+  GetCell 17 1
+  K 19 0
+  K 20 1
+  CallK 53 17 18 2 1
+  PadResults 18 1
+  Move 15 18
+  K 21 2
+  GetCell 22 2
+  Mul 16 21 22
+  CallK 48 13 14 2 8
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  RetN 4 128
+end
+function phases.fn56 56 0 32 2 :v
+  source shapes
+  const 0 num 32
+  const 1 num 3
+  const 2 num 2000
+  lines 0x3 133x20
+  GetUpval 1 0
+  GetUpval 2 1
+  GetUpval 3 2
+  GetCell 13 3
+  GetCell 17 1
+  K 19 0
+  K 20 1
+  CallK 53 17 18 2 1
+  PadResults 18 1
+  Move 15 18
+  K 21 2
+  GetCell 22 2
+  Mul 16 21 22
+  CallK 48 13 14 2 8
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  RetN 4 128
+end
+function phases.fn57 57 0 32 2 :v
+  source shapes
+  const 0 num 32
+  const 1 num 3
+  const 2 num 2000
+  lines 0x3 136x20
+  GetUpval 1 0
+  GetUpval 2 1
+  GetUpval 3 2
+  GetCell 13 2
+  GetCell 17 1
+  K 19 0
+  K 20 1
+  CallK 53 17 18 2 1
+  PadResults 18 1
+  Move 15 18
+  K 21 2
+  GetCell 22 3
+  Mul 16 21 22
+  CallK 49 13 14 2 8
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  RetN 4 128
+end
+function phases.fn58 58 0 26 2 :v
+  source shapes
+  const 0 num 4000
+  lines 0x2 139x14
+  GetUpval 1 0
+  GetUpval 2 1
+  GetCell 12 1
+  K 15 0
+  GetCell 16 2
+  Mul 14 15 16
+  CallK 51 12 13 1 8
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function M.main 59 0 44 7 :v
+  source shapes
+  const 0 builtin ipairs
+  const 1 num 1
+  const 2 str "="
+  const 3 builtin tostring
+  const 4 builtin table.concat
+  const 5 str " "
+  lines 0 145x2 146x27 147x2 148x23 150x13
+  GetUpval 1 0
+  NewTableN 3 0 0
+  Move 2 3
+  K 6 0
+  GetCell 8 1
+  K 10 1
+  CallK 54 8 9 1 8
+  Move 8 9
+  Move 9 10
+  Move 10 11
+  Move 11 12
+  Move 12 13
+  Move 13 14
+  Move 14 15
+  Move 15 16
+  CallDyn 6 7 64
+  PadResults 7 3
+  Move 3 7
+  Move 4 8
+  Move 5 9
+  Move 12 4
+  Move 13 5
+  CallDyn 3 11 2
+  PadResults 11 2
+  Nil 15
+  Eq 15 11 15
+  JmpIf 15 28
+  Move 5 11
+  Move 16 11
+  Move 17 12
+  IK 0 2
+  GetIdxI 18 17 0
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  IK 4 1
+  GetIdxI 20 17 4
+  K 21 2
+  K 33 3
+  CallDyn 18 34 0
+  Move 23 34
+  Move 24 35
+  Move 25 36
+  Move 26 37
+  Move 27 38
+  Move 28 39
+  Move 29 40
+  Move 30 41
+  CallDyn 33 22 64
+  PadResults 22 1
+  Concat 19 21 22
+  Concat 19 20 19
+  SetIdxI 2 3 19
+  Jmp -35
+  K 12 4
+  Move 14 2
+  K 15 5
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function M.bench 60 0 47 10 :v
+  source shapes
+  const 0 num 0
+  const 1 builtin ipairs
+  const 2 num 20
+  const 3 str "os"
+  const 4 str "clock"
+  const 5 builtin string.format
+  const 6 str "%s %.1f ms (%s)"
+  const 7 builtin tostring
+  const 8 str "total %.1f ms"
+  const 9 builtin table.concat
+  const 10 str "\010"
+  lines 0 154x2 155 156x27 157x2 158x6 159x3 160x10 161x3 162x24 164x10 165x13
+  GetUpval 1 0
+  NewTableN 3 0 0
+  Move 2 3
+  K 3 0
+  K 7 1
+  GetCell 9 1
+  K 11 2
+  CallK 54 9 10 1 8
+  Move 9 10
+  Move 10 11
+  Move 11 12
+  Move 12 13
+  Move 13 14
+  Move 14 15
+  Move 15 16
+  Move 16 17
+  CallDyn 7 8 64
+  PadResults 8 3
+  Move 4 8
+  Move 5 9
+  Move 6 10
+  Move 13 5
+  Move 14 6
+  CallDyn 4 12 2
+  PadResults 12 2
+  Nil 16
+  Eq 16 12 16
+  JmpIf 16 51
+  Move 6 12
+  Move 17 12
+  Move 18 13
+  IK 0 2
+  GetIdxI 19 18 0
+  Require 22 3
+  GetField 23 22 4
+  Move 22 23
+  CallDyn 22 20 0
+  PadResults 20 1
+  FUnbox 0 20
+  CallDyn 19 20 0
+  PadResults 20 1
+  FUnbox 1 20
+  Require 22 3
+  GetField 23 22 4
+  Move 22 23
+  CallDyn 22 20 0
+  PadResults 20 1
+  FUnbox 3 20
+  FSub 4 3 0
+  FK 5 1000
+  FMul 6 4 5
+  FMov 2 6
+  FUnbox 3 3
+  FAdd 4 3 2
+  FBox 3 4
+  LenF 3 2
+  FToI 4 3
+  IK 5 1
+  IAdd 6 4 5
+  K 34 5
+  K 21 6
+  IK 7 1
+  GetIdxI 22 18 7
+  FBox 23 2
+  K 35 7
+  FBox 37 1
+  CallDyn 35 36 1
+  Move 24 36
+  Move 25 37
+  Move 26 38
+  Move 27 39
+  Move 28 40
+  Move 29 41
+  Move 30 42
+  Move 31 43
+  CallDyn 34 20 67
+  PadResults 20 1
+  SetIdxI 2 6 20
+  Jmp -58
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 5
+  K 5 8
+  Move 6 3
+  CallDyn 8 4 2
+  PadResults 4 1
+  SetIdxI 2 3 4
+  K 13 9
+  Move 15 2
+  K 16 10
+  CallDyn 13 14 2
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  RetN 4 128
+end
+function module:cases 61 0 22 2 :v
+  source cases
+  const 0 str "__index"
+  const 1 str "new"
+  const 2 str "value"
+  const 3 str "monomorphic"
+  const 4 str "miss"
+  const 5 str "mutate"
+  const 6 str "metatable"
+  const 7 str "unstable"
+  const 8 str "weak"
+  const 9 str "main"
+  lines 4x3 6x3 7x3 8x4 9x3 11x3 12x3 13x4 14x3 16x5 17x5 18x5 21x6 30x6 39x5 53x6 66x6 89x4 105x4 113x2
+  NewTableN 3 0 0
+  Move 2 3
+  NewCell 1 2
+  NewTableN 4 0 0
+  Move 3 4
+  NewCell 2 3
+  GetCell 3 2
+  GetCell 4 2
+  SetField 3 0 4
+  Move 5 2
+  NewClosure 3 62 4 1
+  GetCell 6 2
+  SetField 6 1 3
+  NewClosure 3 63 4 0
+  GetCell 5 2
+  SetField 5 2 3
+  NewTableN 5 0 0
+  Move 4 5
+  NewCell 3 4
+  GetCell 4 3
+  GetCell 5 3
+  SetField 4 0 5
+  Move 6 3
+  NewClosure 4 64 5 1
+  GetCell 7 3
+  SetField 7 1 4
+  NewClosure 4 65 5 0
+  GetCell 6 3
+  SetField 6 2 4
+  Nil 4
+  Nil 5
+  NewCell 4 5
+  NewClosure 6 66 7 0
+  SetCell 4 6
+  Nil 5
+  Nil 6
+  NewCell 5 6
+  NewClosure 7 67 8 0
+  SetCell 5 7
+  Nil 6
+  Nil 7
+  NewCell 6 7
+  NewClosure 8 68 9 0
+  SetCell 6 8
+  Move 9 2
+  Move 10 4
+  Move 11 5
+  NewClosure 7 69 8 3
+  GetCell 12 1
+  SetField 12 3 7
+  Move 9 2
+  Move 10 3
+  Move 11 4
+  NewClosure 7 70 8 3
+  GetCell 12 1
+  SetField 12 4 7
+  Move 9 2
+  Move 10 4
+  NewClosure 7 71 8 2
+  GetCell 11 1
+  SetField 11 5 7
+  Move 9 2
+  Move 10 3
+  Move 11 4
+  NewClosure 7 73 8 3
+  GetCell 12 1
+  SetField 12 6 7
+  Move 9 4
+  Move 10 5
+  Move 11 6
+  NewClosure 7 75 8 3
+  GetCell 12 1
+  SetField 12 7 7
+  Move 9 4
+  NewClosure 7 77 8 1
+  GetCell 10 1
+  SetField 10 8 7
+  Move 9 1
+  NewClosure 7 79 8 1
+  GetCell 10 1
+  SetField 10 9 7
+  GetCell 7 1
+  Ret 7
+end
+function A.new 62 1 27 2 v:v
+  source cases
+  const 0 builtin setmetatable
+  lines 0 8x16
+  GetUpval 2 0
+  K 12 0
+  NewRecord 16 14
+  SetSlot 16 0 1 14
+  Move 14 16
+  GetCell 17 2
+  Move 15 17
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function A.:value 63 1 12 2 v:v
+  source cases
+  const 0 str "x"
+  lines 9x2
+  GetField 2 1 0
+  Ret 2
+end
+function B.new 64 1 27 2 v:v
+  source cases
+  const 0 builtin setmetatable
+  lines 0 13x16
+  GetUpval 2 0
+  K 12 0
+  NewRecord 16 14
+  SetSlot 16 0 1 14
+  Move 14 16
+  GetCell 17 2
+  Move 15 17
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+function B.:value 65 1 14 2 v:v
+  source cases
+  const 0 str "x"
+  const 1 num 10
+  lines 14x4
+  GetField 3 1 0
+  K 4 1
+  Mul 2 3 4
+  Ret 2
+end
+function call 66 1 22 2 v:v
+  source cases
+  const 0 str "value"
+  lines 16x11
+  Move 12 1
+  CallMethod 0 11 1
+  Move 2 11
+  Move 3 12
+  Move 4 13
+  Move 5 14
+  Move 6 15
+  Move 7 16
+  Move 8 17
+  Move 9 18
+  RetN 2 128
+end
+function read 67 1 12 2 v:v
+  source cases
+  const 0 str "x"
+  lines 17x2
+  GetField 2 1 0
+  Ret 2
+end
+function write 68 2 12 2 vv:v
+  source cases
+  const 0 str "x"
+  lines 18x2
+  SetField 1 0 2
+  RetNil
+end
+function M.monomorphic 69 1 21 7 v:v
+  source cases
+  const 0 str "new"
+  const 1 num 2
+  const 2 num 0
+  lines 0x3 22x5 23 24x18 25
+  GetUpval 2 0
+  GetUpval 3 1
+  GetUpval 4 2
+  GetCell 9 2
+  GetField 8 9 0
+  K 6 1
+  CallDyn 8 5 1
+  PadResults 5 1
+  K 6 2
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 12
+  GetCell 11 3
+  Move 9 5
+  CallK 66 11 8 1 1
+  PadResults 8 1
+  Add 7 6 8
+  GetCell 11 4
+  Move 9 5
+  CallK 67 11 8 1 1
+  PadResults 8 1
+  Add 6 7 8
+  FAdd 0 0 3
+  Jmp -14
+  Ret 6
+end
+function M.miss 70 1 31 7 v:v
+  source cases
+  const 0 str "new"
+  const 1 num 2
+  const 2 num 3
+  const 3 num 0
+  lines 0x3 31x14 32 33x13 34x13 35
+  GetUpval 2 0
+  GetUpval 3 1
+  GetUpval 4 2
+  GetCell 8 2
+  GetField 7 8 0
+  K 10 1
+  CallDyn 7 9 1
+  PadResults 9 1
+  Move 5 9
+  GetCell 12 3
+  GetField 11 12 0
+  K 14 2
+  CallDyn 11 13 1
+  PadResults 13 1
+  Move 6 13
+  Move 15 5
+  Move 16 6
+  K 17 3
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 21 4
+  Move 19 15
+  CallK 66 21 18 1 1
+  PadResults 18 1
+  Add 17 17 18
+  FAdd 0 0 3
+  Jmp -9
+  FK 1 1
+  FMov 0 1
+  FK 2 10
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 21 4
+  Move 19 16
+  CallK 66 21 18 1 1
+  PadResults 18 1
+  Add 17 17 18
+  FAdd 0 0 3
+  Jmp -9
+  Ret 17
+end
+function M.mutate 71 1 20 7 v:v
+  source cases
+  const 0 str "new"
+  const 1 num 2
+  const 2 num 0
+  const 3 str "value"
+  lines 0x2 40x5 41 42x13 43x2 44x3 45x13 46x2 47x13 48
+  GetUpval 2 0
+  GetUpval 3 1
+  GetCell 8 2
+  GetField 7 8 0
+  K 5 1
+  CallDyn 7 4 1
+  PadResults 4 1
+  K 5 2
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 9 3
+  Move 7 4
+  CallK 66 9 6 1 1
+  PadResults 6 1
+  Add 5 5 6
+  FAdd 0 0 3
+  Jmp -9
+  GetCell 7 2
+  GetField 6 7 3
+  GetCell 7 2
+  NewClosure 8 72 9 0
+  SetField 7 3 8
+  FK 1 1
+  FMov 0 1
+  FK 2 10
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 10 3
+  Move 8 4
+  CallK 66 10 7 1 1
+  PadResults 7 1
+  Add 5 5 7
+  FAdd 0 0 3
+  Jmp -9
+  GetCell 7 2
+  SetField 7 3 6
+  FK 1 1
+  FMov 0 1
+  FK 2 10
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 10 3
+  Move 8 4
+  CallK 66 10 7 1 1
+  PadResults 7 1
+  Add 5 5 7
+  FAdd 0 0 3
+  Jmp -9
+  Ret 5
+end
+function M.mutate.fn72 72 1 14 2 v:v
+  source cases
+  const 0 str "x"
+  const 1 num 1000
+  lines 44x4
+  GetField 3 1 0
+  K 4 1
+  Add 2 3 4
+  Ret 2
+end
+function M.metatable 73 1 22 7 v:v
+  source cases
+  const 0 str "new"
+  const 1 num 2
+  const 2 num 0
+  const 3 builtin setmetatable
+  const 4 str "value"
+  lines 0x3 54x5 55 56x13 57x6 58x13 59x6 60x2 61x13 62
+  GetUpval 2 0
+  GetUpval 3 1
+  GetUpval 4 2
+  GetCell 9 2
+  GetField 8 9 0
+  K 6 1
+  CallDyn 8 5 1
+  PadResults 5 1
+  K 6 2
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 10 4
+  Move 8 5
+  CallK 66 10 7 1 1
+  PadResults 7 1
+  Add 6 6 7
+  FAdd 0 0 3
+  Jmp -9
+  K 11 3
+  Move 8 5
+  GetCell 12 3
+  Move 9 12
+  CallDyn 11 7 2
+  PadResults 7 1
+  FK 1 1
+  FMov 0 1
+  FK 2 10
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 10 4
+  Move 8 5
+  CallK 66 10 7 1 1
+  PadResults 7 1
+  Add 6 6 7
+  FAdd 0 0 3
+  Jmp -9
+  K 11 3
+  Move 8 5
+  GetCell 12 2
+  Move 9 12
+  CallDyn 11 7 2
+  PadResults 7 1
+  NewClosure 7 74 8 0
+  SetField 5 4 7
+  FK 1 1
+  FMov 0 1
+  FK 2 10
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 10 4
+  Move 8 5
+  CallK 66 10 7 1 1
+  PadResults 7 1
+  Add 6 6 7
+  FAdd 0 0 3
+  Jmp -9
+  Ret 6
+end
+function M.metatable.fn74 74 0 11 2 :v
+  source cases
+  const 0 num 7
+  lines 60x2
+  K 1 0
+  Ret 1
+end
+function M.unstable 75 1 37 13 v:v
+  source cases
+  const 0 str "__index"
+  const 1 str "value"
+  const 2 num 0
+  const 3 builtin setmetatable
+  lines 0x3 67x2 68x8 69x2 70 71x3 72x5 74 75x8 76x8 77x19 78x8 79x6 80x7 82
+  GetUpval 2 0
+  GetUpval 3 1
+  GetUpval 4 2
+  NewTableN 6 0 0
+  Move 5 6
+  FK 1 1
+  FMov 0 1
+  FK 2 6
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 13
+  FBox 6 0
+  NewCell 7 6
+  NewTableN 9 0 0
+  Move 8 9
+  SetField 8 0 8
+  Move 11 7
+  NewClosure 9 76 10 1
+  SetField 8 1 9
+  GetCell 9 7
+  IUnbox 5 9
+  SetIdxI 5 5 8
+  FAdd 0 0 3
+  Jmp -15
+  K 6 2
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 50
+  FBox 7 0
+  NewCell 8 7
+  GetCell 10 8
+  FUnbox 5 10
+  FK 6 6
+  FMod 7 5 6
+  FToI 8 7
+  IK 9 1
+  IAdd 10 8 9
+  GetIdxI 9 5 10
+  GetCell 21 2
+  K 22 3
+  NewRecord 26 14
+  GetCell 27 8
+  SetSlot 26 0 27 14
+  Move 24 26
+  Move 25 9
+  CallDyn 22 23 2
+  Move 11 23
+  Move 12 24
+  Move 13 25
+  Move 14 26
+  Move 15 27
+  Move 16 28
+  Move 17 29
+  Move 18 30
+  CallK 66 21 10 64 1
+  PadResults 10 1
+  Add 6 6 10
+  K 14 3
+  NewRecord 15 14
+  K 16 2
+  SetSlot 15 0 16 14
+  Move 11 15
+  Move 12 9
+  CallDyn 14 10 2
+  PadResults 10 1
+  GetCell 15 4
+  Move 12 10
+  GetCell 16 8
+  Move 13 16
+  CallK 68 15 11 2 1
+  PadResults 11 1
+  GetCell 14 3
+  Move 12 10
+  CallK 67 14 11 1 1
+  PadResults 11 1
+  Add 6 6 11
+  FAdd 0 0 3
+  Jmp -52
+  Ret 6
+end
+function C.:value 76 1 13 2 v:v
+  source cases
+  lines 0 71x2
+  GetUpval 2 0
+  GetCell 3 2
+  Ret 3
+end
+function M.weak 77 1 34 7 v:v
+  source cases
+  const 0 builtin setmetatable
+  const 1 str "v"
+  const 2 str "f"
+  const 3 str "value"
+  const 4 num 3
+  const 5 num 0
+  const 6 str "_G"
+  const 7 str "collectgarbage"
+  const 8 num 1000000
+  lines 0 90x9 91x3 92x4 93x2 94x8 95 96x13 97x2 98x5 99x5 100x7 101x8 102x8
+  GetUpval 2 0
+  K 7 0
+  NewTableN 8 0 0
+  Move 4 8
+  NewRecord 9 15
+  K 10 1
+  SetSlot 9 0 10 15
+  Move 5 9
+  CallDyn 7 3 2
+  PadResults 3 1
+  NewRecord 5 1
+  SetSlot 5 0 3 1
+  Move 4 5
+  NewRecord 6 16
+  NewClosure 7 78 8 0
+  SetSlot 6 0 7 16
+  Move 5 6
+  GetField 6 5 2
+  SetField 3 3 6
+  K 10 0
+  NewRecord 11 14
+  K 12 4
+  SetSlot 11 0 12 14
+  Move 7 11
+  Move 8 4
+  CallDyn 10 6 2
+  PadResults 6 1
+  K 7 5
+  FK 1 1
+  FMov 0 1
+  FUnbox 2 1
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 7
+  GetCell 11 2
+  Move 9 6
+  CallK 66 11 8 1 1
+  PadResults 8 1
+  Add 7 7 8
+  FAdd 0 0 3
+  Jmp -9
+  Nil 8
+  SetField 5 2 8
+  Require 10 6
+  GetField 11 10 7
+  Move 10 11
+  CallDyn 10 8 0
+  PadResults 8 1
+  Require 10 6
+  GetField 11 10 7
+  Move 10 11
+  CallDyn 10 8 0
+  PadResults 8 1
+  GetCell 18 2
+  Move 9 18
+  Move 10 6
+  PCall 8 1
+  PadResults 8 2
+  Move 19 8
+  Move 20 9
+  Move 23 19
+  JmpIfNot 23 2
+  K 24 4
+  Eq 23 20 24
+  Move 22 23
+  JmpIf 22 1
+  Not 22 19
+  Move 21 22
+  Move 24 21
+  JmpIfNot 24 1
+  K 24 5
+  Move 23 24
+  JmpIf 23 1
+  K 23 8
+  Add 22 7 23
+  Ret 22
+end
+function M.weak.fn78 78 1 12 2 v:v
+  source cases
+  const 0 str "x"
+  lines 92x2
+  GetField 2 1 0
+  Ret 2
+end
+function M.main 79 0 45 6 :v
+  source cases
+  const 0 builtin ipairs
+  const 1 num 1
+  const 2 str "monomorphic"
+  const 3 num 2
+  const 4 str "miss"
+  const 5 num 3
+  const 6 str "mutate"
+  const 7 num 4
+  const 8 str "metatable"
+  const 9 num 5
+  const 10 str "unstable"
+  const 11 num 6
+  const 12 str "weak"
+  const 13 str "="
+  const 14 builtin tostring
+  const 15 num 3000
+  const 16 builtin table.concat
+  const 17 str " "
+  lines 0 106x2 107x36 108x25 110x13
+  GetUpval 1 0
+  NewTableN 3 0 0
+  Move 2 3
+  K 6 0
+  NewTableN 9 6 0
+  K 10 1
+  K 11 2
+  SetIdx 9 10 11
+  K 10 3
+  K 11 4
+  SetIdx 9 10 11
+  K 10 5
+  K 11 6
+  SetIdx 9 10 11
+  K 10 7
+  K 11 8
+  SetIdx 9 10 11
+  K 10 9
+  K 11 10
+  SetIdx 9 10 11
+  K 10 11
+  K 11 12
+  SetIdx 9 10 11
+  Move 8 9
+  CallDyn 6 7 1
+  PadResults 7 3
+  Move 3 7
+  Move 4 8
+  Move 5 9
+  Move 13 4
+  Move 14 5
+  CallDyn 3 12 2
+  PadResults 12 2
+  Nil 16
+  Eq 16 12 16
+  JmpIf 16 28
+  Move 5 12
+  Move 17 12
+  Move 18 13
+  LenF 0 2
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  Move 19 18
+  K 20 13
+  Concat 19 19 20
+  K 31 14
+  GetCell 33 1
+  GetIdx 32 33 18
+  K 35 15
+  CallDyn 32 34 1
+  Move 21 34
+  Move 22 35
+  Move 23 36
+  Move 24 37
+  Move 25 38
+  Move 26 39
+  Move 27 40
+  Move 28 41
+  CallDyn 31 20 64
+  PadResults 20 1
+  Concat 19 19 20
+  SetIdxI 2 3 19
+  Jmp -35
+  K 12 16
+  Move 14 2
+  K 15 17
+  CallDyn 12 13 2
+  Move 3 13
+  Move 4 14
+  Move 5 15
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  RetN 3 128
+end
+module classes 0 classes.lua
+module poly 26 poly.nupp
+module shapes 39 shapes.nupp
+module cases 61 cases.lua
+entry 61

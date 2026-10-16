@@ -1,6 +1,7 @@
 //! Specialization and deoptimization (`specialize`; design in the runtime
 //! plan's "JIT specialization and deoptimization" document). The programs in
-//! `tests/specialize/` are emitted into `specialize.image`; every tier, with
+//! `tests/specialize/` are emitted into `specialize.image` (committed, like
+//! `checkpoint.image`, so a fresh checkout builds the tests); every tier, with
 //! feedback off, on, and specializing, must answer what the Rust loop with
 //! feedback off answers, under the collector's verification modes too. The
 //! scenario tests then read the VM's counters to show which path ran: guard
