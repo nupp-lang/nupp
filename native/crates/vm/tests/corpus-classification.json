@@ -843,9 +843,9 @@
     },
     {
       "suite": "methodtest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "a generic constructor overload instantiated at integer unboxes a float argument (expected an integer)"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "narrowingtest",
@@ -903,9 +903,9 @@
     },
     {
       "suite": "operatortest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "integer % 0 answers nan instead of LuaJIT's integral result"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "optimizeprograms",
@@ -921,9 +921,9 @@
     },
     {
       "suite": "orexittest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "an xpcall handler runs after the stack unwound, so the protected wrappers' layout differs"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "overloaddoctest",
@@ -1131,9 +1131,9 @@
     },
     {
       "suite": "runtimereflectiontest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "a dead register keeps an unused local type alive past its owner"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "runtimetest",
