@@ -33,6 +33,9 @@ API int32_t loader_with_context(int32_t (*callback)(void *, int32_t), void *cont
     return callback(context, value);
 }
 API void *loader_produce(void *(*callback)(int32_t), int32_t value) { return callback(value); }
+static const char loader_text_bytes[] = "nupp\0loader";
+API const char *loader_text(void) { return loader_text_bytes; }
+API int32_t (*loader_adder(void))(int32_t, int32_t) { return loader_add; }
 
 #ifndef _WIN32
 struct ThreadCall {

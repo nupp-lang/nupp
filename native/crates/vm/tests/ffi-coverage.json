@@ -834,60 +834,74 @@
       "id": "native.default-namespace",
       "capability": "Default/global process symbol namespace",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign.rs::independent_c_scalar_calls_variadics_errno_and_closed_handles",
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Declare known fixture/exported libc symbol and resolve default namespace.",
         "expected": "Target default library set documented; missing declaration/symbol fails.",
         "nativeOracleSymbols": [
           "ffi_test_i32"
-        ]
+        ],
+        "note": "A nil library binds from the process namespace (libc abs); the default namespace is one cached library per VM. Missing symbols name the symbol and the namespace."
       }
     },
     {
       "id": "native.load",
       "capability": "Dynamic library explicit path and canonical name",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Load fixture by fullpath and target shortname; load missingpath.",
         "expected": "Correct symbol scope and target name canonicalization; clear missinglibrary error.",
         "nativeOracleSymbols": [
           "ffi_test_i32"
-        ]
+        ],
+        "note": "foreign.load and cdef `from` resolve an explicit path, a canonical name with the platform prefix and extension (System -> libSystem.dylib; `from \"loader\"` through the platform search path), and an `@`-relative library at or above the calling module or the executable. Missing libraries report the declared name and the canonical file name. Windows naming is implemented but unexercised."
       }
     },
     {
       "id": "native.global-load",
       "capability": "POSIX global library visibility",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Load fixture globally and resolve symbol through defaultnamespace.",
         "expected": "Visibility matches flag; Windows behavior documented separately.",
         "nativeOracleSymbols": [
           "ffi_test_global"
-        ]
+        ],
+        "note": "foreign.load(name, {global = true}) opens with RTLD_GLOBAL and binds from it; visibility to a library loaded afterwards is not yet exercised."
       }
     },
     {
       "id": "native.binding-cache",
       "capability": "Lazy symbol binding cached by namespace/name/type",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Resolve same function twice; resolve from two separate libraries with same symbol.",
         "expected": "Canonical namespace binding stable and library isolation retained.",
         "nativeOracleSymbols": [
           "ffi_test_i32"
-        ]
+        ],
+        "note": "Libraries are cached per VM by resolved name and visibility while anything holds them; cdef declarations bind their symbol once, at module load. Per-symbol lazy binding through a namespace object is not provided: Nupp binds through typed declarations."
       }
     },
     {
@@ -956,16 +970,20 @@
       "id": "native.calls-function-pointer",
       "capability": "Calls through returned/cast function pointer",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Obtain ffi_test_i32 address then call through declared typedfunctionpointer.",
         "expected": "Call uses signature and actualaddress, not symbolname specialcase.",
         "nativeOracleSymbols": [
           "ffi_test_function_address",
           "ffi_test_i32"
-        ]
+        ],
+        "note": "A cdef result of function type (and a `{kind = \"callback\"}` result descriptor) yields a foreign function callable under that signature, holding the library that returned it. Casting an arbitrary pointer to a function type is not provided."
       }
     },
     {
@@ -1001,15 +1019,18 @@
       "id": "native.library-lifetime",
       "capability": "Namespace lifetime, library unload and function-pointer anchoring",
       "reference": "api#ffi_C;api#ffi_load;api#ffi_errno;semantics#clib;semantics#cdata_call;semantics#convert_vararg",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Keep namespace through calls, release namespace after alluses.",
         "expected": "Library remainsvalid whileowner retained; no use-after-unload. Stronger ownership may retain namespace throughfunction.",
         "nativeOracleSymbols": [
           "ffi_test_i32"
-        ]
+        ],
+        "note": "Library objects, bound functions and returned pointers each hold the library; binding through a closed library object is refused while its functions stay callable, and the fixture destructor proves the platform unloads it only after the last holder closes."
       }
     },
     {
@@ -1032,107 +1053,135 @@
       "id": "callback.create",
       "capability": "Implicit/explicit function-to-C callback conversion",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run",
+        "ffi-project/src/nupp/tests/foreign.nupp::callbacks"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Call C with closure taking2ints and closure takingdouble.",
         "expected": "Arguments/returnvalues converted correctly and closure captures retained.",
         "nativeOracleSymbols": [
           "ffi_test_callback",
           "ffi_test_callback_double"
-        ]
+        ],
+        "note": "A Nupp function passed to a typed callback parameter is lent a pooled trampoline for that call; foreign.callback / nupp.foreign.retain create explicit retained callbacks. int32, double, uint64, bool and opaque pointer arguments and results."
       }
     },
     {
       "id": "callback.retained",
       "capability": "Retained callback lifetime and rooting",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Register callback with C, GC, invoke later, clearbefore release.",
         "expected": "Closure remainslive and exactcallback used; ownership explicit.",
         "nativeOracleSymbols": [
           "ffi_test_save_callback",
           "ffi_test_call_saved",
           "ffi_test_clear_saved"
-        ]
+        ],
+        "note": "Retained callbacks root their function in every tier under GC stress and take their C signature from the first parameter they fill; a different signature is refused."
       }
     },
     {
       "id": "callback.set",
       "capability": "Callback target replacement without changing pointer",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Replace callbackreceiver and invoke saved C pointer.",
         "expected": "Stable functionpointer reachesnewclosure.",
         "nativeOracleSymbols": [
           "ffi_test_call_saved"
-        ]
+        ],
+        "note": "setCallback / nupp.foreign.rebind change the function while the C pointer stays the same (address compared through the fixture)."
       }
     },
     {
       "id": "callback.free",
       "capability": "Callback resource release and reuse",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Create/free many callbacks; verify reclaimedslot and closure collected.",
         "expected": "Resource count bounded; freedpointer explicitly invalid, never called in test.",
         "nativeOracleSymbols": [
           "ffi_test_clear_saved"
-        ]
+        ],
+        "note": "Release clears the function: a later C call is refused, never sent to freed code. Released trampolines are reused only after 256 later releases (checked by address), and lent trampolines return to a per-signature pool when their call returns."
       }
     },
     {
       "id": "callback.reentrancy",
       "capability": "C->Nupp reentrancy and nested native calls",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Callback calls another Cfunction and protectedNuppcallee.",
         "expected": "State, roots, stack and errors preserved; JIT policy must avoid LuaJIT bad-callback limitation.",
         "nativeOracleSymbols": [
           "ffi_test_callback",
           "ffi_test_i32"
-        ]
+        ],
+        "note": "Callbacks call native functions and allocate and collect while C is on the stack, from interpreted, threaded, compiled and compiled-frame callers."
       }
     },
     {
       "id": "callback.error",
       "capability": "Callback error propagation through an approved C boundary",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier",
+        "loader-project/src/nupp/tests/loader.nupp::run"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Throw fromcallback through fixture that owns no resources.",
         "expected": "Controlled error result/unwind with no GC roots or callbackslot leak; ABI exceptionpolicy explicit.",
         "nativeOracleSymbols": [
           "ffi_test_callback"
-        ]
+        ],
+        "note": "An error raised in a callback returns zero to C and is raised to the Nupp caller once the native call returns; the callback is usable afterwards."
       }
     },
     {
       "id": "callback.unsupported-signatures",
       "capability": "Reject callbacks with varargs or aggregate-by-value arguments/results",
       "reference": "api#callback_free;api#callback_set;semantics#callback;semantics#callback_resources",
-      "status": "pending",
-      "evidence": [],
+      "status": "partial",
+      "evidence": [
+        "foreign_loader.rs::callbacks_lend_retain_rebind_release_and_refuse_in_every_tier"
+      ],
       "acceptance": {
-        "state": "planned",
+        "state": "existing-narrow",
         "scenario": "Try callback typedefs with varargs and Pair argument/result.",
         "expected": "Rejection matches documented LuaJIT unsupportedscope; no silent partial callback.",
-        "nativeOracleSymbols": []
+        "nativeOracleSymbols": [],
+        "note": "Variadic callbacks and aggregate or function-by-value callback parameters and results are refused when the callback is declared."
       }
     },
     {
@@ -1291,13 +1340,15 @@
       "reference": "api#ffi_string",
       "status": "partial",
       "evidence": [
-        "storage.rs::overlap_bounds_and_readonly_views"
+        "storage.rs::overlap_bounds_and_readonly_views",
+        "foreign_loader.rs::loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them"
       ],
       "acceptance": {
         "state": "existing-narrow",
         "scenario": "Read ffi_test_text withlength8 andwithoutlength; mutatebacking afterward.",
         "expected": "Explicitlength keeps embeddedzero; defaultstopsatzero; copiedstring independent.",
-        "nativeOracleSymbols": []
+        "nativeOracleSymbols": [],
+        "note": "foreign.string reads a NUL-terminated string or an explicit length (embedded zero kept) from a pointer a native call returned; closed pointers are refused."
       }
     },
     {
@@ -1844,6 +1895,51 @@
       "after": "passed; aggregate9 and storage6 passed",
       "afterLog": "/private/tmp/nupp-index-gc-after.log",
       "scope": "Compiled GetIdx/GetIdxF/GetIdxI allocation retains unrelated live values under GC stress/oracle/quarantine"
+    },
+    "loader": {
+      "date": "2026-10-15",
+      "target": "aarch64-apple-darwin",
+      "fixtures": [
+        "ffi/loader.c",
+        "loader-project/src/nupp/tests/loader.nupp",
+        "loader-project/src/nupp/tests/loadermissing.nupp"
+      ],
+      "drivers": [
+        "loader-smoke.py"
+      ],
+      "rust": {
+        "command": "cargo test -p nupp-vm --release --test foreign_loader",
+        "passed": 2,
+        "scope": "Library resolution by path, canonical name and @-relative module path; library objects, RTLD_GLOBAL, missing library and symbol diagnostics, closed-library refusal, unload after the last holder; foreign.string; returned function pointers; lent, retained, rebound and released callbacks in the Rust, threaded, JIT and compiled-frame tiers under collector stress with the root oracle and quarantine; refusals for late, released, foreign-thread and mismatched-signature calls; opaque pointer arguments and results; bounded trampoline reuse."
+      },
+      "acceptedSlice": [
+        "cdef `from \"name\"` loads through the platform loader with ffi.load naming, at module load, and reports a missing library by name",
+        "Typed C function-pointer parameters lend a Nupp function a trampoline for one call",
+        "nupp.foreign.retain / rebind / release: retained callbacks with a stable C pointer, rebinding, and refused calls after release",
+        "Calls from a foreign thread or outside a native call return zero to C and raise on the VM thread",
+        "Typed function-pointer results are callable foreign functions"
+      ],
+      "limits": [
+        "Only aarch64 macOS has execution evidence; Linux paths are implemented, Windows naming is unexercised.",
+        "Out-parameter and count mappings in cdef signatures are still refused by the VM lowering.",
+        "Callback trampolines allocate executable memory, so the executable-memory-denied AOT gate still excludes them.",
+        "A retained callback handle is untyped (any) in nupp.foreign; the cdef parameter checks the function type.",
+        "Compiled code calling a raising callable table leaves its arguments on the handle stack; the Rust test holds the compiled tier to root balance only on success."
+      ],
+      "runs": [
+        {
+          "kind": "source",
+          "status": "passed",
+          "report": "/private/tmp/nupp-loader/build/loader/smoke/results.json",
+          "sha256": {
+            "runtime": "93b999c2742c5c503d3fd5689a0d03482e295375af48bde0c103b0922aba1986",
+            "seed": "6734b04ea423459b4cc4998979e37ebc998b82265c441a1fa54b8da648df1317",
+            "image": "4ecbaf93b786f5f22d599b2adddb8a68b1a71ffbd51f9c88f2880405c5fbb5ef",
+            "library": "7411fb7bcf29ed1540fd0ee282b3db19a0044bb6763106b23bd0d78b3bc0312c",
+            "nativeSource": "18760100975994ba54a430bcbc1a40892d2bacf74d482b7e906ec392f14b50e1"
+          }
+        }
+      ]
     }
   }
 }

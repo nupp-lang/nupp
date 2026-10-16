@@ -304,9 +304,15 @@ mod native {
         outside_call: std::sync::atomic::AtomicBool,
         boundary: std::sync::atomic::AtomicBool,
     }
+    /// How many released retained trampolines keep refusing calls before the
+    /// oldest is reused. Past it, a C caller that kept a released pointer that
+    /// long reaches whichever callback reuses it, as a reused LuaJIT slot does.
+    const RELEASED_QUARANTINE: usize = 256;
     /// One libffi closure. A trampoline is never freed while its VM lives:
     /// releasing a callback clears its function, so a C caller still holding
-    /// the pointer reaches a refusal rather than freed executable memory.
+    /// the pointer reaches a refusal rather than freed executable memory, and
+    /// the trampoline is reused only once `RELEASED_QUARANTINE` later releases
+    /// have passed it.
     struct Callback {
         cif: Cif,
         closure: *mut libffi::low::ffi_closure,
@@ -315,7 +321,7 @@ mod native {
         /// NIL once released, and between the calls that lend a pooled one.
         function: std::cell::Cell<Value>,
         /// Held by a callback object rather than lent for the length of one call.
-        retained: bool,
+        retained: std::cell::Cell<bool>,
         owner: usize,
         thread: std::thread::ThreadId,
         alarm: std::sync::Arc<Alarm>,
@@ -337,12 +343,24 @@ mod native {
             vm.err("native callback must be a function");
         }
     }
+    /// A trampoline calling `function` under `signature`: a free one of that
+    /// signature when the pool has one, else a new closure.
     fn trampoline(
         vm: &mut Interp,
         signature: Rc<Signature>,
         function: Value,
         retained: bool,
     ) -> Rc<Callback> {
+        let pooled = vm
+            .foreign
+            .pool
+            .get_mut(&signature.key)
+            .and_then(|free| free.pop());
+        if let Some(callback) = pooled {
+            callback.function.set(function);
+            callback.retained.set(retained);
+            return callback;
+        }
         let cif = Cif::try_new(
             signature
                 .params
@@ -362,7 +380,7 @@ mod native {
             code,
             signature,
             function: std::cell::Cell::new(function),
-            retained,
+            retained: std::cell::Cell::new(retained),
             owner: Rc::as_ptr(&vm.foreign.identity) as usize,
             thread: std::thread::current().id(),
             alarm: vm.foreign.alarm.clone(),
@@ -446,18 +464,7 @@ mod native {
         if !is_function(vm, value) {
             vm.err("a native callback parameter takes a function, a retained callback, or nil");
         }
-        let pooled = vm
-            .foreign
-            .pool
-            .get_mut(&signature.key)
-            .and_then(|free| free.pop());
-        let callback = match pooled {
-            Some(callback) => {
-                callback.function.set(value);
-                callback
-            }
-            None => trampoline(vm, signature.clone(), value, false),
-        };
+        let callback = trampoline(vm, signature.clone(), value, false);
         let code = callback.code.as_mut_ptr();
         vm.foreign.lent.push(callback);
         code
@@ -642,7 +649,7 @@ mod native {
         let function = callback.function.get();
         if function == Value::NIL {
             vm.foreign.refusals.push(
-                if callback.retained {
+                if callback.retained.get() {
                     "native callback invoked after it was released"
                 } else {
                     "native callback invoked after the call that lent it returned; \
@@ -752,6 +759,7 @@ mod native {
         unbound: HashMap<Value, Value>,
         trampolines: Vec<Rc<Callback>>,
         pool: HashMap<String, Vec<Rc<Callback>>>,
+        released: std::collections::VecDeque<Rc<Callback>>,
         lent: Vec<Rc<Callback>>,
         callback_pointers: Vec<Value>,
         refusals: Vec<String>,
@@ -1012,9 +1020,6 @@ mod native {
         let result = field(vm, args[2], "result");
         let mut budget = 65536;
         let result = Abi::parse(vm, result, 0, &mut budget);
-        if matches!(result.kind, Scalar::Callback) {
-            vm.err("a native function returns a function pointer as an opaque pointer");
-        }
         let list = field(vm, args[2], "params");
         if !matches!(vm.kind_of(list), Some(KIND_TABLE | KIND_RECORD)) {
             vm.err("foreign parameter types must be an array");
@@ -1075,7 +1080,22 @@ mod native {
                 library.label
             ))
         });
-        let object = resource(vm, "nupp.foreign.function", &[args[2]]);
+        function_object(
+            vm,
+            &[args[2]],
+            Binding {
+                cif,
+                address: CodePtr(address),
+                params,
+                result,
+                library,
+            },
+        )
+    }
+    /// A callable foreign function object for `binding`; `parents` stay
+    /// reachable from it.
+    fn function_object(vm: &mut Interp, parents: &[Value], binding: Binding) -> Value {
+        let object = resource(vm, "nupp.foreign.function", parents);
         let meta = vm.new_table();
         vm.handles.push(meta);
         let key = vm.intern("__call");
@@ -1085,17 +1105,43 @@ mod native {
             Value::builtin(crate::builtins::id_of("foreign.call").unwrap()),
         );
         vm.set_metatable(object, meta);
-        vm.foreign.functions.insert(
-            object,
-            Rc::new(Binding {
+        vm.foreign.functions.insert(object, Rc::new(binding));
+        object
+    }
+    /// The function a C function pointer a native call returned names, callable
+    /// under `signature` and holding the library that returned it.
+    fn function_at(
+        vm: &mut Interp,
+        address: *mut c_void,
+        signature: &Signature,
+        library: Rc<Native>,
+    ) -> Value {
+        let scalar = |kind: Scalar| Abi {
+            kind,
+            descriptor: Value::NIL,
+            ty: kind.ffi(),
+            size: 16,
+            readonly: false,
+            callback: None,
+        };
+        let params: Vec<Abi> = signature.params.iter().map(|&kind| scalar(kind)).collect();
+        let result = scalar(signature.result);
+        let cif = Cif::try_new(
+            params.iter().map(|abi| abi.ty.clone()).collect::<Vec<_>>(),
+            result.ty.clone(),
+        )
+        .unwrap_or_else(|e| vm.err(&format!("invalid foreign signature: {e:?}")));
+        function_object(
+            vm,
+            &[],
+            Binding {
                 cif,
                 address: CodePtr(address),
                 params,
                 result,
                 library,
-            }),
-        );
-        object
+            },
+        )
     }
     // Each argument and result slot is suitably aligned for every scalar ABI type.
     #[repr(C, align(16))]
@@ -1287,7 +1333,15 @@ mod native {
             }),
             Scalar::F32 => Value::num(result.get::<f32>() as f64),
             Scalar::F64 => Value::num(result.get::<f64>()),
-            Scalar::Callback => unreachable!(),
+            Scalar::Callback => {
+                let address = result.get::<*mut c_void>();
+                if address.is_null() {
+                    Value::NIL
+                } else {
+                    let signature = binding.result.callback.clone().unwrap();
+                    function_at(vm, address, &signature, binding.library.clone())
+                }
+            }
             Scalar::Pointer => {
                 let address = result.get::<*mut c_void>();
                 if address.is_null() {
@@ -1362,6 +1416,29 @@ mod native {
                 vm.call_value(function, &args[1..]).into_iter().collect()
             }
             "foreign.load" => [load(vm, args)].into_iter().collect(),
+            "foreign.string" => {
+                // The bytes at an address C returned: LuaJIT's `ffi.string`, for
+                // external pointers only. Managed storage has its own bounded view.
+                let object = args.first().copied().unwrap_or(Value::NIL);
+                let pointer = vm
+                    .foreign
+                    .pointers
+                    .get(&object)
+                    .cloned()
+                    .unwrap_or_else(|| vm.err("foreign.string expects an open foreign pointer"));
+                let bytes = match args.get(1).copied().filter(|&length| length != Value::NIL) {
+                    Some(length) => {
+                        let length = numeric::bits(vm, length, true) as usize;
+                        if length > isize::MAX as usize {
+                            vm.err("foreign.string length is out of range");
+                        }
+                        unsafe { std::slice::from_raw_parts(pointer.address.cast::<u8>(), length) }
+                    }
+                    None => unsafe { std::ffi::CStr::from_ptr(pointer.address.cast()).to_bytes() },
+                };
+                let value = vm.string_of(bytes);
+                [value].into_iter().collect()
+            }
             "foreign.bind" => [bind(vm, args)].into_iter().collect(),
             "foreign.call" => invoke(vm, args),
             "foreign.close" => {
@@ -1371,6 +1448,15 @@ mod native {
                     // The trampoline stays allocated, so a C caller that kept the
                     // pointer is refused rather than sent into freed code.
                     callback.function.set(Value::NIL);
+                    vm.foreign.released.push_back(callback.clone());
+                    while vm.foreign.released.len() > RELEASED_QUARANTINE {
+                        let oldest = vm.foreign.released.pop_front().unwrap();
+                        vm.foreign
+                            .pool
+                            .entry(oldest.signature.key.clone())
+                            .or_default()
+                            .push(oldest);
+                    }
                 }
                 if callback.is_some()
                     || vm.foreign.functions.remove(&object).is_some()
@@ -1434,7 +1520,15 @@ pub(crate) fn install(vm: &mut Interp) {
     let mark = vm.open_scope();
     let module = vm.new_table();
     vm.handles.push(module);
-    for name in ["bind", "close", "errno", "callback", "setCallback", "load"] {
+    for name in [
+        "bind",
+        "close",
+        "errno",
+        "callback",
+        "setCallback",
+        "load",
+        "string",
+    ] {
         let key = vm.intern(name);
         let id = crate::builtins::id_of(&format!("foreign.{name}")).unwrap();
         vm.set_index(module, key, Value::builtin(id));

@@ -312,6 +312,12 @@ fn number(value: Value) -> f64 {
     assert!(value.is_num(), "expected a number, found {value:?}");
     value.as_num()
 }
+/// A `uint64` result's bits, boxed or, when it fits, a plain number.
+fn bits(value: Value) -> u64 {
+    nupp_vm::numeric::integer(value)
+        .map(|exact| exact.bits)
+        .unwrap_or_else(|| number(value) as u64)
+}
 fn refused(result: Result<Value, String>, expected: &str) {
     match result {
         Err(message) => assert!(
@@ -450,6 +456,58 @@ fn loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them() 
             generated.display()
         ),
     );
+
+    // Bytes at an address C returned, to the terminator or of a given length.
+    let text = bind(&mut vm, library, "loader_text", "pointer", &[]);
+    let pointer = through(&mut vm, Mode::Rust, text, &[]).unwrap();
+    vm.register(pointer);
+    let read = builtin(&mut vm, "foreign.string", &[pointer])[0];
+    assert_eq!(vm.bytes_of(read), b"nupp");
+    let read = builtin(&mut vm, "foreign.string", &[pointer, Value::num(11.0)])[0];
+    assert_eq!(vm.bytes_of(read), b"nupp\0loader");
+    builtin(&mut vm, "foreign.close", &[pointer]);
+    let problem = message(&mut vm, |vm| {
+        builtin(vm, "foreign.string", &[pointer]);
+    });
+    assert!(
+        problem.contains("foreign.string expects an open foreign pointer"),
+        "{problem}"
+    );
+    builtin(&mut vm, "foreign.close", &[text]);
+
+    // A C function pointer a call returns is callable under its declared signature.
+    let binary = callback_type(&mut vm, &["int32", "int32"], "int32");
+    let adder = bind(&mut vm, library, "loader_adder", "pointer", &[]);
+    builtin(&mut vm, "foreign.close", &[adder]);
+    let symbol = string(&mut vm, "loader_adder");
+    let returns_function = vm.new_table();
+    vm.register(returns_function);
+    set(&mut vm, returns_function, "result", binary);
+    let no_params = list(&mut vm, &[]);
+    set(&mut vm, returns_function, "params", no_params);
+    let adder = builtin(
+        &mut vm,
+        "foreign.bind",
+        &[library, symbol, returns_function],
+    )[0];
+    vm.register(adder);
+    let returned = through(&mut vm, Mode::Rust, adder, &[]).unwrap();
+    vm.register(returned);
+    assert_eq!(
+        number(
+            through(
+                &mut vm,
+                Mode::Rust,
+                returned,
+                &[Value::num(40.0), Value::num(2.0)]
+            )
+            .unwrap()
+        ),
+        42.0
+    );
+    for function in [returned, adder] {
+        builtin(&mut vm, "foreign.close", &[function]);
+    }
 
     // Binding through a closed library object is refused; what it bound stays callable.
     builtin(&mut vm, "foreign.close", &[library]);
@@ -613,11 +671,7 @@ fn callbacks_lend_retain_rebind_release_and_refuse_in_every_tier() {
             42.0
         );
         let again = through(&mut vm, mode, kept_address, &[]).unwrap();
-        assert_eq!(
-            nupp_vm::numeric::integer(address).map(|a| a.bits),
-            nupp_vm::numeric::integer(again).map(|a| a.bits),
-            "rebinding moved the C pointer"
-        );
+        assert_eq!(bits(address), bits(again), "rebinding moved the C pointer");
         // Nupp calls a retained callback as the function it holds.
         assert_eq!(number(vm.call_value(retained, &[n(50.0), n(8.0)])[0]), 42.0);
         // A callback with another C signature is refused rather than reinterpreted.
@@ -653,6 +707,41 @@ fn callbacks_lend_retain_rebind_release_and_refuse_in_every_tier() {
             number(through(&mut vm, mode, call_kept, &[n(1.0), n(2.0)]).unwrap()),
             -1.0
         );
+
+        // A released trampoline is reused only after 256 later releases, so the
+        // trampolines a program holds stay bounded by what it keeps alive.
+        let kept_bits = |vm: &mut Interp| bits(through(vm, mode, kept_address, &[]).unwrap());
+        let first = builtin(&mut vm, "foreign.callback", &[Value::NIL, add])[0];
+        vm.register(first);
+        through(&mut vm, mode, keep, &[first]).unwrap();
+        let first_address = kept_bits(&mut vm);
+        builtin(&mut vm, "foreign.close", &[first]);
+        for _ in 0..256 {
+            let later = builtin(&mut vm, "foreign.callback", &[Value::NIL, sub])[0];
+            let root = vm.register(later);
+            through(&mut vm, mode, keep, &[later]).unwrap();
+            assert_ne!(
+                kept_bits(&mut vm),
+                first_address,
+                "a released trampoline was reused early"
+            );
+            builtin(&mut vm, "foreign.close", &[later]);
+            vm.release(root);
+        }
+        let reused = builtin(&mut vm, "foreign.callback", &[Value::NIL, add])[0];
+        vm.register(reused);
+        through(&mut vm, mode, keep, &[reused]).unwrap();
+        assert_eq!(
+            kept_bits(&mut vm),
+            first_address,
+            "the oldest released trampoline was not reused"
+        );
+        assert_eq!(
+            number(through(&mut vm, mode, call_kept, &[n(40.0), n(2.0)]).unwrap()),
+            42.0
+        );
+        builtin(&mut vm, "foreign.close", &[reused]);
+        through(&mut vm, mode, keep, &[Value::NIL]).unwrap();
 
         // Pointers C passes a callback are opaque handles for that invocation.
         let handle = through(&mut vm, mode, context, &[]).unwrap();

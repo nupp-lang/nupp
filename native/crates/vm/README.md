@@ -2595,3 +2595,123 @@ python3 scripts/vm-cli build --seed pinned --no-aot   # what the launcher runs
   newer one was installed meanwhile it links that instead.
 - **Old generations are pruned** after a day, except the selected and pinned
   ones; a generation is immutable and a running command keeps reading its own.
+
+
+
+## Native libraries and C callbacks (2026-10-15)
+
+A program names a native library the two ways it already could, and both now
+load on the VM: a typed `cdef function f(...): T from "name"` declaration, and
+a manifest's C or Cargo dependency, whose generated binding module carries
+`from "@lib/<library file>"`. A `cdef` declaration binds its symbol when its
+module runs, through `foreign.bind` with the library name, so a library or
+symbol that is not there fails the `require` of the module that declared it:
+
+- `cannot load native library "z" (as libz.dylib): <dlerror>`
+- `native symbol "f" is not in native library "z"`
+- `cannot find native library lib/libx.dylib at or above <directories>; the
+  compiled library has to travel with the module that calls it`
+
+**Names resolve as LuaJIT's `ffi.load` resolves them.** A path is opened as
+written; a bare name gains the platform extension when it has no dot and, on
+POSIX, the `lib` prefix, and the platform loader searches for it. An `@` name
+is the build tree's: the generated binding lives in `build/generated/` and the
+library in `build/lib/`, so the VM looks at or above the calling module's
+source directory (its image path, relative to the working directory when the
+image names it relatively), then at or above the running executable's, eight
+levels each, the bound the LuaJIT spelling already had. A nil library is the
+process's own namespace.
+
+**A library is an owner.** Each VM caches a loaded library by resolved name
+and visibility while anything holds it. `foreign.load(name, {global = true})`
+returns a library object (RTLD_GLOBAL when asked); every function bound from
+it and every pointer such a function returned holds the library too, so
+closing the object refuses further binding through it while what it bound
+keeps working, and the platform unloads the library only after the last
+holder closes. The test proves the unload with a destructor in the fixture.
+Libraries, functions, pointers and callbacks are external resources, so a
+checkpoint refuses them, as it refused functions before.
+
+**Callbacks are lent or retained.** A `cdef` parameter of function type
+lowers to `{kind = "callback", params, result}`, and a Nupp function passed
+to it is lent a trampoline for that call alone: trampolines come from a pool
+per C signature and return to it, cleared, when the native call returns,
+failed or not. `nupp.foreign.retain(f)` (on the runtime, `foreign.callback(nil,
+f)`) makes a callback C may keep; it takes its C signature from the first
+callback parameter it fills, and a parameter with another signature refuses
+it rather than reinterpreting it. `rebind` changes the function behind a
+stable C pointer, `release` clears it, and the handle is callable from Nupp as
+the function. A function-typed `cdef` result is the other direction: a foreign
+function callable under the declared signature, holding its library.
+
+The rules C callers meet, none of which may unwind through C:
+
+- A trampoline is never freed while its VM lives. A call through a released
+  or no-longer-lent pointer returns zero to C and raises once the native call
+  returns ("invoked after it was released", "after the call that lent it
+  returned; retain a callback that C keeps"). Released trampolines go back to
+  the pool only after 256 later releases, so what a program holds stays
+  bounded and a stale pointer is refused for that long; past it, it reaches
+  whatever reuses the trampoline, as a reused LuaJIT callback slot does.
+- A call from a thread other than the VM's touches nothing of the VM: it
+  returns zero and sets a flag the VM's thread raises when the native call in
+  flight, or the next one, returns. So does a call on the VM's thread when no
+  native call is in flight.
+- An error in the callback returns zero to C and is raised to the Nupp caller
+  when the native call returns; the callback stays usable.
+- Arguments and results are scalars and opaque pointers. A pointer C passes a
+  callback is a handle valid for that invocation; a callback may return a
+  pointer C owns or nil, never managed storage, which is rooted for no longer
+  than the call. Variadic callbacks and aggregates or functions by value are
+  refused when the callback is declared, LuaJIT's own limits.
+
+Every function a trampoline can call is rooted through the VM's trampoline
+registry, so callbacks hold under collector stress in all four tiers; the
+foreign call itself runs from whichever tier calls it, and the trampoline
+re-enters the VM through `call_value`. `foreign.string(pointer, length?)`
+reads the bytes at an address C returned, to the terminator or of a length,
+which is what a `const char *` error message needs.
+
+`nupp.foreign`'s handle is `any`: an exported generic `retain<F>(f: F): F`
+cannot store `f`, because the ownership checker treats an unconstrained `F`
+as a possible capability (NUPP2603/NUPP2611), and a bound does not change
+that. The `cdef` parameter is what checks the function's type.
+
+Evidence: `tests/foreign_loader.rs` against `tests/ffi/loader.c`, built with
+the system compiler, and `tests/loader-smoke.py` running
+`tests/loader-project` on the Rust, threaded, JIT and compiled-frame engines
+under collector stress. `ffi-coverage.json` records the rows this moved.
+
+**GPU.** The loader is enough to drive the GPU host library: a VM program
+loads `libnupp_native.dylib` built with `--features gpu`, checks
+`nuppNativeAbiVersion` (2) and the GPU feature bit, creates a Metal context
+through a managed `uint64` out slot, reads its description, creates and
+releases a buffer and releases the context. What stands between that and the
+provider is not binding: typed `out` and counted-pointer mappings are still
+refused by the VM lowering, so a port writes its out slots as managed arrays
+through `nupp.vm.foreign` as that probe did; no runtime this repository builds
+for the VM links or ships the GPU library, so a provider needs a location
+policy (the LuaJIT one reads `NUPP_NATIVE_LIBRARY` or `lib/nupp_native` beside
+the module); and "GPU compute on the VM" replaces `gpu.Buffer`, the uniform
+packing and `aot/gpubinding` with storage residency, which a port of today's
+provider would be thrown away for.
+
+**The declaration duplicate.** `src/nupp/compiler/cinterop/cdecl.nupp` reads
+LuaJIT's own C parser through `ffi.typeinfo`; the VM's
+`lib/nupp/compiler/cinterop/cdecl.nupp` answers the same interface from
+`cdecl.rs` over libclang. Both produce `cinterop.model`, which `cheader` and
+`import-c` consume. Decided: `cdecl.rs` is the declaration front end. The
+LuaJIT reader goes when `ffi` does, because nothing else can host it; a
+parser written in Nupp would be a third C front end to keep in step with C,
+where libclang is C's own. The cost is libclang at compile time for header
+work only (`cheader`, `import-c`, binding generation); running a program
+needs no C parser, since a `cdef` lowers to a signature descriptor. Its
+release packaging is still open.
+
+Open from here: typed `out` and count mappings and by-value nested unions in
+`cdef` signatures; a typed retained-callback handle; callbacks under the
+executable-memory-denied AOT gate (libffi closures allocate executable code);
+Linux and Windows execution evidence. Compiled code that calls a callable
+table which raises leaves the call's arguments on the handle stack; this is
+not specific to foreign functions, and the Rust test checks compiled-tier
+root balance only on success.
