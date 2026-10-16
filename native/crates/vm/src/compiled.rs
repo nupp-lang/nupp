@@ -130,7 +130,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_new_table_sized", j_new_table_sized as *const u8, 2), ("j_ret_extra", j_ret_extra as *const u8, 2), ("j_pcall", j_pcall as *const u8, 2), ("j_new_bytes", j_new_bytes as *const u8, 1), ("j_bytes_to_str", j_bytes_to_str as *const u8, 2),
         ("j_new_buffer", j_new_buffer as *const u8, 0), ("j_buf_append", j_buf_append as *const u8, 2), ("j_buf_append_sub", j_buf_append_sub as *const u8, 4), ("j_substring", j_substring as *const u8, 3), ("j_buf_finish", j_buf_finish as *const u8, 1),
         ("j_str_byte", j_str_byte as *const u8, 2), ("j_pow", j_pow as *const u8, 2), ("j_eq_slow", j_eq_slow as *const u8, 2), ("j_require", j_require as *const u8, 1), ("j_set_method", j_set_method as *const u8, 3),
-    ]
+    ].into_iter().chain(crate::specialize::helpers()).collect()
 }
 
 // Backedges yield a bounded worker turn without retaining native frames.

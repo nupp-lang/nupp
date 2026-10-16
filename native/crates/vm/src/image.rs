@@ -233,6 +233,8 @@ fn load_in(it: &mut Interp, text: &str) -> Result<u32, String> {
     for (i, f) in funcs.iter().enumerate() { crate::verify::verify_classes(f, total).map_err(|e| format!("function {} ({}): {e}", f.name, base as usize + i))?; }
     for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
     for (shape, name, fid) in pending_methods { let n = it.intern(&name); it.heap.shapes[shape_ids[shape as usize] as usize].methods.insert(n, Value::func(base + fid)); }
+    // A method an image installs may replace one compiled code resolved.
+    it.heap.proto_epoch += 1;
     Ok(entry)
 }
 

@@ -69,6 +69,8 @@ impl Interp {
         pc: usize,
     ) -> Result<usize, crate::interp::Step> {
         use std::sync::atomic::Ordering;
+        #[cfg(feature = "jit")]
+        if self.spec.specialize { self.spec_frame_entry(fid); }
         let entry = self.prepare_frame_entry(fid);
         if entry == 0 || entry == u64::MAX {
             // A host without a code generator runs SIMD interpreted only by

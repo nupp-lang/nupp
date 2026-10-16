@@ -39,7 +39,7 @@ typedef struct {
     uint64_t nshapes;
     const uint8_t* marking;
     const uint64_t* entries; // the typed tier's compiled entry per function, or 0
-    uint32_t jit_threshold, pad2; // the lazy tier's call count, 0 when off
+    uint32_t jit_threshold, feedback; // the lazy tier's call count, 0 when off; whether feedback is collected
 } Ctx;
 
 // Rust helpers.
@@ -56,6 +56,8 @@ extern Value rt_new_record(Ctx* ctx, uint32_t shape);
 extern uint64_t rt_len(Ctx* ctx, Value v);
 extern Value rt_get_index(Ctx* ctx, Value obj, Value key);
 extern void rt_enter_compiled(Ctx* ctx, uint64_t entry, Value closure, uint64_t base, uint32_t nargs, uint32_t nparams);
+// Specialization feedback (specialize.rs): a call target (kind 0) or a receiver (kind 1).
+extern void rt_observe(void* interp, uint32_t fid, uint32_t pc, Value value, uint32_t kind);
 
 // Opcode numbers, matched by `threaded.rs`.
 enum {
@@ -319,6 +321,7 @@ static Value h_call(ARGS) {
 static Value h_calldyn(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
     Value callee = regs[pc->a];
+    if (__builtin_expect(ctx->feedback, 0)) rt_observe(ctx->interp, (uint32_t)frame[0], (uint32_t)(pc - fi->code), callee, 0);
     uint32_t nargs = pc->c;
     if (nargs >= 64) SLOW;
     uint32_t fid; Value closure;
@@ -390,6 +393,7 @@ static Value h_retn(ARGS) {
 // interned name, a miss or a table goes to the helper.
 static Value h_getfield(ARGS) {
     Value t = regs[pc->b];
+    if (__builtin_expect(ctx->feedback, 0)) rt_observe(ctx->interp, (uint32_t)frame[0], (uint32_t)(pc - FUNC_OF(frame)->code), t, 1);
     Value name = FUNC_OF(frame)->consts[pc->imm];
     if (__builtin_expect(is_obj(t), 1)) {
         if (obj_kind(t) == KIND_RECORD) {

@@ -1,0 +1,121 @@
+--- Sites whose behavior changes partway through a run, for the differential
+--- test: an interface call that is monomorphic for a while and then sees
+--- every implementation, field reads through `any` that meet tables, records
+--- and nil, callbacks that change, and arithmetic whose operands stop being
+--- numbers. Every tier, with feedback on and off, must print the same.
+local M = {}
+
+local interface Animal
+    legs: number
+    speak: function(self): string
+end
+
+local record Dog is Animal
+    legs: number
+    function speak(self): string
+        return "woof"
+    end
+end
+
+local record Bird is Animal
+    legs: number
+    wings: number
+    function speak(self): string
+        return "tweet"
+    end
+end
+
+local record Fish is Animal
+    legs: number
+    function speak(self): string
+        return "..."
+    end
+end
+
+local function chorus(animals: {Animal}): string
+    local parts: {string} = {}
+    for i = 1, #animals do
+        parts[#parts + 1] = animals[i]:speak()
+    end
+    return table.concat(parts, ",")
+end
+
+local function legs(animals: {Animal}): number
+    local n = 0
+    for i = 1, #animals do
+        n = n + animals[i].legs
+    end
+    return n
+end
+
+local function field(x: any): any
+    return x.value
+end
+
+local function plus(a: any, b: any): any
+    return a + b
+end
+
+local function run(): string
+    local out: {string} = {}
+    local animals: {Animal} = {}
+    for i = 1, 40 do
+        animals[#animals + 1] = new Dog(legs = 4)
+    end
+    local before = 0
+    for _ = 1, 300 do
+        before = before + legs(animals)
+    end
+    out[#out + 1] = "mono=" .. tostring(before) .. ":" .. chorus(animals):sub(1, 9)
+    animals[7] = new Bird(legs = 2, wings = 2)
+    animals[19] = new Fish(legs = 0)
+    local after = 0
+    for _ = 1, 300 do
+        after = after + legs(animals)
+    end
+    out[#out + 1] = "poly=" .. tostring(after) .. ":" .. chorus(animals):sub(20, 40)
+    local things: {any} = {{value = 1}, {value = 2}, {other = 3}}
+    local sum = 0
+    for round = 1, 500 do
+        for i = 1, #things do
+            local v = field(things[i])
+            if v ~= nil then
+                sum = sum + v
+            end
+        end
+        if round == 400 then
+            things[2] = {value = 10, extra = true}
+        end
+    end
+    out[#out + 1] = "fields=" .. tostring(sum)
+    local acc: any = 0
+    for i = 1, 1000 do
+        acc = plus(acc, i)
+    end
+    local text: any = plus("1", 2)
+    out[#out + 1] = "arith=" .. tostring(acc) .. ":" .. tostring(text)
+    local fns: {function(number): number} = {
+        function(x: number): number
+            return x + 1
+        end,
+        function(x: number): number
+            return x * 2
+        end,
+    }
+    local cb = 0
+    for i = 1, 2000 do
+        local f = fns[1]
+        if i > 1500 then
+            f = fns[2]
+        end
+        cb = cb + f(i)
+    end
+    out[#out + 1] = "callbacks=" .. tostring(cb)
+    return table.concat(out, " ")
+end
+
+function M.main(): string
+    return run()
+end
+
+return M

@@ -106,3 +106,5 @@ mod strbuf;
 
 #[cfg(feature = "c-headers")]
 pub mod cdecl;
+
+pub mod specialize;
