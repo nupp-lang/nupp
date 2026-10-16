@@ -3444,6 +3444,37 @@ does not reconstruct yet: inlined callee frames (nothing is inlined),
 eliminated allocations (nothing is eliminated), and values held in a
 representation the frame lacks (none exist; the first one adds a recipe).
 
+**Shared contracts.** Every specialization goes through the same five
+pieces, so a new one reuses their correctness machinery:
+
+- *Operation effects* (`src/effects.rs`, in every build): what an operation
+  or helper may do (allocate, mutate assumed state, raise, reenter, transfer
+  the frame). `frame::boundary` is its transfer class; anything unlisted is
+  assumed to do everything but transfer.
+- *Facts and assumptions* (`specialize/facts.rs`): each planned site's
+  dependencies, miss action (generic fallback on direct entries, a deopt
+  exit on heap frames) and the fact it leaves. `validate` checks a plan
+  before compiling; the lowering keeps facts per value and block, ends
+  mutable ones after effects that may falsify them, and records each use so
+  a compile is checked for guard dominance.
+- *Recoverable state* (`specialize/recovery.rs`): one description of a heap
+  frame at a pc and one emitter (`spill_state!` in `jit.rs`) for boundary
+  spills, polls and deopt exits; each recovery point names its body and
+  resumes before its operation.
+- *Version lifetime* (`specialize/versions.rs`): a compile returns a
+  `Version` (body, convention, policy, code range, registered stack maps,
+  dependencies, recovery points, feedback owner); `spec_install` checks it
+  is still current before any entry points at it. Retired code, field-cache
+  banks and feedback records stay alive and charged until teardown.
+- *Tier policy* (`specialize/policy.rs`): direct and heap-frame entries are
+  conventions; which specializations a compile emits is a `Policy`.
+
+The `CallDyn` target specialization goes through the same plan, guard, miss
+and installation as the method and field sites. Making the test fixture size
+the entry table as the CLI does (before the globals add functions) found
+that an install which grew the table moved it under compiled code; nothing
+grows it now.
+
 **Tests.** `tests/specialization.rs` runs the programs of
 `tests/specialize/` on the Rust loop, the threaded core, eager, lazy and
 heap-frame entries with feedback off, on and specializing, under the
