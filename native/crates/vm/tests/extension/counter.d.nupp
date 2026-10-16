@@ -2,6 +2,7 @@
 A counter kept in native code: the module the embedding and extension tests
 register in process, load from a C library and load from a Rust library.
 ]]
+
 --- @extension counter
 local record Counter
     --- `a + b`, computed natively.

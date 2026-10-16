@@ -1,0 +1,93 @@
+module demo.app
+
+--[[
+A program over `demo.counter`, a native module built apart from it as a C or
+Rust shared library. The module's declaration, `demo/counter.d.nupp`, names the
+library with `@extension`; the image carries that declaration, and the runtime
+holds the library to it before any of the library's code runs.
+]]
+
+local counter = require("demo.counter")
+local tasks = require("nupp.tasks")
+
+local app = {}
+local saved: any = nil
+
+local function twice(x: integer): integer
+    return x * 2
+end
+
+local function refuses(expected: string, f: function(): any): nil
+    const ok, problem = pcall(f)
+    assert(not ok, "expected a refusal containing " .. expected)
+    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+end
+
+--- Calls that answer at once: typed arguments and results, callbacks, a
+--- retained function, resources and native errors.
+function app.run(): number
+    assert(counter.add(19, 23) == 42)
+    refuses("cannot hold exactly", function(): any
+        return counter.add(9007199254740992, 1)
+    end)
+    assert(counter.apply(twice, 20) == 41)
+    counter.keep(twice)
+    collectgarbage("collect")
+    assert(counter.callKept(21) == 42)
+    counter.forget()
+    refuses("nothing is kept", function(): any
+        return counter.callKept(1)
+    end)
+    const c = counter.new(40)
+    assert(counter.bump(c, 2) == 42)
+    counter.close(c)
+    refuses("not a live resource", function(): any
+        return counter.bump(c, 1)
+    end)
+    refuses("native failure", function(): any
+        counter.fail("native failure")
+        return nil
+    end)
+
+    return 42
+end
+
+--- A call that parks its task until the library's own thread completes it.
+function app.parked(): number
+    assert(counter.later("olleh", 5) == "hello")
+
+    return 42
+end
+
+--- Sibling tasks parked on native requests at once, and a failed completion
+--- raised at the call that parked.
+function app.concurrent(): number
+    with scope = tasks.open() do
+        local slow = scope:spawn(function(): string
+            return counter.later("ba", 20)
+        end)
+        local fast = scope:spawn(function(): string
+            return counter.later("dc", 5)
+        end)
+        assert(slow:await() .. fast:await() == "abcd")
+    end
+    refuses("a negative delay", function(): any
+        return counter.later("x", -1)
+    end)
+
+    return 42
+end
+
+--- A counter resource a checkpoint saves through the library's hooks.
+function app.checkpointStart(): number
+    saved = counter.new(40)
+
+    return counter.bump(saved, 1)
+end
+
+--- After a restore: the library reloaded and the counter restored.
+function app.checkpointFinish(): number
+    return counter.bump(saved, 1)
+end
+
+export = app

@@ -2971,3 +2971,119 @@ hooks, selection, metadata, sections and atomic publication, and supervised
 games whose open file is restored at its offset, whose changed file refuses the
 restore while the old game stays usable, whose writable file needs a strategy,
 and whose listening socket is refused.
+
+
+## Rust embedding and native extensions (2026-10-16)
+
+`nupp_vm::embed::Vm` is the embedding API: one isolated runtime that loads
+images, registers typed host modules, calls exports with typed values
+(`Arg`/`Out`), keeps values alive with `Root`s, and drives the scheduler
+(`spawn`, `run_ready`, `run`, `wait`, `cancel`, `finish`). A host module is a
+`nupp_extension::Module` (the new `native/crates/extension` SDK crate): a name,
+functions under their declared Nupp types, and resource types. The same module
+built as a shared library with `nupp_extension::export!` is a native extension
+a program loads with `require`. Both reach the VM through one versioned C ABI,
+`include/nupp_extension.h`, mirrored field for field by `nupp_extension::abi`;
+`tests/extension_header.rs` (the `c-headers` feature) reads the header with
+libclang and holds every size and offset to the Rust layout.
+
+**Declarations are the contract.** A module is checked against the `.d.nupp`
+declaration its callers were checked with, before any of its code runs: the
+returned record's function fields, spelled canonically without parameter names
+(`declaration.rs`). A missing function or another type is refused by name
+(`demo.counter.add is declared function(number, number): number, but the
+extension registers function(integer, integer): integer`). An extension adds
+ABI version, description size, module name and target (`<arch>-<os>`) checks,
+and only then calls its `init`. A declaration names its library with
+`@extension NAME`; the VM project emitter (`nupp.tools.vm.project`) appends the
+`.d.nupp` text of every such module an image requires as an `extension NAME
+"..."` line, so the runtime checks the library against the program's own
+declaration, not one the library brought. A `require` that misses the image's
+modules reaches `package.extensionLoader`, which loads the library by the
+`foreign.load` naming rules (`foreign::native::{canonical_name,
+search_bases}`).
+
+**Boundary types.** `nil`, `boolean`, `number`, `string` by value; `integer`,
+`int32`, `uint32`, `int64` as 64-bit integers range-checked both ways (an
+`integer` result must be a double exactly); `T?`; `any`, function and table
+types as handles. Arguments are checked before the native function runs and
+results after, so typed code only receives what its types say. Named record and
+union results, variadic and generic functions are refused at registration.
+
+**Host functions are runtime functions.** Each gets a per-VM id at or above
+`extension::FUNCTION_BASE` (2^20), so `CallDyn` reaches it through `host_call`
+like a host service and a call from a task may park; a call from a frame that
+cannot (`call_value`, compiled leaf code, callbacks, cleanups) runs to its end
+and a suspension there is refused by name. Ids are recorded by name in the VM
+table `nupp.vm.extensions`, which a checkpoint saves; persistence writes them
+as `hostfn.N` and a restored VM binds each id again when its module is
+registered or its library reloaded, lazily on first call if need be.
+
+**Parking.** `host->suspend` hands the extension a request; the function returns
+`NUPP_SUSPENDED` and the task parks on a key from `Host::defer`, counted as
+outstanding. `complete` and `fail` are thread-safe and send
+`Done::Extension` down the host channel, so both drivers (`main.rs`'s and the
+scheduler's) deliver it with no new polling. The completion is kept per task
+and the task's saved pc is rewound by one: the retried `CallDyn` answers with
+the completion's values, checked against the declared results, or raises its
+message at the call site with the call's own line. A request completed before
+its function returns resumes without parking at all.
+
+**Handles, callbacks, resources.** Call handles are serial-tagged indices into
+the call's rooted values and are refused in any other call; retained handles
+are generation-tagged slots of `Interp::registered`, reused after release.
+`invoke` calls Nupp on the VM's thread inside the call and catches its error,
+which the function re-raises with its original value by returning
+`NUPP_ERROR`. A resource is a VM table listed in `Interp::resources` under
+`nupp.extension.resource`: rooted until closed, owned data dropped by the
+type's hook. The checkpoint codec (`extension::Codec`, also installed by
+`nupp-vm` run and restore) saves module, library path, type and the hook's
+bytes; restore binds the module first (reloading and rechecking the library, or
+taking the embedder's module from `Vm::restore`) and then runs the type's
+restore hook. A type without hooks fails the checkpoint by name.
+
+**Lifetime.** Host function values are immediates, so reachability cannot
+bound a library: an extension's library stays loaded while its VM lives, and on
+VM drop resources are dropped, then `shutdown` runs, then the library closes.
+Each VM loads a module once; two VMs share the platform's reference count.
+
+Evidence: `tests/embedding.rs` (in-process module, both interpreter loops,
+collector stress with the root oracle and quarantine: typed calls and refusals,
+mismatched and incomplete registrations, three tasks parked on requests
+completed from other threads, failed completion, cancellation draining,
+callbacks, retained handles through 50 stressed calls, wide integers, resources
+through checkpoint and restore, refusal of an unhooked resource and of a
+restore missing its module); `tests/native_extension.rs` (the same module built
+from `tests/extension/counter.c` with the system compiler and from the
+`nupp-counter-extension` crate by a separate Cargo build into its own target,
+loaded on require from an image declaration; refusal before `init` with
+markers proving `init` never ran and the library closed; library unloading only
+after VM drop; checkpoint restore in a fresh VM reloading the library before
+its resource); `tests/extension-smoke.py` (the typed `tests/extension-project`
+program lowered by a VM compiler seed and run against both libraries).
+`examples/embed_host.rs` is the embedding walk-through.
+`tests/extension-smoke.py` passes against both libraries on the Rust,
+threaded, JIT and compiled-frame engines under collector stress: typed calls,
+callbacks, a retained function, resources, a call parked in the run driver,
+sibling tasks parked at once, a failed completion, and a CLI checkpoint whose
+restore in a fresh process reloads the library before its counter.
+
+```sh
+python3 native/crates/vm/tests/extension-smoke.py COMPILER.image \
+  --binary build/rust/target/release/nupp-vm --output /tmp/vm-extension
+```
+
+The seed must carry this branch's `nupp.tools.vm.project`; an older one emits
+no `extension` line and the script says so.
+
+Open from here: named record and union types at the boundary (a result is
+refused at registration today); variadic and generic host functions; a typed
+`nupp.extension` surface for `any` resources (a resource is a plain table to
+Nupp); embedder-registered modules in worker VMs, which load image-declared
+extensions themselves but not modules the embedder registered on the parent;
+retained handles and `Root`s across a restore (they end with their VM);
+parking from leaf-compiled code (refused, as for host services); a C hosting
+header over `embed` (the plan's "C hosting Nupp" item; this header is the
+extension direction); the `nupp` CLI's build integration (a manifest entry
+that builds and ships an extension beside a program binary); Linux and
+Windows evidence.

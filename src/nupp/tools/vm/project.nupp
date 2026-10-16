@@ -92,6 +92,33 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
     return envMod.findRuntimeModulePath(env as any, name)
 end
 
+--- An image's quoted text: every byte outside printable ASCII, a quote and a
+--- backslash as a three-digit decimal escape, which the runtime's loader reads.
+local function quoted(text: string): string
+    local escaped = text:gsub('[%c"\\\128-\255]', function(c: string): string
+        return ("\\%03d"):format(c:byte())
+    end)
+
+    return '"' .. escaped .. '"'
+end
+
+--- The declaration of `name` when it is a native extension's: a `.d.nupp`
+--- with no implementation beside it whose text names its library with
+--- `@extension`. The image carries it, so the runtime can check the library
+--- against what the program was checked with before loading it.
+local function extensionDeclaration(env: table, name: string): string?
+    local path = envMod.findModulePath(env as any, name)
+    if path == nil or path:sub(-7) ~= ".d.nupp" then
+        return nil
+    end
+    local text = fs.readFile(path)
+    if text == nil or not text:find("@extension%s") then
+        return nil
+    end
+
+    return text
+end
+
 --- Check and lower `entry` and what it reaches under `config`, the manifest
 --- the project's modules resolve through. `carried` names modules whose
 --- source is generated data rather than a file: parsed, never checked.
@@ -165,6 +192,9 @@ local function emitProject(
         and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried)
         or nil
 
+    local extensions: {[string]: string} = {}
+    local looked: {[string]: boolean} = {}
+
     local function checked(name: string, path: string): table
         local data = carried and carried[name]
         if data then
@@ -218,6 +248,13 @@ local function emitProject(
             if found == nil and sources and sources[name] then
                 return sources[name]
             end
+            if found == nil and not soft and not HOST_MODULES[name] and not looked[name] then
+                looked[name] = true
+                local declaration = extensionDeclaration(env, name)
+                if declaration ~= nil then
+                    extensions[name] = declaration
+                end
+            end
 
             return found
         end,
@@ -241,6 +278,21 @@ local function emitProject(
             cache.abandon()
         end
         error(image, 0)
+    end
+    local declared: {string} = {}
+    for name in pairs(extensions) do
+        declared[#declared + 1] = name
+    end
+    table.sort(declared)
+    if #declared > 0 then
+        local lines: {string} = {image as string}
+        if (image as string):sub(-1) ~= "\n" then
+            lines[#lines + 1] = "\n"
+        end
+        for _, name in ipairs(declared) do
+            lines[#lines + 1] = "extension " .. name .. " " .. quoted(extensions[name] as string) .. "\n"
+        end
+        image = table.concat(lines)
     end
     if cache then
         cache.close(cache.reuse.stats)
