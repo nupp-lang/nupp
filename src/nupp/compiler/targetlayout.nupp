@@ -43,7 +43,8 @@ local type Model = {
     pointer: Scalar,
     int64: Scalar,
     number: Scalar,
-    vector: Vector
+    vector: Vector,
+    bitfields: string
 }
 
 --- What a target gives a vector in memory: the largest alignment one may
@@ -71,11 +72,17 @@ local type Model = {
 --- pads to a multiple of it. Masks have no storage representation here.
 local type Vector = {maximumAlignment: integer}
 
+--- A bitfield's `offset` and `size` are its storage unit's: the declared
+--- type's bytes it is read and written through, as LuaJIT's `offsetof` answers.
+--- `bitOffset` counts from that unit's least significant bit, which is where
+--- every target below allocates first.
 local type Field = {
     name: string,
     offset: integer,
     size: integer,
-    alignment: integer
+    alignment: integer,
+    bitOffset: integer?,
+    bitWidth: integer?
 }
 
 local function scalar(size: integer, alignment: integer?): Scalar
@@ -83,13 +90,53 @@ local function scalar(size: integer, alignment: integer?): Scalar
 end
 
 -- Every currently reifiable scalar is fixed-width. The only distinctions among the
--- supported ABIs are therefore pointer width and the 32-bit aggregate alignment of
--- double/int64. Adding C long or vector types would require another model field rather
--- than silently borrowing one of these.
-local LP64 = {pointer = scalar(8), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 16},}
-local ILP32_SYSV = {pointer = scalar(4), int64 = scalar(8, 4), number = scalar(8, 4), vector = {maximumAlignment = 8},}
-local ILP32_MSVC = {pointer = scalar(4), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 8},}
-local WASM32 = {pointer = scalar(4), int64 = scalar(8), number = scalar(8), vector = {maximumAlignment = 16},}
+-- supported ABIs are therefore pointer width, the 32-bit aggregate alignment of
+-- double/int64, and how bitfields share storage units. Adding C long or vector
+-- types would require another model field rather than silently borrowing one of
+-- these.
+--
+-- Bitfields follow one of two rule families. `sysv` is the GCC and Clang rule the
+-- System V, AAPCS64 and Emscripten ABIs share: a bitfield takes the next free bits
+-- unless that would cross a boundary of its declared type's size, when it starts
+-- at that boundary, and a following ordinary field starts at the next byte its
+-- alignment allows. `msvc` is Microsoft's: consecutive bitfields share a unit
+-- only while their declared types have the same size and the unit has room, and
+-- every unit occupies its declared type's whole size.
+local LP64 = {
+    pointer = scalar(8),
+    int64 = scalar(8),
+    number = scalar(8),
+    vector = {maximumAlignment = 16},
+    bitfields = "sysv",
+}
+local LP64_MSVC = {
+    pointer = scalar(8),
+    int64 = scalar(8),
+    number = scalar(8),
+    vector = {maximumAlignment = 16},
+    bitfields = "msvc",
+}
+local ILP32_SYSV = {
+    pointer = scalar(4),
+    int64 = scalar(8, 4),
+    number = scalar(8, 4),
+    vector = {maximumAlignment = 8},
+    bitfields = "sysv",
+}
+local ILP32_MSVC = {
+    pointer = scalar(4),
+    int64 = scalar(8),
+    number = scalar(8),
+    vector = {maximumAlignment = 8},
+    bitfields = "msvc",
+}
+local WASM32 = {
+    pointer = scalar(4),
+    int64 = scalar(8),
+    number = scalar(8),
+    vector = {maximumAlignment = 16},
+    bitfields = "sysv",
+}
 
 local MODELS: {[string]: Model} = {}
 
@@ -103,21 +150,13 @@ local function install(keys: {string}, profile: any)
             int64 = profile.int64,
             number = profile.number,
             vector = profile.vector,
+            bitfields = profile.bitfields,
         }
     end
 end
 
-install(
-    {
-        "x86_64-unknown-linux-gnu",
-        "aarch64-unknown-linux-gnu",
-        "x86_64-apple-darwin",
-        "aarch64-apple-darwin",
-        "x86_64-pc-windows-msvc",
-        "aarch64-pc-windows-msvc",
-    },
-    LP64
-)
+install({"x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "aarch64-apple-darwin",}, LP64)
+install({"x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"}, LP64_MSVC)
 install({"i686-unknown-linux-gnu"}, ILP32_SYSV)
 install({"i686-pc-windows-msvc"}, ILP32_MSVC)
 install({"wasm32-unknown-emscripten"}, WASM32)
@@ -274,8 +313,9 @@ local FIXED: {
 --- Computes a complete runtime layout for `t` under `key`.
 ---
 --- The accepted types are exactly the runtime shapes nupp can reify into a C struct:
---- fixed-width scalars, pointers (including nullable pointers), fixed arrays and
---- structs composed from those. A pointer never follows its pointee.
+--- fixed-width scalars, pointers (including nullable pointers and C function
+--- pointers), fixed arrays, and structs and unions composed from those, with
+--- bitfields of integer and boolean types. A pointer never follows its pointee.
 function targetLayout.of(t: any, key: string): any?, string?
     local model = MODELS[key]
     if not model then
@@ -298,9 +338,19 @@ function targetLayout.of(t: any, key: string): any?, string?
             return model.int64
         elseif subject.tag == "cstring" or subject.tag == "voidptr" or subject.tag == "ptr" then
             return model.pointer
+        elseif subject.tag == "func" and subject.foreign then
+            -- A C function pointer, which is what a callback field holds.
+            return model.pointer
         elseif subject.tag == "union" and subject.hasNil and #subject.members == 2 then
             local other = subject.members[1].tag == "nil" and subject.members[2] or subject.members[1]
-            if other and (other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr") then
+            if other
+                and (
+                    other.tag == "ptr"
+                    or other.tag == "cstring"
+                    or other.tag == "voidptr"
+                    or other.tag == "func" and other.foreign
+                )
+            then
                 return model.pointer
             end
         elseif subject.tag == "carray" then
@@ -338,24 +388,72 @@ function targetLayout.of(t: any, key: string): any?, string?
             end
             active[subject] = true
             local fields, offsets = {}, {}
+            -- The cursor counts bits, so a bitfield can end partway through a byte.
             local cursor: integer, aggregateAlignment: integer = 0, 1
             local isUnion = subject.cdefKind == "union"
+            -- The storage unit Microsoft's rule is filling: its byte offset and
+            -- size, and the bits of it already taken. Nil when the last field was
+            -- not a bitfield.
+            local unitOffset: integer?, unitSize: integer?, unitUsed: integer = nil, nil, 0
             for _, name in ipairs(subject.fieldOrder or {}) do
                 local definition = subject.fieldDefs and subject.fieldDefs[name]
-                if definition and definition.bitWidth then
-                    active[subject] = nil
-                    return nil, "bitfield " .. name .. " has no modeled target layout"
-                end
+                local width: integer? = definition and definition.bitWidth as integer? or nil
                 local fieldType = subject.byname and subject.byname[name] or nil
                 local one, why = layoutType(fieldType)
                 if not one then
                     active[subject] = nil
                     return nil, ("field %q %s"):format(name, why or "has no layout")
                 end
-                local offset = isUnion and 0 or roundUp(cursor, one.alignment)
-                fields[#fields + 1] = {name = name, offset = offset, size = one.size, alignment = one.alignment,}
+                local offset: integer
+                local bitOffset: integer? = nil
+                if width then
+                    local unitBits = one.size * 8
+                    if not FIXED[fieldType.tag] and fieldType.tag ~= "int64" and fieldType.tag ~= "uint64"
+                        or fieldType.tag == "float"
+                        or width < 1
+                        or width > unitBits
+                    then
+                        active[subject] = nil
+                        return nil, ("bitfield %q has no C layout"):format(name)
+                    end
+                    if isUnion then
+                        offset, bitOffset = 0, 0
+                        cursor = math.max(cursor, one.size * 8)
+                    elseif model.bitfields == "msvc" then
+                        if unitOffset ~= nil and unitSize == one.size and unitUsed + width <= unitBits then
+                            offset, bitOffset = unitOffset as integer, unitUsed
+                            unitUsed = unitUsed + width
+                        else
+                            offset = roundUp(roundUp(cursor, 8) // 8, one.alignment)
+                            unitOffset, unitSize, unitUsed = offset, one.size, width
+                            bitOffset = 0
+                            cursor = (offset + one.size) * 8
+                        end
+                    else
+                        local start = cursor
+                        if start // unitBits ~= (start + width - 1) // unitBits then
+                            start = roundUp(start, unitBits)
+                        end
+                        offset = (start // unitBits) * one.size
+                        bitOffset = start - offset * 8
+                        cursor = start + width
+                    end
+                else
+                    unitOffset = nil
+                    offset = isUnion and 0 or roundUp(roundUp(cursor, 8) // 8, one.alignment)
+                    cursor = isUnion and math.max(cursor, one.size * 8) or (offset + one.size) * 8
+                end
+                fields[
+                    #fields + 1
+                ] = {
+                    name = name,
+                    offset = offset,
+                    size = one.size,
+                    alignment = one.alignment,
+                    bitOffset = bitOffset,
+                    bitWidth = width,
+                }
                 offsets[name] = offset
-                cursor = isUnion and math.max(cursor, one.size) or offset + one.size
                 if one.alignment > aggregateAlignment then
                     aggregateAlignment = one.alignment
                 end
@@ -364,7 +462,10 @@ function targetLayout.of(t: any, key: string): any?, string?
             if #fields == 0 then
                 return nil, "an empty struct has no C layout"
             end
-            return scalar(roundUp(cursor, aggregateAlignment), aggregateAlignment), nil, fields, offsets
+            return scalar(
+                roundUp(roundUp(cursor, 8) // 8, aggregateAlignment),
+                aggregateAlignment
+            ), nil, fields, offsets
         end
 
         return nil, ("%s has no runtime layout"):format(tostring(subject.tag))
@@ -381,6 +482,9 @@ function targetLayout.of(t: any, key: string): any?, string?
     end
     for _, field in ipairs(fields) do
         parts[#parts + 1] = ("%s@%d:%d/%d"):format(field.name, field.offset, field.size, field.alignment)
+        if field.bitWidth then
+            parts[#parts] = parts[#parts] .. ("+%d.%d"):format(field.bitOffset as integer, field.bitWidth as integer)
+        end
     end
     parts[#parts + 1] = ("size=%d/align=%d"):format(measured.size, measured.alignment)
 

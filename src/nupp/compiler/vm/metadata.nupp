@@ -91,8 +91,6 @@ metadata.literal = data
 function metadata.foreignSignature(declaration)
     local signature = assert(declaration.cAbiSignature, "C function has no checked ABI signature")
     assert(signature.schema == 1 and signature.convention == "c", "unsupported VM C function ABI")
-    assert(not signature.varargs, "VM C variadic functions are not supported")
-    assert(not declaration.countedAbi, "VM C counted-pointer argument mappings are not supported")
     local scalars = {
         boolean = "bool",
         integer = "int32",
@@ -153,6 +151,14 @@ function metadata.foreignSignature(declaration)
 
             return {kind = "callback", params = params, result = callbackResult}
         end
+        -- A C struct or union by value, named by its declaration; the runtime
+        -- lays it out from the storage type that declaration defined.
+        if subject and subject.tag == "nominal" and subject.declKind == "struct" then
+            local identity = subject.runtimeDeclarationKey or subject.cdefIdentity
+            if identity then
+                return {kind = subject.cdefKind == "union" and "union" or "struct", identity = identity}
+            end
+        end
         if parameter and subject then
             local readonly = subject.tag == "string" or subject.tag == "cstring"
             local element = (subject.tag == "ptr" or subject.tag == "carray") and subject.elem or nil
@@ -168,18 +174,99 @@ function metadata.foreignSignature(declaration)
         return subject and scalars[subject.tag]
     end
 
-    local result = {params = {}, result = "void"}
+    -- What a counted pointer or an out slot holds: a scalar by name, or a
+    -- struct by its declaration identity, which the runtime resolves to the
+    -- struct's storage type when the call runs.
+    local function stored(subject)
+        while subject
+            and (
+                subject.tag == "const"
+                or subject.tag == "affine"
+                or subject.tag == "borrowed"
+                or subject.tag == "owned"
+                or subject.tag == "genericAlias"
+            ) do
+            subject = subject.inner or subject.body
+        end
+        if subject and subject.tag == "nominal" and subject.declKind == "struct" then
+            return {
+                kind = "struct",
+                identity = assert(
+                    subject.runtimeDeclarationKey or subject.cdefIdentity,
+                    "a struct crossing a C boundary has no declaration identity"
+                )
+            }
+        end
+
+        return scalar(subject)
+    end
+
+    -- Which output each out slot is, by its C position, for its success rule.
+    local outputs = {}
+    local physical = declaration.physicalSignatureType
+    for _, output in ipairs(physical and physical.ffiOut or {}) do
+        outputs[output.cIndex] = output
+    end
+    local positions = {}
     for index, parameter in ipairs(signature.params or {}) do
-        assert(parameter.mode ~= "out", "VM C out-parameter result mappings are not supported")
-        assert(not parameter.countedBy, "VM C counted-pointer argument mappings are not supported")
-        result.params[
-            index
-        ] = assert(
-            scalar(parameter.type, true),
-            "unsupported VM C parameter " .. tostring(
+        positions[parameter.name] = index
+    end
+    local counts = {}
+    for _, parameter in ipairs(signature.params or {}) do
+        if parameter.countedBy then
+            counts[assert(positions[parameter.countedBy], "countedBy names no parameter")] = true
+        end
+    end
+    -- A variadic function's extra arguments are typed per call, from their
+    -- values, by C's default promotions.
+    local result = {params = {}, result = "void", success = "always", variadic = signature.varargs or nil}
+    for index, parameter in ipairs(signature.params or {}) do
+        local subject = parameter.type
+        while subject and (subject.tag == "affine" or subject.tag == "borrowed" or subject.tag == "owned") do
+            subject = subject.inner
+        end
+        if parameter.mode == "out" then
+            -- A slot the callee fills and the caller is handed: the value for a
+            -- scalar or struct, a foreign pointer for a pointer.
+            assert(subject and subject.tag == "ptr", "a VM C out parameter is a pointer to its slot")
+            local output = outputs[index]
+            result.params[
                 index
-            ) .. " type " .. tostring(parameter.type and parameter.type.tag)
-        )
+            ] = {
+                kind = "out",
+                type = assert(
+                    stored(subject.elem),
+                    "unsupported VM C out parameter " .. tostring(index) .. " slot type"
+                )
+            }
+            result.success = output and output.success or result.success
+        elseif parameter.countedBy then
+            -- A span the caller passes, which reaches C as its first element's
+            -- address and fills the count parameter it names with its length.
+            assert(subject and subject.tag == "ptr", "a VM C counted parameter is a pointer")
+            local element = subject.elem
+            local readonly = element and element.tag == "const"
+            result.params[
+                index
+            ] = {
+                kind = "counted",
+                element = assert(stored(element), "unsupported VM C counted element type"),
+                write = not readonly,
+                count = positions[parameter.countedBy],
+                countName = parameter.countedBy
+            }
+        elseif counts[index] then
+            result.params[index] = {kind = "count", type = assert(scalar(subject), "unsupported VM C count type")}
+        else
+            result.params[
+                index
+            ] = assert(
+                scalar(parameter.type, true),
+                "unsupported VM C parameter " .. tostring(
+                    index
+                ) .. " type " .. tostring(parameter.type and parameter.type.tag)
+            )
+        end
     end
     if signature.result then
         result.result = assert(
@@ -189,6 +276,74 @@ function metadata.foreignSignature(declaration)
     end
 
     return result
+end
+
+--- A header namespace's bindings: each function's C signature, as a `cdef`
+--- declaration of it would carry, or the reason it has none, and each enum
+--- member's value. The runtime binds a function when it is first used.
+function metadata.headerNamespace(exports, constants)
+    local cabi = require("nupp.compiler.cinterop.cabi")
+    local signatures, values = {}, {}
+    local names = {}
+    for name in pairs(exports or {}) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local subject = exports[name]
+        if subject and subject.tag == "func" then
+            local params = {}
+            for index, parameter in ipairs(subject.params or {}) do
+                params[index] = {name = "arg" .. tostring(index), type = parameter, mode = "plain"}
+            end
+            local declaration = {
+                cAbiSignature = cabi.functionRecord(
+                    name,
+                    params,
+                    subject.rets and subject.rets[1],
+                    subject.varargs,
+                    "c"
+                )
+            }
+            local ok, signature = pcall(metadata.foreignSignature, declaration)
+            if ok then
+                signatures[name] = signature
+            else
+                signatures[
+                    name
+                ] = {
+                    unsupported = (
+                        "C function %s cannot be called on the VM: %s"
+                    ):format(name, (tostring(signature):gsub("^[^:]*:%d+: ", "")))
+                }
+            end
+        elseif constants and constants[name] ~= nil then
+            values[name] = constants[name]
+        end
+    end
+
+    return signatures, values
+end
+
+--- A struct's runtime identity: its declaration's, and for an instance of a
+--- generic struct, that followed by its type arguments, so each instance is
+--- its own storage type and every module spells one instance alike.
+function metadata.structIdentity(subject)
+    local origin = subject.origin or subject
+    local identity = origin.runtimeDeclarationKey or origin.cdefIdentity
+    if subject.origin and identity then
+        local types = require("nupp.compiler.types")
+        local arguments = {}
+        for index, argument in ipairs(subject.typeArgs or {}) do
+            arguments[index] = types.tostring(argument)
+        end
+        for _, argument in ipairs(subject.constArgs or {}) do
+            arguments[#arguments + 1] = tostring(argument.value ~= nil and argument.value or argument.id)
+        end
+        identity = identity .. "<" .. table.concat(arguments, ",") .. ">"
+    end
+
+    return identity
 end
 
 -- Layout facts come from the checked nominal graph under an explicit target.
@@ -219,6 +374,25 @@ function metadata.structLayout(declaration, target)
         uint32 = true,
         uint64 = true
     }
+    local types = require("nupp.compiler.types")
+
+    -- What a pointer field points at, unwrapping the nullable spelling. Nil when
+    -- the type is not a pointer a struct can hold.
+    local function pointerOf(subject)
+        if subject.tag == "union" and subject.hasNil and #(subject.members or {}) == 2 then
+            local other = subject.members[1].tag == "nil" and subject.members[2] or subject.members[1]
+            return other and pointerOf(other) or nil
+        end
+        if subject.tag == "ptr" or subject.tag == "cstring" or subject.tag == "voidptr" then
+            return subject
+        end
+        if subject.tag == "func" and subject.foreign then
+            return subject
+        end
+
+        return nil
+    end
+
     local describe
     describe = function(subject)
         while subject and (subject.tag == "const" or subject.tag == "genericAlias") do
@@ -227,16 +401,65 @@ function metadata.structLayout(declaration, target)
         if not subject then
             return nil, "unresolved stored type"
         end
+        local pointer = pointerOf(subject)
+        if pointer then
+            -- A pointer holds an address and never its pointee, so the pointee is
+            -- named rather than described: a linked struct stays finite, and a
+            -- change inside the pointee leaves this layout alone.
+            local measured, reason = layouts.of(subject, target)
+            if not measured then
+                return nil, reason
+            end
+            local result = {kind = "pointer", size = measured.size, alignment = measured.alignment}
+            local pointee = pointer.tag == "ptr" and pointer.elem or nil
+            while pointee and (pointee.tag == "const" or pointee.tag == "genericAlias") do
+                pointee = pointee.inner or pointee.body
+            end
+            local signature = "*"
+            if pointer.tag == "cstring" then
+                result.pointee, signature = "cstring", "*cstring"
+            elseif pointer.tag == "func" then
+                -- A function pointer field carries its C signature, which a
+                -- retained callback stored in it is bound to.
+                local ok, described = pcall(metadata.foreignSignature, {
+                    cAbiSignature = {
+                        schema = 1,
+                        convention = "c",
+                        symbol = "",
+                        params = {{name = "callback", type = pointer, mode = "plain"}}
+                    }
+                })
+                local callback = ok and described.params[1] or nil
+                local key = "function"
+                if type(callback) == "table" and callback.kind == "callback" then
+                    result.signature = callback
+                    key = "function(" .. table.concat(callback.params, ",") .. "):" .. tostring(callback.result)
+                end
+                result.pointee, signature = key, "*" .. key
+            elseif pointee and scalars[pointee.tag] then
+                result.pointee, signature = pointee.tag, "*" .. pointee.tag
+            elseif pointee and pointee.tag == "nominal" and pointee.declKind == "struct" then
+                local identity = pointee.runtimeDeclarationKey or pointee.cdefIdentity
+                result.pointee = "struct"
+                result.target = identity
+                -- Named as declared, not by identity: one layout answers one
+                -- fingerprint whichever module declares it.
+                signature = "*" .. tostring(pointee.name)
+            end
+
+            return result, nil, signature
+        end
         local tag = subject.tag
         if tag == "nominal" then
-            if subject.origin
-                or #(subject.typeParams or {}) > 0
+            if #(subject.typeParams or {}) > 0
                 or #(subject.packParams or {}) > 0
                 or #(subject.constParams or {}) > 0
+                or #(subject.packArgs or {}) > 0
             then
-                return nil, "generic struct layouts are unsupported in VM struct storage"
+                return nil, "a generic struct has a layout only once its type arguments are known"
             end
-            if not (subject.runtimeDeclarationKey or subject.cdefIdentity) then
+            local origin = subject.origin or subject
+            if not (origin.runtimeDeclarationKey or origin.cdefIdentity) then
                 return nil, "the struct has no canonical runtime declaration identity"
             end
         end
@@ -270,29 +493,40 @@ function metadata.structLayout(declaration, target)
         end
         result.name, result.fields = subject.runtimePath or subject.name, {}
         result.typeName = (subject.moduleName and subject.moduleName .. ":" or "") .. result.name
-        result.identity = subject.runtimeDeclarationKey or subject.cdefIdentity
+        result.identity = metadata.structIdentity(subject)
         local signatures = {}
         for index, fieldLayout in ipairs(measured.fields) do
             local name = fieldLayout.name
-            local definition = subject.fieldDefs and subject.fieldDefs[name]
-            if definition and definition.bitWidth then
-                active[subject] = nil
-                return nil, "bitfield " .. name .. " is unsupported in VM struct storage"
-            end
-            local member, problem, signature = describe(subject.byname[name])
+            local fieldType = subject.byname[name]
+            local member, problem, signature = describe(fieldType)
             if not member then
                 active[subject] = nil
                 return nil, "field " .. name .. ": " .. tostring(problem)
             end
             member.name, member.offset = name, fieldLayout.offset
+            member.ctype = types.cName(fieldType)
+                or type(member.pointee) == "string" and member.pointee:sub(1, 8) == "function" and "void *"
+                or nil
+            if fieldLayout.bitWidth then
+                -- A bitfield is read and written through its storage unit: the
+                -- declared type's bytes at `offset`, of which it is `bitWidth`
+                -- bits starting `bitOffset` bits from the least significant.
+                member.bitOffset, member.bitWidth = fieldLayout.bitOffset, fieldLayout.bitWidth
+                signature = signature .. ":" .. tostring(fieldLayout.bitOffset) .. "+" .. tostring(fieldLayout.bitWidth)
+            end
             local following = measured.fields[index + 1]
-            member.padding = result.kind == "union" and measured.size - fieldLayout.size
+            local padding = result.kind == "union" and measured.size - fieldLayout.size
                 or (following and following.offset or measured.size) - fieldLayout.offset - fieldLayout.size
+            -- Bitfields sharing one unit leave no bytes between them.
+            member.padding = padding > 0 and padding or 0
             result.fields[#result.fields + 1] = member
             signatures[#signatures + 1] = name .. ":" .. signature
         end
         active[subject] = nil
-        local signature = result.identity .. ":" .. result.typeName .. "{" .. table.concat(signatures, ",") .. "}"
+        -- The fingerprint describes the layout: the declared name and every
+        -- field, nested structs expanded, but not the declaring module, so
+        -- the same declaration in two modules answers the same.
+        local signature = tostring(subject.name) .. "{" .. table.concat(signatures, ",") .. "}"
         result.fingerprint = measured.fingerprint .. "|fields=" .. signature
 
         return result, nil, signature

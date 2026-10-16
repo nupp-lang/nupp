@@ -81,6 +81,32 @@ function cdef.install(
 
     local handlers = {}
 
+    -- The C integer types a counted pointer's count may have.
+    local COUNT_TYPES: {
+        [Type]: boolean
+    } = {
+        [T.uint64] = true,
+        [T.int64] = true,
+        [T.uint32] = true,
+        [T.int32] = true,
+        [T.uint16] = true,
+        [T.int16] = true,
+        [T.uint8] = true,
+        [T.int8] = true,
+        [T.integer] = true,
+    }
+
+    -- What an `out p: T*` may hand back by value: a scalar, or a struct whose
+    -- bytes the call fills.
+    local function storedOutput(slot: Type): boolean
+        local value = T.unwrapOwnership(slot)
+        if value.tag == "nominal" then
+            return value.declKind == "struct"
+        end
+
+        return COUNT_TYPES[value] == true or value == T.number or value == T.float or value == T.boolean
+    end
+
     local function countedView(name: string, element: Type, at): Type
         local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "nupp.mem.span")
             or nil
@@ -273,14 +299,20 @@ function cdef.install(
                             at = p,
                         }
                     end
+                    -- `out p: T*` of a scalar or a struct is a value the callee
+                    -- fills: the caller is handed a copy, so there is nothing to own
+                    -- or borrow, and the slot is the caller's for the call alone.
+                    if not output and slot and slot.tag ~= "affine" and storedOutput(slot) then
+                        output = {kind = "value", name = named, at = p}
+                    end
                     if not output then
                         c.diag(
                             "NUPP2602",
                             p,
-                            "an out parameter is written `out p: affine(T, cleanup)*` "
-                            .. "or `out p: T* borrows (source)`"
+                            "an out parameter is written `out p: affine(T, cleanup)*`, "
+                            .. "`out p: T* borrows (source)`, or `out p: T*` for a scalar or struct T"
                         )
-                    elseif not slot or not pointerShaped(T.unwrapOwnership(slot)) then
+                    elseif not slot or output.kind ~= "value" and not pointerShaped(T.unwrapOwnership(slot)) then
                         c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
                     else
                         output.typeNode = declared
@@ -344,7 +376,9 @@ function cdef.install(
                 c.diag("NUPP2602", output.at or stat, "conditional output needs a C status return")
             end
             local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
-            if output.kind == "affine" then
+            if output.kind == "value" then
+                rets[#rets + 1] = valueType
+            elseif output.kind == "affine" then
                 output.cleanups = resolveCleanups(output.cleanups or {}, output.at or stat, nil)
                 validateCleanups(
                     T.affine(output.valueType, output.cleanups),
@@ -437,11 +471,11 @@ function cdef.install(
                     valid = false
                 end
                 if countIndex then
-                    if params[countIndex] ~= T.uint64 then
+                    if not COUNT_TYPES[params[countIndex]] then
                         c.diag(
                             "NUPP2630",
                             physicalNodes[countIndex],
-                            ("countedBy parameter %q must currently be uint64"):format(countName)
+                            ("countedBy parameter %q must be an integer type"):format(countName)
                         )
                         valid = false
                     elseif paramModes[countIndex] ~= "plain" then
@@ -478,9 +512,6 @@ function cdef.install(
             if stat.varargs then
                 c.diag("NUPP2630", stat, "countedBy does not support variadic C functions")
             end
-            if #ffiOut > 0 then
-                c.diag("NUPP2630", stat, "countedBy does not support out parameters")
-            end
             table.sort(mappings, function(left, right)
                 return left.pointerIndex < right.pointerIndex
             end)
@@ -515,7 +546,7 @@ function cdef.install(
                 nil,
                 nil,
                 nil,
-                nil,
+                ffiOut,
                 nil,
                 false,
                 nil,

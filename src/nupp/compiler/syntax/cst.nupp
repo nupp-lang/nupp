@@ -535,6 +535,12 @@ interface cst.Hints
     --- The library those declarations bind to.
     cheaderLib: any
 
+    --- What the header declares, by name, and its enum members' values: the
+    --- VM lowering binds the namespace from these.
+    cheaderExports: any
+
+    cheaderConstants: any
+
     --- Statically known and dynamically computed ffi.load calls, for watch-only
     --- native artifact identity.
     ffiLoadLib: string?

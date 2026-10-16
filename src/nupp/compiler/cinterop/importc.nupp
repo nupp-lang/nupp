@@ -1622,6 +1622,36 @@ type importc.Details = {
     bridgeSource: string?
 }
 
+-- A plain value's spelling with its keys in order, for keying the imports below.
+local function spelled(value: any): string
+    if type(value) ~= "table" then
+        return type(value) .. ":" .. tostring(value)
+    end
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+    local parts: {string} = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = spelled(key) .. "=" .. spelled(value[key])
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+-- Imports this process already made, by what the header preprocessed to and the
+-- options. The declaration front end keeps one namespace per process, so a header
+-- declared again introduces nothing and a second import would find none of its
+-- structs; the same header with the same options answers the same import.
+local imported: {[string]: {
+    text: string,
+    warnings: {string},
+    details: any
+}} = {}
+
 -- Main entry: returns the .nupp module text and a list of warnings.
 function importc.import(headerPath: string, opts: importc.Options): string?, {string}, importc.Details?
     local warnings = {}
@@ -1654,6 +1684,15 @@ function importc.import(headerPath: string, opts: importc.Options): string?, {st
     local dm = capture(macros) or ""
     if not preprocessed or #preprocessed == 0 then
         return nil, {"cc -E produced no output for " .. headerPath}
+    end
+    local importKey = table.concat({headerPath, preprocessed, dm, spelled(opts)}, "\0")
+    local previous = imported[importKey]
+    if previous then
+        local again: {string} = {}
+        for index, warning in ipairs(previous.warnings) do
+            again[index] = warning
+        end
+        return previous.text, again, previous.details
     end
 
     -- The target's own lines, rewritten without moving any of them, so a statement's
@@ -1868,7 +1907,21 @@ function importc.import(headerPath: string, opts: importc.Options): string?, {st
         end
     end
 
+    -- A function an owned result names as its cleanup is declared before the
+    -- functions that name it, whatever order the declaration front end lists
+    -- them in; the rest keep that order.
+    local orderedFunctions = {}
     for _, fn in ipairs(parsed.functions) do
+        if cleanupTerminals[fn.name] then
+            orderedFunctions[#orderedFunctions + 1] = fn
+        end
+    end
+    for _, fn in ipairs(parsed.functions) do
+        if not cleanupTerminals[fn.name] then
+            orderedFunctions[#orderedFunctions + 1] = fn
+        end
+    end
+    for _, fn in ipairs(orderedFunctions) do
         local params = {}
         local ok = identifier(fn.name) and true or false
         local why: string? = not ok and "its name is not a Nupp identifier" or nil
@@ -2146,7 +2199,14 @@ function importc.import(headerPath: string, opts: importc.Options): string?, {st
         details.bridgeSource = table.concat(bridgeLines, "\n") .. "\n"
     end
 
-    return table.concat(out, "\n"), warnings, details
+    local text = table.concat(out, "\n")
+    local kept: {string} = {}
+    for index, warning in ipairs(warnings) do
+        kept[index] = warning
+    end
+    imported[importKey] = {text = text, warnings = kept, details = details}
+
+    return text, warnings, details
 end
 
 export = importc

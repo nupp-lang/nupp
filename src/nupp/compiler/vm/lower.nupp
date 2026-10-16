@@ -425,7 +425,9 @@ function lower.emit(
             return nil
         end
         for ordinal, field in ipairs(layout.fields) do
-            local kind = PHYSICAL_SCALARS[field.kind]
+            -- A bitfield is part of its storage unit, which the dynamic field
+            -- operation masks and shifts; only whole scalars are physical.
+            local kind = not field.bitWidth and PHYSICAL_SCALARS[field.kind] or nil
             if field.name == name and kind ~= nil then
                 return {
                     identity = layout.identity,
@@ -1614,6 +1616,20 @@ function lower.emit(
             end
             builtinRegisters(f, "storage.allocateArray", {descriptor, count}, dst)
             return
+        elseif node.cheaderCdef then
+            -- A header's library namespace: its functions bind on first use.
+            local metadata = require("nupp.compiler.vm.metadata")
+            local signatures, constants = metadata.headerNamespace(node.cheaderExports, node.cheaderConstants)
+            local library = f:reg()
+            if node.cheaderLib then
+                f:op("K", library, f:const("str", node.cheaderLib))
+            else
+                f:op("Nil", library)
+            end
+            local described = exprAs(f, metadata.literal(signatures), "v")
+            local valued = exprAs(f, metadata.literal(constants), "v")
+            builtinRegisters(f, "foreign.namespace", {library, described, valued}, dst)
+            return
         elseif node.layoutOf then
             local witness = exprAs(f, node.args.exprs[1], "v")
             builtinRegisters(f, "storage.layout", {witness}, dst)
@@ -1663,8 +1679,20 @@ function lower.emit(
                     f:op("Nil", dst + i)
                 end
                 return
-            end
-            if oi == "partition" then
+            elseif oi == "pin" then
+                -- The pointer, holding its anchor for as long as it lives.
+                local pointer = exprAs(f, args[1], "v")
+                local anchor = args[2] and exprAs(f, args[2], "v") or nil
+                if not anchor then
+                    anchor = f:reg()
+                    f:op("Nil", anchor)
+                end
+                builtinRegisters(f, "foreign.pin", {pointer, anchor}, dst)
+                for i = 1, nres - 1 do
+                    f:op("Nil", dst + i)
+                end
+                return
+            elseif oi == "partition" then
                 -- Its value is the pair it was handed: the second and third arguments.
                 while f.nregs < dst + math.max(nres, 2) do
                     f:reg()
@@ -2997,7 +3025,39 @@ function lower.emit(
                 local loaded = f:reg()
                 f:op("Require", loaded, f:const("str", shape.module))
             end
-            if shape.physical then
+            local instance = shape.physical
+                and not shape.layout.supported
+                and tyTag(node.inferredType) == "nominal"
+                and node.inferredType.origin
+                and node.inferredType
+                or nil
+            local instanceLayout = instance
+                and require(
+                    "nupp.compiler.vm.metadata"
+                ).structLayout({resolvedType = instance, name = {text = instance.name}}, layoutTarget)
+                or nil
+            if instanceLayout and instanceLayout.supported then
+                -- An instance of a generic struct is a storage type of its own,
+                -- defined (once, by identity) where it is first constructed and
+                -- sharing its declaration's methods.
+                local described = exprAs(f, require("nupp.compiler.vm.metadata").literal(instanceLayout), "v")
+                local witness = exprAs(
+                    f,
+                    assert(call.vmStructWitness or call.obj, "struct construction has no witness"),
+                    "v"
+                )
+                local physical = builtinRegisters(f, "storage.structDefine", {described, witness})
+                emitCall(
+                    f,
+                    {
+                        kind = "methodCall",
+                        obj = {kind = "vmRegister", reg = physical},
+                        name = {text = "new"},
+                        args = {exprs = {}}
+                    },
+                    dst
+                )
+            elseif shape.physical then
                 if not shape.layout.supported then
                     local reason = f:reg()
                     f:op("K", reason, f:const("str", shape.layout.error))
@@ -3384,7 +3444,11 @@ function lower.emit(
             f:reg()
         end
         for i, e in ipairs(exprs) do
-            if i == #exprs and i < count and multiCall(e) then
+            -- `nupp.partition` answers its two parts, as a call would.
+            if i == #exprs
+                and i < count
+                and (multiCall(e) or e.kind == "call" and e.ownershipIntrinsic == "partition")
+            then
                 emitCall(f, e, base + i - 1, count - i + 1)
                 return
             end
@@ -4600,6 +4664,9 @@ function lower.emit(
         elseif k == "cdefFunc" then
             local metadata = require("nupp.compiler.vm.metadata")
             local signature = metadata.foreignSignature(node)
+            -- The binding's temporaries are freed before the name is declared, so
+            -- a module of many declarations holds one register for each.
+            local mark = f.nregs
             local library = f:reg()
             if node.fromLib then
                 exprAs(f, {kind = "string", token = node.fromLib}, "v", library)
@@ -4609,8 +4676,18 @@ function lower.emit(
             local symbol = f:reg()
             f:op("K", symbol, f:const("str", node.cAbiSignature.symbol))
             local descriptor = exprAs(f, metadata.literal(signature), "v")
-            local value = builtinRegisters(f, "foreign.bind", {library, symbol, descriptor})
+            local bound = builtinRegisters(f, "foreign.bind", {library, symbol, descriptor})
+            local value = mark
+            if bound ~= mark then
+                f:op("Move", mark, bound)
+            end
+            f.nregs = math.max(mark, f.declTop or 0)
             local register, cell, spill = f:declare(tokText(node.name), "v", true)
+            if register == value then
+                -- Declared where the value already is.
+                value = f:reg()
+                f:op("Move", value, register)
+            end
             local destination = register or f:reg()
             f:op(cell and "NewCell" or "Move", destination, value)
             if spill then

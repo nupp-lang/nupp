@@ -1288,7 +1288,11 @@ local function check(a: Type, b: Type): boolean, string?
             "nil is not a %s; write %s? for a pointer that may be " .. "NULL"
         ):format(T.tostring(b), T.tostring(b))
     end
-    if btag == "ptr" and atag == "nominal" and a.declKind == "struct" and b.elem == a then
+    if btag == "ptr"
+        and atag == "nominal"
+        and a.declKind == "struct"
+        and (b.elem == a or b.elem.tag == "const" and (b.elem as T.Const).inner == a)
+    then
         return true
     end
 
@@ -1730,13 +1734,21 @@ local function check(a: Type, b: Type): boolean, string?
     if atag == "carray" and btag == "voidptr" then
         return true
     end
-    if atag == "carray" and btag == "ptr" and b.elem == a.elem then
+    if atag == "carray"
+        and btag == "ptr"
+        and (b.elem == a.elem or b.elem.tag == "const" and (b.elem as T.Const).inner == a.elem)
+    then
         return true
     end
 
     if atag == "ptr" and btag == "ptr" then
         -- invariant pointee
         if isA(a.elem, b.elem) and isA(b.elem, a.elem) then
+            return true
+        end
+        -- C's one implicit pointer conversion: to a pointer that only reads.
+        local readOnly = b.elem.tag == "const" and (b.elem as T.Const).inner or nil
+        if readOnly and a.elem.tag ~= "const" and isA(a.elem, readOnly) and isA(readOnly, a.elem) then
             return true
         end
         return fail(a, b)

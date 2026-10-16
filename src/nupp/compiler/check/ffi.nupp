@@ -342,6 +342,14 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             for _, name in ipairs(subject.fieldOrder or {}) do
                 local fieldType = subject.byname[name] as Type
                 local spelling = T.cName(fieldType)
+                -- A C function pointer is one pointer wide whatever its signature.
+                local callable = fieldType
+                if callable and callable.tag == "union" and callable.hasNil and #callable.members == 2 then
+                    callable = callable.members[1] == T.nil_ and callable.members[2] or callable.members[1]
+                end
+                if not spelling and callable and callable.tag == "func" and (callable as any).foreign then
+                    spelling = "void *"
+                end
                 -- A struct held by value is the one shape whose size cannot come from
                 -- its spelling: nupp emits anonymous ctypes, so `ffi.sizeof("Inner")`
                 -- fails. Mark it, and hand the ctype over beside the spec. A pointer to
@@ -449,6 +457,8 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 if loaded then
                     node.cheaderCdef = loaded.cdef
                     node.cheaderLib = lib
+                    node.cheaderExports = loaded.exports
+                    node.cheaderConstants = loaded.constants
                     local firstArg = args[1]
                     local consumerLine = firstArg
                         and firstArg.kind == "string"

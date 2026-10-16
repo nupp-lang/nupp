@@ -49,6 +49,9 @@ type cheader.Options = {
 --- program's own FFI so the declarations exist at run time too.
 type cheader.Header = {
     exports: {[string]: T.Type},
+
+    --- The value of each enum member among the exports.
+    constants: {[string]: number}?,
     cdef: string,
     sourcePath: string,
     dependencies: {string},
@@ -667,6 +670,7 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
     if hit then
         return {
             exports = hit.exports,
+            constants = hit.constants,
             cdef = hit.cdef,
             sourcePath = observed.sourcePath,
             dependencies = dependencies,
@@ -726,16 +730,19 @@ function cheader.load(path: string, opts: cheader.Options?): (cheader.Header?, s
     end
     -- An enum's members are constants the library namespace answers, as import-c
     -- exports them. C gives them `int` in every place they appear.
+    local constants: {[string]: number} = {}
     for _, declaration in ipairs(parsed.enums) do
         for _, member in ipairs(declaration.values) do
             if exports[member.name] == nil then
                 exports[member.name] = T.int32
+                constants[member.name] = member.value
             end
         end
     end
 
     local result = {
         exports = exports,
+        constants = constants,
         cdef = text,
         sourcePath = observed.sourcePath,
         dependencies = dependencies,
