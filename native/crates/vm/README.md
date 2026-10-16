@@ -1729,7 +1729,7 @@ runtime. Emit the object once, then build the runtime with that object:
 cargo build --release -p nupp-vm --features aot --offline
 build/rust/target/release/nupp-vm aot COMPILER_IMAGE /tmp/compiler.o --frames
 NUPP_AOT_OBJECT=/tmp/compiler.o cargo build --release -p nupp-vm \
-  --no-default-features --features aot-linked,c-headers,compression,net,http --offline
+  --no-default-features --features aot-linked,c-headers,native-ffi,compression,net,http --offline
 python3 native/crates/vm/tests/compiler-aot-smoke.py COMPILER_IMAGE \
   --binary build/rust/target/release/nupp-vm --manifest /tmp/compiler.o.manifest \
   --frames --output /tmp/compiler-aot-acceptance
