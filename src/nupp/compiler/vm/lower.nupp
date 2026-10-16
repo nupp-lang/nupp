@@ -2091,7 +2091,10 @@ function lower.emit(
             local name = tokText(callee.token)
             if not environment and name == "pcall" and not f:binding(name) then
                 local args = node.args.exprs
-                local base = dst
+                -- The window starts at the destination only when nothing lives
+                -- above it: assigning to an earlier local placed the arguments
+                -- over the locals declared after it.
+                local base = top and dst or math.max(dst, f.nregs)
                 while f.nregs < base + #args + 8 do
                     f:reg()
                 end
