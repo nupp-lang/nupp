@@ -88,6 +88,31 @@ function M.vmLayoutsSupportUnionsAndRejectGenericStructs()
     assert(generic.error:find("generic struct", 1, true))
 end
 
+-- A record's stored fields are its slots and the order its construction takes
+-- them in. Its methods are members too, but neither: a decoded record that
+-- counted them reflected a construction contract with a parameter for every
+-- method, and a VM image lowered against it described a different record.
+function M.storedFieldOrderLeavesMethodsOut()
+    local command = indexed("Command", "/project/sample.nupp")
+    command.byname = {
+        verbose = T.boolean,
+        run = T.func({}, {T.integer}),
+        file = T.string,
+    }
+    command.writeByname = {verbose = T.boolean, run = T.func({}, {T.integer}), file = T.string}
+    command.fieldOrder = {"verbose", "file"}
+    local loaded = roundTrip(command)
+    assert(
+        table.concat(loaded.fieldOrder, ",") == "verbose,file",
+        "decoded stored fields: " .. table.concat(loaded.fieldOrder, ",")
+    )
+    local checked = reflection.describe(command, "Command")
+    local decoded = reflection.describe(loaded, "Command")
+    local before = checked.types[checked.root].construction.params
+    local after = decoded.types[decoded.root].construction.params
+    assert(#before == 2 and #after == #before, "a method became a construction parameter")
+end
+
 function M.copyabilityIsPreservedAcrossInterfaceImages()
     local copyable = indexed("Copyable", "/project/sample.nupp", "interface")
     copyable.intrinsicCopyable = true

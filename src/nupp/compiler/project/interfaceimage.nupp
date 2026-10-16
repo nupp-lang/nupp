@@ -22,7 +22,7 @@ local T = require("nupp.compiler.types")
 
 local interfaceimage = {}
 
-interfaceimage.SCHEMA = 6
+interfaceimage.SCHEMA = 7
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
 type interfaceimage.EncodeOptions = {
@@ -476,6 +476,15 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
             out.lpegLibrary = t.lpegLibrary == true
             out.lpegPatternOrigin = intern(t.lpegPatternOrigin)
             out.runtimePath = t.runtimePath
+            -- The stored fields in declaration order, which is not the member view's
+            -- order and leaves out its methods: a record's slots, and the
+            -- construction contract a derive reflects, are read from it.
+            if t.fieldOrder ~= nil then
+                out.fieldOrder = {}
+                for position, name in ipairs(t.fieldOrder) do
+                    out.fieldOrder[position] = name
+                end
+            end
             out.cdefName = t.cdefName
             out.cdefKind = t.cdefKind
             out.cdefIdentity = t.cdefIdentity
@@ -1104,8 +1113,14 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
         nominal.staticFieldDefs = restoreDefinitions(node.staticFieldDefinitions)
         nominal.staticWriteFieldDefs = restoreDefinitions(node.staticWriteFieldDefinitions)
         nominal.fieldOrder = {}
-        for _, field in ipairs(node.fields or {}) do
-            nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
+        if type(node.fieldOrder) == "table" then
+            for _, name in ipairs(node.fieldOrder) do
+                nominal.fieldOrder[#nominal.fieldOrder + 1] = name
+            end
+        else
+            for _, field in ipairs(node.fields or {}) do
+                nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
+            end
         end
         nominal.fieldDefaults = node.hasFieldDefaults and {} or nil
         for _, field in ipairs(node.fields or {}) do
