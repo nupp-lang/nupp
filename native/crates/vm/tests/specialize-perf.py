@@ -4,9 +4,12 @@
 Usage: specialize-perf.py IMAGE [--binary PATH] [--repeats N] [--modes A,B,...]
 
 IMAGE is `tests/specialize/specialize.image`. Each repeat runs every mode
-once per program, in turn, so load drift lands on all modes alike; each
-program's `bench` reports per-phase milliseconds, and the medians are
-printed with the load average sampled across the run. Modes:
+once per program, in turn, so load drift lands on all modes alike. The gate
+numbers are whole processes (wall, CPU and maximum resident set from
+`/usr/bin/time -l`), which include eager compilation, instrumented warm-up
+and tier-up recompiles; the per-phase milliseconds each program's `bench`
+prints are attribution only. Medians are printed with the load average
+sampled across the run. Modes:
 
   interp   the threaded interpreter (NO_JIT=1)
   jit      the typed tier, eager, generic code only
@@ -20,6 +23,7 @@ from pathlib import Path
 import re
 import statistics
 import subprocess
+import time
 
 here = Path(__file__).resolve().parent
 root = here.parents[3]
@@ -50,16 +54,23 @@ for _ in range(args.repeats):
                 env.pop(key, None)
             extra_env, flags = MODES[mode]
             env.update(extra_env)
-            done = subprocess.run([str(args.binary), "run", str(args.image), program, "bench", *flags],
+            start = time.perf_counter()
+            done = subprocess.run(["/usr/bin/time", "-l", str(args.binary), "run", str(args.image), program, "bench", *flags],
                                   env=env, capture_output=True, text=True, check=True)
+            wall = (time.perf_counter() - start) * 1000
             text = done.stdout.encode().decode("unicode_escape")
+            user = float(re.search(r"([0-9.]+) user", done.stderr).group(1))
+            system = float(re.search(r"([0-9.]+) sys", done.stderr).group(1))
+            rss = int(re.search(r"(\d+)\s+maximum resident set size", done.stderr).group(1)) / (1 << 20)
+            for name, value in (("process wall ms", wall), ("process cpu ms", (user + system) * 1000), ("max RSS MiB", rss)):
+                times.setdefault((program, name), {}).setdefault(mode, []).append(value)
             for name, ms in re.findall(r"(\w+) ([0-9.]+) ms", text):
                 times.setdefault((program, name), {}).setdefault(mode, []).append(float(ms))
             loads.append(os.getloadavg()[0])
 print("load average %.1f (min %.1f, max %.1f); %d repeats, medians in ms" % (
     statistics.mean(loads), min(loads), max(loads), args.repeats))
-print("%-28s" % "phase" + "".join("%10s" % m for m in modes) + ("%10s" % (modes[-1] + "/" + modes[0]) if len(modes) > 1 else ""))
+print("%-32s" % "measure" + "".join("%10s" % m for m in modes) + ("%10s" % (modes[-1] + "/" + modes[0]) if len(modes) > 1 else ""))
 for (program, name), by_mode in times.items():
     medians = [statistics.median(by_mode[m]) for m in modes]
     ratio = ("%10.2f" % (medians[-1] / medians[0])) if len(modes) > 1 and medians[0] else ""
-    print("%-28s" % (program + "." + name) + "".join("%10.1f" % m for m in medians) + ratio)
+    print("%-32s" % (program + "." + name) + "".join("%10.1f" % m for m in medians) + ratio)

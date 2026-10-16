@@ -544,7 +544,7 @@ pub struct Interp {
     pub pending_error: Option<Value>,
     /// Feedback and specialized versions (`specialize`): transient, never
     /// saved, never traced.
-    pub spec: crate::specialize::State,
+    pub spec: Box<crate::specialize::State>,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String>, foreign: &'a crate::foreign::State }
@@ -2137,7 +2137,6 @@ impl Interp {
         pc += 1;
         #[cfg(feature = "opstats")]
         if let Some(st) = self.op_stats.as_mut() { *st.entry(op_name(&op)).or_insert(0) += 1; }
-        if self.spec.feedback && crate::specialize::is_site(&op) { crate::specialize::observe(self, fid, pc - 1, op, regs); }
         match op {
                     Op::K(d, k) => r!(d) = unsafe { *consts.add(k as usize) },
                     Op::Move(d, s) => r!(d) = r!(s),
@@ -2176,8 +2175,8 @@ impl Interp {
                     Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.set_method(shape, name, f); }
                     Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallMethod(k, b, nargs) => match { self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
+                    Op::CallMethod(k, b, nargs) => match { if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::PCall(b, nargs) => {
                         if self.frame_mode {
                             match self.frame_pcall(tid, &win, pc, b, nargs, Value::NIL) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) }
@@ -2186,7 +2185,7 @@ impl Interp {
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
                     Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); if self.metatable_of(tv) != Value::NIL { let iv = self.key_for_store(iv); self.newindex(tv, iv, v); } else { self.set_index(tv, iv, v); } }
-                    Op::GetField(d, t, k) => self.op_get_field(&win, d, t, k),
+                    Op::GetField(d, t, k) => { if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_get_field(&win, d, t, k) }
                     Op::GetPhys(d,t,p)|Op::GetPhysF(d,t,p)|Op::GetPhysI(d,t,p)|Op::GetPhysU(d,t,p) => {
                         let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
                         let value=crate::storage::physical_get(self,object,id,name,p);
@@ -2197,7 +2196,7 @@ impl Interp {
                         let value=match op {Op::SetPhys(..)=>r!(v),Op::SetPhysF(..)=>Value::num(fr!(v)),_=>self.box_integer(crate::numeric::Integer {bits:ir!(v) as u64,unsigned:p.kind==8})};
                         crate::storage::physical_set(self,object,id,name,p,value);
                     }
-                    Op::SetField(t, k, s) => self.op_set_field(&win, t, k, s),
+                    Op::SetField(t, k, s) => { if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_set_field(&win, t, k, s) }
                     Op::NewTable(d) => { let v = self.new_table(); r!(d) = v; }
                     Op::NewTableN(d, n, m) => { let v = self.new_table_sized(n as usize, m as usize); r!(d) = v; }
                     Op::NewRecord(d, shape) => { let v = self.new_record(shape); r!(d) = v; }

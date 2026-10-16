@@ -3342,3 +3342,79 @@ SPI providers to publish its exports only once it has loaded, as the Lua
 backend does, so a provider never sees a half-built facade. `clitest` passes
 every case it reaches, the program-arguments one included, but on a loaded
 machine the last four do not start inside the 600 s suite budget.
+
+## Specialization and deoptimization (2026-10-16)
+
+Runtime specialization in the typed tier (`src/specialize.rs`, the
+specialized lowering in `src/jit.rs`), as the runtime plan's JIT section
+decided on 2026-10-16 and its design document
+(`~/projects/nupp-plans/todo/jit-specialization-design.md`) lays out. Off
+by default: `JIT_SPECIALIZE=1` turns on feedback and specialization,
+`JIT_FEEDBACK=1` feedback alone, `JIT_SPEC_STATS=1` prints the counters at
+exit and `JIT_SPEC_TRACE=1` every plan.
+
+**Feedback.** Per dynamic site (`CallDyn`, `CallK`, `CallMethod`,
+`GetField`, `SetField`), up to three observed keys with counts and an
+overflow count: a call target's function id, or a receiver's shape, its
+metatable, or (for the Lua class idiom, whose objects are structural records
+with a metatable of their own) both. The Rust loop records in `step`, the
+threaded core in `h_calldyn` and `h_getfield` through `rt_observe`, and
+instrumented generic compiled code inline, calling out only for a key the
+site has not seen. Records live in `Interp::spec`, outside the heap, within
+a byte budget (`JIT_SPEC_BYTES`, 8 MiB) that covers sites and pc maps, is
+checked before anything is allocated, and remembers what it refused.
+
+**Specialized versions.** At `JIT_SPEC_CALLS` (1,000) calls of an
+instrumented direct entry, or entries of a heap-frame entry, the function is
+compiled again from a `Plan`: a method site becomes guards on the receiver's
+shape or metatable (and, for a table or a metatabled record, a probe that
+no field of its own shadows the method) followed by a direct call to the
+method's compiled entry; a dynamic call with one target becomes the `CallK`
+guard and direct call; a field read becomes shape compares and loads at
+fixed offsets; a field store becomes a guarded store with the barrier. A
+failed guard counts a miss and takes the generic helper in place. Past
+`JIT_SPEC_MISSES` (1,000) misses the function is planned again from the
+feedback the misses added; past `JIT_SPEC_VERSIONS` (3) versions it settles
+on its generic entry for good. Direct and heap-frame entries keep separate
+version counts. Object code never specializes.
+
+**Invariants.**
+
+- Every guard is checked at every execution; nothing is hoisted. Method
+  resolution depends only on state that bumps `Heap::proto_epoch` when it
+  changes, and every method site compares it: shape descriptors
+  (`set_method`, `redeclare`, an image installing methods), any table an
+  `__index` walk visited (`F_PROTO`: stores, `setmetatable`, its free), and,
+  since this change, a weak entry cleared from such a table
+  (`Heap::clear_weak`). So a reentrant call, a suspension or a mutation is
+  seen at the next use of the site.
+- A method found through a weak table is not specialized at all.
+- Feedback and versions are not program state: never traced, never in a
+  checkpoint or snapshot, absent from a restored VM and from worker VMs.
+- `Interp::invalidate_specializations(fid)` drops a function's feedback and
+  versions for a body that changed (the hot-reload hook: `hotpatch.rs`'s
+  `invalidate_function` should call it once that branch lands here).
+
+**Deoptimization.** On heap-frame entries, a field guard that fails leaves
+through a deopt exit instead: every value register live into the operation
+is stored to the heap frame as is, every live integer, float and vector
+register into its window, and the entry returns the operation's own pc, so
+the interpreter runs it generically and nothing of it runs twice. The
+closure, varargs, cleanups and protected calls are already the frame's and
+the task's. After a guard that cannot fall through, the code that follows
+knows the register's shape, which a field access on it uses. Past
+`JIT_SPEC_DEOPTS` (100) exits the entry is planned again. What the exit
+does not reconstruct yet: inlined callee frames (nothing is inlined),
+eliminated allocations (nothing is eliminated), and values held in a
+representation the frame lacks (none exist; the first one adds a recipe).
+
+**Tests.** `tests/specialization.rs` runs the programs of
+`tests/specialize/` on the Rust loop, the threaded core, eager, lazy and
+heap-frame entries with feedback off, on and specializing, under the
+collector's interleaved, stress, oracle and quarantine modes, and with
+`JIT_SPEC_CHAOS` forcing guards to fail every 1, 3 and 17 executions; plus
+guard hits, misses, invalidation by a replaced method, metatable and
+instance field, the version cap, deopt exits with each live value kind and
+a pending cleanup, a patched body, checkpoint neutrality and the byte
+budget. `tests/specialize-emit.py` writes the two images;
+`tests/specialize-perf.py` times the class and interface benchmarks.
