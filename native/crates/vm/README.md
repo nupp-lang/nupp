@@ -2422,11 +2422,20 @@ in `_G.__nuppCoverage.hits[path][key]`, and the runner's shard, which
   image and its generated Lua and compares every counter, and does the same
   for loading `nupp.compiler.aot.scalar`.
 
-The report writer is slow on the VM: about six minutes to load the state and
-build the model, three to write the compiler's 496 pages. One page stalled for
-good: the highlighter appended each token to its line, so a generated file
-whose first line is a 172 KB prelude went quadratic. It now joins a line's
-pieces once (15 s to 0.6 s for that file on the VM).
+Writing the report took ten minutes on the VM, for two quadratic costs that
+had nothing to do with coverage:
+
+- `string.find`, `string.match` and `gmatch` with a pattern copied the whole
+  subject on every call, so a decoder stepping through a large text with
+  anchored patterns paid its length each step. Reading the 13.7 MB coverage
+  build state took 388 s; borrowing the subject, as the plain search already
+  did, makes it 2 s, and a 6.9 MB slice decodes in 0.9 s rather than 81 s.
+- The highlighter appended each token to its line, so a generated file whose
+  first line is a 172 KB prelude went quadratic: one page stalled the report
+  for good. It now joins a line's pieces once (15 s to 0.6 s for that file).
+
+The compiler's report is now about a minute on the interpreter, byte-identical
+to what the slow run wrote.
 
 Not instrumented: functions lowered from a native SIMD plan. The page's
 "Generated Lua" view still shows the generator's output, which on a VM build is
