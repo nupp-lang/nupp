@@ -50,7 +50,8 @@ local type Spec = {
     --- A bare word followed by `=` at the start of a line is a key.
     lineKeys: boolean?,
 
-    --- The first word of a command is the command, as in a shell.
+    --- Words run to the next blank or operator, and the first word of a
+    --- command is the command, as in a shell.
     commands: boolean?,
 
     --- Characters a word may contain past its first.
@@ -75,7 +76,6 @@ local SHELL: Spec = {
     ),
     variables = true,
     commands = true,
-    word = "[%w_%-%.%/]",
 }
 
 local POWERSHELL: Spec = {
@@ -275,6 +275,20 @@ local function scan(source: string, spec: Spec): {lexers.Span}
                 commandNext = false
                 handled = true
             end
+        end
+        -- A shell word is whatever runs up to a blank or an operator, so a flag
+        -- such as `-n` or a path such as `./bin/nupp` is one word.
+        local shellWord = spec.commands and not handled and source:match("^[^%s;|&()<>'\"`$]+", index) or nil
+        if shellWord and not (char:match("%d") and not commandNext) then
+            local word = shellWord as string
+            local style = keywordStyle(spec, word)
+            if not style and commandNext then
+                style = "function"
+            end
+            emit(word, style)
+            index = index + #word
+            commandNext = style == "keyword"
+            handled = true
         end
         if not handled and char:match("%d") then
             local number = source:match("^%d[%w%.]*", index) as string
