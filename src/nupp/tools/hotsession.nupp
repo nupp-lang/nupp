@@ -955,6 +955,12 @@ function Session:compile(path, module)
     for _, swapped in ipairs(pinned) do
         swapped.node.fromLib = swapped.token
     end
+    -- Lowering rewrites the checked tree in place (metadata expansion adds the
+    -- requires its witnesses need), and that tree is the query graph's parse of
+    -- the file. Dropping the parse makes the next check read the file afresh
+    -- rather than check what lowering left behind, which reported the added
+    -- requires as the file's own once a provider input changed.
+    self.inc.q:clearInput("parse", path)
     if not lowered then
         return nil, diagnosticsFailure({
             {
