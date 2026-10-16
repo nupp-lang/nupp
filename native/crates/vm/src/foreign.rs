@@ -16,7 +16,7 @@ mod native {
         rc::Rc,
     };
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Scalar {
         Void,
         Bool,
@@ -32,6 +32,8 @@ mod native {
         F64,
         Pointer,
         Aggregate,
+        /// A C function pointer whose signature `Abi::callback` names.
+        Callback,
     }
     impl Scalar {
         fn parse(vm: &Interp, value: Value) -> Self {
@@ -68,9 +70,92 @@ mod native {
                 Self::U64 => Type::u64(),
                 Self::F32 => Type::f32(),
                 Self::F64 => Type::f64(),
-                Self::Pointer => Type::pointer(),
+                Self::Pointer | Self::Callback => Type::pointer(),
                 Self::Aggregate => unreachable!(),
             }
+        }
+        fn name(self) -> &'static str {
+            match self {
+                Self::Void => "void",
+                Self::Bool => "bool",
+                Self::I8 => "int8",
+                Self::U8 => "uint8",
+                Self::I16 => "int16",
+                Self::U16 => "uint16",
+                Self::I32 => "int32",
+                Self::U32 => "uint32",
+                Self::I64 => "int64",
+                Self::U64 => "uint64",
+                Self::F32 => "float",
+                Self::F64 => "number",
+                Self::Pointer => "pointer",
+                Self::Aggregate => "aggregate",
+                Self::Callback => "callback",
+            }
+        }
+    }
+    /// The C signature of a callback trampoline: scalars and opaque pointers
+    /// only, as LuaJIT's callbacks are. `key` names it for pooling and for
+    /// comparing a retained callback with the parameter it is passed to.
+    struct Signature {
+        params: Vec<Scalar>,
+        result: Scalar,
+        key: String,
+    }
+    impl Signature {
+        fn parse(vm: &mut Interp, signature: Value) -> Self {
+            let list = field(vm, signature, "params");
+            let result = field(vm, signature, "result");
+            if field(vm, signature, "fixed") != Value::NIL {
+                vm.err("a native callback cannot be variadic");
+            }
+            let result = Self::scalar(vm, result, "result");
+            if !matches!(vm.kind_of(list), Some(KIND_TABLE | KIND_RECORD)) {
+                vm.err("native callback parameter types must be an array");
+            }
+            let count = vm.array_len(list);
+            if count > 1024 {
+                vm.err("too many callback parameters");
+            }
+            let mut params = Vec::with_capacity(count);
+            for i in 1..=count {
+                let value = vm.get_index(list, Value::num(i as f64));
+                let kind = Self::scalar(vm, value, "parameter");
+                if matches!(kind, Scalar::Void) {
+                    vm.err("a native callback parameter cannot be void");
+                }
+                params.push(kind);
+            }
+            let key = format!(
+                "({}):{}",
+                params
+                    .iter()
+                    .map(|p| p.name())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                result.name()
+            );
+            Self {
+                params,
+                result,
+                key,
+            }
+        }
+        fn scalar(vm: &mut Interp, value: Value, position: &str) -> Scalar {
+            let value = if matches!(vm.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) {
+                let kind = field_value(vm, value, "kind");
+                if vm.is_stringish(kind)
+                    && matches!(vm.bytes_of(kind), b"struct" | b"array" | b"callback")
+                {
+                    vm.err(&format!(
+                        "a native callback {position} cannot be an aggregate or a function by value"
+                    ));
+                }
+                kind
+            } else {
+                value
+            };
+            Scalar::parse(vm, value)
         }
     }
     struct Abi {
@@ -79,6 +164,7 @@ mod native {
         ty: Type,
         size: usize,
         readonly: bool,
+        callback: Option<Rc<Signature>>,
     }
     impl Abi {
         fn parse(vm: &mut Interp, value: Value, depth: usize, budget: &mut usize) -> Self {
@@ -94,10 +180,26 @@ mod native {
                     ty: kind.ffi(),
                     size: 16,
                     readonly: false,
+                    callback: None,
                 };
             }
             let tag = field(vm, value, "kind");
+            if !vm.is_stringish(tag) {
+                vm.err("foreign ABI type must name its kind");
+            }
             let tag = vm.bytes_of(tag).to_vec();
+            if tag == b"callback" {
+                // A C function pointer the call lends or a retained callback fills.
+                let signature = Signature::parse(vm, value);
+                return Self {
+                    kind: Scalar::Callback,
+                    descriptor: Value::NIL,
+                    ty: Type::pointer(),
+                    size: 16,
+                    readonly: false,
+                    callback: Some(Rc::new(signature)),
+                };
+            }
             if tag != b"struct" && tag != b"array" {
                 let kind = Scalar::parse(vm, field_value(vm, value, "kind"));
                 return Self {
@@ -106,6 +208,7 @@ mod native {
                     ty: kind.ffi(),
                     size: 16,
                     readonly: field_value(vm, value, "readonly").truthy(),
+                    callback: None,
                 };
             }
             let mut types = Vec::new();
@@ -123,6 +226,9 @@ mod native {
                     if matches!(abi.kind, Scalar::Void) {
                         vm.err("void is not a stored field");
                     }
+                    if matches!(abi.kind, Scalar::Callback) {
+                        vm.err("a foreign aggregate cannot store a callback; store a pointer");
+                    }
                     types.push(abi.ty);
                     let offset = field(vm, member, "offset");
                     expected_offsets.push(numeric::bits(vm, offset, true) as usize);
@@ -136,8 +242,8 @@ mod native {
                 *budget -= count;
                 let element = field(vm, value, "element");
                 let abi = Self::parse(vm, element, depth + 1, budget);
-                if matches!(abi.kind, Scalar::Void) {
-                    vm.err("void is not a stored element");
+                if matches!(abi.kind, Scalar::Void | Scalar::Callback) {
+                    vm.err("void and callbacks are not stored elements");
                 }
                 types.resize(count, abi.ty);
             }
@@ -165,6 +271,7 @@ mod native {
                 ty,
                 size,
                 readonly: false,
+                callback: None,
             }
         }
     }
@@ -186,17 +293,32 @@ mod native {
             ACTIVE_VM.with(|current| current.set(self.0));
         }
     }
+    /// What a trampoline cannot raise where it runs: a call from a thread other
+    /// than its VM's, a call on the VM's thread outside any native call it
+    /// made, or a Rust failure that escaped the callback's own recovery. C
+    /// receives a zero result, and the VM raises the refusal on its own thread
+    /// when the native call in flight, or the next one, returns.
+    #[derive(Default)]
+    struct Alarm {
+        foreign_thread: std::sync::atomic::AtomicBool,
+        outside_call: std::sync::atomic::AtomicBool,
+        boundary: std::sync::atomic::AtomicBool,
+    }
+    /// One libffi closure. A trampoline is never freed while its VM lives:
+    /// releasing a callback clears its function, so a C caller still holding
+    /// the pointer reaches a refusal rather than freed executable memory.
     struct Callback {
         cif: Cif,
         closure: *mut libffi::low::ffi_closure,
         code: CodePtr,
-        params: Vec<Scalar>,
-        result: Scalar,
+        signature: Rc<Signature>,
+        /// NIL once released, and between the calls that lend a pooled one.
         function: std::cell::Cell<Value>,
+        /// Held by a callback object rather than lent for the length of one call.
+        retained: bool,
         owner: usize,
         thread: std::thread::ThreadId,
-        wrong_context: std::sync::atomic::AtomicBool,
-        boundary_failure: std::sync::atomic::AtomicBool,
+        alarm: std::sync::Arc<Alarm>,
     }
     impl Drop for Callback {
         fn drop(&mut self) {
@@ -205,33 +327,29 @@ mod native {
             }
         }
     }
-    fn callback(vm: &mut Interp, args: &[Value]) -> Value {
-        if args.len() != 2 {
-            vm.err("foreign.callback expects signature and function");
+    fn is_function(vm: &Interp, value: Value) -> bool {
+        value.as_func().is_some()
+            || value.as_builtin().is_some()
+            || vm.kind_of(value) == Some(crate::heap::KIND_CLOSURE)
+    }
+    fn check_callback(vm: &Interp, value: Value) {
+        if !is_function(vm, value) {
+            vm.err("native callback must be a function");
         }
-        let list = field(vm, args[0], "params");
-        let result = field(vm, args[0], "result");
-        let result = Scalar::parse(vm, result);
-        let fixed = field(vm, args[0], "fixed");
-        if fixed != Value::NIL || matches!(result, Scalar::Pointer | Scalar::Aggregate) {
-            vm.err("unsupported native callback result or variadic signature");
-        }
-        let count = vm.array_len(list);
-        if count > 1024 {
-            vm.err("too many callback parameters");
-        }
-        let mut params = Vec::with_capacity(count);
-        for i in 1..=count {
-            let kind = Scalar::parse(vm, vm.get_index(list, Value::num(i as f64)));
-            if matches!(kind, Scalar::Void | Scalar::Pointer | Scalar::Aggregate) {
-                vm.err("unsupported native callback parameter");
-            }
-            params.push(kind);
-        }
-        check_callback(vm, args[1]);
+    }
+    fn trampoline(
+        vm: &mut Interp,
+        signature: Rc<Signature>,
+        function: Value,
+        retained: bool,
+    ) -> Rc<Callback> {
         let cif = Cif::try_new(
-            params.iter().map(|kind| kind.ffi()).collect::<Vec<_>>(),
-            result.ffi(),
+            signature
+                .params
+                .iter()
+                .map(|kind| kind.ffi())
+                .collect::<Vec<_>>(),
+            signature.result.ffi(),
         )
         .unwrap_or_else(|_| vm.err("unsupported native callback ABI"));
         let (closure, code) = libffi::low::closure_alloc();
@@ -242,13 +360,12 @@ mod native {
             cif,
             closure,
             code,
-            params,
-            result,
-            function: std::cell::Cell::new(args[1]),
+            signature,
+            function: std::cell::Cell::new(function),
+            retained,
             owner: Rc::as_ptr(&vm.foreign.identity) as usize,
             thread: std::thread::current().id(),
-            wrong_context: Default::default(),
-            boundary_failure: Default::default(),
+            alarm: vm.foreign.alarm.clone(),
         });
         let status = unsafe {
             libffi::raw::ffi_prep_closure_loc(
@@ -262,17 +379,105 @@ mod native {
         if status != libffi::raw::ffi_status_FFI_OK {
             vm.err("native callback trampoline preparation failed");
         }
+        vm.foreign.trampolines.push(callback.clone());
+        callback
+    }
+    /// `foreign.callback(signature, function)`: a retained callback. With a nil
+    /// signature it takes the C signature of the first callback parameter it is
+    /// passed to, which is how typed code retains a function whose C type only
+    /// the declaration it is passed to spells.
+    fn callback(vm: &mut Interp, args: &[Value]) -> Value {
+        if args.len() != 2 {
+            vm.err("foreign.callback expects a signature (or nil) and a function");
+        }
+        check_callback(vm, args[1]);
+        let bound = (args[0] != Value::NIL).then(|| Rc::new(Signature::parse(vm, args[0])));
         let object = resource(vm, "nupp.foreign.callback", &[]);
-        vm.foreign.callbacks.insert(object, callback);
+        let meta = vm.new_table();
+        vm.handles.push(meta);
+        let key = vm.intern("__call");
+        vm.set_index(
+            meta,
+            key,
+            Value::builtin(crate::builtins::id_of("foreign.invokeCallback").unwrap()),
+        );
+        vm.set_metatable(object, meta);
+        match bound {
+            Some(signature) => {
+                let callback = trampoline(vm, signature, args[1], true);
+                vm.foreign.callbacks.insert(object, callback);
+            }
+            None => {
+                vm.foreign.unbound.insert(object, args[1]);
+            }
+        }
         object
     }
-    fn check_callback(vm: &Interp, value: Value) {
-        if value.as_func().is_none()
-            && value.as_builtin().is_none()
-            && vm.kind_of(value) != Some(crate::heap::KIND_CLOSURE)
-        {
-            vm.err("native callback must be a function");
+    /// The function a retained callback object currently calls.
+    fn retained_function(vm: &Interp, object: Value) -> Option<Value> {
+        vm.foreign
+            .callbacks
+            .get(&object)
+            .map(|callback| callback.function.get())
+            .or_else(|| vm.foreign.unbound.get(&object).copied())
+    }
+    /// The trampoline a callback parameter receives for `value`: a retained
+    /// callback's own, binding an unbound one to this signature, or one lent
+    /// for this call alone to a plain function.
+    fn callback_argument(vm: &mut Interp, signature: &Rc<Signature>, value: Value) -> *mut c_void {
+        if value == Value::NIL {
+            return std::ptr::null_mut();
         }
+        if let Some(callback) = vm.foreign.callbacks.get(&value).cloned() {
+            if callback.signature.key != signature.key {
+                vm.err(&format!(
+                    "native callback has C signature {}, but the parameter expects {}",
+                    callback.signature.key, signature.key
+                ));
+            }
+            return callback.code.as_mut_ptr();
+        }
+        if let Some(function) = vm.foreign.unbound.get(&value).copied() {
+            let callback = trampoline(vm, signature.clone(), function, true);
+            vm.foreign.unbound.remove(&value);
+            vm.foreign.callbacks.insert(value, callback.clone());
+            return callback.code.as_mut_ptr();
+        }
+        if !is_function(vm, value) {
+            vm.err("a native callback parameter takes a function, a retained callback, or nil");
+        }
+        let pooled = vm
+            .foreign
+            .pool
+            .get_mut(&signature.key)
+            .and_then(|free| free.pop());
+        let callback = match pooled {
+            Some(callback) => {
+                callback.function.set(value);
+                callback
+            }
+            None => trampoline(vm, signature.clone(), value, false),
+        };
+        let code = callback.code.as_mut_ptr();
+        vm.foreign.lent.push(callback);
+        code
+    }
+    /// Returns the trampolines lent since `mark` to their pools, cleared: a C
+    /// caller that kept one past the call reaches a refusal until another call
+    /// borrows it again.
+    pub(super) fn settle(vm: &mut Interp, mark: usize) {
+        while vm.foreign.lent.len() > mark {
+            let callback = vm.foreign.lent.pop().unwrap();
+            callback.function.set(Value::NIL);
+            vm.foreign
+                .pool
+                .entry(callback.signature.key.clone())
+                .or_default()
+                .push(callback);
+        }
+    }
+    pub(super) fn lent_mark(vm: &Interp) -> usize {
+        vm.foreign.lent.len()
     }
     unsafe fn callback_read(vm: &mut Interp, kind: Scalar, pointer: *const c_void) -> Value {
         match kind {
@@ -293,6 +498,27 @@ mod native {
             }),
             Scalar::F32 => Value::num(pointer.cast::<f32>().read() as f64),
             Scalar::F64 => Value::num(pointer.cast::<f64>().read()),
+            Scalar::Pointer => {
+                let address = pointer.cast::<*mut c_void>().read();
+                if address.is_null() {
+                    return Value::NIL;
+                }
+                // An opaque handle C lends for this invocation: it passes back to
+                // C, and stops resolving once the callback returns.
+                let object = resource(vm, "nupp.foreign.pointer", &[]);
+                vm.foreign.pointers.insert(
+                    object,
+                    Rc::new(Pointer {
+                        address,
+                        _library: None,
+                        _strings: Vec::new(),
+                        _parents: Vec::new(),
+                        managed: Vec::new(),
+                    }),
+                );
+                vm.foreign.callback_pointers.push(object);
+                object
+            }
             _ => unreachable!(),
         }
     }
@@ -331,45 +557,22 @@ mod native {
                 .cast::<f32>()
                 .write(numeric::double(vm, value) as f32),
             Scalar::F64 => pointer.cast::<f64>().write(numeric::double(vm, value)),
+            Scalar::Pointer => {
+                // Only an address C already owns may outlive the callback; a
+                // managed view's storage is rooted for no longer than this call.
+                let address = if value == Value::NIL {
+                    std::ptr::null_mut()
+                } else if let Some(external) = vm.foreign.pointers.get(&value) {
+                    external.address
+                } else {
+                    vm.err("a native callback returns a foreign pointer or nil")
+                };
+                pointer.cast::<*mut c_void>().write(address);
+            }
             _ => unreachable!(),
         }
     }
     unsafe extern "C" fn callback_trampoline(
-        cif: *mut libffi::low::ffi_cif,
-        result: *mut c_void,
-        args: *mut *mut c_void,
-        data: *mut c_void,
-    ) {
-        let callback = &*data.cast::<Callback>();
-        let pointer = ACTIVE_VM.with(|current| current.get());
-        let owns = !pointer.is_null()
-            && std::thread::current().id() == callback.thread
-            && Rc::as_ptr(&(*pointer).foreign.identity) as usize == callback.owner;
-        let state = owns.then(|| {
-            (
-                (*pointer).open_scope(),
-                (*pointer).extra,
-                (*pointer).extra_n,
-                (*pointer).last_nres,
-            )
-        });
-        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            callback_body(cif, result, args, data)
-        }))
-        .is_err()
-        {
-            if let Some((mark, extra, n, results)) = state {
-                (*pointer).extra = extra;
-                (*pointer).extra_n = n;
-                (*pointer).last_nres = results;
-                (*pointer).close_scope(mark);
-            }
-            callback
-                .boundary_failure
-                .store(true, std::sync::atomic::Ordering::Release);
-        }
-    }
-    unsafe fn callback_body(
         _cif: *mut libffi::low::ffi_cif,
         result: *mut c_void,
         args: *mut *mut c_void,
@@ -377,7 +580,7 @@ mod native {
     ) {
         let callback = &*data.cast::<Callback>();
         // libffi requires register-sized storage for narrow integer results.
-        let width = match callback.result {
+        let width = match callback.signature.result {
             Scalar::Void => 0,
             Scalar::F32 => 4,
             Scalar::F64 | Scalar::I64 | Scalar::U64 => 8,
@@ -386,61 +589,150 @@ mod native {
         if width != 0 {
             std::ptr::write_bytes(result, 0, width);
         }
-        let pointer = ACTIVE_VM.with(|current| current.get());
-        if std::thread::current().id() != callback.thread
-            || pointer.is_null()
-            || Rc::as_ptr(&(*pointer).foreign.identity) as usize != callback.owner
-        {
+        // Nothing of the VM may be touched off its thread, not even to report.
+        if std::thread::current().id() != callback.thread {
             callback
-                .wrong_context
+                .alarm
+                .foreign_thread
                 .store(true, std::sync::atomic::Ordering::Release);
             return;
         }
-        let vm = &mut *pointer;
+        let pointer = ACTIVE_VM.with(|current| current.get());
+        if pointer.is_null() || Rc::as_ptr(&(*pointer).foreign.identity) as usize != callback.owner
+        {
+            callback
+                .alarm
+                .outside_call
+                .store(true, std::sync::atomic::Ordering::Release);
+            return;
+        }
+        let state = (
+            (*pointer).open_scope(),
+            (*pointer).extra,
+            (*pointer).extra_n,
+            (*pointer).last_nres,
+        );
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            callback_body(&mut *pointer, callback, result, args)
+        }))
+        .is_err()
+        {
+            let (mark, extra, n, results) = state;
+            (*pointer).extra = extra;
+            (*pointer).extra_n = n;
+            (*pointer).last_nres = results;
+            (*pointer).close_scope(mark);
+            callback
+                .alarm
+                .boundary
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+    }
+    unsafe fn callback_body(
+        vm: &mut Interp,
+        callback: &Callback,
+        result: *mut c_void,
+        args: *mut *mut c_void,
+    ) {
         let mark = vm.open_scope();
         let old_extra = vm.extra;
         let old_n = vm.extra_n;
         let old_results = vm.last_nres;
         vm.handles.extend_from_slice(&old_extra[..old_n]);
-        // No Rust unwind is allowed to leave this C boundary.
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut values = Vec::with_capacity(callback.params.len());
-            for (i, &kind) in callback.params.iter().enumerate() {
-                let value = callback_read(vm, kind, *args.add(i));
-                vm.handles.push(value);
-                values.push(value);
-            }
-            let results = vm.call_value(callback.function.get(), &values);
-            vm.handles.extend_from_slice(&results);
-            callback_write(
-                vm,
-                callback.result,
-                result,
-                results.first().copied().unwrap_or(Value::NIL),
+        let function = callback.function.get();
+        if function == Value::NIL {
+            vm.foreign.refusals.push(
+                if callback.retained {
+                    "native callback invoked after it was released"
+                } else {
+                    "native callback invoked after the call that lent it returned; \
+                     retain a callback that C keeps"
+                }
+                .into(),
             );
-        }));
-        if let Err(payload) = outcome {
-            // Keep language error values alive through any later callback in this call.
-            let error = vm.error_value(payload);
-            vm.foreign.callback_errors.push(error);
+        } else {
+            let lent_pointers = vm.foreign.callback_pointers.len();
+            // No Rust unwind is allowed to leave this C boundary.
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut values = Vec::with_capacity(callback.signature.params.len());
+                for (i, &kind) in callback.signature.params.iter().enumerate() {
+                    let value = callback_read(vm, kind, *args.add(i));
+                    vm.handles.push(value);
+                    values.push(value);
+                }
+                let results = vm.call_value(function, &values);
+                vm.handles.extend_from_slice(&results);
+                callback_write(
+                    vm,
+                    callback.signature.result,
+                    result,
+                    results.first().copied().unwrap_or(Value::NIL),
+                );
+            }));
+            // Opaque pointers C lent this invocation stop resolving when it returns.
+            while vm.foreign.callback_pointers.len() > lent_pointers {
+                let object = vm.foreign.callback_pointers.pop().unwrap();
+                vm.foreign.pointers.remove(&object);
+                vm.resources.remove(&object);
+            }
+            if let Err(payload) = outcome {
+                // Keep language error values alive through any later callback in this call.
+                let error = vm.error_value(payload);
+                vm.foreign.callback_errors.push(error);
+            }
         }
         vm.extra = old_extra;
         vm.extra_n = old_n;
         vm.last_nres = old_results;
         vm.close_scope(mark);
     }
+    /// What the VM raises once a native call returns, for every refusal its
+    /// callbacks recorded while it ran.
+    fn raise_refusals(vm: &mut Interp, refusal_mark: usize) {
+        if vm.foreign.refusals.len() > refusal_mark {
+            let message = vm.foreign.refusals[refusal_mark].clone();
+            vm.foreign.refusals.truncate(refusal_mark);
+            vm.err(&message);
+        }
+        let alarm = vm.foreign.alarm.clone();
+        let take = |flag: &std::sync::atomic::AtomicBool| {
+            flag.swap(false, std::sync::atomic::Ordering::AcqRel)
+        };
+        if take(&alarm.boundary) {
+            vm.err("native callback failed while reporting an error");
+        }
+        if take(&alarm.foreign_thread) {
+            vm.err(
+                "native callback invoked from a thread other than its VM's; \
+                 C received a zero result",
+            );
+        }
+        if take(&alarm.outside_call) {
+            vm.err(
+                "native callback invoked outside a native call from its VM; \
+                 C received a zero result",
+            );
+        }
+    }
 
+    /// A loaded native library. Every function bound from it and every pointer
+    /// a function returned holds it, so the platform unloads it only once the
+    /// library object is closed and the last of those is closed too.
+    struct Native {
+        library: libloading::Library,
+        label: String,
+    }
     struct Binding {
         cif: Cif,
         address: CodePtr,
         params: Vec<Abi>,
         result: Abi,
         // A symbol remains valid while any bound function or returned pointer uses it.
-        library: Rc<libloading::Library>,
+        library: Rc<Native>,
     }
     struct Pointer {
         address: *mut c_void,
-        _library: Rc<libloading::Library>,
+        _library: Option<Rc<Native>>,
         // A C function may return a pointer into one of its string arguments.
         _strings: Vec<Box<[u8]>>,
         // Preserve native owners when a returned pointer derives from an earlier one.
@@ -451,16 +743,28 @@ mod native {
     pub(crate) struct State {
         functions: HashMap<Value, Rc<Binding>>,
         pointers: HashMap<Value, Rc<Pointer>>,
+        libraries: HashMap<Value, Rc<Native>>,
+        /// Libraries by resolved name and visibility, while anything holds them.
+        loaded: HashMap<(String, bool), std::rc::Weak<Native>>,
         errno: i32,
         identity: Rc<()>,
         callbacks: HashMap<Value, Rc<Callback>>,
-        active_callbacks: Vec<Rc<Callback>>,
+        unbound: HashMap<Value, Value>,
+        trampolines: Vec<Rc<Callback>>,
+        pool: HashMap<String, Vec<Rc<Callback>>>,
+        lent: Vec<Rc<Callback>>,
+        callback_pointers: Vec<Value>,
+        refusals: Vec<String>,
+        alarm: std::sync::Arc<Alarm>,
         callback_errors: Vec<Value>,
     }
     impl State {
         pub(crate) fn trace(&self, visit: &mut dyn FnMut(Value)) {
-            for callback in self.callbacks.values().chain(self.active_callbacks.iter()) {
+            for callback in &self.trampolines {
                 visit(callback.function.get());
+            }
+            for &function in self.unbound.values() {
+                visit(function);
             }
             for &error in &self.callback_errors {
                 visit(error);
@@ -483,6 +787,195 @@ mod native {
                 pointers.extend(pointer._parents.iter().map(Rc::as_ref));
             }
         }
+    }
+    /// The file name LuaJIT's `ffi.load` asks the platform for: a bare name
+    /// gains the platform's extension when it has none and, on POSIX, the
+    /// `lib` prefix when it lacks one. A path is left as written.
+    fn canonical_name(name: &str) -> String {
+        #[cfg(windows)]
+        {
+            if name.contains(['/', '\\']) || name.contains('.') {
+                name.into()
+            } else {
+                format!("{name}.dll")
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            if name.contains('/') {
+                return name.into();
+            }
+            let mut file = name.to_string();
+            if !file.contains('.') {
+                file.push_str(if cfg!(target_os = "macos") {
+                    ".dylib"
+                } else {
+                    ".so"
+                });
+            }
+            if !file.starts_with("lib") {
+                file = format!("lib{file}");
+            }
+            file
+        }
+    }
+    /// The directories an `@`-relative library is looked for at or above:
+    /// the calling module's source directory, which for a generated binding is
+    /// inside the build directory the library was built into, then the
+    /// running executable's, which a program binary ships beside its libraries.
+    fn search_bases(vm: &Interp) -> Vec<std::path::PathBuf> {
+        let mut bases = Vec::new();
+        let current = std::env::current_dir().ok();
+        let module = vm.caller_function().and_then(|fid| {
+            let function = vm.funcs.get(fid)?;
+            function
+                .path
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| vm.module_paths.get(&function.module).cloned())
+        });
+        if let Some(path) = module.filter(|path| !path.starts_with('=')) {
+            let path = std::path::PathBuf::from(path.strip_prefix('@').unwrap_or(&path));
+            if let Some(directory) = path.parent() {
+                if directory.is_absolute() {
+                    bases.push(directory.to_path_buf());
+                } else if let Some(current) = &current {
+                    bases.push(current.join(directory));
+                }
+            }
+        }
+        if let Some(directory) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+        {
+            bases.push(directory);
+        }
+        bases
+    }
+    fn open_library(vm: &mut Interp, name: &[u8], global: bool) -> Rc<Native> {
+        let name = std::str::from_utf8(name)
+            .unwrap_or_else(|_| vm.err("a native library name must be UTF-8"))
+            .to_string();
+        if name.contains('\0') {
+            vm.err("a native library name contains a zero byte");
+        }
+        let path = if name.is_empty() {
+            String::new()
+        } else if let Some(relative) = name.strip_prefix('@') {
+            let bases = search_bases(vm);
+            let found = bases.iter().find_map(|base| {
+                let mut directory = base.clone();
+                for _ in 0..=8 {
+                    let candidate = directory.join(relative);
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                    if !directory.pop() {
+                        break;
+                    }
+                }
+                None
+            });
+            match found {
+                Some(path) => path.to_string_lossy().into_owned(),
+                None => vm.err(&format!(
+                    "cannot find native library {relative} at or above {}; the compiled \
+                     library has to travel with the module that calls it",
+                    bases
+                        .iter()
+                        .map(|base| base.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(" or ")
+                )),
+            }
+        } else {
+            canonical_name(&name)
+        };
+        let key = (path.clone(), global);
+        if let Some(native) = vm.foreign.loaded.get(&key).and_then(std::rc::Weak::upgrade) {
+            return native;
+        }
+        let label = if name.is_empty() {
+            "the default native namespace".to_string()
+        } else {
+            format!("native library \"{name}\"")
+        };
+        let library: Result<libloading::Library, String> = if path.is_empty() {
+            #[cfg(unix)]
+            {
+                Ok(libloading::os::unix::Library::this().into())
+            }
+            #[cfg(windows)]
+            {
+                libloading::os::windows::Library::this()
+                    .map(Into::into)
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(not(any(unix, windows)))]
+            {
+                Err("this platform has no default native namespace".to_string())
+            }
+        } else {
+            #[cfg(unix)]
+            {
+                use libloading::os::unix::{Library, RTLD_GLOBAL, RTLD_LOCAL, RTLD_NOW};
+                let flags = RTLD_NOW | if global { RTLD_GLOBAL } else { RTLD_LOCAL };
+                unsafe { Library::open(Some(&path), flags) }
+                    .map(Into::into)
+                    .map_err(|e| e.to_string())
+            }
+            #[cfg(not(unix))]
+            {
+                unsafe { libloading::Library::new(&path) }.map_err(|e| e.to_string())
+            }
+        };
+        let library = library.unwrap_or_else(|problem| {
+            let alias = if path != name && !name.starts_with('@') {
+                format!(" (as {path})")
+            } else {
+                String::new()
+            };
+            vm.err(&format!("cannot load {label}{alias}: {problem}"))
+        });
+        let native = Rc::new(Native { library, label });
+        vm.foreign.loaded.insert(key, Rc::downgrade(&native));
+        native
+    }
+    /// `foreign.load(name, options)`: the library object a program binds
+    /// functions from. `options.global` makes its symbols visible to libraries
+    /// loaded after it, as POSIX `RTLD_GLOBAL` does.
+    fn load(vm: &mut Interp, args: &[Value]) -> Value {
+        let name = args.first().copied().unwrap_or(Value::NIL);
+        if !vm.is_stringish(name) {
+            vm.err("foreign.load expects a library name or path");
+        }
+        let options = args.get(1).copied().unwrap_or(Value::NIL);
+        let global = options != Value::NIL && {
+            if !matches!(vm.kind_of(options), Some(KIND_TABLE | KIND_RECORD)) {
+                vm.err("foreign.load options must be a table");
+            }
+            field_value(vm, options, "global").truthy()
+        };
+        let bytes = vm.bytes_of(name).to_vec();
+        let native = open_library(vm, &bytes, global);
+        let object = resource(vm, "nupp.foreign.library", &[]);
+        vm.foreign.libraries.insert(object, native);
+        object
+    }
+    /// The library `foreign.bind`'s first argument names: nil for the default
+    /// namespace, a library object, or a name loaded as `foreign.load` would.
+    fn library_of(vm: &mut Interp, value: Value) -> Rc<Native> {
+        if value == Value::NIL {
+            return open_library(vm, b"", false);
+        }
+        if let Some(native) = vm.foreign.libraries.get(&value) {
+            return native.clone();
+        }
+        if !vm.is_stringish(value) {
+            vm.err("native library is closed or invalid");
+        }
+        let bytes = vm.bytes_of(value).to_vec();
+        open_library(vm, &bytes, false)
     }
     fn field(vm: &mut Interp, t: Value, name: &str) -> Value {
         if !matches!(vm.kind_of(t), Some(KIND_TABLE | KIND_RECORD)) {
@@ -519,6 +1012,9 @@ mod native {
         let result = field(vm, args[2], "result");
         let mut budget = 65536;
         let result = Abi::parse(vm, result, 0, &mut budget);
+        if matches!(result.kind, Scalar::Callback) {
+            vm.err("a native function returns a function pointer as an opaque pointer");
+        }
         let list = field(vm, args[2], "params");
         if !matches!(vm.kind_of(list), Some(KIND_TABLE | KIND_RECORD)) {
             vm.err("foreign parameter types must be an array");
@@ -562,36 +1058,23 @@ mod native {
             Cif::try_new_variadic(types, nfixed, result.ty.clone())
         }
         .unwrap_or_else(|e| vm.err(&format!("invalid foreign signature: {e:?}")));
-        let library = if args[0] == Value::NIL {
-            #[cfg(unix)]
-            {
-                libloading::Library::from(libloading::os::unix::Library::this())
-            }
-            #[cfg(windows)]
-            {
-                libloading::os::windows::Library::this()
-                    .map(Into::into)
-                    .unwrap_or_else(|e| vm.err(&e.to_string()))
-            }
-            #[cfg(not(any(unix, windows)))]
-            {
-                vm.err("default native namespace unavailable on this platform")
-            }
-        } else {
-            let path = string(vm, args[0]);
-            unsafe {
-                libloading::Library::new(
-                    path.to_str()
-                        .unwrap_or_else(|_| vm.err("foreign library path must be UTF-8")),
-                )
-            }
-            .unwrap_or_else(|e| vm.err(&format!("load native library: {e}")))
-        };
+        let library = library_of(vm, args[0]);
+        // dlsym may resolve a symbol to null; nothing callable lives there.
         let address = unsafe {
-            *library
+            library
+                .library
                 .get::<*mut c_void>(symbol.as_bytes_with_nul())
-                .unwrap_or_else(|e| vm.err(&format!("resolve native symbol: {e}")))
-        };
+        }
+        .ok()
+        .map(|symbol| *symbol)
+        .filter(|address| !address.is_null())
+        .unwrap_or_else(|| {
+            vm.err(&format!(
+                "native symbol \"{}\" is not in {}",
+                symbol.to_string_lossy(),
+                library.label
+            ))
+        });
         let object = resource(vm, "nupp.foreign.function", &[args[2]]);
         let meta = vm.new_table();
         vm.handles.push(meta);
@@ -609,7 +1092,7 @@ mod native {
                 address: CodePtr(address),
                 params,
                 result,
-                library: Rc::new(library),
+                library,
             }),
         );
         object
@@ -678,6 +1161,11 @@ mod native {
                     }
                 }
                 Scalar::Void => unreachable!(),
+                Scalar::Callback => {
+                    let signature = abi.callback.as_ref().unwrap();
+                    let address = callback_argument(vm, signature, value);
+                    slot.put(address);
+                }
                 Scalar::Bool => {
                     if value != Value::TRUE && value != Value::FALSE {
                         vm.err("foreign bool requires a boolean");
@@ -699,6 +1187,11 @@ mod native {
                         std::ptr::null_mut()
                     } else if let Some(callback) = vm.foreign.callbacks.get(&value) {
                         callback.code.as_mut_ptr()
+                    } else if vm.foreign.unbound.contains_key(&value) || is_function(vm, value) {
+                        vm.err(
+                            "a function reaches C through a callback parameter, or as a \
+                             callback created with a C signature",
+                        )
                     } else if let Some(pointer) = vm.foreign.pointers.get(&value).cloned() {
                         let address = pointer.address;
                         let mut retained = vec![pointer.as_ref()];
@@ -741,11 +1234,7 @@ mod native {
         }
         let args_ffi: Vec<_> = slots.iter().map(|slot| Arg::new(slot.bytes())).collect();
         let mut result = Slot::new(binding.result.size);
-        let callbacks: Vec<_> = vm.foreign.callbacks.values().cloned().collect();
-        let callback_mark = vm.foreign.active_callbacks.len();
-        vm.foreign
-            .active_callbacks
-            .extend(callbacks.iter().cloned());
+        let refusal_mark = vm.foreign.refusals.len();
         let error_mark = vm.foreign.callback_errors.len();
         let active = ActiveVm::enter(vm);
         set_errno(vm.foreign.errno);
@@ -756,26 +1245,13 @@ mod native {
         }
         vm.foreign.errno = get_errno();
         drop(active);
-        vm.foreign.active_callbacks.truncate(callback_mark);
         if vm.foreign.callback_errors.len() > error_mark {
             let error = vm.foreign.callback_errors[error_mark];
             vm.foreign.callback_errors.truncate(error_mark);
+            vm.foreign.refusals.truncate(refusal_mark);
             std::panic::panic_any(crate::builtins::LuaError(error.0));
         }
-        if callbacks.iter().any(|callback| {
-            callback
-                .boundary_failure
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
-        }) {
-            vm.err("native callback failed while reporting an error");
-        }
-        if callbacks.iter().any(|callback| {
-            callback
-                .wrong_context
-                .swap(false, std::sync::atomic::Ordering::AcqRel)
-        }) {
-            vm.err("native callback invoked outside its owning VM thread");
-        }
+        raise_refusals(vm, refusal_mark);
         let value = match binding.result.kind {
             Scalar::Aggregate => {
                 let value = crate::storage::call(vm, "valueNew", &[binding.result.descriptor]);
@@ -811,6 +1287,7 @@ mod native {
             }),
             Scalar::F32 => Value::num(result.get::<f32>() as f64),
             Scalar::F64 => Value::num(result.get::<f64>()),
+            Scalar::Callback => unreachable!(),
             Scalar::Pointer => {
                 let address = result.get::<*mut c_void>();
                 if address.is_null() {
@@ -821,7 +1298,7 @@ mod native {
                         object,
                         Rc::new(Pointer {
                             address,
-                            _library: binding.library.clone(),
+                            _library: Some(binding.library.clone()),
                             _strings: strings,
                             _parents: parents,
                             managed,
@@ -868,21 +1345,38 @@ mod native {
                     vm.err("foreign.setCallback expects callback and function");
                 }
                 check_callback(vm, args[1]);
-                let callback = vm
-                    .foreign
-                    .callbacks
-                    .get(&args[0])
-                    .unwrap_or_else(|| vm.err("native callback is closed or invalid"));
-                callback.function.set(args[1]);
+                // Rebinding keeps the C pointer: what C already holds calls the new function.
+                if let Some(callback) = vm.foreign.callbacks.get(&args[0]) {
+                    callback.function.set(args[1]);
+                } else if let Some(function) = vm.foreign.unbound.get_mut(&args[0]) {
+                    *function = args[1];
+                } else {
+                    vm.err("native callback is closed or invalid");
+                }
                 Outs::new()
             }
+            "foreign.invokeCallback" => {
+                let object = args.first().copied().unwrap_or(Value::NIL);
+                let function = retained_function(vm, object)
+                    .unwrap_or_else(|| vm.err("native callback is closed or invalid"));
+                vm.call_value(function, &args[1..]).into_iter().collect()
+            }
+            "foreign.load" => [load(vm, args)].into_iter().collect(),
             "foreign.bind" => [bind(vm, args)].into_iter().collect(),
             "foreign.call" => invoke(vm, args),
             "foreign.close" => {
                 let object = args.first().copied().unwrap_or(Value::NIL);
-                if vm.foreign.functions.remove(&object).is_some()
+                let callback = vm.foreign.callbacks.remove(&object);
+                if let Some(callback) = &callback {
+                    // The trampoline stays allocated, so a C caller that kept the
+                    // pointer is refused rather than sent into freed code.
+                    callback.function.set(Value::NIL);
+                }
+                if callback.is_some()
+                    || vm.foreign.functions.remove(&object).is_some()
                     || vm.foreign.pointers.remove(&object).is_some()
-                    || vm.foreign.callbacks.remove(&object).is_some()
+                    || vm.foreign.unbound.remove(&object).is_some()
+                    || vm.foreign.libraries.remove(&object).is_some()
                 {
                     vm.resources.remove(&object);
                 }
@@ -913,6 +1407,8 @@ impl State {
 pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let mark = vm.open_scope();
     vm.handles.extend_from_slice(args);
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    let lent = native::lent_mark(vm);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
         {
@@ -924,6 +1420,9 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
             vm.err("this runtime was built without native FFI")
         }
     }));
+    // Trampolines a call lent its function arguments die with it, failed or not.
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    native::settle(vm, lent);
     vm.close_scope(mark);
     match result {
         Ok(out) => out,
@@ -935,7 +1434,7 @@ pub(crate) fn install(vm: &mut Interp) {
     let mark = vm.open_scope();
     let module = vm.new_table();
     vm.handles.push(module);
-    for name in ["bind", "close", "errno", "callback", "setCallback"] {
+    for name in ["bind", "close", "errno", "callback", "setCallback", "load"] {
         let key = vm.intern(name);
         let id = crate::builtins::id_of(&format!("foreign.{name}")).unwrap();
         vm.set_index(module, key, Value::builtin(id));

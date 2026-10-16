@@ -78,6 +78,7 @@ pub const NAMES: &[&str] = &[
     // Appended last so every earlier id, which linked objects carry, keeps its value.
     "vm.imageIdentity",
     "vm.imageModules",
+    "foreign.load", "foreign.invokeCallback",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
