@@ -82,6 +82,7 @@ pub const NAMES: &[&str] = &[
     "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow",
     "table.new", "cleanup.describe", "file.setvbuf", "file.flush",
     "snapshot.save", "snapshot.prepare", "snapshot.loadInto", "snapshot.track", "snapshot.untrack", "snapshot.fileStrategy", "snapshot.durable",
+    "snapshot.discard",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }

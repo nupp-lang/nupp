@@ -91,36 +91,49 @@ impl Strategy {
 struct Opened {
     path: PathBuf,
     mode: OpenMode,
-    strategy: Option<Strategy>,
     /// The last digest, kept while the file's size and modification time hold.
     digest: RefCell<Option<(u64, Option<SystemTime>, [u8; 32])>>,
 }
 
-/// The paths and strategies of `nfiles` handles. Strategies are VM state and
-/// travel inside the checkpoint with the handles they govern.
+/// The paths of `nfiles` handles and the strategies that govern them.
+/// Strategies are VM state: they travel inside every checkpoint, whether or
+/// not a file they name is open.
 #[derive(Default)]
 pub struct FileTracking {
     files: HashMap<u64, Opened>,
-    /// The strategy for writable files that name none of their own.
+    /// Strategies by canonical path, for files open now or opened later.
+    rules: std::collections::BTreeMap<PathBuf, Strategy>,
+    /// The strategy for writable files no rule names.
     writable: Option<Strategy>,
+}
+/// The path a restore in another process or directory reopens. A file not
+/// yet created resolves through its parent directory.
+fn canonical(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path)
+        .ok()
+        .or_else(|| {
+            let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            Some(std::fs::canonicalize(parent).ok()?.join(path.file_name()?))
+        })
+        .or_else(|| std::path::absolute(path).ok())
+        .unwrap_or_else(|| path.to_path_buf())
 }
 impl FileTracking {
     pub(crate) fn opened(&mut self, id: u64, path: &Path, mode: OpenMode) {
-        // A restore may run in another process with another working directory.
-        let path = std::fs::canonicalize(path)
-            .or_else(|_| std::path::absolute(path))
-            .unwrap_or_else(|_| path.to_path_buf());
-        self.files.insert(id, Opened { path, mode, strategy: None, digest: RefCell::new(None) });
+        self.files.insert(id, Opened { path: canonical(path), mode, digest: RefCell::new(None) });
     }
     pub(crate) fn closed(&mut self, id: u64) {
         self.files.remove(&id);
     }
     fn effective(&self, opened: &Opened) -> Strategy {
-        opened.strategy.unwrap_or(if opened.mode == OpenMode::Read {
+        self.rules.get(&opened.path).copied().unwrap_or(if opened.mode == OpenMode::Read {
             Strategy::Verify
         } else {
             self.writable.unwrap_or(Strategy::Refuse)
         })
+    }
+    fn configured(&self) -> bool {
+        !self.rules.is_empty() || self.writable.is_some()
     }
 }
 
@@ -224,6 +237,13 @@ impl ResourceCodec for FilesCodec {
         let files = &vm.nfiles;
         let mut out = vec![1, files.snapshot.writable.map_or(255, |s| s as u8)];
         out.extend(files.next.to_le_bytes());
+        out.extend((files.snapshot.rules.len() as u32).to_le_bytes());
+        for (path, strategy) in &files.snapshot.rules {
+            let path = path_bytes(path);
+            out.extend((path.len() as u32).to_le_bytes());
+            out.extend(path);
+            out.push(*strategy as u8);
+        }
         let mut ids: Vec<u64> = files.open.keys().copied().collect();
         ids.sort_unstable();
         out.extend((ids.len() as u32).to_le_bytes());
@@ -232,7 +252,7 @@ impl ResourceCodec for FilesCodec {
             let strategy = files.snapshot.effective(opened);
             if strategy == Strategy::Refuse {
                 return Err(format!(
-                    "snapshot: {} is open for writing (mode \"{}\"), and restoring it could repeat or lose writes; give it a strategy with snapshot.fileStrategy(file, \"reopen\" or \"verify\"), or close it before capturing",
+                    "snapshot: {} is open for writing (mode \"{}\"), and restoring it could repeat or lose writes; give its path a strategy with snapshot.fileStrategy(path, \"reopen\" or \"verify\"), or close it before capturing",
                     opened.path.display(),
                     mode_name(opened.mode)
                 ));
@@ -259,6 +279,11 @@ impl ResourceCodec for FilesCodec {
         }
         let writable = Strategy::from_byte(r.byte()?)?;
         let next = r.u64()?;
+        let mut rules = std::collections::BTreeMap::new();
+        for _ in 0..r.u32()? {
+            let path = nupp_native_files::path_from_bytes(r.bytes()?).map_err(|e| e.to_string())?;
+            rules.insert(path, Strategy::from_byte(r.byte()?)?.ok_or("snapshot: invalid file strategy")?);
+        }
         let count = r.u32()?;
         // Reopen everything before publishing any handle: a failure part way
         // drops the files reopened so far, and the candidate VM never sees them.
@@ -288,7 +313,7 @@ impl ResourceCodec for FilesCodec {
                 return Err("snapshot: invalid file strategy".into());
             }
             let file = OpenFile::reopen(&path, mode, position).map_err(|e| format!("snapshot: restoring {shown}: {e}"))?;
-            reopened.push((id, file, Opened { path, mode, strategy: Some(strategy), digest: RefCell::new(None) }));
+            reopened.push((id, file, Opened { path, mode, digest: RefCell::new(None) }));
         }
         if r.1 != data.len() {
             return Err("snapshot: trailing open-file descriptor data".into());
@@ -296,11 +321,8 @@ impl ResourceCodec for FilesCodec {
         let files = &mut vm.nfiles;
         files.next = files.next.max(next);
         files.snapshot.writable = writable;
-        for (id, file, mut opened) in reopened {
-            // A file reopened under the default keeps following the default.
-            if opened.strategy == Some(if opened.mode == OpenMode::Read { Strategy::Verify } else { writable.unwrap_or(Strategy::Refuse) }) {
-                opened.strategy = None;
-            }
+        files.snapshot.rules = rules;
+        for (id, file, opened) in reopened {
             files.open.insert(id, file);
             files.snapshot.files.insert(id, opened);
         }
@@ -409,9 +431,9 @@ pub(crate) fn install_codecs(codecs: &mut ResourceCodecs) {
 }
 
 /// Registers or retires each provider's sentinel to match its side table, so
-/// a checkpoint of a VM with no open handles is byte-identical to before.
+/// a VM that never opened one checkpoints exactly as before.
 pub(crate) fn before_checkpoint(vm: &mut Interp, codecs: &mut ResourceCodecs) {
-    let files = !vm.nfiles.open.is_empty();
+    let files = !vm.nfiles.open.is_empty() || vm.nfiles.snapshot.configured();
     let net = open(&net_counts(vm));
     let http = open(&http_counts(vm));
     let compression = open(&compression_counts(vm));
@@ -589,7 +611,11 @@ impl ResourceCodec for Restorer {
 fn discard(vm: &mut Interp, resources: &[NuppResource], staged: &[(Value, usize)]) -> Option<String> {
     let mut failures = Vec::new();
     for &(object, root) in staged.iter().rev() {
-        let kind = vm.resources.remove(&object);
+        // Only application kinds are staged; a runtime resource stays put.
+        let kind = vm.resources.get(&object).filter(|k| !k.starts_with("nupp.")).cloned();
+        if kind.is_some() {
+            vm.resources.remove(&object);
+        }
         let hook = kind.and_then(|k| resources.iter().find(|r| r.kind == k)).map(|r| r.discard).unwrap_or(Value::NIL);
         if hook != Value::NIL {
             let scope = vm.open_scope();
@@ -945,6 +971,7 @@ pub(crate) fn install(vm: &mut Interp) {
         ("untrack", "snapshot.untrack"),
         ("fileStrategy", "snapshot.fileStrategy"),
         ("durable", "snapshot.durable"),
+        ("discard", "snapshot.discard"),
         ("saveData", "vm.saveData"),
         ("loadData", "vm.loadData"),
     ] {
@@ -1035,17 +1062,45 @@ pub(crate) fn call_builtin(vm: &mut Interp, name: &str, args: &[Value]) -> Outs 
             let strategy = if arg(args, 1) == Value::NIL {
                 None
             } else {
-                Some(Strategy::parse(vm.bytes_of(arg(args, 1)).to_vec().as_slice()).filter(|_| vm.is_stringish(arg(args, 1))).ok_or("snapshot: a file strategy is \"refuse\", \"reopen\" or \"verify\"")?)
+                let name = arg(args, 1);
+                Some(
+                    vm.is_stringish(name)
+                        .then(|| Strategy::parse(vm.bytes_of(name)))
+                        .flatten()
+                        .ok_or("snapshot: a file strategy is \"refuse\", \"reopen\" or \"verify\"")?,
+                )
             };
-            let handle = arg(args, 0);
-            if handle == Value::NIL {
+            let path = arg(args, 0);
+            if path == Value::NIL {
                 vm.nfiles.snapshot.writable = strategy;
                 return Ok(Outs::new());
             }
-            let id = if handle.is_num() && handle.as_num() >= 0.0 && handle.as_num().fract() == 0.0 { handle.as_num() as u64 } else { u64::MAX };
-            let opened = vm.nfiles.snapshot.files.get_mut(&id).ok_or("snapshot: the file is closed")?;
-            opened.strategy = strategy;
+            if !vm.is_stringish(path) || vm.bytes_of(path).is_empty() {
+                return Err("snapshot: a file strategy names a path".into());
+            }
+            let path = canonical(&nupp_native_files::path_from_bytes(vm.bytes_of(path)).map_err(|e| e.to_string())?);
+            match strategy {
+                Some(strategy) => vm.nfiles.snapshot.rules.insert(path, strategy),
+                None => vm.nfiles.snapshot.rules.remove(&path),
+            };
             Ok(Outs::new())
+        }
+        "snapshot.discard" => {
+            let list = arg(args, 0);
+            if !is_table(vm, list) {
+                return Err("snapshot: staged resources must be a list".into());
+            }
+            let resources = resources_from(vm, arg(args, 1))?;
+            let staged: Vec<(Value, usize)> = (1..=vm.array_len(list))
+                .map(|i| {
+                    let object = vm.get_index(list, Value::num(i as f64));
+                    (object, vm.register(object))
+                })
+                .collect();
+            match discard(vm, &resources, &staged) {
+                Some(failures) => Err(failures),
+                None => Ok(Outs::new()),
+            }
         }
         "snapshot.durable" => {
             let bytes = durable(vm, arg(args, 0), arg(args, 1))?;

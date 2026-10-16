@@ -1,0 +1,15 @@
+-- The primitives nupp.snapshot is written over. Policies and resources are the
+-- tables nupp.snapshot validates and passes through unchanged.
+local record Host
+    save: function(value: any, policies: any, resources: any): string
+    prepare: function(bytes: string, shape: string?, policies: any, resources: any): (any, {any})
+    loadInto: function(bytes: string, target: any, policies: any, resources: any): (any, {any})
+    track: function(object: any, kind: string): nil
+    untrack: function(object: any): nil
+    fileStrategy: function(path: string?, strategy: string?): nil
+    durable: function(value: any, options: any): string
+    discard: function(staged: {any}, resources: any): nil
+    saveData: function(value: any): string
+    loadData: function(bytes: string): any
+end
+return Host

@@ -2845,3 +2845,129 @@ the suite budget; both predate this work. A VM image keeps answering a module
 name an earlier image declared after `package.loaded` forgets it
 (`package.imageLoader` reads every registration), which `declaredmoduletest`
 now sidesteps with a module of its own.
+
+## `nupp.snapshot` (2026-10-16)
+
+`require("nupp.snapshot")` is the public layer over the persistence mechanism
+above (snapshot plan step 2). `nupp.vm.persist` stays as the primitive layer it
+is written over, and existing callers keep working. The module is typed and
+documented in `lib/nupp/snapshot.nupp`; its primitives are `nupp.vm.snapshot`
+(`src/snapshot.rs`).
+
+```lua
+local snapshot = require("nupp.snapshot")
+local bytes = snapshot.save(world, {policies = policies, resources = resources})
+local prepared = snapshot.prepare(bytes, {policies = policies, resources = resources,
+    validate = function(candidate: any): nil assert(candidate.version == 3) end})
+local restored = prepared:publish()   -- or prepared:close() to discard it
+snapshot.loadInto(bytes, world, {policies = policies, resources = resources})
+local save = snapshot.durable(world, {application = "demo", version = 3,
+    policies = policies, path = "slot1.save"})
+local header = snapshot.inspect(save)  -- application, version, metadata, sections
+local loaded = snapshot.loadDurable(save, {application = "demo", version = 3, policies = policies})
+```
+
+**Restores are transactions.** Resources restore, then every `afterLoad` hook,
+then typed validation, then the caller's `validate`, all before publication. A
+failure at any of those points discards the resources staged so far (each
+registration's `discard`, newest first; every discard runs and failures are
+reported together with the original error). `prepare` returns an affine
+`Prepared` whose `close` discards and whose `publish` hands the value over.
+`loadInto` is all or nothing: the target's slots, array part, extra fields and
+metatable are saved before the load and put back, with barriers and payload
+accounting, when anything after the first write fails. Hooks that modify
+objects outside the restored graph are the hook's own business.
+
+**Application resources.** `snapshot.track(table, kind)` marks a table as an
+external resource of an application kind (`nupp.` kinds are reserved for the
+runtime). A save that reaches it uses that kind's registration from the
+operation's `resources` list: `capture(object)` returns a descriptor string,
+and `restore(placeholder, descriptor)` rebuilds the resource in the restored
+table. Capture needs a mutable VM, which `ResourceCodec::save` does not give,
+so a save with registrations first walks the graph with recording codecs and
+no hooks (transient fields still exclude), captures each reached resource,
+then saves for real with the descriptors and the hooks running once. A
+resource that only becomes reachable through a `beforeSave` hook is refused by
+name. Registrations are per operation, like policies; a save that reaches a
+tracked table with none names its kind.
+
+**Standard providers in whole-VM checkpoints.** `nfiles`, `nnet`, `nhttp` and
+`ncompression` keep handles in Rust side tables that Nupp values refer to by
+number, so before this a checkpoint silently saved dangling numbers. Now
+`save_vm` first registers a sentinel table per provider with open handles (a
+`vm.loaded` entry under `nupp.vm.snapshot:<kind>`, rooted through
+`registered`) as a resource, and installs standard codecs unless the caller
+supplied one of the same kind; `load_vm` installs the same codecs. A VM that
+never opened a handle checkpoints byte-identically to before.
+
+- `nupp.io.files.handles`: every open file with its canonical path, mode,
+  offset and handle number, restored under the same numbers with the counter
+  past them. Read-only files default to `"verify"`: the size and SHA-256 at
+  capture must match at restore (the digest is cached while size and mtime
+  hold). Writable files default to `"refuse"`, which fails the capture naming
+  the file. `snapshot.fileStrategy(path, "reopen" | "verify")` sets a rule by
+  canonical path for files open now or later, and
+  `snapshot.writableFileStrategy` the default. Rules are VM state: the codec
+  carries them even with no file open. Reopening uses
+  `OpenFile::reopen`, which never creates or truncates. A failure part way
+  drops the files reopened so far before any is published.
+- `nupp.net.handles`, `nupp.http.handles`, `nupp.compression.handles`: refused
+  with the open handles counted, for example "1 network listener open; sockets
+  cannot be restored into another VM". A caller-supplied codec of the kind is
+  the explicit strategy.
+- `io.open` handles, child processes and their streams, `io.popen` pipes,
+  temporary paths and foreign libraries, functions, pointers and callbacks:
+  refused with what to do instead, in checkpoints and graph saves alike.
+
+Graph saves also refuse an open `nupp.io.files` file record inside a value: its
+handle number names a file of this VM, and a copy would alias it.
+
+**Durable saves in a scratch VM.** `durable` graph-saves the value and its
+options (complete, no hooks, application resources as descriptors), builds a
+VM from the live VM's code recipe on its own thread (as a worker does, without
+running modules), loads the copy there with pass-through codecs that keep each
+descriptor without opening anything, then runs `select`, `metadata`,
+`sections` and the policies' `beforeSave` hooks on that copy and saves the
+result. The scratch VM is dropped afterwards, so a hook cannot change the
+running game. The output is a `saveData` envelope (format, format version,
+application, version, metadata, root graph, named section graphs) with the
+persistence framing's checksum and limits. Functions are refused, since they
+bind a save to one build. With `path`, the bytes are published through
+`writeAtomic` only after everything succeeded, so a failing hook leaves the
+previous save in place. `loadDurable`/`prepareDurable` refuse another
+application and a different version ("an explicit migration is required");
+migrations are step 5.
+
+Limits found along the way:
+
+- A hook running in the scratch VM, like a worker body, sees a module whose
+  functions are shape methods (an `export function` module) without its
+  methods, because the copy does not run module initializers. Such hooks and
+  bodies `require` the module again.
+- Application resources are per graph operation. Whole-VM checkpoints still take
+  resource codecs from the embedding host only: a Nupp registration cannot run
+  in the candidate VM before it is assembled.
+- `math.random` keeps its state in a thread-local, outside every checkpoint, so
+  a restored game draws a different sequence. Random streams are part of the
+  plan's acceptance and are not covered here.
+- Selective saves do not yet report excluded or unresolved dependencies, and
+  policies have no version or section descriptors of their own; the durable
+  envelope carries the version and sections.
+
+```sh
+CARGO_TARGET_DIR=build/rust/target cargo test --release -p nupp-vm --offline --test snapshot
+python3 native/crates/vm/tests/snapshot-smoke.py COMPILER_IMAGE
+```
+
+The Rust tests run under GC stress, oracle and quarantine: offsets after a
+fresh-VM restore, changed and missing assets, writable strategies (reopen
+without truncation, verify after further writes, the VM default, rules that
+survive with no file open), socket and `io.open` refusals, staged discard and
+in-place rollback, and the durable envelope. The smoke script compiles
+`tests/snapshot-project` and runs it on the Rust, threaded and JIT tiers under
+GC stress: graph policies with application resources, prepare/publish/close
+and validation, all-or-nothing `loadInto`, durable saves with scratch-only
+hooks, selection, metadata, sections and atomic publication, and supervised
+games whose open file is restored at its offset, whose changed file refuses the
+restore while the old game stays usable, whose writable file needs a strategy,
+and whose listening socket is refused.

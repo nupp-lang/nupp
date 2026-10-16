@@ -1,0 +1,381 @@
+module main
+
+local snapshot = require("nupp.snapshot")
+local persist = require("nupp.vm.persist")
+local vm = require("nupp.vm")
+local net = require("nupp.vm.net")
+local host = require("nupp.vm.files")
+local files = require("nupp.io.files")
+local main = {}
+
+local record Sound
+    name: string
+    volume: number
+    cache: any
+    self: any
+end
+
+local function refused(ok: boolean, problem: any, expected: string): nil
+    assert(not ok, "expected a failure mentioning " .. expected)
+    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+end
+
+--- @raises string when the call succeeds or fails without `expected`
+local function fails(expected: string, body: function(): nil): nil
+    local ok, problem = pcall(body)
+    refused(ok, problem, expected)
+end
+
+local function scratch(): string
+    return assert(host.createTemporary("", "nupp-snapshot-", "", true)) as string
+end
+
+-- Graph saves: policies, application resources, staged restores.
+local function graphs(): nil
+    local captured = 0
+    local restored = 0
+    local discarded = 0
+    local player = {}
+    snapshot.track(player, "demo.player")
+    local resources: {snapshot.Resource} = {
+        {
+            kind = "demo.player",
+            capture = function(object: any): string
+                captured = captured + 1
+                return "channel-7"
+            end,
+            restore = function(placeholder: any, descriptor: string): nil
+                restored = restored + 1
+                placeholder.channel = descriptor
+            end,
+            discard = function(object: any): nil
+                discarded = discarded + 1
+                object.channel = nil
+            end,
+        },
+    }
+    local sound = new Sound(name = "theme", volume = 3, cache = 1, self = player)
+    local policies: {snapshot.Policy} = {
+        {
+            shape = sound,
+            name = "demo.Sound.v1",
+            transient = {"cache"},
+            afterLoad = function(value: any): nil
+                assert(value.self.channel == "channel-7", "resources restore before hooks")
+                value.cache = value.volume * 2
+            end,
+        },
+    }
+    local options: snapshot.Options = {policies = policies, resources = resources}
+    local bytes = snapshot.save(sound, options)
+    assert(captured == 1)
+
+    -- prepare, inspect, publish
+    do
+        local prepared = snapshot.prepare(bytes, options)
+        local candidate = prepared:value()
+        assert(candidate ~= sound and candidate.cache == 6 and candidate.self.channel == "channel-7")
+        local published = prepared:publish()
+        assert(published == candidate)
+    end
+    assert(restored == 1 and discarded == 0)
+
+    -- closing an unpublished candidate discards its resources
+    do
+        local prepared = snapshot.prepare(bytes, options)
+        prepared:close()
+    end
+    assert(restored == 2 and discarded == 1)
+
+    -- validation runs before publication; failing it discards
+    fails("not loud enough", function(): nil
+        snapshot.load(bytes, {
+            policies = policies,
+            resources = resources,
+            validate = function(value: any): nil
+                if value.volume < 10 then
+                    error("not loud enough")
+                end
+            end,
+        })
+    end)
+    assert(restored == 3 and discarded == 2)
+
+    -- loadInto is all or nothing: a failing hook leaves the target untouched
+    local target = new Sound(name = "old", volume = 1, cache = 0, self = nil)
+    local broken: {snapshot.Policy} = {
+        {
+            shape = sound,
+            name = "demo.Sound.v1",
+            transient = {"cache"},
+            afterLoad = function(value: any): nil
+                error("hook failed")
+            end,
+        },
+    }
+    fails("hook failed", function(): nil
+        snapshot.loadInto(bytes, target, {policies = broken, resources = resources})
+    end)
+    assert(target.name == "old" and target.volume == 1 and target.self == nil)
+    assert(restored == 4 and discarded == 3)
+    assert(snapshot.loadInto(bytes, target, options) == target)
+    assert(target.name == "theme" and target.cache == 6 and (target as any).self.channel == "channel-7")
+
+    -- a tracked table needs its registration; an open file never saves
+    fails("demo.player", function(): nil
+        snapshot.save(sound)
+    end)
+    local directory = scratch()
+    local path = directory .. "/held.txt"
+    assert(host.write(path, "held"))
+    do
+        local file = assert(files.open(path, "r"))
+        -- Hold the record the way game state would, outside the affine owner.
+        local held: any = @unsafe nupp.release(file)
+        fails("open file", function(): nil
+            snapshot.save({file = held})
+        end)
+        host.fileClose(held._handle as integer)
+        held._closed = true
+        assert(#snapshot.save({file = held}) > 0)
+    end
+    snapshot.untrack(player)
+    assert(#snapshot.save(sound, {policies = policies}) > 0)
+    fails("reserved", function(): nil
+        snapshot.track({}, "nupp.mine")
+    end)
+    assert(host.remove(directory, true))
+end
+
+local record Save
+    level: integer
+    inventory: {string}
+    secret: string
+end
+
+local hookRuns = 0
+
+-- Durable saves: hooks run on a scratch copy, publication is atomic.
+local function durable(): nil
+    local directory = scratch()
+    local path = directory .. "/slot1.save"
+    local game = new Save(level = 4, inventory = {"sword", "map"}, secret = "debug")
+    local policies: {snapshot.Policy} = {
+        {
+            shape = game,
+            name = "demo.Save.v2",
+            beforeSave = function(value: any): nil
+                hookRuns = hookRuns + 1
+                value.secret = ""
+            end,
+        },
+    }
+    local options: snapshot.DurableOptions = {
+        application = "demo.game",
+        version = 2,
+        policies = policies,
+        metadata = function(value: any): any
+            return {level = value.level, items = #value.inventory}
+        end,
+        sections = function(value: any): {[string]: any}
+            return {inventory = value.inventory}
+        end,
+        path = path,
+    }
+    local bytes = snapshot.durable(game, options)
+    -- The hook ran in the scratch VM: neither the live value nor this VM's
+    -- module state changed.
+    assert(game.secret == "debug" and hookRuns == 0)
+    assert(host.read(path) == bytes)
+    local header = snapshot.inspect(bytes)
+    assert(header.application == "demo.game" and header.version == 2)
+    assert(header.metadata.level == 4 and header.metadata.items == 2)
+    assert(#header.sections == 1 and header.sections[1] == "inventory")
+    local loaded = snapshot.loadDurable(bytes, {application = "demo.game", version = 2, policies = policies}) as Save
+    assert(loaded ~= game and loaded.level == 4 and loaded.secret == "" and loaded.inventory[2] == "map")
+    local inventory = snapshot.section(bytes, "inventory", {application = "demo.game"})
+    assert(inventory[1] == "sword")
+    fails("belongs to demo.game", function(): nil
+        snapshot.loadDurable(bytes, {application = "other.game"})
+    end)
+    fails("explicit migration", function(): nil
+        snapshot.loadDurable(bytes, {application = "demo.game", version = 3})
+    end)
+
+    -- selection picks what is saved
+    local picked = snapshot.durable({game = game, scratch = "large"}, {
+        application = "demo.game",
+        version = 2,
+        select = function(value: any): any
+            return value.game
+        end,
+    })
+    assert((snapshot.loadDurable(picked, {application = "demo.game"}) as Save).level == 4)
+
+    -- a failing hook publishes nothing and leaves the previous save in place
+    fails("disk full", function(): nil
+        snapshot.durable(game, {
+            application = "demo.game",
+            version = 2,
+            metadata = function(value: any): any
+                error("disk full")
+            end,
+            path = path,
+        })
+    end)
+    assert(host.read(path) == bytes)
+    fails("functions", function(): nil
+        snapshot.durable({run = durable}, {application = "demo.game", version = 1})
+    end)
+    assert(host.remove(directory, true))
+end
+
+-- Computes for about 1,500 supervisor turns of 10,000 instructions each, so
+-- a capture after 300 turns lands here, with the body's resources held.
+local function busy(): number
+    local total = 0
+    for index = 1, 3000000 do
+        total = total + index % 7
+    end
+
+    return total
+end
+
+-- Game bodies run in their own VM, where a module whose functions are shape
+-- methods must be required again rather than captured.
+local function reader(path: string): string
+    local files = require("nupp.io.files")
+    local file = assert(files.open(path, "r"))
+    local first = assert(file:read(4)) as string
+    busy()
+    local second = assert(file:read(4)) as string
+    file:close()
+
+    return first .. second
+end
+
+local function writer(path: string, strategy: string): string
+    local files = require("nupp.io.files")
+    local snapshot = require("nupp.snapshot")
+    if strategy ~= "" then
+        snapshot.fileStrategy(path, strategy as snapshot.FileStrategy)
+    end
+    local file = assert(files.open(path, "w"))
+    assert(file:write("head"))
+    busy()
+    assert(file:write("tail"))
+    file:close()
+
+    return "written"
+end
+
+local function listener(): string
+    local handle = assert(net.listen("127.0.0.1", 0, 4, false))
+    busy()
+
+    return tostring(handle)
+end
+
+-- Whole-VM checkpoints of supervised games: open files restore, sockets refuse.
+local function checkpoints(): nil
+    local directory = scratch()
+    local path = directory .. "/level.dat"
+    assert(host.write(path, "abcdefgh"))
+    with game = vm.spawn(reader, path) do
+        local generation = game:generation()
+
+        local function turn(at: string, now: number): (string?, string?)
+            game:step(at, now)
+            while true do
+                const status, result = game:poll(at)
+                if status ~= nil then
+                    return status, result
+                end
+            end
+        end
+
+        local function finish(at: string): string
+            for index = 1, 10000 do
+                const status, result = turn(at, 20)
+                if status == "done" then
+                    return persist.load(result as string) as string
+                end
+                if status ~= "active" then
+                    error(tostring(status) .. ": " .. tostring(persist.load(result as string)))
+                end
+            end
+            error("the game did not finish")
+        end
+
+        -- Run until the reader is busy, holding the file at offset 4.
+        for index = 1, 300 do
+            turn(generation, 0)
+        end
+        const captured = game:capture()
+        assert(finish(generation) == "abcdefgh")
+        do
+            local candidate = game:prepareRestore(captured)
+            local next = game:replace(candidate)
+            generation = next
+        end
+        -- The restored VM reopened the file and reads on from offset 4.
+        assert(finish(generation) == "abcdefgh")
+        -- A changed asset refuses the restore, and the game stays usable.
+        assert(host.write(path, "abcdWXYZ"))
+        local ok, problem = pcall(function(): nil
+            with candidate = game:prepareRestore(captured) do
+            end
+        end)
+        refused(ok, problem, "contents changed")
+        assert(game:generation() == generation)
+    end
+
+    -- A writable file needs a strategy; "reopen" never truncates.
+    local journal = directory .. "/journal.txt"
+    for _, strategy in ipairs({"", "reopen"}) do
+        with game = vm.spawn(writer, journal, strategy) do
+            local generation = game:generation()
+            for index = 1, 300 do
+                game:step(generation, 0)
+                while game:poll(generation) == nil do
+                end
+            end
+            if strategy == "" then
+                local ok, problem = pcall(function(): nil
+                    game:capture()
+                end)
+                refused(ok, problem, "open for writing")
+            else
+                const captured = game:capture()
+                with candidate = game:prepareRestore(captured) do
+                end
+                assert(host.read(journal) == "head")
+            end
+        end
+    end
+
+    -- Sockets are refused with what is open.
+    with game = vm.spawn(listener) do
+        local generation = game:generation()
+        for index = 1, 300 do
+            game:step(generation, 0)
+            while game:poll(generation) == nil do
+            end
+        end
+        local ok, problem = pcall(function(): nil
+            game:capture()
+        end)
+        refused(ok, problem, "1 network listener")
+    end
+    assert(host.remove(directory, true))
+end
+
+function main.run(): number
+    graphs()
+    durable()
+    checkpoints()
+
+    return 42
+end
+
+export = main

@@ -1,0 +1,341 @@
+module nupp.snapshot
+
+--[[
+Saves and restores of value graphs, with the policies, resources and lifecycle
+a game's saves need.
+
+`save` writes the graph a value reaches: cycles, aliases, records by shape,
+closures by function identity. `load` reads one back with new identities, and
+`loadInto` replaces a record in place, keeping the identity everything else
+holds. Policies name a record's durable shape name, its transient fields, and
+`beforeSave` and `afterLoad` hooks. `saveData` and `loadData` hold plain data
+that survives changes to the program's declarations.
+
+A restore is a transaction. Resources are restored and every `afterLoad` hook
+and `validate` callback finishes before anything is published, and a failure
+discards the resources staged so far. `loadInto` either replaces its target or
+leaves it exactly as it was. `prepare` stops short of publication: the
+`Prepared` candidate can be inspected, then published or closed, and closing it
+discards its resources.
+
+External state is a resource. A table tracked under an application kind is
+saved through that kind's `capture` descriptor and rebuilt in the restored
+placeholder by `restore`; a save that reaches a tracked table with no
+registration names its kind. The standard providers take part in whole-VM
+checkpoints (`nupp.vm` game captures) on their own: files opened through
+`nupp.io.files` reopen at their saved offset. A read-only file is verified
+against the size and SHA-256 it had at capture. A writable file needs a
+strategy, because restoring it could repeat or lose writes: `"reopen"` takes
+the file as it is, `"verify"` refuses a restore after it changed, and the
+default `"refuse"` fails the capture naming the file. Reopening never
+truncates. Sockets, HTTP transfers, compression streams, child processes and
+foreign handles refuse with what is open, and a graph save refuses an open
+file inside a value.
+
+`durable` writes a save meant to outlive the build that made it. It copies the
+value into a scratch VM and runs selection, metadata, sections and the
+policies' `beforeSave` hooks there, so they cannot change the running game.
+The result is a plain-data envelope naming the application and version, and
+with a `path` it is published by an atomic rename only once everything has
+succeeded. A durable save refuses functions. Loading checks the application
+and version; migrating an older version is not yet supported and is refused.
+]]
+
+const host = require("nupp.vm.snapshot")
+const persist = require("nupp.vm.persist")
+const files = require("nupp.vm.files")
+
+--- Per-operation policy for one record shape: `shape` is a record value or its
+--- runtime shape name, `name` its durable name, `transient` the fields saved as
+--- nil. Hooks cannot suspend; `afterLoad` sees every reference relocated.
+export type Policy = persist.Policy
+
+--- How an application kind of resource is saved and rebuilt.
+---
+--- @field kind the stable name tracked tables carry; `nupp.` names are reserved
+--- @field capture returns the descriptor saved for a tracked table
+--- @field restore rebuilds the resource in the restored placeholder table
+--- @field discard releases a restored resource whose restore was abandoned
+export type Resource = {
+    kind: string,
+    capture: function(object: any): string,
+    restore: function(placeholder: any, descriptor: string): nil,
+    discard: (function(object: any): nil)?
+}
+
+--- What a save or restore applies.
+---
+--- @field policies per-shape policies
+--- @field resources registrations for the tracked tables a value reaches
+--- @field shape the runtime shape name the restored root must have
+--- @field validate checks the candidate before publication; raising aborts it
+export type Options = {
+    policies: {Policy}?,
+    resources: {Resource}?,
+    shape: string?,
+    validate: (function(value: any): nil)?
+}
+
+--- What a whole-VM checkpoint does with an open file.
+export type FileStrategy = "refuse" | "reopen" | "verify"
+
+--- A durable save's identity and the work done in its scratch VM.
+---
+--- @field application the application the save belongs to
+--- @field version the save's version of the application's data
+--- @field select returns the value actually saved, from the scratch copy
+--- @field metadata returns plain data readable without loading the save
+--- @field sections returns further named values, each loadable alone
+--- @field path a file to publish the save to atomically
+export type DurableOptions = {
+    application: string,
+    version: integer,
+    policies: {Policy}?,
+    resources: {Resource}?,
+    select: (function(value: any): any)?,
+    metadata: (function(value: any): any)?,
+    sections: (function(value: any): {[string]: any})?,
+    path: string?
+}
+
+--- What loading a durable save expects of it.
+export type DurableLoad = {
+    application: string,
+    version: integer?,
+    policies: {Policy}?,
+    resources: {Resource}?,
+    shape: string?,
+    validate: (function(value: any): nil)?
+}
+
+--- A durable save's envelope, read without loading its value.
+export type Header = {
+    application: string,
+    version: integer,
+    metadata: any,
+    sections: {string}
+}
+
+--- A restored value not yet published. Closing it discards the resources
+--- its restore staged; publishing hands the value over.
+export record Prepared is nupp.Closeable
+    @private _value: any
+    @private _staged: {any}
+    @private _resources: {Resource}?
+    @private _open: boolean
+
+    --- The unpublished candidate, for inspection before publication.
+    function value(borrows self): any
+        return self._value
+    end
+
+    --- Publishes the candidate and returns it; its resources stay live.
+    function publish(takes self): any
+        local state = @unsafe nupp.release(self)
+        state._open = false
+
+        return state._value
+    end
+
+    close: @nosuspend function(takes self: Prepared): nil
+end
+
+function Prepared.close(takes self: Prepared): nil
+    local state = @unsafe nupp.release(self)
+    if not state._open then
+        return
+    end
+    state._open = false
+    host.discard(state._staged, state._resources)
+end
+
+--- Saves the graph `value` reaches.
+--- @raises string when the graph holds a resource it cannot save, or a hook fails
+export function save(value: any, options: Options?): string
+    local policies = options ~= nil and options.policies or nil
+    local resources = options ~= nil and options.resources or nil
+
+    return host.save(value, policies, resources)
+end
+
+--- Restores a graph as an unpublished candidate: resources restored, hooks
+--- run and `validate` passed. Nothing is published until `publish`.
+--- @raises string when the snapshot is malformed, or a restore or check fails
+export function prepare(bytes: string, options: Options?): affine(Prepared)
+    local shape = options ~= nil and options.shape or nil
+    local policies = options ~= nil and options.policies or nil
+    local resources = options ~= nil and options.resources or nil
+    local value, staged = host.prepare(bytes, shape, policies, resources)
+    local validate = options ~= nil and options.validate or nil
+    if validate ~= nil then
+        local ok, problem = pcall(validate, value)
+        if not ok then
+            host.discard(staged, resources)
+            error("snapshot validate: " .. tostring(problem), 2)
+        end
+    end
+
+    return new Prepared(_value = value, _staged = staged, _resources = resources, _open = true)
+end
+
+--- Restores a graph and publishes it: `prepare` and `publish` in one step.
+--- @raises string when the snapshot is malformed, or a restore or check fails
+export function load(bytes: string, options: Options?): any
+    local prepared = prepare(bytes, options)
+
+    return prepared:publish()
+end
+
+--- Replaces `target`'s contents with the saved record's, keeping its identity.
+--- A failure leaves `target` as it was and discards staged resources.
+--- @raises string when the snapshot does not match the target, or a restore fails
+export function loadInto(bytes: string, target: any, options: Options?): any
+    local policies = options ~= nil and options.policies or nil
+    local resources = options ~= nil and options.resources or nil
+    local value = host.loadInto(bytes, target, policies, resources)
+
+    return value
+end
+
+--- Saves plain data: tables, strings, numbers and booleans, with aliases and
+--- cycles. It reads back without the program's declarations.
+--- @raises string when the value holds a record, function, metatable or resource
+export function saveData(value: any): string
+    return host.saveData(value)
+end
+
+--- Reads plain data written by `saveData`.
+--- @raises string when the bytes are malformed or are not plain data
+export function loadData(bytes: string): any
+    return host.loadData(bytes)
+end
+
+--- Tracks a table as a resource of an application `kind`, so saves capture it
+--- through that kind's registration instead of copying it.
+--- @raises string when the kind is reserved or the table is a runtime resource
+export function track(object: {[any]: any}, kind: string): nil
+    host.track(object, kind)
+end
+
+--- Stops tracking a table; it saves as an ordinary table again.
+--- @raises string when the table is a runtime resource
+export function untrack(object: {[any]: any}): nil
+    host.untrack(object)
+end
+
+--- Sets what whole-VM checkpoints do with `nupp.io.files` files open at
+--- `path`, now or later; nil removes the rule. The rule is VM state and is
+--- itself checkpointed.
+--- @raises string when the path is empty or the strategy is unknown
+export function fileStrategy(path: string, strategy: FileStrategy?): nil
+    host.fileStrategy(path, strategy)
+end
+
+--- Sets the strategy for writable files no path rule names; nil restores the
+--- default, `"refuse"`. Read-only files default to `"verify"`.
+--- @raises string when the strategy is unknown
+export function writableFileStrategy(strategy: FileStrategy?): nil
+    host.fileStrategy(nil, strategy)
+end
+
+--- Writes a durable save of `value`, prepared in a scratch VM, and publishes
+--- it to `options.path` when one is given.
+--- @raises string when a hook fails, the save holds functions, or the file cannot be
+---     written
+export function durable(value: any, options: DurableOptions): string
+    local bytes = host.durable(value, options)
+    local path = options.path
+    if path ~= nil then
+        local written, problem = files.writeAtomic(path, bytes)
+        if not written then
+            error("snapshot: publishing " .. path .. ": " .. tostring(problem), 2)
+        end
+    end
+
+    return bytes
+end
+
+--- @raises string when the bytes are not a durable save
+local function envelope(bytes: string): any
+    local found = host.loadData(bytes)
+    if type(found) ~= "table" or found.format ~= "nupp.snapshot.durable" then
+        error("snapshot: not a durable save", 3)
+    end
+    if found.formatVersion ~= 1 then
+        error("snapshot: unsupported durable save format " .. tostring(found.formatVersion), 3)
+    end
+
+    return found
+end
+
+--- Reads a durable save's envelope without loading its value.
+--- @raises string when the bytes are not a durable save
+export function inspect(bytes: string): Header
+    local found = envelope(bytes)
+    local names: {string} = {}
+    for name in pairs(found.sections) do
+        names[#names + 1] = name as string
+    end
+    table.sort(names)
+
+    return {
+        application = found.application as string,
+        version = found.version as integer,
+        metadata = found.metadata,
+        sections = names,
+    }
+end
+
+--- @raises string when the save belongs to another application or version
+local function checked(bytes: string, options: DurableLoad): any
+    local found = envelope(bytes)
+    if found.application ~= options.application then
+        error("snapshot: the save belongs to " .. tostring(found.application) .. ", not " .. options.application, 3)
+    end
+    if options.version ~= nil and found.version ~= options.version then
+        error(
+            "snapshot: the save is version " .. tostring(
+                found.version
+            ) .. " and this program reads version " .. tostring(
+                options.version
+            ) .. "; an explicit migration is required",
+            3
+        )
+    end
+
+    return found
+end
+
+--- Restores a durable save as an unpublished candidate, after checking its
+--- application and version.
+--- @raises string when the save belongs elsewhere, or its restore fails
+export function prepareDurable(bytes: string, options: DurableLoad): affine(Prepared)
+    local found = checked(bytes, options)
+
+    return prepare(found.root as string, {
+        policies = options.policies,
+        resources = options.resources,
+        shape = options.shape,
+        validate = options.validate,
+    })
+end
+
+--- Restores a durable save and publishes it.
+--- @raises string when the save belongs elsewhere, or its restore fails
+export function loadDurable(bytes: string, options: DurableLoad): any
+    local prepared = prepareDurable(bytes, options)
+
+    return prepared:publish()
+end
+
+--- Restores one named section of a durable save.
+--- @raises string when the save belongs elsewhere or has no such section
+export function section(bytes: string, name: string, options: DurableLoad): any
+    local found = checked(bytes, options)
+    local saved = found.sections[name]
+    if saved == nil then
+        error("snapshot: the save has no section " .. name, 2)
+    end
+
+    return load(saved as string, {policies = options.policies, resources = options.resources})
+end

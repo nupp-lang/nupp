@@ -141,7 +141,7 @@ fn writable_files_need_an_explicit_strategy_and_never_truncate() {
     assert!(error.contains("open for writing") && error.contains("journal.txt"), "{error}");
 
     // Reopen: whatever the file holds, at the saved offset, never truncated.
-    call(&mut vm, "snapshot.fileStrategy", &[Arg::N(handle), Arg::S("reopen")]);
+    call(&mut vm, "snapshot.fileStrategy", &[Arg::S(path.to_str().unwrap()), Arg::S("reopen")]);
     let bytes = checkpoint(&mut vm).unwrap();
     call(&mut vm, "nfiles.fileWrite", &[Arg::N(handle), Arg::S("second")]);
     let mut restored = restore(&bytes).unwrap();
@@ -152,7 +152,7 @@ fn writable_files_need_an_explicit_strategy_and_never_truncate() {
     checkpoint(&mut restored).unwrap();
 
     // Verify: a restore after further writes is refused.
-    call(&mut vm, "snapshot.fileStrategy", &[Arg::N(handle), Arg::S("verify")]);
+    call(&mut vm, "snapshot.fileStrategy", &[Arg::S(path.to_str().unwrap()), Arg::S("verify")]);
     let bytes = checkpoint(&mut vm).unwrap();
     restore(&bytes).unwrap();
     call(&mut vm, "nfiles.fileWrite", &[Arg::N(handle), Arg::S("more")]);
@@ -168,7 +168,7 @@ fn writable_files_need_an_explicit_strategy_and_never_truncate() {
     let mut restored = restore(&bytes).unwrap();
     call(&mut restored, "nfiles.fileWrite", &[Arg::N(appending), Arg::S("tail")]);
     assert_eq!(std::fs::read(&log).unwrap(), b"tail");
-    let (ok, out) = pcall(&mut vm, "snapshot.fileStrategy", &[Arg::N(handle), Arg::S("sometimes")]);
+    let (ok, out) = pcall(&mut vm, "snapshot.fileStrategy", &[Arg::S(path.to_str().unwrap()), Arg::S("sometimes")]);
     assert!(!ok && message(&vm, &out).contains("refuse"));
 }
 
@@ -183,6 +183,17 @@ fn closed_handles_retire_the_sentinel() {
     let restored = restore(&after).unwrap();
     assert!(restored.resources.values().all(|k| !k.starts_with("nupp.io.files")));
     assert!(!before.is_empty());
+
+    // A strategy is VM state even while no file it names is open.
+    let save = path.with_file_name("save.dat");
+    call(&mut vm, "snapshot.fileStrategy", &[Arg::S(save.to_str().unwrap()), Arg::S("reopen")]);
+    let bytes = checkpoint(&mut vm).unwrap();
+    let mut restored = restore(&bytes).unwrap();
+    open(&mut restored, &save, "w");
+    checkpoint(&mut restored).unwrap();
+    open(&mut vm, &save, "w");
+    call(&mut vm, "snapshot.fileStrategy", &[Arg::S(save.to_str().unwrap()), Arg::Nil]);
+    assert!(checkpoint(&mut vm).unwrap_err().contains("save.dat"));
 }
 
 #[test]
