@@ -2295,6 +2295,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     for (n, v) in loaded {
         vm.loaded.insert(n, get_root(&roots, v)?);
     }
+    vm.forget_loaded_lookups();
     vm.registered = get_roots(&roots, &registered)?;
     vm.loaded_table = get_root(&roots, loaded_table)?;
     vm.extra_n = extra.len();

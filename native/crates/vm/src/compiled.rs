@@ -102,8 +102,11 @@ pub extern "C" fn nupp_vm_runtime_v4() -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn j_field_caches(fid: u64, count: u64) -> u64 {
     let it = ctx();
-    let bank = it.field_caches.entry(fid as u32)
-        .or_insert_with(|| vec![[0; 2]; count as usize].into_boxed_slice());
+    // Indexed by function id: this runs on every compiled entry, including each
+    // resume after a call, so it must not hash.
+    let fid = fid as usize;
+    if it.field_caches.len() <= fid { it.field_caches.resize_with(fid + 1, || None); }
+    let bank = it.field_caches[fid].get_or_insert_with(|| vec![[0; 2]; count as usize].into_boxed_slice());
     assert_eq!(bank.len(), count as usize);
     bank.as_mut_ptr() as u64
 }
@@ -120,7 +123,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_ibox", j_ibox as *const u8, 1), ("j_ubox", j_ubox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
-        ("j_frame_step", j_frame_step as *const u8, 1),
+        ("j_frame_step", j_frame_step as *const u8, 1), ("j_frame_call", j_frame_call as *const u8, 1), ("j_frame_ret", j_frame_ret as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len_value", j_len_value as *const u8, 1), ("j_len_number", j_len_number as *const u8, 1),
         ("j_len", j_len as *const u8, 1), ("j_get_index", j_get_index as *const u8, 2), ("j_new_record", j_new_record as *const u8, 1), ("j_new_table", j_new_table as *const u8, 0),
@@ -150,12 +153,77 @@ pub extern "C" fn j_frame_poll() -> u64 {
 
 // A frame operation that completes immediately stays in the native entry.
 // Transfers are handed to the driver only after the native activation returns.
+/// How many calls deep compiled frames run nested in native code before the
+/// outermost driver takes over again. Each level holds a compiled activation
+/// and the helper's own frames on the native stack.
+const NESTED_CALL_LIMIT: usize = 96;
+
+/// The calls whose callee may run nested: ordinary calls only, so a protected
+/// call, a module load or a cleanup keeps the outermost driver's handling.
+fn nested_call(op: &crate::interp::Op) -> bool {
+    use crate::interp::Op;
+    matches!(op, Op::Call(..) | Op::CallT(..) | Op::CallDyn(..) | Op::CallK(..) | Op::CallMethod(..))
+}
+
+/// The top frame's header address, which a stack that grew has moved.
+fn frame_address(it: &mut Interp, tid: usize) -> u64 {
+    let t = &mut it.tasks[tid];
+    let cur = t.cur();
+    unsafe { t.stack.as_mut_ptr().add(cur) as u64 }
+}
+
+/// `NO_NESTED=1` returns every call to the outermost driver, as before nesting.
+fn nesting_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("NO_NESTED").is_none())
+}
+
+/// A call boundary in a compiled frame: the ordinary call to a compiled
+/// callee without the general step (`Interp::frame_call_fast`); the same
+/// answers as `j_frame_step`, which takes every other case.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_call(pc: u64) -> u64 {
+    let it = ctx();
+    if it.instruction_budget.is_some() || it.nested_calls >= NESTED_CALL_LIMIT || !nesting_enabled() { return j_frame_step(pc); }
+    let depth = std::mem::replace(&mut it.native_frame_depth, 0);
+    let nested = it.nested_calls;
+    let status = it.guarded(|it| {
+        let tid = it.native_task;
+        it.nested_calls += 1;
+        match it.frame_call_fast(tid, pc as usize) {
+            None => V(u64::MAX - 1),
+            Some(Ok(true)) => V(frame_address(it, tid)),
+            Some(Ok(false)) => V::ERROR,
+            Some(Err(exit)) => { it.native_exit = Some(exit); V(1) }
+        }
+    }).0;
+    it.nested_calls = nested;
+    it.native_frame_depth = depth;
+    if status == u64::MAX - 1 { return j_frame_step(pc); }
+    status
+}
+
+/// A return boundary in a compiled frame: the frame popped directly when it
+/// has nothing to clean up (`Interp::frame_ret_fast`), else `j_frame_step`.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_ret(pc: u64) -> u64 {
+    let it = ctx();
+    if it.instruction_budget.is_some() { return j_frame_step(pc); }
+    let tid = it.native_task;
+    if it.frame_ret_fast(tid, pc as usize) {
+        it.native_exit = Some(crate::interp::Step::Reenter);
+        return 1;
+    }
+    j_frame_step(pc)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn j_frame_step(pc: u64) -> u64 {
     let it = ctx();
     // A boundary operation steps interpreted, its frame's pc and registers
     // current, so positions and operand names are exact while it runs.
     let depth = std::mem::replace(&mut it.native_frame_depth, 0);
+    let nested = it.nested_calls;
     let status = it.guarded(|it| {
         let tid = it.native_task;
         let pc = pc as usize;
@@ -168,12 +236,34 @@ pub extern "C" fn j_frame_step(pc: u64) -> u64 {
             *left -= 1;
         }
         let (win, _) = it.window(tid);
+        let caller = it.tasks[tid].cur();
+        let op = unsafe { *win.code.add(pc) };
         it.tasks[tid].note_pc(pc + 1);
         match it.step(tid, &win, pc) {
-            crate::interp::Step::Next(next) => { assert_eq!(next, pc + 1); V(0) }
+            crate::interp::Step::Next(next) => { assert_eq!(next, pc + 1); V(frame_address(it, tid)) }
+            // A call that pushed a frame: run the callee from here, so the
+            // caller continues in native code when it returns instead of
+            // leaving for the driver and re-entering through its resume
+            // dispatch. Past the nesting limit every native activation
+            // returns, and the outermost driver resumes the frames flat.
+            crate::interp::Step::Reenter if nested_call(&op) && it.tasks[tid].cur() > caller && nesting_enabled() => {
+                if it.nested_calls >= NESTED_CALL_LIMIT {
+                    it.unwind_nested = true;
+                    it.native_exit = Some(crate::interp::Step::Reenter);
+                    return V(1);
+                }
+                it.nested_calls += 1;
+                match it.run_callee(tid, caller) {
+                    Ok(true) => V(frame_address(it, tid)),
+                    // A raise: its value is pending and the sentinel goes up.
+                    Ok(false) => V::ERROR,
+                    Err(exit) => { it.native_exit = Some(exit); V(1) }
+                }
+            }
             exit => { it.native_exit = Some(exit); V(1) }
         }
     }).0;
+    it.nested_calls = nested;
     it.native_frame_depth = depth;
     status
 }
@@ -520,8 +610,8 @@ fn j_set_field_impl(t: u64, name: u64, v: u64) -> u64 { let _hp = enter_helper!(
 fn j_new_cell_impl(v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let scope = it.open_scope(); it.handles.push(V(v)); let c = it.new_cell(V(v)); it.close_scope(scope); leave_helper!(_hp); c.0 }
 fn j_set_cell_impl(c: u64, v: u64) -> u64 { ctx().set_cell(V(c), V(v)); 0 }
 fn j_new_closure_impl(fid: u64, argv: *const u64, n: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let caps: Vec<V> = (0..n as usize).map(|i| V(unsafe { *argv.add(i) })).collect(); let scope = it.open_scope(); for &c in &caps { it.handles.push(c); } let v = it.new_closure(fid as u32, &caps); it.close_scope(scope); leave_helper!(_hp); v.0 }
-fn j_slot_get_impl(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); let v = V(o); if let Some(p) = v.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.flags & crate::heap::F_METATABLE == 0 && h.shape() == shape as u32 { return h.slots()[slot as usize].0; } } it.slot_get_slow(v, shape as u32, slot as u16).0 }
-fn j_slot_set_impl(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); let ov = V(o); if let Some(p) = ov.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.flags & crate::heap::F_METATABLE == 0 && h.shape() == shape as u32 { it.set_slot(ov, slot as usize, V(v)); return 0; } } it.slot_set_slow(ov, shape as u32, slot as u16, V(v)); 0 }
+fn j_slot_get_impl(o: u64, shape: u64, slot: u64) -> u64 { let it = ctx(); let v = V(o); if let Some(p) = v.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.shape() == shape as u32 && (h.flags & crate::heap::F_METATABLE == 0 || h.slots()[slot as usize] != V::NIL) { return h.slots()[slot as usize].0; } } it.slot_get_slow(v, shape as u32, slot as u16).0 }
+fn j_slot_set_impl(o: u64, shape: u64, slot: u64, v: u64) -> u64 { let it = ctx(); let ov = V(o); if let Some(p) = ov.as_obj() { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_RECORD && h.shape() == shape as u32 && (h.flags & crate::heap::F_METATABLE == 0 || (h.slots()[slot as usize] != V::NIL && h.flags & crate::heap::F_STORAGE_SCHEMA == 0)) { it.set_slot(ov, slot as usize, V(v)); return 0; } } it.slot_set_slow(ov, shape as u32, slot as u16, V(v)); 0 }
 fn j_tagcheck_rec_impl(v: u64, shape: u64) -> u64 { ctx().tagcheck_rec(V(v), shape as u32); 0 }
 fn j_tagcheck_str_impl(v: u64) -> u64 { let it = ctx(); if !it.is_stringish(V(v)) { it.err("value is not a string") } 0 }
 /// Results past the first of a compiled return: `n` plain values from

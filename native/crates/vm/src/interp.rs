@@ -498,6 +498,13 @@ pub struct Interp {
     pub jit: Option<Box<crate::jit::Jit>>,
     #[cfg(feature = "compiled-runtime")]
     pub frame_entries: Vec<u64>,
+    /// Entries (or interpreted steps) a function takes before its heap-frame
+    /// entry is compiled on demand; 0 compiles at the first. Cold code runs
+    /// interpreted rather than paying Cranelift for a single pass.
+    #[cfg(feature = "compiled-runtime")]
+    pub frame_threshold: u32,
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) frame_heat: Vec<u32>,
     pub(crate) frame_mode: bool,
     pub(crate) frame_required: bool,
     /// Value registers live across each pc (live-in and live-out), by
@@ -511,6 +518,16 @@ pub struct Interp {
     /// registers are current only at boundary operations, which step with
     /// this lowered again.
     pub(crate) native_frame_depth: usize,
+    /// Calls a compiled frame is running natively inside a boundary helper
+    /// (`drive_until`): each holds a native activation below the callee.
+    pub(crate) nested_calls: usize,
+    /// Set when nesting reached its limit: every nested driver returns to the
+    /// outermost one, which resumes the frames flat and clears it.
+    pub(crate) unwind_nested: bool,
+    /// `nupp.vm.unwinds`, once looked up (`unwind_state`); registered there.
+    pub(crate) unwinds: Value,
+    /// The string metatable (`STRING_META`), once looked up; registered there.
+    pub(crate) string_meta: Value,
     pub worker_compiled_entries: u64,
     pub worker_compile_micros: u128,
     pub(crate) supervised: crate::supervision::Registry,
@@ -518,7 +535,7 @@ pub struct Interp {
     pub runtime_consts: Vec<u64>,
     // Transient native bindings and field caches belong to this VM, not code.
     pub(crate) runtime_addresses: [u64; 7],
-    pub(crate) field_caches: std::collections::HashMap<u32, Box<[[u64; 2]]>>,
+    pub(crate) field_caches: Vec<Option<Box<[[u64; 2]]>>>,
     pub lazy_compiled: usize,
     pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
@@ -548,6 +565,14 @@ pub struct Interp {
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String>, foreign: &'a crate::foreign::State }
 impl Roots for TaskRoots<'_> {
     fn each_root(&self, f: &mut dyn FnMut(Value)) {
+        self.walk(f, true);
+    }
+    fn each_mutable_root(&self, f: &mut dyn FnMut(Value)) {
+        self.walk(f, false);
+    }
+}
+impl TaskRoots<'_> {
+    fn walk(&self, f: &mut dyn FnMut(Value), constants: bool) {
         for t in self.tasks {
             f(t.error);
             for c in &t.cleanups { f(c.value); f(c.callback); }
@@ -571,7 +596,7 @@ impl Roots for TaskRoots<'_> {
             f(t.result);
             for &v in &t.results { f(v); }
         }
-        for fun in self.funcs { for &k in &fun.consts { f(k); } }
+        if constants { for fun in self.funcs { for &k in &fun.consts { f(k); } } }
         for &v in self.handles { f(v); }
         for &v in self.resources.keys() { f(v); }
         self.foreign.trace(f);
@@ -609,7 +634,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, #[cfg(feature = "jit")] spec: Default::default() } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, nested_calls: 0, unwind_nested: false, unwinds: Value::NIL, string_meta: Value::NIL, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_threshold: 0, #[cfg(feature = "compiled-runtime")] frame_heat: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, #[cfg(feature = "jit")] spec: Default::default() } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -823,6 +848,28 @@ impl Interp {
     /// Pops the frame delivering `n` values from the callee's window at `from`
     /// (absolute) into the caller's result slots; true when the task finished.
     fn pop_frame_n(&mut self, tid: usize, from: usize, n: u8) -> bool {
+        // No cleanup to run and a caller to deliver to: the values go straight
+        // from the callee's window to the caller's result slots, below it.
+        {
+            let t = &self.tasks[tid];
+            let s = t.cur;
+            let h1 = t.stack[s + 1];
+            let caller = (h1 & 0xffff_ffff) as u32;
+            if n < 128 && caller != NONE && self.cleanups_below(tid, s) == t.cleanups.len() {
+                let n = n as usize;
+                let ret = (h1 >> 32) as usize;
+                let extra = n.saturating_sub(1).min(MAX_RESULTS - 1);
+                for i in 0..extra { self.extra[i] = Value(t.stack[from + 1 + i]); }
+                self.extra_n = if n > 8 { extra } else { 0 };
+                let t = &mut self.tasks[tid];
+                for i in 0..n.min(8) { t.stack[ret + i] = t.stack[from + i]; }
+                if n == 0 { t.stack[ret] = Value::NIL.0; }
+                t.cur = caller as usize;
+                self.last_nres = n.min(MAX_RESULTS);
+                self.finish_protected(tid, s);
+                return false;
+            }
+        }
         let vals = if n >= 128 {
             self.result_pack((n & 127) as usize, |i| Value(self.tasks[tid].stack[from + i]))
         } else { (0..n as usize).map(|i| Value(self.tasks[tid].stack[from + i])).collect() };
@@ -846,6 +893,65 @@ impl Interp {
         self.last_nres = n.min(MAX_RESULTS);
         self.finish_protected(tid, s);
         false
+    }
+    /// A compiled frame's ordinary call, without decoding a step: a function
+    /// or closure with a value-only signature, no varargs and exactly the
+    /// arguments it declares, whose heap-frame entry is compiled. The frame is
+    /// pushed and the callee run from here (`run_callee`). None when the call
+    /// is anything else, for the general boundary step to take.
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) fn frame_call_fast(&mut self, tid: usize, pc: usize) -> Option<Result<bool, Step>> {
+        let s = self.tasks[tid].cur;
+        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as usize;
+        let (fr, b, nargs) = match self.funcs[fid].code[pc] { Op::CallDyn(fr, b, n) | Op::CallK(_, fr, b, n, _) => (fr, b, n), _ => return None };
+        if nargs >= 64 { return None; }
+        let base = s + HDR;
+        let callee = Value(self.tasks[tid].stack[base + fr as usize]);
+        let (cf, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
+            let p = callee.as_obj()?;
+            let h = unsafe { p.as_ref() };
+            if h.kind != KIND_CLOSURE { return None; }
+            (h.fid(), callee)
+        };
+        if cf == self.unavailable_fid { return None; }
+        let f = self.funcs.get(cf as usize)?;
+        if f.vararg || f.nparams != nargs || f.sig.iter().any(|&c| c != b'v') { return None; }
+        let entry = self.frame_entries.get(cf as usize).copied().unwrap_or(0);
+        if entry == 0 || entry == u64::MAX { return None; }
+        self.tasks[tid].note_pc(pc + 1);
+        self.push_frame(tid, cf, base + b as usize, nargs, pc + 1);
+        let t = &mut self.tasks[tid];
+        let ns = t.cur;
+        t.stack[ns + 2] = closure.0;
+        Some(self.run_callee(tid, s))
+    }
+    /// A compiled frame's return with nothing to clean up, to a caller: the
+    /// frame popped without decoding a step. False when the general step
+    /// must take it.
+    pub(crate) fn frame_ret_fast(&mut self, tid: usize, pc: usize) -> bool {
+        let t = &self.tasks[tid];
+        let s = t.cur;
+        if (t.stack[s + 1] & 0xffff_ffff) as u32 == NONE || self.cleanups_below(tid, s) != t.cleanups.len() { return false; }
+        if self.scheduler.as_ref().is_some_and(|sc| sc.controls.contains_key(&tid)) && self.unwind_state(tid) != Value::NIL { return false; }
+        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as usize;
+        let base = s + HDR;
+        match self.funcs[fid].code[pc] {
+            Op::Ret(r) => { let v = Value(self.tasks[tid].stack[base + r as usize]); self.pop_frame(tid, v); }
+            Op::RetNil => { self.pop_frame_n(tid, base, 0); }
+            Op::RetN(start, n) if n < 128 => { self.pop_frame_n(tid, base + start as usize, n); }
+            _ => return false,
+        }
+        true
+    }
+    /// How many of the task's cleanups belong to frames below `frame`. Only
+    /// the top frame registers cleanups, so they are ordered by frame and
+    /// the count is found from the end, in the frame's own cleanups.
+    #[inline]
+    pub(crate) fn cleanups_below(&self, tid: usize, frame: usize) -> usize {
+        let c = &self.tasks[tid].cleanups;
+        let mut k = c.len();
+        while k > 0 && c[k - 1].frame >= frame { k -= 1; }
+        k
     }
     fn finish_protected(&mut self, tid: usize, frame: usize) {
         if self.tasks[tid].protected.last().is_some_and(|h| h.frame == frame) {
@@ -1230,7 +1336,7 @@ impl Interp {
         // `nupp.runtime.workersprovider` reads before it falls back to native
         // lanes, which on the VM are `nupp.runtime.provider.workers`'s own.
         let bridge = self.new_table(); self.registered.push(bridge); self.loaded.insert("nupp.workers.native".into(), bridge);
-        let unwinds = self.new_table(); self.registered.push(unwinds); self.loaded.insert("nupp.vm.unwinds".into(), unwinds);
+        let unwinds = self.new_table(); self.registered.push(unwinds); self.loaded.insert("nupp.vm.unwinds".into(), unwinds); self.unwinds = unwinds;
         let cancelled = self.new_table(); self.registered.push(cancelled);
         self.loaded.insert("nupp.vm.cancellation".into(), cancelled);
         let persistence = self.new_table(); self.registered.push(persistence);
@@ -1263,6 +1369,7 @@ impl Interp {
         let meta = self.new_table(); self.registered.push(meta);
         let k = self.intern("__index"); self.set_index(meta, k, string);
         self.loaded.insert(STRING_META.into(), meta);
+        self.string_meta = meta;
         for name in ["xpcall", "collectgarbage", "pairs", "ipairs", "next", "type", "tostring", "tonumber", "error", "assert", "select", "print", "pcall", "require", "loadstring", "unpack", "rawequal", "rawget", "rawset", "setmetatable", "getmetatable"] { let k = self.intern(name); let id = crate::builtins::id_of(name).unwrap(); self.set_index(g, k, Value::builtin(id)); }
         let crypto = self.new_table(); self.registered.push(crypto);
         let key = self.intern("randomBytes"); self.set_index(crypto, key, Value::builtin(crate::builtins::id_of("crypto.randomBytes").unwrap()));
@@ -1542,7 +1649,10 @@ impl Interp {
     /// present slot raw: `__index` and `__newindex` ask only about absent keys.
     pub fn slot_get_slow(&mut self, o: Value, shape: u32, slot: u16) -> Value {
         if let Some(v) = self.present_slot(o, shape, slot) { return v; }
-        let name = self.heap.shapes[shape as usize].names[slot as usize]; self.index(o, name)
+        let name = self.heap.shapes[shape as usize].names[slot as usize];
+        // Another record (a union member, say) answers by name directly.
+        if let Some(v) = self.record_field(o, name) { return v; }
+        self.index(o, name)
     }
     pub fn slot_set_slow(&mut self, o: Value, shape: u32, slot: u16, v: Value) {
         if self.present_slot(o, shape, slot).is_some() && o.as_obj().is_some_and(|p| unsafe { p.as_ref().flags } & heap::F_STORAGE_SCHEMA == 0) { self.set_slot(o, slot as usize, v); return; }
@@ -1586,7 +1696,29 @@ impl Interp {
     /// A field read by name as `GetField` answers it: a string's fields are the
     /// string library's and a reducer's are its methods, so `s.sub` reads the
     /// method `s:sub` calls.
+    /// A named read of a record with no metatable of its own, settled without
+    /// the general `index` walk when it can be: a slot, the overflow part (an
+    /// inherited optional member lives there), a method, or nil when the
+    /// record's declaration has no `__index`. None when only `index` can say.
+    #[inline]
+    pub(crate) fn record_field(&mut self, t: Value, name: Value) -> Option<Value> {
+        if name.is_num() { return None; }
+        let p = t.as_obj()?;
+        let h = unsafe { &*p.as_ptr() };
+        if h.kind != KIND_RECORD || h.flags & heap::F_METATABLE != 0 { return None; }
+        let shape = h.shape();
+        let sh = &self.heap.shapes[shape as usize];
+        let v = match sh.slot_of(name) {
+            Some(i) => h.slots()[i],
+            None => h.record_extra_ref().as_ref().and_then(|m| m.get(&name).copied()).unwrap_or(Value::NIL),
+        };
+        if v != Value::NIL { return Some(v); }
+        if let Some(&method) = sh.methods.get(&name) { return Some(method); }
+        if !self.mm_possible(crate::metamethods::MM::Index) || self.shape_mm(shape) & crate::metamethods::MM::Index.bit() == 0 { return Some(Value::NIL); }
+        None
+    }
     pub(crate) fn field(&mut self, t: Value, name: Value) -> Value {
+        if let Some(v) = self.record_field(t, name) { return v; }
         if self.is_stringish(t) { return self.string_field(t, name); }
         if let Some(method) = crate::simd_reduce::method(self, t, name) { return method; }
         self.index(t, name)
@@ -1594,8 +1726,12 @@ impl Interp {
     /// A field of a string: what the string metatable's `__index` answers,
     /// the string library as installed, or whatever a program put there.
     pub(crate) fn string_field(&mut self, s: Value, name: Value) -> Value {
-        let Some(&meta) = self.loaded.get(STRING_META) else { return Value::NIL };
-        let Some(key) = self.heap.interned_key("__index") else { return Value::NIL };
+        if self.string_meta == Value::NIL {
+            let Some(&meta) = self.loaded.get(STRING_META) else { return Value::NIL };
+            self.string_meta = meta;
+        }
+        let meta = self.string_meta;
+        let key = self.mm_key(crate::metamethods::MM::Index);
         let index = self.get_index(meta, key);
         match self.kind_of(index) {
             Some(KIND_TABLE | KIND_RECORD) => self.index(index, name),
@@ -1731,6 +1867,21 @@ impl Interp {
                 let sh = &self.heap.shapes[h.shape() as usize];
                 if let Some(i) = sh.slot_of(name) {
                     if !self.slot_type_ok(sh.types[i], v) { self.err(&format!("value does not match the declared type of field {} of {}", String::from_utf8_lossy(self.bytes_of(name)), sh.name)) }
+                    self.set_slot(tv, i, v);
+                    return;
+                }
+                // A member kept in the overflow part (an inherited optional
+                // one), by an interned name: the raw write, without the general
+                // path's key normalization.
+                if h.flags & heap::F_STORAGE_SCHEMA == 0 && name.as_obj().is_some_and(|n| unsafe { n.as_ref().kind } == KIND_STR) {
+                    self.heap.barrier(p, name);
+                    self.heap.barrier(p, v);
+                    let h = unsafe { &mut *p.as_ptr() };
+                    let before = h.external_bytes();
+                    if v == Value::NIL { if let Some(extra) = h.record_extra() { extra.insert(name, v); } }
+                    else { h.record_extra().get_or_insert_with(Default::default).insert(name, v); }
+                    self.heap.account_resize(before, h.external_bytes());
+                    return;
                 }
             }
             _ => self.op_error(OpErr::Index, tv),
@@ -1762,6 +1913,11 @@ impl Interp {
     pub fn iter_pattern(&self, it: Value) -> Value { hdr!(self, it, "not an iterator").iter().pattern }
     pub fn iter_advance(&self, it: Value) { hdr!(self, it, "not an iterator").iter().pos += 1; }
     pub fn iter_set_pos(&self, it: Value, at: usize) { hdr!(self, it, "not an iterator").iter().pos = at; }
+    /// Drops the values kept from `loaded` by name (the unwind table, the
+    /// string metatable), for a restore that replaced its entries.
+    pub(crate) fn forget_loaded_lookups(&mut self) { self.unwinds = Value::NIL; self.string_meta = Value::NIL; }
+    /// The last key a `pairs` iterator returned, kept in its pattern word.
+    pub fn set_iter_last(&mut self, it: Value, key: Value) { let p = it.as_obj().unwrap(); self.heap.barrier(p, key); hdr!(self, it, "not an iterator").iter().pattern = key; }
     /// Lua's substring clamping: 1-based inclusive, out-of-range ends clamp, an empty range is empty.
     pub fn sub_bytes(&self, v: Value, i: i64, j: i64) -> &[u8] {
         let b = self.bytes_of(v);
@@ -2055,6 +2211,13 @@ impl Interp {
         false
     }
     pub fn run_rust(&mut self, tid: usize) -> Outcome {
+        // A driver nested in a callback starts its own nesting budget.
+        let nested = std::mem::replace(&mut self.nested_calls, 0);
+        let outcome = self.run_rust_outer(tid);
+        self.nested_calls = nested;
+        outcome
+    }
+    fn run_rust_outer(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
@@ -2068,7 +2231,7 @@ impl Interp {
             if self.compiled_frames_active() {
                 match self.run_compiled_frame(tid, win.fid, pc) {
                     Ok(next) => pc = next,
-                    Err(Step::Reenter) => continue,
+                    Err(Step::Reenter) => { self.unwind_nested = false; continue }
                     Err(Step::Return(outcome)) => return outcome,
                     Err(Step::Next(_)) => unreachable!(),
                 }
@@ -2090,6 +2253,42 @@ impl Interp {
                     Step::Next(next) => { pc = next; if self.compiled_frames_active() { self.tasks[tid].note_pc(pc); break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return o,
+                }
+            }
+        }
+    }
+    /// Runs the task's frames above `stop` until the frame at `stop` is on top
+    /// again, the way `run_rust` runs them: a compiled caller's call that
+    /// completes without leaving native code. Anything only the outermost
+    /// driver may continue (a park, the end of the task, the nesting limit)
+    /// is answered as the step to hand it; every frame's pc and registers are
+    /// current in the heap frames by then, so it resumes them flat.
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) fn drive_until(&mut self, tid: usize, stop: usize) -> Result<(), Step> {
+        let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
+        loop {
+            if self.tasks[tid].cur == stop { return Ok(()); }
+            let (mut win, mut pc) = self.window(tid);
+            match self.run_compiled_frame(tid, win.fid, pc) {
+                Ok(next) => pc = next,
+                Err(Step::Reenter) => { if self.unwind_nested { return Err(Step::Reenter); } continue }
+                Err(exit) => return Err(exit),
+            }
+            win = self.window(tid).0;
+            loop {
+                if let Some(left) = self.execution_limit.as_mut() {
+                    if *left == 0 { self.err("source chunk instruction limit exceeded"); }
+                    *left -= 1;
+                }
+                if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
+                    if *left == 0 { self.tasks[tid].note_pc(pc); return Err(Step::Return(Outcome::Parked(0))); }
+                    *left -= 1;
+                } }
+                self.tasks[tid].note_pc(pc + 1);
+                match self.step(tid, &win, pc) {
+                    Step::Next(next) => { pc = next; self.tasks[tid].note_pc(pc); break; },
+                    Step::Reenter => break,
+                    Step::Return(o) => return Err(Step::Return(o)),
                 }
             }
         }
@@ -2127,8 +2326,8 @@ impl Interp {
         macro_rules! vr { ($i:expr) => { (*unsafe { &mut *vregs.add($i as usize) }) } }
         let op = unsafe { *code.add(pc) };
         let cleanup_keep = match op {
-            Op::Ret(..) | Op::RetN(..) | Op::RetNil | Op::FRet(..) => Some(self.tasks[tid].cleanups.iter().take_while(|c| c.frame < self.tasks[tid].cur).count()),
-            Op::Unwind(n) => Some(self.tasks[tid].cleanups.iter().take_while(|c| c.frame < self.tasks[tid].cur).count() + n as usize),
+            Op::Ret(..) | Op::RetN(..) | Op::RetNil | Op::FRet(..) => Some(self.cleanups_below(tid, self.tasks[tid].cur)),
+            Op::Unwind(n) => Some(self.cleanups_below(tid, self.tasks[tid].cur) + n as usize),
             _ => None,
         };
         if let Some(keep) = cleanup_keep {
@@ -2200,9 +2399,9 @@ impl Interp {
                     Op::NewTable(d) => { let v = self.new_table(); r!(d) = v; }
                     Op::NewTableN(d, n, m) => { let v = self.new_table_sized(n as usize, m as usize); r!(d) = v; }
                     Op::NewRecord(d, shape) => { let v = self.new_record(shape); r!(d) = v; }
-                    Op::GetSlot(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; r!(d) = h.slots()[i as usize]; } else { let v = self.slot_get_slow(r!(t), sh, i); r!(d) = v; } }
-                    Op::SetSlot(t, i, s, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let v = r!(s); let tv = r!(t); let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
-                    Op::GetSlotF(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); let v = if let Some(p) = exact { unsafe { (&*p.as_ptr()).slots()[i as usize] } } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
+                    Op::GetSlot(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || h.slots()[i as usize] != Value::NIL) }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; r!(d) = h.slots()[i as usize]; } else { let v = self.slot_get_slow(r!(t), sh, i); r!(d) = v; } }
+                    Op::SetSlot(t, i, s, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let v = r!(s); let tv = r!(t); let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || (h.slots()[i as usize] != Value::NIL && h.flags & heap::F_STORAGE_SCHEMA == 0)) }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
+                    Op::GetSlotF(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || h.slots()[i as usize] != Value::NIL) }); let v = if let Some(p) = exact { unsafe { (&*p.as_ptr()).slots()[i as usize] } } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
                     Op::SetSlotF(t, i, a, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { self.heap.schema_write(p); let h = unsafe { &mut *p.as_ptr() }; h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
                     Op::Len(d, a) => { let value = self.length(r!(a)); r!(d) = value; }
                     Op::LenF(d, a) => { let value = self.length(r!(a)); fr!(d) = crate::numeric::double(self, value); }
@@ -2458,19 +2657,23 @@ impl Interp {
         if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         // A dynamic call carries every argument as a value; a typed callee's
         // float parameters are unboxed on entry.
-        let (nv, n, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.sig.len(), c.vararg) };
+        let (nv, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.vararg) };
         if nargs >= 64 || vararg { self.push_frame_cold(tid, f, base + b as usize, nargs, pc); let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = callee.0; return Flow::Reenter; }
         // Only the arguments the call supplied are read; the rest are nil.
         let supplied = (nargs & 127) as usize;
-        let all: Vec<Value> = (0..n).map(|i| if i < supplied { r!(b + 1 + i as u8) } else { Value::NIL }).collect();
+        // The arguments are read by stack index after the push, which may grow
+        // (and move) the stack: the caller's window lies below the new frame.
+        let args_at = base + b as usize + 1;
         self.push_frame(tid, f, base + b as usize, nv.min(supplied as u8), pc);
-        let (off_f, sig) = { let c = &self.funcs[f as usize]; (c.off_f(), c.sig.clone()) };
+        let c = &self.funcs[f as usize];
+        let (off_f, sig) = (c.off_f(), &c.sig);
         let t = &mut self.tasks[tid];
         let s = t.cur;
         let (mut vi, mut fi) = (0usize, 0usize);
         for (i, c) in sig.iter().enumerate() {
-            if *c == b'f' { t.stack[s + off_f + fi] = all[i].as_num().to_bits(); fi += 1; }
-            else { vi += 1; t.stack[s + HDR + vi] = all[i].0; }
+            let v = if i < supplied { Value(t.stack[args_at + i]) } else { Value::NIL };
+            if *c == b'f' { t.stack[s + off_f + fi] = v.as_num().to_bits(); fi += 1; }
+            else { vi += 1; t.stack[s + HDR + vi] = v.0; }
         }
         t.stack[s + 2] = callee.0;
         Flow::Reenter
@@ -2634,7 +2837,7 @@ impl Interp {
             KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
             // Stored fields keep the shape probe; absent fields may be methods.
             // An empty slot may still name a method the record assigns later.
-            KIND_RECORD => { let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(name) { Some(i) if h.slots()[i] != Value::NIL => h.slots()[i], _ => self.index(r!(t), name) } }
+            KIND_RECORD => match self.record_field(r!(t), name) { Some(v) => v, None => self.index(r!(t), name) },
             // A reducer's methods, read before a call's arguments as `CallMethod` reads them.
             _ => match crate::simd_reduce::method(self, r!(t), name) { Some(method) => method, None => self.op_error(OpErr::Index, r!(t)) },
         };

@@ -1,0 +1,5 @@
+1 default:y default:label
+2 3 y=3
+default:y
+4 y=3,y=4
+20100 2

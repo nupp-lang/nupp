@@ -1,0 +1,47 @@
+--- A typed record that also has a metatable of its own: a declared field
+--- holding a value is read and written raw, while one holding nil is an
+--- absent key, so a read asks `__index` and a write asks `__newindex`.
+local M = {}
+
+local record P
+    x: number?
+    y: number?
+    label: string?
+end
+
+function M.main(): string
+    local lines: {string} = {}
+    local writes: {string} = {}
+    local mt = {
+        __index = function(_: any, k: string): string
+            return "default:" .. k
+        end,
+        __newindex = function(t: any, k: string, v: any)
+            writes[#writes + 1] = k .. "=" .. tostring(v)
+            rawset(t, k, v)
+        end
+    }
+    local p = setmetatable({x = 1}, mt) as P
+    lines[#lines + 1] = tostring(p.x) .. " " .. tostring(p.y) .. " " .. tostring(p.label)
+    p.x = 2
+    p.y = 3
+    lines[#lines + 1] = tostring(p.x) .. " " .. tostring(p.y) .. " " .. table.concat(writes, ",")
+    p.y = nil
+    lines[#lines + 1] = tostring(p.y)
+    p.y = 4
+    lines[#lines + 1] = tostring(p.y) .. " " .. table.concat(writes, ",")
+    -- Hot enough for compiled entries to take the same paths.
+    local total = 0
+    for i = 1, 200 do
+        p.x = i
+        total = total + (p.x as number)
+        if p.label ~= "default:label" then
+            total = -1
+        end
+    end
+    lines[#lines + 1] = tostring(total) .. " " .. tostring(#writes)
+
+    return table.concat(lines, "\n")
+end
+
+return M

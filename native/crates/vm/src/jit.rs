@@ -497,6 +497,11 @@ impl<M: Module> Compiler<M> {
             // Specialized sites, unless the function is a typed kernel whose
             // values the native proofs track.
             let spec_sites: HashMap<usize, crate::specialize::SiteSpec> = if typed_native || !simd_locals.is_empty() { HashMap::new() } else { plan.as_ref().map(|p| p.sites.clone()).unwrap_or_default() };
+            // The heap frame's address. A call that completes inside the
+            // boundary helper may have grown the task's stack and moved it, so
+            // the helper answers the frame's current address.
+            let hdr_var = b.declare_var(types::I64);
+            { let h = if frame { params[0] } else { b.ins().iconst(types::I64, 0) }; b.def_var(hdr_var, h); }
             // Blocks at every jump target and after every branch.
             let mut starts: BTreeSet<usize> = BTreeSet::new();
             let frame_resumes = if typed_native { crate::native_simd::resumes(f) } else { crate::frame::resumes(f) };
@@ -590,7 +595,7 @@ impl<M: Module> Compiler<M> {
                         for (i, &var) in vars.iter().enumerate() { if live[class].contains(i as u8) {
                             let v = if class == 1 && typed_native && native_proofs.lengths.contains_key(&(i as u8)) {
                                 native_ptrs[&native_proofs.lengths[&(i as u8)]].1
-                            } else { b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32) };
+                            } else { let hdr = b.use_var(hdr_var); b.ins().load(ty, flags, hdr, ((off + stride * i) * 8) as i32) };
                             if class == 1 && native_proofs.elided.iter().chain(&native_proofs.narrow_elided).any(|&x| x) && native_proofs.u32_regs[i] {
                                 let ok = b.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual,v,u32::MAX as i64);
                                 let yes = b.create_block(); let no = b.create_block(); b.set_cold_block(no);
@@ -689,7 +694,7 @@ impl<M: Module> Compiler<M> {
                 for r in &state.recipes {
                     use crate::specialize::recovery::Class;
                     let var = match r.class { Class::Value => rvars[r.reg as usize], Class::Int => ivars[r.reg as usize], Class::Float => fvars[r.reg as usize], Class::Vector => vvars[r.reg as usize] };
-                    let v = b.use_var(var); b.ins().store(flags, v, params[0], (r.word * 8) as i32);
+                    let v = b.use_var(var); let hdr = b.use_var(hdr_var); b.ins().store(flags, v, hdr, (r.word * 8) as i32);
                 }
                 recovery.push(state);
             }} }
@@ -744,13 +749,23 @@ impl<M: Module> Compiler<M> {
                     spill_state!(pc, if poll_cont.is_some() { crate::specialize::recovery::Point::Poll } else { crate::specialize::recovery::Point::Boundary });
                     if poll_cont.is_none() {
                         let pcv = b.ins().iconst(types::I64, pc as i64);
-                        let c = hcall!("j_frame_step", &[pcv]);
-                        let transfer = b.inst_results(c)[0];
+                        // Ordinary calls and returns have lean helpers; each falls
+                        // back to the general step itself.
+                        let helper = match *op {
+                            Op::CallDyn(_, _, n) | Op::CallK(_, _, _, n, _) if n < 64 => "j_frame_call",
+                            Op::Ret(..) | Op::RetNil | Op::RetN(..) => "j_frame_ret",
+                            _ => "j_frame_step",
+                        };
+                        let c = hcall!(helper, &[pcv]);
+                        // 1 leaves for the driver; anything else is the frame's address.
+                        let answer = b.inst_results(c)[0];
+                        let transfer = b.ins().icmp_imm(IntCC::Equal, answer, 1);
                         let leave = b.create_block(); let resume = b.create_block();
                         b.ins().brif(transfer, leave, &[], resume, &[]);
                         b.switch_to_block(leave); b.seal_block(leave);
                         let done = b.ins().iconst(types::I64, -1); b.ins().return_(&[done]);
                         b.switch_to_block(resume); b.seal_block(resume);
+                        b.def_var(hdr_var, answer);
                         // Every live SIMD value at this boundary is boxed.
                         // Results can overwrite dead temporary registers, too.
                         for &local in &simd_locals { let zero = b.ins().iconst(types::I64, 0); b.def_var(local, zero); }
@@ -767,7 +782,7 @@ impl<M: Module> Compiler<M> {
                                     Op::Checkpoint => false,
                                     _ => true,
                                 };
-                                if changed && live[class].contains(i as u8) { let v = b.ins().load(ty, flags, params[0], ((off + stride * i) * 8) as i32); b.def_var(var, v); }
+                                if changed && live[class].contains(i as u8) { let v = b.ins().load(ty, flags, answer, ((off + stride * i) * 8) as i32); b.def_var(var, v); }
                             }
                         }
                         facts.transfer();
@@ -1611,7 +1626,7 @@ impl<M: Module> Compiler<M> {
                         }
                         if let Some(st) = stub_refs.as_ref() {
                             let nb = kval!(k);
-                            let hb = if runtime.is_some() { let h = hcall!("j_slot_hash", &[nb]); b.inst_results(h)[0] }
+                            let hb = if runtime.is_some() { let x = b.ins().ushr_imm(nb, 4); let x = b.ins().imul_imm(x, 0x9E37_79B9_7F4A_7C15u64 as i64); b.ins().ushr_imm(x, 32) }
                                 else { b.ins().iconst(types::I64, crate::heap::slot_hash(consts[k as usize]) as i64) };
                             let c = b.ins().call(st.probe, &[o, nb, hb]); let r = b.inst_results(c)[0];
                             let miss = b.ins().icmp_imm(IntCC::Equal, r, MISS);

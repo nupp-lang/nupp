@@ -96,7 +96,10 @@ impl Hasher for BitsHasher {
     fn finish(&self) -> u64 { self.0 }
     fn write(&mut self, bytes: &[u8]) { for &b in bytes { self.0 = (self.0 ^ b as u64).wrapping_mul(0x9E3779B97F4A7C15); } }
     fn write_u64(&mut self, v: u64) { let x = v.wrapping_mul(0x9E3779B97F4A7C15); self.0 = x ^ (x >> 29); }
+    fn write_usize(&mut self, v: usize) { self.write_u64(v as u64) }
 }
+/// Hashed by bits: addresses and value words, never attacker-chosen bytes.
+pub type BitsBuild = std::hash::BuildHasherDefault<BitsHasher>;
 pub type ValueMap = std::collections::HashMap<Value, Value, std::hash::BuildHasherDefault<BitsHasher>>;
 
 /// FNV-1a over bytes: the intern table's hasher and the string hash.

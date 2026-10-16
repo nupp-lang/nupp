@@ -193,6 +193,16 @@ impl ValueTable {
     }
     pub fn len(&self) -> usize { self.len as usize }
     pub fn capacity(&self) -> usize { self.cap as usize }
+    /// The entry at a position of the insertion order (below `len`), its
+    /// value nil when the key's value went nil; `None` past the end.
+    #[inline]
+    pub fn entry_at(&self, i: usize) -> Option<(Value, Value)> {
+        if self.ptr.is_null() || i >= self.len as usize { return None; }
+        let k = unsafe { *self.order.add(i) as usize };
+        Some(unsafe { (Value(*self.ptr.add(2 * k)), Value(*self.ptr.add(2 * k + 1))) })
+    }
+    /// A key's position in the insertion order.
+    pub fn position_of(&self, key: Value) -> Option<usize> { let k = self.slot(key.0)?; Some(unsafe { *self.rank.add(k) as usize }) }
     /// Sets to nil the value of every live entry `f` selects. The keys keep
     /// their entries, as a key whose value becomes nil always does here.
     pub fn clear_where(&mut self, mut f: impl FnMut(Value, Value) -> bool) {
@@ -370,6 +380,7 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 
 /// The probe the shape tables and the core share: the interned string's
 /// address bits, spread.
+/// Object code computes the same hash inline (`jit.rs`, `GetField`).
 #[inline] pub fn slot_hash(bits: u64) -> u64 { (bits >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32 }
 impl Shape {
     /// The slot a name occupies, by the table.
@@ -391,7 +402,7 @@ pub struct Shape {
     pub table: Vec<(u64, u32)>,
     pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
-    pub methods: HashMap<Value, Value>,
+    pub methods: HashMap<Value, Value, crate::value::BitsBuild>,
     /// Which metamethods the shape's declaration holds, as `metamethods::MM`
     /// bits, with `metamethods::CACHED` once computed; zero until then and
     /// after any store that may change the answer.
@@ -400,10 +411,26 @@ pub struct Shape {
 
 /// Who can enumerate the roots (4.5): every task's registers, every frame's
 /// closure, constant pools, handle scopes, registered handles.
-pub trait Roots { fn each_root(&self, f: &mut dyn FnMut(Value)); }
+pub trait Roots {
+    fn each_root(&self, f: &mut dyn FnMut(Value));
+    /// The roots a rescan while marking must revisit: those that can change.
+    /// Immutable roots (constant pools) were marked when the cycle started,
+    /// and what joins them later is allocated black or greyed on lookup.
+    fn each_mutable_root(&self, f: &mut dyn FnMut(Value)) { self.each_root(f) }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Phase { Idle, Marking, Sweeping }
+
+#[inline(always)]
+fn prefetch_write(p: *mut Header) {
+    #[cfg(target_arch = "aarch64")]
+    unsafe { std::arch::asm!("prfm pstl1keep, [{0}]", in(reg) p, options(nostack, preserves_flags, readonly)); }
+    #[cfg(target_arch = "x86_64")]
+    unsafe { std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(p as *const i8); }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    let _ = p;
+}
 
 /// Size classes: the slot size of each chunk class, in bytes.
 const CLASSES: [u32; 30] = [32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 1024, 1280, 1536, 2048, 2560, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768];
@@ -417,23 +444,30 @@ struct ChunkHeader { class: u8, slot_size: u32, nslots: u32, index: u32 }
 const CHUNK_HEADER: usize = 64;
 
 #[derive(Default, Debug, Clone)]
-pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barrier_grays: u64, pub steps: u64, pub chunks: u64, pub large: u64 }
+pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barrier_grays: u64, pub steps: u64, pub chunks: u64, pub large: u64,
+    /// Kept for `GC_STATS=1`: objects scanned, slots swept, root walks and
+    /// their candidates, the largest live size, and time inside collection.
+    pub scanned: u64, pub swept: u64, pub root_walks: u64, pub root_candidates: u64, pub peak_live: u64, pub gc_nanos: u64 }
 
 pub struct Heap {
     // Native queue references follow their managed endpoint's lifetime. This
     // side table does not root endpoints; sweep drops the Arc before slot reuse.
-    pub(crate) channels: HashMap<Value, crate::channels::Channel>,
+    pub(crate) channels: HashMap<Value, crate::channels::Channel, crate::value::BitsBuild>,
     /// Every chunk in allocation order, as its base address.
     chunks: Vec<usize>,
-    chunk_set: HashSet<usize>,
+    chunk_set: HashSet<usize, crate::value::BitsBuild>,
     /// Free slots per class, threaded through the freed headers' `aux_ptr`.
     free: [*mut Header; CLASSES.len()],
     /// Objects allocated on their own, in allocation order; a freed entry is
     /// null until the sweep compacts the list.
     large: Vec<*mut Header>,
-    large_set: HashSet<usize>,
+    large_set: HashSet<usize, crate::value::BitsBuild>,
     live_count: usize,
     gray: Vec<NonNull<Header>>,
+    /// The root walk's candidate buffer, kept between walks.
+    root_candidates: Vec<NonNull<Header>>,
+    /// `GC_STATS=1`: time collection and report it at exit.
+    timed: bool,
     phase: Phase,
     /// The sweep cursor: chunk index and slot index, then the large index.
     sweep_chunk: usize,
@@ -471,7 +505,7 @@ pub struct Heap {
     /// The shapes each declaration table (`F_DECLARATION`) declares, by the
     /// table's bits. A shape keeps its declaration alive while an instance of
     /// it is, so the bits hold; an entry goes when its table dies.
-    pub declarations: HashMap<u64, Vec<u32>>,
+    pub declarations: HashMap<u64, Vec<u32>, crate::value::BitsBuild>,
     /// The interned `"__mode"` key's bits for this cycle, or nil's bits when
     /// no such string exists (so no metatable can name a mode).
     mode_key: u64,
@@ -509,7 +543,7 @@ fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as us
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::new(), chunks: Vec::new(), chunk_set: HashSet::new(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::new(), live_count: 0, gray: Vec::new(), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::new(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), chunks: Vec::new(), chunk_set: HashSet::default(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::default(), live_count: 0, gray: Vec::new(), root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -520,7 +554,7 @@ impl Heap {
         let mask = (size - 1) as u64;
         let mut table = vec![(0u64, 0u32); size];
         for (i, n) in names.iter().enumerate() { let mut k = slot_hash(n.0) & mask; while table[k as usize].0 != 0 { k = (k + 1) & mask; } table[k as usize] = (n.0, i as u32); }
-        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::new(), table, mask, mm_cache: 0 });
+        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
         (self.shapes.len() - 1) as u32
     }
 
@@ -573,7 +607,11 @@ impl Heap {
             Some(class) => {
                 if self.free[class].is_null() { self.new_chunk(class); }
                 let h = self.free[class];
-                self.free[class] = unsafe { (*h).aux_ptr as *mut Header };
+                let next = unsafe { (*h).aux_ptr as *mut Header };
+                self.free[class] = next;
+                // Free slots are scattered by the sweep and cold by now: start
+                // fetching the next one, which the next allocation writes.
+                prefetch_write(next);
                 let chunk = unsafe { &*(Self::chunk_of(h as usize) as *const ChunkHeader) };
                 let slot = (h as usize - Self::chunk_of(h as usize) - CHUNK_HEADER) / chunk.slot_size as usize;
                 let behind = (chunk.index as usize) < self.sweep_chunk || (chunk.index as usize == self.sweep_chunk && slot < self.sweep_slot);
@@ -856,8 +894,22 @@ impl Heap {
             self.start(roots);
         }
         let budget = (self.debt / 64).max(256);
-        self.step(budget, roots);
+        if self.timed {
+            let started = std::time::Instant::now();
+            self.step(budget, roots);
+            self.stats.gc_nanos += started.elapsed().as_nanos() as u64;
+        } else {
+            self.step(budget, roots);
+        }
         self.debt = 0;
+    }
+
+    /// The `GC_STATS=1` summary line, on standard error.
+    pub fn report_stats(&self, reason: &str) {
+        if !self.timed { return; }
+        let s = &self.stats;
+        eprintln!("gc[{reason}]: {:.2}s in {} cycles, {} steps; scanned {} swept {} roots {} walks/{} candidates; allocated {} freed {}; live {} MB peak {} MB; chunks {} large {}",
+            s.gc_nanos as f64 / 1e9, s.cycles, s.steps, s.scanned, s.swept, s.root_walks, s.root_candidates, s.allocated, s.freed, self.live_bytes >> 20, s.peak_live >> 20, self.chunks.len(), self.large.len());
     }
 
     fn start(&mut self, roots: &dyn Roots) {
@@ -872,7 +924,7 @@ impl Heap {
         self.record_type_key = self.interned.get(&b"\0nupp:recordType"[..]).map_or(VT_EMPTY, |p| Value::obj(*p).0);
         self.live_shapes.clear();
         self.live_shapes.resize(self.shapes.len(), false);
-        self.mark_roots(roots);
+        self.mark_roots(roots, false);
     }
 
     /// The weak mode a table's metatable declares (Lua 5.1: `__mode` holding
@@ -952,21 +1004,26 @@ impl Heap {
         unsafe { (*p.as_ptr()).kind != KIND_FREED }
     }
 
-    fn mark_roots(&mut self, roots: &dyn Roots) {
-        let mut cands: Vec<NonNull<Header>> = Vec::new();
+    fn mark_roots(&mut self, roots: &dyn Roots, rescan: bool) {
+        let mut cands: Vec<NonNull<Header>> = std::mem::take(&mut self.root_candidates);
+        cands.clear();
         #[cfg(feature = "allocation-metrics")]
         let mut root_slots = 0u64;
-        roots.each_root(&mut |v| {
+        let mut visit = |v: Value| {
             #[cfg(feature = "allocation-metrics")]
             { root_slots += 1; }
             if let Some(p) = v.as_obj() { cands.push(p); }
-        });
+        };
+        if rescan { roots.each_mutable_root(&mut visit); } else { roots.each_root(&mut visit); }
+        self.stats.root_walks += 1;
+        self.stats.root_candidates += cands.len() as u64;
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.root_slots += root_slots; m.root_object_candidates += cands.len() as u64; m.root_passes += 1; }
-        for p in cands {
+        for &p in &cands {
             if !self.is_live_slot(p) { continue; }
             unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; self.gray.push(p); } }
         }
+        self.root_candidates = cands;
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().shape_root_slots += self.shapes.iter().map(|s| s.names.len() + 2 * s.methods.len()).sum::<usize>() as u64; }
         let gray = &mut self.gray;
@@ -1008,6 +1065,7 @@ impl Heap {
     }
 
     fn scan(&mut self, p: NonNull<Header>) {
+        self.stats.scanned += 1;
         let h = unsafe { &*p.as_ptr() };
         if h.kind == KIND_TABLE && h.table_ref().meta != Value::NIL {
             let mode = self.weak_mode(h);
@@ -1083,7 +1141,7 @@ impl Heap {
                 Phase::Marking => {
                     while budget > 0 { match self.gray.pop() { Some(p) => { self.scan(p); budget -= 1; } None => break } }
                     if budget == 0 { return; }
-                    self.mark_roots(roots);
+                    self.mark_roots(roots, true);
                     if !self.gray.is_empty() || self.propagate_weak() { continue; }
                     self.clear_weak();
                     self.proto_cache.clear();
@@ -1118,6 +1176,7 @@ impl Heap {
                         if self.sweep_large >= self.large.len() {
                             self.large.retain(|h| !h.is_null());
                             self.phase = Phase::Idle;
+                            self.stats.peak_live = self.stats.peak_live.max(self.live_bytes as u64);
                             self.threshold = (self.live_bytes * 2).max(1 << 20);
                         }
                     }
@@ -1129,6 +1188,7 @@ impl Heap {
     }
 
     fn sweep_one(&mut self, p: NonNull<Header>) {
+        self.stats.swept += 1;
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().sweep_live_objects += 1; }
         unsafe {
@@ -1254,6 +1314,7 @@ impl Heap {
     /// Emit opt-in diagnostics once, before a process exit that skips Drop.
     /// Worker heaps emit the same record automatically when they are dropped.
     pub fn emit_allocation_metrics(&self, reason: &str) {
+        self.report_stats(reason);
         #[cfg(feature = "allocation-metrics")]
         if let Some(metrics) = &self.metrics {
             crate::allocation_metrics::emit(metrics, reason, self.objects(), self.live_bytes, &self.stats);

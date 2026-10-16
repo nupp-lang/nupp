@@ -50,11 +50,7 @@ impl Interp {
 
     pub(crate) fn unwind_frame(&mut self, tid: usize) {
         let frame = self.tasks[tid].cur();
-        let keep = self.tasks[tid]
-            .cleanups
-            .iter()
-            .take_while(|c| c.frame < frame)
-            .count();
+        let keep = self.cleanups_below(tid, frame);
         self.unwind_cleanups(tid, keep);
     }
     pub(crate) fn unwind_cleanups(&mut self, tid: usize, keep: usize) {
@@ -112,11 +108,16 @@ use crate::{
     value::Value,
 };
 impl Interp {
+    /// Asked at every return of a scheduled task, so the table is found by
+    /// name once and kept.
     pub(crate) fn unwind_state(&mut self, tid: usize) -> Value {
-        let Some(&table) = self.loaded.get("nupp.vm.unwinds") else {
-            return Value::NIL;
-        };
-        self.get_index(table, Value::num(tid as f64))
+        if self.unwinds == Value::NIL {
+            let Some(&table) = self.loaded.get("nupp.vm.unwinds") else {
+                return Value::NIL;
+            };
+            self.unwinds = table;
+        }
+        self.get_index(self.unwinds, Value::num(tid as f64))
     }
     pub(crate) fn begin_unwind(
         &mut self,

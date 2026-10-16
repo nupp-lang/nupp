@@ -63,7 +63,7 @@ impl Interp {
     }
     /// The metamethod bits of a shape's declaration, cached while the
     /// declaration is a table whose stores reach `redeclare`.
-    fn shape_mm(&mut self, shape: u32) -> u32 {
+    pub(crate) fn shape_mm(&mut self, shape: u32) -> u32 {
         let cached = self.heap.shapes[shape as usize].mm_cache;
         if cached & CACHED != 0 { return cached; }
         let decl = self.shape_declaration(shape);

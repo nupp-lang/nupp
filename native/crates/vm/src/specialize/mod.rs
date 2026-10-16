@@ -672,7 +672,7 @@ impl Interp {
         for v in self.spec.versions.iter_mut().filter(|v| v.fid == fid) { if v.state == VersionState::Installed { v.state = VersionState::Retired; } }
         // The new body's sites get a fresh field-cache bank on their next
         // entry; the old one stays alive for code of the old body.
-        if let Some(bank) = self.field_caches.remove(&fid) { self.spec.code_bytes += bank.len() * 16; self.spec.retired_caches.push(bank); }
+        if let Some(bank) = self.field_caches.get_mut(fid as usize).and_then(Option::take) { self.spec.code_bytes += bank.len() * 16; self.spec.retired_caches.push(bank); }
         let Some(slot) = self.spec.funcs.get_mut(fid as usize) else { return };
         let Some(ff) = slot.take() else { return };
         self.spec.sites -= ff.sites.len();

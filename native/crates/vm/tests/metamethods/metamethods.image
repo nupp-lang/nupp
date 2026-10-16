@@ -30,10 +30,11 @@ shape 28 struct:__le,__lt __le:any __lt:any
 shape 29 struct:__pairs __pairs:any
 shape 30 struct:z z:any
 shape 31 V identity=records:V x:num y:num
-shape 32 struct:__tostring __tostring:any
-shape 33 struct:__add __add:any
-shape 34 struct:__mul __mul:any
-shape 35 struct:__sub __sub:any
+shape 32 P identity=slots:P x:any y:any label:any
+shape 33 struct:__tostring __tostring:any
+shape 34 struct:__add __add:any
+shape 35 struct:__mul __mul:any
+shape 36 struct:__sub __sub:any
 function module:mmout 0 0 13 2 :v
   source mmout
   const 0 str "new"
@@ -6285,7 +6286,232 @@ function M.main 161 0 29 9 :v
   Concat 8 8 9
   Ret 8
 end
-function module:tostring 162 0 15 2 :v
+function module:slots 162 0 14 2 :v
+  source slots
+  const 0 str "__index"
+  const 1 str "\000nupp:recordType"
+  const 2 str "main"
+  lines 4x2 6x3 12x2 47
+  NewTableN 2 0 0
+  Move 1 2
+  NewTableN 2 0 0
+  SetField 2 0 2
+  SetMethod 32 1 2
+  NewClosure 3 163 4 0
+  SetField 1 2 3
+  Ret 1
+end
+function M.main 163 0 28 10 :v
+  source slots
+  const 0 num 1
+  const 1 builtin setmetatable
+  const 2 builtin tostring
+  const 3 str " "
+  const 4 num 2
+  const 5 num 3
+  const 6 builtin table.concat
+  const 7 str ","
+  const 8 num 4
+  const 9 num 0
+  const 10 str "default:label"
+  const 11 str "\010"
+  lines 13x2 14x3 15x7 24x7 25x23 26x2 27x2 28x25 29x2 30x9 31x2 32x18 34 35x6 36x2 37x5 38x4 39x6 42x17 44x13
+  NewTableN 2 0 0
+  Move 1 2
+  NewTableN 4 0 0
+  Move 3 4
+  NewCell 2 3
+  NewRecord 4 24
+  NewClosure 5 164 6 0
+  SetSlot 4 0 5 24
+  Move 7 2
+  NewClosure 5 165 6 1
+  SetSlot 4 1 5 24
+  Move 3 4
+  NewRecord 4 32
+  K 5 0
+  SetSlot 4 0 5 32
+  K 5 1
+  Move 7 4
+  Move 8 3
+  CallDyn 5 6 2
+  LenF 0 1
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 2
+  GetSlot 6 4 0 32
+  CallDyn 8 5 1
+  PadResults 5 1
+  K 6 3
+  Concat 5 5 6
+  K 9 2
+  GetSlot 7 4 1 32
+  CallDyn 9 6 1
+  PadResults 6 1
+  Concat 5 5 6
+  K 6 3
+  Concat 5 5 6
+  K 9 2
+  GetSlot 7 4 2 32
+  CallDyn 9 6 1
+  PadResults 6 1
+  Concat 5 5 6
+  SetIdxI 1 3 5
+  K 5 4
+  SetSlot 4 0 5 32
+  K 5 5
+  SetSlot 4 1 5 32
+  LenF 0 1
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 2
+  GetSlot 6 4 0 32
+  CallDyn 8 5 1
+  PadResults 5 1
+  K 6 3
+  Concat 5 5 6
+  K 9 2
+  GetSlot 7 4 1 32
+  CallDyn 9 6 1
+  PadResults 6 1
+  Concat 5 5 6
+  K 6 3
+  Concat 5 5 6
+  K 10 6
+  GetCell 11 2
+  Move 7 11
+  K 8 7
+  CallDyn 10 6 2
+  PadResults 6 1
+  Concat 5 5 6
+  SetIdxI 1 3 5
+  Nil 5
+  SetSlot 4 1 5 32
+  LenF 0 1
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 2
+  GetSlot 6 4 1 32
+  CallDyn 8 5 1
+  PadResults 5 1
+  SetIdxI 1 3 5
+  K 5 8
+  SetSlot 4 1 5 32
+  LenF 0 1
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 8 2
+  GetSlot 6 4 1 32
+  CallDyn 8 5 1
+  PadResults 5 1
+  K 6 3
+  Concat 5 5 6
+  K 10 6
+  GetCell 11 2
+  Move 7 11
+  K 8 7
+  CallDyn 10 6 2
+  PadResults 6 1
+  Concat 5 5 6
+  SetIdxI 1 3 5
+  K 5 9
+  FK 1 1
+  FMov 0 1
+  FK 2 200
+  FK 3 1
+  FCmpLe 4 0 2
+  JmpIfIZero 4 17
+  FBox 6 0
+  SetSlot 4 0 6 32
+  FUnbox 5 5
+  GetSlot 6 4 0 32
+  FUnbox 6 6
+  FAdd 7 5 6
+  FBox 5 7
+  GetSlot 7 4 2 32
+  K 8 10
+  Ne 6 7 8
+  JmpIfNot 6 4
+  FK 5 1
+  FNeg 6 5
+  FBox 5 6
+  Jmp 0
+  FAdd 0 0 3
+  Jmp -19
+  LenF 0 1
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  K 9 2
+  Move 7 5
+  CallDyn 9 6 1
+  PadResults 6 1
+  K 7 3
+  Concat 6 6 7
+  K 10 2
+  GetCell 11 2
+  Len 8 11
+  CallDyn 10 7 1
+  PadResults 7 1
+  Concat 6 6 7
+  SetIdxI 1 3 6
+  K 15 6
+  Move 17 1
+  K 18 11
+  CallDyn 15 16 2
+  Move 6 16
+  Move 7 17
+  Move 8 18
+  Move 9 19
+  Move 10 20
+  Move 11 21
+  Move 12 22
+  Move 13 23
+  RetN 6 128
+end
+function M.main.fn164 164 2 13 2 vv:v
+  source slots
+  const 0 str "default:"
+  lines 17x3
+  K 3 0
+  Concat 3 3 2
+  Ret 3
+end
+function M.main.fn165 165 3 21 6 vvv:v
+  source slots
+  const 0 str "="
+  const 1 builtin tostring
+  const 2 builtin rawset
+  lines 0 20x15 21x7
+  GetUpval 4 0
+  GetCell 5 4
+  GetCell 6 4
+  LenF 0 6
+  FToI 1 0
+  IK 2 1
+  IAdd 3 1 2
+  Move 7 2
+  K 8 0
+  Concat 7 7 8
+  K 11 1
+  Move 9 3
+  CallDyn 11 8 1
+  PadResults 8 1
+  Concat 7 7 8
+  SetIdxI 5 3 7
+  K 10 2
+  Move 6 1
+  Move 7 2
+  Move 8 3
+  CallDyn 10 5 3
+  PadResults 5 1
+  RetNil
+end
+function module:tostring 166 0 15 2 :v
   source tostring
   const 0 str "mmout"
   const 1 str "main"
@@ -6295,11 +6521,11 @@ function module:tostring 162 0 15 2 :v
   NewTableN 3 0 0
   Move 2 3
   Move 5 1
-  NewClosure 3 163 4 1
+  NewClosure 3 167 4 1
   SetField 2 1 3
   Ret 2
 end
-function M.main 163 0 59 8 :v
+function M.main 167 0 59 8 :v
   source tostring
   const 0 str "new"
   const 1 builtin setmetatable
@@ -6344,9 +6570,9 @@ function M.main 163 0 59 8 :v
   Move 3 7
   Move 7 2
   Move 8 3
-  NewRecord 10 32
-  NewClosure 11 164 12 0
-  SetSlot 10 0 11 32
+  NewRecord 10 33
+  NewClosure 11 168 12 0
+  SetSlot 10 0 11 33
   Move 9 10
   K 14 1
   NewRecord 15 2
@@ -6405,9 +6631,9 @@ function M.main 163 0 59 8 :v
   K 25 1
   NewTableN 29 0 0
   Move 27 29
-  NewRecord 30 32
-  NewClosure 31 165 32 0
-  SetSlot 30 0 31 32
+  NewRecord 30 33
+  NewClosure 31 169 32 0
+  SetSlot 30 0 31 33
   Move 28 30
   CallDyn 25 26 2
   Move 25 26
@@ -6434,9 +6660,9 @@ function M.main 163 0 59 8 :v
   K 23 1
   NewTableN 27 0 0
   Move 25 27
-  NewRecord 28 32
-  NewClosure 29 166 30 0
-  SetSlot 28 0 29 32
+  NewRecord 28 33
+  NewClosure 29 170 30 0
+  SetSlot 28 0 29 33
   Move 26 28
   CallDyn 23 24 2
   Move 15 24
@@ -6476,7 +6702,7 @@ function M.main 163 0 59 8 :v
   Move 15 25
   CallDyn 7 13 2
   PadResults 13 1
-  NewClosure 13 167 14 0
+  NewClosure 13 171 14 0
   SetField 11 17 13
   K 14 18
   K 25 4
@@ -6492,9 +6718,9 @@ function M.main 163 0 59 8 :v
   Move 22 33
   CallDyn 7 13 65
   PadResults 13 1
-  NewRecord 14 32
-  NewClosure 15 168 16 0
-  SetSlot 14 0 15 32
+  NewRecord 14 33
+  NewClosure 15 172 16 0
+  SetSlot 14 0 15 33
   Move 13 14
   SetField 13 19 13
   K 18 1
@@ -6548,10 +6774,10 @@ function M.main 163 0 59 8 :v
   K 21 1
   NewTableN 22 0 0
   Move 18 22
-  NewRecord 23 32
+  NewRecord 23 33
   Move 26 16
-  NewClosure 24 169 25 1
-  SetSlot 23 0 24 32
+  NewClosure 24 173 25 1
+  SetSlot 23 0 24 33
   Move 19 23
   CallDyn 21 17 2
   PadResults 17 1
@@ -6629,7 +6855,7 @@ function M.main 163 0 59 8 :v
   Move 26 35
   RetN 19 128
 end
-function M.main.fn164 164 1 15 2 v:v
+function M.main.fn168 168 1 15 2 v:v
   source tostring
   const 0 str "T("
   const 1 str "v"
@@ -6642,14 +6868,14 @@ function M.main.fn164 164 1 15 2 v:v
   Concat 2 3 2
   Ret 2
 end
-function M.main.fn165 165 0 11 2 :v
+function M.main.fn169 169 0 11 2 :v
   source tostring
   const 0 num 42
   lines 10x2
   K 1 0
   Ret 1
 end
-function M.main.fn166 166 0 17 2 :v
+function M.main.fn170 170 0 17 2 :v
   source tostring
   const 0 builtin error.site
   const 1 builtin error
@@ -6667,14 +6893,14 @@ function M.main.fn166 166 0 17 2 :v
   Move 1 3
   RetNil
 end
-function M.main.fn167 167 0 11 2 :v
+function M.main.fn171 171 0 11 2 :v
   source tostring
   const 0 str "late"
   lines 15x2
   K 1 0
   Ret 1
 end
-function M.main.fn168 168 1 13 2 v:v
+function M.main.fn172 172 1 13 2 v:v
   source tostring
   const 0 str "base "
   const 1 str "n"
@@ -6684,7 +6910,7 @@ function M.main.fn168 168 1 13 2 v:v
   Concat 2 2 3
   Ret 2
 end
-function M.main.fn169 169 0 14 2 :v
+function M.main.fn173 173 0 14 2 :v
   source tostring
   const 0 num 1
   const 1 str "c"
@@ -6697,7 +6923,7 @@ function M.main.fn169 169 0 14 2 :v
   K 2 1
   Ret 2
 end
-function module:arith 170 0 17 2 :v
+function module:arith 174 0 17 2 :v
   source arith
   const 0 str "mmout"
   const 1 str "opaque"
@@ -6712,11 +6938,11 @@ function module:arith 170 0 17 2 :v
   Move 3 4
   Move 6 2
   Move 7 1
-  NewClosure 4 171 5 2
+  NewClosure 4 175 5 2
   SetField 3 2 4
   Ret 3
 end
-function M.main 171 0 63 7 :v
+function M.main 175 0 63 7 :v
   source arith
   const 0 str "new"
   const 1 builtin ipairs
@@ -6786,11 +7012,11 @@ function M.main 171 0 63 7 :v
   Move 11 12
   NewCell 10 11
   Move 13 10
-  NewClosure 11 172 12 1
+  NewClosure 11 176 12 1
   Nil 12
   Nil 13
   NewCell 12 13
-  NewClosure 14 173 15 0
+  NewClosure 14 177 15 0
   SetCell 12 14
   K 16 1
   NewTableN 19 6 0
@@ -6834,19 +7060,19 @@ function M.main 171 0 63 7 :v
   Concat 30 30 31
   Move 33 12
   Move 34 28
-  NewClosure 31 174 32 2
+  NewClosure 31 178 32 2
   SetIdx 29 30 31
   Jmp -19
   GetCell 13 10
   Move 16 12
-  NewClosure 14 175 15 1
+  NewClosure 14 179 15 1
   SetField 13 15 14
   K 16 2
-  CallK 172 11 15 1 1
+  CallK 176 11 15 1 1
   PadResults 15 1
   Move 13 15
   K 18 4
-  CallK 172 11 17 1 1
+  CallK 176 11 17 1 1
   PadResults 17 1
   Move 14 17
   Move 19 13
@@ -6907,13 +7133,13 @@ function M.main 171 0 63 7 :v
   Neg 23 19
   CallDyn 8 21 2
   PadResults 21 1
-  NewRecord 23 33
-  NewClosure 24 176 25 0
-  SetSlot 23 0 24 33
+  NewRecord 23 34
+  NewClosure 24 180 25 0
+  SetSlot 23 0 24 34
   Move 21 23
-  NewRecord 26 33
-  NewClosure 27 177 28 0
-  SetSlot 26 0 27 33
+  NewRecord 26 34
+  NewClosure 27 181 28 0
+  SetSlot 26 0 27 34
   Move 22 26
   Move 29 21
   Move 30 22
@@ -7007,29 +7233,29 @@ function M.main 171 0 63 7 :v
   CallDyn 8 31 7
   PadResults 31 1
   K 32 33
-  NewClosure 34 178 43 0
+  NewClosure 34 182 43 0
   PCall 33 0
   CallDyn 8 31 65
   PadResults 31 1
   K 32 34
-  NewClosure 34 179 43 0
+  NewClosure 34 183 43 0
   PCall 33 0
   CallDyn 8 31 65
   PadResults 31 1
   K 32 35
   Move 44 1
-  NewClosure 34 180 43 1
+  NewClosure 34 184 43 1
   PCall 33 0
   CallDyn 8 31 65
   PadResults 31 1
   K 32 36
-  NewClosure 34 181 43 0
+  NewClosure 34 185 43 0
   PCall 33 0
   CallDyn 8 31 65
   PadResults 31 1
   K 32 37
   Move 44 1
-  NewClosure 34 182 43 1
+  NewClosure 34 186 43 1
   PCall 33 0
   CallDyn 8 31 65
   PadResults 31 1
@@ -7038,9 +7264,9 @@ function M.main 171 0 63 7 :v
   K 37 32
   SetSlot 36 0 37 6
   Move 32 36
-  NewRecord 38 33
-  NewClosure 39 183 40 0
-  SetSlot 38 0 39 33
+  NewRecord 38 34
+  NewClosure 39 187 40 0
+  SetSlot 38 0 39 34
   Move 33 38
   CallDyn 35 31 2
   PadResults 31 1
@@ -7070,30 +7296,30 @@ function M.main 171 0 63 7 :v
   Nil 35
   NewCell 34 35
   Move 38 33
-  NewClosure 36 184 37 1
+  NewClosure 36 188 37 1
   SetCell 34 36
   GetCell 35 33
   Move 38 34
-  NewClosure 36 185 37 1
+  NewClosure 36 189 37 1
   SetField 35 41 36
   GetCell 35 33
   Move 38 34
-  NewClosure 36 186 37 1
+  NewClosure 36 190 37 1
   SetField 35 42 36
   GetCell 35 33
   Move 38 34
-  NewClosure 36 187 37 1
+  NewClosure 36 191 37 1
   SetField 35 43 36
   GetCell 35 33
   Move 38 34
-  NewClosure 36 188 37 1
+  NewClosure 36 192 37 1
   SetField 35 15 36
   GetCell 35 33
-  NewClosure 36 189 37 0
+  NewClosure 36 193 37 0
   SetField 35 44 36
   GetCell 38 34
   K 36 32
-  CallK 184 38 35 1 1
+  CallK 188 38 35 1 1
   PadResults 35 1
   FK 1 1
   FMov 0 1
@@ -7103,14 +7329,14 @@ function M.main 171 0 63 7 :v
   JmpIfIZero 4 14
   GetCell 41 34
   FBox 39 0
-  CallK 184 41 38 1 1
+  CallK 188 41 38 1 1
   PadResults 38 1
   K 42 4
   Mul 37 38 42
   Add 36 35 37
   GetCell 40 34
   K 38 2
-  CallK 184 40 37 1 1
+  CallK 188 40 37 1 1
   PadResults 37 1
   Sub 35 36 37
   FAdd 0 0 3
@@ -7121,30 +7347,30 @@ function M.main 171 0 63 7 :v
   GetField 39 43 46
   GetCell 47 34
   K 45 47
-  CallK 184 47 44 1 1
+  CallK 188 47 44 1 1
   PadResults 44 1
   Eq 40 35 44
   GetCell 47 34
   K 45 2
-  CallK 184 47 44 1 1
+  CallK 188 47 44 1 1
   PadResults 44 1
   Eq 41 35 44
   CallDyn 8 36 5
   PadResults 36 1
-  NewRecord 38 34
-  NewClosure 39 190 40 0
-  SetSlot 38 0 39 34
+  NewRecord 38 35
+  NewClosure 39 194 40 0
+  SetSlot 38 0 39 35
   Move 37 38
   NewCell 36 37
   K 38 48
   Move 50 36
-  NewClosure 40 191 49 1
+  NewClosure 40 195 49 1
   PCall 39 0
   CallDyn 8 37 65
   PadResults 37 1
-  NewRecord 38 33
-  NewClosure 39 192 40 0
-  SetSlot 38 0 39 33
+  NewRecord 38 34
+  NewClosure 39 196 40 0
+  SetSlot 38 0 39 34
   Move 37 38
   K 39 49
   K 43 50
@@ -7174,9 +7400,9 @@ function M.main 171 0 63 7 :v
   K 46 24
   NewTableN 47 0 0
   Move 43 47
-  NewRecord 48 35
-  NewClosure 49 193 50 0
-  SetSlot 48 0 49 35
+  NewRecord 48 36
+  NewClosure 49 197 50 0
+  SetSlot 48 0 49 36
   Move 44 48
   CallDyn 46 42 2
   PadResults 42 1
@@ -7195,7 +7421,7 @@ function M.main 171 0 63 7 :v
   Move 45 54
   RetN 38 128
 end
-function vec 172 1 27 2 v:v
+function vec 176 1 27 2 v:v
   source arith
   const 0 builtin setmetatable
   lines 0 8x16
@@ -7217,7 +7443,7 @@ function vec 172 1 27 2 v:v
   Move 10 20
   RetN 3 128
 end
-function name 173 1 18 2 v:v
+function name 177 1 18 2 v:v
   source arith
   const 0 builtin type
   const 1 str "table"
@@ -7248,7 +7474,7 @@ function name 173 1 18 2 v:v
   Move 2 5
   Ret 2
 end
-function M.main.fn174 174 2 28 2 vv:v
+function M.main.fn178 178 2 28 2 vv:v
   source arith
   const 0 str "("
   const 1 str ","
@@ -7261,12 +7487,12 @@ function M.main.fn174 174 2 28 2 vv:v
   K 8 0
   GetCell 12 3
   Move 10 1
-  CallK 173 12 9 1 1
+  CallK 177 12 9 1 1
   PadResults 9 1
   K 13 1
   GetCell 17 3
   Move 15 2
-  CallK 173 17 14 1 1
+  CallK 177 17 14 1 1
   PadResults 14 1
   K 18 2
   Concat 5 14 18
@@ -7276,7 +7502,7 @@ function M.main.fn174 174 2 28 2 vv:v
   Concat 5 6 5
   Ret 5
 end
-function M.main.fn175 175 2 25 2 vv:v
+function M.main.fn179 179 2 25 2 vv:v
   source arith
   const 0 str "unm("
   const 1 str ","
@@ -7286,12 +7512,12 @@ function M.main.fn175 175 2 25 2 vv:v
   K 5 0
   GetCell 9 3
   Move 7 1
-  CallK 173 9 6 1 1
+  CallK 177 9 6 1 1
   PadResults 6 1
   K 10 1
   GetCell 14 3
   Move 12 2
-  CallK 173 14 11 1 1
+  CallK 177 14 11 1 1
   PadResults 11 1
   K 15 2
   Concat 4 11 15
@@ -7300,21 +7526,21 @@ function M.main.fn175 175 2 25 2 vv:v
   Concat 4 5 4
   Ret 4
 end
-function M.main.fn176 176 0 11 2 :v
+function M.main.fn180 180 0 11 2 :v
   source arith
   const 0 str "left"
   lines 20x2
   K 1 0
   Ret 1
 end
-function M.main.fn177 177 0 11 2 :v
+function M.main.fn181 181 0 11 2 :v
   source arith
   const 0 str "right"
   lines 20x2
   K 1 0
   Ret 1
 end
-function M.main.fn178 178 0 13 2 :v
+function M.main.fn182 182 0 13 2 :v
   source arith
   const 0 num 1
   lines 24x4
@@ -7323,7 +7549,7 @@ function M.main.fn178 178 0 13 2 :v
   Add 1 2 3
   Ret 1
 end
-function M.main.fn179 179 0 13 2 :v
+function M.main.fn183 183 0 13 2 :v
   source arith
   lines 25x4
   NewTableN 2 0 0
@@ -7331,7 +7557,7 @@ function M.main.fn179 179 0 13 2 :v
   Mul 1 2 3
   Ret 1
 end
-function M.main.fn180 180 0 17 2 :v
+function M.main.fn184 184 0 17 2 :v
   source arith
   const 0 str "x"
   const 1 num 1
@@ -7345,14 +7571,14 @@ function M.main.fn180 180 0 17 2 :v
   Add 2 3 7
   Ret 2
 end
-function M.main.fn181 181 0 12 2 :v
+function M.main.fn185 185 0 12 2 :v
   source arith
   lines 27x3
   NewTableN 2 0 0
   Neg 1 2
   Ret 1
 end
-function M.main.fn182 182 0 17 2 :v
+function M.main.fn186 186 0 17 2 :v
   source arith
   const 0 num 1
   lines 0 28x7
@@ -7365,7 +7591,7 @@ function M.main.fn182 182 0 17 2 :v
   Add 2 3 7
   Ret 2
 end
-function M.main.fn183 183 2 14 2 vv:v
+function M.main.fn187 187 2 14 2 vv:v
   source arith
   const 0 str "n"
   lines 29x4
@@ -7374,7 +7600,7 @@ function M.main.fn183 183 2 14 2 vv:v
   SetField 1 0 3
   Ret 1
 end
-function num 184 1 27 2 v:v
+function num 188 1 27 2 v:v
   source arith
   const 0 builtin setmetatable
   lines 0 35x16
@@ -7396,7 +7622,7 @@ function num 184 1 27 2 v:v
   Move 10 20
   RetN 3 128
 end
-function M.main.fn185 185 2 27 2 vv:v
+function M.main.fn189 189 2 27 2 vv:v
   source arith
   const 0 str "v"
   lines 0 36x14
@@ -7405,7 +7631,7 @@ function M.main.fn185 185 2 27 2 vv:v
   GetField 16 1 0
   GetField 17 2 0
   Add 15 16 17
-  CallK 184 13 14 1 8
+  CallK 188 13 14 1 8
   Move 4 14
   Move 5 15
   Move 6 16
@@ -7416,7 +7642,7 @@ function M.main.fn185 185 2 27 2 vv:v
   Move 11 21
   RetN 4 128
 end
-function M.main.fn186 186 2 27 2 vv:v
+function M.main.fn190 190 2 27 2 vv:v
   source arith
   const 0 str "v"
   lines 0 37x14
@@ -7425,7 +7651,7 @@ function M.main.fn186 186 2 27 2 vv:v
   GetField 16 1 0
   GetField 17 2 0
   Sub 15 16 17
-  CallK 184 13 14 1 8
+  CallK 188 13 14 1 8
   Move 4 14
   Move 5 15
   Move 6 16
@@ -7436,7 +7662,7 @@ function M.main.fn186 186 2 27 2 vv:v
   Move 11 21
   RetN 4 128
 end
-function M.main.fn187 187 2 33 2 vv:v
+function M.main.fn191 191 2 33 2 vv:v
   source arith
   const 0 str "v"
   const 1 builtin type
@@ -7457,7 +7683,7 @@ function M.main.fn187 187 2 33 2 vv:v
   JmpIf 17 1
   GetField 17 2 0
   Mul 15 16 17
-  CallK 184 13 14 1 8
+  CallK 188 13 14 1 8
   Move 4 14
   Move 5 15
   Move 6 16
@@ -7468,7 +7694,7 @@ function M.main.fn187 187 2 33 2 vv:v
   Move 11 21
   RetN 4 128
 end
-function M.main.fn188 188 1 25 2 v:v
+function M.main.fn192 192 1 25 2 v:v
   source arith
   const 0 str "v"
   lines 0 39x13
@@ -7476,7 +7702,7 @@ function M.main.fn188 188 1 25 2 v:v
   GetCell 12 2
   GetField 15 1 0
   Neg 14 15
-  CallK 184 12 13 1 8
+  CallK 188 12 13 1 8
   Move 3 13
   Move 4 14
   Move 5 15
@@ -7487,7 +7713,7 @@ function M.main.fn188 188 1 25 2 v:v
   Move 10 20
   RetN 3 128
 end
-function M.main.fn189 189 2 15 2 vv:v
+function M.main.fn193 193 2 15 2 vv:v
   source arith
   const 0 str "v"
   lines 40x4
@@ -7496,7 +7722,7 @@ function M.main.fn189 189 2 15 2 vv:v
   Eq 3 4 5
   Ret 3
 end
-function M.main.fn190 190 0 17 2 :v
+function M.main.fn194 194 0 17 2 :v
   source arith
   const 0 builtin error.site
   const 1 builtin error
@@ -7514,7 +7740,7 @@ function M.main.fn190 190 0 17 2 :v
   Move 1 3
   RetNil
 end
-function M.main.fn191 191 0 20 2 :v
+function M.main.fn195 195 0 20 2 :v
   source arith
   const 0 builtin setmetatable
   const 1 num 2
@@ -7531,7 +7757,7 @@ function M.main.fn191 191 0 20 2 :v
   Mul 2 3 10
   Ret 2
 end
-function M.main.fn192 192 0 13 2 :v
+function M.main.fn196 196 0 13 2 :v
   source arith
   const 0 num 1
   const 1 num 2
@@ -7542,7 +7768,7 @@ function M.main.fn192 192 0 13 2 :v
   K 3 2
   RetN 1 3
 end
-function M.main.fn193 193 0 10 2 :v
+function M.main.fn197 197 0 10 2 :v
   source arith
   lines 48
   RetNil
@@ -7559,6 +7785,7 @@ module newindex 106 newindex.lua
 module order 116 order.lua
 module pairs 135 pairs.lua
 module records 150 records.nupp
-module tostring 162 tostring.lua
-module arith 170 arith.lua
-entry 170
+module slots 162 slots.nupp
+module tostring 166 tostring.lua
+module arith 174 arith.lua
+entry 174

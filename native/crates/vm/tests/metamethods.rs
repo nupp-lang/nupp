@@ -21,6 +21,7 @@ const PROGRAMS: &[(&str, &str)] = &[
     ("order", include_str!("metamethods/order.expected")),
     ("pairs", include_str!("metamethods/pairs.expected")),
     ("records", include_str!("metamethods/records.expected")),
+    ("slots", include_str!("metamethods/slots.expected")),
     ("tostring", include_str!("metamethods/tostring.expected")),
 ];
 

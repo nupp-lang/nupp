@@ -1163,7 +1163,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_10 => { let s = bytes_of(it, arg(args, 0)); let o: Vec<u8> = s.iter().map(|b| b.to_ascii_lowercase()).collect(); outs![str_of(it, &o)] }
         N_2 | N_11 => {
             let find = id == N_2;
-            let pat = bytes_of(it, arg(args, 1));
+            // Borrowed like the subject: a copy per call was a malloc and a
+            // free on every `find` and `match`.
+            let mut pattern_scratch = Vec::new();
+            let pat: &[u8] = bytes_ref(it, arg(args, 1), &mut pattern_scratch);
             let plain = arg(args, 3).truthy();
             if find && (plain || !pat.iter().any(|c| b"^$*+?.([%-".contains(c))) {
                 // A plain search borrows the subject; nothing is copied.
@@ -1204,6 +1207,56 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             }
         }
         N_7 => { let s = arg(args, 0); let p = arg(args, 1); outs![it.new_iter(3, s, p)] }
+        // A string replacement runs no Nupp code, so the subject and pattern
+        // are borrowed, captures expand straight from the subject, and a
+        // pattern opening with a literal skips to it.
+        N_6 if (arg(args, 2).is_num() || it.is_stringish(arg(args, 2))) && it.is_stringish(arg(args, 0)) => {
+            let max = if args.len() > 3 && arg(args, 3).is_num() { int(args, 3, i64::MAX) } else { i64::MAX };
+            let (out, count) = {
+                let mut ps = Vec::new(); let pat = bytes_ref(it, arg(args, 1), &mut ps);
+                let mut rs = Vec::new(); let r = bytes_ref(it, arg(args, 2), &mut rs);
+                let s = it.bytes_of(arg(args, 0));
+                let anchored = pat.first() == Some(&b'^');
+                let first = if anchored { None } else { pattern::first_byte(pat) };
+                let mut out: Vec<u8> = Vec::new(); let mut pos = 0usize; let mut count = 0i64;
+                while pos <= s.len() && count < max {
+                    if let Some(c) = first {
+                        match s[pos..].iter().position(|&b| b == c) { Some(k) => { out.extend_from_slice(&s[pos..pos + k]); pos += k; } None => break }
+                    }
+                    match pattern::match_at(s, pat, pos) {
+                        Some((end, caps)) => {
+                            count += 1;
+                            let mut i = 0;
+                            while i < r.len() {
+                                if r[i] == b'%' && i + 1 < r.len() {
+                                    let c = r[i + 1];
+                                    if c == b'%' { out.push(b'%'); }
+                                    else if c.is_ascii_digit() {
+                                        let k = (c - b'0') as usize;
+                                        if k == 0 || (k == 1 && caps.is_empty()) { out.extend_from_slice(&s[pos..end]); }
+                                        else if let Some(cap) = caps.get(k - 1) {
+                                            match *cap { pattern::Cap::Span(x, y) => out.extend_from_slice(&s[x..y]), pattern::Cap::Pos(p) => out.extend_from_slice(num_text((p + 1) as f64).as_bytes()) }
+                                        }
+                                    }
+                                    i += 2;
+                                } else { out.push(r[i]); i += 1; }
+                            }
+                            if end > pos { pos = end; } else { if pos < s.len() { out.push(s[pos]); } pos += 1; }
+                        }
+                        None => { if pos < s.len() { out.push(s[pos]); } pos += 1; }
+                    }
+                    if anchored { break; }
+                }
+                if pos < s.len() { out.extend_from_slice(&s[pos..]); }
+                (if count == 0 { None } else { Some(out) }, count)
+            };
+            let subject = arg(args, 0);
+            match out {
+                None if it.kind_of(subject) == Some(KIND_STR) => outs![subject, Value::num(0.0)],
+                None => { let text = it.bytes_of(subject).to_vec(); outs![str_of(it, &text), Value::num(0.0)] }
+                Some(out) => outs![str_of(it, &out), Value::num(count as f64)],
+            }
+        }
         N_6 => {
             let s = bytes_of(it, arg(args, 0)); let pat = bytes_of(it, arg(args, 1)); let repl = arg(args, 2);
             let max = if args.len() > 3 && arg(args, 3).is_num() { int(args, 3, i64::MAX) } else { i64::MAX };
@@ -1237,6 +1290,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 if anchored { break; }
             }
             if pos < s.len() { out.extend_from_slice(&s[pos..]); }
+            // Nothing replaced: the subject itself rather than a copy of it.
+            let subject = arg(args, 0);
+            if count == 0 && subject.as_obj().is_some_and(|p| unsafe { (*p.as_ptr()).kind } == KIND_STR) { return outs![subject, Value::num(0.0)]; }
             outs![str_of(it, &out), Value::num(count as f64)]
         }
         N_5 => {
@@ -1330,9 +1386,12 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 it.close_scope(scope);
                 return outs![r.first().copied().unwrap_or(Value::NIL), r.get(1).copied().unwrap_or(Value::NIL), r.get(2).copied().unwrap_or(Value::NIL)];
             }
-            let keys = it.table_keys(t); let itv = it.new_iter_keys(1, t, keys); outs![itv, t, Value::NIL]
+            // Steps over the table in place: no snapshot of its keys.
+            let itv = if matches!(it.kind_of(t), Some(KIND_TABLE | KIND_RECORD)) { it.new_iter(7, t, Value::NIL) } else { let keys = it.table_keys(t); it.new_iter_keys(1, t, keys) };
+            outs![itv, t, Value::NIL]
         }
         N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::num(0.0)] }
+        N_24 if next_entry(it, arg(args, 0), arg(args, 1)).is_some() => match next_entry(it, arg(args, 0), arg(args, 1)).unwrap() { Some((k, v)) => outs![k, v], None => outs![Value::NIL] },
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
         N_26 => { let v = arg(args, 0); outs![tostring_value(it, v)] }
@@ -1548,6 +1607,7 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
     let (kind, obj, pos, keys_len) = it.iter_state(iter);
     match kind {
         1 => { for index in pos..keys_len { let k = it.iter_key(iter, index); it.iter_advance(iter); let v = it.get_index(obj, k); if v != Value::NIL { return outs![k, v]; } } outs![Value::NIL] }
+        7 => pairs_next(it, iter, obj, pos),
         2 => { let i = pos + 1; let v = it.get_index(obj, Value::num(i as f64)); if v == Value::NIL { return outs![Value::NIL]; } it.iter_advance(iter); outs![Value::num(i as f64), v] }
         3 => {
             // Borrowed, as `string.find` borrows it: a copy per step made a loop
@@ -1580,6 +1640,76 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
         6 => { let format = it.iter_pattern(iter); crate::stdio::read(it, format) }
         _ => outs![Value::NIL],
     }
+}
+
+const PHASE: usize = 1 << 30;
+
+/// The next live entry of a table or record from a position: the array part,
+/// a record's slots, then the hash part (a record's overflow) in insertion
+/// order, with the position after it. A position keeps its phase in the top
+/// bits; `last` is the key returned before, which finds the hash position
+/// again if an insertion rebuilt the hash part meanwhile.
+fn entry_from(it: &Interp, obj: Value, pos: usize, last: Value) -> Option<(Value, Value, usize)> {
+    let p = obj.as_obj()?;
+    let h = unsafe { &*p.as_ptr() };
+    let record = h.kind == KIND_RECORD;
+    let (mut phase, mut i) = (pos / PHASE, pos % PHASE);
+    loop {
+        match phase {
+            0 => {
+                let a: &Vec<Value> = if record { h.record_array_ref() } else { &h.table_ref().array };
+                while i < a.len() {
+                    let v = a[i]; i += 1;
+                    if v != Value::NIL { return Some((Value::num(i as f64), v, i)); }
+                }
+                phase = if record { 1 } else { 2 }; i = 0;
+            }
+            1 => {
+                let slots = h.slots();
+                while i < slots.len() {
+                    let v = slots[i]; i += 1;
+                    if v != Value::NIL { return Some((it.heap.shapes[h.shape() as usize].names[i - 1], v, PHASE + i)); }
+                }
+                phase = 2; i = 0;
+            }
+            _ => {
+                let table: &crate::heap::ValueTable = if record { &h.record_extra_ref().as_deref()?.fields } else { &h.table_ref().hash };
+                if i > 0 && table.entry_at(i - 1).map(|(k, _)| k) != Some(last) { i = table.position_of(last)? + 1; }
+                while let Some((k, v)) = table.entry_at(i) {
+                    i += 1;
+                    if v != Value::NIL { return Some((k, v, 2 * PHASE + i)); }
+                }
+                return None;
+            }
+        }
+    }
+}
+
+/// `pairs` over a table or record, stepping its storage in place.
+fn pairs_next(it: &mut Interp, iter: Value, obj: Value, pos: usize) -> Outs {
+    let last = it.iter_pattern(iter);
+    match entry_from(it, obj, pos, last) {
+        Some((k, v, next)) => { it.iter_set_pos(iter, next); if next >= 2 * PHASE { it.set_iter_last(iter, k); } outs![k, v] }
+        None => outs![Value::NIL],
+    }
+}
+
+/// `next` over a table or record: the position after `key`, found directly.
+fn next_entry(it: &Interp, t: Value, key: Value) -> Option<Option<(Value, Value)>> {
+    let p = t.as_obj()?;
+    let h = unsafe { &*p.as_ptr() };
+    let record = match h.kind { KIND_TABLE => false, KIND_RECORD => true, _ => return None };
+    let pos = if key == Value::NIL { 0 } else {
+        let alen = if record { h.record_array_ref().len() } else { h.table_ref().array.len() };
+        let n = if key.is_num() { key.as_num() } else { 0.0 };
+        if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= alen { n as usize }
+        else if let Some(slot) = (record && !key.is_num()).then(|| it.heap.shapes[h.shape() as usize].slot_of(key)).flatten() { PHASE + slot + 1 }
+        else {
+            let table: Option<&crate::heap::ValueTable> = if record { h.record_extra_ref().as_deref().map(|e| &e.fields) } else { Some(&h.table_ref().hash) };
+            match table.and_then(|t| t.position_of(key)) { Some(at) => 2 * PHASE + at + 1, None => return None }
+        }
+    };
+    Some(entry_from(it, t, pos, key).map(|(k, v, _)| (k, v)))
 }
 
 /// Lua patterns: classes, sets, captures, anchors, the four quantifiers.
@@ -1677,11 +1807,27 @@ pub mod pattern {
         do_match(&mut st, si, 0).map(|e| (e, captures(&st)))
     }
     /// The first match at or after `init`: (start, end, captures).
+    /// The byte every match of `p` (unanchored) must start with, when the
+    /// pattern opens with a literal that cannot repeat zero times: a search
+    /// then skips to that byte instead of trying every position.
+    pub fn first_byte(p: &[u8]) -> Option<u8> {
+        let (c, rest) = match p {
+            [b'%', c, rest @ ..] if !c.is_ascii_alphanumeric() => (*c, rest),
+            [c, rest @ ..] if !b"^$*+?.([%-".contains(c) => (*c, rest),
+            _ => return None,
+        };
+        if matches!(rest.first(), Some(b'*' | b'?' | b'-')) { return None; }
+        Some(c)
+    }
     pub fn find(s: &[u8], p: &[u8], init: usize) -> Option<(usize, usize, Vec<Cap>)> {
         let anchored = p.first() == Some(&b'^');
         let body = if anchored { &p[1..] } else { p };
+        let first = if anchored { None } else { first_byte(body) };
         let mut si = init;
         loop {
+            if let Some(c) = first {
+                si += s.get(si..).and_then(|rest| rest.iter().position(|&b| b == c))?;
+            }
             let mut st = State { s, p: body, caps: Vec::new(), depth: 0 };
             if let Some(e) = do_match(&mut st, si, 0) { return Some((si, e, captures(&st))); }
             if anchored || si >= s.len() { return None; }

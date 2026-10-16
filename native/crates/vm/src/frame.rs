@@ -32,6 +32,14 @@ impl Interp {
             }
             #[cfg(feature = "jit")]
             {
+                if self.frame_threshold > 0 && !self.function_needs_native(fid) {
+                    self.frame_heat.resize(self.funcs.len(), 0);
+                    let heat = &mut self.frame_heat[fid as usize];
+                    *heat += 1;
+                    if *heat < self.frame_threshold {
+                        return 0;
+                    }
+                }
                 let Some(mut jit) = self.jit.take() else {
                     return 0;
                 };
@@ -108,6 +116,44 @@ impl Interp {
         }
         assert!((next as usize) < self.funcs[fid as usize].code.len());
         Ok(next as usize)
+    }
+}
+
+impl Interp {
+    /// Runs the frame a compiled caller's call just pushed until the caller's
+    /// frame at `stop` is on top again. The common case calls the callee's
+    /// compiled entry directly and finds the caller on top when it returns;
+    /// anything else (a park, an interpreted callee, a deeper transfer) goes
+    /// through `drive_until`. A raise inside comes back as the error sentinel
+    /// with the value pending, as it would from any compiled frame.
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) fn run_callee(&mut self, tid: usize, stop: usize) -> Result<bool, crate::interp::Step> {
+        let s = self.tasks[tid].cur();
+        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as u32;
+        // The same entry accounting `run_compiled_frame` does.
+        #[cfg(feature = "jit")]
+        if self.spec.frames { self.spec_frame_entry(fid); }
+        let entry = self.prepare_frame_entry(fid);
+        if entry != 0 && entry != u64::MAX {
+            let header = unsafe { self.tasks[tid].stack.as_mut_ptr().add(s) };
+            self.compiled_frame_entries += 1;
+            self.native_frame_depth += 1;
+            let next = unsafe { std::mem::transmute::<u64, extern "C" fn(*mut u64, usize) -> u64>(entry)(header, 0) };
+            self.native_frame_depth -= 1;
+            if next == crate::value::Value::ERROR.0 { return Ok(false); }
+            if next == u64::MAX {
+                match self.native_exit.take() {
+                    Some(crate::interp::Step::Reenter) if self.tasks[tid].cur() == stop => return Ok(true),
+                    Some(crate::interp::Step::Reenter) => { if self.unwind_nested { return Err(crate::interp::Step::Reenter); } }
+                    Some(exit) => return Err(exit),
+                    None => unreachable!("native frame transfer without an exit"),
+                }
+            } else {
+                // Stopped at a back edge: continue as the driver would.
+                self.tasks[tid].note_pc(next as usize);
+            }
+        }
+        self.drive_until(tid, stop).map(|()| true)
     }
 }
 
