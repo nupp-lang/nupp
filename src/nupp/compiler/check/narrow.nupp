@@ -99,6 +99,10 @@ type narrow.Ops = {
     --- Resolves a field path through a copied table reference.
     aliasTarget: function(key: string): string?,
 
+    --- Records that the binding `entry` holds under `name` was made as a copy of
+    --- another reference, so the walks for copies find it.
+    noteAlias: function(name: string, entry: state.Binding),
+
     --- Forgets facts an arbitrary call may have invalidated through aliases or
     --- captured variables. Returns what it forgot, so a condition that made the
     --- call can be kept from proving it again.
@@ -266,12 +270,15 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     --- Forgets what was known about a reference and anything under it.
     function facts.clearNarrowed(key: string)
+        local length = #key
         local sc = c.scope
         while sc do
             local narrowed = sc.narrowed
             if narrowed then
                 for k in pairs(narrowed) do
-                    if k == key or beneath(k, key) then
+                    -- `beneath`, written out: this runs for every narrowed path on
+                    -- every write.
+                    if k == key or #k > length and k:byte(length + 1) == DOT and k:find(key, 1, true) == 1 then
                         narrowed[k] = nil
                     end
                 end
@@ -281,12 +288,13 @@ function narrow.install(c: state.Checker): narrow.Ops
     end
 
     function facts.clearNarrowedBelow(key: string)
+        local length = #key
         local sc = c.scope
         while sc do
             local narrowed = sc.narrowed
             if narrowed then
                 for k in pairs(narrowed) do
-                    if beneath(k, key) then
+                    if #k > length and k:byte(length + 1) == DOT and k:find(key, 1, true) == 1 then
                         narrowed[k] = nil
                     end
                 end
@@ -335,11 +343,32 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
         local sc = c.scope
         while sc do
-            for name, entry in pairs(sc.vars) do
-                local from = entry.aliasPath
-                if name == key or (from and (from == key or beneath(from, key))) then
-                    entry.aliasNode, entry.aliasPath = nil, nil
+            -- Only a binding made as a copy carries either field, and each scope
+            -- names those it holds, so the rest of its bindings need no visit.
+            local aliases = sc.aliases
+            if aliases then
+                local vars = sc.vars
+                for name in pairs(aliases) do
+                    local entry = vars[name]
+                    local from = entry and entry.aliasPath
+                    if entry and (name == key or (from and (from == key or beneath(from, key)))) then
+                        entry.aliasNode, entry.aliasPath = nil, nil
+                    end
                 end
+            end
+            sc = sc.parent
+        end
+    end
+
+    function facts.noteAlias(name: string, entry: state.Binding)
+        c.aliasCount += 1
+        local sc = c.scope
+        while sc do
+            if sc.vars[name] == entry then
+                local aliases = sc.aliases or {}
+                sc.aliases = aliases
+                aliases[name] = true
+                return
             end
             sc = sc.parent
         end
@@ -353,10 +382,15 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
         local sc = c.scope
         while sc do
-            for _, entry in pairs(sc.vars) do
-                local from = entry.aliasPath
-                if from and beneath(from, key) then
-                    entry.aliasNode, entry.aliasPath = nil, nil
+            local aliases = sc.aliases
+            if aliases then
+                local vars = sc.vars
+                for name in pairs(aliases) do
+                    local entry = vars[name]
+                    local from = entry and entry.aliasPath
+                    if entry and from and beneath(from, key) then
+                        entry.aliasNode, entry.aliasPath = nil, nil
+                    end
                 end
             end
             sc = sc.parent
@@ -402,14 +436,20 @@ function narrow.install(c: state.Checker): narrow.Ops
             return out
         end
         local sc = c.scope
-        local seen = {}
+        local seen: {[string]: boolean} = {}
         while sc do
-            for name, entry in pairs(sc.vars) do
-                if entry.aliasPath and not seen[name] then
-                    seen[name] = true
-                    local origin = facts.aliasTarget(name) or entry.aliasPath
-                    if beneath(canonical, origin) then
-                        out[#out + 1] = {name = name, path = name .. canonical:sub(#origin + 1)}
+            local aliases = sc.aliases
+            if aliases then
+                local vars = sc.vars
+                for name in pairs(aliases) do
+                    local entry = vars[name]
+                    local aliasPath = entry and entry.aliasPath
+                    if aliasPath and not seen[name] then
+                        seen[name] = true
+                        local origin = facts.aliasTarget(name) or aliasPath
+                        if beneath(canonical, origin) then
+                            out[#out + 1] = {name = name, path = name .. canonical:sub(#origin + 1)}
+                        end
                     end
                 end
             end
@@ -1145,7 +1185,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 if conditionalOwnership then
                     moved, ownershipOrigin = false, nil
                 end
-                c.scope.vars[name] = carryFixedWidth(
+                local shadow = carryFixedWidth(
                     new state.Binding(
                         t = t,
                         narrowing = true, -- shadows a declaration; not one itself
@@ -1176,6 +1216,12 @@ function narrow.install(c: state.Checker): narrow.Ops
                     ),
                     entry
                 )
+                c.scope.vars[name] = shadow
+                if shadow.aliasNode or shadow.aliasPath then
+                    local aliases = c.scope.aliases or {}
+                    c.scope.aliases = aliases
+                    aliases[name] = true
+                end
             end
         end
     end

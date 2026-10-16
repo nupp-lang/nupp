@@ -606,7 +606,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             if boundEntry and initNode and initNode.kind == "dotIndex" then
                 boundEntry.aliasNode = initNode
                 boundEntry.aliasPath = pathKey(initNode)
-                c.aliasCount += 1
+                facts.noteAlias(nameTok.text, boundEntry)
             end
             if boundEntry and initNode and initNode.kind == "name" and initNode.token then
                 local sourceEntry = c.lookupEntry(initNode.token.text)
@@ -623,7 +623,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 then
                     boundEntry.aliasNode = initNode
                     boundEntry.aliasPath = pathKey(initNode)
-                    c.aliasCount += 1
+                    facts.noteAlias(nameTok.text, boundEntry)
                 end
                 if sourceEntry and sourceEntry.resourceCapability then
                     -- Typed dynamic handles are copyable tokens. Every alias carries

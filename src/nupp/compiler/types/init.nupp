@@ -1657,9 +1657,9 @@ end
 --- Unions of two members already built, by the members in the order they were given.
 ---
 --- Most unions are two members, and most of those are something or nil, asked for over
---- and over. Every type a union is built from is interned and never leaves its arena,
---- so the same two give the same union for the life of the process. A nominal's order
---- reads its name and a union member is flattened, so neither is cached here.
+--- and over. What a union of two is depends only on their identities, ids and names,
+--- none of which change once a type exists, and on the arena, which only grows, so the
+--- same two give the same union for the life of the process.
 local unionPairs: {[types.Type]: {[types.Type]: types.Type}} = setmetatable({}, {
     __mode = "k"
 }) as {[types.Type]: {[types.Type]: types.Type}}
@@ -1669,13 +1669,7 @@ function types.union(members: {types.Type}): types.Type
         return unionOf(members)
     end
     local first, second = members[1], members[2]
-    if not first
-        or not second
-        or first.tag == "nominal"
-        or first.tag == "union"
-        or second.tag == "nominal"
-        or second.tag == "union"
-    then
+    if not first or not second then
         return unionOf(members)
     end
     local known = unionPairs[first]

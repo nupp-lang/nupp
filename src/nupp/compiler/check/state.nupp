@@ -289,6 +289,10 @@ record state.Scope
     --- The block this scope was opened for.
     block: any
 
+    --- The names this scope binds as copies of another reference, which are the only
+    --- bindings that carry `aliasNode` or `aliasPath`.
+    aliases: {[string]: boolean}?
+
     --- Narrowings of field paths proved in this scope, by path key.
     narrowed: {[string]: Type}?
 end
