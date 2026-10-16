@@ -4007,6 +4007,17 @@ function lower.emit(
         if node.kind == "paren" or node.kind == "asExpr" then
             return mayBeAbsent(node.expr)
         end
+        -- A field a generic record declares at a type parameter holds whatever
+        -- its own code put there, and `as T` erases: the type an instantiation
+        -- substitutes does not vouch for the value's representation.
+        if node.kind == "dotIndex" and node.obj then
+            local owner = node.obj.inferredType
+            local origin = owner and owner.tag == "nominal" and owner.origin
+            local declared = origin and origin.byname and origin.byname[tokText(node.name)]
+            if declared and declared.tag == "typevar" then
+                return true
+            end
+        end
         if node.kind == "bracketIndex" then
             return true
         end
