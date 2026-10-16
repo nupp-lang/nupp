@@ -314,7 +314,9 @@ local record Mapped entries: {[integer]: string} end
 @derive(nupp.derive.Debug)
 local record Mapped entries: {[string]: string} end
 ]],
-        "/tmp/another-spelling/mapped.nupp"
+        -- The same file spelled from the suite's own directory: a file outside
+        -- the project is another module, and an image names its module.
+        HERE .. "/../mapped.nupp"
     )
     testAssert.equal(#alternateDiagnostics, 0, "alternate path diagnostics")
     testAssert.equal(
