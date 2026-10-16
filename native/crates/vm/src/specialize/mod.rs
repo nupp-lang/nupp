@@ -941,6 +941,6 @@ pub fn helpers() -> Vec<(&'static str, *const u8, usize)> {
 pub fn report(it: &Interp) -> String {
     let s = it.spec.stats;
     let functions = it.spec.funcs.iter().flatten().count();
-    format!("spec: {functions} functions with feedback ({} sites, {} KiB); {} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated", it.spec.sites, it.spec.bytes / 1024, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated)
+    format!("spec: {functions} functions with feedback ({} sites, {} KiB); {} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated; {} version records retaining {} KiB of code and metadata, {} refused", it.spec.sites, it.spec.bytes / 1024, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated, it.spec.versions.len(), it.spec.code_bytes / 1024, s.refused)
 }
 

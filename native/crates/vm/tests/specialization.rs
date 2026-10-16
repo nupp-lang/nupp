@@ -399,8 +399,11 @@ fn a_fact_belongs_to_a_value_and_does_not_cross_a_join() {
         let same = vm.jit.as_ref().unwrap().last_fact_uses.clone();
         assert!(same.iter().any(|u| u.used == 1 && u.established == 0), "the second read of the same value uses the first one's proof");
         assert!(facts::check_dominance(&same).is_ok());
-        let (a, b) = (record(&mut vm, p, &[1.0]), record(&mut vm, q, &[0.0, 20.0]));
-        let (ra, rb) = (vm.register(a), vm.register(b));
+        // Each record rooted before the next allocation.
+        let a = record(&mut vm, p, &[1.0]);
+        let ra = vm.register(a);
+        let b = record(&mut vm, q, &[0.0, 20.0]);
+        let rb = vm.register(b);
         assert_eq!(run_frames(&mut vm, 0, &[a, b]), Value::num(21.0));
         // A true third argument takes the branch that redefines the register.
         assert_eq!(run_frames(&mut vm, 1, &[a, b, Value::TRUE]), Value::num(21.0));
