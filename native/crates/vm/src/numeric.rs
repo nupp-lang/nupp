@@ -158,9 +158,14 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
             _ => order != Some(Ordering::Equal),
         });
     }
+    // An exact integer meeting a double that is not one (1.5 % 1) is Lua's
+    // floating-point arithmetic, as two doubles are; only integral operands
+    // keep the exact width.
+    let integral = |v: Value| v.is_num() && v.as_num().is_finite() && v.as_num().fract() == 0.0;
     let kind = kind.or_else(|| match (integer(x), integer(y)) {
         (Some(a), Some(b)) => Some(a.unsigned || b.unsigned),
-        (Some(a), _) | (_, Some(a)) => Some(a.unsigned),
+        (Some(a), None) if integral(y) => Some(a.unsigned),
+        (None, Some(b)) if integral(x) => Some(b.unsigned),
         _ => None,
     });
     if kind.is_none() {
