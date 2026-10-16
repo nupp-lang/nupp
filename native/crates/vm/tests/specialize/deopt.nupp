@@ -50,6 +50,16 @@ local function weigh(p: Point, state: any, scale: number): number
     return result
 end
 
+-- A loop whose index and running total are typed registers, live across
+-- the field read that deoptimizes.
+local function sumx(points: {Point}, k: number): number
+    local total = 0.0
+    for i = 1, #points do
+        total = total + points[i].x * k
+    end
+    return total
+end
+
 local function shift(p: Point, by: number): number
     p.x = p.x + by
     return p.x
@@ -64,6 +74,19 @@ function M.run(): string
     for i = 1, 300 do
         sum = sum + weigh(new P3(z = 0, x = i, y = 1), state, 2)
     end
+    local twos: {Point} = {}
+    local threes: {Point} = {}
+    for i = 1, 8 do
+        twos[i] = new P2(x = i, y = 0)
+        threes[i] = new P3(z = 0, x = i, y = 0)
+    end
+    local sums = 0
+    for _ = 1, 1500 do
+        sums = sums + sumx(twos, 2)
+    end
+    for _ = 1, 200 do
+        sums = sums + sumx(threes, 3)
+    end
     local moved = 0
     for i = 1, 3000 do
         moved = moved + shift(new P2(x = i, y = 1), 1)
@@ -71,7 +94,7 @@ function M.run(): string
     for i = 1, 300 do
         moved = moved + shift(new P3(z = 0, x = i, y = 1), 2)
     end
-    return tostring(sum) .. " closed=" .. tostring(state.closed) .. " moved=" .. tostring(moved)
+    return tostring(sum) .. " closed=" .. tostring(state.closed) .. " sums=" .. tostring(sums) .. " moved=" .. tostring(moved)
 end
 
 function M.main(): string

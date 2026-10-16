@@ -82,4 +82,32 @@ function M.unstable(n)
     return sum
 end
 
+-- Methods held only by a weak-valued `__index` table: once the one strong
+-- reference is gone and the collector runs, the call must find nothing (or,
+-- where a register still holds the closure, the same answer), never a freed
+-- closure.
+function M.weak(n)
+    local methods = setmetatable({}, {__mode = "v"})
+    local W = {__index = methods}
+    local keep = function(self) return self.x end
+    methods.value = keep
+    local o = setmetatable({x = 3}, W)
+    local sum = 0
+    for _ = 1, n do sum = sum + call(o) end
+    keep = nil
+    collectgarbage()
+    collectgarbage()
+    local ok, r = pcall(call, o)
+    local sound = (ok and r == 3) or not ok
+    return sum + (sound and 0 or 1000000)
+end
+
+function M.main()
+    local out = {}
+    for _, name in ipairs({"monomorphic", "miss", "mutate", "metatable", "unstable", "weak"}) do
+        out[#out + 1] = name .. "=" .. tostring(M[name](3000))
+    end
+    return table.concat(out, " ")
+end
+
 return M

@@ -67,6 +67,14 @@ local function run(): string
         before = before + legs(animals)
     end
     out[#out + 1] = "mono=" .. tostring(before) .. ":" .. chorus(animals):sub(1, 9)
+    -- A record's method replaced through its declaration while hot.
+    local declaration: any = Dog
+    local original = declaration.speak
+    declaration.speak = function(self: any): string
+        return "arf"
+    end
+    out[#out + 1] = "patched=" .. chorus(animals):sub(1, 9)
+    declaration.speak = original
     animals[7] = new Bird(legs = 2, wings = 2)
     animals[19] = new Fish(legs = 0)
     local after = 0

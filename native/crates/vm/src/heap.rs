@@ -877,7 +877,7 @@ impl Heap {
 
     /// The weak mode a table's metatable declares (Lua 5.1: `__mode` holding
     /// `k`, `v` or both), or 0.
-    fn weak_mode(&self, h: &Header) -> u8 {
+    pub(crate) fn weak_mode(&self, h: &Header) -> u8 {
         if self.mode_key == VT_EMPTY { return 0; }
         let Some(meta) = h.table_ref().meta.as_obj() else { return 0 };
         let m = unsafe { &*meta.as_ptr() };
@@ -923,13 +923,17 @@ impl Heap {
             let h = unsafe { &mut *p.as_ptr() };
             if h.kind != KIND_TABLE { continue; }
             let t = h.table();
+            let mut changed = false;
             if mode & WEAK_VALUES != 0 {
-                let mut changed = false;
                 for v in t.array.iter_mut() { if dead(*v) { *v = Value::NIL; changed = true; } }
                 if changed { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } }
             }
-            t.hash.clear_where(|k, v| (mode & WEAK_KEYS != 0 && dead(k)) || (mode & WEAK_VALUES != 0 && dead(v)));
+            t.hash.clear_where(|k, v| { let gone = (mode & WEAK_KEYS != 0 && dead(k)) || (mode & WEAK_VALUES != 0 && dead(v)); changed |= gone; gone });
             h.refresh();
+            // A cleared entry of a table an `__index` lookup walked changes
+            // what the lookup answers, as a store would: compiled code that
+            // resolved through it must not call what is about to be freed.
+            if changed && h.flags & F_PROTO != 0 { self.proto_epoch += 1; }
         }
     }
 

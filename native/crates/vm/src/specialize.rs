@@ -136,14 +136,15 @@ pub struct Limits {
     pub miss_limit: u32,
     /// Deopt exits a specialized frame entry tolerates before it is replaced.
     pub deopt_limit: u32,
-    /// Sites across the VM; past it, functions get no feedback.
-    pub max_sites: usize,
+    /// Bytes of feedback across the VM (records, sites and pc maps); past
+    /// it, functions get no feedback.
+    pub max_bytes: usize,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         let n = |k: &str, d: u64| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
-        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_sites: n("JIT_SPEC_SITES", 1 << 18) as usize }
+        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize }
     }
 }
 
@@ -166,7 +167,11 @@ pub struct State {
     pub specialize: bool,
     pub limits: Limits,
     pub funcs: Vec<Option<Box<FuncFeedback>>>,
+    /// Functions the byte budget refused: never retried.
+    pub refused: Vec<bool>,
     pub sites: usize,
+    /// Bytes the records, their sites and pc maps hold.
+    pub bytes: usize,
     pub stats: Stats,
 }
 
@@ -174,7 +179,7 @@ impl Default for State {
     fn default() -> Self {
         let specialize = std::env::var_os("JIT_SPECIALIZE").is_some_and(|v| v != "0");
         let feedback = specialize || std::env::var_os("JIT_FEEDBACK").is_some_and(|v| v != "0");
-        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), sites: 0, stats: Stats::default() }
+        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, stats: Stats::default() }
     }
 }
 
@@ -182,17 +187,24 @@ impl State {
     /// The function's record, made on first use while the site budget lasts.
     pub fn func(&mut self, fid: u32, code: &[Op]) -> Option<&mut FuncFeedback> {
         let i = fid as usize;
-        if self.funcs.len() <= i { self.funcs.resize_with(i + 1, || None); }
+        if self.funcs.len() <= i { self.funcs.resize_with(i + 1, || None); self.refused.resize(i + 1, false); }
         if self.funcs[i].is_none() {
+            if self.refused[i] { return None; }
+            // The whole cost is known from the code before anything is made.
+            let n = code.iter().filter(|op| is_site(op)).count();
+            let bytes = Self::cost(code.len(), n);
+            if self.bytes + bytes > self.limits.max_bytes { self.refused[i] = true; return None; }
             let mut site_of = vec![NO_SITE; code.len()].into_boxed_slice();
-            let mut n = 0u32;
-            for (pc, op) in code.iter().enumerate() { if is_site(op) { site_of[pc] = n; n += 1; } }
-            if self.sites + n as usize > self.limits.max_sites { return None; }
-            self.sites += n as usize;
+            let mut k = 0u32;
+            for (pc, op) in code.iter().enumerate() { if is_site(op) { site_of[pc] = k; k += 1; } }
+            self.sites += n;
+            self.bytes += bytes;
             self.funcs[i] = Some(Box::new(FuncFeedback { calls: 0, misses: 0, deopts: 0, versions: 0, specialized: 0, settled: false, active: false, baseline: 0, frame_baseline: 0, site_of, sites: vec![Site::default(); n as usize].into_boxed_slice() }));
         }
         self.funcs[i].as_deref_mut()
     }
+    /// What a function's record costs: itself, its sites and its pc map.
+    pub fn cost(code_len: usize, sites: usize) -> usize { std::mem::size_of::<FuncFeedback>() + sites * std::mem::size_of::<Site>() + code_len * std::mem::size_of::<u32>() }
     pub fn get(&self, fid: u32) -> Option<&FuncFeedback> { self.funcs.get(fid as usize).and_then(|f| f.as_deref()) }
     /// The site record at a pc, if the function has feedback there.
     pub fn site(&self, fid: u32, pc: usize) -> Option<&Site> {
@@ -357,9 +369,30 @@ impl Interp {
         self.handles.push(probe);
         unsafe { (*probe.as_obj().unwrap().as_ptr()).table().meta = meta; }
         let answer = self.index_through_metatable(probe, name);
+        let weak = answer.is_some() && self.walks_weak(probe, name);
         unsafe { (*probe.as_obj().unwrap().as_ptr()).table().meta = Value::NIL; }
         self.close_scope(scope);
+        if weak { return None; }
         answer.filter(|v| *v != Value::NIL)
+    }
+    /// Whether the `__index` walk from `object` for `name` visits a weak
+    /// table (a metatable or an `__index` table whose own metatable has a
+    /// `__mode`). Such chains are not specialized (design, section 4): the
+    /// collector may clear the method while every guard still holds.
+    fn walks_weak(&mut self, object: Value, name: Value) -> bool {
+        let weak = |it: &Interp, v: Value| v.as_obj().is_some_and(|p| { let h = unsafe { p.as_ref() }; h.kind == KIND_TABLE && it.heap.weak_mode(h) != 0 });
+        let mut object = object;
+        for _ in 0..100 {
+            let meta = self.mm_table(object);
+            if weak(self, meta) { return true; }
+            let handler = self.metamethod(object, crate::metamethods::MM::Index);
+            if handler == Value::NIL { return false; }
+            if weak(self, handler) { return true; }
+            if !matches!(self.kind_of(handler), Some(KIND_TABLE | KIND_RECORD)) { return false; }
+            if self.get_index(handler, name) != Value::NIL { return false; }
+            object = handler;
+        }
+        true
     }
 
     fn plan_site(&mut self, fid: u32, pc: usize, op: Op, frame: bool) -> Option<SiteSpec> {
@@ -460,6 +493,8 @@ impl Interp {
         let Some(slot) = self.spec.funcs.get_mut(fid as usize) else { return };
         let Some(ff) = slot.take() else { return };
         self.spec.sites -= ff.sites.len();
+        self.spec.bytes -= State::cost(ff.site_of.len(), ff.sites.len());
+        if let Some(r) = self.spec.refused.get_mut(fid as usize) { *r = false; }
         self.spec.stats.invalidated += 1;
         if ff.active {
             if let Some(e) = self.entries.get_mut(fid as usize) { if ff.baseline != 0 { *e = ff.baseline; } }
@@ -699,6 +734,6 @@ pub fn helpers() -> Vec<(&'static str, *const u8, usize)> {
 pub fn report(it: &Interp) -> String {
     let s = it.spec.stats;
     let functions = it.spec.funcs.iter().flatten().count();
-    format!("spec: {functions} functions with feedback ({} sites); {} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated", it.spec.sites, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated)
+    format!("spec: {functions} functions with feedback ({} sites, {} KiB);{} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated", it.spec.sites, it.spec.bytes / 1024, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated)
 }
 
