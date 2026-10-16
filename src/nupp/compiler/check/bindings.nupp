@@ -1231,7 +1231,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 -- Filling the slot is a reinitialization to the generator: the hidden
                 -- slot the cleanup reads has to take the value.
-                if fillsEmptySlot and written and entry.automaticOwner then
+                if fillsEmptySlot and written and entry and entry.automaticOwner then
                     entry.automaticOwner.moved = true
                     written.automaticOwnerReinit = {owner = entry.automaticOwner}
                 end

@@ -3014,7 +3014,7 @@ function declare.install(
             -- declarations stands between it and them.
             if deferred and stat.declKind == "record" and not stat.isAnnotationDefinition then
                 local declScope = c.scope
-                c.scope = declScope.parent
+                c.scope = declScope.parent as state.Scope
                 -- What surrounds the statement travels with it: an `@allow` or an
                 -- `@unsafe` written on the declaration covers its bodies wherever
                 -- they are checked.

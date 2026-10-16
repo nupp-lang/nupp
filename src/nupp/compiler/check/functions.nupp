@@ -963,10 +963,10 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local bound = mode == "takes" and (pt.tag == "affine" and pt or T.affine(pt))
                     or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt)
                     or pt
-                c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
-                c.scope.vars[p.name.text].mutationParameter = #params
-                c.fixedWidth.mark(c.scope.vars[p.name.text], pt)
-                c.fixedWidth.trust(c.scope.vars[p.name.text], pt)
+                local parameter = c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
+                parameter.mutationParameter = #params
+                c.fixedWidth.mark(parameter, pt)
+                c.fixedWidth.trust(parameter, pt)
                 if mode == "exclusive" then
                     -- The body owns the caller's sole view for this call. It may
                     -- forward that capability to another exclusive call, provided
@@ -2038,8 +2038,8 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
         if not fname.method and #fname == 1 and fname.base then
-            c.bindVar(fname.base.text, ft) -- global function: best-effort bind
-            local functionEntry = c.scope.vars[fname.base.text]
+            -- A global function: a best-effort bind.
+            local functionEntry = c.bindVar(fname.base.text, ft)
             local checkedBody: any = body
             functionEntry.mutatesParams = checkedBody.mutatesParams
             functionEntry.mutatesParamPaths = checkedBody.mutatesParamPaths

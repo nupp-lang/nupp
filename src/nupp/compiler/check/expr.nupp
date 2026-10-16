@@ -1748,10 +1748,10 @@ function expr.install(c: state.Checker): nil
                                     c.fixedWidth.storageOnly(p.type, pt, "a parameter")
                                 end
                                 local bound = mode ~= "plain" and T.borrowed(pt) or pt
-                                c.bindVar(pname.text, bound, p.type ~= nil, pname, "parameter")
-                                c.scope.vars[pname.text].mutationParameter = #params
-                                c.fixedWidth.mark(c.scope.vars[pname.text], pt)
-                                c.fixedWidth.trust(c.scope.vars[pname.text], pt)
+                                local parameter = c.bindVar(pname.text, bound, p.type ~= nil, pname, "parameter")
+                                parameter.mutationParameter = #params
+                                c.fixedWidth.mark(parameter, pt)
+                                c.fixedWidth.trust(parameter, pt)
                                 if mode == "exclusive" then
                                     c.own.capabilityFacts(c.scope.vars[pname.text]).exclusive = true
                                 end

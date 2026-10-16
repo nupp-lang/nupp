@@ -497,12 +497,15 @@ function narrow.install(c: state.Checker): narrow.Ops
                     entry.t = entry.decl or entry.t
                 end
             end
-            for key, t in pairs(sc.narrowed or {}) do
-                local root = key:match("^[^.]+") or key
-                local outer = visibleEntry(root)
-                if outer and (outer.functionDepth or 0) < c.functionDepth and writtenLater(outer, key) then
-                    restore[#restore + 1] = {map = sc.narrowed, key = key, t = t}
-                    sc.narrowed[key] = nil
+            local narrowed = sc.narrowed
+            if narrowed then
+                for key, t in pairs(narrowed) do
+                    local root = key:match("^[^.]+") or key
+                    local outer = visibleEntry(root)
+                    if outer and (outer.functionDepth or 0) < c.functionDepth and writtenLater(outer, key) then
+                        restore[#restore + 1] = {map = narrowed, key = key, t = t}
+                        narrowed[key] = nil
+                    end
                 end
             end
             sc = sc.parent
@@ -550,7 +553,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 for _, entry in pairs(sc.vars) do
                     if entry == mutated or (mutated.definition and entry.definition == mutated.definition) then
                         if entry.narrowing then
-                            entry.t = entry.decl
+                            entry.t = entry.decl as Type
                             entry.narrowing = false
                         end
                     end
@@ -1058,7 +1061,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     -- the first time anything narrowed it -- including the narrowing an ordinary
     -- assignment performs -- so `x = nupp.math.f32.narrow(v)` would leave `x`
     -- unusable as a `float` on the next line.
-    local function carryFixedWidth(shadow: any, entry: any): any
+    local function carryFixedWidth(shadow: state.Binding, entry: state.Binding?): state.Binding
         local established = entry and entry.fixedWidthEstablished or nil
         if established then
             local copied = {}
@@ -1088,7 +1091,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                     c.scope.vars[
                         coroutineName
                     ] = carryFixedWidth(
-                        {
+                        new state.Binding(
                             t = entry.t,
                             narrowing = true,
                             ann = entry.ann or false,
@@ -1099,8 +1102,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                             moved = c.ownershipState(entry).moved or false,
                             ownershipOrigin = c.ownershipState(entry),
                             functionDepth = entry.functionDepth or c.functionDepth,
-                            threadPhase = phase,
-                        },
+                            threadPhase = phase
+                        ),
                         entry
                     )
                 end
@@ -1116,7 +1119,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                     moved, ownershipOrigin = false, nil
                 end
                 c.scope.vars[name] = carryFixedWidth(
-                    {
+                    new state.Binding(
                         t = t,
                         narrowing = true, -- shadows a declaration; not one itself
                         -- a narrowed copy still came from where it came from, or the
@@ -1142,8 +1145,8 @@ function narrow.install(c: state.Checker): narrow.Ops
                         threadPhase = entry and entry.threadPhase or nil,
 
                         wrappedProtocol = entry and entry.wrappedProtocol or nil,
-                        wrappedPhase = entry and entry.wrappedPhase or nil,
-                    },
+                        wrappedPhase = entry and entry.wrappedPhase or nil
+                    ),
                     entry
                 )
             end

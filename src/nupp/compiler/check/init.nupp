@@ -1056,97 +1056,94 @@ function checkMod.check(
     -- Checker installers tie mutually recursive callbacks onto this private object
     -- before traversal begins. This assertion is the explicit initialization
     -- boundary; ordinary record construction requires every stored field.
-    local c = setmetatable(
-        {
-            result = result,
-            filename = filename,
-            env = env,
-            opts = opts,
-            reducerMemo = {},
-            comptimeDepth = 0,
-            comptimeFunctionDepth = 0,
-            comptimeFunctions = {},
-            typeFunctionMemo = {},
-            -- A declaration file describes an interface it does not own, so its bare
-            -- declarations are that interface and have no table of the file's own to
-            -- attach to. Bundled declarations are checked under their module name
-            -- rather than a path, so they say so directly.
-            declarationFile = (opts and (opts.declarationFile or opts.declareGlobals)) and true
-            or (filename and filename:match("%.d%.nupp$")) and true
-            or false,
-            -- The table qualified declarations attach to, so `record M.Point` in a file
-            -- that returns M exports Point while `record Other.Point` does not.
-            moduleLocal = declaredModuleName and (cst.exportedLocal(result.root) or "__nuppExports")
-            or cst.returnedLocal(result.root)
-            or result.foreignModuleLocal,
-            annotationRegistry = registry,
-            annotationDefinitions = {},
-            lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
-            -- Fixes and the missing-require advice read the parse and the project index
-            -- rather than anything the walk builds, so they are made once here and
-            -- asked. See nupp.compiler.check.fixits.
-            edits = fixits.new(result, env),
-            diags = {},
-            moduleType = nil,
-            moduleExports = opts and opts.initialExports
-            or {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}, callGuarantees = {},},
-            seenDefinitions = {},
-            scope = {
-                vars = {},
-                types = {},
-                packTypes = {},
-                typeDefs = {},
-                pending = {},
-                automaticOwners = {},
-                depth = 0,
-                completionScope = result.root,
-                parent = nil
-            },
-            retStack = {},
-            retPackStack = {},
-            observedReturnStack = {},
-            ownReturnStack = {},
-            borrowReturnStack = {},
-            varargPackStack = {},
-            yieldPackStack = {},
-            blockYieldStack = {},
-            resumePackStack = {},
-            protocolStack = {},
-            consumingFieldStack = {},
-            constructorFieldStack = {},
-            validatedCleanupContracts = {},
-            unsafeDepth = 0,
-            noSuspendDepth = 0,
-            cleanupBindings = {},
-            effectRegionDepths = {allocates = 0, raises = 0},
-            functionDepth = 0,
-            functionBodies = {},
-            temporaryOwners = {},
-            scopedCaptureDepth = 0,
-            closureCaptureStack = {},
-            captureWatches = {},
-            allowed = {},
-            nextStat = nil,
-            hoisting = false,
-            -- Set while a hoisted alias is being resolved, so an alias that names
-            -- itself reports rather than recurses forever.
-            resolvingAlias = {},
-            lastCallRets = nil,
-            moduleFields = {},
-            moduleFieldTokens = {},
-            moduleFieldDefs = {},
-            qualifiedFunctionEntries = {},
-            moduleFunctionDeclarations = {},
-            moduleFieldConst = {},
-            moduleFieldValues = {},
-            nominalEffectOwners = {},
-            nominalEffectEntries = {},
-            conformanceEffects = {},
-            constModulePaths = {},
-            moduleLocalAnnotated = false
-        },
-        state.Checker as any
-    ) as state.Checker
+    local c = {
+        result = result,
+        filename = filename,
+        env = env,
+        opts = opts,
+        reducerMemo = {},
+        comptimeDepth = 0,
+        comptimeFunctionDepth = 0,
+        comptimeFunctions = {},
+        typeFunctionMemo = {},
+        -- A declaration file describes an interface it does not own, so its bare
+        -- declarations are that interface and have no table of the file's own to
+        -- attach to. Bundled declarations are checked under their module name
+        -- rather than a path, so they say so directly.
+        declarationFile = (opts and (opts.declarationFile or opts.declareGlobals)) and true
+        or (filename and filename:match("%.d%.nupp$")) and true
+        or false,
+        -- The table qualified declarations attach to, so `record M.Point` in a file
+        -- that returns M exports Point while `record Other.Point` does not.
+        moduleLocal = declaredModuleName and (cst.exportedLocal(result.root) or "__nuppExports")
+        or cst.returnedLocal(result.root)
+        or result.foreignModuleLocal,
+        annotationRegistry = registry,
+        annotationDefinitions = {},
+        lintConfig = opts and opts.lints or env and env.config and env.config.lints or nil,
+        -- Fixes and the missing-require advice read the parse and the project index
+        -- rather than anything the walk builds, so they are made once here and
+        -- asked. See nupp.compiler.check.fixits.
+        edits = fixits.new(result, env),
+        diags = {},
+        moduleType = nil,
+        moduleExports = opts and opts.initialExports
+        or {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}, callGuarantees = {},},
+        seenDefinitions = {},
+        scope = new state.Scope(
+            vars = {},
+            types = {},
+            packTypes = {},
+            typeDefs = {},
+            pending = {},
+            automaticOwners = {},
+            parent = nil,
+            depth = 0,
+            completionScope = result.root
+        ),
+        retStack = {},
+        retPackStack = {},
+        observedReturnStack = {},
+        ownReturnStack = {},
+        borrowReturnStack = {},
+        varargPackStack = {},
+        yieldPackStack = {},
+        blockYieldStack = {},
+        resumePackStack = {},
+        protocolStack = {},
+        consumingFieldStack = {},
+        constructorFieldStack = {},
+        validatedCleanupContracts = {},
+        unsafeDepth = 0,
+        noSuspendDepth = 0,
+        cleanupBindings = {},
+        effectRegionDepths = {allocates = 0, raises = 0},
+        functionDepth = 0,
+        functionBodies = {},
+        temporaryOwners = {},
+        scopedCaptureDepth = 0,
+        closureCaptureStack = {},
+        captureWatches = {},
+        allowed = {},
+        nextStat = nil,
+        hoisting = false,
+        -- Set while a hoisted alias is being resolved, so an alias that names
+        -- itself reports rather than recurses forever.
+        resolvingAlias = {},
+        lastCallRets = nil,
+        moduleFields = {},
+        moduleFieldTokens = {},
+        moduleFieldDefs = {},
+        qualifiedFunctionEntries = {},
+        moduleFunctionDeclarations = {},
+        moduleFieldConst = {},
+        moduleFieldValues = {},
+        nominalEffectOwners = {},
+        nominalEffectEntries = {},
+        conformanceEffects = {},
+        constModulePaths = {},
+        moduleLocalAnnotated = false
+    } as state.Checker
     c.rootScope = c.scope
     c.moduleExports.valueDefs = c.moduleExports.valueDefs or {}
     c.moduleExports.comptimeFunctions = c.moduleExports.comptimeFunctions or {}
@@ -1451,7 +1448,7 @@ function checkMod.check(
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
     -- is recorded for every enclosing scope it also escapes.
     c.pushScope = function()
-        c.scope = {
+        c.scope = new state.Scope(
             vars = {},
             types = {},
             packTypes = {},
@@ -1460,10 +1457,10 @@ function checkMod.check(
             automaticOwners = {},
             parent = c.scope,
             depth = (c.scope and c.scope.depth or 0) + 1
-        }
+        )
     end
 
-    local function auditScope(s)
+    local function auditScope(s: state.Scope)
         -- Release first: a borrow this scope holds of an owner this scope holds ends
         -- with the scope, and only a borrow held elsewhere is one the audit reports.
         for _, entry in pairs(s.vars or {}) do
@@ -1519,7 +1516,7 @@ function checkMod.check(
 
     c.popScope = function()
         auditScope(c.scope)
-        c.scope = c.scope.parent
+        c.scope = c.scope.parent as state.Scope
     end
     -- Var entries: { t = type, ann = boolean, constant = boolean }. Assignment
     -- compatibility is enforced only for annotated bindings; inferred bindings stay
@@ -1710,7 +1707,7 @@ function checkMod.check(
                 def.kind = kind
             end
         end
-        local entry = {
+        local entry = new state.Binding(
             t = t,
             ann = annotated ~= nil and annotated or old and old.ann or false,
             constant = constant == true or (tok == nil and old and old.constant) or false,
@@ -1718,8 +1715,8 @@ function checkMod.check(
             ownership = t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil,
             moved = false,
             functionDepth = c.functionDepth,
-            bindingOrdinal = bindingOrdinal,
-        }
+            bindingOrdinal = bindingOrdinal
+        )
         c.scope.vars[name] = entry
         -- A visible `takes` body has no producer-specific cleanup witness: its mode
         -- says responsibility transferred, but its payload type does not say which
@@ -1738,6 +1735,8 @@ function checkMod.check(
             c.scope.automaticOwners[#c.scope.automaticOwners + 1] = automatic
         end
         c.markToken(tok, def, t, def and def.kind or kind)
+
+        return entry
     end
     c.bindType = function(name, t, tok)
         c.scope.types[name] = t
@@ -3064,7 +3063,7 @@ function checkMod.check(
                     if aliased then
                         c.pushScope()
                         for name, module in pairs(hoisted.bound) do
-                            c.scope.vars[name] = {t = T.any, requiredModule = module or nil}
+                            c.scope.vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
                         end
                     end
                     local nested = #hoisted.owners > 0
@@ -3133,13 +3132,13 @@ function checkMod.check(
                 return c.signatureOf(body, selfType)
             end
             local outer = c.scope
-            local vars: {[string]: any} = {}
+            local vars: {[string]: state.Binding} = {}
             for name, module in pairs(earlier) do
-                vars[name] = {t = T.any, requiredModule = module or nil}
+                vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
             end
-            local types: any = setmetatable({}, {__index = selectedField("types")})
-            local typeDefs: any = setmetatable({}, {__index = selectedField("typeDefs")})
-            c.scope = {
+            local types: {[string]: Type} = setmetatable({}, {__index = selectedField("types")})
+            local typeDefs: {[string]: any} = setmetatable({}, {__index = selectedField("typeDefs")})
+            c.scope = new state.Scope(
                 vars = vars,
                 types = types,
                 packTypes = {},
@@ -3147,8 +3146,8 @@ function checkMod.check(
                 pending = {},
                 automaticOwners = {},
                 parent = outer,
-                depth = outer and outer.depth or 0,
-            }
+                depth = outer and outer.depth or 0
+            )
             local signature = c.signatureOf(body, selfType)
             c.scope = outer
 

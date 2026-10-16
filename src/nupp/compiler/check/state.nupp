@@ -90,6 +90,194 @@ type state.Facts = {
     exhausted: string?
 }
 
+--- What a name is bound to in a scope: its type, how it was declared, and the flow
+--- facts the walk accumulates on it. A narrowing shadows the entry with a copy that
+--- names the original as `ownershipOrigin`, so ownership is recorded in one place.
+--- Every field but the type is optional, because a project global and a hoisted
+--- module alias carry only that.
+record state.Binding
+    --- The type the name currently holds.
+    t: Type
+
+    --- A narrowed copy rather than a declaration.
+    narrowing: boolean?
+
+    --- The expression and reference path a binding was initialized from, so a
+    --- narrowing of one reaches the other.
+    aliasNode: any
+
+    aliasPath: string?
+
+    --- Whether it was annotated, which is what holds an assignment to the declaration.
+    ann: boolean?
+
+    constant: boolean?
+
+    --- The declared type a narrowed copy narrows.
+    decl: Type?
+
+    --- The declaration this binding answers to, for the editor and the unused-binding
+    --- sweep.
+    definition: any
+
+    --- Which ownership qualifier the bound type carries: "affine", "borrowed" or
+    --- "pinned".
+    ownership: string?
+
+    --- Whether its owner has been handed over, and where.
+    moved: boolean?
+
+    --- The binding a narrowed copy records ownership on.
+    ownershipOrigin: state.Binding?
+
+    --- The lexical cleanup this binding schedules, when its owner is discharged by
+    --- leaving scope.
+    automaticOwner: any
+
+    --- How deep inside function bodies it was bound, which is how a capture is told.
+    functionDepth: integer?
+
+    --- Bindings die in the reverse of the order they were made; a later ordinal is a
+    --- shorter life.
+    bindingOrdinal: number?
+
+    --- A coroutine's lifecycle, and a wrapped protocol's.
+    threadPhase: string?
+
+    wrappedProtocol: any
+    wrappedPhase: string?
+
+    movedAt: any
+
+    --- The module a `require` result names, so `x.f` reaches its exports.
+    requiredModule: string?
+
+    globalModule: string?
+
+    --- Results of one call that narrow together, and which of them this is.
+    packCorrelation: any
+
+    packCorrelationIndex: integer?
+
+    --- Bound but not yet assigned a value, and where it was declared so.
+    unassigned: boolean?
+
+    --- An owner slot holding nil, which may take its first owner.
+    emptySlot: boolean?
+
+    unassignedAt: any
+    assignedAt: any
+
+    --- Fields of an owner moved out, unconditionally and on some paths.
+    movedFields: {[string]: any}?
+
+    conditionalMovedFields: {[string]: any}?
+
+    --- Live borrows of this owner and the regions they cover.
+    activeBorrows: integer?
+
+    activeExclusiveBorrows: integer?
+    activeBorrowSites: {[any]: any}?
+    activeRegions: {[string]: integer}?
+    activeExclusiveRegions: {[string]: integer}?
+
+    --- The `with` statement whose scoped borrow this is.
+    withBinding: any
+
+    --- The fields a consuming function was audited for discharging, and whether it was.
+    auditedFields: any
+
+    auditedConsumer: boolean?
+
+    --- Flow capability facts, for the binding as a whole and per result.
+    capabilityFacts: T.CapabilityFacts?
+
+    resultCapabilityFacts: {[integer]: T.CapabilityFacts}?
+    resourceCapability: any
+
+    --- The nominal a hoisted declaration produced before its statement is checked.
+    hoistedType: Type?
+
+    --- Fixed-width establishment facts carried by the value.
+    fixedWidthEstablished: any
+
+    fixedWidthTrusted: boolean?
+    fixedWidthCallableUntrusted: boolean?
+
+    --- A parameter's position, when calls are summarized by what they mutate.
+    mutationParameter: integer?
+
+    --- Constructor field assignments seen through `self`.
+    assigned: {[any]: boolean}?
+
+    expectedCallable: Type?
+    affineAggregateContext: boolean?
+
+    --- The annotation it was declared with, and the field a binding pattern read it
+    --- from.
+    annotationNode: any
+
+    patternFieldDefinition: any
+
+    --- The exported member a binding read, so a call through it is an exact call.
+    exactCallExport: any
+
+    --- Whether it holds the coroutine library, or its `yield`.
+    coroutineLibrary: boolean?
+
+    coroutineYield: boolean?
+
+    --- The coroutine whose status a binding read.
+    coroutineStatusName: string?
+
+    --- Aggregate field regions a result binding was proven to cover.
+    partitionFields: any
+
+    --- The intrinsic a scalar namespace member names.
+    scalarIntrinsic: string?
+
+    --- What a function bound here is known to mutate: its parameters and paths
+    --- beneath them, captured bindings, and its receiver.
+    mutationSummaryKnown: boolean?
+
+    mutatesParams: {[integer]: boolean}?
+    mutatesParamPaths: {[integer]: {[string]: boolean}}?
+    mutatesCapturedEntries: {[any]: boolean}?
+    mutatesCapturedPaths: {[any]: {[string]: boolean}}?
+    mutatesSelf: boolean?
+    mutatesSelfPaths: {[string]: boolean}?
+
+    --- The receiver of the method body being checked.
+    mutationSelf: boolean?
+end
+
+--- One lexical scope: the names, types and narrowings it introduces, and the owners it
+--- discharges when it closes.
+record state.Scope
+    vars: {[string]: state.Binding}
+    types: {[string]: Type}
+    packTypes: {[string]: any}
+    typeDefs: {[string]: any}
+
+    --- Aliases hoisted to the top of the block and not yet resolved.
+    pending: {[string]: any}
+
+    --- Owners this scope discharges when it closes, in the order they were bound.
+    automaticOwners: {any}
+
+    parent: state.Scope?
+    depth: integer
+
+    --- The node whose extent an editor completes names from this scope over.
+    completionScope: any
+
+    --- The block this scope was opened for.
+    block: any
+
+    --- Narrowings of field paths proved in this scope, by path key.
+    narrowed: {[string]: Type}?
+end
+
 --- Everything a
 --- and where it currently is. Declaring it is what lets the walk be split across
 --- modules, so a pass reaches the run through this rather than through a closure it has
@@ -156,9 +344,9 @@ record state.Checker
     -- Where the walk currently is. All of this changes as it runs.
 
     --- The innermost scope, and the file's outermost one.
-    scope: any
+    scope: state.Scope
 
-    rootScope: any
+    rootScope: state.Scope
 
     --- Return-type annotations of the enclosing functions, or false for one that was
     --- not annotated and is therefore not checked.
@@ -357,7 +545,7 @@ record state.Checker
     suppressed: function(code: string): boolean
 
     --- The scope entry a name resolves to, narrowing included, or nil.
-    lookupEntry: function(name: string): any
+    lookupEntry: function(name: string): state.Binding?
 
     --- The type a name resolves to, or nil.
     lookupType: function(name: string): (Type?, any?)
@@ -482,7 +670,7 @@ record state.Checker
     validateTypeBounds: function(params: any, bounds: any, map: any, node: any)
 
     --- Binds a name in the current scope.
-    bindVar: function(name: string, t: Type?, ann: boolean?, tok: any?, kind: string?, constant: boolean?)
+    bindVar: function(name: string, t: Type, ann: boolean?, tok: any?, kind: string?, constant: boolean?): state.Binding
 
     --- Checks a block, and a function body.
     checkBlock: function(block: Node?, scopeManaged: boolean?)
