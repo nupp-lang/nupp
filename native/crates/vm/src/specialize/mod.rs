@@ -701,14 +701,19 @@ impl Interp {
     /// fails leaves nothing behind but the error.
     pub fn spec_compile_with(&mut self, jit: &mut crate::jit::Jit, fid: u32, plan: Plan) -> Result<Version, String> {
         let f = self.funcs[fid as usize].clone();
-        let checked = facts::validate(&plan, &f, self.spec.body(fid))?;
+        self.spec_compile_function(jit, fid, &f, plan)
+    }
+
+    /// `spec_compile_with` for a caller that already holds the function.
+    pub fn spec_compile_function(&mut self, jit: &mut crate::jit::Jit, fid: u32, f: &crate::interp::Function, plan: Plan) -> Result<Version, String> {
+        let checked = facts::validate(&plan, f, self.spec.body(fid))?;
         let mut deps: Vec<facts::Dependency> = checked.iter().flat_map(|a| a.deps.iter().copied()).collect();
         deps.dedup();
         let feedback = plan.hooks.as_ref().map_or(0, |h| h.func_addr as usize);
         let meta = (plan.version, plan.body, plan.convention, plan.policy, deps, plan.sites.len(), feedback);
         let frame = plan.convention.frame();
         jit.plan = Some(plan);
-        let code = jit.compile_version(&f, fid, frame);
+        let code = jit.compile_version(f, fid, frame);
         jit.plan = None;
         let code = code?;
         facts::check_dominance(&jit.last_fact_uses).map_err(|e| format!("{}: {e}", f.name))?;

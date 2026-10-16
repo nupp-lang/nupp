@@ -159,12 +159,13 @@ pub struct Facts {
 impl Facts {
     pub fn block_start(&mut self, pc: usize) { self.regs.clear(); self.epoch = None; self.block = pc; }
     /// A new value in `reg`.
-    pub fn define(&mut self, reg: u8) { self.regs.remove(&reg); }
+    pub fn define(&mut self, reg: u8) { if !self.regs.is_empty() { self.regs.remove(&reg); } }
     /// A frame transfer reloaded the frame: nothing proved before survives.
     pub fn transfer(&mut self) { self.regs.clear(); self.epoch = None; }
     /// After an operation with these effects: mutable facts end if it may
     /// mutate, reenter, allocate (weak entries) or transfer.
     pub fn after(&mut self, effects: Effects) {
+        if self.regs.is_empty() && self.epoch.is_none() { return; }
         if effects.transfers() { return self.transfer(); }
         if effects.kills_mutable_facts() {
             self.epoch = None;

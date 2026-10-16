@@ -273,7 +273,7 @@ fn main() {
             // With specialization on, an instrumented generic version, compiled
             // and installed through its version record.
             let result = match it.spec_baseline_plan(fid as u32) {
-                Some(plan) => it.spec_compile_with(&mut j, fid as u32, plan).and_then(|v| it.spec_install(v).map_err(|e| format!("{e:?}"))),
+                Some(plan) => it.spec_compile_function(&mut j, fid as u32, &f, plan).and_then(|v| it.spec_install(v).map_err(|e| format!("{e:?}"))),
                 None => j.try_compile(&f, fid as u32).map(|p| p as u64),
             };
             match result { Ok(entry) => { it.entries[fid] = entry; compiled += 1; } Err(e) => refused.push(format!("{} ({e})", f.name)) }
