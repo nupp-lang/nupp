@@ -11,6 +11,7 @@ if not HERE:match("^/") then
 end
 local NUPP = HERE .. "/../bin/nupp"
 local packaging = require("nupp.tools.build.package")
+local test = require("nupp.test")
 local EXECUTABLE = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
 
 local function tempProject(files)
@@ -73,6 +74,19 @@ local function run(dir, argv)
     end
 
     return out, status == 0
+end
+
+-- Whether `nupp build` stamps VM programs: the compiler it runs is VM-hosted,
+-- named outright or installed for the checkout. A LuaJIT-hosted compiler stamps
+-- LuaJIT programs, whose native shared bytes and transfer walk the cases gated
+-- on this are about.
+local function stampsVmPrograms()
+    local selected = io.open(HERE .. "/../.nupp/vm-cli/current", "rb")
+    if selected then
+        selected:close()
+    end
+
+    return os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or (selected ~= nil and os.getenv("NUPP_ENGINE") ~= "luajit")
 end
 
 local MANIFEST = [[
@@ -478,7 +492,6 @@ local copied, copyProblem = pcall(function(): nil
 end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
-const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 
 local frame = heap.allocate(ffi.typeof<uint8>(), 64)
@@ -512,18 +525,6 @@ end
 builder:commit(2)
 builder:append("!")
 print(builder:freeze():toString())
-
-local type Accounted = {accounted: @nosuspend function(): integer}
-local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
-collectgarbage("collect")
-collectgarbage("collect")
-local before = rawShared.accounted()
-local grown: sharedbytes.Region? = sharedbytes.copy(("y"):rep(65536))
-print(rawShared.accounted() - before == 65536, grown ~= nil)
-grown = nil
-collectgarbage("collect")
-collectgarbage("collect")
-print(rawShared.accounted() == before)
 ]],
         [
             "src/capture.nupp"
@@ -547,7 +548,7 @@ end
     assert(builtOk, "the native worker binary builds: " .. built)
     local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk, "the native worker binary runs: " .. output)
-    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\ntrue\ttrue\ntrue\n"
+    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\n"
     assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -730,7 +731,10 @@ end
 -- A region's extent is two private fields, and a forged one used to reach the
 -- native push beside a moved array: the push refused the region, and freed the
 -- array twice. The transfer walk refuses it first, with the array still owned.
+-- A VM worker receives a copy of a region's managed block, and its views check
+-- every extent against that storage, so there is no native push to reach.
 function M.aRegionWhoseExtentWasForgedIsRefusedBeforeItCrosses()
+    test.requireCapability("native-region-transfer", not stampsVmPrograms())
     local dir = tempProject({
         [
             "nupp.lua"
@@ -782,6 +786,44 @@ end
     local expected = "false\ttrue\n67\n"
     local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk and output == expected, "a forged region extent is refused before it crosses: " .. output)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A native shared-bytes block is accounted while a region holds it and given back
+-- when the last one is collected. A VM region's block is managed storage, which
+-- the collector accounts for like any other value.
+function M.nativeSharedBytesAreAccountedUntilCollected()
+    test.requireCapability("native-shared-bytes", not stampsVmPrograms())
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {include = {"src"}, build = {default = "app", targets = {app = {
+   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+}}}}
+]],
+        [
+            "src/main.nupp"
+        ] = [[
+const sharedbytes = require("nupp.mem.sharedbytes")
+
+local type Accounted = {accounted: @nosuspend function(): integer}
+local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
+collectgarbage("collect")
+collectgarbage("collect")
+local before = rawShared.accounted()
+local grown: sharedbytes.Region? = sharedbytes.copy(("y"):rep(65536))
+print(rawShared.accounted() - before == 65536, grown ~= nil)
+grown = nil
+collectgarbage("collect")
+collectgarbage("collect")
+print(rawShared.accounted() == before)
+]],
+    })
+    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+    assert(builtOk, "the shared-bytes binary builds: " .. built)
+    local output, ranOk = run(dir, EXECUTABLE)
+    assert(ranOk and output == "true\ttrue\ntrue\n", "a region's block is accounted until collected: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -875,7 +917,6 @@ end
         [
             "src/main.nupp"
         ] = [[
-const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 const jobs = require("jobs")
 const tasks = require("nupp.tasks")
