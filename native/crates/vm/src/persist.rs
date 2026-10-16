@@ -813,6 +813,11 @@ fn save_graph_mode(
                 }
             }
             let h = unsafe { p.as_ref() };
+            if h.kind == KIND_BYTES && crate::storage::holds_pointers(vm, v) {
+                return Err("native storage whose pointer fields are set holds process addresses; \
+                            clear them before it is saved or sent"
+                    .into());
+            }
             payload.byte(if !plain && h.kind == KIND_RECORD && h.flags & F_METATABLE != 0 { RECORD_WITH_METATABLE } else if !plain && h.kind == KIND_TABLE && h.flags & F_NATIVE_STORAGE != 0 { if h.flags & F_NATIVE_OWNED != 0 { OWNED_NATIVE_TABLE } else { NATIVE_TABLE } } else if h.kind == KIND_BYTES && unsafe { &*(h.payload() as *const BytesPayload) }.data.is_fixed() { ALIGNED_BYTES } else { h.kind });
             // Use the collector's edge enumeration to discover every ordinary
             // reference. Transient records use their filtered edge list below.

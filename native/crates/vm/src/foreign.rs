@@ -165,6 +165,58 @@ pub(crate) mod native {
         size: usize,
         readonly: bool,
         callback: Option<Rc<Signature>>,
+        mapping: Mapping,
+    }
+    /// What the caller supplies for a C parameter, when not the argument itself.
+    enum Mapping {
+        Plain,
+        /// A slot the call lends C and hands back filled, after the status.
+        Out(Stored),
+        /// A span reaching C as its first element's address; its length fills
+        /// the count parameter at that physical position.
+        Counted {
+            element: Stored,
+            write: bool,
+            count: usize,
+            name: String,
+        },
+        /// Filled from the spans that name it, never from an argument.
+        Count,
+    }
+    /// What an out slot or a counted span holds.
+    enum Stored {
+        Scalar(Scalar),
+        /// A struct, by its declaration identity; its storage type is looked
+        /// up when the call runs, since the declaration defines it.
+        Struct(Value),
+    }
+    impl Stored {
+        fn parse(vm: &Interp, value: Value) -> Self {
+            if matches!(vm.kind_of(value), Some(KIND_TABLE | KIND_RECORD)) {
+                let kind = field_value(vm, value, "kind");
+                if vm.is_stringish(kind) && vm.bytes_of(kind) == b"struct" {
+                    let identity = field_value(vm, value, "identity");
+                    if !vm.is_stringish(identity) {
+                        vm.err("a foreign struct slot names its declaration");
+                    }
+                    return Self::Struct(identity);
+                }
+                return Self::Scalar(Scalar::parse(vm, kind));
+            }
+            Self::Scalar(Scalar::parse(vm, value))
+        }
+        fn identity(&self) -> Value {
+            match self {
+                Self::Struct(identity) => *identity,
+                Self::Scalar(_) => Value::NIL,
+            }
+        }
+    }
+    /// Which status means a call's out slots hold values.
+    enum Success {
+        Always,
+        Equals(i64),
+        NotEquals(i64),
     }
     impl Abi {
         fn parse(vm: &mut Interp, value: Value, depth: usize, budget: &mut usize) -> Self {
@@ -181,6 +233,7 @@ pub(crate) mod native {
                     size: 16,
                     readonly: false,
                     callback: None,
+                    mapping: Mapping::Plain,
                 };
             }
             let tag = field(vm, value, "kind");
@@ -198,7 +251,91 @@ pub(crate) mod native {
                     size: 16,
                     readonly: false,
                     callback: Some(Rc::new(signature)),
+                    mapping: Mapping::Plain,
                 };
+            }
+            if tag == b"out" || tag == b"counted" || tag == b"count" {
+                if depth != 0 {
+                    vm.err("an out, counted or count mapping is a parameter's own");
+                }
+                let mapping = match tag.as_slice() {
+                    b"out" => {
+                        let t = field(vm, value, "type");
+                        Mapping::Out(Stored::parse(vm, t))
+                    }
+                    b"counted" => {
+                        let count = field(vm, value, "count");
+                        let name = field(vm, value, "countName");
+                        Mapping::Counted {
+                            element: {
+                                let e = field(vm, value, "element");
+                                Stored::parse(vm, e)
+                            },
+                            write: field_value(vm, value, "write").truthy(),
+                            count: numeric::bits(vm, count, true) as usize,
+                            name: if vm.is_stringish(name) {
+                                String::from_utf8_lossy(vm.bytes_of(name)).into_owned()
+                            } else {
+                                "its count".into()
+                            },
+                        }
+                    }
+                    _ => Mapping::Count,
+                };
+                let kind = if let Mapping::Count = mapping {
+                    let t = field(vm, value, "type");
+                    let kind = Scalar::parse(vm, t);
+                    if !matches!(
+                        kind,
+                        Scalar::I8
+                            | Scalar::U8
+                            | Scalar::I16
+                            | Scalar::U16
+                            | Scalar::I32
+                            | Scalar::U32
+                            | Scalar::I64
+                            | Scalar::U64
+                    ) {
+                        vm.err("a count parameter has an integer type");
+                    }
+                    kind
+                } else {
+                    Scalar::Pointer
+                };
+                for retained in [field(vm, value, "type"), field(vm, value, "element")] {
+                    if retained != Value::NIL {
+                        vm.handles.push(retained);
+                    }
+                }
+                return Self {
+                    kind,
+                    // Keeps a struct identity's string reachable with the binding.
+                    descriptor: value,
+                    ty: kind.ffi(),
+                    size: 16,
+                    readonly: matches!(mapping, Mapping::Counted { write: false, .. }),
+                    callback: None,
+                    mapping,
+                };
+            }
+            // A struct a `cdef` signature names by its declaration: the storage
+            // type its declaration defined, which lays it out on this host.
+            let value = if matches!(tag.as_slice(), b"struct" | b"union")
+                && field(vm, value, "fields") == Value::NIL
+            {
+                let identity = field(vm, value, "identity");
+                let resolved = crate::storage::struct_type(vm, identity);
+                vm.handles.push(resolved);
+                resolved
+            } else {
+                value
+            };
+            let tag = {
+                let kind = field(vm, value, "kind");
+                vm.bytes_of(kind).to_vec()
+            };
+            if tag == b"union" {
+                return Self::union(vm, value, budget);
             }
             if tag != b"struct" && tag != b"array" {
                 let kind = Scalar::parse(vm, field_value(vm, value, "kind"));
@@ -209,6 +346,7 @@ pub(crate) mod native {
                     size: 16,
                     readonly: field_value(vm, value, "readonly").truthy(),
                     callback: None,
+                    mapping: Mapping::Plain,
                 };
             }
             let mut types = Vec::new();
@@ -221,6 +359,16 @@ pub(crate) mod native {
                 }
                 for i in 1..=count {
                     let member = vm.get_index(fields, Value::num(i as f64));
+                    if field(vm, member, "bitWidth") != Value::NIL {
+                        // Bitfields share and overlap storage units, which a libffi
+                        // struct cannot say; classify the bytes as a union's are.
+                        return Self::union(vm, value, budget);
+                    }
+                }
+                for i in 1..=count {
+                    let member = vm.get_index(fields, Value::num(i as f64));
+                    let offset = field(vm, member, "offset");
+                    let offset = numeric::bits(vm, offset, true) as usize;
                     let stored = field(vm, member, "type");
                     let abi = Self::parse(vm, stored, depth + 1, budget);
                     if matches!(abi.kind, Scalar::Void) {
@@ -230,8 +378,7 @@ pub(crate) mod native {
                         vm.err("a foreign aggregate cannot store a callback; store a pointer");
                     }
                     types.push(abi.ty);
-                    let offset = field(vm, member, "offset");
-                    expected_offsets.push(numeric::bits(vm, offset, true) as usize);
+                    expected_offsets.push(offset);
                 }
             } else {
                 let count = field(vm, value, "count");
@@ -272,6 +419,148 @@ pub(crate) mod native {
                 size,
                 readonly: false,
                 callback: None,
+                mapping: Mapping::Plain,
+            }
+        }
+    }
+    impl Abi {
+        /// A C union, or a struct holding bitfields, by value. libffi has
+        /// neither unions nor bitfields, so the aggregate is passed as the
+        /// struct each target classifies the same way: per eight bytes, its
+        /// floats when every member there is floating point (of one type, on
+        /// AArch64, where only that makes a homogeneous aggregate) and an
+        /// integer word otherwise.
+        fn union(vm: &mut Interp, value: Value, budget: &mut usize) -> Self {
+            let size = field(vm, value, "size");
+            let size = numeric::bits(vm, size, true) as usize;
+            let alignment = field(vm, value, "alignment");
+            let alignment = numeric::bits(vm, alignment, true) as usize;
+            if size == 0 || size > 16 * 1024 * 1024 || alignment > 16 {
+                vm.err("foreign union exceeds supported ABI storage");
+            }
+            let mut leaves = Vec::new();
+            union_leaves(vm, value, 0, &mut leaves, 0, budget);
+            let floating = |kind: Scalar| matches!(kind, Scalar::F32 | Scalar::F64);
+            let mut types = Vec::new();
+            let mut at = 0;
+            while at < size {
+                let end = (at + 8).min(size);
+                let inside: Vec<Scalar> = leaves
+                    .iter()
+                    .filter(|(offset, _)| *offset >= at && *offset < end)
+                    .map(|(_, kind)| *kind)
+                    .collect();
+                let all_float = !inside.is_empty() && inside.iter().all(|k| floating(*k));
+                let one_kind = inside.windows(2).all(|pair| pair[0] == pair[1]);
+                let float_kind = if all_float && (one_kind || cfg!(target_arch = "x86_64")) {
+                    if inside.contains(&Scalar::F64) && end - at == 8 {
+                        Some(Scalar::F64)
+                    } else if inside.iter().all(|k| *k == Scalar::F32) || end - at < 8 {
+                        Some(Scalar::F32)
+                    } else {
+                        Some(Scalar::F64)
+                    }
+                } else {
+                    None
+                };
+                match float_kind {
+                    Some(Scalar::F64) => types.push(Type::f64()),
+                    Some(_) => {
+                        for _ in 0..(end - at) / 4 {
+                            types.push(Type::f32());
+                        }
+                    }
+                    None => {
+                        let mut left = end - at;
+                        // An integer word no wider than the union's own alignment,
+                        // which the representation must not raise.
+                        for (width, ty) in [
+                            (8, Type::u64()),
+                            (4, Type::u32()),
+                            (2, Type::u16()),
+                            (1, Type::u8()),
+                        ] {
+                            while width <= alignment
+                                && left >= width
+                                && (at + (end - at - left)) % width == 0
+                            {
+                                types.push(ty.clone());
+                                left -= width;
+                            }
+                        }
+                        while left > 0 {
+                            types.push(Type::u8());
+                            left -= 1;
+                        }
+                    }
+                }
+                at = end;
+            }
+            let mut ty = Type::structure(types);
+            // libffi lays a struct type out when it is first prepared.
+            ty.struct_offsets(libffi::low::ffi_abi_FFI_DEFAULT_ABI)
+                .unwrap_or_else(|e| vm.err(&format!("invalid foreign union ABI: {e:?}")));
+            let physical = unsafe { &*ty.as_raw_ptr() };
+            if physical.size != size || physical.alignment as usize != alignment {
+                vm.err(&format!(
+                    "a C union by value has no representation on this target \
+                     ({size} bytes aligned to {alignment}; represented as {} aligned to {})",
+                    physical.size, physical.alignment
+                ));
+            }
+            Self {
+                kind: Scalar::Aggregate,
+                descriptor: value,
+                ty,
+                size,
+                readonly: false,
+                callback: None,
+                mapping: Mapping::Plain,
+            }
+        }
+    }
+    /// Every scalar a stored type holds, at its byte offset, across all of a
+    /// union's members.
+    fn union_leaves(
+        vm: &mut Interp,
+        ty: Value,
+        base: usize,
+        out: &mut Vec<(usize, Scalar)>,
+        depth: usize,
+        budget: &mut usize,
+    ) {
+        if depth > 32 || *budget == 0 {
+            vm.err("foreign aggregate type is too complex");
+        }
+        *budget -= 1;
+        let kind = field(vm, ty, "kind");
+        match vm.bytes_of(kind) {
+            b"struct" | b"union" => {
+                let fields = field(vm, ty, "fields");
+                for i in 1..=vm.array_len(fields) {
+                    let member = vm.get_index(fields, Value::num(i as f64));
+                    let offset = field(vm, member, "offset");
+                    let offset = numeric::bits(vm, offset, true) as usize;
+                    let stored = field(vm, member, "type");
+                    union_leaves(vm, stored, base + offset, out, depth + 1, budget);
+                }
+            }
+            b"array" => {
+                let count = field(vm, ty, "count");
+                let count = numeric::bits(vm, count, true) as usize;
+                let element = field(vm, ty, "element");
+                let size = field(vm, element, "size");
+                let width = numeric::bits(vm, size, true) as usize;
+                if count > *budget {
+                    vm.err("foreign aggregate type is too complex");
+                }
+                for i in 0..count {
+                    union_leaves(vm, element, base + i * width, out, depth + 1, budget);
+                }
+            }
+            _ => {
+                let kind = Scalar::parse(vm, kind);
+                out.push((base, kind));
             }
         }
     }
@@ -734,6 +1023,10 @@ pub(crate) mod native {
         address: CodePtr,
         params: Vec<Abi>,
         result: Abi,
+        success: Success,
+        /// Arguments past the declared ones are typed per call from their
+        /// values, as LuaJIT types a C variadic call's.
+        variadic: bool,
         // A symbol remains valid while any bound function or returned pointer uses it.
         library: Rc<Native>,
     }
@@ -1037,7 +1330,50 @@ pub(crate) mod native {
             }
             params.push(ty);
         }
+        for (i, parameter) in params.iter().enumerate() {
+            if let Mapping::Counted { count, .. } = parameter.mapping {
+                if count == 0
+                    || count > n
+                    || !matches!(params[count - 1].mapping, Mapping::Count)
+                    || count == i + 1
+                {
+                    vm.err("a counted parameter names a count parameter of its signature");
+                }
+            }
+        }
+        let success = field(vm, args[2], "success");
+        let success = if vm.is_stringish(success) {
+            let text = String::from_utf8_lossy(vm.bytes_of(success)).into_owned();
+            let status = |prefix: &str| {
+                text.strip_prefix(prefix)
+                    .and_then(|n| n.parse::<i64>().ok())
+            };
+            if text == "always" {
+                Success::Always
+            } else if let Some(n) = status("equals:") {
+                Success::Equals(n)
+            } else if let Some(n) = status("notequals:") {
+                Success::NotEquals(n)
+            } else if text == "zero" {
+                Success::Equals(0)
+            } else if text == "nonzero" {
+                Success::NotEquals(0)
+            } else {
+                vm.err("unknown foreign success rule")
+            }
+        } else {
+            Success::Always
+        };
+        if !matches!(success, Success::Always)
+            && matches!(result.kind, Scalar::Void | Scalar::Aggregate)
+        {
+            vm.err("a success rule reads an integer status");
+        }
         let fixed = field(vm, args[2], "fixed");
+        let variadic = field(vm, args[2], "variadic").truthy();
+        if variadic && fixed != Value::NIL {
+            vm.err("a variadic foreign signature types its extra arguments per call");
+        }
         let types = params.iter().map(|t| t.ty.clone()).collect::<Vec<_>>();
         let cif = if fixed == Value::NIL {
             Cif::try_new(types, result.ty.clone())
@@ -1088,9 +1424,66 @@ pub(crate) mod native {
                 address: CodePtr(address),
                 params,
                 result,
+                success,
+                variadic,
                 library,
             },
         )
+    }
+    /// A header's library namespace: what `cheader(path, library)` evaluates
+    /// to. Its functions bind on first use, as LuaJIT resolves `ffi.load(...)`
+    /// symbols when indexed, so a header may declare what its library lacks;
+    /// its enum members answer their values.
+    fn namespace(vm: &mut Interp, args: &[Value]) -> Value {
+        if args.len() != 3 {
+            vm.err("foreign.namespace expects library, signatures, and constants");
+        }
+        let object = vm.new_table();
+        vm.handles.push(object);
+        let meta = vm.new_table();
+        vm.handles.push(meta);
+        for (name, value) in [
+            ("library", args[0]),
+            ("signatures", args[1]),
+            ("constants", args[2]),
+        ] {
+            let key = vm.intern(name);
+            vm.set_index(meta, key, value);
+        }
+        let key = vm.intern("__index");
+        vm.set_index(
+            meta,
+            key,
+            Value::builtin(crate::builtins::id_of("foreign.resolve").unwrap()),
+        );
+        vm.set_metatable(object, meta);
+        object
+    }
+    fn resolve(vm: &mut Interp, args: &[Value]) -> Value {
+        let (object, name) = (args[0], args.get(1).copied().unwrap_or(Value::NIL));
+        let meta = vm.metatable_of(object);
+        let constants = field(vm, meta, "constants");
+        if constants != Value::NIL {
+            let value = vm.get_index(constants, name);
+            if value != Value::NIL {
+                return value;
+            }
+        }
+        let signatures = field(vm, meta, "signatures");
+        let signature = vm.get_index(signatures, name);
+        if signature == Value::NIL {
+            return Value::NIL;
+        }
+        let refused = field(vm, signature, "unsupported");
+        if vm.is_stringish(refused) {
+            let reason = String::from_utf8_lossy(vm.bytes_of(refused)).into_owned();
+            vm.err(&reason);
+        }
+        let library = field(vm, meta, "library");
+        let function = bind(vm, &[library, name, signature]);
+        vm.handles.push(function);
+        vm.set_index(object, name, function);
+        function
     }
     /// A callable foreign function object for `binding`; `parents` stay
     /// reachable from it.
@@ -1123,6 +1516,7 @@ pub(crate) mod native {
             size: 16,
             readonly: false,
             callback: None,
+            mapping: Mapping::Plain,
         };
         let params: Vec<Abi> = signature.params.iter().map(|&kind| scalar(kind)).collect();
         let result = scalar(signature.result);
@@ -1139,6 +1533,8 @@ pub(crate) mod native {
                 address: CodePtr(address),
                 params,
                 result,
+                success: Success::Always,
+                variadic: false,
                 library,
             },
         )
@@ -1179,10 +1575,32 @@ pub(crate) mod native {
         for parameter in &binding.params {
             vm.handles.push(parameter.descriptor);
         }
-        let args = &args[1..];
-        if args.len() != binding.params.len() {
+        // The caller supplies plain and counted parameters; out slots and
+        // counts the call fills itself.
+        let supplied = &args[1..];
+        let expected = binding
+            .params
+            .iter()
+            .filter(|abi| matches!(abi.mapping, Mapping::Plain | Mapping::Counted { .. }))
+            .count();
+        if supplied.len() != expected && !(binding.variadic && supplied.len() > expected) {
             vm.err("foreign call argument count does not match signature");
         }
+        let extras = &supplied[expected..];
+        let mut next = supplied.iter();
+        let physical: Vec<Value> = binding
+            .params
+            .iter()
+            .map(|abi| match abi.mapping {
+                Mapping::Plain | Mapping::Counted { .. } => *next.next().unwrap(),
+                _ => Value::NIL,
+            })
+            .collect();
+        let args = &physical[..];
+        // Out slots: a scalar's or pointer's cell, or the struct value C fills.
+        let mut cells: Vec<Box<Word>> = Vec::new();
+        let mut filled: Vec<Value> = Vec::new();
+        let mut counts: Vec<Option<(usize, String)>> = vec![None; binding.params.len()];
         let mut slots: Vec<Slot> = binding
             .params
             .iter()
@@ -1192,6 +1610,49 @@ pub(crate) mod native {
         let mut parents = Vec::new();
         let mut managed = args.to_vec();
         for ((slot, abi), &value) in slots.iter_mut().zip(&binding.params).zip(args) {
+            match &abi.mapping {
+                Mapping::Plain => {}
+                Mapping::Count => continue,
+                Mapping::Out(Stored::Scalar(_)) => {
+                    let mut cell = Box::new(Word([0; 16]));
+                    slot.put(cell.0.as_mut_ptr());
+                    cells.push(cell);
+                    continue;
+                }
+                Mapping::Out(stored) => {
+                    let ty = crate::storage::struct_type(vm, stored.identity());
+                    let filled_value = crate::storage::call(vm, "valueNew", &[ty]);
+                    vm.handles.push(filled_value);
+                    let view = crate::storage::native_view(vm, filled_value, true);
+                    slot.put(view.pointer);
+                    filled.push(filled_value);
+                    continue;
+                }
+                Mapping::Counted {
+                    element,
+                    write,
+                    count,
+                    name,
+                } => {
+                    let identity = element.identity();
+                    let kind = match element {
+                        Stored::Scalar(kind) => Some(kind.name()),
+                        Stored::Struct(_) => None,
+                    };
+                    let (owner, pointer, n) =
+                        crate::storage::counted_span(vm, value, *write, kind, identity);
+                    vm.handles.push(owner);
+                    managed.push(owner);
+                    match &counts[count - 1] {
+                        Some((previous, _)) if *previous != n => {
+                            vm.err(&format!("spans counted by {name} must have equal lengths"))
+                        }
+                        _ => counts[count - 1] = Some((n, name.clone())),
+                    }
+                    slot.put(pointer);
+                    continue;
+                }
+            }
             match abi.kind {
                 Scalar::Aggregate => {
                     let view = crate::storage::native_view(vm, value, false);
@@ -1278,6 +1739,88 @@ pub(crate) mod native {
                 }
             }
         }
+        for ((slot, abi), count) in slots.iter_mut().zip(&binding.params).zip(&counts) {
+            if !matches!(abi.mapping, Mapping::Count) {
+                continue;
+            }
+            let (n, name) = count
+                .clone()
+                .unwrap_or_else(|| vm.err("a count parameter is filled by the span that names it"));
+            let fits = match abi.kind {
+                Scalar::I8 => n <= i8::MAX as usize,
+                Scalar::U8 => n <= u8::MAX as usize,
+                Scalar::I16 => n <= i16::MAX as usize,
+                Scalar::U16 => n <= u16::MAX as usize,
+                Scalar::I32 => n <= i32::MAX as usize,
+                Scalar::U32 => n <= u32::MAX as usize,
+                Scalar::I64 => n <= i64::MAX as usize,
+                _ => true,
+            };
+            match abi.kind {
+                Scalar::I8 => slot.put(n as i8),
+                Scalar::U8 => slot.put(n as u8),
+                Scalar::I16 => slot.put(n as i16),
+                Scalar::U16 => slot.put(n as u16),
+                Scalar::I32 => slot.put(n as i32),
+                Scalar::U32 => slot.put(n as u32),
+                _ => slot.put(n as u64),
+            }
+            if !fits {
+                vm.err(&format!("a span is too long for {name}"));
+            }
+        }
+        // A variadic call's extra arguments, typed by the default promotions
+        // from their values: a number is a double, an exact integer keeps its
+        // 64 bits, a boolean is an int, and a string, storage or a foreign
+        // pointer is an address.
+        let mut extra_types = Vec::new();
+        for &value in extras {
+            let mut slot = Slot::new(16);
+            let ty = if value == Value::NIL {
+                slot.put(std::ptr::null_mut::<c_void>());
+                Type::pointer()
+            } else if value == Value::TRUE || value == Value::FALSE {
+                slot.put(i32::from(value == Value::TRUE));
+                Type::i32()
+            } else if value.is_num() {
+                slot.put(value.as_num());
+                Type::f64()
+            } else if let Some(integer) = numeric::integer(value) {
+                slot.put(integer.bits);
+                if integer.unsigned {
+                    Type::u64()
+                } else {
+                    Type::i64()
+                }
+            } else if vm.is_stringish(value) {
+                let mut bytes = vm.bytes_of(value).to_vec();
+                bytes.push(0);
+                let mut bytes = bytes.into_boxed_slice();
+                slot.put(bytes.as_mut_ptr());
+                strings.push(bytes);
+                Type::pointer()
+            } else if let Some(address) = address_of(vm, value) {
+                slot.put(address as *mut c_void);
+                Type::pointer()
+            } else if crate::storage::is_native(value) {
+                let view = crate::storage::native_view(vm, value, false);
+                vm.handles.push(view.owner);
+                managed.push(view.owner);
+                slot.put(view.pointer);
+                Type::pointer()
+            } else {
+                vm.err("a variadic C argument is a number, exact integer, boolean, string, pointer or nil")
+            };
+            slots.push(slot);
+            extra_types.push(ty);
+        }
+        let per_call = (!extras.is_empty()).then(|| {
+            let mut types: Vec<Type> = binding.params.iter().map(|abi| abi.ty.clone()).collect();
+            types.extend(extra_types);
+            Cif::try_new_variadic(types, binding.params.len(), binding.result.ty.clone())
+                .unwrap_or_else(|e| vm.err(&format!("invalid foreign variadic call: {e:?}")))
+        });
+        let cif = per_call.as_ref().unwrap_or(&binding.cif);
         let args_ffi: Vec<_> = slots.iter().map(|slot| Arg::new(slot.bytes())).collect();
         let mut result = Slot::new(binding.result.size);
         let refusal_mark = vm.foreign.refusals.len();
@@ -1285,9 +1828,7 @@ pub(crate) mod native {
         let active = ActiveVm::enter(vm);
         set_errno(vm.foreign.errno);
         unsafe {
-            binding
-                .cif
-                .call_return_into(binding.address, &args_ffi, Ret::new(result.bytes_mut()));
+            cif.call_return_into(binding.address, &args_ffi, Ret::new(result.bytes_mut()));
         }
         vm.foreign.errno = get_errno();
         drop(active);
@@ -1298,6 +1839,7 @@ pub(crate) mod native {
             std::panic::panic_any(crate::builtins::LuaError(error.0));
         }
         raise_refusals(vm, refusal_mark);
+        let mut derived: Option<Rc<Pointer>> = None;
         let value = match binding.result.kind {
             Scalar::Aggregate => {
                 let value = crate::storage::call(vm, "valueNew", &[binding.result.descriptor]);
@@ -1315,7 +1857,7 @@ pub(crate) mod native {
                 }
                 value
             }
-            Scalar::Void => return Outs::new(),
+            Scalar::Void => Value::NIL,
             Scalar::Bool => Value::boolean(result.get::<usize>() as u8 != 0),
             Scalar::I8 => Value::num(result.get::<usize>() as i8 as f64),
             Scalar::U8 => Value::num(result.get::<usize>() as u8 as f64),
@@ -1348,21 +1890,99 @@ pub(crate) mod native {
                     Value::NIL
                 } else {
                     let object = resource(vm, "nupp.foreign.pointer", args);
-                    vm.foreign.pointers.insert(
-                        object,
-                        Rc::new(Pointer {
-                            address,
-                            _library: Some(binding.library.clone()),
-                            _strings: strings,
-                            _parents: parents,
-                            managed,
-                        }),
-                    );
+                    let derived = derived.get_or_insert_with(|| {
+                        held(
+                            &binding,
+                            std::mem::take(&mut strings),
+                            std::mem::take(&mut parents),
+                            managed.clone(),
+                        )
+                    });
+                    vm.foreign
+                        .pointers
+                        .insert(object, pointer_from(address, derived));
                     object
                 }
             }
         };
-        [value].into_iter().collect()
+        let mut results = Vec::new();
+        if !matches!(binding.result.kind, Scalar::Void) {
+            results.push(value);
+        }
+        vm.handles.push(value);
+        // Out slots follow the status, in C order, and hold values only when
+        // the status says the call succeeded.
+        let succeeded = match binding.success {
+            Success::Always => true,
+            Success::Equals(n) => numeric::bits(vm, value, false) as i64 == n,
+            Success::NotEquals(n) => numeric::bits(vm, value, false) as i64 != n,
+        };
+        let (mut cells, mut filled) = (cells.into_iter(), filled.into_iter());
+        for abi in &binding.params {
+            let Mapping::Out(stored) = &abi.mapping else {
+                continue;
+            };
+            let output = match stored {
+                Stored::Struct(_) => filled.next().unwrap(),
+                Stored::Scalar(kind) => {
+                    let cell = cells.next().unwrap();
+                    let pointer = cell.0.as_ptr().cast::<c_void>();
+                    if !succeeded {
+                        Value::NIL
+                    } else if matches!(kind, Scalar::Pointer) {
+                        let address = unsafe { pointer.cast::<*mut c_void>().read() };
+                        if address.is_null() {
+                            Value::NIL
+                        } else {
+                            let object = resource(vm, "nupp.foreign.pointer", args);
+                            let derived = derived.get_or_insert_with(|| {
+                                held(
+                                    &binding,
+                                    std::mem::take(&mut strings),
+                                    std::mem::take(&mut parents),
+                                    managed.clone(),
+                                )
+                            });
+                            vm.foreign
+                                .pointers
+                                .insert(object, pointer_from(address, derived));
+                            object
+                        }
+                    } else {
+                        unsafe { callback_read(vm, *kind, pointer) }
+                    }
+                }
+            };
+            let output = if succeeded { output } else { Value::NIL };
+            vm.handles.push(output);
+            results.push(output);
+        }
+        results.into_iter().collect()
+    }
+    /// What every pointer one call returns holds alive: the library, the
+    /// strings it was passed, the pointers and storage it derived from.
+    fn held(
+        binding: &Binding,
+        strings: Vec<Box<[u8]>>,
+        parents: Vec<Rc<Pointer>>,
+        managed: Vec<Value>,
+    ) -> Rc<Pointer> {
+        Rc::new(Pointer {
+            address: std::ptr::null_mut(),
+            _library: Some(binding.library.clone()),
+            _strings: strings,
+            _parents: parents,
+            managed,
+        })
+    }
+    fn pointer_from(address: *mut c_void, held: &Rc<Pointer>) -> Rc<Pointer> {
+        Rc::new(Pointer {
+            address,
+            _library: None,
+            _strings: Vec::new(),
+            _parents: vec![held.clone()],
+            managed: Vec::new(),
+        })
     }
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
     unsafe fn errno_ptr() -> *mut i32 {
@@ -1390,6 +2010,67 @@ pub(crate) mod native {
         unsafe {
             *errno_ptr() = value;
         }
+    }
+    /// The address a foreign pointer or a retained callback stands for, which
+    /// a struct's pointer field stores. Nil for anything else.
+    pub(super) fn address_of(vm: &Interp, value: Value) -> Option<usize> {
+        if let Some(pointer) = vm.foreign.pointers.get(&value) {
+            return Some(pointer.address as usize);
+        }
+        vm.foreign
+            .callbacks
+            .get(&value)
+            .map(|callback| callback.code.as_mut_ptr() as usize)
+    }
+    /// The C address a retained callback stands for when a struct's function
+    /// pointer field holds it. A callback not yet given a C signature takes the
+    /// field's, as it would a parameter's; a plain function is refused, since
+    /// a field outlives any one call that could lend it a trampoline.
+    pub(super) fn field_callback(vm: &mut Interp, value: Value, signature: Value) -> Option<usize> {
+        let expected = (signature != Value::NIL).then(|| Rc::new(Signature::parse(vm, signature)));
+        if let Some(callback) = vm.foreign.callbacks.get(&value).cloned() {
+            if let Some(expected) = &expected {
+                if callback.signature.key != expected.key {
+                    vm.err(&format!(
+                        "native callback has C signature {}, but the field holds {}",
+                        callback.signature.key, expected.key
+                    ));
+                }
+            }
+            return Some(callback.code.as_mut_ptr() as usize);
+        }
+        if let Some(function) = vm.foreign.unbound.get(&value).copied() {
+            let Some(expected) = expected else {
+                vm.err(
+                    "a retained callback stored in a pointer field needs the field's C signature",
+                );
+            };
+            let callback = trampoline(vm, expected, function, true);
+            vm.foreign.unbound.remove(&value);
+            vm.foreign.callbacks.insert(value, callback.clone());
+            return Some(callback.code.as_mut_ptr() as usize);
+        }
+        if is_function(vm, value) {
+            vm.err("a function pointer field holds a retained callback (nupp.foreign.retain), not a function");
+        }
+        None
+    }
+    /// A foreign pointer for an address read from memory nothing managed
+    /// accounts for: a field C wrote. It holds nothing alive, as LuaJIT's
+    /// pointer cdata does not; dereferencing it is the caller's `unsafe`.
+    pub(super) fn external(vm: &mut Interp, address: usize) -> Value {
+        let object = resource(vm, "nupp.foreign.pointer", &[]);
+        vm.foreign.pointers.insert(
+            object,
+            Rc::new(Pointer {
+                address: address as *mut c_void,
+                _library: None,
+                _strings: Vec::new(),
+                _parents: Vec::new(),
+                managed: Vec::new(),
+            }),
+        );
+        object
     }
     pub(super) fn dispatch(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
         match name {
@@ -1440,6 +2121,8 @@ pub(crate) mod native {
                 [value].into_iter().collect()
             }
             "foreign.bind" => [bind(vm, args)].into_iter().collect(),
+            "foreign.namespace" => [namespace(vm, args)].into_iter().collect(),
+            "foreign.resolve" => [resolve(vm, args)].into_iter().collect(),
             "foreign.call" => invoke(vm, args),
             "foreign.close" => {
                 let object = args.first().copied().unwrap_or(Value::NIL);
@@ -1490,7 +2173,63 @@ impl State {
     pub(crate) fn trace(&self, _: &mut dyn FnMut(Value)) {}
 }
 
+/// The address a foreign pointer or retained callback holds, for a struct's
+/// pointer field. Nil when the value is neither, or the runtime has no FFI.
+pub(crate) fn address_of(vm: &Interp, value: Value) -> Option<usize> {
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    {
+        native::address_of(vm, value)
+    }
+    #[cfg(not(all(feature = "native-ffi", not(target_family = "wasm"))))]
+    {
+        let _ = (vm, value);
+        None
+    }
+}
+
+/// The address a callback stored in a struct's function pointer field has.
+pub(crate) fn field_callback(vm: &mut Interp, value: Value, signature: Value) -> Option<usize> {
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    {
+        native::field_callback(vm, value, signature)
+    }
+    #[cfg(not(all(feature = "native-ffi", not(target_family = "wasm"))))]
+    {
+        let _ = (vm, value, signature);
+        None
+    }
+}
+
+/// A foreign pointer to an address C wrote into a struct's pointer field.
+pub(crate) fn external(vm: &mut Interp, address: usize) -> Value {
+    #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]
+    {
+        native::external(vm, address)
+    }
+    #[cfg(not(all(feature = "native-ffi", not(target_family = "wasm"))))]
+    {
+        let _ = address;
+        vm.err("this runtime was built without native FFI")
+    }
+}
+
 pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
+    if name == "foreign.pin" {
+        // `nupp.pin(pointer, anchor)`: the pointer, holding its anchor. Managed
+        // storage already holds its owner; a foreign pointer gains an edge.
+        let pointer = args.first().copied().unwrap_or(Value::NIL);
+        let anchor = args.get(1).copied().unwrap_or(Value::NIL);
+        if anchor != Value::NIL
+            && vm
+                .resources
+                .get(&pointer)
+                .is_some_and(|kind| kind == "nupp.foreign.pointer")
+        {
+            let at = vm.array_len(pointer) + 1;
+            vm.set_index(pointer, Value::num(at as f64), anchor);
+        }
+        return [pointer].into_iter().collect();
+    }
     let mark = vm.open_scope();
     vm.handles.extend_from_slice(args);
     #[cfg(all(feature = "native-ffi", not(target_family = "wasm")))]

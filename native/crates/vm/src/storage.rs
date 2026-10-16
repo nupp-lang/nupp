@@ -15,6 +15,14 @@ use crate::{
 pub(crate) const LIMIT: usize = i32::MAX as usize;
 const TYPES: &str = "nupp.vm.storageTypes";
 const META: &str = "nupp.vm.storageView";
+/// What each byte owner's pointer fields refer to: owner to a table from field
+/// byte offset to the storage value or foreign pointer last stored there. The
+/// keys are weak and the table an ephemeron, so a referent lives exactly as
+/// long as the struct holding it; the bytes hold the address C reads.
+const REFERENCES: &str = "nupp.vm.storageReferences";
+/// Microsoft's bitfield rule: a unit is shared only by bitfields of one size.
+/// Every other host lays bitfields out by the System V rule.
+const MSVC_BITFIELDS: bool = cfg!(target_env = "msvc");
 pub const METHODS: &[&str] = &[
     "allocateBytes",
     "borrowString",
@@ -226,6 +234,7 @@ fn physical_measure(vm: &Interp, ty: Value, depth: usize) -> Option<(usize, usiz
             return None;
         }
         match vm.bytes_of(tag) {
+            b"pointer" => (std::mem::size_of::<usize>(), std::mem::align_of::<usize>()),
             b"array" => {
                 let (size, align) = physical_measure(vm, g("element"), depth + 1)?;
                 (size.checked_mul(physical_count(g("count"))?)?, align)
@@ -545,12 +554,29 @@ fn field_type(vm: &Interp, field: Value) -> Value {
     }
 }
 fn reject_unmodeled_layout(vm: &Interp, value: Value) {
-    for name in ["bitWidth", "bitPos", "pack", "packed", "explicitAlignment"] {
+    for name in ["bitPos", "pack", "packed", "explicitAlignment"] {
         let value = get(vm, value, name);
         if value != Value::NIL && value != Value::FALSE {
-            vm.err("nupp: packed, over-aligned, and bitfield layouts need target ABI metadata");
+            vm.err("nupp: packed and over-aligned layouts have no declaration form");
         }
     }
+}
+/// A bitfield's place in its storage unit: the unit is the declared type's
+/// bytes at the field's offset, and the bits count from its least significant.
+#[derive(Clone, Copy)]
+struct Bits {
+    position: u32,
+    width: u32,
+}
+fn bitfield(vm: &Interp, field: Value) -> Option<Bits> {
+    let width = get(vm, field, "bitWidth");
+    if width == Value::NIL {
+        return None;
+    }
+    Some(Bits {
+        position: count(vm, get(vm, field, "bitOffset")) as u32,
+        width: count(vm, width) as u32,
+    })
 }
 // Validate compiler facts against the executing host ABI, including every
 // nested offset. A foreign-target descriptor must never become native memory.
@@ -582,33 +608,86 @@ fn measure(vm: &Interp, ty: Value, depth: usize) -> (usize, usize) {
             }
             "struct" | "union" => {
                 let fields = get(vm, ty, "fields");
-                let mut size = 0;
+                // The cursor counts bits, so a bitfield may end partway through a byte.
+                let mut bits = 0usize;
                 let mut alignment = 1;
+                // The unit Microsoft's rule is filling: offset, size, bits taken.
+                let mut unit: Option<(usize, usize, usize)> = None;
                 let mut names = std::collections::HashSet::new();
+                let union = kind == "union";
                 for i in 0..vm.array_len(fields) {
                     let field = vm.array_get(fields, i);
                     let name = text(vm, get(vm, field, "name"));
                     if !names.insert(name) {
                         vm.err("nupp: duplicate native struct field");
                     }
-                    let (width, align) = measure(vm, field_type(vm, field), depth + 1);
+                    let member = field_type(vm, field);
+                    let (width, align) = measure(vm, member, depth + 1);
                     reject_unmodeled_layout(vm, field);
-                    let offset = if kind == "union" {
-                        0
+                    let offset = count(vm, get(vm, field, "offset"));
+                    if let Some(claimed) = bitfield(vm, field) {
+                        let base = text(vm, get(vm, member, "kind"));
+                        let unit_bits = width * 8;
+                        if scalar_width(&base).is_none()
+                            || matches!(base.as_str(), "float" | "number")
+                            || claimed.width == 0
+                            || claimed.width as usize > unit_bits
+                        {
+                            vm.err("nupp: a bitfield needs an integer or boolean type at least its width");
+                        }
+                        if claimed.position as usize + claimed.width as usize > unit_bits {
+                            // Natural layouts never place one so; only packing does,
+                            // which LuaJIT refuses as well.
+                            vm.err("nupp: a bitfield crossing its storage unit is unsupported");
+                        }
+                        let w = claimed.width as usize;
+                        let (at, position) = if union {
+                            bits = bits.max(unit_bits);
+                            (0, 0)
+                        } else if MSVC_BITFIELDS {
+                            match unit {
+                                Some((at, size, used)) if size == width && used + w <= unit_bits => {
+                                    unit = Some((at, size, used + w));
+                                    (at, used)
+                                }
+                                _ => {
+                                    let at = aligned(vm, bits.div_ceil(8), align);
+                                    unit = Some((at, width, w));
+                                    bits = extent(vm, at.checked_add(width)) * 8;
+                                    (at, 0)
+                                }
+                            }
+                        } else {
+                            let mut start = bits;
+                            if start / unit_bits != (start + w - 1) / unit_bits {
+                                start = start.div_ceil(unit_bits) * unit_bits;
+                            }
+                            bits = start + w;
+                            let at = start / unit_bits * width;
+                            (at, start - at * 8)
+                        };
+                        if offset != at || claimed.position as usize != position {
+                            vm.err("nupp: bitfield placement differs from host ABI");
+                        }
                     } else {
-                        aligned(vm, size, align)
-                    };
-                    if count(vm, get(vm, field, "offset")) != offset {
-                        vm.err("nupp: aggregate field offset differs from host ABI");
+                        unit = None;
+                        let at = if union {
+                            0
+                        } else {
+                            aligned(vm, bits.div_ceil(8), align)
+                        };
+                        if offset != at {
+                            vm.err("nupp: aggregate field offset differs from host ABI");
+                        }
+                        bits = if union {
+                            bits.max(width * 8)
+                        } else {
+                            extent(vm, at.checked_add(width)) * 8
+                        };
                     }
-                    size = if kind == "union" {
-                        size.max(width)
-                    } else {
-                        extent(vm, offset.checked_add(width))
-                    };
                     alignment = alignment.max(align);
                 }
-                (aligned(vm, size, alignment), alignment)
+                (aligned(vm, bits.div_ceil(8), alignment), alignment)
             }
             _ => vm.err("nupp: unsupported storage descriptor"),
         }
@@ -630,6 +709,19 @@ fn type_key(vm: &Interp, ty: Value, depth: usize) -> String {
         return kind;
     }
     match kind.as_str() {
+        "pointer" if get(vm, ty, "element") == Value::NIL => {
+            // A field's pointer names its pointee; it never describes it.
+            let target = get(vm, ty, "target");
+            let pointee = get(vm, ty, "pointee");
+            let name = if vm.is_stringish(target) {
+                format!("{:?}", text(vm, target))
+            } else if vm.is_stringish(pointee) {
+                text(vm, pointee)
+            } else {
+                "void".into()
+            };
+            format!("{name}*")
+        }
         "pointer" => format!("{}*", type_key(vm, get(vm, ty, "element"), depth + 1)),
         "array" => format!(
             "{}[{}]",
@@ -643,8 +735,11 @@ fn type_key(vm: &Interp, ty: Value, depth: usize) -> String {
             let mut members = Vec::new();
             for i in 0..vm.array_len(fields) {
                 let f = vm.array_get(fields, i);
+                let bits = bitfield(vm, f)
+                    .map(|b| format!(".{}+{}", b.position, b.width))
+                    .unwrap_or_default();
                 members.push(format!(
-                    "{:?}:{}@{}",
+                    "{:?}:{}@{}{bits}",
                     text(vm, get(vm, f, "name")),
                     type_key(vm, field_type(vm, f), depth + 1),
                     count(vm, get(vm, f, "offset"))
@@ -725,6 +820,37 @@ fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
     vm.set_index(cache, key, result);
     result
 }
+/// The descriptor of a struct's pointer field: what it points at, by name.
+/// One per pointee, cached like every other descriptor.
+fn pointer_field(vm: &mut Interp, input: Value) -> Value {
+    let name = format!("field:{}", type_key(vm, input, 0));
+    let cache = vm.loaded[TYPES];
+    let key = vm.intern(&name);
+    vm.handles.push(key);
+    let previous = vm.get_index(cache, key);
+    if previous != Value::NIL {
+        return previous;
+    }
+    let result = table(vm);
+    let k = vm.intern("pointer");
+    set(vm, result, "kind", k);
+    for name in ["pointee", "target"] {
+        let value = get(vm, input, name);
+        if vm.is_stringish(value) {
+            set(vm, result, name, value);
+        }
+    }
+    let signature = get(vm, input, "signature");
+    if signature != Value::NIL {
+        set(vm, result, "signature", signature);
+    }
+    let (size, alignment) = measure(vm, result, 0);
+    set(vm, result, "size", Value::num(size as f64));
+    set(vm, result, "alignment", Value::num(alignment as f64));
+    mark_native(result);
+    vm.set_index(cache, key, result);
+    result
+}
 fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize) -> Value {
     let (size, alignment) = measure(vm, input, depth);
     let kind = text(vm, get(vm, input, "kind"));
@@ -734,6 +860,9 @@ fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize)
     if kind == "array" {
         let element = normalize_layout(vm, get(vm, input, "element"), Value::NIL, depth + 1);
         return descriptor(vm, "array", element, count(vm, get(vm, input, "count")));
+    }
+    if kind == "pointer" && get(vm, input, "element") == Value::NIL {
+        return pointer_field(vm, input);
     }
     if !matches!(kind.as_str(), "struct" | "union") {
         vm.err("nupp: native struct field kind is unsupported");
@@ -783,6 +912,10 @@ fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize)
             let member = table(vm);
             set(vm, member, "name", get(vm, f, "name"));
             set(vm, member, "offset", get(vm, f, "offset"));
+            if let Some(bits) = bitfield(vm, f) {
+                set(vm, member, "bitOffset", Value::num(bits.position as f64));
+                set(vm, member, "bitWidth", Value::num(bits.width as f64));
+            }
             let ty = normalize_layout(vm, field_type(vm, f), Value::NIL, depth + 1);
             set(vm, member, "type", ty);
             vm.push_array(fields, member);
@@ -956,13 +1089,19 @@ fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
     }
     result
 }
-fn read_value(vm: &mut Interp, v: View, ty: Value, offset: usize) -> Value {
+fn read_member(vm: &mut Interp, v: View, ty: Value, offset: usize, bits: Option<Bits>) -> Value {
     let width = layout_width(vm, ty, 0);
     let end = offset
         .checked_add(width)
         .filter(|end| *end <= v.end)
         .unwrap_or_else(|| vm.err("nupp: storage field is out of bounds"));
     let kind = text(vm, get(vm, ty, "kind"));
+    if let Some(bits) = bits {
+        return read_bits(vm, v.owner, offset, &kind, width, bits);
+    }
+    if kind == "pointer" && get(vm, ty, "element") == Value::NIL {
+        return read_pointer(vm, v.owner, offset, ty);
+    }
     if scalar_width(&kind).is_some() {
         let mut bytes = [0; 8];
         bytes[..width].copy_from_slice(&vm.bytes_of(v.owner)[offset..end]);
@@ -983,6 +1122,16 @@ fn read_value(vm: &mut Interp, v: View, ty: Value, offset: usize) -> Value {
     )
 }
 fn write_value(vm: &mut Interp, v: View, ty: Value, offset: usize, value: Value) {
+    write_member(vm, v, ty, offset, None, value)
+}
+fn write_member(
+    vm: &mut Interp,
+    v: View,
+    ty: Value,
+    offset: usize,
+    bits: Option<Bits>,
+    value: Value,
+) {
     if v.readonly {
         vm.err("nupp: storage view is read-only");
     }
@@ -992,7 +1141,11 @@ fn write_value(vm: &mut Interp, v: View, ty: Value, offset: usize, value: Value)
         .filter(|end| *end <= v.end)
         .unwrap_or_else(|| vm.err("nupp: storage field is out of bounds"));
     let kind = text(vm, get(vm, ty, "kind"));
-    if scalar_width(&kind).is_some() {
+    if let Some(bits) = bits {
+        write_bits(vm, v.owner, offset, &kind, width, bits, value);
+    } else if kind == "pointer" && get(vm, ty, "element") == Value::NIL {
+        write_pointer(vm, v.owner, offset, ty, value);
+    } else if scalar_width(&kind).is_some() {
         let bytes = encode(vm, &kind, value);
         vm.bytes_mut(v.owner)[offset..end].copy_from_slice(&bytes);
     } else {
@@ -1010,9 +1163,235 @@ fn write_value(vm: &mut Interp, v: View, ty: Value, offset: usize, value: Value)
             let bytes = vm.bytes_of(source.owner)[source.offset..source.offset + width].to_vec();
             vm.bytes_mut(v.owner)[offset..end].copy_from_slice(&bytes);
         }
+        copy_references(vm, source.owner, source.offset, v.owner, offset, width);
     }
 }
-fn member(vm: &Interp, ty: Value, key: Value) -> Option<(Value, usize)> {
+/// Reads a bitfield through its storage unit, sign-extending a signed type.
+fn read_bits(vm: &mut Interp, owner: Value, offset: usize, kind: &str, unit: usize, bits: Bits) -> Value {
+    let mut raw = [0u8; 8];
+    raw[..unit].copy_from_slice(&vm.bytes_of(owner)[offset..offset + unit]);
+    // Every target Nupp lays bitfields out for is little-endian.
+    let word = u64::from_le_bytes(raw);
+    let mask = if bits.width == 64 { u64::MAX } else { (1u64 << bits.width) - 1 };
+    let field = (word >> bits.position) & mask;
+    if kind == "boolean" {
+        return Value::boolean(field != 0);
+    }
+    let signed = matches!(kind, "int8" | "int16" | "int32" | "integer" | "int64");
+    let shift = 64 - bits.width;
+    let value = if signed {
+        ((field << shift) as i64 >> shift) as u64
+    } else {
+        field
+    };
+    if matches!(kind, "int64" | "uint64") {
+        return vm.box_integer(numeric::Integer {
+            bits: value,
+            unsigned: kind == "uint64",
+        });
+    }
+    Value::num(if signed { value as i64 as f64 } else { value as f64 })
+}
+/// Writes a bitfield's bits into its storage unit, leaving its neighbors'.
+/// The value wraps to the field's width, as C's conversion to it does.
+fn write_bits(
+    vm: &mut Interp,
+    owner: Value,
+    offset: usize,
+    kind: &str,
+    unit: usize,
+    bits: Bits,
+    value: Value,
+) {
+    let encoded = encode(vm, kind, value);
+    let mut raw = [0u8; 8];
+    raw[..encoded.len()].copy_from_slice(&encoded);
+    let field = u64::from_ne_bytes(raw);
+    let mut current = [0u8; 8];
+    current[..unit].copy_from_slice(&vm.bytes_of(owner)[offset..offset + unit]);
+    let mask = if bits.width == 64 { u64::MAX } else { (1u64 << bits.width) - 1 } << bits.position;
+    let word = (u64::from_le_bytes(current) & !mask) | ((field << bits.position) & mask);
+    vm.bytes_mut(owner)[offset..offset + unit].copy_from_slice(&word.to_le_bytes()[..unit]);
+}
+/// The storage type a struct declaration defined, by its identity.
+pub(crate) fn struct_type(vm: &mut Interp, identity: Value) -> Value {
+    let key = format!("nominal:{}", text(vm, identity));
+    let key = vm.intern(&key);
+    vm.handles.push(key);
+    let found = vm.get_index(vm.loaded[TYPES], key);
+    if found == Value::NIL {
+        vm.err("nupp: a C call's struct slot names a struct no declaration has defined");
+    }
+    found
+}
+/// The first element's address and the element count of a span passed for a
+/// counted C pointer, with the owner that has to stay alive for the call. The
+/// span's elements must be what the C parameter points at: a scalar `kind`,
+/// or the struct `identity`.
+pub(crate) fn counted_span(
+    vm: &Interp,
+    span: Value,
+    write: bool,
+    kind: Option<&str>,
+    identity: Value,
+) -> (Value, *mut u8, usize) {
+    if !matches!(vm.kind_of(span), Some(KIND_TABLE | KIND_RECORD)) {
+        vm.err("nupp: a counted C pointer takes a span");
+    }
+    let pointer = get(vm, span, "pointer");
+    let n = count(vm, get(vm, span, "count"));
+    let matches = if vm.is_stringish(pointer) {
+        kind == Some("uint8") || kind == Some("int8")
+    } else {
+        let element = view(vm, pointer).element;
+        if element == Value::NIL {
+            false
+        } else if let Some(kind) = kind {
+            let actual = text(vm, get(vm, element, "kind"));
+            let normal = |k: &str| match k {
+                "integer" => "int32".to_string(),
+                "bool" => "boolean".to_string(),
+                other => other.to_string(),
+            };
+            normal(&actual) == normal(kind)
+        } else {
+            vm.values_equal(get(vm, element, "identity"), identity)
+        }
+    };
+    if !matches {
+        vm.err("nupp: a span's elements differ from what the C pointer points at");
+    }
+    let (owner, start, _) = byte_span(vm, span, write);
+    let pointer = unsafe { vm.bytes_of(owner).as_ptr().add(start).cast_mut() };
+    (owner, pointer, n)
+}
+/// Whether any of `owner`'s pointer fields holds a value. Such bytes hold
+/// process addresses, which a checkpoint or another VM cannot keep.
+pub(crate) fn holds_pointers(vm: &Interp, owner: Value) -> bool {
+    let Some(&registry) = vm.loaded.get(REFERENCES) else {
+        return false;
+    };
+    let refs = vm.get_index(registry, owner);
+    if refs == Value::NIL {
+        return false;
+    }
+    let table = unsafe { refs.as_obj().unwrap().as_ref().table_ref() };
+    table.array.iter().any(|v| *v != Value::NIL) || table.hash.iter().any(|(_, v)| *v != Value::NIL)
+}
+/// The table of what `owner`'s pointer fields refer to, made when `create`.
+fn references(vm: &mut Interp, owner: Value, create: bool) -> Value {
+    let registry = vm.loaded[REFERENCES];
+    let found = vm.get_index(registry, owner);
+    if found != Value::NIL || !create {
+        return found;
+    }
+    vm.handles.push(owner);
+    let made = table(vm);
+    vm.set_index(registry, owner, made);
+    made
+}
+/// The address a value stored in a pointer field stands for: managed storage's
+/// own bytes, or a foreign pointer's address.
+fn address_of(vm: &Interp, value: Value) -> Option<usize> {
+    if is_native(value) && is_view(vm, value) {
+        return Some(native_view(vm, value, false).pointer as usize);
+    }
+    crate::foreign::address_of(vm, value)
+}
+fn read_pointer(vm: &mut Interp, owner: Value, offset: usize, ty: Value) -> Value {
+    let _ = ty;
+    let width = std::mem::size_of::<usize>();
+    let address =
+        usize::from_ne_bytes(vm.bytes_of(owner)[offset..offset + width].try_into().unwrap());
+    if address == 0 {
+        return Value::NIL;
+    }
+    let refs = references(vm, owner, false);
+    if refs != Value::NIL {
+        let entry = vm.get_index(refs, Value::num(offset as f64));
+        // What was stored, while the bytes still hold its address. Anything
+        // else is an address C wrote, which only C accounts for.
+        if entry != Value::NIL && address_of(vm, entry) == Some(address) {
+            return entry;
+        }
+    }
+    crate::foreign::external(vm, address)
+}
+fn write_pointer(vm: &mut Interp, owner: Value, offset: usize, ty: Value, value: Value) {
+    let address = if value == Value::NIL {
+        0
+    } else if is_native(value) && is_view(vm, value) {
+        let target = get(vm, ty, "target");
+        let held = view(vm, value);
+        if vm.is_stringish(target)
+            && (held.element != Value::NIL || !vm.values_equal(get(vm, held.ty, "identity"), target))
+        {
+            vm.err("nupp: a pointer field holds a value of the struct it points at");
+        }
+        native_view(vm, value, false).pointer as usize
+    } else if let Some(address) = crate::foreign::field_callback(vm, value, get(vm, ty, "signature")) {
+        address
+    } else if let Some(address) = crate::foreign::address_of(vm, value) {
+        address
+    } else if vm.is_stringish(value) {
+        vm.err("nupp: a string is not a native pointer; copy it into native storage")
+    } else {
+        vm.err("nupp: a pointer field holds native storage, a foreign pointer or nil")
+    };
+    let width = std::mem::size_of::<usize>();
+    vm.bytes_mut(owner)[offset..offset + width].copy_from_slice(&address.to_ne_bytes());
+    let key = Value::num(offset as f64);
+    if value == Value::NIL {
+        let refs = references(vm, owner, false);
+        if refs != Value::NIL {
+            vm.set_index(refs, key, Value::NIL);
+        }
+    } else {
+        vm.handles.push(value);
+        let refs = references(vm, owner, true);
+        vm.set_index(refs, key, value);
+    }
+}
+/// An aggregate copy carries what its pointer fields refer to with the bytes.
+fn copy_references(vm: &mut Interp, from: Value, at: usize, to: Value, offset: usize, width: usize) {
+    let source = references(vm, from, false);
+    let target = references(vm, to, false);
+    if source == Value::NIL && target == Value::NIL {
+        return;
+    }
+    let entries = |refs: Value| -> Vec<(usize, Value)> {
+        if refs == Value::NIL {
+            return Vec::new();
+        }
+        let table = unsafe { refs.as_obj().unwrap().as_ref().table_ref() };
+        let keyed = table.array.iter().enumerate().map(|(i, v)| (Value::num(i as f64 + 1.0), *v));
+        keyed
+            .chain(table.hash.iter().map(|(k, v)| (*k, *v)))
+            .filter(|(k, v)| k.is_num() && *v != Value::NIL)
+            .map(|(k, v)| (k.as_num() as usize, v))
+            .collect()
+    };
+    let moved: Vec<_> = entries(source)
+        .into_iter()
+        .filter(|(k, _)| *k >= at && *k < at + width)
+        .collect();
+    for (k, _) in entries(target) {
+        if k >= offset && k < offset + width {
+            vm.set_index(target, Value::num(k as f64), Value::NIL);
+        }
+    }
+    if moved.is_empty() {
+        return;
+    }
+    for (_, v) in &moved {
+        vm.handles.push(*v);
+    }
+    let target = references(vm, to, true);
+    for (k, v) in moved {
+        vm.set_index(target, Value::num((k - at + offset) as f64), v);
+    }
+}
+fn member(vm: &Interp, ty: Value, key: Value) -> Option<(Value, usize, Option<Bits>)> {
     if !vm.is_stringish(key) {
         return None;
     }
@@ -1020,7 +1399,11 @@ fn member(vm: &Interp, ty: Value, key: Value) -> Option<(Value, usize)> {
     for i in 0..vm.array_len(fields) {
         let field = vm.array_get(fields, i);
         if vm.values_equal(get(vm, field, "name"), key) {
-            return Some((field_type(vm, field), count(vm, get(vm, field, "offset"))));
+            return Some((
+                field_type(vm, field),
+                count(vm, get(vm, field, "offset")),
+                bitfield(vm, field),
+            ));
         }
     }
     None
@@ -1050,11 +1433,13 @@ fn initialize_value(vm: &mut Interp, ty: Value, args: &[Value]) -> Value {
         }
         for (i, value) in args.iter().copied().enumerate() {
             let field = vm.array_get(fields, i);
-            write_value(
+            let bits = bitfield(vm, field);
+            write_member(
                 vm,
                 target,
                 field_type(vm, field),
                 count(vm, get(vm, field, "offset")),
+                bits,
                 value,
             );
         }
@@ -1364,6 +1749,13 @@ pub fn install(vm: &mut Interp) {
         let meta = table(vm);
         vm.registered.push(meta);
         vm.loaded.insert(META.into(), meta);
+        let references = table(vm);
+        vm.registered.push(references);
+        let weak = table(vm);
+        let mode = vm.intern("k");
+        set(vm, weak, "__mode", mode);
+        vm.set_metatable(references, weak);
+        vm.loaded.insert(REFERENCES.into(), references);
         for (name, method) in [
             ("__index", "index"),
             ("__newindex", "write"),
@@ -1649,7 +2041,7 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             }
             "index" | "write" => {
                 let v = view(vm, arg(0));
-                let (ty, offset) = if v.element == Value::NIL {
+                let (ty, offset, bits) = if v.element == Value::NIL {
                     let field = member(vm, v.ty, arg(1));
                     if field.is_none() && name == "index" {
                         let methods = get(vm, v.ty, "methods");
@@ -1670,13 +2062,14 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                             }
                         }
                     }
-                    let (ty, offset) =
+                    let (ty, offset, bits) =
                         field.unwrap_or_else(|| vm.err("nupp: native struct has no such field"));
                     (
                         ty,
                         v.offset
                             .checked_add(offset)
                             .unwrap_or_else(|| vm.err("nupp: native field extent overflow")),
+                        bits,
                     )
                 } else {
                     let i = count(vm, arg(1));
@@ -1697,13 +2090,14 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                             vm,
                             i.checked_mul(width).and_then(|n| v.offset.checked_add(n)),
                         ),
+                        None,
                     )
                 };
                 if name == "write" {
-                    write_value(vm, v, ty, offset, arg(2));
+                    write_member(vm, v, ty, offset, bits, arg(2));
                     Value::NIL
                 } else {
-                    read_value(vm, v, ty, offset)
+                    read_member(vm, v, ty, offset, bits)
                 }
             }
             "add" | "sub" => {

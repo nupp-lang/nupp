@@ -377,7 +377,7 @@ fn aggregate_type(
 }
 
 #[test]
-fn union_and_nested_union_byvalue_signatures_are_rejected() {
+fn union_and_nested_union_byvalue_signatures_roundtrip() {
     let fixture = Fixture::build();
     let mut vm = vm();
     let library = string(&mut vm, fixture.0.to_str().unwrap());
@@ -444,24 +444,40 @@ fn union_and_nested_union_byvalue_signatures_are_rejected() {
     set(&mut vm, outer, "fields", fields);
     let nested = call(&mut vm, "storage.structDefine", &[outer, Value::NIL])[0];
     vm.register(nested);
+    // libffi has no unions; each passes as the struct its target classifies
+    // alike, alone and nested in a struct, as an argument and as a result.
     let symbol = string(&mut vm, "ffi_test_union");
-    let void = string(&mut vm, "void");
-    for descriptor in [union, nested] {
-        for result_position in [true, false] {
-            let signature = vm.new_table();
-            vm.register(signature);
-            let result = if result_position { descriptor } else { void };
-            set(&mut vm, signature, "result", result);
-            let params = vm.new_table();
-            vm.register(params);
-            if !result_position {
-                vm.push_array(params, descriptor);
-            }
-            set(&mut vm, signature, "params", params);
-            failure(&mut vm, |vm| {
-                call(vm, "foreign.bind", &[library, symbol, signature]);
-            });
-        }
+    let bits = string(&mut vm, "bits");
+    let value_name = string(&mut vm, "value");
+    for (descriptor, nested_value) in [(union, false), (nested, true)] {
+        let signature = vm.new_table();
+        vm.register(signature);
+        set(&mut vm, signature, "result", descriptor);
+        let params = vm.new_table();
+        vm.register(params);
+        vm.push_array(params, descriptor);
+        set(&mut vm, signature, "params", params);
+        let function = call(&mut vm, "foreign.bind", &[library, symbol, signature])[0];
+        vm.register(function);
+        let argument = call(&mut vm, "storage.valueNew", &[descriptor])[0];
+        vm.register(argument);
+        let inner = if nested_value {
+            call(&mut vm, "storage.index", &[argument, value_name])[0]
+        } else {
+            argument
+        };
+        vm.register(inner);
+        call(&mut vm, "storage.write", &[inner, bits, Value::num(0x3f80_0000 as f64)]);
+        vm.full_cycle();
+        let returned = invoke(&mut vm, function, &[argument])[0];
+        vm.register(returned);
+        let returned = if nested_value {
+            call(&mut vm, "storage.index", &[returned, value_name])[0]
+        } else {
+            returned
+        };
+        assert_eq!(call(&mut vm, "storage.index", &[returned, real]), vec![Value::num(1.0)]);
+        call(&mut vm, "foreign.close", &[function]);
     }
     vm.full_cycle();
     vm.check_oracle();

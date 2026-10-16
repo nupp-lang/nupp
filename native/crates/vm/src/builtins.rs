@@ -93,6 +93,7 @@ pub const NAMES: &[&str] = &[
     // Markdown (`crate::nmarkdown`).
     "nmarkdown.render",
     "vm.hotPatch",
+    "foreign.namespace", "foreign.resolve", "foreign.pin",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
