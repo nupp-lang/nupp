@@ -752,8 +752,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         Special::DebugTraceback => {
             // `debug.traceback([thread,] [message [, level]])`. A message that is
             // neither a string nor nil is answered unchanged, as Lua does. The
-            // frames are the calling task's; a handler of `xpcall` runs after
-            // the unwind, so it sees the protected call's caller.
+            // frames are the calling task's and those it was called from; a
+            // handler of `xpcall` runs before the unwind, so it sees the error's.
             let first = arg(args, 0);
             let plain = |it: &Interp, v: Value| v == Value::NIL || v.is_num() || it.is_stringish(v);
             let message = if args.len() >= 2 && !plain(it, first) && plain(it, arg(args, 1)) { arg(args, 1) } else { first };
@@ -946,9 +946,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::Xpcall => {
             let scope = it.open_scope(); it.handles.extend_from_slice(args);
+            // The handler goes with the function's task, to run where an error
+            // is raised; one raised before that task starts is handled here.
+            it.pending_xpcall = Some(arg(args, 1));
+            it.xpcall_handled = false;
             let values = it.pcall_values(arg(args, 0), &args[2.min(args.len())..]);
+            it.pending_xpcall = None;
+            let handled = std::mem::take(&mut it.xpcall_handled);
             it.handles.extend_from_slice(&values);
-            let result = if values[0].truthy() { values.into_iter().collect() } else {
+            let result = if values[0].truthy() { values.into_iter().collect() } else if handled { outs![Value::FALSE, values[1]] } else {
                 let handled = it.pcall_values(arg(args, 1), &[values[1]]);
                 if handled[0].truthy() { outs![Value::FALSE, handled.get(1).copied().unwrap_or(Value::NIL)] }
                 else { outs![Value::FALSE, it.intern("error in error handling")] }

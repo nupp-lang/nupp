@@ -176,3 +176,56 @@ fn a_protected_pcall_nests_on_the_builtin() {
     assert_eq!(results[1], Value::FALSE);
     assert_eq!(vm.bytes_of(results[2]), b"x");
 }
+
+/// xpcall's handler runs where the error is raised, before any frame unwinds,
+/// as Lua's does: a traceback taken inside it names the function that raised.
+/// Both the builtin path and the frame driver's protected record do.
+#[test]
+fn an_xpcall_handler_sees_the_frames_that_raised() {
+    const TRACING: &str = r#"
+function work 0 0 8 1 :v
+const 0 builtin error
+const 1 str "boom"
+K 1 0
+K 2 1
+CallDyn 1 1 1
+RetNil
+end
+function handler 1 1 8 1 v:v
+const 0 builtin debug.traceback
+K 2 0
+Move 3 1
+CallDyn 2 2 1
+Ret 2
+end
+function main 2 0 12 1 :v
+const 0 builtin xpcall
+const 1 func 0
+const 2 func 1
+K 1 0
+K 3 1
+K 4 2
+CallDyn 1 2 2
+PadResults 2 2
+RetN 2 2
+end
+entry 2
+"#;
+    let check = |vm: &Interp, results: &[Value]| {
+        assert_eq!(results[0], Value::FALSE);
+        let text = String::from_utf8_lossy(vm.bytes_of(results[1])).into_owned();
+        assert!(text.starts_with("boom\nstack traceback:"), "{text}");
+        assert!(text.contains("work"), "the handler ran after the raising frame unwound:\n{text}");
+    };
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, TRACING).unwrap();
+    vm.install_globals();
+    let results = vm.call_value(Value::func(2), &[]);
+    check(&vm, &results);
+    vm.enable_scheduler().unwrap();
+    let task = vm.schedule(Value::func(2), &[], None).unwrap();
+    vm.run_ready(1).unwrap();
+    assert_eq!(status(&vm, task), Status::Completed);
+    let results = vm.tasks[task.index].results.clone();
+    check(&vm, &results);
+}

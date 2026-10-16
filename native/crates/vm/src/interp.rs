@@ -340,6 +340,9 @@ pub(crate) enum OpErr { Index, Call, Arith, Concat, Len }
 /// caller's, while it waits on a host request), `result` the caller register
 /// that takes the status and then the results. `handler` is xpcall's message
 /// handler, nil for pcall; it is rooted here while the call runs.
+/// xpcall's handler for the scratch task running its function.
+pub(crate) struct XpcallScope { pub task: usize, pub handler: Value, pub handled: bool }
+
 #[derive(Clone, Copy)]
 pub struct Protected { pub frame: usize, pub caller: usize, pub result: usize, pub handler: Value }
 
@@ -459,6 +462,17 @@ pub struct Interp {
     /// LuaJIT reads the file again.
     pub(crate) dynamic_modules: std::collections::HashSet<String>,
     pub(crate) spent_modules: std::collections::HashSet<String>,
+    /// The task each `call_value` scratch task was called from: a frame walk
+    /// continues there past the builtin that called it, as Lua's stack runs
+    /// through C functions.
+    pub(crate) task_parents: std::collections::HashMap<usize, usize>,
+    /// xpcall's message handler for the next scratch task `call_value`
+    /// spawns, and the handlers of those running. A scope's task runs the
+    /// handler where its error is raised, before any frame unwinds; `handled`
+    /// reports that it did. The values are rooted by the xpcall's arguments.
+    pub(crate) pending_xpcall: Option<Value>,
+    pub(crate) xpcall_scopes: Vec<XpcallScope>,
+    pub(crate) xpcall_handled: bool,
     /// Each module's source path, as the image recorded it.
     pub module_paths: std::collections::HashMap<String, String>,
     /// The function a `loadstring("return <literal>")` closure runs: it
@@ -591,7 +605,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, lpeg_meta: Value::NIL, lpeg_maxstack: 400, pending_error: None } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -665,20 +679,34 @@ impl Interp {
     }
     /// The task's frame chain, innermost first: function names and pcs.
     pub fn backtrace(&self, tid: usize) -> String {
-        let t = &self.tasks[tid];
-        if t.stack.is_empty() { return String::new(); }
         let mut out = String::new();
-        let mut s = t.cur;
-        loop {
-            let h0 = t.stack[s]; let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
+        for (task, s) in self.frame_chain(tid) {
+            let h0 = self.tasks[task].stack[s]; let (fid, pc) = ((h0 & 0xffff_ffff) as usize, (h0 >> 32) as usize);
             let f = &self.funcs[fid];
             let pos = f.debug.get(pc.saturating_sub(1)).filter(|(l, _)| *l != 0).map(|(l, c)| if *c == 0 { format!(" (line {l})") } else { format!(" (line {l}:{c})") }).unwrap_or_default();
             out.push_str(&format!("  {} at pc {}{}\n", f.name, pc, pos));
-            let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
-            if caller == NONE { break; }
-            s = caller as usize;
         }
         out
+    }
+    /// Every frame below task `tid`'s top, innermost first, as (task, frame
+    /// start): its own caller chain, then the chain of the task that called
+    /// the builtin which started it, and so on out.
+    pub(crate) fn frame_chain(&self, tid: usize) -> Vec<(usize, usize)> {
+        let mut frames = Vec::new();
+        let mut task = Some(tid);
+        while let Some(id) = task {
+            let Some(t) = self.tasks.get(id) else { break };
+            if t.stack.is_empty() || t.state == State::Done { break; }
+            let mut s = t.cur;
+            loop {
+                frames.push((id, s));
+                let caller = (t.stack[s + 1] & 0xffff_ffff) as u32;
+                if caller == NONE { break; }
+                s = caller as usize;
+            }
+            task = self.task_parents.get(&id).copied().filter(|&parent| parent < id);
+        }
+        frames
     }
     /// Value register `i` of task `tid`'s top frame.
     pub fn reg(&self, tid: usize, i: usize) -> Value { let t = &self.tasks[tid]; Value(t.stack[t.cur + HDR + i]) }
@@ -891,6 +919,7 @@ impl Interp {
     pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
         let _callback = crate::persist::Execution::enter(&self.callback_depth);
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
+        let xpcall = self.pending_xpcall.take();
         if let Some(id) = callee.as_builtin() { return crate::builtins::call(self, id, args).to_vec(); }
         let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
             let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
@@ -899,13 +928,18 @@ impl Interp {
         };
         let entry = self.entry_of(fid);
         if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
+        let parent = self.caller_task();
         let scratch = self.spawn(fid, args);
         { let t = &mut self.tasks[scratch]; let s0 = t.cur(); t.stack[s0 + 2] = closure.0; }
+        if let Some(parent) = parent { self.task_parents.insert(scratch, parent); }
+        if let Some(handler) = xpcall { self.xpcall_scopes.push(XpcallScope { task: scratch, handler, handled: false }); }
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             match self.run(scratch) { Outcome::Done(v) => { let t = &self.tasks[scratch]; if t.results.is_empty() && self.last_nres != 0 { vec![v] } else { t.results.clone() } } Outcome::Parked(_) => self.err("a callback parked") }
         }));
+        if xpcall.is_some() { self.xpcall_handled = self.xpcall_scopes.pop().is_some_and(|scope| scope.handled); }
         if let Some(t) = self.tasks.pop() { if self.stack_pool.len() < 64 { self.stack_pool.push(t.stack); } }
         self.tasks.truncate(scratch);
+        self.task_parents.retain(|&task, _| task < scratch);
         match result { Ok(outs) => outs, Err(error) => std::panic::resume_unwind(error) }
     }
     /// `call_value` without a heap allocation on the builtin path.
@@ -1981,6 +2015,16 @@ impl Interp {
                     }
                     self.frame_mode = old;
                     let value = self.error_value(e); let root = self.register(value);
+                    // xpcall's handler for this task runs here, where the error
+                    // was raised: its frames are still on the stack, so a
+                    // traceback taken in the handler shows them.
+                    if let Some(i) = self.xpcall_scopes.iter().rposition(|scope| scope.task == tid && !scope.handled) {
+                        self.xpcall_scopes[i].handled = true;
+                        let handler = self.xpcall_scopes[i].handler;
+                        let handled = self.handled_error(handler, value);
+                        self.registered[root] = handled;
+                    }
+                    let value = self.registered[root];
                     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.unwind_cleanups(tid, 0)));
                     self.release(root);
                     std::panic::panic_any(crate::builtins::LuaError(value.0));
