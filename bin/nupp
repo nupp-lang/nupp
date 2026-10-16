@@ -34,6 +34,140 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] \
         while [ -d "$ROOT/.nupp/vm-cli-bootstrap.lock" ]; do sleep 2; done
     fi
 fi
+# The installed VM compiler is rebuilt when its sources change, the way build/
+# is below: a compiler source newer than `.nupp/vm-cli/stamp`, which every
+# install leaves with the time its build started, means the generation has not
+# seen that edit. The rebuild reuses what earlier emits lowered for every module
+# nothing it read has changed (`nupp.tools.vm.emitcache`), lowering with the
+# generation that cache was filled by (`scripts/vm-cli build --seed pinned`; an
+# explicit `scripts/vm-cli build` moves the pin to the installed one). It
+# installs an interpreter-only runtime and links the image's compiled code into
+# a runtime in the background, which replaces that one when it is done
+# (NUPP_VM_AUTO_LINK=0 skips it).
+#
+# One rebuild at a time per checkout, under a lock directory holding the
+# builder's pid; a command that finds it held waits, and then runs what that
+# build installed. A failed rebuild leaves the previous generation selected and
+# says so; `.nupp/vm-cli/failed` remembers it, so later commands do not try
+# again until another source changes. NUPP_VM_AUTO_REBUILD=0 turns all of this
+# off, and an explicit NUPP_VM_CLI_IMAGE bypasses it, as it bypasses the
+# installed generation. Only a command somebody ran asks: the workers and child
+# commands a compiler starts inherit its NUPP_VM_CLI_IMAGE.
+VM_CLI="$ROOT/.nupp/vm-cli"
+VM_BUILD_LOCK="$ROOT/.nupp/vm-cli-build.lock"
+VM_BUILD_LOCK_WAIT=${NUPP_VM_BUILD_LOCK_WAIT:-3600}
+
+# Whether any file a VM compiler is built from is newer than `$1`.
+vm_sources_newer_than() {
+    [ -n "$(find "$ROOT/src" "$ROOT/templates" \
+        "$ROOT/native/crates/vm/src" "$ROOT/native/crates/vm/lib" "$ROOT/native/crates/vm/decls" \
+        "$ROOT/native/crates/vm/csrc" "$ROOT/native/crates/vm/build.rs" "$ROOT/native/crates/vm/Cargo.toml" \
+        "$ROOT/native/crates/platform" "$ROOT/native/crates/checksum" "$ROOT/native/crates/files" \
+        "$ROOT/native/crates/compression" "$ROOT/native/crates/net" "$ROOT/native/crates/tls" \
+        "$ROOT/native/crates/http" "$ROOT/native/crates/abi" "$ROOT/native/crates/process" \
+        "$ROOT/Cargo.toml" "$ROOT/Cargo.lock" "$ROOT/scripts/vm-cli" \
+        -type f ! -name '.DS_Store' -newer "$1" 2>/dev/null | head -n 1)" ]
+}
+
+# An installation older than the stamp has its selection's time instead.
+vm_cli_is_current() {
+    if [ -f "$VM_CLI/stamp" ]; then
+        ! vm_sources_newer_than "$VM_CLI/stamp"
+    else
+        ! vm_sources_newer_than "$VM_CLI/current"
+    fi
+}
+
+# A rebuild of these very sources already failed.
+vm_cli_failed_unchanged() {
+    [ -f "$VM_CLI/failed" ] && ! vm_sources_newer_than "$VM_CLI/failed"
+}
+
+# Its owner writes the pid just after making the directory, so a lock without
+# one is given a moment before it is taken for abandoned.
+vm_build_lock_alive() {
+    holder=$(cat "$VM_BUILD_LOCK/pid" 2>/dev/null)
+    if [ -z "$holder" ]; then
+        sleep 1
+        holder=$(cat "$VM_BUILD_LOCK/pid" 2>/dev/null) || return 1
+    fi
+    [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null
+}
+
+vm_release_build_lock() {
+    rm -rf "$VM_BUILD_LOCK"
+    trap - EXIT INT TERM
+}
+
+vm_notice() {
+    if [ -t 2 ] && [ "${TERM:-}" != dumb ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[1;36mnupp:\033[0m %s\n' "$1" >&2
+    else
+        printf 'nupp: %s\n' "$1" >&2
+    fi
+}
+
+vm_cli_rebuild() {
+    waited=0
+    while ! mkdir "$VM_BUILD_LOCK" 2>/dev/null; do
+        if ! vm_build_lock_alive; then
+            rm -rf "$VM_BUILD_LOCK"
+            continue
+        fi
+        if [ -t 2 ] && { [ "$waited" -eq 3 ] || { [ "$waited" -gt 0 ] && [ $((waited % 60)) -eq 0 ]; }; }; then
+            echo "nupp: waiting for the VM compiler build pid $holder is running (${waited}s so far)" >&2
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [ "$waited" -ge "$VM_BUILD_LOCK_WAIT" ]; then
+            echo "nupp: another VM compiler build has run for ${waited}s; running the installed one" >&2
+            return 0
+        fi
+    done
+    printf '%s\n' "$$" > "$VM_BUILD_LOCK/pid"
+    trap 'rm -rf "$VM_BUILD_LOCK"' EXIT
+    trap 'rm -rf "$VM_BUILD_LOCK"; exit 130' INT
+    trap 'rm -rf "$VM_BUILD_LOCK"; exit 143' TERM
+    # The build this command waited for may have been of these same sources.
+    if vm_cli_is_current; then
+        vm_release_build_lock
+        return 0
+    fi
+    if vm_cli_failed_unchanged; then
+        vm_release_build_lock
+        echo "nupp: the VM compiler did not build from these sources (see $VM_CLI/rebuild.log);" \
+            "running the last one that did" >&2
+        return 0
+    fi
+    vm_notice "compiler sources changed, rebuilding the VM compiler"
+    started=$(date +%s)
+    if python3 "$ROOT/scripts/vm-cli" build --seed pinned --no-aot > "$VM_CLI/rebuild.log" 2>&1; then
+        rm -f "$VM_CLI/failed"
+        # The emit's own account of what it reused, when it kept a cache.
+        reused=$(sed -n 's/^vm emit: \([0-9]* modules* lowered, [0-9]* replayed\).*/: \1/p' \
+            "$VM_CLI/rebuild.log" | tail -n 1)
+        vm_notice "rebuilt the VM compiler in $(($(date +%s) - started))s$reused"
+        if [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ]; then
+            nohup python3 "$ROOT/scripts/vm-cli" link > "$VM_CLI/link.log" 2>&1 < /dev/null &
+        fi
+    else
+        : > "$VM_CLI/failed"
+        echo "nupp: the VM compiler did not build; running the last one that did" >&2
+        tail -n 20 "$VM_CLI/rebuild.log" | sed 's/^/  /' >&2
+        echo "  (the whole log is $VM_CLI/rebuild.log)" >&2
+    fi
+    vm_release_build_lock
+}
+
+
+if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] && [ -e "$VM_CLI/current" ] \
+    && [ "${NUPP_VM_AUTO_REBUILD:-1}" != 0 ]; then
+    case "${1:-}" in
+        ""|-h|--help|help|__*) ;;
+        *) vm_cli_is_current || vm_cli_rebuild ;;
+    esac
+fi
+
 # NUPP_ENGINE=luajit skips it, which is how `scripts/vm-cli build --seed luajit`
 # reaches the LuaJIT-built compiler in a checkout that has both.
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] && [ -e "$ROOT/.nupp/vm-cli/current" ]; then

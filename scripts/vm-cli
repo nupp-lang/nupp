@@ -64,6 +64,21 @@ def validate_files(package, receipt):
         raise ValueError("VM CLI runtime is not executable")
 
 
+def write_stamp(pending=None):
+    """Mark the selected generation as built from the sources as they were when
+    `pending` was made (now, without one). The launcher rebuilds when a compiler
+    source is newer than this file; an edit made while a build runs is newer
+    than the stamp that build leaves, so it is not lost."""
+    target = PACKAGES / "stamp"
+    if pending is not None and Path(pending).exists():
+        os.replace(pending, target)
+    else:
+        handle, fresh = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
+        os.close(handle)
+        os.replace(fresh, target)
+    (PACKAGES / "failed").unlink(missing_ok=True)
+
+
 def install(args):
     runtime, image = args.runtime.resolve(strict=True), args.image.resolve(strict=True)
     if not os.access(runtime, os.X_OK):
@@ -85,6 +100,7 @@ def install(args):
             "sourceAtInstall": source_state(),
             "sourceProvenance": "Source state at installation, not a claim that supplied artifacts were built from it.",
             "execution": "no-JIT interpreter; heap-frame or affine cleanup uses Rust dispatch; supplied linked AOT remains enabled",
+            "linked": bool(getattr(args, "linked", False)),
             "validation": ["image verifier", "full root CLI --help"],
         }
         env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT),
@@ -124,6 +140,8 @@ def install(args):
             os.replace(pending, PACKAGES / "current")
         finally:
             Path(pending).unlink(missing_ok=True)
+    write_stamp(getattr(args, "stamp", None))
+    prune()
     print(package)
 
 
@@ -137,7 +155,7 @@ def status():
         "package": str(package), "receipt": receipt,
         "sourceChangedSinceInstall": None if current["fingerprint"] is None else current["fingerprint"] != recorded["fingerprint"],
         "sourceNow": current,
-        "policy": "Installed snapshot; source edits require explicitly installing a rebuilt compiler image.",
+        "policy": "bin/nupp rebuilds and installs a new generation when a compiler source is newer than .nupp/vm-cli/stamp.",
     }, indent=2))
 
 
@@ -170,60 +188,255 @@ def cargo(features, target, extra_env=None, default_features=True):
     return target / "release" / "nupp-vm"
 
 
+def generation_dir(generation):
+    """The installed generation named `generation`, or None when it is not there
+    whole."""
+    if not generation or len(generation) != 64 or any(c not in "0123456789abcdef" for c in generation):
+        return None
+    package = PACKAGES / generation
+    try:
+        if (package / "format").read_text().strip() == FORMAT:
+            return package
+    except OSError:
+        pass
+    return None
+
+
+def pinned():
+    """The generation auto rebuilds lower with: the one whose lowering the emit
+    cache holds. Rebuilding with each new generation instead would start the
+    cache cold whenever the checker or the lowering changed, which is every
+    second rebuild of somebody working on them."""
+    try:
+        return generation_dir((PACKAGES / "emitter").read_text().strip())
+    except OSError:
+        return None
+
+
+def pin(package):
+    handle, pending = tempfile.mkstemp(prefix=".emitter-", dir=PACKAGES)
+    with os.fdopen(handle, "w") as target:
+        target.write((package.name if package else "") + "\n")
+    os.replace(pending, PACKAGES / "emitter")
+
+
+def prune():
+    """Remove generations nothing selects that have not been touched for a day. A
+    command started under an older generation keeps running from its directory,
+    so one is only removed once no command could plausibly still hold it."""
+    keep_seconds = float(os.environ.get("NUPP_VM_CLI_KEEP_SECONDS", 86400))
+    keep = {p.name for p in (selected(), pinned()) if p is not None}
+    now = time.time()
+    for package in PACKAGES.iterdir():
+        if package.name in keep or not generation_dir(package.name):
+            continue
+        try:
+            if now - (package / "format").stat().st_mtime > keep_seconds:
+                shutil.rmtree(package)
+        except OSError:
+            pass
+
+
+def emit_with(package, image, env):
+    """Lower these sources into `image` with the installed generation `package`,
+    on its own runtime: the runtime it was built and checked with, and with its
+    functions compiled in when it was linked."""
+    run_step([str(package / "runtime"), "run", str(package / "compiler.image"), "nupp.tools.vm.project", "emit",
+              str(ROOT), "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "VM-hosted root emit")
+
+
 def build(args):
     """Emit the root CLI image from this checkout, link its compiled code into a
     runtime, and install the pair. The image is lowered by the installed VM CLI
-    when there is one (`--seed vm`), or by the LuaJIT-built compiler, which the
-    launcher builds from the pinned stage zero when needed (`--seed luajit`)."""
+    when there is one (`--seed vm`), by the generation the emit cache was filled
+    by (`--seed pinned`, what the launcher's automatic rebuild asks for), or by
+    the LuaJIT-built compiler, which the launcher builds from the pinned stage
+    zero when needed (`--seed luajit`)."""
     out = ROOT / "build/vm-cli"
     out.mkdir(parents=True, exist_ok=True)
     target = ROOT / "build/rust/target"
     image = out / "compiler.image"
     image.unlink(missing_ok=True)
-    seed = args.seed or ("image" if args.seed_image else "vm" if (PACKAGES / "current").exists() else "luajit")
-    if seed in ("vm", "image"):
-        seed_image = args.seed_image.resolve(strict=True) if seed == "image" else selected() / "compiler.image"
+    # What the sources looked like when this build started: an edit made while
+    # it runs is newer, so the launcher builds again.
+    PACKAGES.mkdir(parents=True, exist_ok=True)
+    handle, stamp = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
+    os.close(handle)
+    args.stamp = stamp
+    try:
+        build_from(args, out, target, image)
+    finally:
+        Path(stamp).unlink(missing_ok=True)
+
+
+def build_from(args, out, target, image):
+    # Per-module lowering kept between emits (nupp.tools.vm.emitcache).
+    cache = None if args.no_cache else (args.cache or out / "emit-cache")
+    cached = {"NUPP_VM_EMIT_CACHE": str(cache)} if cache else {}
+    installed = (PACKAGES / "current").exists()
+    seed = args.seed or ("image" if args.seed_image else "vm" if installed else "luajit")
+    if seed == "pinned" and not installed:
+        seed = "luajit"
+    env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT), **cached)
+    for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"):
+        env.pop(name, None)
+    if seed in ("vm", "pinned"):
+        emitter = (pinned() if seed == "pinned" else None) or selected()
+        try:
+            emit_with(emitter, image, env)
+        except ValueError:
+            # An older compiler may not read what the sources now say; the newest
+            # one is the next best thing.
+            if emitter == selected():
+                raise
+            print("vm-cli: the pinned compiler could not lower these sources; using the installed one",
+                  file=sys.stderr)
+            emitter = selected()
+            emit_with(emitter, image, env)
+        if seed == "vm" or pinned() is None or emitter != pinned():
+            pin(emitter)
+    elif seed == "image":
+        seed_image = args.seed_image.resolve(strict=True)
         plain = cargo(None, target)
-        shutil.copyfile(plain, out / "plain-runtime")
-        (out / "plain-runtime").chmod(0o755)
-        env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT))
-        for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"):
-            env.pop(name, None)
+        shutil.copyfile(plain, out / "plain-runtime.new")
+        (out / "plain-runtime.new").chmod(0o755)
+        os.replace(out / "plain-runtime.new", out / "plain-runtime")
         run_step([str(out / "plain-runtime"), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "VM-hosted root emit")
-        if seed == "image":
-            # A pinned image is an older compiler: what it lowers is these sources
-            # as its lowerer spells them. One more pass lowers them with their own
-            # lowerer, which is the image the fixpoint verifies.
-            first = out / "stage1.image"
-            image.replace(first)
-            run_step([str(out / "plain-runtime"), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
-                      "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "self-hosting root emit")
-            first.unlink()
+        # A pinned image is an older compiler: what it lowers is these sources
+        # as its lowerer spells them. One more pass lowers them with their own
+        # lowerer, which is the image the fixpoint verifies.
+        first = out / "stage1.image"
+        image.replace(first)
+        run_step([str(out / "plain-runtime"), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
+                  "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "self-hosting root emit")
+        first.unlink()
     else:
-        env = dict(os.environ, NUPP_ENGINE="luajit")
+        env = dict(os.environ, NUPP_ENGINE="luajit", **cached)
         env.pop("NUPP_VM_CLI_IMAGE", None)
         run_step([str(ROOT / "bin/nupp"), "run", "native/crates/vm/emit/root.lua", str(ROOT), str(image)], env,
                  "LuaJIT-hosted root emit")
     if not image.is_file():
         raise ValueError("the root emit wrote no image")
+    if seed in ("image", "luajit"):
+        # A compiler from elsewhere filled the cache; the next automatic rebuild
+        # pins what this one installs.
+        (PACKAGES / "emitter").unlink(missing_ok=True)
+    args.linked = not args.no_aot
     if args.no_aot:
         runtime = cargo(None, target)
     else:
-        aot_tool = cargo("aot", target)
-        shutil.copyfile(aot_tool, out / "aot-tool")
-        (out / "aot-tool").chmod(0o755)
-        obj = out / "compiler.o"
-        run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
-        # The object is read by the build script, which does not see a changed
-        # file behind an unchanged variable.
-        (ROOT / "native/crates/vm/src/lib.rs").touch()
-        runtime = cargo("aot-linked,c-headers,compression,net,http", target, {"NUPP_AOT_OBJECT": str(obj)},
-                        default_features=False)
-    shutil.copyfile(runtime, out / "runtime")
-    (out / "runtime").chmod(0o755)
-    args.runtime, args.image = out / "runtime", image
+        runtime = linked_runtime(image, out, target)
+    staged = out / "runtime"
+    # Never copied over an executable in place: macOS kills a process whose
+    # mapped binary changes under it.
+    shutil.copyfile(runtime, out / "runtime.new")
+    (out / "runtime.new").chmod(0o755)
+    os.replace(out / "runtime.new", staged)
+    args.runtime, args.image = staged, image
     install(args)
+
+
+def linked_runtime(image, out, target):
+    """A runtime with `image`'s functions compiled in."""
+    aot_tool = cargo("aot", target)
+    shutil.copyfile(aot_tool, out / "aot-tool.new")
+    (out / "aot-tool.new").chmod(0o755)
+    os.replace(out / "aot-tool.new", out / "aot-tool")
+    obj = out / "compiler.o"
+    run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
+    # The object is read by the build script, which does not see a changed
+    # file behind an unchanged variable.
+    (ROOT / "native/crates/vm/src/lib.rs").touch()
+    return cargo("aot-linked,c-headers,compression,net,http", target, {"NUPP_AOT_OBJECT": str(obj)},
+                 default_features=False)
+
+
+class build_lock:
+    """The launcher's rebuild lock (`bin/nupp`): a directory holding its owner's
+    pid, taken over from an owner that is gone."""
+    path = ROOT / ".nupp/vm-cli-build.lock"
+
+    def __enter__(self):
+        while True:
+            try:
+                self.path.mkdir(parents=True)
+                (self.path / "pid").write_text("%d\n" % os.getpid())
+                return self
+            except FileExistsError:
+                try:
+                    os.kill(int((self.path / "pid").read_text()), 0)
+                except (OSError, ValueError):
+                    # Its owner writes the pid just after making it.
+                    try:
+                        young = time.time() - self.path.stat().st_mtime < 10
+                    except OSError:
+                        continue
+                    if not young:
+                        shutil.rmtree(self.path, ignore_errors=True)
+                        continue
+                time.sleep(1)
+
+    def __exit__(self, *_):
+        shutil.rmtree(self.path, ignore_errors=True)
+
+
+def link(args):
+    """Replace the selected generation's interpreter-only runtime with one that
+    has its image compiled in, keeping the image. Installs only while that
+    generation is still the selected one; when a newer one was installed
+    meanwhile, links that one instead. One link at a time per checkout: a link
+    asked for while one runs is left to it, since it links whatever is selected
+    when it finishes."""
+    lock = ROOT / ".nupp/vm-cli-link.lock"
+    try:
+        lock.mkdir(parents=True)
+    except FileExistsError:
+        try:
+            os.kill(int((lock / "pid").read_text()), 0)
+            return
+        except (OSError, ValueError):
+            shutil.rmtree(lock, ignore_errors=True)
+            lock.mkdir(parents=True)
+    (lock / "pid").write_text("%d\n" % os.getpid())
+    try:
+        while True:
+            package = selected()
+            receipt = json.loads((package / "receipt.json").read_text())
+            if receipt.get("linked"):
+                return
+            out = ROOT / "build/vm-cli/link"
+            out.mkdir(parents=True, exist_ok=True)
+            image = out / "compiler.image"
+            shutil.copyfile(package / "compiler.image", image)
+            # A target directory of its own: a rebuild running beside this one
+            # builds the interpreter-only runtime into the shared one, at the same
+            # path.
+            runtime = linked_runtime(image, out, ROOT / "build/rust/link-target")
+            shutil.copyfile(runtime, out / "runtime.new")
+            (out / "runtime.new").chmod(0o755)
+            os.replace(out / "runtime.new", out / "runtime")
+            # Selected and replaced under the launcher's build lock, so a rebuild
+            # cannot install between the two.
+            with build_lock():
+                if selected() != package:
+                    print("vm-cli: a newer generation was installed while linking; linking that", file=sys.stderr)
+                    continue
+                # The linked runtime runs the same image, so it is as current as
+                # the interpreter it replaces: the stamp carries over unchanged.
+                keep = None
+                stamp = PACKAGES / "stamp"
+                if stamp.exists():
+                    handle, keep = tempfile.mkstemp(prefix=".stamp-", dir=PACKAGES)
+                    os.close(handle)
+                    shutil.copystat(stamp, keep)
+                args.runtime, args.image, args.stamp, args.linked = out / "runtime", image, keep, True
+                install(args)
+                # The emit cache's compiler is this image too, now faster to run.
+                if pinned() == package:
+                    pin(selected())
+    finally:
+        shutil.rmtree(lock, ignore_errors=True)
 
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -231,14 +444,18 @@ commands = parser.add_subparsers(dest="command", required=True)
 command = commands.add_parser("install", help="verify and atomically select a runtime and full root CLI image")
 command.add_argument("--runtime", type=Path, required=True)
 command.add_argument("--image", type=Path, required=True)
+command.add_argument("--linked", action="store_true", help="the runtime has this image's functions compiled in")
 commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
 command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
-command.add_argument("--seed", choices=["vm", "image", "luajit"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else LuaJIT)")
+command.add_argument("--seed", choices=["vm", "pinned", "image", "luajit"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else LuaJIT; pinned: the generation the emit cache was filled by)")
 command.add_argument("--seed-image", type=Path, help="a root CLI image to lower with, such as a pinned VM stage zero")
 command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
+command.add_argument("--cache", type=Path, help="where emits keep per-module lowering (default: build/vm-cli/emit-cache)")
+command.add_argument("--no-cache", action="store_true", help="lower every module from source and keep nothing")
+commands.add_parser("link", help="link the selected generation's image into its runtime")
 args = parser.parse_args()
 try:
-    {"install": install, "status": lambda _: status(), "build": build}[args.command](args)
+    {"install": install, "status": lambda _: status(), "build": build, "link": link}[args.command](args)
 except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
     print(f"nupp: {error}", file=sys.stderr)
     sys.exit(1)

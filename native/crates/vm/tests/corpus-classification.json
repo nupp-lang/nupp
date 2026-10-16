@@ -1502,6 +1502,18 @@
       "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
     },
     {
+      "suite": "vmclilaunchertest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "drives a planted launcher tree through the shell"
+    },
+    {
+      "suite": "vmemitcachetest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "pure Lua against compiler modules within the subset"
+    },
+    {
       "suite": "vmimagecachetest",
       "class": "port-required",
       "facilities": "load,getinfo,spawn",
