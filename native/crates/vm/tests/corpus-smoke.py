@@ -134,6 +134,13 @@ def execute(row):
         execution_env["JIT_VERIFY"] = "1"
         if args.jit_compilation == "eager":
             execution_env["JIT_EAGER_FRAMES"] = "1"
+    # One store per suite, kept between runs, as the Lua test runner gives each
+    # shard one: a compiler a case starts in a fresh project then checks the
+    # standard library it requires once rather than in every case. The stores
+    # are stamped with the compiler that wrote them, so a new image misses.
+    cache = root / "build" / ".nupp-corpus-cache" / suite
+    cache.mkdir(parents=True, exist_ok=True)
+    execution_env["NUPP_CACHE_DIR"] = str(cache)
     if args.gc_stress:
         execution_env.update(GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
     if args.gc_interleave:
