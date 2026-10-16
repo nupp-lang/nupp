@@ -2942,6 +2942,29 @@ end
 --- `param` (a 1-based index) holds a `type`. It is part of the interning key: two
 --- signatures that narrow differently are different types, even where their parameters
 --- and returns agree.
+--- Each parameter's mode, `plain` where none was given.
+local function parameterModes(params: {types.Type}, paramModes: {string}?): {string}
+    local modes: {string} = {}
+    for j = 1, #params do
+        modes[j] = paramModes and paramModes[j] or "plain"
+    end
+
+    return modes
+end
+
+--- Each parameter's name, empty where none was given.
+local function parameterNames(params: {types.Type}, paramNames: {string}?): {string}
+    local names: {string} = {}
+    for j = 1, #params do
+        names[j] = paramNames and paramNames[j] or ""
+    end
+
+    return names
+end
+
+--- Nothing, for iterating an absent list without making one.
+local EMPTY: {any} = {}
+
 function types.func(
     params: {types.Type},
     rets: {types.Type},
@@ -2979,12 +3002,13 @@ function types.func(
     if #rets == 1 and rets[1] == types.never then
         noreturn = true
     end
-    local modes: {string} = {}
-    local names: {string} = {}
-    local preservesPaths: {[integer]: {string}} = {}
-    for j = 1, #params do
-        modes[j] = paramModes and paramModes[j] or "plain"
-        names[j] = paramNames and paramNames[j] or ""
+    -- What the function keeps of its modes and names is built when the key needs it
+    -- or the arena misses, not on every call: most functions asked for exist.
+    local modes: {string}? = nil
+    local names: {string}? = nil
+    local preservesPaths: {[integer]: {string}}? = nil
+    if not paramPack then
+        modes = parameterModes(params, paramModes)
     end
     paramPack = paramPack
         or types.pack(
@@ -3042,7 +3066,7 @@ function types.func(
     if borrowsResult and borrowsResult ~= 1 then
         key = key .. "|borrowsinto" .. borrowsResult
     end
-    for _, output in ipairs(ffiOut or {}) do
+    for _, output in ipairs(ffiOut or EMPTY) do
         local cleanupIds = {}
         for j, cleanup in ipairs(output.cleanups or {}) do
             cleanupIds[j] = cleanup.id
@@ -3068,6 +3092,7 @@ function types.func(
                 key = key .. "|preserves" .. tostring(result) .. ":" .. tostring(source)
                 local path = params[source] and types.preservationPath(rets[result], params[source]) or nil
                 if path then
+                    preservesPaths = preservesPaths or {}
                     preservesPaths[result] = path
                     key = key .. "@" .. table.concat(path, ".")
                 else
@@ -3121,6 +3146,7 @@ function types.func(
         end
     end
     if paramNames then
+        names = parameterNames(params, paramNames)
         key = key .. "|names(" .. table.concat(names, ",") .. ")"
     end
 
@@ -3128,6 +3154,8 @@ function types.func(
     if existing then
         return existing
     end
+    modes = modes or parameterModes(params, paramModes)
+    names = names or parameterNames(params, paramNames)
 
     return intern(
         key,
@@ -3149,7 +3177,7 @@ function types.func(
             borrowsResult = borrowsResult,
             preservesResults = preservesResults,
             explicitPreserves = explicitPreserves,
-            preservesPaths = next(preservesPaths) and preservesPaths or nil,
+            preservesPaths = preservesPaths,
             partitionResults = partitionResults,
             foreign = foreign or nil,
             ffiOut = ffiOut,

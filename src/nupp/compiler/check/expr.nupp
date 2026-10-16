@@ -138,7 +138,8 @@ function expr.install(c: state.Checker): nil
         if node.sendableCaptures then
             return T.withSendable(infer())
         end
-        local watch = {depth = (c.scope.depth or 0) + 1, captured = false, entries = {}}
+        local entries: {[any]: state.Binding} = {}
+        local watch = new state.CaptureWatch(depth = (c.scope.depth or 0) + 1, captured = false, entries = entries)
         c.captureWatches[#c.captureWatches + 1] = watch
         local inferred = infer()
         for index = #c.captureWatches, 1, -1 do
@@ -154,7 +155,7 @@ function expr.install(c: state.Checker): nil
             type: any,
             unassigned: any
         }} = {}
-        for definition, entry in pairs(watch.entries) do
+        for definition, entry in pairs(entries) do
             if (entry.functionDepth or 0) > 0 then
                 captures[
                     #captures + 1

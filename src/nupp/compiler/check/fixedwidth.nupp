@@ -25,8 +25,8 @@ local type Ops = {
     trust: function(node: any, t: T.Type),
     copy: function(target: any, source: any),
     intersect: function(target: any, left: any, right: any),
-    setBinding: function(entry: any, source: any, resultIndex: integer?),
-    copyBinding: function(node: any, entry: any),
+    setBinding: function(entry: state.Binding, source: any, resultIndex: integer?),
+    copyBinding: function(node: any, entry: state.Binding?),
     established: function(node: any, target: T.Type): boolean,
     fits: function(source: T.Type, target: T.Type, node: any, physical: boolean?): (boolean, string?, boolean),
     storageOnly: function(node: any, t: T.Type, context: string)

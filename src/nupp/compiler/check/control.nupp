@@ -983,7 +983,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        c.captureWatches[#c.captureWatches + 1] = {depth = c.scope.depth, captured = false}
+        c.captureWatches[#c.captureWatches + 1] = new state.CaptureWatch(depth = c.scope.depth, captured = false)
         c.checkBlock(stat.body, true)
         stat.capturesEnclosing = c.captureWatches[#c.captureWatches].captured
         c.captureWatches[#c.captureWatches] = nil

@@ -251,6 +251,21 @@ record state.Binding
     mutationSelf: boolean?
 end
 
+--- A watch on name resolution while a region is checked: whether anything resolved
+--- a binding declared outside it, and which, keyed by declaration.
+record state.CaptureWatch
+    --- The scope depth the region begins at; a binding from a shallower scope is
+    --- reached from outside.
+    depth: integer
+
+    --- The shallowest depth still counted, so a name bound before a loop is not
+    --- taken for a capture by a closure inside it.
+    floor: integer?
+
+    captured: boolean
+    entries: {[any]: state.Binding}?
+end
+
 --- One lexical scope: the names, types and narrowings it introduces, and the owners it
 --- discharges when it closes.
 record state.Scope
@@ -312,7 +327,7 @@ record state.Checker
     annotationRegistry: any
 
     --- The definitions this file itself declared, by name.
-    annotationDefinitions: any
+    annotationDefinitions: {[string]: any}
 
     --- Closed derive recipe construction for this checking run.
     derives: any
@@ -339,7 +354,7 @@ record state.Checker
     moduleExports: any
 
     --- Declaration sites already recorded, so one is not published twice.
-    seenDefinitions: any
+    seenDefinitions: {[any]: boolean}
 
     -- Where the walk currently is. All of this changes as it runs.
 
@@ -350,9 +365,9 @@ record state.Checker
 
     --- Return-type annotations of the enclosing functions, or false for one that was
     --- not annotated and is therefore not checked.
-    retStack: {any}
+    retStack: {Type | false}
 
-    retPackStack: {any}
+    retPackStack: {T.Pack | false}
 
     --- The packs each enclosing unannotated function has returned so far, or false
     --- for one whose results are declared and need no inference.
@@ -381,7 +396,7 @@ record state.Checker
     constructorFieldStack: {any}
 
     --- Cleanup contracts already validated, so one is not re-reported.
-    validatedCleanupContracts: any
+    validatedCleanupContracts: {[string]: boolean}
 
     --- The active `@unsafe` permission depth; raw pointer use needs it above zero.
     unsafeDepth: integer
@@ -444,7 +459,7 @@ record state.Checker
     closureCaptureStack: {any}
 
     --- Whether an analyzed cleanup body has reached out of its own scope.
-    captureWatches: {any}
+    captureWatches: {state.CaptureWatch}
 
     --- Whether a function that raises on purpose said so. See
     --- nupp.compiler.check.undocumentedraise.
@@ -460,7 +475,7 @@ record state.Checker
 
     --- The definitions something has read, so an unread binding can be told from a used
     --- one. Written by `lookupEntry`; owned by nupp.compiler.check.unused.
-    reads: any
+    reads: {[any]: boolean}
 
     --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
     allowed: {any}
@@ -523,7 +538,7 @@ record state.Checker
 
     --- Aliases currently being resolved, so one that names itself is caught rather than
     --- recurring forever.
-    resolvingAlias: any
+    resolvingAlias: {[string]: boolean}
 
     --- Set while a cdef function's return type is being resolved. `Success<T, N>` is a
     --- statement about a C call's outputs, so it is legal only there.
