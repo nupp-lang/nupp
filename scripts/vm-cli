@@ -145,6 +145,18 @@ def install(args):
     print(package)
 
 
+def current(_args):
+    """Exit 0 when the selected generation was installed from exactly these sources:
+    a fresh worktree seeded with it is then current although every file in it is
+    newer than the stamp, and the launcher needs no rebuild."""
+    package = selected()
+    receipt = json.loads((package / "receipt.json").read_text())
+    validate_files(package, receipt)
+    now = source_state()["fingerprint"]
+    recorded = receipt.get("sourceAtInstall", {}).get("fingerprint")
+    sys.exit(0 if now is not None and now == recorded else 1)
+
+
 def status():
     package = selected()
     receipt = json.loads((package / "receipt.json").read_text())
@@ -449,6 +461,7 @@ command.add_argument("--runtime", type=Path, required=True)
 command.add_argument("--image", type=Path, required=True)
 command.add_argument("--linked", action="store_true", help="the runtime has this image's functions compiled in")
 commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
+commands.add_parser("current", help="exit 0 when the selected generation was built from exactly these sources")
 command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
 command.add_argument("--seed", choices=["vm", "pinned", "image", "luajit"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else LuaJIT; pinned: the generation the emit cache was filled by)")
 command.add_argument("--seed-image", type=Path, help="a root CLI image to lower with, such as a pinned VM stage zero")
@@ -458,7 +471,7 @@ command.add_argument("--no-cache", action="store_true", help="lower every module
 commands.add_parser("link", help="link the selected generation's image into its runtime")
 args = parser.parse_args()
 try:
-    {"install": install, "status": lambda _: status(), "build": build, "link": link}[args.command](args)
+    {"install": install, "status": lambda _: status(), "build": build, "link": link, "current": current}[args.command](args)
 except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
     print(f"nupp: {error}", file=sys.stderr)
     sys.exit(1)

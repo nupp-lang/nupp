@@ -84,6 +84,15 @@ vm_cli_is_current() {
     fi
 }
 
+# Every file is newer than the stamp in a fresh worktree seeded with a generation,
+# yet that generation may have been built from exactly these sources. Asked only
+# once the times say stale; a match refreshes the stamp so the next command does
+# not ask again.
+vm_cli_content_current() {
+    python3 "$ROOT/scripts/vm-cli" current >/dev/null 2>&1 || return 1
+    : > "$VM_CLI/stamp"
+}
+
 # A rebuild of these very sources already failed.
 vm_cli_failed_unchanged() {
     [ -f "$VM_CLI/failed" ] && ! vm_sources_newer_than "$VM_CLI/failed"
@@ -170,7 +179,7 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] && [ -e "
     && [ "${NUPP_VM_AUTO_REBUILD:-1}" != 0 ]; then
     case "${1:-}" in
         ""|-h|--help|help|__*) ;;
-        *) vm_cli_is_current || vm_cli_rebuild ;;
+        *) vm_cli_is_current || vm_cli_content_current || vm_cli_rebuild ;;
     esac
 fi
 
