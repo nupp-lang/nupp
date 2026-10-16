@@ -637,6 +637,35 @@ local function dependencyChangeMessage(change, consumer, consumerPath)
     return subject .. " changed (" .. required .. ")"
 end
 
+--- A module on the module-wide C fallback (raw `ffi.cdef` text the checker could
+--- not key) declares into the process's one C registry. An edit that changes
+--- such a declaration is refused there as a conflict with the running one before
+--- any fingerprint can compare them, so that refusal is the C declarations
+--- changing: a restart, not an error in the edit.
+local function rawFallbackRedeclared(live, module: string, values): any
+    local old = live.abi and live.abi.modules and live.abi.modules[module]
+    if not old or not old.cUnknown then
+        return nil
+    end
+    for _, diagnostic in ipairs(values) do
+        local message = tostring(diagnostic.msg or "")
+        if diagnostic.code == "NUPP2303"
+            and (message:find("conflicting", 1, true) or message:find("redefin", 1, true))
+        then
+            return {
+                kind = "c-declaration",
+                dependencyKind = "C declarations",
+                dependency = old.label or module,
+                identity = "<module-wide C fallback>",
+                path = old.path or live.path,
+                disposition = "fallback",
+            }
+        end
+    end
+
+    return nil
+end
+
 ----------------------------------------------------------------------------
 -- Opening a session
 ----------------------------------------------------------------------------
@@ -1102,6 +1131,10 @@ function Session:prepare(paths)
         local live = self.running[module]
         local checked = self.inc.checkFile(live.path)
         if fatalIn(checked.diags) then
+            local change = rawFallbackRedeclared(live, module, checked.diags)
+            if change then
+                return restart(live.path, dependencyChangeMessage(change, module, live.path), change)
+            end
             return diagnosticsFailure(checked.diags)
         end
         local abi, failure = self:semanticSnapshot(live.path, checked, module)
