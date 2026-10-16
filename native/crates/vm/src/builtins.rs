@@ -1040,6 +1040,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::PackageImageloader => {
             let name = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
+            if it.spent_modules.contains(&name) { return outs![Value::NIL]; }
             if let Some(fid) = it.modules.get(&name) { return outs![Value::func(*fid)]; }
             if let Some(value) = it.loaded.get(&name).copied() {
                 let cell = it.new_cell(value); let root = it.register(cell);
@@ -1052,7 +1053,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
             let bytes = bytes_of(it, arg(args, 0));
             let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
+            let first = it.funcs.len() as u32;
             let entry = crate::image::load(it, text).unwrap_or_else(|e| it.err(&e));
+            // What this image declares is current for those names again.
+            let declared: Vec<String> = it.modules.iter().filter(|&(_, &fid)| fid >= first).map(|(name, _)| name.clone()).collect();
+            for name in declared { it.spent_modules.remove(&name); it.dynamic_modules.insert(name); }
             it.entries.resize(it.funcs.len(), 0);
             if it.threaded { it.prepare_threaded(); }
             return outs![Value::func(entry)];

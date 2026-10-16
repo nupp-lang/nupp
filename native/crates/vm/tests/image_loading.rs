@@ -156,3 +156,50 @@ fn quoted_control_bytes_before_digits_round_trip() {
         vm.close_scope(mark);
     }
 }
+
+/// A module an image loaded at run time declared answers `require` from that
+/// image once. After `require` loaded it and `package.loaded` forgot it, the
+/// image loader stands aside so the loaders behind it load the module again;
+/// loading a new image that declares it makes that image current. The running
+/// image's own modules keep answering.
+#[test]
+fn image_loader_stands_aside_for_a_spent_runtime_module() {
+    let base = "function basemod 0 0 12 1 :v\nNewTableN 1 0 0\nRet 1\nend\nmodule basemod 0\nentry 0\n";
+    let dynamic = "function dyn 0 0 12 1 :v\nNewTableN 1 0 0\nRet 1\nend\nmodule dyn 0\nentry 0\n";
+    let mut it = Interp::new();
+    image::load(&mut it, base).unwrap();
+    it.install_globals();
+    it.entries.resize(it.funcs.len(), 0);
+    let load_image = Value::builtin(nupp_vm::builtins::id_of("vm.loadImage").unwrap());
+    let image_loader = Value::builtin(nupp_vm::builtins::id_of("package.imageLoader").unwrap());
+    let ask = |it: &mut Interp, name: &str| -> Value {
+        let key = it.intern(name);
+        let root = it.register(key);
+        let answer = it.call_value(image_loader, &[key])[0];
+        it.release(root);
+        answer
+    };
+    let forget = |it: &mut Interp, name: &str| {
+        let key = it.intern(name);
+        let root = it.register(key);
+        it.set_index(it.loaded_table, key, Value::NIL);
+        it.release(root);
+    };
+    let text = it.heap_new_string(dynamic);
+    let root = it.register(text);
+    it.call_value(load_image, &[text]);
+    assert!(ask(&mut it, "dyn").as_func().is_some(), "a freshly loaded image answers for its module");
+    let first = it.require("dyn");
+    let first_root = it.register(first);
+    forget(&mut it, "dyn");
+    assert_eq!(ask(&mut it, "dyn"), Value::NIL, "a spent runtime module is left to the other loaders");
+    it.call_value(load_image, &[text]);
+    assert!(ask(&mut it, "dyn").as_func().is_some(), "a newer image is current for the name again");
+    let second = it.require("dyn");
+    assert_ne!(first, second, "requiring after a clear runs the newer image's chunk");
+    it.release(first_root);
+    it.release(root);
+    it.require("basemod");
+    forget(&mut it, "basemod");
+    assert!(ask(&mut it, "basemod").as_func().is_some(), "the running image keeps answering for its own modules");
+}
