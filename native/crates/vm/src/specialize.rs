@@ -108,20 +108,36 @@ pub struct FuncFeedback {
     pub misses: u32,
     /// Deopt exits taken by the current specialized frame entry.
     pub deopts: u32,
-    /// Versions compiled from this record, baseline included: also the
-    /// suffix that keeps their symbols apart.
-    pub versions: u8,
-    /// Specialized versions compiled; capped by `Limits::max_versions`.
-    pub specialized: u8,
-    /// Past its caps: the function runs its generic entry from now on.
-    pub settled: bool,
-    /// The current entry is a specialized one.
-    pub active: bool,
-    /// The generic entries, kept to return to.
-    pub baseline: u64,
-    pub frame_baseline: u64,
+    /// The direct entry's versions (`DIRECT`) and the heap-frame entry's
+    /// (`FRAME`): a function may run both ways in one VM, and each settles on
+    /// its own.
+    pub kinds: [Versions; 2],
     pub site_of: Box<[u32]>,
     pub sites: Box<[Site]>,
+}
+
+pub const DIRECT: usize = 0;
+pub const FRAME: usize = 1;
+
+/// One entry kind's versions of a function.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Versions {
+    /// Entries counted by the driver (heap-frame entries only; direct
+    /// entries count in `FuncFeedback::calls`).
+    pub entries: u32,
+    /// Specialized versions compiled; capped by `Limits::max_versions`.
+    pub specialized: u8,
+    /// Past its caps: the generic entry from now on.
+    pub settled: bool,
+    /// The installed entry is a specialized one.
+    pub active: bool,
+    /// The generic entry, kept to return to.
+    pub baseline: u64,
+}
+
+impl FuncFeedback {
+    pub fn kind(&self, frame: bool) -> &Versions { &self.kinds[frame as usize] }
+    pub fn kind_mut(&mut self, frame: bool) -> &mut Versions { &mut self.kinds[frame as usize] }
 }
 
 pub const NO_SITE: u32 = u32::MAX;
@@ -172,6 +188,9 @@ pub struct State {
     pub sites: usize,
     /// Bytes the records, their sites and pc maps hold.
     pub bytes: usize,
+    /// Versions compiled so far: each one's symbol suffix, unique for the
+    /// VM's life even when a function's record is dropped and remade.
+    pub symbols: u32,
     pub stats: Stats,
 }
 
@@ -179,7 +198,7 @@ impl Default for State {
     fn default() -> Self {
         let specialize = std::env::var_os("JIT_SPECIALIZE").is_some_and(|v| v != "0");
         let feedback = specialize || std::env::var_os("JIT_FEEDBACK").is_some_and(|v| v != "0");
-        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, stats: Stats::default() }
+        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default() }
     }
 }
 
@@ -199,7 +218,7 @@ impl State {
             for (pc, op) in code.iter().enumerate() { if is_site(op) { site_of[pc] = k; k += 1; } }
             self.sites += n;
             self.bytes += bytes;
-            self.funcs[i] = Some(Box::new(FuncFeedback { calls: 0, misses: 0, deopts: 0, versions: 0, specialized: 0, settled: false, active: false, baseline: 0, frame_baseline: 0, site_of, sites: vec![Site::default(); n as usize].into_boxed_slice() }));
+            self.funcs[i] = Some(Box::new(FuncFeedback { calls: 0, misses: 0, deopts: 0, kinds: [Versions::default(); 2], site_of, sites: vec![Site::default(); n as usize].into_boxed_slice() }));
         }
         self.funcs[i].as_deref_mut()
     }
@@ -329,7 +348,7 @@ pub struct Hooks {
 #[derive(Clone, Debug, Default)]
 pub struct Plan {
     /// Keeps the version's symbols apart from the function's others.
-    pub version: u8,
+    pub version: u32,
     pub sites: HashMap<usize, SiteSpec>,
     /// `Heap::proto_epoch` when the plan resolved its methods, and where it is.
     pub epoch: u64,
@@ -465,9 +484,9 @@ impl Interp {
             if let Some(s) = self.plan_site(fid, pc, op, frame) { sites.insert(pc, s); }
         }
         if sites.is_empty() { return None; }
-        let ff = self.spec.funcs.get_mut(fid as usize)?.as_deref_mut()?;
-        ff.versions = ff.versions.wrapping_add(1);
-        Some(Plan { version: ff.versions, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame })
+        self.spec.get(fid)?;
+        self.spec.symbols += 1;
+        Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame })
     }
 
     /// The plan for an instrumented generic version: feedback hooks only.
@@ -477,13 +496,13 @@ impl Interp {
         let code = &self.funcs.get(fid as usize)?.code;
         let ff = self.spec.func(fid, code)?;
         let hooks = Hooks { func_addr: &*ff as *const FuncFeedback as i64, sites_addr: ff.sites.as_ptr() as i64, site_of: ff.site_of.to_vec(), tier_calls };
-        ff.versions = ff.versions.wrapping_add(1);
-        Some(Plan { version: ff.versions, hooks: Some(hooks), epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, ..Plan::default() })
+        self.spec.symbols += 1;
+        Some(Plan { version: self.spec.symbols, hooks: Some(hooks), epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, ..Plan::default() })
     }
 
     /// Records the generic entry an eager compile installed for `fid`.
     pub fn spec_installed(&mut self, fid: u32, entry: u64) {
-        if let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) { ff.baseline = entry; }
+        if let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) { ff.kinds[DIRECT].baseline = entry; }
     }
 
     /// Drops what the VM learned about `fid` and every version specialized
@@ -496,11 +515,14 @@ impl Interp {
         self.spec.bytes -= State::cost(ff.site_of.len(), ff.sites.len());
         if let Some(r) = self.spec.refused.get_mut(fid as usize) { *r = false; }
         self.spec.stats.invalidated += 1;
-        if ff.active {
-            if let Some(e) = self.entries.get_mut(fid as usize) { if ff.baseline != 0 { *e = ff.baseline; } }
-            #[cfg(feature = "compiled-runtime")]
-            if let Some(e) = self.frame_entries.get_mut(fid as usize) { *e = 0; }
+        // A direct entry is only ever patched through its generic version
+        // (hot reload refuses direct entries); a heap-frame entry is compiled
+        // again from the new body on its next entry.
+        if ff.kinds[DIRECT].active {
+            if let Some(e) = self.entries.get_mut(fid as usize) { if ff.kinds[DIRECT].baseline != 0 { *e = ff.kinds[DIRECT].baseline; } }
         }
+        #[cfg(feature = "compiled-runtime")]
+        if let Some(e) = self.frame_entries.get_mut(fid as usize) { *e = 0; }
     }
 }
 
@@ -529,7 +551,7 @@ impl Interp {
     pub fn spec_compile_baseline(&mut self, fid: u32) -> Option<u64> {
         let plan = self.spec_baseline_plan(fid)?;
         let entry = self.spec_compile(fid, plan, false)?;
-        if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.baseline = entry; }
+        if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.kinds[DIRECT].baseline = entry; }
         Some(entry)
     }
 
@@ -539,9 +561,9 @@ impl Interp {
     pub fn respecialize(&mut self, fid: u32, frame: bool) {
         let max = self.spec.limits.max_versions;
         let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) else { return };
-        if ff.settled { return; }
+        if ff.kind(frame).settled { return; }
         ff.misses = 0; ff.deopts = 0;
-        if ff.specialized >= max { return self.settle(fid, frame); }
+        if ff.kind(frame).specialized >= max { return self.settle(fid, frame); }
         let Some(plan) = self.spec_plan(fid, frame) else { return self.settle(fid, frame) };
         let n = plan.sites.len() as u64;
         if std::env::var_os("JIT_SPEC_TRACE").is_some() {
@@ -550,7 +572,7 @@ impl Interp {
         }
         let Some(entry) = self.spec_compile(fid, plan, frame) else { return self.settle(fid, frame) };
         let ff = self.spec.funcs[fid as usize].as_deref_mut().unwrap();
-        ff.specialized += 1; ff.active = true;
+        let v = ff.kind_mut(frame); v.specialized += 1; v.active = true;
         self.spec.stats.versions += 1; self.spec.stats.sites += n;
         if frame {
             #[cfg(feature = "compiled-runtime")]
@@ -561,17 +583,20 @@ impl Interp {
     }
 
     fn settle(&mut self, fid: u32, frame: bool) {
-        if std::env::var_os("JIT_SPEC_TRACE").is_some() { eprintln!("spec: {} settles", self.funcs[fid as usize].name); }
+        if std::env::var_os("JIT_SPEC_TRACE").is_some() { eprintln!("spec: {} {}settles", self.funcs[fid as usize].name, if frame { "frame " } else { "" }); }
         let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) else { return };
-        ff.settled = true;
+        let v = ff.kind_mut(frame);
+        v.settled = true;
         self.spec.stats.settled += 1;
-        if !ff.active { return; }
-        ff.active = false;
+        if !v.active { return; }
+        v.active = false;
+        let baseline = v.baseline;
+        if baseline == 0 { return; }
         if frame {
             #[cfg(feature = "compiled-runtime")]
-            if ff.frame_baseline != 0 { self.frame_entries[fid as usize] = ff.frame_baseline; }
-        } else if ff.baseline != 0 {
-            self.entries[fid as usize] = ff.baseline;
+            { self.frame_entries[fid as usize] = baseline; }
+        } else {
+            self.entries[fid as usize] = baseline;
         }
     }
 
@@ -583,10 +608,11 @@ impl Interp {
         let tier = self.spec.limits.tier_calls;
         let code = &self.funcs[fid as usize].code;
         let Some(ff) = self.spec.func(fid, code) else { return };
-        if ff.settled { return; }
-        ff.calls = ff.calls.saturating_add(1);
-        let first = ff.calls == 1;
-        let hot = ff.calls == tier;
+        let v = ff.kind_mut(true);
+        if v.settled { return; }
+        v.entries = v.entries.saturating_add(1);
+        let first = v.entries == 1;
+        let hot = v.entries == tier;
         if first {
             self.frame_entries.resize(self.funcs.len(), 0);
             if self.frame_entries[fid as usize] == 0 {
@@ -595,7 +621,7 @@ impl Interp {
                     if let Some(hooks) = plan.hooks.as_mut() { hooks.tier_calls = 0; }
                     let entry = self.spec_compile(fid, plan, true).unwrap_or(u64::MAX);
                     self.frame_entries[fid as usize] = entry;
-                    if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.frame_baseline = entry; }
+                    if let Some(ff) = self.spec.funcs[fid as usize].as_deref_mut() { ff.kinds[FRAME].baseline = entry; }
                 }
             }
         }
@@ -734,6 +760,6 @@ pub fn helpers() -> Vec<(&'static str, *const u8, usize)> {
 pub fn report(it: &Interp) -> String {
     let s = it.spec.stats;
     let functions = it.spec.funcs.iter().flatten().count();
-    format!("spec: {functions} functions with feedback ({} sites, {} KiB);{} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated", it.spec.sites, it.spec.bytes / 1024, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated)
+    format!("spec: {functions} functions with feedback ({} sites, {} KiB); {} tier-ups, {} versions specializing {} sites, {} guard misses, {} deopts, {} settled, {} invalidated", it.spec.sites, it.spec.bytes / 1024, s.tier_ups, s.versions, s.sites, s.misses, s.deopts, s.settled, s.invalidated)
 }
 

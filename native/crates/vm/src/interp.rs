@@ -737,7 +737,7 @@ impl Interp {
             self.lazy_micros += t0.elapsed().as_micros() as u64;
             // With specialization on, interpreter feedback picks the version.
             if self.spec.specialize && self.entries[fid as usize] != 0 {
-                if let Some(ff) = self.spec.funcs.get_mut(fid as usize).and_then(|f| f.as_deref_mut()) { ff.baseline = self.entries[fid as usize]; }
+                self.spec_installed(fid, self.entries[fid as usize]);
                 self.jit = Some(j);
                 self.respecialize(fid, false);
                 if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }

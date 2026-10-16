@@ -89,12 +89,12 @@ end
 function M.weak(n)
     local methods = setmetatable({}, {__mode = "v"})
     local W = {__index = methods}
-    local keep = function(self) return self.x end
-    methods.value = keep
+    local holder = {f = function(self) return self.x end}
+    methods.value = holder.f
     local o = setmetatable({x = 3}, W)
     local sum = 0
     for _ = 1, n do sum = sum + call(o) end
-    keep = nil
+    holder.f = nil
     collectgarbage()
     collectgarbage()
     local ok, r = pcall(call, o)
