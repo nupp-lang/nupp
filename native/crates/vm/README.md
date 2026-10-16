@@ -3334,3 +3334,11 @@ The semantic gaps listed above as still `port-required` are closed:
 The derive path-spelling case compared a project file with a file outside the
 project, which are two modules; it now spells one file two ways, and the images
 agree.
+
+All eight suites ran on the VM afterwards. `operatortest`, `orexittest`,
+`methodtest`, `runtimereflectiontest`, `derivetest`, `typeleveltest` and
+`spitest` pass and are `portable`; `spitest` also needed a module that loads
+SPI providers to publish its exports only once it has loaded, as the Lua
+backend does, so a provider never sees a half-built facade. `clitest` passes
+every case it reaches, the program-arguments one included, but on a loaded
+machine the last four do not start inside the 600 s suite budget.
