@@ -483,9 +483,9 @@
     },
     {
       "suite": "derivetest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "a bounded generic field's derived Debug describes T as opaque on the VM; derive identities name <chunk> for a file outside the project, so the image depends on path spelling"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "diagnosticgoldentest",
@@ -1461,9 +1461,9 @@
     },
     {
       "suite": "typeleveltest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,getinfo,lua-generator",
-      "reason": "comptime type caches lose a local record's nominal identity (NUPP2001)"
+      "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
       "suite": "typeprovidertest",
