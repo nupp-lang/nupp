@@ -813,3 +813,14 @@ export function compile(source: string, options: any): any
 
     return fromPattern(pattern)
 end
+
+--- Gives a program that compiles grammars while it runs `nupp.peg.compile`,
+--- for a host that did not install it.
+--- @export
+export function installCompile(): nil
+    local namespace: any = rawget(_G, "nupp") or {}
+    rawset(_G, "nupp", namespace)
+    local peg: any = rawget(namespace, "peg") or {}
+    rawset(namespace, "peg", peg)
+    peg.compile = compile
+end

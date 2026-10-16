@@ -123,20 +123,26 @@ end
 --- pieces address.
 function stdlib.vmInstallers(effects: {[string]: any}): string?
     local out = {}
-    if effects["stdlib.peg"] or effects["stdlib.peg.compile"] then
+    -- Materialized grammars address the runtime's locals; a program that only
+    -- compiles grammars while it runs needs `nupp.peg.compile` and nothing more.
+    if effects["stdlib.peg"] then
         out[#out + 1] = PEG_RUNTIME
+        if effects["stdlib.peg.compile"] then
+            out[#out + 1] = PEG_COMPILE
+        end
     end
-    if effects["stdlib.lpeg.re"] or effects["stdlib.peg.compile"] then
+    if effects["stdlib.lpeg.re"] then
         out[#out + 1] = 'require("re");'
-    end
-    if effects["stdlib.peg.compile"] then
-        out[#out + 1] = PEG_COMPILE
     end
     if effects["stdlib.fieldcodec"] then
         out[#out + 1] = FIELDCODEC
     end
+    local compileOnly = effects["stdlib.peg.compile"] and not effects["stdlib.peg"]
     if #out == 0 then
-        return nil
+        return compileOnly and 'require("nupp.compiler.runtime.peg").installCompile()' or nil
+    end
+    if compileOnly then
+        out[#out + 1] = 'require("nupp.compiler.runtime.peg").installCompile();'
     end
 
     return "local __nupp=_G.nupp or {};_G.nupp=__nupp " .. table.concat(out, " ")
