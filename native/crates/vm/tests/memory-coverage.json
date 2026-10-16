@@ -1,0 +1,63 @@
+{
+  "scope": "The src modules that reached LuaJIT's ffi with no VM path: nupp.mem.soa, nupp.mem.heap and nupp.mem.sharedbytes on VM storage, ffi.typeof and SoA access lowered for the VM, nupp.log and the trivia arena default without ffi, and refusing VM providers for nupp.host and nupp.gpu.",
+  "status": "passed",
+  "date": "2026-10-15",
+  "covered": [
+    "SoA layoutof fields, sizes, alignments, fingerprint and segment offsets",
+    "SoA row reads and writes, field reads, writes and compound assignment, nested struct fields, projected columns, slices, copyFrom and its range check, row index check",
+    "Heap arrays of int32, number and uint8 including empty arrays and the count check",
+    "Region copy, slice, view, typed view and its alignment check, builder reserve/commit/append/freeze, identity equality, missing files",
+    "Regions sent to two workers",
+    "nupp.log sink and timestamp on os.time",
+    "nupp.host and nupp.gpu reporting nothing attached",
+    "A struct layout the target cannot give raises its reason at the call"
+  ],
+  "remaining": [
+    "Regions cross workers as copies of their block, not shared references (Memory across workers 1)",
+    "Heap arrays cross workers as copies, not moves (Memory across workers 2)",
+    "GPU compute on the VM: no device, no linked GPU facility, no native-library loader binding",
+    "VM host embedding channel for nupp.host",
+    "SIMD strided and SoA field-load forms"
+  ],
+  "corpus": {
+    "lexertest": "passed 27/27",
+    "loggingtest": "25/27; both failures are nupp.runtime.managed missing from the corpus image for Lua-generator cases"
+  },
+  "sourceSha256": {
+    "src/nupp/compiler/vm/metadata.nupp": "c9d3df2dbe5dcaeb3d61e19081b253ffdf8156fa6473e0da4b5c5fd4c0fbe23d",
+    "src/nupp/compiler/vm/lower.nupp": "9ee9841f8f9dbb05449e63fcc5fc643e93611d4e6d90f19dd837dc960d07caee",
+    "src/nupp/log.nupp": "2860ca1014b409bec7b56a86d5e4a09d67f29aeff98a795ed90630a61ad20e49",
+    "src/nupp/compiler/syntax/triviaarena/init.nupp": "b859732a880b7c165058b29477b237a8d1f4e73b33ec8ec6d97bcc1e4c3f1b63",
+    "native/crates/vm/lib/nupp/mem/soa.nupp": "d0d8cfe41713d8ecf45d944d8b064868a8a6f10440cafe9d386aee827727bb7a",
+    "native/crates/vm/lib/nupp/mem/heap.nupp": "f63917fb1181b431002f2bc5df0f8a7181eb08cc6ea939f7b47884e5707a8937",
+    "native/crates/vm/lib/nupp/mem/sharedbytes.nupp": "0153c2b16a01416f7064773e03b4dd7b48c4d475d4b24b225d02068ec2a4ce4d",
+    "native/crates/vm/lib/nupp/runtime/provider/nativehost.nupp": "f41cccab7ed1db450d7b12821619ecce1f930e655d6f7bdb4bbad8fa365f7c15",
+    "native/crates/vm/lib/nupp/runtime/provider/nativegpu.nupp": "3b2e423084e53f41d51f410911a8ea833462b0fef60053ead72efac9ebef6fc4",
+    "native/crates/vm/tests/memory-project/src/memory/main.nupp": "305e10e24e372e60aa74058d7c1401b2f1ddd4adb3479618f690ff4fdcc2e24d"
+  },
+  "smoke": {
+    "seedSha256": "a8b543f29a875fccbc03614c627f83a975218e86035d1049fdb451dd7a3568d3",
+    "imageSha256": "03b38f0b53c58902702bc02e0a02fec81476ad7c25cc4b54968e2b264811d28a",
+    "binarySha256": "1612b7b48dd3d1e0e26fc782113bcd7cc2fa40f5dd060263853178656ef81eb2",
+    "layoutTarget": "aarch64-apple-darwin",
+    "sourceSha256": "305e10e24e372e60aa74058d7c1401b2f1ddd4adb3479618f690ff4fdcc2e24d",
+    "results": [
+      {
+        "engine": "rust",
+        "passed": true
+      },
+      {
+        "engine": "threaded",
+        "passed": true
+      },
+      {
+        "engine": "jit",
+        "passed": true
+      },
+      {
+        "engine": "frames",
+        "passed": true
+      }
+    ]
+  }
+}

@@ -6,6 +6,11 @@ Checked host objects for one compiler-emitted GPU shader.
 The public methods preserve the source signature as resident buffer and scalar
 types. Raw shader text, entrypoint names, binding order and uniform packing
 exist only in the generated implementation.
+
+The native binding packs its uniform block with LuaJIT's `ffi` for
+`nupp.runtime.provider.nativegpu`, and so runs only under LuaJIT; the VM links
+no GPU device and its provider refuses `open`. The browser binding passes plain
+words and needs no `ffi`.
 ]]
 
 local gpuartifact = require("nupp.compiler.aot.gpuartifact")

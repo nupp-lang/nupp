@@ -2323,3 +2323,61 @@ Inherited from the LuaJIT graph, and open: the literal-prefix rule means
 `compilerPrivate` in `env` and the trivia-arena provider `vm.root` installs
 are not edges, so neither graph covers those modules for the stamps reaching
 them; the runtime binary is in no stamp.
+
+## Standard modules off `ffi` (2026-10-15)
+
+Nothing the VM loads from `src/` reaches LuaJIT's `ffi` any more. What each
+module that did became:
+
+- **`nupp.mem.soa`, `nupp.mem.heap`, `nupp.mem.sharedbytes`** have VM
+  implementations in `lib/nupp/mem` with the same public declarations. A SoA
+  slab is one managed allocation of words, each column a typed view
+  (`castWritableElements`) of its segment, laid out as LuaJIT lays it out; a
+  heap array is managed storage of its element descriptor; a region's block
+  is the string `copy` took (no copy) or a frozen builder's storage. All of it
+  is collected, checkpointed and copied to workers as storage is, so
+  `close` and a builder's `drop` only drop the reference.
+- **The lowering** (`metadata.expand`) makes `ffi.typeof<T>()` T's storage
+  descriptor: a struct's declared `\0nupp:structType`, or raising its layout's
+  reason where the target gives none, and the storage provider's scalar
+  descriptor for a scalar. `soa.allocate` and `soa.layoutof` become calls to
+  `_allocate`/`_layout` with the checker's field specification; `_layout`
+  measures each field from the row's descriptor. A row, a row's field and a
+  projected column (`rows[i]`, `rows[i].x`, `rows.x`, assignment and compound
+  assignment included) call the view's checked `get`, `set`, `getField`,
+  `setField` and `fieldBySlot`, as span views call `get` and `set`. The two
+  SIMD field-load forms are still refused; they now have the port they waited
+  on.
+- **`nupp.log`** reads the second through `ffi.C.time` only where
+  `require("ffi")` succeeds; the VM keeps `os.time`. **The trivia arena's**
+  lazy default takes the table provider where there is no FFI. Both keep the
+  require literal so the module graphs stay complete.
+- **`nativehost`** is replaced by a provider that reports no host attached
+  and refuses every request by name, as `nupp run` does under LuaJIT: the
+  LuaJIT embedding's host channel is not linked, and the VM embedding has
+  none yet. `nupp.host.internal.values` serves only the LuaJIT embedding and
+  the browser, so the VM never loads it.
+- **GPU** stays LuaJIT's. The VM's `nativegpu` reports no device (`available`
+  false, `open` refuses by name, an empty cost record). Porting the LuaJIT
+  provider is not mechanical: the `nuppNativeGpu*` entry points live in the
+  LuaJIT host library (`native/crates/native` over `native/crates/gpu`), which
+  the VM does not link and could not reach from a `cdef` until the loader
+  binding of a native library lands; the provider and the bindings
+  `aot/gpubinding` generates pack out-parameters and uniform blocks with
+  `ffi`; and "GPU compute on the VM" replaces `gpu.Buffer` with storage
+  residency, so a port of the buffer API would be thrown away.
+
+`tests/memory-smoke.py` runs a fixture over SoA rows, fields, columns, slices
+and copies, heap arrays, regions (slices, views, typed views, builders,
+identity) including regions sent to a worker, the logging clock, and the
+detached host and GPU, on all four engines under incremental collection with
+the root oracle and quarantine.
+
+Two VM gaps showed up on the way. Records have no `__eq` (nor does the VM
+dispatch `__eq` at all), so a block hands out one region per extent and
+identity is region equality. And `(view as any) + n` with an integer-typed `n`
+lowers as numeric addition and raises "expected a number" instead of calling
+the view's `__add`; the modules do view arithmetic through an `any`-typed
+helper. Still open from "Memory across workers": a region reaches a worker as
+a copy of its block, not a shared reference, and a heap array is copied
+rather than moved.

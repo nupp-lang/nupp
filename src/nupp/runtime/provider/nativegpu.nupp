@@ -18,6 +18,10 @@ a dependent handle usable.
 Applications require [](nupp.gpu), which resolves the provider once and exports
 its `open` function directly. Uploads, dispatches, synchronization, and readback
 operate on the retained context without further service resolution.
+
+This provider is LuaJIT's: it reaches the `nuppNativeGpu*` entry points of the
+LuaJIT host library through `ffi`. The VM replaces it with one that reports no
+device until the runtime plan's GPU compute on the VM lands.
 ]]
 
 local native = require("nupp.runtime.native")

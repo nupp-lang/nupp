@@ -15,6 +15,9 @@ Without a suspension handler a park blocks inside the very call the host made,
 so the host could never answer a request it did not answer at once. Such a
 request is refused rather than left to hang; run it under a handler, such as a
 [](nupp.host.pump), and drive it with `nupp_runtime_poll`.
+
+This provider serves the LuaJIT embedding. The VM replaces it with one that
+reports no host attached, since the VM's embedding has no host channel yet.
 ]]
 
 local suspension = require("nupp.suspension")
