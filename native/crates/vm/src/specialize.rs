@@ -155,6 +155,9 @@ pub struct Limits {
     /// Bytes of feedback across the VM (records, sites and pc maps); past
     /// it, functions get no feedback.
     pub max_bytes: usize,
+    /// Slow executions a version's sites must have recorded per instruction
+    /// of the function before it is compiled (`JIT_SPEC_BENEFIT`).
+    pub benefit: u32,
     /// `JIT_SPEC_CHAOS`: every n-th specialized site execution fails its
     /// guard on purpose; 0 is off.
     pub chaos: u64,
@@ -163,7 +166,7 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         let n = |k: &str, d: u64| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
-        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize, chaos: n("JIT_SPEC_CHAOS", 0) }
+        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize, chaos: n("JIT_SPEC_CHAOS", 0), benefit: n("JIT_SPEC_BENEFIT", 2) as u32 }
     }
 }
 
@@ -184,6 +187,11 @@ pub struct State {
     pub feedback: bool,
     /// Compile specialized versions from it.
     pub specialize: bool,
+    /// Also specialize heap-frame entries, with deopt exits
+    /// (`JIT_SPEC_FRAMES=1`): off by default, since on the class and
+    /// interface benchmarks run as tasks it cost 5 to 9% (every call there is
+    /// a boundary, which no field guard can save).
+    pub frames: bool,
     pub limits: Limits,
     pub funcs: Vec<Option<Box<FuncFeedback>>>,
     /// Functions the byte budget refused: never retried.
@@ -203,7 +211,8 @@ impl Default for State {
     fn default() -> Self {
         let specialize = std::env::var_os("JIT_SPECIALIZE").is_some_and(|v| v != "0");
         let feedback = specialize || std::env::var_os("JIT_FEEDBACK").is_some_and(|v| v != "0");
-        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default(), chaos: None }
+        let frames = specialize && std::env::var_os("JIT_SPEC_FRAMES").is_some_and(|v| v != "0");
+        State { feedback, specialize, frames, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default(), chaos: None }
     }
 }
 
@@ -494,7 +503,24 @@ impl Interp {
             if !is_site(&op) { continue; }
             if let Some(s) = self.plan_site(fid, pc, op, frame) { sites.insert(pc, s); }
         }
-        if sites.is_empty() { return None; }
+        // A version is worth compiling for a site the generic code handles
+        // slowly: a method call (always a helper), a field store (always a
+        // helper), a field read meeting several shapes (its one-entry cache
+        // refills). A monomorphic read is what the site cache already does
+        // and a single dynamic target saves only the dispatch stub, so they
+        // ride along but do not pay for a recompile (measured on the parser:
+        // versions for those alone cost more compile time than they saved).
+        let worth = |s: &SiteSpec| frame || matches!(s, SiteSpec::Method(_) | SiteSpec::Store { .. }) || matches!(s, SiteSpec::Field(cases) if cases.len() > 1);
+        // And the slow executions those sites recorded (a method call or a
+        // store each time, a field read each time its cache missed) must pay
+        // for compiling the whole function again: a large function with one
+        // lukewarm site stays as it is.
+        let slow: u64 = sites.iter().filter(|(_, s)| worth(s)).filter_map(|(pc, _)| self.spec.site(fid, *pc)).map(|s| s.counts.iter().map(|&c| c as u64).sum::<u64>() + s.overflow as u64).sum();
+        let needed = code.len() as u64 * self.spec.limits.benefit as u64;
+        if std::env::var_os("JIT_SPEC_TRACE").is_some() { eprintln!("spec: {} weighs {slow} slow executions against {needed}", self.funcs[fid as usize].name); }
+        // A heap-frame entry's fields exit rather than merge, which is the
+        // point of its version (stage 3); its sites are not counted.
+        if !frame && (slow == 0 || slow < needed) { return None; }
         self.spec.get(fid)?;
         self.spec.symbols += 1;
         Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame, chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos })
@@ -615,7 +641,7 @@ impl Interp {
     /// frame code, a hot one a specialized version.
     #[cfg(feature = "compiled-runtime")]
     pub(crate) fn spec_frame_entry(&mut self, fid: u32) {
-        if !self.spec.specialize || self.jit.is_none() { return; }
+        if !self.spec.frames || self.jit.is_none() { return; }
         let tier = self.spec.limits.tier_calls;
         let code = &self.funcs[fid as usize].code;
         let Some(ff) = self.spec.func(fid, code) else { return };
@@ -717,12 +743,6 @@ pub extern "C" fn j_spec_deopt(fid: u64, pc: u64, value: u64) -> u64 {
     0
 }
 
-/// Instrumented `GetField` miss: the receiver noted, then the generic read.
-#[unsafe(no_mangle)]
-pub extern "C" fn j_spec_get_field(t: u64, name: u64, site: *mut Site) -> u64 {
-    unsafe { (*site).record(receiver_key(Value(t))); }
-    crate::compiled::j_get_field(t, name)
-}
 
 /// Instrumented `SetField`.
 #[unsafe(no_mangle)]
@@ -738,12 +758,13 @@ pub extern "C" fn j_spec_call_method(name: u64, argv: *const u64, nargs: u64, si
     crate::compiled::j_call_method(name, argv, nargs)
 }
 
-/// Instrumented dynamic call target, for a key the site has not seen first.
+/// Instrumented `GetField` whose site cache missed on a record.
 #[unsafe(no_mangle)]
-pub extern "C" fn j_spec_note(site: *mut Site, key: u64) -> u64 {
-    unsafe { (*site).record(key); }
+pub extern "C" fn j_spec_note_receiver(site: *mut Site, value: u64) -> u64 {
+    unsafe { (*site).record(receiver_key(Value(value))); }
     0
 }
+
 
 /// The store barrier a specialized slot store takes while marking.
 #[unsafe(no_mangle)]
@@ -759,10 +780,9 @@ pub fn helpers() -> Vec<(&'static str, *const u8, usize)> {
         ("j_spec_tier_up", j_spec_tier_up as *const u8, 1),
         ("j_spec_miss", j_spec_miss as *const u8, 3),
         ("j_spec_deopt", j_spec_deopt as *const u8, 3),
-        ("j_spec_get_field", j_spec_get_field as *const u8, 3),
         ("j_spec_set_field", j_spec_set_field as *const u8, 4),
         ("j_spec_call_method", j_spec_call_method as *const u8, 4),
-        ("j_spec_note", j_spec_note as *const u8, 2),
+        ("j_spec_note_receiver", j_spec_note_receiver as *const u8, 2),
         ("j_spec_barrier", j_spec_barrier as *const u8, 2),
     ]
 }

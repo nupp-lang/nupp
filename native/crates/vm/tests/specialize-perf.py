@@ -16,6 +16,7 @@ sampled across the run. Modes:
   spec     the typed tier, eager, with feedback and specialization
   frames   scheduled heap-frame entries, generic
   fspec    scheduled heap-frame entries with specialization and deopt
+           (JIT_SPEC_FRAMES=1)
 """
 import argparse
 import os
@@ -40,7 +41,7 @@ MODES = {
     "jit": ({}, []),
     "spec": ({"JIT_SPECIALIZE": "1"}, []),
     "frames": ({}, ["--tasks"]),
-    "fspec": ({"JIT_SPECIALIZE": "1"}, ["--tasks"]),
+    "fspec": ({"JIT_SPECIALIZE": "1", "JIT_SPEC_FRAMES": "1"}, ["--tasks"]),
 }
 modes = args.modes.split(",")
 programs = args.programs.split(",")
@@ -50,7 +51,7 @@ for _ in range(args.repeats):
     for program in programs:
         for mode in modes:
             env = dict(os.environ)
-            for key in ("NO_JIT", "JIT_SPECIALIZE", "JIT_THRESHOLD", "NO_THREADED"):
+            for key in ("NO_JIT", "JIT_SPECIALIZE", "JIT_SPEC_FRAMES", "JIT_THRESHOLD", "NO_THREADED"):
                 env.pop(key, None)
             extra_env, flags = MODES[mode]
             env.update(extra_env)

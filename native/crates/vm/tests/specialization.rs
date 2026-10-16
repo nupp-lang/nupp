@@ -31,6 +31,8 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
     vm.install_globals();
     vm.spec.feedback = spec != Spec::Off;
     vm.spec.specialize = spec == Spec::Specialize;
+    // Heap-frame specialization is opt-in; the tests always cover it.
+    vm.spec.frames = spec == Spec::Specialize;
     // Small thresholds, so the scenarios cross them in a test's time.
     vm.spec.limits.tier_calls = 200;
     vm.spec.limits.miss_limit = 50;

@@ -640,63 +640,6 @@ impl<M: Module> Compiler<M> {
                 b.ins().call(helper_refs["j_native_bounds_error"],&[]); b.ins().jump(err_block,&[]);
                 b.switch_to_block(yes); b.seal_block(yes);
             }} }
-            // The feedback keys of `specialize::target_key` and `receiver_key`,
-            // computed inline by instrumented code.
-            macro_rules! target_key { ($v:expr) => {{
-                let v = $v;
-                let out = b.create_block(); b.append_block_param(out, types::I64);
-                let objb = b.create_block(); let other = b.create_block();
-                let tag = b.ins().band_imm(v, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
-                b.ins().brif(is_obj, objb, &[], other, &[]);
-                b.switch_to_block(objb); b.seal_block(objb);
-                let o = b.ins().band_imm(v, PAYLOAD); let kind = b.ins().uload8(types::I64, flags, o, OFF_KIND); let aux = b.ins().uload32(flags, o, OFF_AUX);
-                let is_clo = b.ins().icmp_imm(IntCC::Equal, kind, KIND_CLOSURE as i64);
-                let kf = b.ins().bor_imm(aux, crate::specialize::K_FN as i64); let ko = b.ins().bor_imm(kind, crate::specialize::K_OTHER as i64);
-                let key = b.ins().select(is_clo, kf, ko); b.ins().jump(out, &[key.into()]);
-                b.switch_to_block(other); b.seal_block(other);
-                let is_fn = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_FUNC_TAG);
-                let img = b.ins().ushr_imm(v, 32); let img = b.ins().band_imm(img, 0xffff); let idx = b.ins().band_imm(v, 0xffff_ffff);
-                let local = b.ins().icmp_imm(IntCC::Equal, img, 0); let runtime_image = b.ins().icmp_imm(IntCC::Equal, img, 0xffff);
-                let bare = b.ins().band(is_fn, local); let builtin = b.ins().band(is_fn, runtime_image);
-                let kb = b.ins().bor_imm(idx, crate::specialize::K_BARE as i64); let kbi = b.ins().bor_imm(idx, crate::specialize::K_BUILTIN as i64); let kother = b.ins().iconst(types::I64, crate::specialize::K_OTHER as i64);
-                let key = b.ins().select(builtin, kbi, kother); let key = b.ins().select(bare, kb, key); b.ins().jump(out, &[key.into()]);
-                b.switch_to_block(out); b.seal_block(out);
-                b.block_params(out)[0]
-            }} }
-            macro_rules! receiver_key { ($v:expr) => {{
-                let v = $v;
-                let out = b.create_block(); b.append_block_param(out, types::I64);
-                let objb = b.create_block(); let tbl = b.create_block(); let notbl = b.create_block();
-                let kother = b.ins().iconst(types::I64, crate::specialize::K_OTHER as i64);
-                let tag = b.ins().band_imm(v, !PAYLOAD); let is_obj = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
-                b.ins().brif(is_obj, objb, &[], out, &[kother.into()]);
-                b.switch_to_block(objb); b.seal_block(objb);
-                let o = b.ins().band_imm(v, PAYLOAD); let kind = b.ins().uload8(types::I64, flags, o, OFF_KIND);
-                let is_tbl = b.ins().icmp_imm(IntCC::Equal, kind, KIND_TABLE as i64);
-                b.ins().brif(is_tbl, tbl, &[], notbl, &[]);
-                b.switch_to_block(tbl); b.seal_block(tbl);
-                let meta = b.ins().load(types::I64, flags, o, OFF_T_META); let none = b.ins().icmp_imm(IntCC::Equal, meta, NIL);
-                let mp = b.ins().band_imm(meta, PAYLOAD); let km = b.ins().bor_imm(mp, crate::specialize::K_META as i64); let kt = b.ins().iconst(types::I64, crate::specialize::K_TABLE as i64);
-                let key = b.ins().select(none, kt, km); b.ins().jump(out, &[key.into()]);
-                b.switch_to_block(notbl); b.seal_block(notbl);
-                let aux = b.ins().uload32(flags, o, OFF_AUX); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
-                let ks = b.ins().bor_imm(aux, crate::specialize::K_SHAPE as i64); let ko = b.ins().bor_imm(kind, crate::specialize::K_OTHER as i64);
-                let fl = b.ins().uload8(types::I64, flags, o, 3); let has_meta = b.ins().band_imm(fl, crate::heap::F_METATABLE as i64);
-                let has_meta = b.ins().icmp_imm(IntCC::NotEqual, has_meta, 0); let metarec = b.ins().band(is_rec, has_meta); let rm = b.create_block(); let rm2 = b.create_block();
-                let key = b.ins().select(is_rec, ks, ko); b.ins().brif(metarec, rm, &[], out, &[key.into()]);
-                // A record's own metatable: the key packs it with the shape.
-                b.switch_to_block(rm); b.seal_block(rm);
-                let nslots = b.ins().load(types::I64, flags, o, OFF_AUX_LEN); let off = b.ins().ishl_imm(nslots, 3); let ea = b.ins().iadd(o, off);
-                let extra = b.ins().load(types::I64, flags, ea, crate::specialize::RECORD_EXTRA_OFFSET as i32);
-                b.ins().brif(extra, rm2, &[], out, &[ks.into()]);
-                b.switch_to_block(rm2); b.seal_block(rm2);
-                let meta = b.ins().load(types::I64, flags, extra, crate::specialize::EXTRA_META_OFFSET as i32);
-                let mp = b.ins().band_imm(meta, PAYLOAD); let mp = b.ins().ushr_imm(mp, 3); let mp = b.ins().ishl_imm(mp, 16); let mp = b.ins().band_imm(mp, !(0xfi64 << 60));
-                let sh = b.ins().band_imm(aux, 0xffff); let key = b.ins().bor(mp, sh); let key = b.ins().bor_imm(key, crate::specialize::K_RMETA as i64);
-                b.ins().jump(out, &[key.into()]);
-                b.switch_to_block(out); b.seal_block(out);
-                b.block_params(out)[0]
-            }} }
             // Whether a `ValueTable` (a table's hash part, a record's overflow)
             // lacks a name: probed as it lays entries out, an absent or nil
             // entry going to `$absent`, a present one to `$present`.
@@ -717,6 +660,8 @@ impl<M: Module> Compiler<M> {
                 let v = b.ins().load(types::I64, flags, ent, 8); let nil = b.ins().icmp_imm(IntCC::Equal, v, NIL);
                 b.ins().brif(nil, absent, &[], present, &[]);
             }} }
+            // The feedback site at a pc of instrumented code, by address.
+            macro_rules! site_addr { ($pc:expr) => { hooks.as_ref().and_then(|h| { let s = h.site_of.get($pc).copied().unwrap_or(crate::specialize::NO_SITE); (s != crate::specialize::NO_SITE).then(|| h.sites_addr + 40 * s as i64) }) } }
             // A deopt exit (`specialize`, stage 3): every value live into the
             // guarded operation is written to the heap frame by its recipe
             // (a value register's word as is, a typed register into its
@@ -814,28 +759,6 @@ impl<M: Module> Compiler<M> {
                     } else {
                         terminated = true;
                         continue;
-                    }
-                }
-                // Feedback from instrumented generic code: the key a site met,
-                // noted unless one of its recorded keys already is it.
-                if let Some(h) = hooks.as_ref() {
-                    let site = h.site_of.get(pc).copied().unwrap_or(crate::specialize::NO_SITE);
-                    let key = if site == crate::specialize::NO_SITE { None } else { match *op {
-                        Op::CallDyn(fr, ..) => Some(target_key!(rv!(fr))),
-                        Op::CallMethod(_, base, _) => Some(receiver_key!(rv!(base + 1))),
-                        Op::GetField(_, r, _) | Op::SetField(r, _, _) => Some(receiver_key!(rv!(r))),
-                        _ => None,
-                    } };
-                    if let Some(key) = key {
-                        let a = b.ins().iconst(types::I64, h.sites_addr + 40 * site as i64);
-                        let k0 = b.ins().load(types::I64, flags, a, 0); let k1 = b.ins().load(types::I64, flags, a, 8); let k2 = b.ins().load(types::I64, flags, a, 16);
-                        let e0 = b.ins().icmp(IntCC::Equal, k0, key); let e1 = b.ins().icmp(IntCC::Equal, k1, key); let e2 = b.ins().icmp(IntCC::Equal, k2, key);
-                        let seen = b.ins().bor(e0, e1); let seen = b.ins().bor(seen, e2);
-                        let note = b.create_block(); let cont = b.create_block(); b.set_cold_block(note);
-                        b.ins().brif(seen, cont, &[], note, &[]);
-                        b.switch_to_block(note); b.seal_block(note);
-                        b.ins().call(helper_refs["j_spec_note"], &[a, key]); b.ins().jump(cont, &[]);
-                        b.switch_to_block(cont); b.seal_block(cont);
                     }
                 }
                 let spec_here = spec_sites.get(&pc).cloned();
@@ -1517,7 +1440,10 @@ impl<M: Module> Compiler<M> {
                         let copy = if nargs & 64 != 0 && nargs < 128 { (nargs & 63) as usize + 8 } else { nargs as usize };
                         let addr = args_slot_pad!(base, copy);
                         let nv = b.ins().iconst(types::I64, nargs as i64); let name = kval!(k);
-                        let c = hcall!("j_call_method", &[name, addr, nv]);
+                        let c = match site_addr!(pc) {
+                            Some(site) => { let sv = b.ins().iconst(types::I64, site); hcall!("j_spec_call_method", &[name, addr, nv, sv]) }
+                            None => hcall!("j_call_method", &[name, addr, nv]),
+                        };
                         cond_of.clear();
                         setr!(base, b.inst_results(c)[0]);
                         read_extras!(base, 8);
@@ -1644,6 +1570,13 @@ impl<M: Module> Compiler<M> {
                         let vnil = b.ins().icmp_imm(IntCC::Equal, v, NIL); let has_meta = b.ins().icmp_imm(IntCC::NotEqual, meta, 0); let ask = b.ins().band(vnil, has_meta);
                         b.ins().brif(ask, helper, &[], join, &[v.into()]);
                         b.switch_to_block(probe); b.seal_block(probe);
+                        if let Some(site) = site_addr!(pc) {
+                            let note = b.create_block(); let cont = b.create_block(); b.set_cold_block(note);
+                            b.ins().brif(is_rec, note, &[], cont, &[]);
+                            b.switch_to_block(note); b.seal_block(note);
+                            let sv = b.ins().iconst(types::I64, site); b.ins().call(helper_refs["j_spec_note_receiver"], &[sv, tv]); b.ins().jump(cont, &[]);
+                            b.switch_to_block(cont); b.seal_block(cont);
+                        }
                         if let Some(st) = stub_refs.as_ref() {
                             let nb = kval!(k);
                             let hb = if runtime.is_some() { let h = hcall!("j_slot_hash", &[nb]); b.inst_results(h)[0] }
@@ -1657,7 +1590,13 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(join); b.seal_block(join);
                         let r = b.block_params(join)[0]; setr!(d, r);
                     }
-                    Op::SetField(t, k, v) => { let (tv, vv) = (rv!(t), rv!(v)); let name = kval!(k); hcall!("j_set_field", &[tv, name, vv]); }
+                    Op::SetField(t, k, v) => {
+                        let (tv, vv) = (rv!(t), rv!(v)); let name = kval!(k);
+                        match site_addr!(pc) {
+                            Some(site) => { let sv = b.ins().iconst(types::I64, site); hcall!("j_spec_set_field", &[tv, name, vv, sv]); }
+                            None => { hcall!("j_set_field", &[tv, name, vv]); }
+                        }
+                    }
                     Op::Not(d, a) => { let fl = falsy!(rv!(a)); setr!(d, bool_word!(fl)); }
                     Op::Neg(d, a) => {
                         let v = rv!(a); let mask = b.ins().band_imm(v, QNAN); let num = b.ins().icmp_imm(IntCC::NotEqual, mask, QNAN);
