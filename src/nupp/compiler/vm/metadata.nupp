@@ -123,9 +123,35 @@ function metadata.foreignSignature(declaration)
         if subject and subject.tag == "union" and subject.hasNil and #(subject.members or {}) == 2 then
             local first, second = subject.members[1], subject.members[2]
             local other = first.tag == "nil" and second or first
-            if other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" then
+            if other.tag == "ptr" or other.tag == "cstring" or other.tag == "voidptr" or other.tag == "func" then
                 return scalar(other, parameter)
             end
+        end
+        -- A C function pointer. As a parameter, the runtime lends a Nupp function a
+        -- trampoline for the call or passes a retained callback's own; as a
+        -- result, it is a foreign function callable under this signature.
+        if subject and subject.tag == "func" then
+            assert(not subject.varargs, "a VM C callback cannot be variadic")
+            local params = {}
+            for index, inner in ipairs(subject.params or {}) do
+                local kind = scalar(inner)
+                assert(
+                    type(kind) == "string" and kind ~= "callback",
+                    "unsupported VM C callback parameter " .. tostring(
+                        index
+                    ) .. " type " .. tostring(inner and inner.tag)
+                )
+                params[index] = kind
+            end
+            local callbackResult = "void"
+            if subject.rets and subject.rets[1] then
+                callbackResult = assert(
+                    scalar(subject.rets[1]),
+                    "unsupported VM C callback result type " .. tostring(subject.rets[1].tag)
+                )
+            end
+
+            return {kind = "callback", params = params, result = callbackResult}
         end
         if parameter and subject then
             local readonly = subject.tag == "string" or subject.tag == "cstring"

@@ -418,6 +418,7 @@ local RESOURCES = {
     {source = "src/nupp/io/files/init.nupp", output = "nupp/compiler/nupp/io/files/init.nupp"},
     {source = "src/nupp/io/init.nupp", output = "nupp/compiler/nupp/io/init.nupp"},
     {source = "src/nupp/log.nupp", output = "nupp/compiler/nupp/log.nupp"},
+    {source = "src/nupp/foreign.nupp", output = "nupp/compiler/nupp/foreign.nupp"},
     {source = "src/nupp/suspension/init.nupp", output = "nupp/compiler/nupp/suspension/init.nupp"},
     {source = "src/nupp/suspension/host.nupp", output = "nupp/compiler/nupp/suspension/host.nupp"},
     {source = "src/nupp/time/init.nupp", output = "nupp/compiler/nupp/time/init.nupp"},

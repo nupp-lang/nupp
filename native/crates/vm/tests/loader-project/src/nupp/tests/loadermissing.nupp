@@ -1,0 +1,9 @@
+module nupp.tests.loadermissing
+
+--- Declares a function from a library nothing provides, so loading the module
+--- reports the library it could not load.
+cdef function nupp_loader_absent(value: int32): int32 from"nupp_loader_absent"
+
+export function absent(value: int32): int32
+    return nupp_loader_absent(value)
+end

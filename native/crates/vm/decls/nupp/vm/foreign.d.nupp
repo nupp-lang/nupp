@@ -1,0 +1,35 @@
+--- The VM's native-library and C-call primitives (`foreign.rs`). Programs reach
+--- them through `cdef` declarations and `nupp.foreign`; a VM provider binds
+--- through them directly. Libraries, functions, pointers and callbacks are
+--- external resources: a checkpoint refuses them.
+local record Foreign
+    --- A native library by name (the platform's prefix and extension added as
+    --- LuaJIT's `ffi.load` adds them), by path, or by `@`-relative path found at
+    --- or above the calling module's directory or the executable's.
+    --- `options.global` makes its symbols visible to libraries loaded later.
+    load: function(name: string, options: {global: boolean?}?): any
+
+    --- A callable C function: `library` is a `load` result, a name `load`
+    --- accepts, or nil for the default namespace.
+    bind: function(library: any, symbol: string, signature: any): any
+
+    --- Closes a library, function, pointer or callback. A library stays loaded
+    --- while anything bound from it is open.
+    close: function(object: any): nil
+
+    --- The C `errno` the last native call left, setting it when given a value.
+    errno: function(value: integer?): integer
+
+    --- A retained callback; a nil signature takes the C signature of the first
+    --- callback parameter it is passed to.
+    callback: function(signature: any, f: any): any
+
+    --- Rebinds a retained callback without changing the pointer C holds.
+    setCallback: function(callback: any, f: any): nil
+
+    --- The bytes at a pointer a native call returned: `length` of them, or up
+    --- to the first zero byte. Like any read through a C address, it trusts C.
+    string: function(pointer: any, length: integer?): string
+end
+
+return Foreign

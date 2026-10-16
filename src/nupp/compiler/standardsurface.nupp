@@ -129,6 +129,7 @@ local MODULES: {[string]: {
     ["nupp.io.uri"] = facility("runtime", "runtime.uri_provider"),
     ["nupp.io.uri.provider"] = facility("runtime", "runtime.uri_provider"),
     ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.foreign"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
     ["nupp.compiler.runtime.math"] = {kind = "compiler"},
     ["nupp.compiler.runtime.peg"] = facility("runtime", "native.lpeg"),

@@ -1,0 +1,43 @@
+module nupp.foreign
+
+--[[
+C callbacks a program keeps past the call it passes them to.
+
+A Nupp function passed to a `cdef` function-pointer parameter is lent a
+trampoline for that call alone: C that keeps the pointer and calls it after the
+call returns is refused. `retain` makes a callback C may keep. It passes wherever
+the function would and Nupp may call it as the function; its C signature is that
+of the first parameter it is passed to, and passing it to a parameter of another
+signature is refused. `rebind` changes what it calls without changing the
+pointer C holds, and `release` ends it: C calling the pointer afterwards is
+refused rather than reaching freed code.
+
+The handle is untyped: the `cdef` parameter it is passed to is what checks the
+function's type against the C signature.
+
+C calls a callback on the VM's own thread, inside a native call that VM made. A
+call from any other thread returns zero to C and raises once the native call in
+flight, or the next one, returns.
+]]
+
+local native = require("nupp.vm.foreign")
+
+local foreign = {}
+
+--- Retains `f` as a C callback until `release`.
+function foreign.retain(f: any): any
+    return native.callback(nil, f)
+end
+
+--- Makes a retained callback call `f`; the pointer C holds does not change.
+--- @raises string when `callback` is not a retained callback or was released.
+function foreign.rebind(callback: any, f: any): nil
+    native.setCallback(callback, f)
+end
+
+--- Releases a retained callback. C calling it afterwards is refused.
+function foreign.release(callback: any): nil
+    native.close(callback)
+end
+
+export = foreign

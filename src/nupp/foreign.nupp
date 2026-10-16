@@ -1,0 +1,60 @@
+module nupp.foreign
+
+--[[
+C callbacks a program keeps past the call it passes them to.
+
+`retain` makes a callback C may keep. It passes wherever the function would and
+Nupp may call it as the function. `rebind` changes what it calls, and `release`
+ends it: C calling it afterwards raises. On the VM a callback's C signature is
+that of the first parameter it is passed to, and a plain function is lent a
+trampoline for one call only.
+
+The handle is untyped: the `cdef` parameter it is passed to is what checks the
+function's type against the C signature.
+
+Under LuaJIT a retained callback is a forwarding function, which LuaJIT converts
+to a permanent C callback each time it is passed to C; releasing it makes the
+forwarder raise rather than freeing the conversion.
+]]
+
+local foreign = {}
+
+local function released(...: any): any
+    error("nupp: native callback invoked after it was released", 2)
+end
+
+local slots: {[any]: {any}} = setmetatable({}, {__mode = "k"})
+
+--- Retains `f` as a C callback until `release`.
+function foreign.retain(f: any): any
+    local slot: {any} = {f}
+
+    local function forward(...: any): ...any
+        return slot[1](...)
+    end
+
+    slots[forward] = slot
+
+    return forward
+end
+
+--- Makes a retained callback call `f`.
+--- @raises string when `callback` is not a retained callback or was released.
+function foreign.rebind(callback: any, f: any): nil
+    local slot = slots[callback]
+    if slot == nil then
+        error("nupp: native callback is closed or invalid", 2)
+    end
+    slot[1] = f
+end
+
+--- Releases a retained callback. C calling it afterwards raises.
+function foreign.release(callback: any): nil
+    local slot = slots[callback]
+    if slot ~= nil then
+        slot[1] = released
+        slots[callback] = nil
+    end
+end
+
+export = foreign

@@ -1,0 +1,101 @@
+module nupp.tests.loader
+
+--[[
+The native-library loader and C callbacks through typed `cdef` declarations,
+against `tests/ffi/loader.c`. The library is named as `ffi.load` names one, so
+the driver puts it on the platform's library path.
+]]
+
+local foreign = require("nupp.foreign")
+
+cdef function loader_add(a: int32, b: int32): int32 from"loader"
+cdef function loader_apply(callback: function(int32, int32): int32, a: int32, b: int32): int32 from"loader"
+cdef function loader_apply_double(callback: function(number): number, value: number): number from"loader"
+cdef function loader_keep(callback: (function(int32, int32): int32)?) from"loader"
+cdef function loader_call_kept(a: int32, b: int32): int32 from"loader"
+cdef function loader_call_from_thread(callback: function(int32, int32): int32): int32 from"loader"
+cdef function loader_adder(): (function(int32, int32): int32)? from"loader"
+
+local test = {}
+
+local function refuses(expected: string, f: function(): any): nil
+    const ok, problem = pcall(f)
+    assert(not ok, "expected a refusal containing " .. expected)
+    assert(tostring(problem):find(expected, 1, true) ~= nil, tostring(problem))
+end
+
+function test.run(): number
+    assert(loader_add(19, 23) == 42)
+
+    -- A plain function is lent a trampoline for the call, and may call back into C.
+    local calls = 0
+    const sum = loader_apply(
+        function(a: int32, b: int32): int32
+            calls = calls + 1
+            collectgarbage("collect")
+            return loader_add(a, b)
+        end,
+        19,
+        23
+    )
+    assert(sum == 42 and calls == 1)
+    assert(
+        loader_apply_double(
+            function(value: number): number
+                return value / 2
+            end,
+            84
+        ) == 42
+    )
+
+    -- C that keeps a lent function past the call is refused when it calls it.
+    loader_keep(function(a: int32, b: int32): int32
+        return a + b
+    end)
+    refuses("after the call that lent it returned", function(): any
+        return loader_call_kept(1, 2)
+    end)
+    refuses("from a thread other than its VM's", function(): any
+        return loader_call_from_thread(function(a: int32, b: int32): int32
+            return a + b
+        end)
+    end)
+
+    -- A retained callback lives until it is released, and rebinds in place.
+    const kept = foreign.retain(function(a: int32, b: int32): int32
+        return a * b
+    end)
+    loader_keep(kept)
+    collectgarbage("collect")
+    assert(loader_call_kept(6, 7) == 42)
+    assert(kept(6, 7) == 42)
+    foreign.rebind(kept, function(a: int32, b: int32): int32
+        error("callback failure")
+    end)
+    refuses("callback failure", function(): any
+        return loader_call_kept(1, 2)
+    end)
+    foreign.rebind(kept, function(a: int32, b: int32): int32
+        return a - b
+    end)
+    assert(loader_call_kept(50, 8) == 42)
+    foreign.release(kept)
+    refuses("after it was released", function(): any
+        return loader_call_kept(1, 2)
+    end)
+    loader_keep(nil)
+    assert(loader_call_kept(1, 2) == -1)
+
+    -- A C function pointer a call returns is callable under its declared type.
+    const adder = loader_adder()
+    assert(adder ~= nil and adder(40, 2) == 42)
+
+    -- A declaration of a library nothing provides fails to load, naming it.
+    refuses("cannot load native library \"nupp_loader_absent\"", function(): any
+        return require("nupp.tests.loadermissing")
+    end)
+
+    return 42
+end
+
+export = test
