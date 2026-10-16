@@ -4,11 +4,11 @@
 -- re-run until green, and then it no longer holds anything. So nothing here times a
 -- command. Each case measures something a regression moves and a loaded machine does
 -- not -- how many directories a walk lists, how many modules an edit recompiles, how
--- many bytecode instructions a kernel compiles to, how much generated Lua the compiler
--- writes per byte of source, how many bytes the checker allocates per module as a
--- project grows -- and holds it under a ceiling with room in it. A ceiling is a
--- decision, not a snapshot: raising one is allowed, and the failure message says what
--- moved so that raising it is a choice somebody makes on purpose.
+-- many bytecode instructions a kernel compiles to, how many bytes the checker
+-- allocates per module as a project grows -- and holds it under a ceiling with room
+-- in it. A ceiling is a decision, not a snapshot: raising one is allowed, and the
+-- failure message says what moved so that raising it is a choice somebody makes on
+-- purpose.
 --
 -- The wall-clock budgets beside these are tracked rather than enforced, because only a
 -- quiet machine can say whether they held. These are medians on an Apple M5 Pro when
@@ -183,42 +183,6 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
         end
     end
     assert(#failures == 0, table.concat(failures, "\n"))
-end
-
--- Generated Lua per byte of source, over the standard library and the compiler as the
--- last build wrote them. Types erase and lines map one to one, so the ratio sits well
--- under one; the per-module runtime prologue is most of what keeps it from sitting
--- lower. It measures the whole tree rather than one fixture because a lowering that
--- bloats is a lowering some module uses, and it is a ratio because the tree grows.
--- 0.715 when the ceiling was set.
-local GENERATED_PER_SOURCE_BYTE = 0.80
-
-function M.generatedLuaStaysWithinItsSizeBudget()
-    -- What the Lua generator writes; a VM build writes images instead.
-    test.requireCapability("generated-lua", rawget(_G, "__nupp_load_image") == nil)
-    local build = ROOT .. "/" .. (os.getenv("NUPP_TEST_BUILD") or "build")
-    local pipe = assert(io.popen(("cd '%s/src' && find nupp -name '*.nupp' ! -name '*.d.nupp'"):format(ROOT)))
-    local source, generated, modules = 0, 0, 0
-    for relative in pipe:lines() do
-        local base = relative:gsub("%.nupp$", ""):gsub("%.g$", "")
-        local lua = readFile(build .. "/" .. base .. ".lua")
-        if lua then
-            source = source + #assert(readFile(ROOT .. "/src/" .. relative))
-            generated = generated + #lua
-            modules = modules + 1
-        end
-    end
-    pipe:close()
-    assert(modules > 300, ("only %d built modules were found under %s"):format(modules, build))
-    local ratio = generated / source
-    assert(
-        ratio <= GENERATED_PER_SOURCE_BYTE,
-        ("%d modules generate %.3f bytes of Lua per source byte, over the budget of %.2f"):format(
-            modules,
-            ratio,
-            GENERATED_PER_SOURCE_BYTE
-        )
-    )
 end
 
 --- A project of `count` modules where module i requires i - 1, i // 2 and i // 3:

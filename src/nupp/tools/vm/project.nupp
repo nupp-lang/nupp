@@ -133,7 +133,6 @@ local function emitProject(
     entry: string,
     extras: {string},
     hostBootstrap: boolean?,
-    inspection: table?,
     carried: {[string]: string}?,
     reached: {[string]: boolean}?,
     coverage: lower.CoverageRequest?,
@@ -181,15 +180,10 @@ local function emitProject(
     -- The VM coroutine surface participates in ordinary affine cleanup.
     env.globals["coroutine"].t = assert(envMod.resolveModule(env, "nupp.vm.ownedCoroutine"))
 
-    if inspection then
-        entry = envMod.moduleNameForPath(env, inspection.path) or entry
-    end
     -- What an earlier emit lowered and nothing it read has changed since is
     -- replayed rather than checked and lowered again (`nupp.tools.vm.emitcache`).
     local started = os.time()
-    local cache: any = cacheDir
-        and not inspection
-        and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried)
+    local cache: any = cacheDir and require("nupp.tools.vm.emitcache").open(cacheDir as string, env, config, carried)
         or nil
 
     local extensions: {[string]: string} = {}
@@ -202,9 +196,7 @@ local function emitProject(
             assert(#parsed.errors == 0, "carried module " .. name .. " did not parse")
             return parsed.root
         end
-        -- An inspector lowers what an editor holds, which need not be saved.
-        local source = inspection and inspection.text and path == inspection.path and inspection.text
-            or assert(fs.readFile(path), "cannot read " .. path)
+        local source = assert(fs.readFile(path), "cannot read " .. path)
         local parsed = parser.parse(source, path)
         assert(#parsed.errors == 0, "parse failed: " .. path)
         local ok, diagnostics = pcall(checkMod.check, parsed, path, env as any, {})
@@ -231,9 +223,6 @@ local function emitProject(
         entry,
         extras,
         function(name: string, soft: boolean?): string?
-            if inspection and name == entry and not soft then
-                return inspection.path
-            end
             if carried and carried[name] and not soft then
                 return "=(" .. name .. ")"
             end
@@ -268,7 +257,7 @@ local function emitProject(
             return checked(name, path)
         end,
         nil,
-        inspection and inspection.functions or nil,
+        nil,
         env.layoutTarget,
         coverage,
         cache and cache.reuse or nil
@@ -321,7 +310,6 @@ local function emitFrom(
     extras: string?,
     includes: string?,
     hostBootstrap: boolean?,
-    inspection: table?,
     cacheDir: string?
 ): string
     if not hostBootstrap then
@@ -340,7 +328,7 @@ local function emitFrom(
         and {["nupp.vm.cliResources"] = require("nupp.compiler.vm.resources").source(root, config)}
         or nil
 
-    return emitProject(root, config, entry, names(extras), hostBootstrap, inspection, carried, nil, nil, cacheDir)
+    return emitProject(root, config, entry, names(extras), hostBootstrap, carried, nil, nil, cacheDir)
 end
 
 --- Read, check and lower a project using the compiler's module resolver.
@@ -348,17 +336,10 @@ end
 --- `NUPP_VM_EMIT_CACHE`, when set, names where the emit keeps what it lowered
 --- and finds what an earlier one kept (`project.emitCached`).
 --- @raises string when a source cannot be read, checked or lowered.
-function project.emit(
-    root: string,
-    entry: string,
-    extras: string?,
-    includes: string?,
-    hostBootstrap: boolean?,
-    inspection: table?
-): string
+function project.emit(root: string, entry: string, extras: string?, includes: string?, hostBootstrap: boolean?): string
     local cacheDir = os.getenv("NUPP_VM_EMIT_CACHE")
 
-    return emitFrom(root, entry, extras, includes, hostBootstrap, inspection, cacheDir ~= "" and cacheDir or nil)
+    return emitFrom(root, entry, extras, includes, hostBootstrap, cacheDir ~= "" and cacheDir or nil)
 end
 
 --- `project.emit`, keeping per-module lowering under `cacheDir` and replaying
@@ -366,7 +347,7 @@ end
 --- one an emit without the cache writes, byte for byte.
 --- @raises string when a source cannot be read, checked or lowered.
 function project.emitCached(root: string, entry: string, extras: string?, includes: string?, cacheDir: string): string
-    return emitFrom(root, entry, extras, includes, nil, nil, cacheDir)
+    return emitFrom(root, entry, extras, includes, nil, cacheDir)
 end
 
 --- `path` as a program image names it: relative to the project, or to the
@@ -447,7 +428,6 @@ function project.program(
         entry,
         extras,
         nil,
-        nil,
         embedded and {["nupp.embedded"] = embedded} or nil,
         reached,
         coverage,
@@ -485,10 +465,50 @@ end
 --- functions with each instruction's source line, and the image text those
 --- functions occupy. `text`, when given, is lowered in place of the file's
 --- saved contents.
+---
+--- The file is lowered as `nupp run` lowers it on the VM: checked in the
+--- project's environment, whose stores answer for what it requires, and
+--- lowered alone, its requires left to the loader. Lowering the whole graph
+--- produced the same instructions for the file and cost a check of everything
+--- it reaches on every call (half a minute for a benchmark that requires
+--- `nupp.bench`).
 --- @raises string when the source or its dependencies cannot be compiled.
 function project.inspect(root: string, path: string, text: string?): ({any}, string)
+    triviaarena.installDefault(tableProvider)
+    chunks.install()
+    local env = envMod.new(root)
+    local name = envMod.moduleNameForPath(env as any, path) or "vm.inspection"
+    local source = text or assert(fs.readFile(path), "cannot read " .. path)
+    local parsed = parser.parse(source as string, path)
+    assert(#parsed.errors == 0, "parse failed: " .. path)
+    local diagnostics = checkMod.check(parsed, path, env as any, {})
+    for _, d in ipairs(diagnostics) do
+        if d.severity == "error" or not d.severity then
+            error(
+                path .. ":" .. tostring(
+                    d.line
+                ) .. ":" .. tostring(d.col) .. ": " .. tostring(d.code) .. " " .. tostring(d.msg),
+                0
+            )
+        end
+    end
+    -- What the module publishes decides which records its witnesses link.
+    (parsed.root as any).vmModuleExports = (parsed as any).moduleExports
+    envMod.persist(env as any)
     local functions: {any} = {}
-    project.emit(root, "vm.inspection", nil, nil, nil, {path = path, functions = functions, text = text})
+    lower.emit(
+        name,
+        {},
+        function(candidate: string): string?
+            return candidate == name and path or nil
+        end,
+        function(_: string, _: string): table
+            return parsed.root
+        end,
+        nil,
+        functions,
+        (env as any).layoutTarget or require("nupp.compiler.targetlayout").hostKey()
+    )
     local image: {string} = {}
     for _, fn in ipairs(functions) do
         image[#image + 1] = fn.image
