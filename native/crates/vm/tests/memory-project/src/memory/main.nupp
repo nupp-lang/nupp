@@ -1,0 +1,236 @@
+module memory.main
+
+const tasks = require("nupp.tasks")
+
+-- The standard modules LuaJIT reaches through `ffi`, run on the VM: SoA
+-- slabs, heap arrays, shared byte regions, the logging clock, and the host and
+-- GPU providers that have nothing attached.
+
+local heap = require("nupp.mem.heap")
+local soa = require("nupp.mem.soa")
+local sharedbytes = require("nupp.mem.sharedbytes")
+local log = require("nupp.log")
+local host = require("nupp.host")
+local gpu = require("nupp.gpu")
+
+local test = {}
+
+local struct Vector
+    x: number
+    y: number
+end
+
+local struct Body
+    position: Vector
+    mass: float
+    id: int32
+    flags: uint8
+end
+
+local function raises(fn: function(): nil, text: string): nil
+    local ok, problem = pcall(fn)
+    assert(not ok, "expected a failure mentioning " .. text)
+    assert(tostring(problem):find(text, 1, true), tostring(problem))
+end
+
+local function heapArrays(): nil
+    do
+        local values = heap.allocate(ffi.typeof<int32>(), 4)
+        assert(values.count == 4)
+        with writable = values:write() do
+            for index = 1, #writable do
+                writable[index] = (index * 10) as int32
+            end
+        end
+        local readable = values:read()
+        assert(#readable == 4 and readable[1] == 10 and readable[4] == 40)
+        local total = 0
+        for index = 1, #readable do
+            total = total + readable[index]
+        end
+        assert(total == 100)
+    end
+    do
+        local wide = heap.allocate(ffi.typeof<number>(), 3)
+        with writable = wide:write() do
+            writable[2] = 2.5
+        end
+        assert(wide:read()[1] == 0 and wide:read()[2] == 2.5)
+        local empty = heap.allocate(ffi.typeof<uint8>(), 0)
+        assert(empty.count == 0 and #empty:read() == 0)
+    end
+    raises(
+        function(): nil
+            local _broken = heap.allocate(ffi.typeof<int32>(), -1)
+        end,
+        "nonnegative integer"
+    )
+end
+
+local function rowAt(borrows rows: soa.Span<Body>, index: integer): Body
+    return rows[index]
+end
+
+local function copyPast(exclusive rows: soa.WriteSpan<Body>, borrows source: soa.Span<Body>): nil
+    rows:copyFrom(2, source, 1, 2)
+end
+
+local function soaSlabs(): nil
+    local layout = soa.layoutof(ffi.typeof<Body>())
+    assert(layout.name == "Body" and #layout.fields == 4)
+    assert(layout.fields[1].name == "position" and layout.fields[1].elementSize == 16)
+    assert(layout.fields[2].ctype == "float" and layout.fields[2].elementSize == 4)
+    assert(layout.fields[4].ctype == "uint8_t" and layout.fields[4].alignment == 1)
+    assert(layout.alignment == 8)
+    assert(layout.fingerprint:find("Body.mass:float@4/4", 1, true), layout.fingerprint)
+    local instance = layout:forCount(3)
+    assert(instance.segments[1].offset == 0 and instance.segments[2].offset == 48)
+    assert(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
+    assert(instance.byteSize == 75)
+
+    local bodies = soa.allocate(ffi.typeof<Body>(), 4)
+    assert(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
+    with rows = bodies:write() do
+        assert(#rows == 4)
+        for index = 1, #rows do
+            rows[index].mass = index * 1.5
+            rows[index].id = (index * 100) as int32
+            rows[index].position.x = index
+        end
+        rows[2].mass += 10
+        rows[3] = new Body(new Vector(7, 8), 0.5, 9, 3)
+        with masses = rows.mass do
+            assert(#masses == 4 and masses[2] == 13)
+            masses[4] = 64
+        end
+        with tail = rows:slice(3, 4) do
+            assert(#tail == 2 and tail[1].id == 9 and tail[2].mass == 64)
+            tail[2].flags = 5
+        end
+        assert(rows[4].flags == 5)
+    end
+    local outside, problem = pcall(rowAt, bodies:read(), 5)
+    assert(not outside and tostring(problem):find("SoA row index out of bounds", 1, true), tostring(problem))
+    local readable = bodies:read()
+    local third = readable[3]
+    assert(third.position.x == 7 and third.position.y == 8 and third.id == 9 and third.flags == 3)
+    assert(readable[1].position.x == 1 and readable[2].mass == 13)
+    local ids = readable.id
+    assert(#ids == 4 and ids[1] == 100 and ids[4] == 400)
+
+    local copies = soa.allocate(ffi.typeof<Body>(), 2)
+    with rows = copies:write() do
+        rows:copyFrom(1, bodies:read(), 3, 2)
+    end
+    with rows = copies:write() do
+        local copiedPast, why = pcall(copyPast, rows, bodies:read())
+        assert(not copiedPast and tostring(why):find("SoA copy range is out of bounds", 1, true), tostring(why))
+    end
+    local copied = copies:read()
+    assert(copied[1].id == 9 and copied[1].position.y == 8 and copied[2].mass == 64)
+end
+
+local function sharedRegions(): nil
+    local region = sharedbytes.copy("hello, region")
+    assert(region:length() == 13)
+    local hello = region:slice(0, 5)
+    assert(hello:length() == 5 and hello:toString() == "hello")
+    local bytes = region:view(7)
+    assert(#bytes == 6 and bytes[1] == string.byte("r"))
+    assert(region == region:slice(0, 13) and region ~= sharedbytes.copy("hello, region"))
+    assert(sharedbytes.copy("") ~= sharedbytes.copy(""))
+    raises(
+        function(): nil
+            region:slice(10, 4)
+        end,
+        "out of bounds"
+    )
+
+    local builder = sharedbytes.newBuilder()
+    with writer = builder:reserve(5) do
+        for index = 1, 5 do
+            writer[index] = 64 + index
+        end
+    end
+    builder:commit(5)
+    builder:append("!")
+    builder:append(string.rep("z", 100))
+    local frozen = builder:freeze()
+    assert(frozen:length() == 106 and frozen:slice(0, 6):toString() == "ABCDE!")
+    assert(frozen:view(5, 2)[1] == string.byte("!"))
+
+    local words = sharedbytes.copy(string.rep("\0", 28)):slice(4, 24)
+    local triples = words:viewAs(ffi.typeof<int32>())
+    assert(#triples == 6 and triples[1] == 0)
+    raises(
+        function(): nil
+            words:slice(1, 8):viewAs(ffi.typeof<int32>())
+        end,
+        "not suitably aligned"
+    )
+
+    local missing, why = sharedbytes.readFile("definitely/not/here.bin")
+    assert(missing == nil and why ~= nil)
+end
+
+local function logging(): nil
+    local lines: {string} = {}
+    log.setSink(function(_: any, module: string, _: integer, message: string): nil
+        lines[#lines + 1] = module .. ": " .. message
+    end)
+    log.setLevel("info")
+    log.named("memory"):info("%d rows", 4)
+    log.named("memory"):debug("hidden")
+    assert(#lines == 1 and lines[1] == "memory: 4 rows", lines[1])
+    assert(log.timestamp():match("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d $"), log.timestamp())
+end
+
+--- What a worker reads of a region it was handed.
+function test.regionPrefix(region: sharedbytes.Region): string
+    return region:slice(0, 5):toString()
+end
+
+local function workerRegions(): nil
+    local region = sharedbytes.copy("hello, worker")
+    local builder = sharedbytes.newBuilder()
+    builder:append("built ")
+    builder:append("bytes")
+    local built = builder:freeze()
+    with scope = tasks.open() do
+        const one = scope:fork(region, test.regionPrefix)
+        const two = scope:fork(built, test.regionPrefix)
+        assert(one:await() == "hello")
+        assert(two:await() == "built")
+    end
+end
+
+local function detached(): nil
+    assert(not host.attached())
+    raises(
+        function(): nil
+            host.post("memory.ping")
+        end,
+        "no embedding application is attached"
+    )
+    assert(not gpu.available())
+    raises(
+        function(): nil
+            local _context = gpu.open()
+        end,
+        "GPU compute is not available on the VM runtime"
+    )
+end
+
+function test.run(): number
+    heapArrays()
+    soaSlabs()
+    sharedRegions()
+    logging()
+    workerRegions()
+    detached()
+    collectgarbage()
+
+    return 42
+end
+
+export = test
