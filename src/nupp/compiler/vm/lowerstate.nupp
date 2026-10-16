@@ -1,0 +1,416 @@
+module nupp.compiler.vm.lowerstate
+
+const {type Node} = require("nupp.compiler.syntax.cst")
+const {type Cleanup} = require("nupp.compiler.types")
+
+--- The state `nupp.compiler.vm.lower` keeps for each function it lowers, as
+--- records rather than open tables: the lowering reads and writes these on
+--- every instruction it emits, and a record's fields are slots.
+
+--- An instruction operand: a register, a constant index, an offset, or a name.
+export type Operand = string | number | nil
+
+--- An instruction: its opcode and operands in the array part, and the source
+--- line it was emitted for.
+export type Instruction = {
+    [integer]: Operand,
+    line: integer?
+}
+
+--- A constant in a function's pool.
+export record Const
+    kind: string
+    value: string | number | boolean
+end
+
+--- What a name a function declares is bound to: a register of its class, or a
+--- spill-table key past the register budget; a captured one is a cell. A
+--- `local function` the module never reassigns also names its function id.
+export record Binding
+    reg: integer?
+    class: string
+    cell: boolean?
+    spill: string?
+    fid: integer?
+    builtin: string?
+end
+
+--- A capture of the parent's register.
+export record LocalUpvalue
+    kind: "local"
+    reg: integer
+end
+
+--- A capture of the parent's spilled local, by its spill key.
+export record SpillUpvalue
+    kind: "spill"
+    key: string
+end
+
+--- A capture of one of the parent's own captures.
+export record OuterUpvalue
+    kind: "upval"
+    index: integer
+end
+
+--- Where a closure's capture comes from in its parent.
+export type Upvalue = LocalUpvalue | SpillUpvalue | OuterUpvalue
+
+--- A loop being lowered: its pending `break` jumps, the cleanup depth it was
+--- entered at, and its pending `continue` jumps.
+export record Loop
+    breaks: {integer} = {}
+    cleanupDepth: integer
+    continues: {integer} = {}
+end
+
+--- A `goto` waiting for its label, or patched to it.
+export type Jump = {
+    unwind: integer,
+    branch: integer,
+    depth: integer
+}
+
+--- A label of a block: where it lands once lowered and the jumps waiting on it.
+export type Label = {
+    atEnd: boolean,
+    pending: {Jump},
+    pc: integer?,
+    depth: integer?
+}
+
+--- The labels a block declares.
+export type LabelScope = {
+    labels: {[string]: Label},
+    depth: integer
+}
+
+--- A `do` expression being lowered: where its value goes and its `yield` exits.
+export type Yield = {
+    dst: integer,
+    exits: {integer},
+    depth: integer
+}
+
+--- A cleanup an owner armed: the depth it was armed at and the field it closes.
+export type CleanupSlot = {
+    depth: integer,
+    field: string?,
+    cleanup: Cleanup?
+}
+
+--- The first line a syntax node, or any node in its array part, came from.
+export function nodeLine(node: any): integer?
+    if type(node) ~= "table" then
+        return nil
+    end
+    if node.line then
+        return node.line
+    end
+    for _, c in ipairs(node) do
+        local l = nodeLine(c)
+        if l then
+            return l
+        end
+    end
+    if node.token then
+        return node.token.line
+    end
+
+    return nil
+end
+
+-- Locals of a function with more of them than registers: past the budget,
+-- a spillable local (`local`, `local function`, a record's value) lives
+-- in a table the frame keeps in one register, under a key unique to its
+-- declaration. Reads and writes become field accesses; a captured one
+-- holds its cell there.
+export const SPILL_AT = 120
+
+--- One function being lowered: its constants, code, registers and scopes.
+export record Fn
+    id: integer
+    name: string = ""
+    module: string?
+    parent: Fn?
+
+    --- Whether globals are read through the compiled environment.
+    environment: boolean = false
+
+    consts: {Const} = {}
+    constIndex: {[string]: integer} = {}
+    code: {Instruction} = {}
+    nregs: integer = 1
+    nfregs: integer = 0
+    nvregs: integer?
+    maxRegs: integer?
+    maxFregs: integer?
+
+    --- Declared registers persist; temporaries are reclaimed after each statement
+    --- down to the highest declared register (`declTop`, `fdeclTop`).
+    declTop: integer?
+
+    fdeclTop: integer?
+    scopes: {{[string]: Binding?}} = {{}}
+
+    --- The declared high-water marks at each scope's entry, by scope depth.
+    scopeTops: {[integer]: {integer}} = {}
+
+    nparams: integer = 0
+    sig: {string}?
+    ret: string?
+    vararg: boolean?
+    implicitSelf: boolean?
+    constructorSelf: string?
+    upvals: {Upvalue} = {}
+    upvalIndex: {[string]: integer} = {}
+    upvalRegs: {[integer]: integer}?
+    captured: {[string]: boolean} = {}
+    breaks: {Loop} = {}
+    labelScopes: {LabelScope} = {}
+    yields: {Yield} = {}
+    cleanupDepth: integer?
+    cleanupOwners: {[unknown]: {CleanupSlot}}?
+    spillReg: integer?
+    spillCount: integer?
+    exportsReg: integer?
+    coverageCounts: integer?
+    coverageUsed: boolean?
+    curLine: integer?
+    curStmt: Node?
+
+    --- A function a kept module's replay placed, already relocated.
+    rendered: string?
+
+    function const(self, kind: string, value: string | number | boolean): integer
+        local key = kind .. "\0" .. (kind == "num" and ("%.17g"):format(value as number) or tostring(value))
+        local known = self.constIndex[key]
+        if known then
+            return known
+        end
+        self.consts[#self.consts + 1] = new Const(kind = kind, value = value)
+        self.constIndex[key] = #self.consts - 1
+
+        return #self.consts - 1
+    end
+
+    function op(self, ...: Operand): integer
+        local op = {...} as Instruction
+        op.line = self.curLine
+        self.code[#self.code + 1] = op
+
+        return #self.code
+    end
+
+    function patch(self, at: integer, ...: Operand): nil
+        local line = self.code[at].line
+        local op = {...} as Instruction
+        op.line = line
+        self.code[at] = op
+    end
+
+    function reg(self): integer
+        local r = self.nregs
+        self.nregs = r + 1
+        self.maxRegs = math.max(self.maxRegs or 0, self.nregs)
+        if r > 250 then
+            error(
+                "register pressure in " .. self.name .. " at statement " .. tostring(
+                    self.curStmt and self.curStmt.kind
+                ) .. " line " .. tostring(nodeLine(self.curStmt)) .. " declTop " .. tostring(self.declTop)
+            )
+        end
+
+        return r
+    end
+
+    function freg(self): integer
+        local r = self.nfregs
+        self.nfregs = r + 1
+        self.maxFregs = math.max(self.maxFregs or 0, self.nfregs)
+        if r > 250 then
+            error("float register pressure in " .. self.name)
+        end
+
+        return r
+    end
+
+    function declare(
+        self,
+        name: string,
+        class: string?,
+        spillable: boolean?
+    ): ((nil, boolean?, string) | (integer, boolean?, nil))
+        if spillable and self.spillReg and class == "v" and (self.declTop or 0) >= SPILL_AT then
+            local count = (self.spillCount or 0) + 1
+            self.spillCount = count
+            local key = name .. "#" .. count
+            self.scopes[#self.scopes][name] = new Binding(class = "v", cell = self.captured[name] or nil, spill = key)
+            return nil, self.captured[name] or nil, key
+        end
+        if self.captured[name] then
+            local r = self:reg()
+            self.declTop = math.max(self.declTop or 0, r + 1)
+            self.scopes[#self.scopes][name] = new Binding(reg = r, class = "v", cell = true)
+            return r, true
+        end
+        local r = (class == "f" or class == "i") and self:freg() or self:reg()
+        if class == "f" or class == "i" then
+            self.fdeclTop = math.max(self.fdeclTop or 0, r + 1)
+        else
+            self.declTop = math.max(self.declTop or 0, r + 1)
+        end
+        self.scopes[#self.scopes][name] = new Binding(reg = r, class = class or "v")
+
+        return r
+    end
+
+    function lookup(self, name: string): (integer?, string?, boolean?, string?)
+        for i = #self.scopes, 1, -1 do
+            local r = self.scopes[i][name]
+            if r then
+                return r.reg, r.class, r.cell, r.spill
+            end
+        end
+
+        return nil
+    end
+
+    -- A spilled local's value (its cell, when captured) into a fresh register.
+    function loadSpill(self, key: string, dst: integer?): integer
+        local into = dst or self:reg()
+        self:op("GetField", into, self.spillReg, self:const("str", key))
+        return into
+    end
+
+    function storeSpill(self, key: string, src: integer): nil
+        self:op("SetField", self.spillReg, self:const("str", key), src)
+    end
+
+    -- The scope entry a name resolves to, through the enclosing functions.
+    function binding(self, name: string): Binding?
+        for i = #self.scopes, 1, -1 do
+            local e = self.scopes[i][name]
+            if e then
+                return e
+            end
+        end
+        if parent = self.parent then
+            return parent:binding(name)
+        end
+
+        return nil
+    end
+
+    -- The function id a name is bound to, when it names a `local function` the
+    -- module never assigns to: the call can then name its callee.
+    function knownFid(self, name: string): integer?
+        for i = #self.scopes, 1, -1 do
+            local e = self.scopes[i][name]
+            if e then
+                return e.fid
+            end
+        end
+        if parent = self.parent then
+            return parent:knownFid(name)
+        end
+
+        return nil
+    end
+
+    -- The register holding capture `ui` of this closure: a closure's captures
+    -- never change, so each used one is loaded once at entry (the loads are
+    -- prepended when the body is complete) and read from its register after.
+    function upvalReg(self, ui: integer): integer
+        local regs = self.upvalRegs or {}
+        self.upvalRegs = regs
+        local known = regs[ui]
+        if known then
+            return known
+        end
+        local r = self:reg()
+        self.declTop = math.max(self.declTop or 0, r + 1)
+        regs[ui] = r
+
+        return r
+    end
+
+    -- `speculative` is the entry-time preallocation, which over-approximates
+    -- the free names: a parent local that is not a cell then means the name
+    -- was never captured (a nested function's own local of that name), not
+    -- an analysis miss.
+    function upvalue(self, name: string, speculative: boolean?): integer?
+        local known = self.upvalIndex[name]
+        if known then
+            return known
+        end
+        local parent = self.parent
+        if not parent then
+            return nil
+        end
+        local preg, _, pcell, pspill = parent:lookup(name)
+        local source: Upvalue
+        if pspill then
+            if speculative and not pcell then
+                return nil
+            end
+            assert(pcell, "captured spilled local " .. name .. " is not a cell in " .. parent.name)
+            source = new SpillUpvalue(kind = "spill", key = pspill)
+        elseif preg then
+            if speculative and not pcell then
+                return nil
+            end
+            assert(pcell, "captured local " .. name .. " is not a cell in " .. parent.name)
+            source = new LocalUpvalue(kind = "local", reg = preg)
+        else
+            local pi = parent:upvalue(name, speculative)
+            if not pi then
+                return nil
+            end
+            source = new OuterUpvalue(kind = "upval", index = pi)
+        end
+        self.upvals[#self.upvals + 1] = source
+        self.upvalIndex[name] = #self.upvals - 1
+
+        return #self.upvals - 1
+    end
+
+    function globals(self, dst: integer): nil
+        if not self.environment then
+            self:op("Require", dst, self:const("str", "_G"))
+            return
+        end
+        local cell = self:lookup("\0environment")
+        if not cell then
+            cell = self:upvalReg(assert(self:upvalue("\0environment")))
+        end
+        local context = self:reg()
+        self:op("GetCell", context, cell)
+        self:op("GetField", dst, context, self:const("str", "value"))
+    end
+
+    -- A scope remembers the declared high-water marks at entry, so leaving it
+    -- frees its locals' registers for what follows.
+    function push(self): nil
+        self.scopes[#self.scopes + 1] = {}
+        self.scopeTops[#self.scopes] = {self.declTop or 0, self.fdeclTop or 0}
+    end
+
+    function pop(self): nil
+        local depth = #self.scopes
+        local top = self.scopeTops[depth]
+        self.scopeTops[depth] = nil
+        self.scopes[depth] = nil
+        if top then
+            self.declTop, self.fdeclTop = top[1], top[2]
+        end
+    end
+
+    function here(self): integer
+        return #self.code
+    end
+
+    function offset(self, from: integer, to: integer): integer
+        return to - from
+    end
+end

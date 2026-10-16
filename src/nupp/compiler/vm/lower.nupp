@@ -4,6 +4,11 @@ module nupp.compiler.vm.lower
 --- is supplied by the caller, so the same lowering runs on LuaJIT and the VM.
 local lower = {}
 
+const lowerstate = require("nupp.compiler.vm.lowerstate")
+const {type Fn} = require("nupp.compiler.vm.lowerstate")
+const nodeLine = lowerstate.nodeLine
+const SPILL_AT = lowerstate.SPILL_AT
+
 --- What a coverage build asks of the lowering: `path` names the file a module's
 --- hits are filed under, or nil for a module left uninstrumented, and `manifests`
 --- receives each instrumented module's sites by module name.
@@ -434,7 +439,7 @@ function lower.emit(
         return nil
     end
 
-    local function physicalSet(f, object, field, value)
+    local function physicalSet(f: Fn, object, field, value)
         f:op(
             "SetPhys",
             object,
@@ -448,159 +453,19 @@ function lower.emit(
     end
 
     -- Functions --------------------------------------------------------------------
-    local functions = {}
-    local Fn = {}
-    Fn.__index = Fn
+    local functions: {Fn} = {}
 
-    local function newFn(name, parent)
-        -- Function descriptors grow fields during lowering and use a method
-        -- table. Keep their representation an open table, not a closed shape.
-        local f: table = {}
-        f.id = #functions
-        f.name = name
-        f.module = currentModule
-        f.consts = {}
-        f.constIndex = {}
-        f.code = {}
-        f.nregs = 1
-        f.nfregs = 0
-        f.scopes = {{}}
-        f.nparams = 0
-        f.upvals = {}
-        f.upvalIndex = {}
-        f.captured = {}
-        f.parent = parent
-        f.breaks = {}
-        f.labelScopes = {}
-        f.yields = {}
-        f.tables = {}
-        setmetatable(f, Fn)
+    local function newFn(name: string, parent: Fn?): Fn
+        local f = new lowerstate.Fn(
+            id = #functions,
+            name = name,
+            module = currentModule,
+            parent = parent,
+            environment = environment == true
+        )
         functions[#functions + 1] = f
 
         return f
-    end
-
-    function Fn:const(kind, value)
-        local key = kind .. "\0" .. (kind == "num" and ("%.17g"):format(value) or tostring(value))
-        if self.constIndex[key] then
-            return self.constIndex[key]
-        end
-        self.consts[#self.consts + 1] = {kind = kind, value = value}
-        self.constIndex[key] = #self.consts - 1
-
-        return #self.consts - 1
-    end
-
-    local function nodeLine(node)
-        if type(node) ~= "table" then
-            return nil
-        end
-        if node.line then
-            return node.line
-        end
-        for _, c in ipairs(node) do
-            local l = nodeLine(c);
-            if l then
-                return l
-            end
-        end
-        if node.token then
-            return node.token.line
-        end
-
-        return nil
-    end
-
-    function Fn:op(...)
-        local op: table = {...}
-        op.line = self.curLine
-        self.code[#self.code + 1] = op
-
-        return #self.code
-    end
-
-    function Fn:patch(at, ...)
-        local line = self.code[at].line
-        self.code[at] = {...}
-        self.code[at].line = line
-    end
-
-    function Fn:reg()
-        local r = self.nregs;
-        self.nregs = r + 1;
-        self.maxRegs = math.max(self.maxRegs or 0, self.nregs);
-        if r > 250 then
-            error(
-                "register pressure in " .. self.name .. " at statement " .. tostring(
-                    self.curStmt and self.curStmt.kind
-                ) .. " line " .. tostring(nodeLine(self.curStmt)) .. " declTop " .. tostring(self.declTop)
-            )
-        end;
-
-        return r
-    end
-
-    function Fn:freg()
-        local r = self.nfregs;
-        self.nfregs = r + 1;
-        self.maxFregs = math.max(self.maxFregs or 0, self.nfregs);
-        if r > 250 then
-            error("float register pressure in " .. self.name)
-        end;
-
-        return r
-    end
-
-    -- Declared registers persist; temporaries are reclaimed after each statement
-    -- down to the highest declared register (`declTop`, `fdeclTop`).
-    -- Locals of a function with more of them than registers: past the budget,
-    -- a spillable local (`local`, `local function`, a record's value) lives
-    -- in a table the frame keeps in one register, under a key unique to its
-    -- declaration. Reads and writes become field accesses; a captured one
-    -- holds its cell there.
-    local SPILL_AT = 120
-    function Fn:declare(name, class, spillable)
-        if spillable and self.spillReg and class == "v" and (self.declTop or 0) >= SPILL_AT then
-            self.spillCount = (self.spillCount or 0) + 1
-            local key = name .. "#" .. self.spillCount
-            self.scopes[#self.scopes][name] = {class = "v", cell = self.captured[name] or nil, spill = key}
-            return nil, self.captured[name] or nil, key
-        end
-        if self.captured[name] then
-            local r = self:reg()
-            self.declTop = math.max(self.declTop or 0, r + 1)
-            self.scopes[#self.scopes][name] = {reg = r, class = "v", cell = true}
-            return r, true
-        end
-        local r = (class == "f" or class == "i") and self:freg() or self:reg()
-        if class == "f" or class == "i" then
-            self.fdeclTop = math.max(self.fdeclTop or 0, r + 1)
-        else
-            self.declTop = math.max(self.declTop or 0, r + 1)
-        end
-        self.scopes[#self.scopes][name] = {reg = r, class = class or "v"}
-
-        return r
-    end
-
-    function Fn:lookup(name)
-        for i = #self.scopes, 1, -1 do
-            local r = self.scopes[i][name];
-            if r then
-                return r.reg, r.class, r.cell, r.spill
-            end
-        end
-    end
-
-    -- A spilled local's value (its cell, when captured) into a fresh register.
-    function Fn:loadSpill(key, dst)
-        dst = dst or self:reg()
-        self:op("GetField", dst, self.spillReg, self:const("str", key))
-        return dst
-    end
-
-    function Fn:storeSpill(key, src)
-        self:op("SetField", self.spillReg, self:const("str", key), src)
     end
 
     -- Coverage ---------------------------------------------------------------------
@@ -614,7 +479,7 @@ function lower.emit(
     -- nothing the body does reuses it. Its load is put in front of the function
     -- once the body is lowered, as the capture loads are, and only when a site
     -- asked for it.
-    local function reserveCoverageCounts(f)
+    local function reserveCoverageCounts(f: Fn)
         if covered then
             local r = f:reg()
             f.declTop = math.max(f.declTop or 0, r + 1)
@@ -622,13 +487,13 @@ function lower.emit(
         end
     end
 
-    local function coverageCounts(f)
+    local function coverageCounts(f: Fn)
         f.coverageUsed = true
 
         return assert(f.coverageCounts, "coverage counted outside an instrumented function")
     end
 
-    local function count(f, key)
+    local function count(f: Fn, key)
         local counts = coverageCounts(f)
         local mark = f.nregs
         local n, one = f:reg(), f:reg()
@@ -644,7 +509,7 @@ function lower.emit(
     end
 
     -- Loads the counts table on entry, once the body has asked for it.
-    local function loadCoverageCounts(f)
+    local function loadCoverageCounts(f: Fn)
         if not f.coverageUsed then
             return
         end
@@ -665,7 +530,7 @@ function lower.emit(
         end
     end
 
-    local function coverStatement(f, node)
+    local function coverStatement(f: Fn, node)
         local id = covered and covered.statements[node]
         if id then
             f.curLine = nodeLine(node) or f.curLine
@@ -674,7 +539,7 @@ function lower.emit(
     end
 
     -- Counts the outcome `value` took, by Lua truthiness.
-    local function coverBranch(f, node, value)
+    local function coverBranch(f: Fn, node, value)
         local id = covered and covered.branches[node]
         if id then
             local falseJump = f:op("JmpIfNot", value, 0)
@@ -684,123 +549,6 @@ function lower.emit(
             count(f, id .. ":false")
             f:patch(done, "Jmp", f:offset(done, f:here()))
         end
-    end
-
-    -- The function id a name is bound to, when it names a `local function` the
-    -- module never assigns to: the call can then name its callee.
-    -- The scope entry a name resolves to, through the enclosing functions.
-    function Fn:binding(name)
-        for i = #self.scopes, 1, -1 do
-            local e = self.scopes[i][name];
-            if e then
-                return e
-            end
-        end
-        if self.parent then
-            return self.parent:binding(name)
-        end
-    end
-
-    function Fn:knownFid(name)
-        for i = #self.scopes, 1, -1 do
-            local e = self.scopes[i][name];
-            if e then
-                return e.fid
-            end
-        end
-        if self.parent then
-            return self.parent:knownFid(name)
-        end
-    end
-
-    -- The register holding capture `ui` of this closure: a closure's captures
-    -- never change, so each used one is loaded once at entry (the loads are
-    -- prepended when the body is complete) and read from its register after.
-    function Fn:upvalReg(ui)
-        self.upvalRegs = self.upvalRegs or {}
-        local r = self.upvalRegs[ui]
-        if r then
-            return r
-        end
-        r = self:reg()
-        self.declTop = math.max(self.declTop or 0, r + 1)
-        self.upvalRegs[ui] = r
-
-        return r
-    end
-
-    -- `speculative` is the entry-time preallocation, which over-approximates
-    -- the free names: a parent local that is not a cell then means the name
-    -- was never captured (a nested function's own local of that name), not
-    -- an analysis miss.
-    function Fn:upvalue(name, speculative)
-        if self.upvalIndex[name] then
-            return self.upvalIndex[name]
-        end
-        if not self.parent then
-            return nil
-        end
-        local preg, _, pcell, pspill = self.parent:lookup(name)
-        local source
-        if pspill then
-            if speculative and not pcell then
-                return nil
-            end
-            assert(pcell, "captured spilled local " .. name .. " is not a cell in " .. self.parent.name)
-            source = {kind = "spill", key = pspill}
-        elseif preg then
-            if speculative and not pcell then
-                return nil
-            end
-            assert(pcell, "captured local " .. name .. " is not a cell in " .. self.parent.name)
-            source = {kind = "local", reg = preg}
-        else
-            local pi = self.parent:upvalue(name, speculative)
-            if not pi then
-                return nil
-            end
-            source = {kind = "upval", index = pi}
-        end
-        self.upvals[#self.upvals + 1] = source
-        self.upvalIndex[name] = #self.upvals - 1
-
-        return #self.upvals - 1
-    end
-
-    function Fn:globals(dst)
-        if not environment then
-            self:op("Require", dst, self:const("str", "_G"))
-            return
-        end
-        local cell = self:lookup("\0environment")
-        if not cell then
-            cell = self:upvalReg(assert(self:upvalue("\0environment")))
-        end
-        local context = self:reg()
-        self:op("GetCell", context, cell)
-        self:op("GetField", dst, context, self:const("str", "value"))
-    end
-
-    -- A scope remembers the declared high-water marks at entry, so leaving it
-    -- frees its locals' registers for what follows.
-    function Fn:push()
-        self.scopes[#self.scopes + 1] = {["\0top"] = {self.declTop or 0, self.fdeclTop or 0}}
-    end
-
-    function Fn:pop()
-        local top = self.scopes[#self.scopes]["\0top"];
-        self.scopes[#self.scopes] = nil;
-        if top then
-            self.declTop, self.fdeclTop = top[1], top[2]
-        end
-    end
-
-    function Fn:here()
-        return #self.code
-    end
-
-    function Fn:offset(from, to)
-        return to - from
     end
 
     local BUILTINS = {}
@@ -956,7 +704,7 @@ function lower.emit(
         return isInteger(n.inferredType)
     end
 
-    local function coerce(f, reg, class, want, dst)
+    local function coerce(f: Fn, reg, class, want, dst)
         if class == want then
             if dst and dst ~= reg then
                 f:op(want == "f" and "FMov" or (want == "i" or want == "u") and "IMov" or "Move", dst, reg)
@@ -1040,7 +788,7 @@ function lower.emit(
         return DST_SAFE[node.kind] == true
     end
 
-    local function exprAs(f, node, want, dst)
+    local function exprAs(f: Fn, node, want, dst)
         local pass = (want == "v" and dst and dstSafe(node)) and dst or nil
         local r, c = expr(f, node, pass, want)
         return coerce(f, r, c, want, dst)
@@ -1048,7 +796,7 @@ function lower.emit(
 
     -- Emits a condition and the branch taken when it is false: a typed
     -- comparison branches on its integer register, anything else on its value.
-    local function condBranch(f, node, site)
+    local function condBranch(f: Fn, node, site)
         if covered and site and covered.branches[site] then
             -- Counted on the value Lua truthiness reads, as the generator's probe
             -- counts it, so a typed comparison is not tested in its register.
@@ -1068,7 +816,7 @@ function lower.emit(
     -- Whether an expression's natural home is a value register (or a number
     -- literal), so arithmetic and comparison on it stay in the value domain
     -- rather than unboxing into the typed files and boxing the result back.
-    local function valueDomain(f, node)
+    local function valueDomain(f: Fn, node)
         local k = node.kind
         if k == "paren" then
             return valueDomain(f, node.expr)
@@ -1098,7 +846,7 @@ function lower.emit(
     -- A cast to a record whose operand is a table constructor of named fields,
     -- bare or through `setmetatable`: the shape, the constructor, and the
     -- metatable expression to evaluate for its effects (or nil).
-    local function recordConstructorCast(f, node)
+    local function recordConstructorCast(f: Fn, node)
         local shape = shapeOf(node.inferredType)
         if not shape or shape.physical or shape.name:sub(1, 7) == "struct:" then
             return nil
@@ -1189,7 +937,7 @@ function lower.emit(
         ["function"] = "function"
     }
 
-    local function builtinRegisters(f, name, values, dst)
+    local function builtinRegisters(f: Fn, name, values, dst)
         dst = dst or f:reg()
         local callee, base = f:reg(), f:reg()
         for _ = 1, #values do
@@ -1214,7 +962,7 @@ function lower.emit(
         return not entry.inlineStatic and not (first and first.name and first.name.text == "self")
     end
 
-    local function shapeTest(f, shape, value, dst)
+    local function shapeTest(f: Fn, shape, value, dst)
         if shape.physical then
             local identity = f:reg()
             f:op(
@@ -1230,7 +978,7 @@ function lower.emit(
 
     -- `x is T`, as the Lua backend decides it: settled by the checker, a nil
     -- test, or a `type()` comparison for a primitive.
-    emitIs = function(f, node, dst)
+    emitIs = function(f: Fn, node, dst)
         dst = dst or f:reg()
         local t = node.type
         -- The record a test names, seen through an ownership wrapper (a Closeable
@@ -1335,7 +1083,7 @@ function lower.emit(
 
     -- A call with results landing at `dst..`: eight registers are reserved above
     -- the base so a callee's extra results have somewhere to go.
-    callInto = function(f, node, dst, extraSelf)
+    callInto = function(f: Fn, node, dst, extraSelf)
         local base = dst
         local nargs = 0
         if node.spiInterface then
@@ -1537,7 +1285,7 @@ function lower.emit(
     -- the results are then moved down to `dst` (`nres` of them).
     -- `local byte = string.byte`: a local the module never assigns to, bound to
     -- a library function, so a call through it can become an intrinsic.
-    local function markLibraryLocals(f, names, exprs)
+    local function markLibraryLocals(f: Fn, names, exprs)
         for i, nameTok in ipairs(names) do
             local e = exprs[i]
             local name = tokText(nameTok)
@@ -1559,7 +1307,7 @@ function lower.emit(
 
     -- `string.byte(s, i)` with one result wanted, `s` a string and `i` an
     -- integer by the checker: one opcode instead of a builtin call.
-    local function emitStrByte(f, node, dst, nres)
+    local function emitStrByte(f: Fn, node, dst, nres)
         local args = node.args and node.args.exprs or {}
         if #args ~= 2 or (nres or 1) > 1 then
             return false
@@ -1574,7 +1322,7 @@ function lower.emit(
         return true
     end
 
-    local function emitSimd(f, operation, ty, operands, dst, nres)
+    local function emitSimd(f: Fn, operation, ty, operands, dst, nres)
         -- Evaluate once in source order before placing the argument window.
         local args = {}
         for _, operand in ipairs(operands) do
@@ -1604,7 +1352,7 @@ function lower.emit(
         return base
     end
 
-    local function simdIterator(f, node, ty, dst)
+    local function simdIterator(f: Fn, node, ty, dst)
         local object = exprAs(f, node.obj, "v")
         local count = exprAs(f, node.args.exprs[1], "v")
         local zero = f:reg()
@@ -1648,7 +1396,7 @@ function lower.emit(
         f:op("NewClosure", dst, inner.id, base, 3)
     end
 
-    local function simdCall(f, node, dst, nres)
+    local function simdCall(f: Fn, node, dst, nres)
         local args = node.args and node.args.exprs or {}
         local ty = node.kind == "methodCall" and simdType(node.obj.inferredType) or nil
         local operation
@@ -1745,7 +1493,7 @@ function lower.emit(
     -- which `RetN` reads from `last_nres`; otherwise exactly `nres` values.
     -- `f?.(...)`, `o?.:m(...)` and `o:m?.(...)`: each guarded value is tested
     -- against nil, and a nil skips the call, which then answers one nil.
-    emitSafeCall = function(f, node, dst, nres, all)
+    emitSafeCall = function(f: Fn, node, dst, nres, all)
         local absent = f:reg()
         f:op("Nil", absent)
         local skips = {}
@@ -1811,7 +1559,7 @@ function lower.emit(
         f:patch(done, "Jmp", f:offset(done, f:here()))
     end
 
-    emitCall = function(f, node, dst, nres, all)
+    emitCall = function(f: Fn, node, dst, nres, all)
         nres = nres or 1
         if node.kind == "castExpr" then
             emitCall(f, node.expr, dst, nres, all)
@@ -2173,7 +1921,7 @@ function lower.emit(
     -- completes: its cleanups are deferred here, where the call's first result
     -- lands, and `stmtReclaim` unwinds to before the statement.
     local emitCallBody = emitCall
-    emitCall = function(f, node, dst, nres, all)
+    emitCall = function(f: Fn, node, dst, nres, all)
         if node.kind == "call" and node.admitName then
             -- `nupp.admit(value)`: what the checker proved costs nothing; what it
             -- could not is tested on the value, read once, and refused when false.
@@ -2253,7 +2001,7 @@ function lower.emit(
         end
     end
 
-    local function wideOperation(f, name, args, dst)
+    local function wideOperation(f: Fn, name, args, dst)
         dst = dst or f:reg()
         local callee = f:reg()
         local base = f:reg()
@@ -2270,7 +2018,7 @@ function lower.emit(
         return dst, "v"
     end
 
-    local function spanAccess(f, node, value, dst)
+    local function spanAccess(f: Fn, node, value, dst)
         dst = dst or f:reg()
         local base, receiver, index = f:reg(), f:reg(), f:reg()
         local stored = value and f:reg() or nil
@@ -2290,7 +2038,7 @@ function lower.emit(
     -- SoA row views have no Lua metatable either: a row, a row's field and a
     -- projected column are checked methods of the VM's `nupp.mem.soa` view,
     -- which owns the columns. `receiver` is the view, `arguments` its operands.
-    local function soaAccess(f, method, receiver, arguments, value, dst)
+    local function soaAccess(f: Fn, method, receiver, arguments, value, dst)
         dst = dst or f:reg()
         -- The call reads its operands from consecutive registers, so all of them
         -- are claimed before any operand's own temporaries are.
@@ -2328,7 +2076,7 @@ function lower.emit(
         return nil
     end
 
-    expr = function(f, node, dst, want)
+    expr = function(f: Fn, node, dst, want)
         local k = node.kind
         if k == "paren" then
             return expr(f, node.expr, dst, want)
@@ -2808,7 +2556,7 @@ function lower.emit(
             f:op("Nil", dst)
             f:push()
             local selectorName = "\0switch" .. subject
-            f.scopes[#f.scopes][selectorName] = {reg = subject, class = "v"}
+            f.scopes[#f.scopes][selectorName] = new lowerstate.Binding(reg = subject, class = "v")
             local selector = {kind = "name", token = {text = selectorName}}
             local mark, fmark = f.nregs, f.nfregs
             local exits = {}
@@ -2873,7 +2621,7 @@ function lower.emit(
         dst = (want ~= "f" and want ~= "i" and want ~= "u" and dst) or nil
         dst = dst or f:reg()
         if k == "number" then
-            f:op("K", dst, f:const("num", tonumber(tokText(node.token))))
+            f:op("K", dst, f:const("num", assert(tonumber(tokText(node.token)))))
         elseif k == "string" then
             -- Decoded by the lexer's rules rather than by `loadstring`, which on
             -- the VM compiles a chunk holding this same literal and so never
@@ -3291,9 +3039,9 @@ function lower.emit(
                     slot or not shape.physical,
                     "constructor field " .. field.name .. " missing from " .. tostring(
                         shape.module
-                    ) .. "." .. shape.name .. " in " .. f.module .. "." .. f.name .. " at line " .. tostring(
-                        nodeLine(node)
-                    )
+                    ) .. "." .. shape.name .. " in " .. tostring(
+                        f.module
+                    ) .. "." .. f.name .. " at line " .. tostring(nodeLine(node))
                 )
                 local value = field.isDefault and require("nupp.compiler.vm.metadata").literal(field.defaultValue)
                     or field.node
@@ -3517,7 +3265,7 @@ function lower.emit(
         return parsed
     end
 
-    expr = function(f, node, dst, want)
+    expr = function(f: Fn, node, dst, want)
         if node.comptimeValue or node.materializedIR then
             return plainExpr(f, comptimeExpression(node), dst, want)
         end
@@ -3555,7 +3303,7 @@ function lower.emit(
 
     -- A closure over `funcbody`: compiled as a nested function, its captures
     -- moved into place, the closure value landing in `dst`.
-    emitClosure = function(f, funcbody, dst, name, implicitSelf)
+    emitClosure = function(f: Fn, funcbody, dst, name, implicitSelf: boolean?)
         local inner = newFn(name, f)
         inner.curLine = f.curLine
         inner.sig = {}
@@ -3630,7 +3378,7 @@ function lower.emit(
     -- registers from `base`, the last call supplying the remainder.
     -- A call whose results are open: an intrinsic's is exactly one.
 
-    local function exprsInto(f, exprs, count, base)
+    local function exprsInto(f: Fn, exprs, count, base)
         while f.nregs < base + count do
             f:reg()
         end
@@ -3757,7 +3505,7 @@ function lower.emit(
     -- any value, as Lua does: `t()[k()] = v()` calls t, k, then v.
     -- `held` copies each into a register of its own, for a multiple assignment
     -- whose values may rebind the locals a target names.
-    local function prepareTarget(f, target, plainKey, held)
+    local function prepareTarget(f: Fn, target, plainKey, held)
         local function evaluate(node, class)
             if not held then
                 return exprAs(f, node, class)
@@ -3792,7 +3540,7 @@ function lower.emit(
         return nil
     end
 
-    local function assignTo(f, target, valueReg, prepared)
+    local function assignTo(f: Fn, target, valueReg, prepared)
         if target.kind == "name" then
             local r, c, cell, spill = f:lookup(tokText(target.token))
             if spill then
@@ -3879,12 +3627,12 @@ function lower.emit(
         end
     end
 
-    local function loopBegin(f)
-        f.breaks[#f.breaks + 1] = {cleanupDepth = f.cleanupDepth or 0, continues = {}}
+    local function loopBegin(f: Fn)
+        f.breaks[#f.breaks + 1] = new lowerstate.Loop(cleanupDepth = f.cleanupDepth or 0)
     end
 
     -- Where `continue` lands: the loop's own next-round step, after the body.
-    local function loopContinue(f)
+    local function loopContinue(f: Fn)
         local list = f.breaks[#f.breaks]
         for _, at in ipairs(list.continues) do
             f:patch(at, "Jmp", f:offset(at, f:here()))
@@ -3892,21 +3640,21 @@ function lower.emit(
         list.continues = {}
     end
 
-    local function loopEnd(f)
+    local function loopEnd(f: Fn)
         local list = table.remove(f.breaks);
-        for _, at in ipairs(list) do
+        for _, at in ipairs(list.breaks) do
             f:patch(at, "Jmp", f:offset(at, f:here()))
         end
     end
 
-    local function patchGoto(f, jump, label)
+    local function patchGoto(f: Fn, jump, label)
         assert(label.depth <= jump.depth, "goto enters a cleanup scope")
         f:patch(jump.unwind, "Unwind", label.depth)
         f:patch(jump.branch, "Jmp", f:offset(jump.branch, label.pc))
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
-    local function cleanupRegistry(f)
+    local function cleanupRegistry(f: Fn)
         local globals, registry = f:reg(), f:reg()
         f:op("Require", globals, f:const("str", "_G"))
         local key = f:const("str", "__nuppCleanupRegistry")
@@ -3919,7 +3667,7 @@ function lower.emit(
         return registry
     end
 
-    local function registerCleanups(f, registrations, value)
+    local function registerCleanups(f: Fn, registrations, value)
         for _, registration in ipairs(registrations or {}) do
             local registry = cleanupRegistry(f)
             f:op("SetField", registry, f:const("str", registration.cleanup.key), value)
@@ -3937,7 +3685,7 @@ function lower.emit(
     end
 
     local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"
-    deferCleanup = function(f, value, cleanup, guard)
+    deferCleanup = function(f: Fn, value, cleanup, guard)
         if guard and cleanup.kind ~= "field" then
             local copy = f:reg()
             f:op("Move", copy, value)
@@ -3994,7 +3742,7 @@ function lower.emit(
 
     -- A reinitialized owner's slot takes the new value with the cleanup it was
     -- declared with; a method cleanup is named, and resolved on the value.
-    rearmCleanup = function(f, value, cleanup, depth)
+    rearmCleanup = function(f: Fn, value, cleanup, depth)
         if cleanup.kind == "field" then
             local field = f:reg()
             local present = f:reg()
@@ -4067,7 +3815,7 @@ function lower.emit(
         return false
     end
 
-    stmt = function(f, node)
+    stmt = function(f: Fn, node)
         local k = node.kind
         -- A comptime helper ran while compiling; the program never sees it.
         if (k == "localFuncStmt" or k == "funcStmt") and (node.comptimeFunction or node.comptimeTok) then
@@ -4763,7 +4511,7 @@ function lower.emit(
                 f:op("Unwind", f.breaks[#f.breaks].cleanupDepth)
             end
             local list = assert(f.breaks[#f.breaks], "break outside a loop")
-            list[#list + 1] = f:op("Jmp", 0)
+            list.breaks[#list.breaks + 1] = f:op("Jmp", 0)
         elseif k == "localFuncStmt" then
             -- `local function f`: f is in scope in its own body, through its cell.
             local name = tokText(node.name)
@@ -4795,7 +4543,7 @@ function lower.emit(
                 inner = emitClosure(f, node.body, r, name)
             end
             if not assignedNames[name] then
-                f.scopes[#f.scopes][name].fid = inner.id
+                assert(f.scopes[#f.scopes][name]).fid = inner.id
             end
             if node.name.cleanupRegistrations then
                 registerCleanups(f, node.name.cleanupRegistrations, exprAs(f, cleanupReference(name), "v"))
@@ -4862,7 +4610,7 @@ function lower.emit(
             local descriptor = exprAs(f, metadata.literal(signature), "v")
             local value = builtinRegisters(f, "foreign.bind", {library, symbol, descriptor})
             local register, cell, spill = f:declare(tokText(node.name), "v", true)
-            local destination = spill and f:reg() or register
+            local destination = register or f:reg()
             f:op(cell and "NewCell" or "Move", destination, value)
             if spill then
                 f:storeSpill(spill, destination)
@@ -4916,7 +4664,7 @@ function lower.emit(
                 return
             end
             f:push()
-            local identity
+            local identity: integer
             if node.qualifiers then
                 local owner = {kind = "name", token = node.qualifiers[1]}
                 for index = 2, #node.qualifiers do
@@ -5021,7 +4769,7 @@ function lower.emit(
         end
     end
 
-    stmtReclaim = function(f, s)
+    stmtReclaim = function(f: Fn, s)
         -- `local a, b = open(), open()` registers each owner as soon as its value
         -- exists, so a later value that raises still closes the earlier ones. The
         -- declaration splits into one per name when no value reads those names.
@@ -5142,7 +4890,8 @@ function lower.emit(
                 end
             end
         end
-        if os.getenv("DEBUG_REGS") and f.name:find(os.getenv("DEBUG_REGS"), 1, true) then
+        local debugRegs = os.getenv("DEBUG_REGS")
+        if debugRegs and f.name:find(debugRegs, 1, true) then
             io.stderr:write(
                 f.name,
                 " ",
@@ -5160,7 +4909,7 @@ function lower.emit(
         f.nfregs = math.max(fmark, f.fdeclTop or 0)
     end
 
-    block = function(f, node)
+    block = function(f: Fn, node)
         local depth = f.cleanupDepth or 0
         local stats = node.stats or node.body and node.body.stats or {}
         local scope = {labels = {}, depth = depth}
@@ -5528,7 +5277,7 @@ function lower.emit(
 
     -- A function with more declarations than the budget gets its spill table
     -- at entry, so every spilled local below sees it.
-    openSpill = function(f, body)
+    openSpill = function(f: Fn, body)
         if declarationCount(body) > SPILL_AT then
             f.spillReg = f:declare("\0spill", "v")
             f:op("NewTableN", f.spillReg, 0, 0)
@@ -5536,7 +5285,7 @@ function lower.emit(
     end
     -- A local of this function is a cell when the analysis saw a nested
     -- function read it: exact per declaration site, by name per function.
-    markCaptures = function(f, funcbody)
+    markCaptures = function(f: Fn, funcbody)
         local set = capturedOf[funcbody]
         if set then
             for name in pairs(set) do
@@ -5545,7 +5294,7 @@ function lower.emit(
         end
     end
 
-    defineFunction = function(f, funcbody)
+    defineFunction = function(f: Fn, funcbody)
         local native = nativePlans[funcbody]
         if native and not f.implicitSelf then
             f.code, f.consts = native.code, native.consts
@@ -6050,7 +5799,7 @@ function lower.emit(
             if c.kind == "str" then
                 emit(("  const %d str %s"):format(i - 1, q(c.value)))
             elseif c.kind == "num" then
-                emit(("  const %d num %.17g"):format(i - 1, c.value))
+                emit(("  const %d num %.17g"):format(i - 1, c.value as number))
             elseif c.kind == "builtin" then
                 emit(("  const %d builtin %s"):format(i - 1, c.value))
             else
@@ -6078,8 +5827,8 @@ function lower.emit(
         end
         for pc, op in ipairs(f.code) do
             local parts = {}
-            for i, value in ipairs(op) do
-                parts[i] = type(value) == "number" and ("%.17g"):format(value) or value
+            for i, value in ipairs(op as {string | number}) do
+                parts[i] = type(value) == "number" and ("%.17g"):format(value as number) or value
             end
             local text = table.concat(parts, " ")
             emit("  " .. text)

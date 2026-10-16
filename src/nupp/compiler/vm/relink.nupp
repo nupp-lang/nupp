@@ -42,6 +42,8 @@ its replay fails if a module lowered fresh in the meantime has registered a
 record of that name for the same declaring module.
 ]]
 
+local lowerstate = require("nupp.compiler.vm.lowerstate")
+
 local relink = {}
 
 --- Bumped whenever a kept fragment's shape or meaning changes.
@@ -809,7 +811,9 @@ function relink.new(reuse: any): any
         end
         local base = #functions
         for i, text in ipairs(fragment.functions) do
-            functions[base + i] = {id = base + i - 1, module = name, rendered = relocate(text, base, shapes)}
+            functions[
+                base + i
+            ] = new lowerstate.Fn(id = base + i - 1, module = name, rendered = relocate(text, base, shapes))
         end
         modules[name] = {id = base + fragment.chunk}
         moduleOrder[#moduleOrder + 1] = name
