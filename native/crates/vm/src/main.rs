@@ -38,6 +38,17 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool) {
         }
         if fid != 0 && fid % 250 == 0 { eprintln!("aot: lowered {fid}/{} functions", it.funcs.len()); }
     }
+    // A no-JIT runtime runs vector code only through this object, so every
+    // function holding it must compile now, not fail at its first call.
+    let missing: Vec<String> = it.funcs.iter().enumerate()
+        .filter(|(fid, f)| image::needs_native(f) && (!frames || !compiled.contains(fid)))
+        .map(|(fid, f)| format!("{fid}\t{}\t{}", f.name, f.module)).collect();
+    if !missing.is_empty() {
+        for r in &refused { eprintln!("aot: refused {r}"); }
+        eprintln!("aot: {} function{} with vector instructions did not compile{}; a no-JIT runtime cannot run them:", missing.len(), if missing.len() == 1 { "" } else { "s" }, if frames { "" } else { " (vector code needs --frames)" });
+        for m in &missing { eprintln!("aot: uncompiled {m}"); }
+        std::process::exit(1);
+    }
     let hash: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
     let mut linked = format!("pub const ABI_VERSION: u32 = {};\nunsafe extern \"C\" {{\n", nupp_vm::compiled::AOT_ABI);
     for fid in &compiled {
@@ -237,6 +248,14 @@ fn main() {
         nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
         nupp_vm::compiled::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
     }
+    // A runtime that will not interpret vector instructions (a linked no-JIT
+    // host) refuses an image holding a function its object did not compile,
+    // before any module initializer runs, rather than at the function's call.
+    if let Some(fid) = it.first_uncompiled_native() {
+        let f = &it.funcs[fid as usize];
+        eprintln!("{}", image::uncompiled_native_message("image refused", &f.name, &f.module));
+        std::process::exit(1);
+    }
     #[cfg(all(feature = "jit", feature = "aot-linked"))]
     let has_aot = !aot_entries.is_empty() || !aot_frames.is_empty();
     #[cfg(all(feature = "jit", not(feature = "aot-linked")))]
@@ -362,6 +381,7 @@ fn main() {
             it.release_task(task).unwrap();
             if !executable {
                 eprintln!("compiled frame entries: {}", it.compiled_frame_entries);
+                eprintln!("compiled frame parks: {}; continuations: {}", it.compiled_frame_parks, it.compiled_frame_continuations);
                 eprintln!("worker compiled entries: {}; compile {:.3} ms", it.worker_compiled_entries, it.worker_compile_micros as f64 / 1000.0);
             }
             return results;

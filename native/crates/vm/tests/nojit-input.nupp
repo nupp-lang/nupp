@@ -1,0 +1,233 @@
+module nupp.tests.nojitgate
+
+-- The no-JIT gate's own fixture (tests/nojit-gate.py). Its image also holds
+-- the public SIMD suites, the per-kind maps and the task fixture, so one
+-- linked object covers every case the gate runs.
+const array = require("nupp.mem.array")
+const span = require("nupp.mem.span")
+const simd = require("nupp.simd")
+const tasks = require("nupp.tasks")
+const time = require("nupp.time")
+const kernels = require("kernels")
+const kinds = require("nupp.tests.nojitkinds")
+const publicSuite = require("nupp.tests.vmsimd")
+const nativeSuite = require("nupp.tests.vmnativesimd")
+const taskSuite = require("main")
+
+local sizes: {integer} = {0, 1, 3, 4, 5, 7, 8, 63, 64, 65, 1000, 65539}
+
+local function numbers(count: integer, seed: integer): array.Array<number>
+    const owned = array.scalar(array.number, count)
+    do
+        const writer = owned:write()
+        for i = 1, #writer do
+            writer[i] = ((i * seed) % 101 - 50) / 8
+        end
+    end
+
+    return owned
+end
+
+local function integers(count: integer): array.Array<int32>
+    const owned = array.scalar(array.int32, count)
+    do
+        const writer = owned:write()
+        for i = 1, #writer do
+            writer[i] = ((i * 7919) % 201 - 100) as int32
+        end
+    end
+
+    return owned
+end
+
+local function show(out: {string}, label: string, borrows view: span.Span<number>): nil
+    local parts: {string} = {label}
+    for i = 1, #view do
+        parts[#parts + 1] = string.format("%.17g", view[i])
+    end
+    out[#out + 1] = table.concat(parts, " ")
+end
+
+local function maps(out: {string}, count: integer): nil
+    const input = numbers(count, 37)
+    const reader = input:read()
+    for _, name in ipairs({"map", "explicitMap", "refine", "explicitRefine"}) do
+        const output = array.scalar(array.number, count)
+        do
+            const writer = output:write()
+            if name == "map" then
+                kernels.map(writer, reader, 1.25, 2.0)
+            elseif name == "explicitMap" then
+                kernels.explicitMap(writer, reader, 1.25, 2.0)
+            elseif name == "refine" then
+                kernels.refine(writer, reader)
+            else
+                kernels.explicitRefine(writer, reader)
+            end
+        end
+        show(out, name .. " " .. count, output:read())
+    end
+end
+
+local function dots(out: {string}, count: integer): nil
+    const left = numbers(count, 37)
+    const right = numbers(count, 53)
+    const l = left:read()
+    const r = right:read()
+    out[
+        #out + 1
+    ] = string.format(
+        "dots %d %.17g %.17g %.17g %.17g %.17g %.17g",
+        count,
+        kernels.ordered(l, r),
+        kernels.explicitOrdered(l, r),
+        kernels.pairwise(l, r),
+        kernels.explicitPairwise(l, r),
+        kernels.algebraic(l, r),
+        kernels.explicitAlgebraic(l, r)
+    )
+end
+
+local function crossLane(out: {string}, count: integer): nil
+    const input = integers(count)
+    const output = array.scalar(array.int32, count)
+    do
+        const writer = output:write()
+        kernels.crossLane(writer, input:read())
+    end
+    const reader = output:read()
+    local parts: {string} = {"crossLane " .. count .. " width " .. tostring(kernels.crossWidth())}
+    for i = 1, #reader do
+        parts[#parts + 1] = tostring(reader[i])
+    end
+    out[#out + 1] = table.concat(parts, " ")
+end
+
+--- Every bench/simd11 kernel at every size, then every element kind: the
+--- text the gate compares between the linked object and the interpreter.
+export function oracle(): string
+    local out: {string} = {}
+    for _, count in ipairs(sizes) do
+        maps(out, count)
+        dots(out, count)
+        crossLane(out, count)
+    end
+    out[#out + 1] = kinds.render()
+
+    return table.concat(out, "\n") .. "\n"
+end
+
+local parked: any = nil
+
+--- Parks a coroutine inside a vector loop, with the accumulator live in
+--- the suspended frame. The gate checkpoints the process here.
+export function parkStart(): number
+    parked = @unsafe nupp.release(
+        coroutine.create(function(): string
+            const owned = numbers(67, 29)
+            const reader = owned:read()
+            local species = assert(simd.species(array.number, 4))
+            local total = species:splat(0.5)
+            local cursor: uint32 = 0
+            local blocks = 0
+            while cursor + species.lanes <= #reader do
+                total = total + species:load(reader, cursor + 1) * 2.0
+                cursor = cursor + species.lanes
+                blocks = blocks + 1
+                if blocks % 4 == 0 then
+                    coroutine.yield(blocks)
+                end
+            end
+            if cursor < #reader then
+                local active = species:tail(#reader - cursor)
+                total = total + species:load(reader, cursor + 1, active) * 2.0
+            end
+
+            return string.format(
+                "%.17g %.17g %.17g %.17g",
+                total:extract(1),
+                total:extract(2),
+                total:extract(3),
+                total:extract(4)
+            )
+        end)
+    )
+    local ok, value = coroutine.resume(parked)
+    assert(ok and value == 4, tostring(value))
+
+    return 42
+end
+
+--- Resumes the parked coroutine to its end: every later yield and the
+--- final accumulator, as text.
+export function parkFinish(): string
+    local seen: {string} = {}
+    while true do
+        local ok, value = coroutine.resume(parked)
+        assert(ok, tostring(value))
+        seen[#seen + 1] = tostring(value)
+        if coroutine.status(parked) == "dead" then
+            break
+        end
+    end
+    parked = nil
+
+    return table.concat(seen, ",")
+end
+
+--- Both halves in one process: the reference the restored run must equal.
+export function parkWhole(): string
+    parkStart()
+
+    return parkFinish()
+end
+
+local function blockSum(seed: integer, pause: integer): string
+    const owned = numbers(259, seed)
+    const reader = owned:read()
+    local species = assert(simd.species(array.number, 4))
+    local total = species:splat(0.0)
+    local cursor: uint32 = 0
+    local blocks = 0
+    while cursor + species.lanes <= #reader do
+        total = total + species:load(reader, cursor + 1) * species:load(reader, cursor + 1)
+        cursor = cursor + species.lanes
+        blocks = blocks + 1
+        if blocks % pause == 0 then
+            time.sleep(1)
+        end
+    end
+    if cursor < #reader then
+        local active = species:tail(#reader - cursor)
+        total = total + species:load(reader, cursor + 1, active)
+    end
+
+    return string.format("%d:%.17g", seed, simd.horizontal.algebraicSum(total))
+end
+
+--- Scheduled tasks that park on timers inside vector loops and resume,
+--- interleaved; the results do not depend on the interleaving.
+export function scheduled(): string
+    local out: {string} = {}
+    with scope = tasks.open() do
+        local first = scope:spawn(function(): string
+            return blockSum(37, 5)
+        end)
+        local second = scope:spawn(function(): string
+            return blockSum(53, 7)
+        end)
+        local third = scope:spawn(function(): string
+            return blockSum(71, 11)
+        end)
+        out[#out + 1] = first:await()
+        out[#out + 1] = second:await()
+        out[#out + 1] = third:await()
+    end
+
+    return table.concat(out, " ")
+end
+
+--- The other modules of the image, so the entry's graph carries them.
+export function suites(): {any}
+    return {publicSuite, nativeSuite, taskSuite}
+end

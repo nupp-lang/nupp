@@ -191,7 +191,7 @@ pub extern "C" fn j_frame_finish(next: u64, stop: u64) -> u64 {
         match it.finish_callee(tid, stop as usize, next) {
             Ok(true) => V(frame_address(it, tid)),
             Ok(false) => V::ERROR,
-            Err(exit) => { it.native_exit = Some(exit); V(1) }
+            Err(exit) => { if matches!(exit, crate::interp::Step::Return(crate::interp::Outcome::Parked(_))) { it.compiled_frame_parks += 1; } it.native_exit = Some(exit); V(1) }
         }
     });
     it.native_frame_depth = depth;
@@ -345,10 +345,10 @@ pub extern "C" fn j_frame_step(pc: u64) -> u64 {
                     Ok(true) => V(frame_address(it, tid)),
                     // A raise: its value is pending and the sentinel goes up.
                     Ok(false) => V::ERROR,
-                    Err(exit) => { it.native_exit = Some(exit); V(1) }
+                    Err(exit) => { if matches!(exit, crate::interp::Step::Return(crate::interp::Outcome::Parked(_))) { it.compiled_frame_parks += 1; } it.native_exit = Some(exit); V(1) }
                 }
             }
-            exit => { it.native_exit = Some(exit); V(1) }
+            exit => { if matches!(exit, crate::interp::Step::Return(crate::interp::Outcome::Parked(_))) { it.compiled_frame_parks += 1; } it.native_exit = Some(exit); V(1) }
         }
     }).0;
     it.nested_calls = nested;

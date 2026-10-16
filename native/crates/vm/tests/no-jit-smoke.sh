@@ -71,7 +71,7 @@ grep -q 'aot: linked object was built for another image' "$tmp/mismatch.out"
 # The saver exits before either reader starts. No source image is needed by
 # restore: its code recipe, captured cells and initialized modules are saved.
 GC_STRESS=1 GC_ORACLE=1 "$binary" run "$image" "$module" "$function" ${FRAME_AOT:+--tasks} --checkpoint "$tmp/state.bin" >"$tmp/saved.out"
-GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/state.bin" "$module" "$function" ${FRAME_AOT:+--tasks} --checkpoint "$tmp/again.bin" >"$tmp/restored.out" 2>"$tmp/restored.err"
+AOT_VERBOSE=1 GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/state.bin" "$module" "$function" ${FRAME_AOT:+--tasks} --checkpoint "$tmp/again.bin" >"$tmp/restored.out" 2>"$tmp/restored.err"
 grep -q 'linked entries after restore' "$tmp/restored.err"
 NO_AOT=1 GC_STRESS=1 GC_ORACLE=1 "$binary" restore "$tmp/state.bin" "$module" "$function" ${FRAME_AOT:+--tasks} >"$tmp/restore-interp.out"
 cmp "$tmp/restored.out" "$tmp/restore-interp.out"

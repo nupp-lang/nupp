@@ -35,7 +35,7 @@ records = []
 
 def run(name, function, extra=(), flags=None, restore=None, failure=False):
     command = [binary, "restore" if restore else "run", str(restore or image), "nupp.tests.vmsimd", function, *extra]
-    p = subprocess.run(command, env=dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1", **(flags or {})), capture_output=True, text=True, timeout=180)
+    p = subprocess.run(command, env=dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1", AOT_VERBOSE="1", **(flags or {})), capture_output=True, text=True, timeout=180)
     (args.output / f"{name}.log").write_text(p.stdout + p.stderr)
     if failure:
         assert p.returncode != 0 and "native compilation" in p.stderr, (name, p.stdout, p.stderr[-12000:])

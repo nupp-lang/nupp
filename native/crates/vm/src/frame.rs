@@ -113,6 +113,7 @@ impl Interp {
         let frame = self.tasks[tid].cur();
         let header = unsafe { self.tasks[tid].stack.as_mut_ptr().add(frame) };
         self.compiled_frame_entries += 1;
+        if pc != 0 { self.compiled_frame_continuations += 1; }
         let previous_task = std::mem::replace(&mut self.native_task, tid);
         let previous_exit = self.native_exit.take();
         self.native_frame_depth += 1;

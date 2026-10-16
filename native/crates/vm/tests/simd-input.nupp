@@ -223,8 +223,13 @@ end
 
 export function missingPlugin(): number
     local load = (_G as any).__nupp_load_image
-    local plugin = load(
+    -- A plugin with vector instructions and no compiled implementation is
+    -- refused when it is loaded, so nothing in it runs and no module of it
+    -- is registered; one without them loads and runs on the same host.
+    local ok, problem = pcall(
+        load,
         [[function plugin 0 1 8 1 v:v
+source nupp.tests.simdplugin
 const 0 str "entered"
 const 1 num 1
 K 2 1
@@ -232,13 +237,23 @@ SetField 1 0 2
 Simd add number 3 2
 Ret 3
 end
+module nupp.tests.simdplugin 0
 entry 0
 ]]
     )
-    local state: any = {}
-    local ok, problem = pcall(plugin, state)
-    assert(not ok and tostring(problem):find("native compilation", 1, true) ~= nil)
-    assert(state.entered == nil)
+    assert(not ok)
+    assert(tostring(problem):find("image refused: function plugin in module", 1, true) ~= nil)
+    assert(tostring(problem):find("native compilation", 1, true) ~= nil)
+    assert(package.loaded["nupp.tests.simdplugin"] == nil)
+    assert(not pcall(require, "nupp.tests.simdplugin"))
+    local scalar = load([[function scalar 0 1 4 1 v:v
+const 0 num 41
+K 1 0
+Ret 1
+end
+entry 0
+]])
+    assert(scalar({}) == 41)
 
     return 42
 end

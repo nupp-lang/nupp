@@ -5,14 +5,34 @@ use crate::heap::SlotTy;
 use crate::interp::{Function, Interp, Op};
 use crate::value::Value;
 
-pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> {
-    // Everything interned while loading is rooted by a handle scope until the
-    // functions and shapes that hold it are registered (4.7).
+pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> { load_with(it, text, false) }
+
+/// Loads a dynamic image only when this host can execute its instructions.
+pub fn load_plugin(it: &mut Interp, text: &str) -> Result<u32, String> {
+    load_with(it, text, !it.simd_interpret)
+}
+
+fn load_with(it: &mut Interp, text: &str, refuse_native: bool) -> Result<u32, String> {
     let scope = it.open_scope();
-    let r = parse(it, text, None).map(|parsed| install(it, parsed));
+    let r = parse(it, text, None).and_then(|parsed| {
+        if refuse_native {
+            if let Some(f) = parsed.funcs.iter().find(|f| needs_native(f)) {
+                return Err(uncompiled_native_message("image refused", &f.name, &f.module));
+            }
+        }
+        Ok(install(it, parsed))
+    });
     it.close_scope(scope);
     if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Image(text.to_owned())); }
     r
+}
+
+/// Whether a function holds instructions requiring native execution.
+pub fn needs_native(f: &Function) -> bool { f.code.iter().any(crate::native_simd::required) }
+
+pub fn uncompiled_native_message(what: &str, function: &str, module: &str) -> String {
+    let module = if module.is_empty() { String::new() } else { format!(" in module {module}") };
+    format!("{what}: function {function}{module} has vector instructions, which require native compilation, and this runtime has no code generator and no compiled implementation linked for it (SIMD_INTERPRET=1 runs it interpreted)")
 }
 
 /// An image read and verified but not yet part of the VM: its functions refer
