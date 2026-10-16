@@ -33,6 +33,8 @@ fn main() {
     if std::env::var("NUPP_VM_NO_THREADED").is_ok() { return; }
     let mut build = cc::Build::new();
     build.file("csrc/dispatch.c").opt_level(3).flag("-fno-strict-aliasing").warnings(false);
+    // Specialization feedback hooks, only where code is generated at run time.
+    if std::env::var_os("CARGO_FEATURE_JIT").is_some() { build.define("NUPP_FEEDBACK", None); }
     let compiler = build.get_compiler();
     if !compiler.is_like_clang() && !compiler.is_like_gnu() { return; }
     // A gcc without musttail fails here; the probe keeps the build going on the Rust loop.

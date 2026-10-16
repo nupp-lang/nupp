@@ -107,4 +107,5 @@ mod strbuf;
 #[cfg(feature = "c-headers")]
 pub mod cdecl;
 
+#[cfg(feature = "jit")]
 pub mod specialize;

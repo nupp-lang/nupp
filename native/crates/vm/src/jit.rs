@@ -181,6 +181,9 @@ impl<M: Module> Compiler<M> {
     fn with_module(mut module: M, runtime_symbol: Option<&str>) -> Self {
         let mut helpers = HashMap::new();
         for (name, _, arity) in helper_table() {
+            // Object code never specializes, and a runtime that only links it
+            // carries no specialization helpers to import.
+            if runtime_symbol.is_some() && name.starts_with("j_spec_") { continue; }
             let mut hs = module.make_signature();
             for _ in 0..arity { hs.params.push(AbiParam::new(types::I64)); }
             hs.returns.push(AbiParam::new(types::I64));

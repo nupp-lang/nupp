@@ -345,7 +345,8 @@ impl Interp {
         let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: self.jit_threshold, feedback: 0 };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
-        ctx.feedback = self.spec.feedback as u32;
+        #[cfg(feature = "jit")]
+        { ctx.feedback = self.spec.feedback as u32; }
         let status = unsafe { vm_run(&mut ctx) };
         // The core's pops do not touch the task record; its state and last
         // result count are brought over here.
