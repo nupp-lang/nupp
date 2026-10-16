@@ -467,7 +467,7 @@ local function inferFunction(info, byDefinition)
     -- Direct local aliases keep a parameter-rooted effect parameter-rooted. This is
     -- flow-insensitive on purpose: merging aliases that existed at different times only
     -- makes a summary more conservative.
-    local function collectBindings(node)
+    local function collectBindings(node: cst.Child?): nil
         if not node or cst.isToken(node) then
             return
         end
@@ -490,8 +490,8 @@ local function inferFunction(info, byDefinition)
                 end
             end
         elseif kind == "fornumStmt" then
-            if node.name and node.name.definition then
-                localDefinitions[node.name.definition] = true
+            if node.var and node.var.definition then
+                localDefinitions[node.var.definition] = true
             end
         elseif kind == "forinStmt" then
             for _, name in ipairs(node.names or {}) do
@@ -794,55 +794,61 @@ local function inferFunction(info, byDefinition)
 
     -- Automatic cleanup executes on an ordinary exit even though lowering has not yet
     -- inserted a source call. Its effects therefore belong to the function summary.
-    local function cleanupEffects(node)
+    local function cleanupEffect(cleanup: Cleanup): nil
+        local operation = cleanup
+        while operation and operation.kind == "field" do
+            operation = operation.cleanup
+        end
+        local token = operation and operation.kind == "function" and operation.token or nil
+        local known = token and byDefinition[token.definition] or nil
+        if not known or not known.summary or known.summary.top then
+            out.top = true
+        else
+            if known.summary.allocates then
+                out.allocates = true
+            end
+            if known.summary.allocatesBeyondWideArithmetic then
+                out.allocatesBeyondWideArithmetic = true
+            end
+            if known.summary.raises then
+                out.raises = true
+                out.raisesBeyondBounds = true
+            end
+            if known.summary.yields then
+                out.yields = true
+            end
+            if known.summary.rawYields then
+                out.rawYields = true
+            end
+        end
+    end
+
+    -- Walks every node of the body, so it reads the cleanups where they are rather than
+    -- gathering them into a list first.
+    local function cleanupEffects(node: cst.Child?): nil
         if not node or cst.isToken(node) then
             return
         end
         if NESTED_FUNCTION[node.kind] then
             return
         end
-        local cleanupsHere: {Cleanup} = {}
-        for _, owner in ipairs(node.automaticOwners or {}) do
-            for _, cleanup in ipairs(owner.cleanups or {}) do
-                cleanupsHere[#cleanupsHere + 1] = cleanup
+        if owners = node.automaticOwners then
+            for _, owner in ipairs(owners) do
+                if cleanups = owner.cleanups then
+                    for _, cleanup in ipairs(cleanups) do
+                        cleanupEffect(cleanup)
+                    end
+                end
             end
         end
         -- A `with` discharges its acquisition on every exit the same way, and the
         -- terminal it runs may settle -- park until the resource's work is done -- so
         -- it belongs to the summary exactly as an automatic owner's does.
-        if node.kind == "withStmt" then
-            for _, binding in ipairs(node.bindings or {}) do
-                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    cleanupsHere[#cleanupsHere + 1] = cleanup
-                end
-            end
-        end
-        for _, cleanup in ipairs(cleanupsHere) do
-            do
-                local operation = cleanup
-                while operation and operation.kind == "field" do
-                    operation = operation.cleanup
-                end
-                local token = operation and operation.kind == "function" and operation.token or nil
-                local known = token and byDefinition[token.definition] or nil
-                if not known or not known.summary or known.summary.top then
-                    out.top = true
-                else
-                    if known.summary.allocates then
-                        out.allocates = true
-                    end
-                    if known.summary.allocatesBeyondWideArithmetic then
-                        out.allocatesBeyondWideArithmetic = true
-                    end
-                    if known.summary.raises then
-                        out.raises = true
-                        out.raisesBeyondBounds = true
-                    end
-                    if known.summary.yields then
-                        out.yields = true
-                    end
-                    if known.summary.rawYields then
-                        out.rawYields = true
+        if node.kind == "withStmt" and node.bindings then
+            for _, binding in ipairs(node.bindings) do
+                if cleanups = binding.ownerCleanups then
+                    for _, cleanup in ipairs(cleanups) do
+                        cleanupEffect(cleanup)
                     end
                 end
             end
