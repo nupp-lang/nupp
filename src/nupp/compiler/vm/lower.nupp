@@ -3714,9 +3714,9 @@ function lower.emit(
         end
         if target.kind == "dotIndex" then
             return {o = evaluate(target.obj, "v")}
-        elseif target.kind == "bracketIndex"
-            and not (target.indexedAccess and target.indexedAccess.adapter == "span")
-        then
+        elseif target.kind == "bracketIndex" and target.indexedAccess and target.indexedAccess.adapter == "span" then
+            return {o = evaluate(target.obj, "v"), i = evaluate(target.expr, "v"), class = "v"}
+        elseif target.kind == "bracketIndex" then
             local o = evaluate(target.obj, "v")
             if plainKey then
                 return {o = o, i = evaluate(target.expr, "v"), class = "v"}
@@ -3781,7 +3781,16 @@ function lower.emit(
             end
         elseif target.kind == "bracketIndex" then
             if target.indexedAccess and target.indexedAccess.adapter == "span" then
-                spanAccess(f, target, valueReg)
+                local place = target
+                if prepared then
+                    place = {
+                        kind = "bracketIndex",
+                        obj = {kind = "vmRegister", reg = prepared.o},
+                        expr = {kind = "vmRegister", reg = prepared.i},
+                        indexedAccess = target.indexedAccess,
+                    }
+                end
+                spanAccess(f, place, valueReg)
                 return
             end
             if target.soaRow then
@@ -4228,6 +4237,7 @@ function lower.emit(
                     kind = "bracketIndex",
                     obj = {kind = "vmRegister", reg = prepared.o, inferredType = target.obj.inferredType},
                     expr = {kind = "vmRegister", reg = prepared.i, inferredType = target.expr.inferredType},
+                    indexedAccess = target.indexedAccess,
                     inferredType = target.inferredType,
                 }
             end
