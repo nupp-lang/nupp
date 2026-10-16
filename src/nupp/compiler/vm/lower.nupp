@@ -198,6 +198,17 @@ function lower.emit(
         return "any"
     end
 
+    -- A member a supertype contributes that may hold nil gets no slot: it lives
+    -- in the record's overflow part, allocated when the first such member is
+    -- written. `cst.Hints` gives every syntax node some two hundred optional
+    -- checker hints, and as slots they made each node about 1.8 KB of nils the
+    -- collector scanned and swept; a node now costs its own fields. Reads and
+    -- writes go by name, through the overflow probe.
+    local function inheritedInOverflow(t)
+        local tag = tyTag(t)
+        return tag == "any" or tag == "unknown" or tag == "nil" or (tag == "union" and t.hasNil == true)
+    end
+
     local function declareShape(node)
         -- An interface has no runtime identity: no shape, erased casts, field access by
         -- name. Nor does an annotation schema, which exists only for the checker.
@@ -248,7 +259,11 @@ function lower.emit(
         if nominal and type(nominal.byname) == "table" then
             local inherited = {}
             for fname in pairs(nominal.byname) do
-                if type(fname) == "string" and shape.slotIndex[fname] == nil and not methods[fname] then
+                if type(fname) == "string"
+                    and shape.slotIndex[fname] == nil
+                    and not methods[fname]
+                    and (shape.physical or not inheritedInOverflow(nominal.byname[fname]))
+                then
                     inherited[#inherited + 1] = fname
                 end
             end
@@ -342,7 +357,11 @@ function lower.emit(
         end
         local inherited = {}
         for fname in pairs(byname) do
-            if type(fname) == "string" and shape.slotIndex[fname] == nil and methods[fname] == nil then
+            if type(fname) == "string"
+                and shape.slotIndex[fname] == nil
+                and methods[fname] == nil
+                and (shape.physical or not inheritedInOverflow(byname[fname]))
+            then
                 inherited[#inherited + 1] = fname
             end
         end
@@ -3267,8 +3286,9 @@ function lower.emit(
             for _, field in ipairs(fields) do
                 f.nregs = math.max(fieldMark, f.declTop or 0)
                 f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
-                local slot = assert(
-                    shape.slotIndex[field.name],
+                local slot = shape.slotIndex[field.name]
+                assert(
+                    slot or not shape.physical,
                     "constructor field " .. field.name .. " missing from " .. tostring(
                         shape.module
                     ) .. "." .. shape.name .. " in " .. f.module .. "." .. f.name .. " at line " .. tostring(
@@ -3285,6 +3305,10 @@ function lower.emit(
                     else
                         f:op("SetField", dst, f:const("str", field.name), v)
                     end
+                elseif not slot then
+                    -- An inherited optional member, kept in the overflow part.
+                    local v = exprAs(f, value, "v");
+                    f:op("SetField", dst, f:const("str", field.name), v)
                 elseif shape.slots[slot + 1].ty == "num" then
                     local v = exprAs(f, value, "f");
                     f:op("SetSlotF", dst, slot, v, shape.id)
