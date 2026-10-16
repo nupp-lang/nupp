@@ -2177,7 +2177,7 @@ function declare.install(
                 for name, signatures in pairs(signaturesByName) do
                     local declared = #signatures == 1 and signatures[1] or T.intersection(signatures)
                     local entryNode = declarations[name]
-                    local definition = c.definition(entryNode.name, kind)
+                    local definition = c.definition(entryNode.name, kind) as state.Definition
                     definition.type = declared
                     entryNode.inlineDefinition = definition
                     if kind == "method" then
@@ -2357,7 +2357,7 @@ function declare.install(
                     if (grantsRead and state.read) or (grantsWrite and state.write) then
                         c.diag("NUPP2118", e.name, ("duplicate property capability for %q"):format(name))
                     end
-                    local definition = c.definition(e.name, "property")
+                    local definition = c.definition(e.name, "property") as state.Definition
                     definition.type = ft
                     definition.bitWidth = e.bitWidth and tonumber(e.bitWidth.text) or nil
                     definition.annotations = e.semanticAnnotations or {}

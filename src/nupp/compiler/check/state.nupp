@@ -90,6 +90,63 @@ type state.Facts = {
     exhausted: string?
 }
 
+--- Where a name was declared, as the editor and later passes read it: the file and
+--- token, what kind of thing it is and its type, and the facts the checker learns
+--- about the declaration as it goes. Open rather than a record, because the project
+--- index and the prelude make these too, as ordinary tables.
+type state.Definition = {
+    filename: string?,
+    token: lexer.Token?,
+    name: string?,
+    kind: string?,
+    type: any,
+    lexical: boolean?,
+    constant: boolean?,
+    functionDepth: integer?,
+    initialized: boolean?,
+    reassigned: boolean?,
+    scopeFrom: integer?,
+    scopeTo: integer?,
+    scopeDepth: integer?,
+    deprecated: any,
+    documentationToken: lexer.Token?,
+    generatedIdentity: string?,
+    qualifiedName: string?,
+    requiredModule: string?,
+    exactCallExport: any,
+    scalarIntrinsic: string?,
+    namespacePath: string?,
+    mutationSummaryKnown: boolean?,
+    mutatesParams: {[integer]: boolean}?,
+    mutatesParamPaths: {[integer]: {[string]: boolean}}?,
+    mutatesCapturedEntries: {[any]: boolean}?,
+    mutatesCapturedPaths: {[any]: {[string]: boolean}}?,
+    mutatesSelf: boolean?,
+    mutatesSelfPaths: {[string]: boolean}?,
+    cdef: boolean?,
+    cdefIdentity: string?,
+    comptimeFunction: boolean?,
+    comptimeOnly: boolean?,
+    associated: boolean?,
+    aotOrigin: any,
+    aotNativeOnly: boolean?,
+    effectContract: any,
+    indexedRangeWitness: any,
+    automaticCleanup: any,
+    annotations: any,
+    bitWidth: integer?,
+    generatedBy: any,
+    generatedContributingFields: any,
+    generatedHelper: string?,
+    generatedHelperDefinition: any,
+    generatedInterface: string?,
+    generatedInterfaceDefinition: any,
+    generatedNamespace: any,
+    generatedOrigin: lexer.Token?,
+    generatedOwner: string?,
+    generatedRecipeFingerprint: string?
+}
+
 --- What a name is bound to in a scope: its type, how it was declared, and the flow
 --- facts the walk accumulates on it. A narrowing shadows the entry with a copy that
 --- names the original as `ownershipOrigin`, so ownership is recorded in one place.
@@ -118,7 +175,7 @@ record state.Binding
 
     --- The declaration this binding answers to, for the editor and the unused-binding
     --- sweep.
-    definition: any
+    definition: state.Definition?
 
     --- Which ownership qualifier the bound type carries: "affine", "borrowed" or
     --- "pinned".
@@ -272,7 +329,7 @@ record state.Scope
     vars: {[string]: state.Binding}
     types: {[string]: Type}
     packTypes: {[string]: T.Pack}
-    typeDefs: {[string]: any}
+    typeDefs: {[string]: state.Definition}
 
     --- Aliases hoisted to the top of the block and not yet resolved.
     pending: {[string]: any}
@@ -576,7 +633,7 @@ record state.Checker
     lookupPack: function(name: string): (T.Pack?, any)
 
     --- Records what a token means, for the editor and for go-to-definition.
-    markToken: function(tok: lexer.Token?, def: any, t: Type?, kind: string?)
+    markToken: function(tok: lexer.Token?, def: state.Definition?, t: Type?, kind: string?)
 
     --- Records a compiler-recognized runtime requirement for this source file.
     recordEffect: function(effect: string)
@@ -852,11 +909,11 @@ record state.Checker
     visibilityOf: function(stat: any): string
 
     --- Records where a name was declared, for the editor.
-    definition: function(tok: lexer.Token?, kind: string?): any
+    definition: function(tok: lexer.Token?, kind: string?): state.Definition?
 
     --- Records a compiler-generated member with its own semantic identity while
     --- retaining a written token as its navigation origin.
-    generatedDefinition: function(tok: lexer.Token?, name: string, kind: string, identity: string): any
+    generatedDefinition: function(tok: lexer.Token?, name: string, kind: string, identity: string): state.Definition?
 
     --- Resolves an alias hoisted to the top of its block, the first time anything names
     --- it.

@@ -3027,7 +3027,7 @@ function checkMod.check(
                 -- The declaration definition exists before the alias body resolves,
                 -- so a forward reference is held to the same comptime-only boundary
                 -- as a reference written after the declaration.
-                local definition = c.definition(decl.name, "type")
+                local definition = c.definition(decl.name, "type") as state.Definition
                 definition.comptimeOnly = decl.comptimeOnly or nil
                 c.scope.typeDefs[key] = definition
             end

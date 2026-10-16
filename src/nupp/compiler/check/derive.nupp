@@ -1339,7 +1339,7 @@ function derive.install(c: state.Checker): derive.Ops
         local namespace = isStatic and "static" or "instance"
         local identity = table.concat({n.deriveKey, namespace, name}, "\0")
         local originToken = cst.firstToken(tok) or tok
-        local definition = c.generatedDefinition(originToken, name, kind, identity)
+        local definition = c.generatedDefinition(originToken, name, kind, identity) as state.Definition
         definition.type = signature
         definition.generatedBy = provider
         definition.generatedOwner = n.name

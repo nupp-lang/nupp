@@ -134,7 +134,7 @@ function cdef.install(
                 local text = fieldName.text
                 n.byname[text] = ft
                 n.writeByname[text] = ft
-                local fieldDef = c.definition(fieldName, "property")
+                local fieldDef = c.definition(fieldName, "property") as state.Definition
                 n.fieldDefs[text] = fieldDef
                 n.writeFieldDefs[text] = fieldDef
                 fieldDef.type = ft
