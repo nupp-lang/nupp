@@ -839,6 +839,17 @@ impl<M: Module> Compiler<M> {
                     }
                 }
                 let spec_here = spec_sites.get(&pc).cloned();
+                // Chaos mode: this execution's guards fail on purpose when the
+                // shared counter runs out.
+                let forced = match plan.as_ref().filter(|p| p.chaos_addr != 0 && spec_here.is_some()) {
+                    Some(p) => {
+                        let a = b.ins().iconst(types::I64, p.chaos_addr); let c = b.ins().load(types::I64, flags, a, 0); let c1 = b.ins().iadd_imm(c, -1);
+                        let out = b.ins().icmp_imm(IntCC::Equal, c1, 0); let reset = b.ins().iconst(types::I64, p.chaos_period as i64);
+                        let next = b.ins().select(out, reset, c1); b.ins().store(flags, next, a, 0); Some(out)
+                    }
+                    None => None,
+                };
+                macro_rules! force_miss { ($miss:expr) => { if let Some(out) = forced { let go = b.create_block(); b.ins().brif(out, $miss, &[], go, &[]); b.switch_to_block(go); b.seal_block(go); } } }
                 match *op {
                     Op::CallMethod(k, base, nargs) if matches!(spec_here, Some(crate::specialize::SiteSpec::Method(_))) => {
                         // The receiver's shape (or metatable) picks the method the
@@ -851,6 +862,7 @@ impl<M: Module> Compiler<M> {
                         let join = b.create_block(); for _ in 0..want { b.append_block_param(join, types::I64); }
                         let miss = b.create_block(); b.set_cold_block(miss);
                         let generic = b.create_block(); b.set_cold_block(generic);
+                        force_miss!(miss);
                         let chk = b.create_block(); let objb = b.create_block();
                         let ea = b.ins().iconst(types::I64, p.epoch_addr); let e = b.ins().load(types::I64, flags, ea, 0); let current = b.ins().icmp_imm(IntCC::Equal, e, p.epoch as i64);
                         b.ins().brif(current, chk, &[], miss, &[]);
@@ -953,6 +965,7 @@ impl<M: Module> Compiler<M> {
                         let join = b.create_block(); for _ in 0..want { b.append_block_param(join, types::I64); }
                         let miss = b.create_block(); b.set_cold_block(miss);
                         let generic = b.create_block(); b.set_cold_block(generic);
+                        force_miss!(miss);
                         let hit = b.create_block(); let call = b.create_block();
                         if bare {
                             let same = b.ins().icmp_imm(IntCC::Equal, cv, crate::value::Value::func(target).0 as i64);
@@ -1009,6 +1022,7 @@ impl<M: Module> Compiler<M> {
                         let tv = rv!(t);
                         let join = b.create_block(); b.append_block_param(join, types::I64);
                         let miss = b.create_block(); b.set_cold_block(miss);
+                        force_miss!(miss);
                         let o = b.ins().band_imm(tv, PAYLOAD);
                         let known = known_shape.get(&t).copied().and_then(|s| cases.iter().find(|c| c.0 == s).copied());
                         let read = |b: &mut FunctionBuilder, slot: u16, join: Block, miss: Block| {
@@ -1053,6 +1067,7 @@ impl<M: Module> Compiler<M> {
                         let p = plan.as_ref().unwrap();
                         let (tv, vv) = (rv!(t), rv!(v));
                         let done = b.create_block(); let miss = b.create_block(); b.set_cold_block(miss);
+                        force_miss!(miss);
                         let o = b.ins().band_imm(tv, PAYLOAD);
                         if known_shape.get(&t) != Some(&s) {
                             let objb = b.create_block(); let rec = b.create_block();

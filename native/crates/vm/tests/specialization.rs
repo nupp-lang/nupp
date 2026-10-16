@@ -283,3 +283,30 @@ fn the_feedback_budget_refuses_once_and_allocates_nothing() {
     assert!(vm.spec.funcs.iter().all(|f| f.is_none()), "no record was made");
     assert!(vm.spec.refused.iter().any(|&r| r), "refusals are remembered");
 }
+
+/// `JIT_SPEC_CHAOS`: guards fail on purpose every few executions, so every
+/// miss path and deopt exit runs many times; no answer may change.
+#[test]
+fn forced_guard_failures_change_no_answer() {
+    let want = expected();
+    let want_deopt = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
+    for tier in [Tier::Eager, Tier::Lazy, Tier::Frames] {
+        for period in [1, 3, 17] {
+            let chaotic = |image| {
+                let mut vm = fixture_of(image, tier, Spec::Specialize, Gc::Plain);
+                vm.spec.limits.chaos = period;
+                // Versions stay in place, so the forced paths keep running.
+                vm.spec.limits.miss_limit = u32::MAX;
+                vm.spec.limits.deopt_limit = u32::MAX;
+                vm
+            };
+            let mut vm = chaotic(IMAGE);
+            for (p, w) in PROGRAMS.iter().zip(&want) {
+                assert_eq!(&text(&mut vm, tier, p), w, "{p} on {tier:?}, every {period} guards failing");
+            }
+            assert!(vm.spec.stats.versions == 0 || vm.spec.stats.misses + vm.spec.stats.deopts > 0, "no guard was forced on {tier:?}");
+            let mut vm = chaotic(DEOPT_IMAGE);
+            assert_eq!(text(&mut vm, tier, "deopt"), want_deopt, "deopt on {tier:?}, every {period} guards failing");
+        }
+    }
+}

@@ -155,12 +155,15 @@ pub struct Limits {
     /// Bytes of feedback across the VM (records, sites and pc maps); past
     /// it, functions get no feedback.
     pub max_bytes: usize,
+    /// `JIT_SPEC_CHAOS`: every n-th specialized site execution fails its
+    /// guard on purpose; 0 is off.
+    pub chaos: u64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         let n = |k: &str, d: u64| std::env::var(k).ok().and_then(|s| s.parse().ok()).unwrap_or(d);
-        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize }
+        Limits { tier_calls: n("JIT_SPEC_CALLS", 1000) as u32, max_versions: n("JIT_SPEC_VERSIONS", 3) as u8, miss_limit: n("JIT_SPEC_MISSES", 1000) as u32, deopt_limit: n("JIT_SPEC_DEOPTS", 100) as u32, max_bytes: n("JIT_SPEC_BYTES", 8 << 20) as usize, chaos: n("JIT_SPEC_CHAOS", 0) }
     }
 }
 
@@ -192,13 +195,15 @@ pub struct State {
     /// VM's life even when a function's record is dropped and remade.
     pub symbols: u32,
     pub stats: Stats,
+    /// The chaos counter (`Plan::chaos_addr`), when the mode is on.
+    pub chaos: Option<Box<u64>>,
 }
 
 impl Default for State {
     fn default() -> Self {
         let specialize = std::env::var_os("JIT_SPECIALIZE").is_some_and(|v| v != "0");
         let feedback = specialize || std::env::var_os("JIT_FEEDBACK").is_some_and(|v| v != "0");
-        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default() }
+        State { feedback, specialize, limits: Limits::default(), funcs: Vec::new(), refused: Vec::new(), sites: 0, bytes: 0, symbols: 0, stats: Stats::default(), chaos: None }
     }
 }
 
@@ -358,6 +363,11 @@ pub struct Plan {
     pub hooks: Option<Hooks>,
     /// A heap-frame entry: guard failures leave through deopt exits.
     pub deopt: bool,
+    /// `JIT_SPEC_CHAOS=n`: the counter every specialized site decrements,
+    /// failing its guard when it reaches zero (then reset to `chaos_period`);
+    /// zero when off. A test mode: it makes every miss and exit path run.
+    pub chaos_addr: i64,
+    pub chaos_period: u64,
 }
 
 fn plain(f: &crate::interp::Function) -> bool { f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg && f.nparams <= 8 }
@@ -477,6 +487,7 @@ impl Interp {
     /// The plan for a specialized version of `fid` from its feedback; None
     /// when no site would be specialized.
     pub fn spec_plan(&mut self, fid: u32, frame: bool) -> Option<Plan> {
+        if self.spec.limits.chaos != 0 && self.spec.chaos.is_none() { self.spec.chaos = Some(Box::new(self.spec.limits.chaos)); }
         let code = self.funcs.get(fid as usize)?.code.clone();
         let mut sites = HashMap::new();
         for (pc, &op) in code.iter().enumerate() {
@@ -486,7 +497,7 @@ impl Interp {
         if sites.is_empty() { return None; }
         self.spec.get(fid)?;
         self.spec.symbols += 1;
-        Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame })
+        Some(Plan { version: self.spec.symbols, sites, epoch: self.heap.proto_epoch, epoch_addr: &self.heap.proto_epoch as *const u64 as i64, marking_addr: &self.heap.marking as *const u8 as i64, hooks: None, deopt: frame, chaos_addr: self.spec.chaos.as_ref().map_or(0, |c| &**c as *const u64 as i64), chaos_period: self.spec.limits.chaos })
     }
 
     /// The plan for an instrumented generic version: feedback hooks only.
