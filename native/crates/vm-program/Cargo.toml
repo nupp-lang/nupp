@@ -28,6 +28,9 @@ native-ffi = ["nupp-vm/native-ffi"]
 compression = ["nupp-vm/compression"]
 net = ["nupp-vm/net"]
 http = ["nupp-vm/http"]
+regex = ["nupp-vm/regex"]
+markdown = ["nupp-vm/markdown"]
+c-headers = ["nupp-vm/c-headers"]
 
 [dependencies]
 nupp-vm = { path = "../vm", default-features = false, features = ["aot-linked"] }

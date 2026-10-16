@@ -340,6 +340,9 @@ impl Compiler<ObjectModule> {
     /// finds them without generated Rust.
     pub fn define_linked_table(&mut self, hash: [u8; 32], maps: &[u8]) -> Result<(), String> {
         use cranelift_module::{DataDescription, FuncOrDataId};
+        if self.module.isa().pointer_bits() != 64 || self.module.isa().endianness() != cranelift_codegen::ir::Endianness::Little {
+            return Err("linked program tables require a little-endian 64-bit target".into());
+        }
         use crate::compiled::{LINKED_TABLE_ENTRIES, LINKED_TABLE_MAPS, LINKED_TABLE_SIZE};
         let problem = |e: cranelift_module::ModuleError| e.to_string();
         let maps_id = self.module.declare_data("nupp_aot_table_maps", Linkage::Local, false, false).map_err(problem)?;
@@ -366,7 +369,7 @@ impl Compiler<ObjectModule> {
             data.write_function_addr((row * 24 + 8) as u32, reference);
         }
         self.module.define_data(entries_id, &data).map_err(problem)?;
-        let table_id = self.module.declare_data("nupp_aot_table", Linkage::Export, true, false).map_err(problem)?;
+        let table_id = self.module.declare_data("nupp_aot_table_v1", Linkage::Export, true, false).map_err(problem)?;
         let mut data = DataDescription::new();
         let mut bytes = vec![0u8; LINKED_TABLE_SIZE];
         bytes[0..8].copy_from_slice(&(crate::compiled::AOT_ABI as u64).to_le_bytes());

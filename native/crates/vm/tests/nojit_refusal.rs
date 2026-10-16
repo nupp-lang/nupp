@@ -49,7 +49,9 @@ fn load_image(vm: &mut Interp, text: &str) -> Result<Value, String> {
     let source = vm.heap_new_string(text);
     vm.handles.push(source);
     let loader = Value::builtin(builtins::id_of("vm.loadImage").unwrap());
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.call_value(loader, &[source])));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        vm.call_value(loader, &[source])
+    }));
     vm.handles.pop();
     match result {
         Ok(values) => Ok(values[0]),
@@ -64,15 +66,29 @@ fn load_image(vm: &mut Interp, text: &str) -> Result<Value, String> {
 fn a_plugin_with_vector_code_is_refused_before_anything_in_it_registers() {
     let mut vm = host(false);
     let functions = vm.funcs.len();
+    let epoch = vm.heap.proto_epoch;
+    let loaded = vm.loaded.len();
     let problem = load_image(&mut vm, PLUGIN).unwrap_err();
-    assert!(problem.contains("image refused: function plugin in module nupp.tests.plugin"), "{problem}");
-    assert!(problem.contains("native compilation") && problem.contains("SIMD_INTERPRET=1"), "{problem}");
+    assert!(
+        problem.contains("image refused: function plugin in module nupp.tests.plugin"),
+        "{problem}"
+    );
+    assert!(
+        problem.contains("native compilation") && problem.contains("SIMD_INTERPRET=1"),
+        "{problem}"
+    );
     assert_eq!(vm.funcs.len(), functions);
     assert!(!vm.modules.contains_key("nupp.tests.plugin"));
+    assert!(!vm.module_paths.contains_key("nupp.tests.plugin"));
+    assert!(!vm.hot.modules.contains_key("nupp.tests.plugin"));
+    assert_eq!(vm.heap.proto_epoch, epoch);
+    assert_eq!(vm.loaded.len(), loaded);
     // The refused image is not part of the code a checkpoint records, so a
     // restore neither loads it nor refuses the whole state over it.
-    let bytes = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
-    let mut restored = persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    let bytes =
+        persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
     assert_eq!(restored.funcs.len(), functions);
     restored.simd_interpret = false;
     assert_eq!(restored.first_uncompiled_native(), None);
@@ -92,7 +108,10 @@ fn a_host_that_interprets_vector_code_loads_the_same_plugin() {
     let functions = vm.funcs.len();
     let plugin = load_image(&mut vm, PLUGIN).unwrap();
     assert_eq!(plugin, Value::func(functions as u32));
-    assert_eq!(vm.modules.get("nupp.tests.plugin"), Some(&(functions as u32)));
+    assert_eq!(
+        vm.modules.get("nupp.tests.plugin"),
+        Some(&(functions as u32))
+    );
 }
 
 #[test]
@@ -117,5 +136,7 @@ fn startup_names_the_first_vector_function_without_a_compiled_entry() {
     vm.simd_interpret = true;
     assert_eq!(vm.first_uncompiled_native(), None);
     let message = image::uncompiled_native_message("image refused", "plugin", "nupp.tests.plugin");
-    assert!(message.starts_with("image refused: function plugin in module nupp.tests.plugin has vector instructions"));
+    assert!(message.starts_with(
+        "image refused: function plugin in module nupp.tests.plugin has vector instructions"
+    ));
 }

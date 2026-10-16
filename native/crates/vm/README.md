@@ -1615,9 +1615,9 @@ plugin's side effect observed.
 Where it runs is a policy. A JIT-capable host under `NO_JIT=1` interprets
 SIMD freely; that is the oracle and the developer path. A linked no-JIT
 host keeps the plan's rule that an unmatched bytecode plugin is refused
-before its first side effect rather than running a kernel a thousand times
-slower without saying so, and interprets only with `SIMD_INTERPRET=1`; the
-public AOT smoke checks both the refusal and the opt-in.
+rather than running a kernel a thousand times slower without saying so, and
+interprets only with `SIMD_INTERPRET=1`. Since 2026-10-16 the refusal comes
+before anything in the image runs: see "The no-JIT gate" below.
 
 It is a correctness tier, not a fast one: the 65,539-element map takes
 21 ms interpreted against 14 us compiled, because every span instruction
@@ -2186,9 +2186,7 @@ paths in a program image are relative to the project or the compiler
 checkout, so two builds of one tree are byte-identical. Resources ride as an
 unchecked `nupp.embedded` data module, as the root CLI's do.
 
-Open: functions with vector instructions still need a linked AOT entry or
-`SIMD_INTERPRET=1`, so a SIMD program needs the per-program AOT link above;
-cross-platform targets still read the LuaJIT stub catalog; a module-level
+Open: cross-platform targets still read the LuaJIT stub catalog; a module-level
 `...` does not lower, so the arguments arrive only through `arg`.
 
 ## Corpus after the lane merges (2026-10-15)

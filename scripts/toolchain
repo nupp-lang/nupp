@@ -884,8 +884,7 @@ EOF
 # The runtime a VM program binary is stamped onto: the interpreter with linked
 # entry support and native C calls, and of the facilities a program may reach
 # (compression, net, http, regex, markdown, c-headers, the C declaration reader
-# a compiler reaches, and jit, the code generator a program with vector
-# instructions needs) the ones it names. Every source
+# a compiler reaches, and jit, used by the Windows vector fallback) the ones it names. Every source
 # state of one facility set shares a target directory, so an edit to the VM is
 # an incremental rebuild rather than a cold one beside every earlier result;
 # each result is copied out to its content key, which is the file a build reads.
@@ -1012,14 +1011,13 @@ build_rust_vm_program_archive() {
     target="$RUST_BUILD_ROOT/vm-program/target-${facilities:-base}"
     RUST_VM_PROGRAM_ARCHIVE="$out/libnupp_vm_program.a"
     RUST_VM_PROGRAM_LIBRARIES="$out/link-libraries"
-    [ -f "$out/.complete" ] && return 0
+    [ -f "$out/.complete" ] && [ -f "$RUST_VM_PROGRAM_ARCHIVE" ] && [ -s "$RUST_VM_PROGRAM_LIBRARIES" ] && return 0
     take_lock "rust-vm-program-$(printf '%s' "$target" | sha256_stdin | cut -c1-16)" "$out/.complete" \
         || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    [ -f "$out/.complete" ] && [ -f "$RUST_VM_PROGRAM_ARCHIVE" ] && [ -s "$RUST_VM_PROGRAM_LIBRARIES" ] && { release_lock; return 0; }
     note "building the VM program archive with $RUSTC"
-    # rustc names the native libraries only when it compiles the archive, so
-    # an archive an earlier source state left current is compiled again.
-    rm -rf "$target"/release/.fingerprint/nupp-vm-program-*
+    # A source/environment key also names rustc's metadata, so the archive
+    # emits its library list without deleting Cargo fingerprint state.
     set -- "$CARGO" rustc --manifest-path "$ROOT/Cargo.toml" --package nupp-vm-program --lib \
         --release --locked --no-default-features --features "aot-linked,compiled-runtime,$features" \
         --target-dir "$target" \
@@ -1034,7 +1032,7 @@ build_rust_vm_program_archive() {
 $vendor_arguments
 EOF
     fi
-    set -- "$@" --config "$(rust_remap_arguments)" -- --print native-static-libs
+    set -- "$@" --config "$(rust_remap_arguments)" -- -C "metadata=$digest" --print native-static-libs
     mkdir -p "$out"
     (unset NUPP_AOT_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" 2>"$out/cargo.log") \
         || { cat "$out/cargo.log" >&2; die "Cargo could not build the VM program archive"; }
@@ -1060,7 +1058,7 @@ build_vm_program() {
     [ -f "$payload" ] || die "usage: scripts/toolchain vm-program FACILITIES PAYLOAD"
     for facility in $(printf '%s' "$facilities" | tr ',' ' '); do
         case "$facility" in
-            compression|net|http) ;;
+            compression|net|http|regex|markdown|c-headers) ;;
             *) die "unknown VM program facility $facility" ;;
         esac
     done
@@ -1080,9 +1078,8 @@ build_vm_program() {
     [ -f "$out/.complete" ] && [ -f "$VM_PROGRAM_OUT" ] && return 0
     take_lock "vm-program-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && [ -f "$VM_PROGRAM_OUT" ] && { release_lock; return 0; }
-    work="$out.partial"
-    rm -rf "$work"
-    mkdir -p "$work"
+    mkdir -p "$(dirname "$out")"
+    work=$(mktemp -d "$out.work.XXXXXX") || die "cannot create program link workspace"
     tail -n +2 "$payload" > "$work/program.image"
     "$RUST_VM_AOT_TOOL_OUT" aot "$work/program.image" "$work/program.o" --frames 2>"$work/emit.log" \
         || { cat "$work/emit.log" >&2; die "cannot compile the program's functions ahead of time"; }
@@ -1099,7 +1096,7 @@ build_vm_program() {
     strip "$work/nupp-vm" || die "cannot strip the program runtime"
     mkdir -p "$out"
     mv "$work/nupp-vm" "$VM_PROGRAM_OUT" || die "cannot stage the program runtime in $out"
-    rm -rf "$work"
+    # Preserve the exact image/object/maps and logs beside this completed link.
     printf 'done\n' > "$out/.complete"
     release_lock
 }

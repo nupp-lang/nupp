@@ -68,7 +68,7 @@ pub fn walk_compiled_roots(mut fp: usize, f: &mut dyn FnMut(u64)) {
 pub const AOT_ABI: u32 = 4;
 
 /// The linked-code table an object from `aot IMAGE OBJECT --frames` defines
-/// as `nupp_aot_table`, for a runtime linked after it was built: a program
+/// as `nupp_aot_table_v1`, for a runtime linked after it was built: a program
 /// binary links the prebuilt `nupp-vm-program` archive with its own object
 /// rather than compiling a runtime around generated Rust. Each entry is a
 /// function id, its frame entry and its code length; `maps` is the stack-map
@@ -81,44 +81,103 @@ pub struct LinkedTable {
     pub entries: *const u64,
     pub maps_len: u64,
     pub maps: *const u8,
+    pub pcs_len: u64,
+    pub pcs: *const u8,
 }
 
 /// The table's byte size and pointer field offsets, which the object writer fills.
-pub const LINKED_TABLE_SIZE: usize = 72;
+pub const LINKED_TABLE_SIZE: usize = 88;
 pub const LINKED_TABLE_ENTRIES: usize = 48;
 pub const LINKED_TABLE_MAPS: usize = 64;
+pub const LINKED_TABLE_PCS: usize = 80;
+
+#[cfg(target_pointer_width = "64")]
+const _: () = {
+    assert!(std::mem::size_of::<LinkedTable>() == LINKED_TABLE_SIZE);
+    assert!(std::mem::align_of::<LinkedTable>() == 8);
+    assert!(std::mem::offset_of!(LinkedTable, entries) == LINKED_TABLE_ENTRIES);
+    assert!(std::mem::offset_of!(LinkedTable, maps) == LINKED_TABLE_MAPS);
+    assert!(std::mem::offset_of!(LinkedTable, pcs) == LINKED_TABLE_PCS);
+};
+
+// Decoded once by the linked runner, then moved into its existing registries.
+pub struct LinkedProgram {
+    pub hash: [u8; 32],
+    pub entries: Vec<(usize, u64)>,
+    pub maps: Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)>,
+}
 
 impl LinkedTable {
-    fn rows(&self) -> &[u64] {
-        if self.count == 0 { return &[]; }
-        if self.abi != AOT_ABI as u64 {
-            eprintln!("aot: linked object uses runtime ABI {}, this runtime {}", self.abi, AOT_ABI);
-            std::process::exit(1);
+    // The symbol version names the table format; abi names the native function
+    // contract. Empty PC metadata is reserved for the source-position lane.
+    //
+    // SAFETY: this header, entries and byte blobs must be readable for their
+    // declared lengths, correctly aligned, and immutable for this call. They
+    // are emitted into the same trusted native link, not supplied as user data.
+    // Structural checks cannot establish arbitrary raw-pointer readability.
+    pub unsafe fn read(&self) -> Result<LinkedProgram, String> {
+        let fail = |message: &str| Err(format!("aot: invalid linked program table: {message}"));
+        let empty = self.abi == 0 && self.hash == [0; 32] && self.count == 0
+            && self.entries.is_null() && self.maps_len == 0 && self.maps.is_null()
+            && self.pcs_len == 0 && self.pcs.is_null();
+        if empty { return Ok(LinkedProgram { hash: self.hash, entries: Vec::new(), maps: Vec::new() }); }
+        if self.abi != AOT_ABI as u64 { return fail("native ABI mismatch"); }
+        if self.pcs_len != 0 { return fail("source-PC metadata decoder is not linked"); }
+        let count = usize::try_from(self.count).map_err(|_| "aot: linked entry count overflow")?;
+        let words = count.checked_mul(3).filter(|n| *n <= isize::MAX as usize / 8)
+            .ok_or("aot: linked entry byte length overflow")?;
+        if words != 0 && (self.entries.is_null() || (self.entries as usize) % 8 != 0) { return fail("null or unaligned entries"); }
+        let rows = if words == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(self.entries, words) } };
+        let mut ranges = std::collections::HashMap::new();
+        let mut addresses = std::collections::HashSet::new();
+        let mut entries = Vec::with_capacity(count);
+        for row in rows.chunks_exact(3) {
+            let fid = u32::try_from(row[0]).map_err(|_| "aot: linked function id overflow")?;
+            let start = usize::try_from(row[1]).map_err(|_| "aot: linked address overflow")?;
+            let len = usize::try_from(row[2]).map_err(|_| "aot: linked code length overflow")?;
+            if start == 0 || row[1] == u64::MAX || len == 0 || len > u32::MAX as usize || start.checked_add(len).is_none() { return fail("invalid code range"); }
+            if ranges.insert(fid, (start, len)).is_some() || !addresses.insert(start) { return fail("duplicate function id or address"); }
+            entries.push((fid as usize, row[1]));
         }
-        unsafe { std::slice::from_raw_parts(self.entries, self.count as usize * 3) }
-    }
-    pub fn image_hash(&self) -> [u8; 32] { self.hash }
-    pub fn frame_entries(&self) -> Vec<(usize, u64)> {
-        self.rows().chunks(3).map(|row| (row[0] as usize, row[1])).collect()
-    }
-    /// Per compiled function: its start, code length and stack maps, as
-    /// `CODE_MAPS` holds them.
-    pub fn maps(&self) -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> {
-        let rows = self.rows();
-        if rows.is_empty() { return Vec::new(); }
-        let starts: std::collections::HashMap<u32, usize> = rows.chunks(3).map(|row| (row[0] as u32, row[1] as usize)).collect();
-        let data = unsafe { std::slice::from_raw_parts(self.maps, self.maps_len as usize) };
+        let length = usize::try_from(self.maps_len).map_err(|_| "aot: linked map length overflow")?;
+        if length > isize::MAX as usize || length < 4 || self.maps.is_null() { return fail("missing or oversized GC maps"); }
+        let bytes = unsafe { std::slice::from_raw_parts(self.maps, length) };
         let mut pos = 0usize;
-        let mut next = || { let n = u32::from_le_bytes(data[pos..pos + 4].try_into().unwrap()); pos += 4; n };
-        let count = next();
-        let mut out = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let fid = next(); let len = next() as usize; let nmap = next();
-            let mut maps = Vec::with_capacity(nmap as usize);
-            for _ in 0..nmap { let off = next(); let span = next(); let nslots = next(); let slots = (0..nslots).map(|_| next()).collect(); maps.push((off, span, slots)); }
-            out.push((starts[&fid], len, maps));
+        fn next(bytes: &[u8], pos: &mut usize) -> Result<u32, String> {
+            let end = pos.checked_add(4).ok_or("aot: map offset overflow")?;
+            let word = bytes.get(*pos..end).ok_or("aot: truncated linked GC maps")?;
+            *pos = end;
+            Ok(u32::from_le_bytes(word.try_into().unwrap()))
         }
-        out
+        let functions = next(bytes, &mut pos)? as usize;
+        if functions != count || functions > (bytes.len() - pos) / 12 { return fail("GC function count mismatch"); }
+        let mut seen = std::collections::HashSet::new();
+        let mut maps = Vec::with_capacity(functions);
+        for _ in 0..functions {
+            let fid = next(bytes, &mut pos)?;
+            let len = next(bytes, &mut pos)? as usize;
+            let nmap = next(bytes, &mut pos)? as usize;
+            let &(start, code_len) = ranges.get(&fid).ok_or("aot: unknown GC function id")?;
+            if !seen.insert(fid) || len != code_len || nmap > (bytes.len() - pos) / 12 { return fail("duplicate GC id or invalid map header"); }
+            let mut safepoints = Vec::with_capacity(nmap);
+            let mut offsets = std::collections::HashSet::new();
+            for _ in 0..nmap {
+                let off = next(bytes, &mut pos)?;
+                let span = next(bytes, &mut pos)?;
+                let nslots = next(bytes, &mut pos)? as usize;
+                if off == 0 || off as usize >= len || span == 0 || span % 8 != 0 || !offsets.insert(off) || nslots > (bytes.len() - pos) / 4 { return fail("invalid GC safepoint"); }
+                let mut slots = Vec::with_capacity(nslots);
+                for _ in 0..nslots {
+                    let slot = next(bytes, &mut pos)?;
+                    if slot % 8 != 0 || slot.checked_add(8).is_none_or(|end| end > span) { return fail("GC root outside frame"); }
+                    slots.push(slot);
+                }
+                safepoints.push((off, span, slots));
+            }
+            maps.push((start, len, safepoints));
+        }
+        if pos != bytes.len() { return fail("trailing GC map bytes"); }
+        Ok(LinkedProgram { hash: self.hash, entries, maps })
     }
 }
 
