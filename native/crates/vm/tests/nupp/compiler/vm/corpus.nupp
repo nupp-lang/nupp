@@ -27,8 +27,17 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
     for name in (unavailable or ""):gmatch("[^,]+") do
         missing[name] = true
     end
+    -- A suite that names a browser runtime module itself tests that module, which
+    -- the image builders otherwise never carry: a program reaches the browser
+    -- runtime only on the browser. The suite's own literal requires carry it here.
+    local browser: {[string]: boolean} = {}
     for name in suites:gmatch("[^,]+") do
         extras[#extras + 1] = name
+        local path = envMod.findRuntimeModulePath(env as any, name)
+        local text = path and fs.readFile(path as string) or nil
+        for required in (text or ""):gmatch("require%(%s*[\"'](nupp%.runtime%.browser%.[%w_.]+)[\"']%s*%)") do
+            browser[required] = true
+        end
     end
     -- The `@aot` check loads its backend by name, out of the module graph, and
     -- the root image carries it only because `nupp build` requires it.
@@ -51,6 +60,9 @@ function corpus.emit(root: string, suites: string, unavailable: string?): string
             end
             if name == "nupp.vm.cliResources" and not soft then
                 return "=(nupp.vm.cliResources)"
+            end
+            if browser[name] and not soft then
+                return envMod.findRuntimeModulePath(env as any, name)
             end
 
             return require("nupp.tools.vm.project").resolve(env, root, name, soft)

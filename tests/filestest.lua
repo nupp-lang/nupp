@@ -42,6 +42,13 @@ function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
+    -- The VM carries its own provider, so there is no library to stage and no
+    -- bootstrap to load: the facade reaches it the way a VM program does.
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        provider = require("nupp.io.files")
+        buffers = require("nupp.io")
+        return
+    end
     local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         local staged, problem = nativeStage.build(root, "out", {["native.files"] = true})

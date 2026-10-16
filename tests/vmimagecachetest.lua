@@ -278,11 +278,26 @@ function M.aCheckThatReportedSomethingIsNotKept()
     remove(dir)
 end
 
--- What the stamp is on the VM: the running image. Loaded under a chunk name that
--- makes the module believe it is running from an image, as it does on the VM, with
--- the runtime's answers in place of the runtime: `identity` for the whole image and
--- `describe`, when given, for its modules. `ask` receives the fresh module.
+-- What the stamp is on the VM: the running image. A fresh instance of the module
+-- believes it is running from an image, as it does on the VM, with the runtime's
+-- answers in place of the runtime: `identity` for the whole image and `describe`,
+-- when given, for its modules. `ask` receives the fresh module.
+--
+-- On the VM the instance is lowered from the module's source with those answers as
+-- its globals (`providerstate`); under LuaJIT the module the build generated is
+-- loaded under its source's chunk name with them set on `_G`.
 local function onTheVm(identity, describe, ask)
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        local name = "nupp.compiler.project.fingerprint"
+        local fresh = require("providerstate").instance({[name] = true}, nil, nil, {
+            __nupp_load_image = rawget(_G, "__nupp_load_image"),
+            __nupp_image_identity = identity and function()
+                return identity
+            end or nil,
+            __nupp_image_modules = describe,
+        })(name)
+        return ask(fresh)
+    end
     local source = assert(read(ROOT .. "/build/nupp/compiler/project/fingerprint.lua"))
     local chunk = assert(loadstring(source, "@" .. ROOT .. "/src/nupp/compiler/project/fingerprint.nupp"))
     local names = {"__nupp_load_image", "__nupp_image_identity", "__nupp_image_modules"}
