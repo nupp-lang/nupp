@@ -64,7 +64,9 @@ impl Interp {
                 jit.last_nres_addr = &self.last_nres as *const _ as i64;
                 jit.entries_addr = self.entries.as_ptr() as i64;
                 jit.calltab_addr = self.calltab.as_ptr() as i64;
-                jit.probe_addr = self.shape_probe.as_ptr() as i64;
+                // Linked fallback code may outlive tables grown by later images.
+                // Use per-site helpers instead of retaining those table addresses.
+                jit.probe_addr = if self.linked_frames.is_empty() { self.shape_probe.as_ptr() as i64 } else { 0 };
                 let result = jit.compile_frame(&self.funcs[fid as usize], fid);
                 self.jit = Some(jit);
                 // A SIMD function the typed tier refuses runs on the interpreter's

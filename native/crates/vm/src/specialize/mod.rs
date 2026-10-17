@@ -727,7 +727,7 @@ impl Interp {
         jit.last_nres_addr = &self.last_nres as *const _ as i64;
         jit.entries_addr = self.entries.as_ptr() as i64;
         jit.calltab_addr = self.calltab.as_ptr() as i64;
-        jit.probe_addr = self.shape_probe.as_ptr() as i64;
+        jit.probe_addr = if self.linked_frames.is_empty() { self.shape_probe.as_ptr() as i64 } else { 0 };
         jit.cur_closure_addr = crate::compiled::closure_address() as i64;
         let result = self.spec_compile_with(&mut jit, fid, plan);
         self.jit = Some(jit);

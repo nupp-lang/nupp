@@ -28,7 +28,7 @@ if platform.system() != "Darwin":
     parser.error("executable-memory denial currently supports macOS only")
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
-env = dict(os.environ, NO_JIT="1", GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
+env = dict(os.environ, NO_JIT="1", GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1", AOT_VERBOSE="1")
 for name in ("NO_AOT", "DYLD_INSERT_LIBRARIES", "EMIT_STUBS", "EMIT_SURVEY"):
     env.pop(name, None)
 digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()

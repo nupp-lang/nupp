@@ -51,7 +51,7 @@ def main():
     binary, image = args.binary.resolve(), args.image.resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(root), NO_COLOR="1")
+    env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(root), NO_COLOR="1", AOT_VERBOSE="1")
     for name in ("NO_AOT", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "EMIT_STUBS", "EMIT_SURVEY", "DYLD_INSERT_LIBRARIES"):
         env.pop(name, None)
     records = []
@@ -98,8 +98,9 @@ def main():
     symbols, _ = run("symbols", ["nm", binary])
     assert "cranelift" not in symbols.lower(), "linked runtime contains Cranelift symbols"
     assert "nupp_vm_runtime_v4" in symbols, "linked runtime lacks the relocatable binding ABI"
+    symbol_names = {line.split()[-1] for line in symbols.splitlines() if line.split()}
     for _, symbol in entries:
-        assert re.search(r"\b_?" + re.escape(symbol) + r"\b", symbols), f"runtime lacks linked entry {symbol}"
+        assert symbol in symbol_names or "_" + symbol in symbol_names, f"runtime lacks linked entry {symbol}"
     interposer = output / "deny-exec.dylib"
     run("build-denial", ["cc", "-dynamiclib", root / "native/crates/vm/tests/deny-exec.c", "-o", interposer])
     probe_source = output / "probe.c"

@@ -3792,3 +3792,31 @@ segment boundaries, ancestor and retained sibling scopes, snapshots,
 reinsertion and captured-field restoration. Exact inputs, counters,
 validation limits and the rejected patches' hashes are recorded in
 `tests/compiler-narrowing-perf-results.json`.
+
+## Native frame entry context (2026-10-16)
+
+Both ABI 5 experiments are rejected; production retains ABI 4. Neither clears
+the fixed 5% cycle margin against the frozen baseline:
+
+| Variant | Pairs | Instructions | Cycles | Wall |
+| --- | --- | --- | --- | --- |
+| Entry context | 3 | -3.26% | -1.73% | -1.66% |
+| Entry context and probe | 5 | -7.00% | -4.985% | -4.67% |
+
+These are median paired changes, not confidence intervals. The extension
+from three to five pairs was declared after the first two results, before
+the third. All five pairs count; the initial screen is excluded and no
+further runs follow.
+
+The probe variant's warm lexer checks take 0.63 to 0.62 seconds, versus
+0.33 seconds for LuaJIT. A single cold repository sample takes 46.67 to
+45.14 seconds, versus 48.87 seconds for LuaJIT. Those samples do not establish
+a whole-repository performance verdict. No build-time speedup is claimed.
+
+The retained fix guards fallback JIT compilation in linked VMs against
+capturing movable shape-probe table pointers, including opt-in frame
+specialization. Regression tests cover shared object code across VMs and
+threads, image-loading reentry, schema growth, and reader hot patches.
+Validation of the retained fix is separate from the rejected experiments.
+See [compiler-entry-perf-results.json](tests/compiler-entry-perf-results.json)
+for raw measurements, artifact receipts, and validation limits.

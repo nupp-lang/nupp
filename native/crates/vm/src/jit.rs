@@ -574,7 +574,7 @@ impl<M: Module> Compiler<M> {
             let mut b = FunctionBuilder::new(&mut self.ctx.func, &mut self.fbc);
             let runtime = self.runtime_data.map(|d| self.module.declare_func_in_func(d, b.func));
             let helper_refs: HashMap<&'static str, cranelift_codegen::ir::FuncRef> = self.helpers.iter().map(|(n, id)| (*n, self.module.declare_func_in_func(*id, b.func))).collect();
-            let stub_refs: Option<StubRefs> = self.stubs.as_ref().map(|st| StubRefs { probe: self.module.declare_func_in_func(st.probe, b.func), dispatch: self.module.declare_func_in_func(st.dispatch, b.func), iter: self.module.declare_func_in_func(st.iter, b.func) });
+            let stub_refs: Option<StubRefs> = self.stubs.as_ref().filter(|_| self.probe_addr != 0).map(|st| StubRefs { probe: self.module.declare_func_in_func(st.probe, b.func), dispatch: self.module.declare_func_in_func(st.dispatch, b.func), iter: self.module.declare_func_in_func(st.iter, b.func) });
             let callee_refs: HashMap<u32, (cranelift_codegen::ir::FuncRef, Vec<u8>, u8)> = f.code.iter().filter_map(|op| {
                 let fid = match op { Op::Call(fid, ..) | Op::CallT(fid, ..) => *fid, _ => return None };
                 let (id, sg, r) = self.funcs.get(&fid)?;

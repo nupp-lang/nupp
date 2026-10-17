@@ -1,0 +1,1561 @@
+{
+  "date": "2026-10-16",
+  "recordedAtUtc": "2026-10-17T04:31:42.265765+00:00",
+  "baseRevision": "9d5f683092299ca43d0d125f5ccbd9b6928916b4",
+  "scope": "aarch64 macOS; frozen compiler image; interleaved linked-runtime comparisons; local experiment branch",
+  "practicalCycleMargin": 0.05,
+  "decision": "Reject both ABI 5 performance experiments and retain ABI 4. Neither establishes the required cycle reduction.",
+  "experiments": {
+    "entryContext": {
+      "disposition": "rejected",
+      "report": {
+        "experiment": "Entry-only candidate: pass the VM-owned frame context into linked heap-frame entries",
+        "recordedAtUtc": "2026-10-17T03:41:22.363071+00:00",
+        "scope": "aarch64 macOS; isolated codegen-experiment runtime migration; frozen compiler image; warm filesystem; two check workers",
+        "baseRevision": "9d5f683092299ca43d0d125f5ccbd9b6928916b4",
+        "candidateNativeSourceSha256": "352bc6a3a000b5a62d97c76fea87c97ee0d319beaf60bedf9e8651f224f66cb4",
+        "candidateBuildSourceSha256": "76efdd99bff4348c83d3fb2123e45383aea3e9d4033f0667ebd0eb02355c0789",
+        "runtimeAbi": 5,
+        "frozenSourceSnapshot": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/entry-only-source",
+          "rustFiles": 62,
+          "nativeSourceSha256": "352bc6a3a000b5a62d97c76fea87c97ee0d319beaf60bedf9e8651f224f66cb4",
+          "buildSource": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/entry-only-source/build.rs",
+            "bytes": 3274,
+            "sha256": "76efdd99bff4348c83d3fb2123e45383aea3e9d4033f0667ebd0eb02355c0789"
+          },
+          "patch": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/entry-only.patch",
+            "bytes": 49495,
+            "sha256": "1e8e867b2bd5ae3ed05e5a723e7bf2707d70fd69728145cab5e796714d4bccc5"
+          },
+          "note": "Evidence for the first entry-only candidate, not the later shape-probe candidate or current live source."
+        },
+        "imageSha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+        "practicalMargin": 0.05,
+        "implementation": "All heap-frame entries accept a third FrameContext pointer. Linked frames load current VM constants and field-bank pointers through it; a field bank is allocated on its first miss. Typed entries retain their calling convention. Runtime ABI 5 rejects older object bindings.",
+        "baselineProfile": {
+          "interval": "45 seconds beginning about 15 seconds after root emit start",
+          "totalSelfSamples": 33910,
+          "threeEntryHelpersInclusiveUnion": {
+            "samples": 1763,
+            "percent": 5.199056325567679
+          },
+          "raw": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-baseline-20261016-212530/entry-share.json",
+            "bytes": 8665,
+            "sha256": "4df47509e495e7908edf1d928e1b02f1a374ba6d9df56bb4917bcb1ac03e3da6"
+          },
+          "limitation": "The 5.20% helper share describes the sampled 45-second interval, not whole-emit cost or a predicted total speedup."
+        },
+        "generatedCodeEvidence": {
+          "baseline": {
+            "sourceRevision": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+            "tool": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/jit-accepted",
+              "sha256": "722cf2220a5486a3b4a4923b589868b2096bbdc2f5a4a80e790a667cee99cd66"
+            },
+            "image": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/checkpoint.image",
+              "sha256": "16b9d8c5ef0e4e8e02308558576d370245a5f92a6df6aadb0c5517823c400163"
+            },
+            "command": [
+              "env",
+              "NUPP_NATIVE_DUMP=/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/baseline",
+              "JIT_OPT=none",
+              "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/jit-accepted",
+              "aot",
+              "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/checkpoint.image",
+              "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/baseline/checkpoint.o",
+              "--frames"
+            ],
+            "objectBytes": 5816,
+            "functionsEmitted": 2,
+            "refused": 0,
+            "oracle": {
+              "command": [
+                "env",
+                "NO_JIT=1",
+                "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/jit-accepted",
+                "run",
+                "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/checkpoint.image",
+                "checkpoint",
+                "step"
+              ],
+              "stdout": "1\n",
+              "status": 0
+            },
+            "limits": "Static generated-code evidence, not a runtime benchmark. HashMap order can renumber CLIF fn references, so compare named dumps and semantic call counts."
+          },
+          "candidate": {
+            "tool": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-candidate",
+              "sha256": "4bca045647a6b4fd589a36d73efa98a5c6bb70ec9f8e520fac1b66bc63c6535a"
+            },
+            "imageSha256": "16b9d8c5ef0e4e8e02308558576d370245a5f92a6df6aadb0c5517823c400163",
+            "compiledSourceSha256": "ff56993f26c5147678af53b0843755e81114d694b618f0380ddb6d13cf12383f",
+            "command": [
+              "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-candidate",
+              "aot",
+              "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/checkpoint.image",
+              "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/candidate/checkpoint.o",
+              "--frames"
+            ],
+            "environment": {
+              "NUPP_NATIVE_DUMP": "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/candidate",
+              "JIT_OPT": "none"
+            },
+            "status": 0,
+            "aotStderr": "aot: writing object\naot: emitted 2 functions (5720 bytes), refused 0\n",
+            "objectBytes": 5720,
+            "oracle": {
+              "status": 0,
+              "stdout": "1\n"
+            },
+            "comparison": {
+              "0": {
+                "name": "; module:checkpoint: 0 span checks eliminated",
+                "baselineEntryCalls": [
+                  "nupp_vm_runtime_v4",
+                  "j_frame_context"
+                ],
+                "candidateEntryCalls": [],
+                "baselineAllStaticCalls": {
+                  "j_frame_context": 1,
+                  "j_frame_refresh": 2,
+                  "j_frame_ret": 1,
+                  "j_new_cell": 1,
+                  "j_new_closure": 1,
+                  "j_new_table": 1,
+                  "j_set_field": 1,
+                  "nupp_vm_runtime_v4": 2
+                },
+                "candidateAllStaticCalls": {
+                  "j_frame_refresh": 2,
+                  "j_frame_ret": 1,
+                  "j_new_cell": 1,
+                  "j_new_closure": 1,
+                  "j_new_table": 1,
+                  "j_set_field": 1,
+                  "nupp_vm_runtime_v5": 1
+                },
+                "baselineAssemblyIndirectCallInstructions": 10,
+                "candidateAssemblyIndirectCallInstructions": 8
+              },
+              "1": {
+                "name": "; step: 0 span checks eliminated",
+                "baselineEntryCalls": [
+                  "nupp_vm_runtime_v4",
+                  "j_field_caches",
+                  "j_frame_context"
+                ],
+                "candidateEntryCalls": [],
+                "baselineAllStaticCalls": {
+                  "function-71": 1,
+                  "j_arith_slow": 1,
+                  "j_field_caches": 1,
+                  "j_frame_context": 1,
+                  "j_frame_refresh": 5,
+                  "j_frame_ret": 1,
+                  "j_get_field_ic": 1,
+                  "j_new_table": 1,
+                  "j_set_cell": 1,
+                  "j_set_field": 1,
+                  "nupp_vm_runtime_v4": 2
+                },
+                "candidateAllStaticCalls": {
+                  "function-70": 1,
+                  "j_arith_slow": 1,
+                  "j_field_caches": 1,
+                  "j_frame_refresh": 5,
+                  "j_frame_ret": 1,
+                  "j_get_field_ic": 1,
+                  "j_new_table": 1,
+                  "j_set_cell": 1,
+                  "j_set_field": 1,
+                  "nupp_vm_runtime_v5": 1
+                },
+                "baselineAssemblyIndirectCallInstructions": 15,
+                "candidateAssemblyIndirectCallInstructions": 13
+              }
+            }
+          },
+          "limitation": "Small checkpoint-image CLIF and assembly evidence shows removed entry calls. Static call counts are not executed helper counts or whole-compiler performance."
+        },
+        "measurementConcurrency": {
+          "rootCompilerRuns": "Final root emit, lexer and cold checks started after own builds, microbenchmarks and validation completed; no own concurrent workload.",
+          "ordinaryJit": "The interleaved ordinary JIT microbenchmarks overlapped standalone AOT object generation and interpreter Cargo validation against different artifacts. Wall times have host load and are not a quiet-host verdict; paired metrics remain descriptive, with no statistical confidence interval."
+        },
+        "rootEmit": {
+          "pairs": 3,
+          "primaryMetric": "cycles elapsed",
+          "medians": {
+            "baseline": {
+              "real": 112.2,
+              "user": 110.83,
+              "sys": 1.31,
+              "instructions retired": 2561601165323,
+              "cycles elapsed": 480136286590,
+              "maximum resident set size": 5308022784
+            },
+            "candidate": {
+              "real": 109.7,
+              "user": 108.34,
+              "sys": 1.31,
+              "instructions retired": 2477716817752,
+              "cycles elapsed": 470354422879,
+              "maximum resident set size": 5277794304
+            },
+            "luajit": {
+              "real": 144.45,
+              "user": 129.76,
+              "sys": 11.32,
+              "instructions retired": 1991125883687,
+              "cycles elapsed": 605487461061,
+              "maximum resident set size": 1570078720
+            }
+          },
+          "pairedReductions": [
+            {
+              "repeat": 0,
+              "real": 0.016567732789935397,
+              "instructions retired": 0.028686650220091647,
+              "cycles elapsed": 0.013866586267172298
+            },
+            {
+              "repeat": 1,
+              "real": 0.015632018686551175,
+              "instructions retired": 0.032582943839878475,
+              "cycles elapsed": 0.01733062836156396
+            },
+            {
+              "repeat": 2,
+              "real": 0.022281639928698804,
+              "instructions retired": 0.035181001974539106,
+              "cycles elapsed": 0.023372993600421776
+            }
+          ],
+          "medianPairedReductions": {
+            "real": 0.016567732789935397,
+            "instructions retired": 0.032582943839878475,
+            "cycles elapsed": 0.01733062836156396
+          },
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e",
+          "luaReference": {
+            "samples": 1,
+            "pairedWithVmRuns": false,
+            "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+          },
+          "rawResults": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/perf-emit/results.json",
+            "bytes": 10628,
+            "sha256": "6775e9ced5f0d429d890c6625e91e73f7cf877b7b0f36090724efaacf20202ec"
+          },
+          "cyclesExceedFivePercentMargin": false,
+          "wallExceedsFivePercentMargin": false,
+          "executionCostWin": false,
+          "verdict": "This run does not establish an execution-cost win beyond the 5% practical cycle margin.",
+          "caution": "Three paired medians are descriptive measurements, not confidence intervals."
+        },
+        "warmLexer": {
+          "pairs": 5,
+          "primaryMetric": "cycles elapsed",
+          "medians": {
+            "baseline": {
+              "real": 0.63,
+              "user": 0.57,
+              "sys": 0.05,
+              "instructions retired": 13806330027,
+              "cycles elapsed": 2690958561,
+              "maximum resident set size": 504971264
+            },
+            "candidate": {
+              "real": 0.63,
+              "user": 0.57,
+              "sys": 0.05,
+              "instructions retired": 13603190397,
+              "cycles elapsed": 2685005442,
+              "maximum resident set size": 504692736
+            },
+            "luajit": {
+              "real": 0.31,
+              "user": 0.24,
+              "sys": 0.06,
+              "instructions retired": 5111478906,
+              "cycles elapsed": 1342273707,
+              "maximum resident set size": 81412096
+            }
+          },
+          "pairedReductions": [
+            {
+              "repeat": 0,
+              "real": -0.016129032258064502,
+              "instructions retired": 0.014745120723746452,
+              "cycles elapsed": -0.009780617191375907
+            },
+            {
+              "repeat": 1,
+              "real": 0.015625,
+              "instructions retired": 0.015575706883701468,
+              "cycles elapsed": 0.020633646266590033
+            },
+            {
+              "repeat": 2,
+              "real": 0.0,
+              "instructions retired": 0.013052876896528676,
+              "cycles elapsed": 3.765399928468138e-05
+            },
+            {
+              "repeat": 3,
+              "real": -0.015873015873015817,
+              "instructions retired": 0.015098041425870234,
+              "cycles elapsed": -0.011738886082385935
+            },
+            {
+              "repeat": 4,
+              "real": 0.015873015873015928,
+              "instructions retired": 0.017019276327288613,
+              "cycles elapsed": 0.016091569483937862
+            }
+          ],
+          "medianPairedReductions": {
+            "real": 0.0,
+            "instructions retired": 0.015098041425870234,
+            "cycles elapsed": 3.765399928468138e-05
+          },
+          "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+          "luaReference": {
+            "samples": 5,
+            "pairedWithVmRuns": false,
+            "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+          },
+          "rawResults": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/perf-lexer/results.json",
+            "bytes": 24458,
+            "sha256": "9559649bc58d9d14e8574abb18cd4ad5876ca067b65376be1dda2eeeb22cd72f"
+          },
+          "allCompiledModulesZero": true,
+          "restoredOriginalState": true,
+          "originalStateSha256": "ba3ac906b1082adcb2d2d0e6f22ddfe2269ce71e42b66d6e667882b527fd2c43"
+        },
+        "coldRepository": {
+          "pairs": 1,
+          "primaryMetric": "real",
+          "medians": {
+            "baseline": {
+              "real": 46.7,
+              "user": 74.06,
+              "sys": 2.57,
+              "instructions retired": 148264244194,
+              "cycles elapsed": 28327527829,
+              "maximum resident set size": 10073292800
+            },
+            "candidate": {
+              "real": 46.2,
+              "user": 73.09,
+              "sys": 2.31,
+              "instructions retired": 142799238005,
+              "cycles elapsed": 28256245866,
+              "maximum resident set size": 10386046976
+            },
+            "luajit": {
+              "real": 42.48,
+              "user": 62.9,
+              "sys": 7.54,
+              "instructions retired": 49115980299,
+              "cycles elapsed": 14933718254,
+              "maximum resident set size": 2963308544
+            }
+          },
+          "pairedReductions": [
+            {
+              "repeat": 0,
+              "real": 0.010706638115631661,
+              "instructions retired": 0.036859906572276335,
+              "cycles elapsed": 0.002516349588650879
+            }
+          ],
+          "medianPairedReductions": {
+            "real": 0.010706638115631661,
+            "instructions retired": 0.036859906572276335,
+            "cycles elapsed": 0.002516349588650879
+          },
+          "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+          "luaReference": {
+            "samples": 1,
+            "pairedWithVmRuns": false,
+            "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+          },
+          "rawResults": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/perf-cold-check/results.json",
+            "bytes": 10446,
+            "sha256": "e4588577929f60fd359aee79de9e99da979aefa7f62c0aef643a82699bbf9981"
+          },
+          "restoredOriginalState": true,
+          "originalStateSha256": "ba3ac906b1082adcb2d2d0e6f22ddfe2269ce71e42b66d6e667882b527fd2c43",
+          "samplesPerEngine": 1,
+          "gateSatisfied": false,
+          "counterScope": "Darwin instructions/cycles cover the launched parent process, not aggregate worker PMU counters. time user/sys may include child CPU, so these scopes differ.",
+          "note": "Use the single cold-check wall-time sample for whole-check comparisons. Preserve raw parent counters as reported; they do not measure aggregate worker instructions or cycles. One sample per engine does not satisfy the repeated whole-repository performance gate."
+        },
+        "ordinaryJit": {
+          "image": "/Users/dowling/projects/nupp-wt/entry-context/native/crates/vm/tests/specialize/specialize.image",
+          "imageSHA256": "e79841b5246ec11290278ef149f1e5a1cc777039caded977681bd45f5c1df766",
+          "binaries": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/jit-accepted",
+              "sha256": "722cf2220a5486a3b4a4923b589868b2096bbdc2f5a4a80e790a667cee99cd66"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-candidate",
+              "sha256": "4bca045647a6b4fd589a36d73efa98a5c6bb70ec9f8e520fac1b66bc63c6535a"
+            }
+          },
+          "pairsPerProgram": 21,
+          "results": {
+            "classes": {
+              "medians": {
+                "baseline": {
+                  "wall": 0.19452083300000034,
+                  "real": 0.19,
+                  "user": 0.18,
+                  "sys": 0.0,
+                  "instructions retired": 4725409987,
+                  "cycles elapsed": 723606457,
+                  "maximum resident set size": 18464768
+                },
+                "candidate": {
+                  "wall": 0.19671204099999962,
+                  "real": 0.19,
+                  "user": 0.18,
+                  "sys": 0.0,
+                  "instructions retired": 4736053255,
+                  "cycles elapsed": 722034012,
+                  "maximum resident set size": 18513920
+                }
+              },
+              "medianPairedFractionChange": {
+                "wall": 0.012931258778040577,
+                "instructions retired": 0.0022810347010042697,
+                "cycles elapsed": 0.0033873681818381574
+              },
+              "withinFivePercentWallMargin": true
+            },
+            "shapes": {
+              "medians": {
+                "baseline": {
+                  "wall": 0.21968112499999926,
+                  "real": 0.21,
+                  "user": 0.21,
+                  "sys": 0.0,
+                  "instructions retired": 6200951118,
+                  "cycles elapsed": 789551590,
+                  "maximum resident set size": 19087360
+                },
+                "candidate": {
+                  "wall": 0.2164692499999994,
+                  "real": 0.21,
+                  "user": 0.2,
+                  "sys": 0.0,
+                  "instructions retired": 6190160038,
+                  "cycles elapsed": 792653135,
+                  "maximum resident set size": 19169280
+                }
+              },
+              "medianPairedFractionChange": {
+                "wall": -0.0071579356688370455,
+                "instructions retired": -0.0017350875930893794,
+                "cycles elapsed": -0.002496562819705006
+              },
+              "withinFivePercentWallMargin": true
+            }
+          },
+          "normalizedAnswers": {
+            "classes": "\"monomorphic <time> ms (3700000)\\npolymorphic <time> ms (3360000)\\npatched <time> ms (16480776)\\ncallbacks <time> ms (89536767534)\\nrepresentations <time> ms (1440004)\\ntotal <time> ms\"\n",
+            "shapes": "\"monomorphic <time> ms (22200000)\\npolymorphic <time> ms (11280000)\\nfields <time> ms (6800000)\\ncallbacks <time> ms (42240000)\\ntotal <time> ms\"\n"
+          }
+        },
+        "sizes": {
+          "nativeObject": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o",
+              "bytes": 149230824,
+              "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/candidate.o",
+              "bytes": 149118456,
+              "sha256": "79a8387c54257887ba0c6e06427a36ba6f2178a1e6df3d609ded222e8ce8d35b"
+            },
+            "byteChange": -112368,
+            "fractionChange": -0.0007529811669471087
+          },
+          "stackMaps": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o.maps",
+              "bytes": 68028424,
+              "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/candidate.o.maps",
+              "bytes": 67899480,
+              "sha256": "21c63be227d63691fa5966918b383768a99c7a51a8c5dda4c05f5e4876a57ad2"
+            },
+            "byteChange": -128944,
+            "fractionChange": -0.0018954429989440635
+          },
+          "runtime": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+              "bytes": 217750152,
+              "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/candidate-runtime",
+              "bytes": 217717192,
+              "sha256": "4fa679e1d2cce1cee8ac18cf199f914bc2d94fe983485ce757e5d00b3be9226e"
+            },
+            "byteChange": -32960,
+            "fractionChange": -0.00015136614003374849
+          }
+        },
+        "candidateObjectGeneration": {
+          "real": 321.48,
+          "user": 316.35,
+          "sys": 1.17,
+          "samples": 1,
+          "comparisonAvailable": false,
+          "log": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/object-generation.stderr",
+            "bytes": 1709,
+            "sha256": "6d54017ef4e598b0175112f2e044d82fda4edf90693ab6a7f28ffdc475d99d38"
+          },
+          "note": "One candidate generation run. Historical timings are not a controlled build-speed comparison."
+        },
+        "correctness": {
+          "buildValidation": {
+            "aot": {
+              "results": 57,
+              "passed": 322,
+              "failed": 0,
+              "ignored": 4,
+              "logSha256": "e93db522ef0d942ed7d33549b0eab412077f48f950632436a3775903945d780a"
+            },
+            "interpreter": {
+              "results": 57,
+              "passed": 223,
+              "failed": 0,
+              "ignored": 4,
+              "logSha256": "bbfad6d727be094d08a826c055ac6e7acf57a470c80b51c2c3fda1463beb5c67"
+            },
+            "aotLinkedFeature": {
+              "results": 57,
+              "passed": 225,
+              "failed": 0,
+              "ignored": 4,
+              "logSha256": "9d81369a5f622c638117ac6bd46dd8ed719feb35eadedb084dc1787ff027ffe0"
+            },
+            "minimalFeatureSkip": "sockets_and_native_streams_are_refused_with_counts: existing snapshot test requires disabled net feature"
+          },
+          "compilerSmoke": {
+            "runtimeAbi": 5,
+            "binarySha256": "4fa679e1d2cce1cee8ac18cf199f914bc2d94fe983485ce757e5d00b3be9226e",
+            "imageSha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+            "manifestSha256": "205353187f880b592dbb60995cb9cf397ea909a961e9202efd9bffe4c8dd5009",
+            "compiledFunctions": 6580,
+            "imageFunctions": 6580,
+            "platform": "macOS-26.6-arm64-arm-64bit",
+            "freshProcesses": 3,
+            "results": [
+              {
+                "name": "symbols",
+                "exitStatus": 0,
+                "seconds": 0.044,
+                "status": "passed"
+              },
+              {
+                "name": "build-denial",
+                "exitStatus": 0,
+                "seconds": 0.037,
+                "status": "passed"
+              },
+              {
+                "name": "build-probe",
+                "exitStatus": 0,
+                "seconds": 0.036,
+                "status": "passed"
+              },
+              {
+                "name": "deny-mapping",
+                "exitStatus": 86,
+                "seconds": 0.267,
+                "status": "passed"
+              },
+              {
+                "name": "deny-protection",
+                "exitStatus": 86,
+                "seconds": 0.005,
+                "status": "passed"
+              },
+              {
+                "name": "emit-interpreted",
+                "exitStatus": 0,
+                "seconds": 0.506,
+                "status": "passed"
+              },
+              {
+                "name": "emit-aot-0",
+                "exitStatus": 0,
+                "seconds": 0.43,
+                "status": "passed"
+              },
+              {
+                "name": "emit-aot-1",
+                "exitStatus": 0,
+                "seconds": 0.426,
+                "status": "passed"
+              },
+              {
+                "name": "emit-aot-2",
+                "exitStatus": 0,
+                "seconds": 0.427,
+                "status": "passed"
+              },
+              {
+                "name": "verify-emitted",
+                "exitStatus": 0,
+                "seconds": 0.008,
+                "status": "passed"
+              },
+              {
+                "name": "execute-emitted",
+                "exitStatus": 0,
+                "seconds": 0.008,
+                "status": "passed"
+              },
+              {
+                "name": "reject-mismatched-image",
+                "exitStatus": 1,
+                "seconds": 0.207,
+                "status": "passed"
+              },
+              {
+                "name": "invalid-interpreted",
+                "exitStatus": 1,
+                "seconds": 0.473,
+                "status": "passed"
+              },
+              {
+                "name": "invalid-aot",
+                "exitStatus": 1,
+                "seconds": 0.411,
+                "status": "passed"
+              }
+            ],
+            "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+            "executableMemoryDenied": true,
+            "emittedImageSha256": "e608d88e2e75345f981e8ba984f5b649b2d1aa1e5bdc60562c06c63da82d8337",
+            "diagnosticCodes": [
+              "NUPP2001"
+            ],
+            "status": "passed"
+          },
+          "rootOutputsMatch": true,
+          "warmLexerCompiledModulesZero": true
+        },
+        "receipts": {
+          "build": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/build-receipt.json",
+            "bytes": 1089,
+            "sha256": "d99d15aef849afb67ce4e15bf985676cc78bab91756889af188dab29ae9f7b13"
+          },
+          "prologBaseline": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/receipt.json",
+            "bytes": 1471,
+            "sha256": "ec4d0eeae5a92e3e6b599e45400e82b2a888828a45b7a960f97f5e1cb45674ac"
+          },
+          "prologCandidate": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/prolog-evidence/candidate-receipt.json",
+            "bytes": 2865,
+            "sha256": "11f42a29859f407608471299a08d389adeaeaef211f9eb644d7db038117a504b"
+          },
+          "ordinaryJit": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/ordinary-jit/results.json",
+            "bytes": 2736,
+            "sha256": "4e646446d8155cef385f7318a79d3d2630a634699cadbd379947aaba70a23267"
+          },
+          "compilerSmoke": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/compiler-smoke-final/results.json",
+            "bytes": 2367,
+            "sha256": "0f586b4db5dbbe6ed7447fe106aea3b43f24c8a4d279a47536fee4b5476aa10e"
+          }
+        },
+        "remainingSpeedGate": "Open: evaluate root emit, warm lexer and whole-repository checks separately. A single cold repository sample does not close the broader compiler-speed gate.",
+        "limitations": [
+          "Local macOS ARM64 evidence only; no Windows, Linux, browser or console validation.",
+          "Use the current first-pass Lua root reference in perf-emit/results.json. Earlier-session 219-second Lua results are historical and are not evidence for this comparison.",
+          "Cold-check Darwin PMU instructions/cycles describe the launched parent, not aggregate workers. Child CPU can appear in time user/sys without appearing in those PMU counters; only the cold-check wall sample supports a whole-check comparison.",
+          "The warm lexer benchmark measures a zero-recompile check, including startup and image loading.",
+          "No measured allocation, boxing, GC or whole-emit helper-call reduction is claimed.",
+          "The minimal-feature crate runs skip the existing snapshot socket test that requires disabled net support; ignored measurement/self-lowering tests remain ignored.",
+          "Object, map and runtime sizes are exact local artifacts. Candidate AOT generation has one timed run and no matched baseline build-time comparison."
+        ]
+      }
+    },
+    "entryContextAndProbe": {
+      "disposition": "rejected",
+      "report": {
+        "experiment": "Second candidate: context-aware linked heap-frame shape probe",
+        "mode": "full-comparison",
+        "recordedAtUtc": "2026-10-17T04:22:19.318807+00:00",
+        "scope": "aarch64 macOS; isolated runtime migration; frozen compiler image; two check workers",
+        "baseRevision": "9d5f683092299ca43d0d125f5ccbd9b6928916b4",
+        "source": {
+          "snapshot": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-source",
+          "nativeSourceSha256": "9676da953608a472f6bc2ae1838ce49812cf2b8ec10646d2779465e907bdddf0",
+          "buildSourceSha256": "76efdd99bff4348c83d3fb2123e45383aea3e9d4033f0667ebd0eb02355c0789",
+          "rustFiles": 62,
+          "snapshotReceipts": {
+            "compiled": "c2b83a6348006eeabb12314948999038861975c9407cbe434a231571230bc0cb",
+            "jit": "439d7a24cdbfbaf6e827adfb6b0bcb86cca780f3986984cfc62b0d1ed7381ca6"
+          },
+          "buildReceipt": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-build-receipt.json",
+            "bytes": 1074,
+            "sha256": "8c2a848384df8180fcf74ec797420ff5f1f6be213588b951c5bb2887b23ffbfa"
+          },
+          "patch": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe.patch",
+            "bytes": 62130,
+            "sha256": "6544a4a7d20ca6b215e53d3febce602eabd6f15c43794972d984dcf0ce265863"
+          },
+          "provenance": "Frozen second-candidate product source verified with repository-relative path prefixes against the build receipt; independent of later live source edits."
+        },
+        "runtimeAbi": 5,
+        "compilerImageSha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+        "implementation": "Retain the first candidate frame context and add an object-frame-only four-argument shape probe. It reads the current VM probe table and count from FrameContext and returns MISS before table access for an unknown shape. The ordinary three-argument JIT probe remains unchanged.",
+        "firstExperiment": {
+          "report": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/entry-only-perf-results.json",
+            "bytes": 26344,
+            "sha256": "5a43b49ec55de62c4af6030f0144d826b3bdf16a3139a43b3d817cef0a472019"
+          },
+          "rootMedianPairedReductions": {
+            "real": 0.016567732789935397,
+            "instructions retired": 0.032582943839878475,
+            "cycles elapsed": 0.01733062836156396
+          },
+          "note": "Separate earlier experiment, not a direct interleaved first-versus-second candidate comparison."
+        },
+        "luaRootReference": {
+          "samples": 1,
+          "real": 146.42,
+          "source": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-perf-emit/results.json",
+            "bytes": 10628,
+            "sha256": "79bad2b2ad04acee81e6ca749cc24f9aeb694a538907a4e63406f69cf42c9146"
+          },
+          "contemporaneousWithProbe": true,
+          "pairedWithVmRuns": false,
+          "note": "Fresh Lua reference from the completed probe experiment; one independent sample, not five Lua/VM pairs."
+        },
+        "generatedCodeEvidence": {
+          "receipt": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-evidence/receipt.json",
+            "bytes": 10496,
+            "sha256": "a8efc4c742cefadddbaa3de9d22b5c93d0e11f4554b1fe2c73bd01a4bc7b43f7"
+          },
+          "tool": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-probe",
+            "sha256": "6322e68da3e5d07cf79cc621d4665b2772ba9baa1343d72d6999b19d9743405c"
+          },
+          "imageSha256": "16b9d8c5ef0e4e8e02308558576d370245a5f92a6df6aadb0c5517823c400163",
+          "objectSha256": "0f2dbaa8f07bf55dd045591b5e41e01f2a9da77ea5777eeb2b8a7f178145d07b",
+          "objectBytes": 6352,
+          "unknownShapeGuard": {
+            "countOffset": 144,
+            "probeTableOffset": 136,
+            "guardBeforeTableAccess": true,
+            "instructions": [
+              "0000000000000364\tldr\tx7, [x6, #0x90]",
+              "0000000000000368\tmov\tx0, #0x7fff000000000000",
+              "000000000000036c\tcmp\tx4, x7",
+              "0000000000000370\tb.hs\t0x49c",
+              "0000000000000374\tldr\tx0, [x6, #0x88]"
+            ],
+            "missValue": "0x7fff000000000000",
+            "unknownTarget": "0x49c",
+            "targetInstructions": [
+              "000000000000049c\tldp\tx29, x30, [sp], #0x10",
+              "00000000000004a0\tretab"
+            ]
+          },
+          "probeFrameCallInstructions": [],
+          "threeArgumentProbeRetained": true,
+          "note": "Static checkpoint-image CLIF/assembly evidence; no executed helper-call count or predicted speedup."
+        },
+        "measurements": {
+          "rootEmit": {
+            "pairs": 5,
+            "primaryMetric": "cycles elapsed",
+            "medians": {
+              "baseline": {
+                "real": 111.81,
+                "user": 110.44,
+                "sys": 1.33,
+                "instructions retired": 2562600182890,
+                "cycles elapsed": 479627430118,
+                "maximum resident set size": 5302665216
+              },
+              "candidate": {
+                "real": 106.48,
+                "user": 105.11,
+                "sys": 1.3,
+                "instructions retired": 2382614132112,
+                "cycles elapsed": 455488065091,
+                "maximum resident set size": 5249236992
+              },
+              "luajit": {
+                "real": 146.42,
+                "user": 131.65,
+                "sys": 11.65,
+                "instructions retired": 2013828593127,
+                "cycles elapsed": 616227729946,
+                "maximum resident set size": 1605124096
+              }
+            },
+            "pairedReductions": [
+              {
+                "repeat": 0,
+                "real": 0.054284951499510625,
+                "instructions retired": 0.07127455570303465,
+                "cycles elapsed": 0.051763707655764546
+              },
+              {
+                "repeat": 1,
+                "real": 0.04668634290313922,
+                "instructions retired": 0.06998297250640084,
+                "cycles elapsed": 0.049850584773930895
+              },
+              {
+                "repeat": 2,
+                "real": 0.04151849217638692,
+                "instructions retired": 0.0542142702710271,
+                "cycles elapsed": 0.04217523386671007
+              },
+              {
+                "repeat": 3,
+                "real": 0.04570711597060395,
+                "instructions retired": 0.06971903710494576,
+                "cycles elapsed": 0.0489184301054556
+              },
+              {
+                "repeat": 4,
+                "real": 0.048795774017369564,
+                "instructions retired": 0.07216408336027302,
+                "cycles elapsed": 0.049898327818674315
+              }
+            ],
+            "medianPairedReductions": {
+              "real": 0.04668634290313922,
+              "instructions retired": 0.06998297250640084,
+              "cycles elapsed": 0.049850584773930895
+            },
+            "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e",
+            "luaReference": {
+              "samples": 1,
+              "pairedWithVmRuns": false,
+              "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+            },
+            "rawResults": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-combined-emit/results.json",
+              "bytes": 20484,
+              "sha256": "3797d647e313f62c666177484671d251272def3aae887c8444fa5374e0bfbd54"
+            },
+            "binaries": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+                "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-runtime",
+                "sha256": "fdadab98d5eb24c5b480af23c256072a545e0ce6462d634828fd5b55a1e6b999"
+              },
+              "luajit": {
+                "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/f80c19ba750345ba/luajit/bin/luajit-2.1.1785763465",
+                "sha256": "31710ce7b8f24925612605bb7abb500d1fbba045592abce83b48f60ef6b980ed"
+              }
+            },
+            "images": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              }
+            }
+          },
+          "warmLexer": {
+            "pairs": 5,
+            "primaryMetric": "cycles elapsed",
+            "medians": {
+              "baseline": {
+                "real": 0.63,
+                "user": 0.57,
+                "sys": 0.05,
+                "instructions retired": 13792606439,
+                "cycles elapsed": 2688067017,
+                "maximum resident set size": 505102336
+              },
+              "candidate": {
+                "real": 0.62,
+                "user": 0.56,
+                "sys": 0.05,
+                "instructions retired": 13447957549,
+                "cycles elapsed": 2651365820,
+                "maximum resident set size": 504954880
+              },
+              "luajit": {
+                "real": 0.33,
+                "user": 0.26,
+                "sys": 0.06,
+                "instructions retired": 5414735872,
+                "cycles elapsed": 1418029611,
+                "maximum resident set size": 81510400
+              }
+            },
+            "pairedReductions": [
+              {
+                "repeat": 0,
+                "real": 0.015873015873015928,
+                "instructions retired": 0.02648241279145913,
+                "cycles elapsed": 0.02031158486231377
+              },
+              {
+                "repeat": 1,
+                "real": 0.031746031746031744,
+                "instructions retired": 0.0337996044050044,
+                "cycles elapsed": 0.026167371061244893
+              },
+              {
+                "repeat": 2,
+                "real": 0.015873015873015928,
+                "instructions retired": 0.02068488649517719,
+                "cycles elapsed": 0.009881829747641624
+              },
+              {
+                "repeat": 3,
+                "real": 0.015873015873015928,
+                "instructions retired": 0.022486306005443213,
+                "cycles elapsed": 0.010896584354020189
+              },
+              {
+                "repeat": 4,
+                "real": 0.031746031746031744,
+                "instructions retired": 0.025946771283361758,
+                "cycles elapsed": 0.024518949091090314
+              }
+            ],
+            "medianPairedReductions": {
+              "real": 0.015873015873015928,
+              "instructions retired": 0.025946771283361758,
+              "cycles elapsed": 0.02031158486231377
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+            "luaReference": {
+              "samples": 5,
+              "pairedWithVmRuns": false,
+              "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+            },
+            "rawResults": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-perf-lexer/results.json",
+              "bytes": 24464,
+              "sha256": "7f01b98f1d60299b897c80c700bb6196f9ae35ad0640a329ed84d8f2c3b32130"
+            },
+            "allCompiledModulesZero": true,
+            "restoredOriginalState": true,
+            "originalStateSha256": "ba3ac906b1082adcb2d2d0e6f22ddfe2269ce71e42b66d6e667882b527fd2c43",
+            "binaries": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+                "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-runtime",
+                "sha256": "fdadab98d5eb24c5b480af23c256072a545e0ce6462d634828fd5b55a1e6b999"
+              },
+              "luajit": {
+                "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/f80c19ba750345ba/luajit/bin/luajit-2.1.1785763465",
+                "sha256": "31710ce7b8f24925612605bb7abb500d1fbba045592abce83b48f60ef6b980ed"
+              }
+            },
+            "images": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              }
+            }
+          },
+          "coldRepository": {
+            "pairs": 1,
+            "primaryMetric": "real",
+            "medians": {
+              "baseline": {
+                "real": 46.67,
+                "user": 75.37,
+                "sys": 2.42,
+                "instructions retired": 148379671280,
+                "cycles elapsed": 28298537811,
+                "maximum resident set size": 9767583744
+              },
+              "candidate": {
+                "real": 45.14,
+                "user": 71.55,
+                "sys": 2.37,
+                "instructions retired": 141901230475,
+                "cycles elapsed": 27832954438,
+                "maximum resident set size": 10019848192
+              },
+              "luajit": {
+                "real": 48.87,
+                "user": 71.73,
+                "sys": 7.99,
+                "instructions retired": 48530750588,
+                "cycles elapsed": 14932501615,
+                "maximum resident set size": 2946351104
+              }
+            },
+            "pairedReductions": [
+              {
+                "repeat": 0,
+                "real": 0.03278337261624176,
+                "instructions retired": 0.04366124246747283,
+                "cycles elapsed": 0.016452559355169982
+              }
+            ],
+            "medianPairedReductions": {
+              "real": 0.03278337261624176,
+              "instructions retired": 0.04366124246747283,
+              "cycles elapsed": 0.016452559355169982
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+            "luaReference": {
+              "samples": 1,
+              "pairedWithVmRuns": false,
+              "note": "Independent LuaJIT reference samples; do not count them as baseline/candidate pairs."
+            },
+            "rawResults": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-perf-cold-check/results.json",
+              "bytes": 10451,
+              "sha256": "825a5eaae36e7005db04155f9c3fe6e40c7824a9fbbbd692177dbbae0bd59b7d"
+            },
+            "restoredOriginalState": true,
+            "originalStateSha256": "ba3ac906b1082adcb2d2d0e6f22ddfe2269ce71e42b66d6e667882b527fd2c43",
+            "binaries": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+                "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-runtime",
+                "sha256": "fdadab98d5eb24c5b480af23c256072a545e0ce6462d634828fd5b55a1e6b999"
+              },
+              "luajit": {
+                "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/f80c19ba750345ba/luajit/bin/luajit-2.1.1785763465",
+                "sha256": "31710ce7b8f24925612605bb7abb500d1fbba045592abce83b48f60ef6b980ed"
+              }
+            },
+            "images": {
+              "baseline": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              },
+              "candidate": {
+                "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+                "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+              }
+            },
+            "gateSatisfied": false,
+            "counterScope": "Parent-process Darwin PMU counters do not aggregate workers; time user/sys may include child CPU. Preserve raw counters but use wall time for the whole-check sample.",
+            "note": "One sample per engine is not a repeated whole-repository duration gate."
+          }
+        },
+        "extensionDecision": {
+          "receipt": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/five-pair-decision.json",
+            "bytes": 548,
+            "sha256": "f756dce3fae660f46af343c9707d7ac749f2a9c2b097aeeb7fd5a5a6b1dbaf60"
+          },
+          "contents": {
+            "recordedAtUtc": "2026-10-17T04:06:16.357468+00:00",
+            "completedFullPairs": [
+              {
+                "repeat": 0,
+                "cyclesReduction": 0.051763707655764546
+              },
+              {
+                "repeat": 1,
+                "cyclesReduction": 0.049850584773930895
+              }
+            ],
+            "decision": "Extend the completed comparison from three to five pairs because the first two straddle the 5% cycle margin. Include all five pairs regardless of the third-pair outcome. Keep the same binaries, image and 5% margin. No further repetition after five pairs.",
+            "initialTrialExcluded": true
+          },
+          "combinedReport": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-combined-emit/results.json",
+            "bytes": 20484,
+            "sha256": "3797d647e313f62c666177484671d251272def3aae887c8444fa5374e0bfbd54"
+          },
+          "scope": "All five final pairs retained; original three plus predeclared two. Initial screen excluded; no further extension."
+        },
+        "assessment": {
+          "executionCostWin": false,
+          "cyclesExceedFivePercentMargin": false,
+          "wallExceedsFivePercentMargin": false,
+          "note": "The completed comparison does not establish an execution-cost win beyond the 5% practical cycle margin.",
+          "caution": "Paired medians are descriptive, not statistical confidence intervals."
+        },
+        "ordinaryJit": {
+          "receipt": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-ordinary-jit/results.json",
+            "bytes": 2983,
+            "sha256": "4f7737f1d8ac3e4a155653081c7b97e91930c165f112b5df21b72a61864e00aa"
+          },
+          "pairsPerProgram": 21,
+          "results": {
+            "classes": {
+              "medians": {
+                "baseline": {
+                  "wall": 0.18512899999999988,
+                  "real": 0.18,
+                  "user": 0.17,
+                  "sys": 0.0,
+                  "instructions retired": 4725574091,
+                  "cycles elapsed": 695941423,
+                  "maximum resident set size": 18448384
+                },
+                "candidate": {
+                  "wall": 0.185689875,
+                  "real": 0.18,
+                  "user": 0.17,
+                  "sys": 0.0,
+                  "instructions retired": 4736928443,
+                  "cycles elapsed": 701086599,
+                  "maximum resident set size": 18497536
+                }
+              },
+              "medianPairedFractionChange": {
+                "wall": 0.024177858641486027,
+                "instructions retired": 0.002402745524956451,
+                "cycles elapsed": 0.018701946046902895
+              },
+              "withinFivePercentWallMargin": true
+            },
+            "shapes": {
+              "medians": {
+                "baseline": {
+                  "wall": 0.21115391599999978,
+                  "real": 0.2,
+                  "user": 0.2,
+                  "sys": 0.0,
+                  "instructions retired": 6200862514,
+                  "cycles elapsed": 790431119,
+                  "maximum resident set size": 19087360
+                },
+                "candidate": {
+                  "wall": 0.2094544169999999,
+                  "real": 0.2,
+                  "user": 0.2,
+                  "sys": 0.0,
+                  "instructions retired": 6190661196,
+                  "cycles elapsed": 785070898,
+                  "maximum resident set size": 19202048
+                }
+              },
+              "medianPairedFractionChange": {
+                "wall": -0.007635021643196183,
+                "instructions retired": -0.0016594491454644533,
+                "cycles elapsed": -0.006780340364088033
+              },
+              "withinFivePercentWallMargin": true
+            }
+          },
+          "withinFivePercentCeiling": true,
+          "scopeLimit": "Interleaved21-pair regression ceiling only; overlaps standalone AOT object generation and minimal-feature Cargo validation on different artifacts. Host load affects wall time; no quiet-host performance verdict or statistical confidence interval."
+        },
+        "sizes": {
+          "nativeObject": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o",
+              "bytes": 149230824,
+              "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe.o",
+              "bytes": 149323584,
+              "sha256": "edd5b527d762e80da13885c56f3c80967242779cb2db67b70a57e1d9a02aa13f"
+            },
+            "byteChange": 92760,
+            "fractionChange": 0.0006215874007369226
+          },
+          "stackMaps": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o.maps",
+              "bytes": 68028424,
+              "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe.o.maps",
+              "bytes": 67899480,
+              "sha256": "10a5de653f3c29c7403c3c5f2bcdb88932f4d3297c969a48a09554727df3f9c7"
+            },
+            "byteChange": -128944,
+            "fractionChange": -0.0018954429989440635
+          },
+          "runtime": {
+            "baseline": {
+              "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+              "bytes": 217750152,
+              "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+            },
+            "candidate": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-runtime",
+              "bytes": 217931864,
+              "sha256": "fdadab98d5eb24c5b480af23c256072a545e0ce6462d634828fd5b55a1e6b999"
+            },
+            "byteChange": 181712,
+            "fractionChange": 0.0008344976953218453
+          }
+        },
+        "candidateObjectGeneration": {
+          "real": 312.94,
+          "user": 310.05,
+          "sys": 1.27,
+          "samples": 1,
+          "matchedBaselineTiming": false,
+          "log": {
+            "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-object.stderr",
+            "bytes": 1709,
+            "sha256": "3fa47f987c63fcb5d6ae27e6898aa41891cab51a8c2bd568ecf681eaf5a8e3e0"
+          },
+          "note": "One second-candidate generation run; no controlled build-speed comparison with historical timings."
+        },
+        "correctness": {
+          "crateValidation": {
+            "aot": {
+              "passed": 323,
+              "failed": 0,
+              "ignored": 4,
+              "resultRecords": 57,
+              "log": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-crate-tests.stdout",
+                "bytes": 28177,
+                "sha256": "c6135cfd0a5bf356761bd2142aa072e922a9c6a597ac333ba8914b10d48306a4"
+              }
+            },
+            "interpreter": {
+              "passed": 223,
+              "failed": 0,
+              "ignored": 4,
+              "resultRecords": 57,
+              "log": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-interpreter-tests.stdout",
+                "bytes": 21281,
+                "sha256": "e605859260a8444176f2ff174cdc00c276891fbfdda04c5b096fe9eb719df01c"
+              }
+            },
+            "aotLinkedFeature": {
+              "passed": 225,
+              "failed": 0,
+              "ignored": 4,
+              "resultRecords": 57,
+              "log": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-linked-feature-tests.stdout",
+                "bytes": 21508,
+                "sha256": "94ae26f187d5d8abb30fb87f97ba5b9f1223446a599100dcf4d9931b581b2f1a"
+              }
+            },
+            "finalReentry": {
+              "passed": 3,
+              "failed": 0,
+              "ignored": 0,
+              "resultRecords": 1,
+              "log": {
+                "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-reentry-final.stdout",
+                "bytes": 334,
+                "sha256": "33d91ea86852217e3378b2e134c6e7556f32ae210875f057cae18cbf44084351"
+              }
+            },
+            "minimalFeatureSkip": "Existing snapshot socket test requires disabled net support; skipped in interpreter and aot-linked minimal-feature runs.",
+            "finalReentryScope": "Three AOT relocation tests: VM/thread ownership, actual image-loading reentry under slow and context probes, and deliberate unpublished-shape count-guard fallback."
+          },
+          "compilerSmoke": {
+            "receipt": {
+              "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/probe-smoke/results.json",
+              "bytes": 2366,
+              "sha256": "562c781c4a57f2d9bb79adc39849fad2ae5085913a3c58a2e29d3a9dba53d6c2"
+            },
+            "status": "passed",
+            "executableMemoryDenied": true,
+            "compiledFunctions": 6580,
+            "imageFunctions": 6580,
+            "binarySha256": "fdadab98d5eb24c5b480af23c256072a545e0ce6462d634828fd5b55a1e6b999"
+          }
+        },
+        "measurementConcurrency": "Probe root measurements start after own builds, correctness gates and ordinary-JIT runs finish. Ordinary-JIT micros overlap standalone AOT generation/minimal-feature Cargo validation; their wall times are a regression ceiling under host load.",
+        "broaderCompilerSpeedGate": "Open: root emit, warm lexer, and whole-repository checks remain distinct targets; the single cold repository sample cannot close its repeated performance gate.",
+        "limitations": [
+          "Local macOS ARM64 evidence only; no Windows, Linux, browser or console validation.",
+          "Screening recommendations describe measured thresholds and do not decide whether to retain or discard the candidate.",
+          "Cold-check parent PMU counters exclude aggregate worker execution; only cold-check wall time supports a whole-check comparison.",
+          "The fresh Lua root reference is one independent sample, not five paired Lua/VM comparisons.",
+          "No allocation, GC, boxing or whole-compiler dynamic helper-call reduction was measured.",
+          "Medians and one-pair screens provide no statistical confidence interval."
+        ]
+      }
+    }
+  },
+  "retained": {
+    "runtimeAbi": 4,
+    "nativeSourceSha256": "08672e6655f41d8bf0091e89dee806f8c2e90f943bbdfaa469620ec384cd5678",
+    "change": "Prevent linked fallback JIT and opt-in frame specialization from embedding movable shape-probe addresses; disable cached stubs when no stable probe address is available.",
+    "scope": "No ABI 5 calling convention, context view, field-probe stub or associated invalidation machinery is retained. Ordinary nonlinked JIT behavior is unchanged.",
+    "correctness": {
+      "aotCrate": {
+        "passed": 321,
+        "failed": 0,
+        "ignored": 4,
+        "filtered": 120,
+        "log": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-aot-tests.log",
+          "bytes": 34255,
+          "sha256": "6e15d8c21d327c97cb3e34555b545de9b6b68facf18ac52268cf45f859c4f677"
+        }
+      },
+      "relocation": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0,
+        "log": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-relocation-tests.log",
+          "bytes": 1352,
+          "sha256": "ee2e0b095ae4d77f0bb0447dd2621952685a519b70fbd679a1e606014a0c5765"
+        }
+      },
+      "interpreterOnly": {
+        "passed": 223,
+        "failed": 0,
+        "ignored": 4,
+        "filtered": 115,
+        "log": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-interpreter-tests.log",
+          "bytes": 32212,
+          "sha256": "5916ea4a3421e900fa427b76c162a1194389f9ecdc975ddccd1aa0906fd73165"
+        }
+      },
+      "consoleNoJit": {
+        "passed": 223,
+        "failed": 0,
+        "ignored": 4,
+        "filtered": 115,
+        "log": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-console-tests.log",
+          "bytes": 30735,
+          "sha256": "4014f0d7a2d6942de81bf3a0958833a116f0d929a288dac30088ebbccd08e90b"
+        }
+      },
+      "minimalFeatureExclusion": "Existing sockets_and_native_streams_are_refused_with_counts requires networking but does not declare that feature requirement.",
+      "compilerNoExecGate": {
+        "runtimeAbi": 4,
+        "binarySha256": "e2a3f6ab637120178fc4bbd431cac87fe67b22d9b0faf6ef8196f4b68635a442",
+        "imageSha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+        "manifestSha256": "fc18be73a36b7f0753958624b6d208d760fda1f4877b6277b8299eac90e841f2",
+        "compiledFunctions": 6580,
+        "imageFunctions": 6580,
+        "platform": "macOS-26.6-arm64-arm-64bit",
+        "freshProcesses": 3,
+        "results": [
+          {
+            "name": "symbols",
+            "exitStatus": 0,
+            "seconds": 0.041,
+            "status": "passed"
+          },
+          {
+            "name": "build-denial",
+            "exitStatus": 0,
+            "seconds": 0.037,
+            "status": "passed"
+          },
+          {
+            "name": "build-probe",
+            "exitStatus": 0,
+            "seconds": 0.037,
+            "status": "passed"
+          },
+          {
+            "name": "deny-mapping",
+            "exitStatus": 86,
+            "seconds": 0.288,
+            "status": "passed"
+          },
+          {
+            "name": "deny-protection",
+            "exitStatus": 86,
+            "seconds": 0.004,
+            "status": "passed"
+          },
+          {
+            "name": "emit-interpreted",
+            "exitStatus": 0,
+            "seconds": 1.867,
+            "status": "passed"
+          },
+          {
+            "name": "emit-aot-0",
+            "exitStatus": 0,
+            "seconds": 0.486,
+            "status": "passed"
+          },
+          {
+            "name": "emit-aot-1",
+            "exitStatus": 0,
+            "seconds": 0.429,
+            "status": "passed"
+          },
+          {
+            "name": "emit-aot-2",
+            "exitStatus": 0,
+            "seconds": 0.429,
+            "status": "passed"
+          },
+          {
+            "name": "verify-emitted",
+            "exitStatus": 0,
+            "seconds": 0.008,
+            "status": "passed"
+          },
+          {
+            "name": "execute-emitted",
+            "exitStatus": 0,
+            "seconds": 0.008,
+            "status": "passed"
+          },
+          {
+            "name": "reject-mismatched-image",
+            "exitStatus": 1,
+            "seconds": 0.213,
+            "status": "passed"
+          },
+          {
+            "name": "invalid-interpreted",
+            "exitStatus": 1,
+            "seconds": 0.485,
+            "status": "passed"
+          },
+          {
+            "name": "invalid-aot",
+            "exitStatus": 1,
+            "seconds": 0.423,
+            "status": "passed"
+          }
+        ],
+        "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+        "executableMemoryDenied": true,
+        "emittedImageSha256": "e608d88e2e75345f981e8ba984f5b649b2d1aa1e5bdc60562c06c63da82d8337",
+        "diagnosticCodes": [
+          "NUPP2001"
+        ],
+        "status": "passed"
+      }
+    },
+    "artifacts": {
+      "tool": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-retained",
+        "bytes": 15735224,
+        "sha256": "3f7cb39bb4c19062a271c2b3fb9ddf1a94744d880434b884fc781d57a789a9b3"
+      },
+      "runtime": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-runtime",
+        "bytes": 217750040,
+        "sha256": "e2a3f6ab637120178fc4bbd431cac87fe67b22d9b0faf6ef8196f4b68635a442"
+      },
+      "compilerImage": {
+        "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "bytes": 21759203,
+        "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+      }
+    },
+    "regeneratedObject": {
+      "object": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o",
+          "bytes": 149230824,
+          "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+        },
+        "retained": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o",
+          "bytes": 149230824,
+          "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+        },
+        "byteIdentical": true
+      },
+      ".maps": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o.maps",
+          "bytes": 68028424,
+          "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+        },
+        "retained": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.maps",
+          "bytes": 68028424,
+          "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+        },
+        "byteIdentical": true
+      },
+      ".rs": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o.rs",
+          "bytes": 870789,
+          "sha256": "7d6d499ab100a53e559a9ef71965265dbb020d984be4d27ab48ea097ca931285"
+        },
+        "retained": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.rs",
+          "bytes": 870777,
+          "sha256": "1e80ad0e034283500c89d358604f1bdc443b92b44eefec447660066fc150d3d3"
+        },
+        "byteIdentical": false,
+        "identicalExceptStackMapPath": true
+      },
+      ".manifest": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/direct-frame-calls-scratch/policy.o.manifest",
+          "bytes": 122907,
+          "sha256": "fc18be73a36b7f0753958624b6d208d760fda1f4877b6277b8299eac90e841f2"
+        },
+        "retained": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.manifest",
+          "bytes": 122907,
+          "sha256": "fc18be73a36b7f0753958624b6d208d760fda1f4877b6277b8299eac90e841f2"
+        },
+        "byteIdentical": true
+      }
+    },
+    "performance": "No new speed claim for the correctness fix. Regenerated compiler object, maps and ABI metadata are byte-identical to the accepted baseline."
+  },
+  "limitations": [
+    "Prototype performance results apply to the frozen ABI 5 binaries, not the final ABI 4 runtime.",
+    "The five-pair extension was predeclared after two full pairs; all five count and the initial screen is excluded. No further runs follow.",
+    "The 4.985% paired cycle reduction remains below the fixed 5% margin; it must not be rounded into a qualifying win.",
+    "Cold repository checks are single samples. Darwin PMU counters cover the parent process, not aggregate worker instructions or cycles.",
+    "Raw receipts, source snapshots and rejected patches remain in entry-context-scratch. No fixpoint was required because compiler sources and embedded compiler resources are unchanged."
+  ]
+}
