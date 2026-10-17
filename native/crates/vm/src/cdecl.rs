@@ -4,7 +4,7 @@
 use libloading::Library;
 use serde_json::{Value as Json, json};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, BTreeSet, HashMap},
     ffi::{CStr, CString, c_char, c_int, c_uint, c_ulong, c_void},
 };
 
@@ -27,6 +27,19 @@ struct Cursor {
 struct Location {
     data: [*const c_void; 2],
     int_data: c_uint,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Range {
+    data: [*const c_void; 2],
+    begin_int_data: c_uint,
+    end_int_data: c_uint,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Token {
+    int_data: [c_uint; 4],
+    ptr_data: Handle,
 }
 #[repr(C)]
 struct Text {
@@ -56,6 +69,20 @@ macro_rules! api {
 }
 api! {
     clang_getClangVersion() -> Text;
+    clang_getCursorExtent(Cursor) -> Range;
+    clang_getRangeStart(Range) -> Location;
+    clang_getRangeEnd(Range) -> Location;
+    clang_getFile(Handle, *const c_char) -> Handle;
+    clang_getLocationForOffset(Handle, Handle, c_uint) -> Location;
+    clang_getRange(Location, Location) -> Range;
+    clang_tokenize(Handle, Range, *mut *mut Token, *mut c_uint) -> ();
+    clang_getTokenKind(Token) -> c_uint;
+    clang_getTokenSpelling(Handle, Token) -> Text;
+    clang_getTokenExtent(Handle, Token) -> Range;
+    clang_disposeTokens(Handle, *mut Token, c_uint) -> ();
+    clang_getCanonicalCursor(Cursor) -> Cursor;
+    clang_isCursorDefinition(Cursor) -> c_uint;
+    clang_getCursorReferenced(Cursor) -> Cursor;
     clang_createIndex(c_int, c_int) -> Handle;
     clang_disposeIndex(Handle) -> ();
     clang_parseTranslationUnit(Handle, *const c_char, *const *const c_char, c_int, *mut Unsaved, c_uint, c_uint) -> Handle;
@@ -95,6 +122,7 @@ api! {
     clang_getNumDiagnostics(Handle) -> c_uint;
     clang_getDiagnostic(Handle, c_uint) -> Handle;
     clang_getDiagnosticSeverity(Handle) -> c_uint;
+    clang_getDiagnosticCategoryText(Handle) -> Text;
     clang_getDiagnosticSpelling(Handle) -> Text;
     clang_disposeDiagnostic(Handle) -> ();
     clang_getDiagnosticLocation(Handle) -> Location;
@@ -166,6 +194,7 @@ struct Unit<'a> {
     api: &'a Api,
     index: Handle,
     unit: Handle,
+    header: Handle,
 }
 impl Drop for Unit<'_> {
     fn drop(&mut self) {
@@ -180,6 +209,15 @@ impl Api {
         self.parse_probe(source, "", 0)
     }
     fn parse_probe(&self, source: &str, probe: &str, identity: u64) -> Result<Unit<'_>, String> {
+        self.parse_mode(source, probe, identity, true)
+    }
+    fn parse_mode(
+        &self,
+        source: &str,
+        probe: &str,
+        identity: u64,
+        diagnose: bool,
+    ) -> Result<Unit<'_>, String> {
         let contents = CString::new(source).map_err(|_| "C declarations contain a NUL byte")?;
         let directory = std::env::current_dir().map_err(|error| error.to_string())?;
         let filename = CString::new(
@@ -229,7 +267,7 @@ impl Api {
                 arguments.len() as c_int,
                 files.as_mut_ptr(),
                 files.len() as c_uint,
-                0,
+                1, // CXTranslationUnit_DetailedPreprocessingRecord
             );
             if unit.is_null() {
                 (self.clang_disposeIndex)(index);
@@ -239,12 +277,24 @@ impl Api {
                 api: self,
                 index,
                 unit,
+                header: (self.clang_getFile)(unit, header.as_ptr()),
             };
             let mut errors = Vec::new();
+            let mut lexical_certificate = true;
             let mut first_line = 0;
             for i in 0..(self.clang_getNumDiagnostics)(unit.unit) {
                 let diagnostic = (self.clang_getDiagnostic)(unit.unit, i);
-                if (self.clang_getDiagnosticSeverity)(diagnostic) >= 3 {
+                let severity = (self.clang_getDiagnosticSeverity)(diagnostic);
+                if !diagnose && severity >= 2 {
+                    // CXDiagnostic category metadata, not diagnostic messages or
+                    // version-dependent category numbers. Unknown categories
+                    // fail closed; the lexical TU may lack accepted typedefs.
+                    let category = self.text((self.clang_getDiagnosticCategoryText)(diagnostic));
+                    if severity >= 4 || category != "Semantic Issue" {
+                        lexical_certificate = false;
+                    }
+                }
+                if severity >= 3 {
                     errors.push(self.text((self.clang_getDiagnosticSpelling)(diagnostic)));
                     if first_line == 0 {
                         let (mut file, mut line, mut column, mut offset) =
@@ -261,7 +311,10 @@ impl Api {
                 }
                 (self.clang_disposeDiagnostic)(diagnostic);
             }
-            if !errors.is_empty() {
+            if !diagnose && !lexical_certificate {
+                return Err("C lexical replay certification unavailable".into());
+            }
+            if diagnose && !errors.is_empty() {
                 // LuaJIT's spelling, which callers map back to a header's own line.
                 let mut message = errors.join("; ");
                 if first_line > 0 {
@@ -274,6 +327,213 @@ impl Api {
     }
 }
 
+// Owned strings and offsets only: neither tokens nor cursors escape their TU.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Lexeme {
+    kind: c_uint,
+    spelling: String,
+    start: usize,
+    end: usize,
+}
+struct Tokens<'u, 'a> {
+    unit: &'u Unit<'a>,
+    data: *mut Token,
+    count: c_uint,
+}
+impl Drop for Tokens<'_, '_> {
+    fn drop(&mut self) {
+        unsafe { (self.unit.api.clang_disposeTokens)(self.unit.unit, self.data, self.count) }
+    }
+}
+impl Unit<'_> {
+    unsafe fn offset(&self, location: Location) -> Option<usize> {
+        let (mut file, mut offset) = (std::ptr::null_mut(), 0);
+        (self.api.clang_getSpellingLocation)(
+            location,
+            &mut file,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut offset,
+        );
+        (file == self.header && !file.is_null()).then_some(offset as usize)
+    }
+    unsafe fn extent(&self, range: Range) -> Option<(usize, usize)> {
+        Some((
+            self.offset((self.api.clang_getRangeStart)(range))?,
+            self.offset((self.api.clang_getRangeEnd)(range))?,
+        ))
+    }
+    fn tokens(&self, start: usize, end: usize) -> Option<Vec<Lexeme>> {
+        let start = c_uint::try_from(start).ok()?;
+        let end = c_uint::try_from(end).ok()?;
+        unsafe {
+            if self.header.is_null() {
+                return None;
+            }
+            let range = (self.api.clang_getRange)(
+                (self.api.clang_getLocationForOffset)(self.unit, self.header, start),
+                (self.api.clang_getLocationForOffset)(self.unit, self.header, end),
+            );
+            let mut tokens = Tokens {
+                unit: self,
+                data: std::ptr::null_mut(),
+                count: 0,
+            };
+            (self.api.clang_tokenize)(self.unit, range, &mut tokens.data, &mut tokens.count);
+            let mut result = Vec::new();
+            for i in 0..tokens.count {
+                let token = *tokens.data.add(i as usize);
+                let kind = (self.api.clang_getTokenKind)(token);
+                if kind == 4 {
+                    continue;
+                } // CXToken_Comment
+                let (start, end) =
+                    self.extent((self.api.clang_getTokenExtent)(self.unit, token))?;
+                result.push(Lexeme {
+                    kind,
+                    spelling: self
+                        .api
+                        .text((self.api.clang_getTokenSpelling)(self.unit, token)),
+                    start,
+                    end,
+                });
+            }
+            Some(result)
+        }
+    }
+}
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+struct Claims {
+    structs: BTreeSet<u64>,
+    enums: BTreeSet<u64>,
+    functions: BTreeSet<String>,
+}
+impl Claims {
+    fn extend(&mut self, other: &Self) {
+        self.structs.extend(&other.structs);
+        self.enums.extend(&other.enums);
+        self.functions.extend(other.functions.iter().cloned());
+    }
+    fn names(&self) -> Json {
+        Json::Object(
+            self.functions
+                .iter()
+                .map(|name| (name.clone(), json!(true)))
+                .collect(),
+        )
+    }
+    unsafe fn cursor(&mut self, api: &Api, model: &Model, cursor: Cursor) {
+        if cursor.kind == 8 {
+            self.functions
+                .insert(api.text((api.clang_getCursorSpelling)(cursor)));
+        } else if matches!(cursor.kind, 2 | 3 | 5 | 20) {
+            let ty = if cursor.kind == 20 {
+                (api.clang_getTypedefDeclUnderlyingType)(cursor)
+            } else {
+                (api.clang_getCursorType)(cursor)
+            };
+            let ty = (api.clang_getCanonicalType)(ty);
+            if matches!(ty.kind, 105 | 106) {
+                let usr = api.text((api.clang_getCursorUSR)((api.clang_getTypeDeclaration)(ty)));
+                if let Some(id) = model.ids.get(&usr) {
+                    if ty.kind == 105 {
+                        self.structs.insert(*id);
+                    } else {
+                        self.enums.insert(*id);
+                    }
+                }
+            }
+        }
+    }
+}
+#[derive(Clone, Default, PartialEq, Eq)]
+struct Binding {
+    ordinary: BTreeSet<String>,
+    tags: BTreeSet<String>,
+}
+#[derive(Default)]
+struct Environment {
+    bindings: BTreeMap<String, Binding>,
+    identities: BTreeMap<String, Option<u64>>,
+}
+impl Environment {
+    unsafe fn new(unit: &Unit<'_>, model: &Model) -> Self {
+        let api = unit.api;
+        let mut result = Self::default();
+        for cursor in api.children((api.clang_getTranslationUnitCursor)(unit.unit)) {
+            let name = api.text((api.clang_getCursorSpelling)(cursor));
+            let usr = api.text((api.clang_getCursorUSR)((api.clang_getCanonicalCursor)(
+                cursor,
+            )));
+            if !name.is_empty() && !usr.is_empty() {
+                let binding = result.bindings.entry(name).or_default();
+                match cursor.kind {
+                    2 | 3 | 5 => {
+                        binding.tags.insert(usr);
+                    }
+                    8 | 9 | 20 => {
+                        binding.ordinary.insert(usr);
+                    }
+                    _ => {}
+                }
+            }
+            // Enumerators occupy the ordinary namespace even though their cursor
+            // parent is the enum. Field/parameter names do not bind at file scope.
+            if cursor.kind == 5 {
+                for child in api
+                    .children(cursor)
+                    .into_iter()
+                    .filter(|child| child.kind == 7)
+                {
+                    let name = api.text((api.clang_getCursorSpelling)(child));
+                    let usr = api.text((api.clang_getCursorUSR)((api.clang_getCanonicalCursor)(
+                        child,
+                    )));
+                    result
+                        .bindings
+                        .entry(name)
+                        .or_default()
+                        .ordinary
+                        .insert(usr);
+                }
+            }
+            result.references(api, model, cursor);
+        }
+        result
+    }
+    unsafe fn references(&mut self, api: &Api, model: &Model, cursor: Cursor) {
+        for binding in [cursor, (api.clang_getCursorReferenced)(cursor)] {
+            let usr = api.text((api.clang_getCursorUSR)((api.clang_getCanonicalCursor)(
+                binding,
+            )));
+            if !usr.is_empty() {
+                self.identities
+                    .insert(usr.clone(), model.ids.get(&usr).copied());
+            }
+        }
+        for child in api.children(cursor) {
+            self.references(api, model, child);
+        }
+    }
+}
+#[derive(Clone, PartialEq, Eq)]
+struct Group {
+    tokens: Vec<(c_uint, String)>,
+    bindings: BTreeMap<String, Binding>,
+    identities: BTreeMap<String, Option<u64>>,
+    claims: Claims,
+}
+impl Group {
+    fn valid(&self, environment: &Environment) -> bool {
+        self.bindings.iter().all(|(name, binding)| {
+            environment.bindings.get(name).cloned().unwrap_or_default() == *binding
+        }) && self
+            .identities
+            .iter()
+            .all(|(usr, id)| environment.identities.get(usr) == Some(id))
+    }
+}
+
 // Match the standard C names accepted by the old compiler's declaration service.
 // Widths and layout come from libclang's target, including long and size_t.
 const PRELUDE: &str = "typedef _Bool bool; typedef __SIZE_TYPE__ size_t; typedef __PTRDIFF_TYPE__ ptrdiff_t; typedef __INTPTR_TYPE__ intptr_t; typedef __UINTPTR_TYPE__ uintptr_t; typedef __INT8_TYPE__ int8_t; typedef __UINT8_TYPE__ uint8_t; typedef __INT16_TYPE__ int16_t; typedef __UINT16_TYPE__ uint16_t; typedef __INT32_TYPE__ int32_t; typedef __UINT32_TYPE__ uint32_t; typedef __INT64_TYPE__ int64_t; typedef __UINT64_TYPE__ uint64_t;\n";
@@ -282,6 +542,7 @@ const PRELUDE: &str = "typedef _Bool bool; typedef __SIZE_TYPE__ size_t; typedef
 struct Model {
     ids: HashMap<String, u64>,
     structs: HashMap<u64, Json>,
+    enums: HashMap<u64, Json>,
 }
 impl Model {
     unsafe fn id(&mut self, api: &Api, cursor: Cursor) -> u64 {
@@ -325,7 +586,9 @@ impl Model {
                     for field in api.children(cursor) {
                         // An anonymous struct or union member is a record declaration
                         // with no field of its own: counted, not listed.
-                        if (field.kind == 2 || field.kind == 3) && (api.clang_Cursor_isAnonymousRecordDecl)(field) != 0 {
+                        if (field.kind == 2 || field.kind == 3)
+                            && (api.clang_Cursor_isAnonymousRecordDecl)(field) != 0
+                        {
                             anonymous += 1;
                             continue;
                         }
@@ -335,9 +598,12 @@ impl Model {
                         let name = api.text((api.clang_getCursorSpelling)(field));
                         // A member without a name of its own: an anonymous struct or union
                         // folded into this one, which newer libclang spells after its type.
-                        let record = (api.clang_getTypeDeclaration)((api.clang_getCursorType)(field));
+                        let record =
+                            (api.clang_getTypeDeclaration)((api.clang_getCursorType)(field));
                         let folded = (api.clang_Cursor_isAnonymousRecordDecl)(record) != 0
-                            && (name.is_empty() || name.contains("(anonymous") || name.contains("(unnamed"));
+                            && (name.is_empty()
+                                || name.contains("(anonymous")
+                                || name.contains("(unnamed"));
                         if name.is_empty() || folded {
                             if (api.clang_Cursor_isBitField)(field) != 0 {
                                 unnamed += 1;
@@ -382,7 +648,14 @@ impl Model {
                 // An anonymous enum has no name of its own, even under a typedef.
                 // Its USR marks it anonymous (`@EA@`) where the spelling borrows a typedef's.
                 let usr = api.text((api.clang_getCursorUSR)(cursor));
-                let name = if (api.clang_Cursor_isAnonymous)(cursor) != 0 || usr.contains("@EA@") || usr.contains("@Ea@") { Json::Null } else { json!(api.text((api.clang_getCursorSpelling)(cursor))) };
+                let name = if (api.clang_Cursor_isAnonymous)(cursor) != 0
+                    || usr.contains("@EA@")
+                    || usr.contains("@Ea@")
+                {
+                    Json::Null
+                } else {
+                    json!(api.text((api.clang_getCursorSpelling)(cursor)))
+                };
                 json!({"kind":"enum","id":self.id(api,cursor),"name":name,"bits":integer["bits"],"unsigned":integer["unsigned"]})
             }
             110 | 111 => {
@@ -428,7 +701,9 @@ impl Model {
 pub struct Registry {
     api: Api,
     declarations: String,
-    blocks: HashMap<String, Json>,
+    blocks: HashMap<String, Claims>,
+    groups: Vec<Group>,
+    closed_context: bool,
     types: HashMap<String, Json>,
     functions: HashMap<String, Json>,
     model: Model,
@@ -440,16 +715,198 @@ impl Registry {
             api: Api::load()?,
             declarations: PRELUDE.into(),
             blocks: HashMap::new(),
+            groups: Vec::new(),
+            closed_context: true,
             types: HashMap::new(),
             functions: HashMap::new(),
             model: Model::default(),
             next_probe: 1,
         })
     }
-    fn declare(&mut self, text: &str) -> Result<Json, String> {
+    fn replay(&self, text: &str) -> Option<Claims> {
+        if !self.closed_context || self.groups.is_empty() {
+            return None;
+        }
+        // Preserve accepted typedef context in this private lexical TU. Only
+        // request bytes are tokenized; its diagnostics/model never publish.
+        let start = self.declarations.len() + 1;
+        let source = format!("{}\n{text}\n", self.declarations);
+        let lexical = self.api.parse_mode(&source, "", 0, false).ok()?;
+        let tokens = lexical.tokens(start, source.len())?;
+        let accepted = self.api.parse(&self.declarations).ok()?;
+        let environment = unsafe { Environment::new(&accepted, &self.model) };
+        let mut ways = vec![0u8; tokens.len() + 1];
+        let mut choice = vec![None; tokens.len()];
+        ways[tokens.len()] = 1;
+        for i in (0..tokens.len()).rev() {
+            for (g, group) in self.groups.iter().enumerate() {
+                let end = i + group.tokens.len();
+                if end > tokens.len() || ways[end] == 0 || !group.valid(&environment) {
+                    continue;
+                }
+                if tokens[i..end]
+                    .iter()
+                    .zip(&group.tokens)
+                    .all(|(token, (kind, spelling))| {
+                        token.kind == *kind && token.spelling == *spelling
+                    })
+                {
+                    ways[i] = (ways[i] + ways[end]).min(2);
+                    choice[i] = Some(g);
+                }
+            }
+        }
+        if ways[0] != 1 {
+            return None;
+        }
+        let (mut i, mut claims) = (0, Claims::default());
+        while i < tokens.len() {
+            let group = &self.groups[choice[i]?];
+            claims.extend(&group.claims);
+            i += group.tokens.len();
+        }
+        Some(claims)
+    }
+    fn certify(
+        &self,
+        unit: &Unit<'_>,
+        start: usize,
+        end: usize,
+        model: &Model,
+    ) -> Option<Vec<Group>> {
+        let tokens = unit.tokens(start, end)?;
+        if tokens
+            .iter()
+            .any(|t| matches!(t.spelling.as_str(), "#" | "_Pragma" | "__pragma"))
+        {
+            return None;
+        }
+        let environment = unsafe { Environment::new(unit, model) };
+        let mut ranges: Vec<(usize, usize, Vec<Cursor>)> = Vec::new();
+        unsafe {
+            let roots = self
+                .api
+                .children((self.api.clang_getTranslationUnitCursor)(unit.unit));
+            let root_tags: BTreeSet<String> = roots
+                .iter()
+                .filter(|cursor| matches!(cursor.kind, 2 | 3 | 5))
+                .map(|cursor| {
+                    self.api.text((self.api.clang_getCursorUSR)((self
+                        .api
+                        .clang_getCanonicalCursor)(
+                        *cursor
+                    )))
+                })
+                .collect();
+            unsafe fn unindexed_tag(
+                api: &Api,
+                cursor: Cursor,
+                root_tags: &BTreeSet<String>,
+            ) -> bool {
+                if matches!(cursor.kind, 2 | 3 | 5) {
+                    let usr = api.text((api.clang_getCursorUSR)((api.clang_getCanonicalCursor)(
+                        cursor,
+                    )));
+                    if usr.is_empty() || !root_tags.contains(&usr) {
+                        return true;
+                    }
+                }
+                api.children(cursor)
+                    .into_iter()
+                    .any(|child| unindexed_tag(api, child, root_tags))
+            }
+            for cursor in roots {
+                let Some((a, b)) = unit.extent((self.api.clang_getCursorExtent)(cursor)) else {
+                    continue;
+                };
+                if a < start || a >= end {
+                    continue;
+                }
+                if !matches!(cursor.kind, 2 | 3 | 5 | 8 | 20)
+                    || cursor.kind == 8 && (self.api.clang_isCursorDefinition)(cursor) != 0
+                {
+                    return None;
+                }
+                // Nested C tag declarations can bind at file scope even when
+                // absent from TU-direct children. Do not certify an incomplete
+                // namespace inventory. Anonymous typedef tags repeated as child
+                // cursors are safe only when they share an actual root identity.
+                if unindexed_tag(&self.api, cursor, &root_tags) {
+                    return None;
+                }
+                ranges.push((a, b, vec![cursor]));
+            }
+        }
+        ranges.sort_by_key(|r| (r.0, r.1));
+        let mut merged: Vec<(usize, usize, Vec<Cursor>)> = Vec::new();
+        for (a, b, cursors) in ranges {
+            if let Some(last) = merged.last_mut().filter(|r| a < r.1) {
+                last.1 = last.1.max(b);
+                last.2.extend(cursors);
+            } else {
+                merged.push((a, b, cursors));
+            }
+        }
+        let (mut at, mut result) = (0, Vec::new());
+        for (a, b, cursors) in merged {
+            if at >= tokens.len() || tokens[at].start != a {
+                return None;
+            }
+            let first = at;
+            while at < tokens.len() && tokens[at].end <= b {
+                at += 1;
+            }
+            if at == first {
+                return None;
+            }
+            if tokens[at - 1].spelling != ";" {
+                if tokens.get(at).is_none_or(|t| t.spelling != ";") {
+                    return None;
+                }
+                at += 1;
+            }
+            let mut refs = Environment::default();
+            let mut claims = Claims::default();
+            unsafe {
+                for cursor in cursors {
+                    refs.references(&self.api, model, cursor);
+                    claims.cursor(&self.api, model, cursor);
+                }
+            }
+            let bindings = tokens[first..at]
+                .iter()
+                .filter(|t| t.kind == 2)
+                .map(|t| {
+                    (
+                        t.spelling.clone(),
+                        environment
+                            .bindings
+                            .get(&t.spelling)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )
+                })
+                .collect();
+            result.push(Group {
+                tokens: tokens[first..at]
+                    .iter()
+                    .map(|t| (t.kind, t.spelling.clone()))
+                    .collect(),
+                bindings,
+                identities: refs.identities,
+                claims,
+            });
+        }
+        (at == tokens.len()).then_some(result)
+    }
+    fn declare(&mut self, text: &str) -> Result<Claims, String> {
         if let Some(hit) = self.blocks.get(text) {
             return Ok(hit.clone());
         }
+        if let Some(hit) = self.replay(text) {
+            return Ok(hit);
+        }
+        let start = self.declarations.len() + 1;
         let source = format!("{}\n{text}\n", self.declarations);
         // An error's line is the source's; the text this call was given starts
         // after the declarations already in force.
@@ -464,7 +921,7 @@ impl Registry {
                 None => error,
             }
         })?;
-        let mut names = serde_json::Map::new();
+        let mut claims = Claims::default();
         let mut model = self.model.clone();
         let mut functions = self.functions.clone();
         unsafe {
@@ -482,20 +939,18 @@ impl Registry {
                     let count = (self.api.clang_Cursor_getNumArguments)(cursor).max(0) as usize;
                     if let Some(params) = function["params"].as_array_mut() {
                         for (i, param) in params.iter_mut().enumerate().take(count) {
-                            let spelled = self.api.text((self.api.clang_getCursorSpelling)((self.api.clang_Cursor_getArgument)(cursor, i as c_uint)));
+                            let spelled = self.api.text((self.api.clang_getCursorSpelling)((self
+                                .api
+                                .clang_Cursor_getArgument)(
+                                cursor,
+                                i as c_uint,
+                            )));
                             if !spelled.is_empty() {
                                 param["name"] = json!(spelled);
                             }
                         }
                     }
                     functions.insert(name.clone(), function);
-                    // Token membership claims repeated declarations, as the old service does.
-                    if text
-                        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                        .any(|word| word == name)
-                    {
-                        names.insert(name, json!(true));
-                    }
                 } else if matches!(cursor.kind, 2 | 3 | 5 | 20) {
                     let ty = if cursor.kind == 20 {
                         (self.api.clang_getTypedefDeclUnderlyingType)(cursor)
@@ -516,16 +971,41 @@ impl Registry {
                             declaration["typedefName"] = json!(true);
                         }
                     }
+                    if cursor.kind == 5 {
+                        let mut value = value;
+                        value["values"] = json!(self.api.children(cursor).into_iter().filter(|child| child.kind == 7).map(|child| json!({"name":self.api.text((self.api.clang_getCursorSpelling)(child)),"value":(self.api.clang_getEnumConstantDeclValue)(child)})).collect::<Vec<_>>());
+                        model.enums.insert(value["id"].as_u64().unwrap(), value);
+                    }
+                }
+                if unit
+                    .extent((self.api.clang_getCursorExtent)(cursor))
+                    .is_some_and(|(a, _)| a >= start && a < source.len())
+                {
+                    claims.cursor(&self.api, &model, cursor);
                 }
             }
         }
-        let names = Json::Object(names);
+        // Certification and model conversion publish together. An uncertifiable
+        // successful chunk permanently closes only the NEW token replay path.
+        let groups = self
+            .closed_context
+            .then(|| self.certify(&unit, start, source.len(), &model))
+            .flatten();
         self.model = model;
         self.functions = functions;
         self.declarations = source;
         self.types.clear();
-        self.blocks.insert(text.into(), names.clone());
-        Ok(names)
+        if let Some(groups) = groups {
+            for group in groups {
+                if !self.groups.contains(&group) {
+                    self.groups.push(group);
+                }
+            }
+        } else {
+            self.closed_context = false;
+        }
+        self.blocks.insert(text.into(), claims.clone());
+        Ok(claims)
     }
     fn type_from_string(&mut self, spec: &str) -> Result<Json, String> {
         if let Some(hit) = self.types.get(spec) {
@@ -533,7 +1013,10 @@ impl Registry {
         }
         // A type string may not introduce a tag, which C's typeof would do
         // silently: the legacy FFI refuses one the declarations never named.
-        if let Some(tag) = tags(spec).into_iter().find(|tag| !tags(&self.declarations).contains(tag)) {
+        if let Some(tag) = tags(spec)
+            .into_iter()
+            .find(|tag| !tags(&self.declarations).contains(tag))
+        {
             return Err(format!("undeclared or implicit tag '{}'", tag.1));
         }
         // [?] is the legacy FFI's variable array notation; an incomplete C array
@@ -591,66 +1074,40 @@ impl Registry {
         let mut functions = Vec::new();
         let mut enums = Vec::new();
         for (index, text) in units.iter().enumerate() {
-            // What this unit declares, not what a prelude or an earlier unit did:
-            // a struct counts when this unit introduced or completed it.
-            let before = self.model.structs.clone();
-            if let Err(error) = self.declare(text) {
-                if !partial {
-                    return Err(error);
+            let claims = match self.declare(text) {
+                Ok(claims) => claims,
+                Err(error) => {
+                    if !partial {
+                        return Err(error);
+                    }
+                    let reason = if error.contains("incomplete type") {
+                        format!("{error} (its size is unknown)")
+                    } else {
+                        error
+                    };
+                    rejected.push(json!({"text":text,"reason":reason,"unit":index+1}));
+                    continue;
                 }
-                // libclang says "incomplete type"; the model's word is that its size is unknown.
-                let reason = if error.contains("incomplete type") { format!("{error} (its size is unknown)") } else { error };
-                rejected.push(json!({"text":text,"reason":reason,"unit":index+1}));
-                continue;
-            }
-            let mentioned = |name: &str| {
-                !name.is_empty()
-                    && text
-                        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                        .any(|word| word == name)
             };
-            for (id, declaration) in &self.model.structs {
-                if declaration["name"].as_str().is_some_and(&mentioned) && before.get(id) != Some(declaration) {
+            for id in &claims.structs {
+                if let Some(declaration) = self.model.structs.get(id) {
                     let mut declaration = declaration.clone();
                     declaration["unit"] = json!(index + 1);
                     structures.push(declaration);
                 }
             }
-            for (name, declaration) in &self.functions {
-                if mentioned(name) {
+            for name in &claims.functions {
+                if let Some(declaration) = self.functions.get(name) {
                     let mut declaration = declaration.clone();
                     declaration["unit"] = json!(index + 1);
                     functions.push(declaration);
                 }
             }
-            let unit = self.api.parse(&self.declarations)?;
-            unsafe {
-                for cursor in self
-                    .api
-                    .children((self.api.clang_getTranslationUnitCursor)(unit.unit))
-                {
-                    if cursor.kind != 5 {
-                        continue;
-                    }
-                    let name = self.api.text((self.api.clang_getCursorSpelling)(cursor));
-                    let mut values = Vec::new();
-                    for child in self.api.children(cursor) {
-                        if child.kind == 7 {
-                            values.push(json!({"name":self.api.text((self.api.clang_getCursorSpelling)(child)),"value":(self.api.clang_getEnumConstantDeclValue)(child)}));
-                        }
-                    }
-                    if mentioned(&name)
-                        || values
-                            .iter()
-                            .any(|value| mentioned(value["name"].as_str().unwrap_or("")))
-                    {
-                        let mut value =
-                            self.model
-                                .ty(&self.api, (self.api.clang_getCursorType)(cursor), 0)?;
-                        value["values"] = json!(values);
-                        value["unit"] = json!(index + 1);
-                        enums.push(value);
-                    }
+            for id in &claims.enums {
+                if let Some(declaration) = self.model.enums.get(id) {
+                    let mut declaration = declaration.clone();
+                    declaration["unit"] = json!(index + 1);
+                    enums.push(declaration);
                 }
             }
         }
@@ -663,7 +1120,7 @@ impl Registry {
     pub fn execute(&mut self, request: &Json) -> Result<Json, String> {
         let text = request["text"].as_str().unwrap_or("");
         match request["operation"].as_str().unwrap_or("") {
-            "declare" => self.declare(text),
+            "declare" => self.declare(text).map(|claims| claims.names()),
             "type" => self.type_from_string(text),
             "struct" => Ok(self
                 .model
@@ -702,7 +1159,9 @@ fn tags(text: &str) -> Vec<(&str, &str)> {
         if matches!(keyword, "struct" | "union" | "enum") {
             let trimmed = tail.trim_start();
             let name = &trimmed[..trimmed.find(|c: char| !word(c)).unwrap_or(trimmed.len())];
-            if !name.is_empty() { out.push((keyword, name)); }
+            if !name.is_empty() {
+                out.push((keyword, name));
+            }
         }
     }
     out
