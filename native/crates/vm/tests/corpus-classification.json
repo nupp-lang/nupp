@@ -1520,6 +1520,12 @@
       "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; the fingerprint module is instanced from source with the runtime's answers as its globals"
     },
     {
+      "suite": "vmpredicatecalltest",
+      "class": "portable",
+      "facilities": "load,getinfo,spawn",
+      "reason": "imported field predicates preserve provider frames, qualified initialization, and provider body patches on the VM"
+    },
+    {
       "suite": "withsuspensiontest",
       "class": "portable",
       "facilities": "load,getinfo,lua-generator",
