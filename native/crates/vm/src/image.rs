@@ -53,17 +53,18 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
     let mut modules: Vec<(String, u32, Option<String>)> = Vec::new();
     let base = it.funcs.len() as u32;
     let mut cur: Option<Function> = None;
+    let mut parts: Vec<&str> = Vec::new();
     for (ln, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() { continue; }
-        let parts: Vec<&str> = split(line);
+        split(line, &mut parts);
         match parts[0] {
             "shape" => {
                 let mut names = Vec::new(); let mut types = Vec::new(); let mut identity = None;
                 for p in &parts[3..] {
                     if let Some(key) = p.strip_prefix("identity=") { identity = Some(key.to_string()); continue; }
                     if let Some((n, f)) = p.strip_prefix("method:").and_then(|m| m.split_once('=')) { pending_methods.push((shape_ids.len() as u32, n.to_string(), f.parse().unwrap())); continue; }
-                    let (n, t) = p.split_once(':').ok_or(format!("line {ln}: slot"))?;
+                    let (n, t) = p.split_once(':').ok_or_else(|| format!("line {ln}: slot"))?;
                     let nv = it.intern(n); it.handles.push(nv); names.push(nv);
                     types.push(match t { "num" => SlotTy::Num, "str" => SlotTy::Str, "bool" => SlotTy::Bool, t if t.starts_with("rec:") => match shape_ids.get(t[4..].parse::<usize>().map_err(|_| format!("line {ln}: record slot"))?) { Some(&id) => SlotTy::Record(id), None => SlotTy::Any }, _ => SlotTy::Any });
                 }
@@ -156,27 +157,27 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
             }
             "entry" => { entry = base + parts[1].parse::<u32>().unwrap(); }
             "table" => {
-                let f = cur.as_mut().ok_or(format!("line {ln}: table outside a function"))?;
+                let f = cur.as_mut().ok_or_else(|| format!("line {ln}: table outside a function"))?;
                 let def: i32 = parts[2].parse().map_err(|_| format!("line {ln}: table default"))?;
                 let offs: Vec<i32> = parts[3..].iter().map(|s| s.parse().unwrap()).collect();
                 f.jump_tables.push((def, offs));
             }
             "module" => {
-                let chunk = parts.get(2).and_then(|s| s.parse::<u32>().ok()).ok_or(format!("line {ln}: module chunk"))?;
+                let chunk = parts.get(2).and_then(|s| s.parse::<u32>().ok()).ok_or_else(|| format!("line {ln}: module chunk"))?;
                 if let Some(p) = parts.get(3) {
                     let path: std::sync::Arc<str> = (*p).into();
                     for f in funcs.iter_mut().filter(|f| f.module == parts[1]) { f.path = Some(path.clone()); }
                 }
                 modules.push((parts[1].to_string(), chunk, parts.get(3).map(|p| p.to_string())));
             }
-            "source" => { let f = cur.as_mut().ok_or(format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
+            "source" => { let f = cur.as_mut().ok_or_else(|| format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
             // The declaration of a module a native extension provides.
             "extension" if cur.is_none() => {
                 if parts.len() != 3 || !parts[2].starts_with('"') { return Err(format!("line {ln}: extension NAME \"DECLARATION\"")); }
                 crate::extension::declare(it, parts[1], &unquote(parts[2])).map_err(|e| format!("line {ln}: {e}"))?;
             }
             name => {
-                let f = cur.as_mut().ok_or(format!("line {ln}: op outside a function"))?;
+                let f = cur.as_mut().ok_or_else(|| format!("line {ln}: op outside a function"))?;
                 let a = |i: usize| -> i64 { parts.get(i).and_then(|s| s.parse().ok()).unwrap_or(0) };
                 let strict = match name {
                     "SpanLen" | "VSplatN" | "ICmpEq" | "ICmpNe" | "ICmpLt" | "ICmpLe" => Some(3),
@@ -278,16 +279,15 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
     Ok(Parsed { base, entry, funcs, shape_ids, pending_methods, modules })
 }
 
-fn split(line: &str) -> Vec<&str> {
+fn split<'a>(line: &'a str, out: &mut Vec<&'a str>) {
     // Whitespace split that keeps a quoted string as one token.
-    let mut out = Vec::new();
+    out.clear();
     let mut rest = line;
     while !rest.is_empty() {
         rest = rest.trim_start();
         if rest.starts_with('"') { let end = rest[1..].find('"').map(|i| i + 2).unwrap_or(rest.len()); out.push(&rest[..end]); rest = &rest[end..]; }
         else { let end = rest.find(char::is_whitespace).unwrap_or(rest.len()); out.push(&rest[..end]); rest = &rest[end..]; }
     }
-    out
 }
 
 /// The bytes of a quoted constant: `\ddd` escapes decode to single bytes.
@@ -298,4 +298,51 @@ fn unquote(s: &str) -> Vec<u8> {
     let mut i = 0;
     while i < b.len() { if b[i] == b'\\' && i + 3 < b.len() + 1 { let code: u8 = std::str::from_utf8(&b[i + 1..i + 4]).unwrap().parse().unwrap(); out.push(code); i += 4; } else { out.push(b[i]); i += 1; } }
     out
+}
+
+#[cfg(test)]
+mod token_buffer_tests {
+    use super::split;
+
+    #[test]
+    fn quoted_unicode_tokens_preserve_boundaries() {
+        let mut tokens = Vec::new();
+        for (source, expected) in [
+            (
+                "const 0 str \"a b\\034c\\034 é\"",
+                vec!["const", "0", "str", "\"a b\\034c\\034 é\""],
+            ),
+            (
+                "source\u{00a0}module\u{2003}next",
+                vec!["source", "module", "next"],
+            ),
+            (
+                "const 0 str \"inside\u{2003}space\"",
+                vec!["const", "0", "str", "\"inside\u{2003}space\""],
+            ),
+            ("\"unterminated value", vec!["\"unterminated value"]),
+            ("", vec![]),
+        ] {
+            split(source, &mut tokens);
+            assert_eq!(tokens, expected);
+        }
+    }
+
+    #[test]
+    fn a_shorter_line_reuses_capacity_without_stale_tokens() {
+        let long = (0..2404)
+            .map(|n| format!("field{n}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut tokens = Vec::new();
+        split(&long, &mut tokens);
+        assert_eq!(tokens.len(), 2404);
+        assert_eq!(tokens[2403], "field2403");
+        let capacity = tokens.capacity();
+        let pointer = tokens.as_ptr();
+        split("entry 0", &mut tokens);
+        assert_eq!(tokens, ["entry", "0"]);
+        assert_eq!(tokens.capacity(), capacity);
+        assert_eq!(tokens.as_ptr(), pointer);
+    }
 }

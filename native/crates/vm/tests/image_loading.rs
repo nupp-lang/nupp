@@ -203,3 +203,49 @@ fn image_loader_stands_aside_for_a_spent_runtime_module() {
     forget(&mut it, "basemod");
     assert!(ask(&mut it, "basemod").as_func().is_some(), "the running image keeps answering for its own modules");
 }
+
+#[test]
+fn image_quotes_unicode_whitespace_and_buffer_reuse_survive_gc() {
+    let text = "\u{2003}shape\u{00a0}0 Box x:str\n\
+                function value 0 0 4 1 :v\r\n\
+                source\u{2003}fixture\n\
+                const 0 str \"space\\034quote\\034 é\u{2003}end\"\n\
+                K 1 0\nRet 1\nend\nmodule fixture 0 fixture.nupp\nentry 0\n";
+    let mut vm = Interp::new();
+    vm.heap.stress = true;
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let entry = image::load(&mut vm, text).unwrap();
+    assert_eq!(vm.funcs.len(), 1);
+    assert_eq!(vm.funcs[0].module, "fixture");
+    assert_eq!(vm.modules["fixture"], entry);
+    assert_eq!(vm.heap.shapes[0].names.len(), 1);
+    vm.full_cycle();
+    let result = vm.call_value(Value::func(entry), &[])[0];
+    assert_eq!(
+        vm.bytes_of(result),
+        "space\"quote\" é\u{2003}end".as_bytes()
+    );
+    vm.check_oracle();
+}
+
+#[test]
+fn malformed_image_messages_keep_their_original_lines() {
+    for (text, expected) in [
+        ("shape 0 Bad broken\n", "line 0: slot"),
+        ("table 0 0\n", "line 0: table outside a function"),
+        ("module missing nope\n", "line 0: module chunk"),
+        ("source orphan\n", "line 0: source outside a function"),
+        ("Ret 0\n", "line 0: op outside a function"),
+        (
+            "function f 0 0 2 1 :v\nBogus\n",
+            "line 1: unknown opcode Bogus",
+        ),
+        ("\n\nsource orphan\n", "line 2: source outside a function"),
+    ] {
+        let mut vm = Interp::new();
+        assert_eq!(image::load(&mut vm, text).unwrap_err(), expected);
+        assert!(vm.funcs.is_empty());
+    }
+}
