@@ -3927,10 +3927,19 @@ selected cases and all 95 process/suspension cases. The original fixture also
 passes the fresh three-case replay, which does not reproduce the earlier
 state-dependent failure. Three explicit injection preparations ended at their
 external deadlines without a verified outcome; no red/green reproduction is
-claimed. A complete ordinary full baseline remains required before Node broad
-comparison and timing. See
-[fixture cleanup evidence](tests/process-fixture-cleanup-results.json) for the
-source, report identities and limits.
+claimed. See [fixture cleanup evidence](tests/process-fixture-cleanup-results.json)
+for the source, report identities and limits.
+
+The next full run retained both process sleep failures and cleared the earlier
+suspension stall, then stopped before a typed suite could load. URI teardown
+had cleared the VM's shared namespace despite never replacing its bootstrap.
+The URI and path fixtures now restore that namespace only when they installed
+a replacement. An ordinary URI-to-typed-suite selection reproduces the fatal
+error on the original source; all 69 path, URI, bitset and typed pool cases
+pass with the repair. The failed full run has no complete aggregate and is
+not a baseline. A complete ordinary full baseline remains required before
+Node broad comparison and timing. See
+[namespace fixture evidence](tests/namespace-fixture-cleanup-results.json).
 
 The full parallel report retains all 3,555 case IDs: 3,472 pass, 46 fail and 37
 are not executed. Prior evidence matches 45 failure messages exactly. The

@@ -17,6 +17,7 @@ local pathtext = require("nupp.io.path.pathtext")
 local M = {}
 
 local path, previous, root
+local installedBootstrap = false
 local unavailable
 
 local function temporaryRoot()
@@ -32,6 +33,7 @@ local function temporaryRoot()
 end
 
 function M.beforeAll()
+    installedBootstrap = false
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
@@ -55,14 +57,17 @@ function M.beforeAll()
         end
     )
     previous = rawget(_G, "nupp")
+    installedBootstrap = true
     _G.nupp = nil
     assert(loadstring(source))()
     path = require("nupp.io.path")
 end
 
 function M.afterAll()
-    if previous ~= nil or rawget(_G, "nupp") ~= nil then
+    -- Restore only a bootstrap this suite replaced.
+    if installedBootstrap then
         _G.nupp = previous
+        installedBootstrap = false
     end
     if root then
         os.execute("rm -rf '" .. root .. "'")
@@ -130,14 +135,20 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     for _, windows in ipairs({false, true}) do
         local base = windows and "out\\report.tmp" or "out/report.tmp"
         for _, name in ipairs({"../../etc/passwd", "/abs", "a/b", "x\0y", "..", ".", ""}) do
-            test.raises(function()
-                pathtext.with(base, name, false, windows)
-            end, "file name")
+            test.raises(
+                function()
+                    pathtext.with(base, name, false, windows)
+                end,
+                "file name"
+            )
         end
         for _, extension in ipairs({"json/../../x", "/abs", "x\0y"}) do
-            test.raises(function()
-                pathtext.with(base, extension, true, windows)
-            end, "extension")
+            test.raises(
+                function()
+                    pathtext.with(base, extension, true, windows)
+                end,
+                "extension"
+            )
         end
         test.equal(pathtext.with(base, "other.txt", false, windows), windows and "out/other.txt" or "out/other.txt")
         test.equal(pathtext.with(base, "json", true, windows), "out/report.json")
@@ -146,24 +157,36 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     -- Windows reads a backslash as a separator and a colon as a drive or a
     -- stream, so neither is a component there.
     for _, name in ipairs({"..\\x", "C:x", "a:b"}) do
-        test.raises(function()
-            pathtext.with("out\\report.tmp", name, false, true)
-        end, "file name")
+        test.raises(
+            function()
+                pathtext.with("out\\report.tmp", name, false, true)
+            end,
+            "file name"
+        )
     end
-    test.raises(function()
-        pathtext.with("out\\report.tmp", "a\\b", true, true)
-    end, "extension")
+    test.raises(
+        function()
+            pathtext.with("out\\report.tmp", "a\\b", true, true)
+        end,
+        "extension"
+    )
     -- POSIX names may hold both.
     test.equal(pathtext.with("out/report.tmp", "a\\b:c", false, false), "out/a\\b:c")
 
     local module = ready()
     local report = module.newPath("out", "report.tmp")
-    test.raises(function()
-        report:withFileName("../../etc/passwd")
-    end, "file name")
-    test.raises(function()
-        report:withExtension("json/../../x")
-    end, "extension")
+    test.raises(
+        function()
+            report:withFileName("../../etc/passwd")
+        end,
+        "file name"
+    )
+    test.raises(
+        function()
+            report:withExtension("json/../../x")
+        end,
+        "extension"
+    )
 end
 
 -- One anchored and one not do not share a coordinate system. An absolute target

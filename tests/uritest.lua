@@ -17,6 +17,7 @@ local nativeStage = require("nupp.tools.build.native")
 local M = {}
 
 local uri, previous, root
+local installedBootstrap = false
 local unavailable
 
 local function temporaryRoot()
@@ -33,6 +34,7 @@ local function temporaryRoot()
 end
 
 function M.beforeAll()
+    installedBootstrap = false
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
@@ -62,14 +64,17 @@ function M.beforeAll()
         end
     )
     previous = rawget(_G, "nupp")
+    installedBootstrap = true
     _G.nupp = nil
     assert(loadstring(source))()
     uri = require("nupp.io.uri")
 end
 
 function M.afterAll()
-    if previous ~= nil or rawget(_G, "nupp") ~= nil then
+    -- Restore only a bootstrap this suite replaced.
+    if installedBootstrap then
         _G.nupp = previous
+        installedBootstrap = false
     end
     if root then
         os.execute("rm -rf '" .. root .. "'")
@@ -361,22 +366,52 @@ function M.resolvingFollowsRfc3986Examples()
     local module = ready()
     local base = assert(module.newURI("http://a/b/c/d;p?q"))
     local expected = {
-        {"g:h", "g:h"}, {"g", "http://a/b/c/g"}, {"./g", "http://a/b/c/g"}, {"g/", "http://a/b/c/g/"},
-        {"/g", "http://a/g"}, {"//g", "http://g/"}, {"?y", "http://a/b/c/d;p?y"}, {"g?y", "http://a/b/c/g?y"},
-        {"#s", "http://a/b/c/d;p?q#s"}, {"g#s", "http://a/b/c/g#s"}, {"g?y#s", "http://a/b/c/g?y#s"},
-        {";x", "http://a/b/c/;x"}, {"g;x", "http://a/b/c/g;x"}, {"g;x?y#s", "http://a/b/c/g;x?y#s"},
-        {"", "http://a/b/c/d;p?q"}, {".", "http://a/b/c/"}, {"./", "http://a/b/c/"}, {"..", "http://a/b/"},
-        {"../", "http://a/b/"}, {"../g", "http://a/b/g"}, {"../..", "http://a/"}, {"../../", "http://a/"},
+        {"g:h", "g:h"},
+        {"g", "http://a/b/c/g"},
+        {"./g", "http://a/b/c/g"},
+        {"g/", "http://a/b/c/g/"},
+        {"/g", "http://a/g"},
+        {"//g", "http://g/"},
+        {"?y", "http://a/b/c/d;p?y"},
+        {"g?y", "http://a/b/c/g?y"},
+        {"#s", "http://a/b/c/d;p?q#s"},
+        {"g#s", "http://a/b/c/g#s"},
+        {"g?y#s", "http://a/b/c/g?y#s"},
+        {";x", "http://a/b/c/;x"},
+        {"g;x", "http://a/b/c/g;x"},
+        {"g;x?y#s", "http://a/b/c/g;x?y#s"},
+        {"", "http://a/b/c/d;p?q"},
+        {".", "http://a/b/c/"},
+        {"./", "http://a/b/c/"},
+        {"..", "http://a/b/"},
+        {"../", "http://a/b/"},
+        {"../g", "http://a/b/g"},
+        {"../..", "http://a/"},
+        {"../../", "http://a/"},
         {"../../g", "http://a/g"},
-        {"../../../g", "http://a/g"}, {"../../../../g", "http://a/g"}, {"/./g", "http://a/g"},
-        {"/../g", "http://a/g"}, {"g.", "http://a/b/c/g."}, {".g", "http://a/b/c/.g"}, {"g..", "http://a/b/c/g.."},
-        {"..g", "http://a/b/c/..g"}, {"./../g", "http://a/b/g"}, {"./g/.", "http://a/b/c/g/"},
-        {"g/./h", "http://a/b/c/g/h"}, {"g/../h", "http://a/b/c/h"}, {"g;x=1/./y", "http://a/b/c/g;x=1/y"},
-        {"g;x=1/../y", "http://a/b/c/y"}, {"g?y/./x", "http://a/b/c/g?y/./x"},
-        {"g?y/../x", "http://a/b/c/g?y/../x"}, {"g#s/./x", "http://a/b/c/g#s/./x"},
+        {"../../../g", "http://a/g"},
+        {"../../../../g", "http://a/g"},
+        {"/./g", "http://a/g"},
+        {"/../g", "http://a/g"},
+        {"g.", "http://a/b/c/g."},
+        {".g", "http://a/b/c/.g"},
+        {"g..", "http://a/b/c/g.."},
+        {"..g", "http://a/b/c/..g"},
+        {"./../g", "http://a/b/g"},
+        {"./g/.", "http://a/b/c/g/"},
+        {"g/./h", "http://a/b/c/g/h"},
+        {"g/../h", "http://a/b/c/h"},
+        {"g;x=1/./y", "http://a/b/c/g;x=1/y"},
+        {"g;x=1/../y", "http://a/b/c/y"},
+        {"g?y/./x", "http://a/b/c/g?y/./x"},
+        {"g?y/../x", "http://a/b/c/g?y/../x"},
+        {"g#s/./x", "http://a/b/c/g#s/./x"},
         {"g#s/../x", "http://a/b/c/g#s/../x"},
-        {"http:g", "http://a/b/c/g"}, {"HTTP:g", "http://a/b/c/g"}, {"http:./x", "http://a/b/c/x"},
-        {"http:?y", "http://a/b/c/d;p?y"}, {"http:", "http://a/b/c/d;p?q"},
+        {"http:g", "http://a/b/c/g"},
+        {"HTTP:g", "http://a/b/c/g"},
+        {"http:./x", "http://a/b/c/x"},
+        {"http:?y", "http://a/b/c/d;p?y"},
+        {"http:", "http://a/b/c/d;p?q"},
     }
     for _, row in ipairs(expected) do
         local resolved, reason = base:resolve(row[1])
@@ -392,23 +427,32 @@ function M.derivingRefusesTextThatIsNotTheComponent()
     local module = ready()
     local base = assert(module.newURI("https://example.com/x"))
     for _, scheme in ipairs({"http://evil/", "a:b", "", "1http", "ht tp", "http/"}) do
-        test.raises(function()
-            base:withScheme(scheme)
-        end, "scheme")
+        test.raises(
+            function()
+                base:withScheme(scheme)
+            end,
+            "scheme"
+        )
     end
     for _, host in ipairs({"h:1", "evil.example:1", "[::1]:80"}) do
-        test.raises(function()
-            base:withHost(host)
-        end, "host")
+        test.raises(
+            function()
+                base:withHost(host)
+            end,
+            "host"
+        )
     end
     test.equal(base:withHost("[::1]"):host(), "[::1]")
     test.equal(base:withScheme("HTTP"):toString(), "http://example.com/x")
     -- A scheme change that would move text into the authority is refused
     -- rather than letting the new parse find a host the old URI did not have.
     local mail = assert(module.newURI("mailto:evil.example"))
-    test.raises(function()
-        mail:withScheme("http")
-    end, "scheme")
+    test.raises(
+        function()
+            mail:withScheme("http")
+        end,
+        "scheme"
+    )
 end
 
 -- The endpoint says where to go and the receiver says what to ask for, which is
@@ -506,7 +550,12 @@ end
 -- provider now answers what the URL Standard does.
 local STANDARD_ROWS = {
     {"https://ex.com/a/%2e%2e/secret", "https://ex.com/secret", path = "/secret"},
-    {"https://ex.com/caf\195\169?q=\195\169", "https://ex.com/caf%C3%A9?q=%C3%A9", path = "/caf%C3%A9", query = "q=%C3%A9"},
+    {
+        "https://ex.com/caf\195\169?q=\195\169",
+        "https://ex.com/caf%C3%A9?q=%C3%A9",
+        path = "/caf%C3%A9",
+        query = "q=%C3%A9"
+    },
     {"http://user:@h/", "http://user@h/", username = "user", password = false},
     {"http://0x7f.1/", "http://127.0.0.1/", host = "127.0.0.1"},
     {"file://h:8080/x", false},
@@ -605,6 +654,7 @@ function M.browserHostUrlIsReadBack()
             if text == "https://caf\195\169.example/a b" then
                 return {href = "https://xn--caf-dma.example/a%20b"}
             end
+
             return {error = "Invalid URL"}
         end,
     })
@@ -658,16 +708,51 @@ local CORPUS_HOSTS = {
     "1.2.3.4.5",
 }
 local CORPUS_PIECES = {
-    "a", "b", "/", "/", "\\", ".", "..", "%2e", "%2E%2e", "%", "%41", "?", "#", "@", ":", "[", "]", "'", '"',
-    "<", ">", "`", "{", "}", "~", "&", "=", ";", ",", "!", "$", "\t", "C:", "//", "x y",
+    "a",
+    "b",
+    "/",
+    "/",
+    "\\",
+    ".",
+    "..",
+    "%2e",
+    "%2E%2e",
+    "%",
+    "%41",
+    "?",
+    "#",
+    "@",
+    ":",
+    "[",
+    "]",
+    "'",
+    '"',
+    "<",
+    ">",
+    "`",
+    "{",
+    "}",
+    "~",
+    "&",
+    "=",
+    ";",
+    ",",
+    "!",
+    "$",
+    "\t",
+    "C:",
+    "//",
+    "x y",
 }
 
 local function corpus(seed, count)
     local state = seed
+
     local function pick(n)
         state = (state * 1103515245 + 12345) % 2147483648
         return state % n + 1
     end
+
     local texts = {}
     for index = 1, count do
         local parts = {CORPUS_SCHEMES[pick(#CORPUS_SCHEMES)], ":"}

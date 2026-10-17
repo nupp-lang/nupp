@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "status": "Fixture namespace repair accepted after actual ordinary red/green; complete ordinary full baseline still required",
+  "scope": "Test fixture namespace ownership only; no compiler or runtime semantics change.",
+  "functionalChange": "Match accepted filestest pattern: track installedBootstrap, restore _G.nupp only when this fixture actually replaced bootstrap; VM early return and staging failure preserve ambient namespace.",
+  "actualRed": {
+    "disposition": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/red-disposition.json",
+      "bytes": 1395,
+      "sha256": "55aba57b809fd84fb4a28c626ce6d81272abc7e419a638fb0f43783ecb797d31"
+    },
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/red-receipt.json",
+      "bytes": 3457,
+      "sha256": "1a1c9e44f5577a09529098a6428e8f8a4dc392f7f1f093901c308d7943912c8b"
+    },
+    "stdout": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/red.json",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/red.stderr",
+      "bytes": 943,
+      "sha256": "cb06dafefa97487b0f72457447d2cd57b11d87e8d94c00472250cdfbaeaea7d6"
+    },
+    "fatal": "src/nupp/compiler/runtime/typewitness.nupp:8: attempt to index a nil value",
+    "completeAggregateAvailable": false,
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "uritest",
+      "utilpooltest"
+    ]
+  },
+  "actualGreen": {
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/green.json",
+      "sha256": "0aa3c3d03940f51abcc75655718d33aab043fe0b66eb13a268b50ad16c412bca",
+      "stdoutPrefix": "",
+      "summary": {
+        "schemaVersion": 1,
+        "ok": true,
+        "total": 69,
+        "passed": 69,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 2961.885986328125
+      }
+    },
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/green-receipt.json",
+      "bytes": 4789,
+      "sha256": "8ec360aabc27d2e19ebfe0fc9aaab9a0a2a58b38bbe8a522eb7f3e081742792c"
+    },
+    "parsed": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/green.parsed.json",
+      "bytes": 20695,
+      "sha256": "dcd70e549f9f8d5353d503aeea049dde42eb3474ee15665c4a43ddf0b1cf4a3f"
+    },
+    "summary": {
+      "total": 69,
+      "passed": 69,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0
+    },
+    "suiteTotals": {
+      "pathtest": 14,
+      "uritest": 19,
+      "utilbitsettest": 26,
+      "utilpooltest": 10
+    },
+    "completeAggregateValidated": true,
+    "allUniqueIds": 69,
+    "noDuplicateShardUnrunRows": true,
+    "failedCases": [],
+    "allOwnedProcessesAbsent": true,
+    "source13Unchanged": true,
+    "defaultRunner67Unchanged": true,
+    "payload05ffUnchanged": true,
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "pathtest",
+      "uritest",
+      "utilbitsettest",
+      "utilpooltest"
+    ],
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/green.stderr",
+      "bytes": 2966,
+      "sha256": "6bf15ae6c148bd5b0450e1c8d2febd2b355eed37d29ca2ecbef6c2cf565058e3"
+    }
+  },
+  "source13Manifest": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/frozen-source13.json",
+    "bytes": 2441,
+    "sha256": "38d484fe75260db3ad193e4e17cfcea02b6241428faf47945a33b7355c3c7050"
+  },
+  "sourceArtifacts": {
+    "uritest": {
+      "before": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/uritest.before.lua",
+        "bytes": 34844,
+        "sha256": "bbe9f3c926e994dcc81aef94aa5107e584f6129e23955ce8b2329ca2dc702d83"
+      },
+      "after": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/uritest.after.lua",
+        "bytes": 35527,
+        "sha256": "b2413c362d6523f8a363537c99a885c32ab697358f79c57ec17aefe405ed0f83"
+      }
+    },
+    "pathtest": {
+      "before": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/pathtest.before.lua",
+        "bytes": 16023,
+        "sha256": "ec27090e69c6d870e7417330e41d0dee4c31fe0c8453a614c363ecfb33fd1095"
+      },
+      "after": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/uri-path-bootstrap/pathtest.after.lua",
+        "bytes": 16419,
+        "sha256": "8e5c8be1858bdba7830910b512492757d15f3a1d408412bf0a695197acd533c1"
+      }
+    }
+  },
+  "defaultRunnerArchive": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/default.nupp-test",
+    "sha256": "67cb8b9d63bd96035ce4713ff633fa399d5705ca29749d9533b761d28f454c5c",
+    "bytes": 33038496
+  },
+  "sourceTrailerProof": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/receipt.json",
+    "sha256": "a735e76102034cb042b3e41c3c298c168a9f7ebf6f0acc0f5582c13a1aef65ca",
+    "bytes": 2157
+  },
+  "priorFullFailedAttempt": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-final/failed-run-disposition.json",
+    "bytes": 4796,
+    "sha256": "bd7e92a81c9e1a93e2191beffe7d8ad066473502a9d9821f1655203369d992ec"
+  },
+  "priorFullActualCleanupCheckpoint": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-final/suspension-cleanup-checkpoint.json",
+    "bytes": 2506,
+    "sha256": "23fb8c64d94b826841f1c9be5db980684031513e870c29acced61ac22d0c21f6"
+  },
+  "limits": [
+    "This is actual ordinary public CLI focused validation, not full baseline completion.",
+    "Original full run and its partial trace inventory remain rejected as aggregate evidence.",
+    "No path/message normalization, skipped assertion, altered provider .",
+    "Later Node broad/timing prerequisite still requires one actual complete ordinary full report with explicit root disposition."
+  ],
+  "rootReview": {
+    "integrationBase": "46c1a723034c1e876cdddd3ae9bdfa1c9a87a2b6",
+    "formattedSourcesMatchValidation": true,
+    "allSixteenOriginalArtifactReferencesVerified": true,
+    "completeGreenAggregateRechecked": true,
+    "acceptance": "Restore shared namespace only if the suite installed a replacement; preserve existing provider and test assertions."
+  }
+}
