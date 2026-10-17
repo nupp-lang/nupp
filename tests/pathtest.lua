@@ -37,6 +37,11 @@ function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
+    -- The VM carries its own provider; staging Lua runtime files is unnecessary.
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        path = require("nupp.io.path")
+        return
+    end
     local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
     if not libraryPath then
         local staged, problem = nativeStage.build(root, "out", {["native.path"] = true})
