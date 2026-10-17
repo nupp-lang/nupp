@@ -276,7 +276,13 @@ static Value h_strbyte(ARGS) {
         uint8_t k = obj_kind(s);
         if (k == KIND_STR || k == KIND_SLICE) {
             int64_t i = iregs[pc->c]; uint64_t n = obj_len(s);
-            regs[pc->a] = (i >= 1 && (uint64_t)i <= n) ? num((double)obj_ptr(s)[i - 1]) : T_NIL;
+            if (i >= 1 && (uint64_t)i <= n) {
+                regs[pc->a] = num((double)obj_ptr(s)[i - 1]);
+                pc++; NEXT;
+            }
+            // Relative positions use Rust's checked normalization only on a miss.
+            if (i < 0) { SLOW; }
+            regs[pc->a] = T_NIL;
             pc++; NEXT;
         }
     }

@@ -1696,6 +1696,12 @@ impl<M: Module> Compiler<M> {
                         let a = b.ins().iadd(ptr, i0); let byte = b.ins().uload8(types::I64, flags, a, 0); let fl = b.ins().fcvt_from_uint(types::F64, byte); let bits = b.ins().bitcast(types::I64, cast, fl);
                         b.ins().jump(join, &[bits.into()]);
                         b.switch_to_block(outb); b.seal_block(outb);
+                        // Preserve the hot positive byte load; only relative
+                        // indices take the existing cold helper.
+                        let invalid = b.create_block();
+                        let relative = b.ins().icmp_imm(IntCC::SignedLessThan, idx, 0);
+                        b.ins().brif(relative, slow, &[], invalid, &[]);
+                        b.switch_to_block(invalid); b.seal_block(invalid);
                         let nil = b.ins().iconst(types::I64, NIL); b.ins().jump(join, &[nil.into()]);
                         b.switch_to_block(slow); b.seal_block(slow);
                         let c = hcall!("j_str_byte", &[v, idx]); let r = b.inst_results(c)[0]; b.ins().jump(join, &[r.into()]);

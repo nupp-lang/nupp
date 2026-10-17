@@ -730,7 +730,7 @@ fn j_buf_append_impl(buf: u64, s: u64) -> u64 { let it = ctx(); let t = it.bytes
 fn j_buf_append_sub_impl(buf: u64, s: u64, i: u64, j: u64) -> u64 { let it = ctx(); let t = it.sub_bytes(V(s), i as i64, j as i64).to_vec(); it.buf_append(V(buf), &t); 0 }
 fn j_substring_impl(s: u64, i: u64, j: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = it.sub_bytes(V(s), i as i64, j as i64).to_vec(); let v = it.string_of(&t); leave_helper!(_hp); v.0 }
 fn j_buf_finish_impl(buf: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().buf_finish(V(buf)); leave_helper!(_hp); v.0 }
-fn j_str_byte_impl(s: u64, i: u64) -> u64 { let it = ctx(); let bytes = it.bytes_of(V(s)); let i = i as i64; if i >= 1 && (i as usize) <= bytes.len() { V::num(bytes[i as usize - 1] as f64).0 } else { V::NIL.0 } }
+fn j_str_byte_impl(s: u64, i: u64) -> u64 { ctx().str_byte(V(s), i as i64).0 }
 fn j_pow_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); crate::numeric::binary(ctx(), V(a), V(b), "pow", None).0 }
 #[unsafe(no_mangle)]
 pub extern "C" fn j_pow(a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|_| V(j_pow_impl(a, b))).0 }

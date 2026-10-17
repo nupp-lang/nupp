@@ -1964,6 +1964,24 @@ impl Interp {
     pub(crate) fn forget_loaded_lookups(&mut self) { self.unwinds = Value::NIL; self.string_meta = Value::NIL; }
     /// The last key a `pairs` iterator returned, kept in its pattern word.
     pub fn set_iter_last(&mut self, it: Value, key: Value) { let p = it.as_obj().unwrap(); self.heap.barrier(p, key); hdr!(self, it, "not an iterator").iter().pattern = key; }
+    // Single-result string.byte: positive positions are 1-based; negative
+    // positions count from the end. Unsigned magnitude also handles i64::MIN.
+    #[inline]
+    pub(crate) fn str_byte(&self, value: Value, index: i64) -> Value {
+        let bytes = self.bytes_of(value);
+        let offset = if index > 0 {
+            usize::try_from(index - 1)
+                .ok()
+                .filter(|&at| at < bytes.len())
+        } else if index < 0 {
+            usize::try_from(index.unsigned_abs())
+                .ok()
+                .and_then(|back| bytes.len().checked_sub(back))
+        } else {
+            None
+        };
+        offset.map_or(Value::NIL, |at| Value::num(bytes[at] as f64))
+    }
     /// Lua's substring clamping: 1-based inclusive, out-of-range ends clamp, an empty range is empty.
     pub fn sub_bytes(&self, v: Value, i: i64, j: i64) -> &[u8] {
         let b = self.bytes_of(v);
@@ -2522,7 +2540,7 @@ impl Interp {
                     Op::Truthy(d, v) => ir!(d) = r!(v).truthy() as i64,
                     Op::BytesLen(d, s) => ir!(d) = self.bytes_of(r!(s)).len() as i64,
                     Op::LoadU8K(d, s, i) => { let bytes = self.bytes_of(r!(s)); ir!(d) = bytes[ir!(i) as usize] as i64; }
-                    Op::StrByte(d, s, i) => { let v = r!(s); if !self.is_stringish(v) { self.err("byte of a non-string") } let bytes = self.bytes_of(v); let i = ir!(i); r!(d) = if i >= 1 && (i as usize) <= bytes.len() { Value::num(bytes[i as usize - 1] as f64) } else { Value::NIL }; }
+                    Op::StrByte(d, s, i) => { let v = r!(s); if !self.is_stringish(v) { self.err("byte of a non-string") } r!(d) = self.str_byte(v, ir!(i)); }
                     Op::LoadU8(d, s, i) => { let bytes = self.bytes_of(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte read out of range") } ir!(d) = bytes[i] as i64; }
                     Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
                     Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }
