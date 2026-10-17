@@ -1,0 +1,1311 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Combined source accepted for codegen-experiment against the retained 43-failure baseline",
+  "scope": "Structured worker admission and VM-local task/provider state, attemptAll cleanup registration, project payload/check accounting, parser allocation repair, and three suite scheduling transitions. Tested source b63 only; no SIMD, later nominal-fragment fixture repair, hash optimization, main merge, or push claim.",
+  "disposition": {
+    "sourceAcceptedAgainstKnownBaseline": true,
+    "ordinaryBroadPassed": false,
+    "rawReportOk": false,
+    "literalStrictEqual": false,
+    "newFailures": 0,
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/root-review.json",
+      "bytes": 2464,
+      "sha256": "5d5dbbb91e18e1f7bbd5ab34170f1d76e6105112414aa342897cecbe451533e5"
+    },
+    "acceptedIntegrationBranch": "codegen-experiment",
+    "landingProof": "Git ancestry of tested b63d986d61d6e14e5816c500ef9aa738f4d56907; the evidence commit changes no tested production bytes."
+  },
+  "source": {
+    "baseRevision": "c8cf8a405",
+    "testedRevision": "b63d986d61d6e14e5816c500ef9aa738f4d56907",
+    "worktree": "/Users/dowling/projects/nupp-wt/bundle-port-contract",
+    "changedSourceFiles": {
+      "native/crates/vm/lib/nupp/runtime/provider/workers.nupp": "282cfdcc18277f5630c61e81f2a6476836b518896e303016bc345e60086b9eba",
+      "native/crates/vm/lib/nupp/suspension/internal/coroutines.nupp": "222b59df221394894bb85fe2d13792662e9e2ae0ef78e5c8255b7fe286b28d55",
+      "native/crates/vm/src/image.rs": "e60f820c8eaae90ed6ca66303dfc746174828aba2f50736e27962b481d10d184",
+      "native/crates/vm/src/persist.rs": "acfc5f1dd88e56f2247d6e6d02209f72b945b4d48abfb525a498357b9f588547",
+      "native/crates/vm/src/scheduler.rs": "02c8357c1b600a6b8b8cc8bf0ed8fba6003122f4fda2940c7ad3f8734d3b118f",
+      "native/crates/vm/src/task_api.rs": "59188fc3e113c14e735b62a52efb69293d853c59daeca4aafd7d439be80592f8",
+      "native/crates/vm/src/workers.rs": "fb0e6a66b4ce1130fb284040bda8448cbb815399f5a323dc0cca6991af1624bb",
+      "native/crates/vm/tests/corpus-classification.json": "d5af390d4ea4e568abdfbca7b1eae78618abcb9b07d74a52df99949d68bdd80f",
+      "native/crates/vm/tests/image_loading.rs": "400f5d2200a3f06ebd5a5030f15e9a37b3a3213f6bbc27f62730a98ba89556d7",
+      "src/nupp/compiler/vm/lower.nupp": "e0297ea71158ae94a845ae6c9935cee7aaefa65773fc46d6ecaf4a37f803e05c",
+      "src/nupp/suspension/internal/coroutines.nupp": "d09ea867972356a5b4ff8e29e017ad83969f3882b5b714168ec28d6f70d9f1d8",
+      "src/nupp/suspension/internal/provider.nupp": "0a0f5f4558e412b38a4c27dc3cdb98be940cd3d3801f73ca18d343be39e707e5",
+      "src/nupp/tasks.nupp": "08e293ecf9563fb74fc294ae3accdb47c37e58e94d943ca1c137e96c848b8f3b",
+      "src/nupp/tools/build/modules.nupp": "97e0ebad0db7eb790f43c7b14575e327a15d9746ea06c1f677e7db58a6637168",
+      "src/nupp/tools/build/package.nupp": "8be06eb50f9de558854dc657034e7c20c28f78a1d5b67f12a4f242ca9cc41552",
+      "tests/bundletest.lua": "7daf762eef1a860db907a307a4bd11554395a40b82f8911b16817825efa8bfc2",
+      "tests/ownershiptest.lua": "48b206cc4230c4f90890d9642e1d1668602df43ba53834e134205e00eb0b1c0c",
+      "tests/projecttest.lua": "0fce5d6e37467c8d46f4a0c572b5a13191ea651d7a76594a817074a053fee803"
+    },
+    "frozenTrackedFileCount": 4532,
+    "fullFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-final-1/full-source-freeze.json",
+      "bytes": 645005,
+      "sha256": "1900f08e38faaeb9b202312d042879915a1ccdfb7f6d081dc5511bbe173583c3"
+    },
+    "assembly": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/final-source-assembly-1/assembly.json",
+      "bytes": 1424,
+      "sha256": "253b41b60fbef1d40724f65b22fc07e59578f5302ae8a0f3f2404560297ab382"
+    },
+    "classificationReview": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/final-source-assembly-1/classification-review.json",
+      "bytes": 2658,
+      "sha256": "d354ee2cbe556e150465598d973a8f4223d05e6181487b5c882dc2271a2f69e9"
+    },
+    "evidenceAddedAfterExecution": true
+  },
+  "behavior": {
+    "taskState": "Task scope/child state and suspension/worker provider state resolve private backing on the current VM global table. Initializers are capture-free; Lua retains module-local behavior. Existing whole-VM checkpoint graph rules remain in force.",
+    "structuredWorkers": "A structured fork transfers its owned graph immediately and queues prepared work when 64 structured workers are running in that interpreter. Actual first dispatch marks started. Oldest pending work is admitted after progress drains; queued cancellation does not load or execute its graph. Generic Worker::spawn and supervision Game remain eager.",
+    "persistence": "Unstarted prepared workers use a bounded private restore path with channel-only resource preflight, host-pool refusal before resource restoration and TLS restoration on success/error. Started and legacy workers retain existing restore semantics. No Task/Interp/native ABI or checkpoint format change.",
+    "admission": "Structured arguments reject foreign metatables while retaining exact registered nominal/resource/native-view codecs, moved-array ownership, cycles and aliases. Generic graph persistence remains unchanged.",
+    "workerFailures": "Structured-worker origin prevents nested structured workers. Retained direct-root and parking-cleanup failures carry worker trace information; parent rendering is cached without mutating the raw core Task.error or cancellation identity. Native-callback subsidiary-frame fidelity remains a separately recorded positions-lane gap; no universal stack-fidelity claim.",
+    "attemptAll": "VM call lowering publishes checker-resolved cleanup callbacks before evaluating attemptAll values, including statement, local initializer and return contexts. Existing declaration registration order and lexical captures are preserved.",
+    "project": "Packaging keeps source when no bytecode dumper is available and preserves dumper flags/errors. Parallel check-only cache results increment checkedModules without counting nonexistent generated code. Existing cache/retry and diagnostic replay semantics remain.",
+    "parser": "The image parser reuses one token vector and constructs five existing errors lazily. Its isolated fixed performance result is recorded separately; combined correctness does not create a second performance result."
+  },
+  "native": {
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/receipt.json",
+      "bytes": 23864,
+      "sha256": "9a4ced18b5879c9d43934a4ea0211531b9ae01732460ae9470c011b89dcfef6c"
+    },
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/root-review.json",
+      "bytes": 880,
+      "sha256": "1c8c387102832947e2a41797ff9de121b26c58fd5d78d969b2be2d0e5a27576a"
+    },
+    "boundaryAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/boundary-audit.json",
+      "bytes": 28107,
+      "sha256": "c8aecdf572db50460709dfd01ae9f5b5a414c9996177921698f13ec66829d4b8"
+    },
+    "compiledInputs": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-driver-1/compiled-inputs.json",
+      "bytes": 22213,
+      "sha256": "368a88c3372cfab62ec0f700df7170eb7fce7fb32914ed740dce58bc89f24867"
+    },
+    "compiledInputCount": 199,
+    "compiledInputsMatchFinalSource": true,
+    "executedNativeHead": "da18cb6d8da2320309f3709ab364c4a447c9fe2b",
+    "noncompiledDifferences": [
+      "native/crates/vm/tests/corpus-classification.json",
+      "src/nupp/tools/build/modules.nupp",
+      "src/nupp/tools/build/package.nupp",
+      "tests/projecttest.lua"
+    ],
+    "releaseDefault": {
+      "passed": 340,
+      "failed": 0,
+      "ignored": 4
+    },
+    "releaseNoCodegen": {
+      "passed": 276,
+      "failed": 0,
+      "ignored": 4
+    },
+    "interpreterOnly": "--no-default-features all-targets check passed; this is a compile check, not an interpreter test-count claim",
+    "nestedSubprocessSummariesNotAddedToTopLevel": true,
+    "featuresAndExactCommands": "Preserved in the native receipt and executable-boundary audit",
+    "kernel": {
+      "runtime": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/shared.runtime",
+        "bytes": 217824296,
+        "sha256": "e377af5c9c91d01adf39522174ad5e364c98aede8d7129de6c56550edb30022d"
+      },
+      "image": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+        "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3",
+        "bytes": 21224819
+      },
+      "ABI": 4,
+      "entries": 6580,
+      "freshParserNativeLink": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/receipt.json",
+        "bytes": 23864,
+        "sha256": "9a4ced18b5879c9d43934a4ea0211531b9ae01732460ae9470c011b89dcfef6c"
+      },
+      "noKernelRelinkByThisDriver": true
+    },
+    "DEVNativeDomain": {
+      "sourceCount": 192,
+      "proof": {
+        "sourceCount": 192,
+        "toolKey": "40c39f0309fe4a99",
+        "sourceKey": "2d0d8215fc28ef75",
+        "nativeKey": "299fc2deed04c8b8",
+        "normalizedFeatures": "base,compression,files,gpu,http,net,process,tls,uri,uuid",
+        "fixpointRuntimeKey": "3cdf806e46ec36bd",
+        "environment": {},
+        "versions": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/version-queries.json",
+          "bytes": 1480,
+          "sha256": "3364f46589bbf30a8aba14a19c82985934af46f61489aa77ac54c76c4c228029"
+        },
+        "nativeProviderUseClaim": false
+      },
+      "provider": {
+        "artifacts": [
+          {
+            "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/rust/native/299fc2deed04c8b8/target/release/libnupp_native.dylib",
+            "bytes": 11905136,
+            "sha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+          },
+          {
+            "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/rust/native/299fc2deed04c8b8/target/release/libnupp_native.a",
+            "bytes": 54169008,
+            "sha256": "6ca54efe7e3ce838f4621283d15b5b055cdb8442f8aa37395d42d97f986816b3"
+          },
+          {
+            "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/rust/native/299fc2deed04c8b8/.complete",
+            "bytes": 5,
+            "sha256": "d117fa006ba9208500b2930ce69cbde436c647afa917cb7396a9bc9111a46dd2"
+          },
+          {
+            "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/rust/native/299fc2deed04c8b8/target/release/.fingerprint/nupp-native-ffefc5f33c5d1a6b/lib-nupp_native.json",
+            "bytes": 1733,
+            "sha256": "0144b2a8f68a35fc0f342af8999559ddecf541752f25dda505d3d1d51f02d131"
+          }
+        ],
+        "actualKey": "299fc2deed04c8b8",
+        "expectedEffectiveFeatures": [
+          "base",
+          "compression",
+          "files",
+          "filesystem",
+          "gpu",
+          "http",
+          "net",
+          "process",
+          "tls",
+          "uri",
+          "uuid"
+        ]
+      },
+      "scope": "Toolchain native-provider keys are distinct from the 199 compiled VM/link input manifest. Provider availability is not a claim that VM fixpoint used the Lua-native provider."
+    }
+  },
+  "validation": {
+    "originalStoppedReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/receipt.json",
+      "bytes": 110513,
+      "sha256": "bf05a54b2beb503d25df249ccb67ad0137c518d5c96f9e2d6a1dc0c8de7b6f0a"
+    },
+    "stopReason": "The final Lua project7 command exited 0 with one valid complete JSON document beginning with tests; the original prefix extractor incorrectly required schemaVersion first. The original stopped wrapper receipt and raw output remain immutable.",
+    "recovery": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-1/recovery.receipt.json",
+      "bytes": 4465,
+      "sha256": "3872bf2e675525177a3320ee81552a623aac2300ec20f093ff7d181277614b97"
+    },
+    "recoveryScope": "Existing whole stdout was decoded without rerun or normalization, then checked with the same strict schema, exact seven IDs and numeric/source/provider/runner guards.",
+    "continuationReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/receipt.json",
+      "bytes": 79049,
+      "sha256": "3245af9bb64b9e4f4166fbc0a6edaf1aa3ff5f4b6c085bedaeb2ca7993579286"
+    },
+    "focused": {
+      "project99": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "projecttest",
+          "--jobs=1",
+          "--json"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/project99/stdout",
+          "bytes": 22960,
+          "sha256": "a341535845c3453d46bc676e59821ff408b4530877548f5fe88af1ca0a426469"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/project99/stderr",
+          "bytes": 6865,
+          "sha256": "1c1b38de2959e016e32f1bb93094dafc4ab1d36709879bb5f05abec6cbf3da10"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 99,
+          "passed": 99,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 117481.76196289062
+        },
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      },
+      "ownership300": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "ownershiptest",
+          "--jobs=1",
+          "--json"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/ownership300/stdout",
+          "bytes": 70606,
+          "sha256": "bbfc774a68fb119e6bf1152a27ef99e23fd8d4bc8785b22eb28e6436990e7569"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/ownership300/stderr",
+          "bytes": 16157,
+          "sha256": "c09f7d04263c9bf7a72e0b42bdca318fb5bcd16f49cfaf5072195a719a84c3cd"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 300,
+          "passed": 300,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 12282.653076171875
+        },
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      },
+      "whole-bundletest": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--jobs=1",
+          "--json",
+          "bundletest"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/whole-bundletest/stdout",
+          "bytes": 3766,
+          "sha256": "9e31a0aab5b62cca35d7daad8e4bc753b36d94a1ae14f6a486cc477828db3704"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/whole-bundletest/stderr",
+          "bytes": 759,
+          "sha256": "5d8dcd887a50229c28e8c199aff63f651bf0a4094350417ff76ccc24772bbe8c"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 13,
+          "passed": 11,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 2,
+          "durationMs": 96263.31787109375
+        },
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      },
+      "task-suspension115": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--jobs=1",
+          "--json",
+          "taskstest",
+          "taskfailuretest",
+          "suspensiontest",
+          "withsuspensiontest"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/task-suspension115/stdout",
+          "bytes": 26353,
+          "sha256": "66c86bfea62beff63a9bd7d0bf6fd6ab00a169d91f60aff64f8411530b1ece4a"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/task-suspension115/stderr",
+          "bytes": 5603,
+          "sha256": "2ee35b88edf4dabc6412a8f4f8a87caf239841db41cd7f38d0d16b717a5ed69f"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 115,
+          "passed": 115,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 1945.666015625
+        },
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      },
+      "process-two-cases": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--jobs=1",
+          "--json",
+          "--case=processtest/aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+          "--case=processtest/drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/process-two-cases/stdout",
+          "bytes": 956,
+          "sha256": "15ab59a3561058c9d4b6808317d9e5b726e088c37b3f83b92c4dcca31ec2d343"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/process-two-cases/stderr",
+          "bytes": 142,
+          "sha256": "e452b34d48ec5e912e0044633b1d455c83508a37c2be55db1b7aab5dc165453d"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 2,
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 9964.211181640625
+        },
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      },
+      "lua-task-suspension115": {
+        "command": [
+          "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+          "/Users/dowling/projects/nupp-wt/bundle-port-contract/tests/run.lua",
+          "--jobs=1",
+          "--json",
+          "taskstest",
+          "taskfailuretest",
+          "suspensiontest",
+          "withsuspensiontest"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/lua-task-suspension115/stdout",
+          "bytes": 32449,
+          "sha256": "11469a1ce4ad7d9fc066c3280ae3c6ef3170cf27fa8ac2106187b4a070f4ee3b"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/lua-task-suspension115/stderr",
+          "bytes": 5603,
+          "sha256": "2ee35b88edf4dabc6412a8f4f8a87caf239841db41cd7f38d0d16b717a5ed69f"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 115,
+          "passed": 115,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 2051.6259765625
+        },
+        "numericMetricsValid": true,
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      }
+    },
+    "LuaProject7": {
+      "command": [
+        "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+        "/Users/dowling/projects/nupp-wt/bundle-port-contract/tests/run.lua",
+        "--jobs=1",
+        "--json",
+        "--case=projecttest/payloadWithoutBytecodeDumperKeepsSource",
+        "--case=projecttest/payloadBytecodeDumperPreservesFlagsAndFailures",
+        "--case=projecttest/layoutTargetsSeparatePersistentComptimeResults",
+        "--case=projecttest/exportedLayoutChangesInvalidateOnlyTheirReaders",
+        "--case=projecttest/moduleBuildCacheUsesDependencyInterfaces",
+        "--case=projecttest/warmBuildInvalidatesOnlyReadersOfAChangedProjectType",
+        "--case=projecttest/checkReusesUnchangedModulesAndStillReportsThem"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/lua-project7/stdout",
+        "bytes": 2429,
+        "sha256": "99c0dbfd2ac2a40f1cf6dff1e1cc9ae745a74a675d9bf9d42e6c013c946d4f81"
+      },
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/lua-project7/stderr",
+        "bytes": 394,
+        "sha256": "83aa59b4ea89b6b98b57fcc0f8a537794cfa11c4a5f823574420504caa3b9cea"
+      },
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "notExecuted": 0,
+      "recoveredWithoutRerun": true
+    },
+    "generatedFixtures": {
+      "build": {
+        "command": [
+          "./bin/nupp",
+          "build",
+          "--target",
+          "compiler",
+          "--output",
+          "build",
+          "--json"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/generated-compiler/stdout",
+          "bytes": 44457,
+          "sha256": "6340e7925f7129f8f5008483afece186327c009fc2cda89f85ca61b06475f392"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/generated-compiler/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ownedGroupAbsent": true
+      },
+      "manifest": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/generated-modules.json",
+        "bytes": 152857,
+        "sha256": "91113e2247748eb5120d19b8b76bf4b6b653fa0e907e3da7dcb22ed63439ee28"
+      },
+      "proof": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/generated-verification.json",
+        "bytes": 65,
+        "sha256": "081fafff51e03354142dd8c0386a695fac25312ba4023de9ac3783daa341109b"
+      },
+      "verifiedModules": 506,
+      "focused10": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--jobs=1",
+          "--json",
+          "--case=pathtest/derivingRefusesTextThatIsNotOneComponent",
+          "--case=pathtest/derivingReplacesTheNameOrTheExtension",
+          "--case=pathtest/filesystemQuestionsUseTheGenericProvider",
+          "--case=pathtest/joiningLetsAnAbsolutePartReplaceWhatCameBefore",
+          "--case=pathtest/normalizingResolvesWhatItCanWithoutTheFilesystem",
+          "--case=pathtest/readingAPartSlicesRatherThanRebuilds",
+          "--case=pathtest/relatingAPathToItselfAnswersDot",
+          "--case=pathtest/relatingNeedsBothPathsAnchoredTheSameWay",
+          "--case=publicclitest/derivedMetadataNamesInterfacesStably",
+          "--case=publicclitest/primitiveLoadingDoesNotPullInHigherLayers"
+        ],
+        "exitCode": 0,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/generated-focused10/stdout",
+          "bytes": 2788,
+          "sha256": "0ff2b0513321e0968453389f37674d3461da15cd1b9451876c77707ff15d38ea"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/generated-focused10/stderr",
+          "bytes": 506,
+          "sha256": "f22ac2dd7d75b61b04b6044896440459a9f7220290765b2bb7865890bf6c747c"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": true,
+          "total": 10,
+          "passed": 10,
+          "failed": 0,
+          "skipped": 0,
+          "notExecuted": 0,
+          "durationMs": 4952.385986328125
+        },
+        "numericMetricsValid": true,
+        "metricEntries": 0,
+        "ownedGroupAbsent": true
+      }
+    },
+    "coldCheck": {
+      "command": [
+        "./bin/nupp",
+        "check",
+        "--json"
+      ],
+      "exitCode": 0,
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/cold-check/stdout",
+        "bytes": 1090,
+        "sha256": "b3db93b1c87dc92d9eec14f665e750b50a0e66b011d8cb35fb11127dcf2931cf"
+      },
+      "compiledModules": 505,
+      "reusedModules": 0,
+      "mode": "parallel",
+      "workers": 2,
+      "retries": 0,
+      "diagnostics": [],
+      "originalCacheRestored": {
+        "existed": true,
+        "identity": [
+          16777231,
+          153453101
+        ],
+        "backup": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/cache.before-unified-product-1",
+        "coldArchive": "/Users/dowling/projects/nupp-wt/bundle-port-contract/build/cache.from-unified-product-1-cold",
+        "restored": true
+      }
+    },
+    "VMFixpoint": {
+      "command": [
+        "./bin/nupp",
+        "fixpoint",
+        "--json"
+      ],
+      "exitCode": 0,
+      "report": {
+        "diagnostics": [],
+        "kind": "compiler",
+        "ok": true,
+        "target": "vm"
+      },
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/fixpoint/stdout",
+        "bytes": 61,
+        "sha256": "20e64ba977fb3e6d0bdb210a0238184fa924b96793e893f45585312ddcc185f2"
+      },
+      "actualRawStages": {
+        "C1.image": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/C1.image",
+          "bytes": 21229277,
+          "sha256": "37cf5302af84ca5a4856a4cbe40269603a6b0a16c6c4858c28ddddac4d798364",
+          "provenance": "actual raw stage retained by fresh POSIX descriptor"
+        },
+        "C2.image": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/C2.image",
+          "bytes": 21229277,
+          "sha256": "37cf5302af84ca5a4856a4cbe40269603a6b0a16c6c4858c28ddddac4d798364",
+          "provenance": "actual raw stage retained by fresh POSIX descriptor"
+        },
+        "C3.image": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/C3.image",
+          "bytes": 21229277,
+          "sha256": "37cf5302af84ca5a4856a4cbe40269603a6b0a16c6c4858c28ddddac4d798364",
+          "provenance": "actual raw stage retained by fresh POSIX descriptor"
+        },
+        "root.image": {
+          "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/root.image",
+          "bytes": 21229277,
+          "sha256": "37cf5302af84ca5a4856a4cbe40269603a6b0a16c6c4858c28ddddac4d798364",
+          "provenance": "official successful fixpoint copy of completed C3"
+        }
+      },
+      "officialC2EqualsC3": true,
+      "extraC1EqualsC2": true,
+      "rawStage3Retained": true,
+      "freshPOSIXDescriptorsClosed": true,
+      "scope": "Official VM fixpoint starts from the running accepted C0 image 7b80 with fresh parser/worker runtime e377. All raw C1/C2/C3 and official root copy equal 37cf. This is not a pinned Lua stage-zero execution or an assertion that C0 equals the rebuilt compiler."
+    },
+    "runnerSource": {
+      "beforeBroad": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/runner-source-proof.json",
+        "bytes": 128,
+        "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+      },
+      "afterBroad": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/broad-source-proof.json",
+        "bytes": 128,
+        "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+      },
+      "originalRaw8Digest": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/broad-original-trailer.digest",
+        "bytes": 8,
+        "sha256": "6488127b4739cec43d2209c0c5282224cc2cd1a5799836d889cf6be05f719660"
+      },
+      "verifiedCompiledModules": 501,
+      "externalDeclarations": 2,
+      "sourceAndRootCarriedResourceMatched": true
+    },
+    "sourceAndCleanup": {
+      "all4532TrackedBytesUnchanged": true,
+      "generatedProviderKernelAndRunnerGuardsPassed": true,
+      "cacheIdentityRestored": true,
+      "allOwnedCommandGroupsAbsent": true,
+      "orphanSleepChildren": "Two sleep2 descendants remained after the broad parent exit and were reaped through owned-process-group cleanup; the final group is absent."
+    }
+  },
+  "ordinaryBroad": {
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "--exclude=memarenatest"
+    ],
+    "deadlineSeconds": 7200,
+    "oneCommandOnly": true,
+    "commandExitCode": 1,
+    "collectionWrapperExitCode": 0,
+    "collectionSuccessIsNotSuitePass": true,
+    "summary": {
+      "total": 3964,
+      "passed": 3885,
+      "failed": 43,
+      "skipped": 0,
+      "notExecuted": 36,
+      "ok": false
+    },
+    "durationSeconds": 2688.0569846630096,
+    "stdout": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/ordinary-full-serial/stdout",
+      "bytes": 951401,
+      "sha256": "9a340bc069582b7ff404a9c76bd87898958add21207e5871fc0747a810a69bc5"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/ordinary-full-serial/stderr",
+      "bytes": 214944,
+      "sha256": "c45ca29bea6b14367f317035932fa939c9255fd61b88e7e718a4ddf12e003b07"
+    },
+    "parsed": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/ordinary-full-serial/parsed.json",
+      "bytes": 1235329,
+      "sha256": "54778ab860e5373fb1db367ce6e390a33856f37ba5268ae51d09a2cfb057b4fd"
+    },
+    "literalComparison": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/broad.literal-comparison.json",
+      "bytes": 38102,
+      "sha256": "24923f5279a87c6f7883b6cd6a9fced6f6fcf0e70fd168b09133736ff55283ad"
+    },
+    "baseline": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-attempt-all-scratch/generated-fixture-provisioning-1/full-serial.parsed.json",
+      "bytes": 1202288,
+      "sha256": "d0524ff13c081323d7cdff7896cb7562b576ff4eb5fdaf6093e6c3abaef2b7a4"
+    },
+    "baselineRaw": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-attempt-all-scratch/generated-fixture-provisioning-1/full-serial.stdout",
+      "bytes": 925796,
+      "sha256": "2b80b0c65d29c3d777e1ad422a52c83ae0db6e8ec47f9f1bccbbd60b89861a89"
+    },
+    "baselineReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-attempt-all-scratch/generated-fixture-provisioning-1/receipt.json",
+      "bytes": 756662,
+      "sha256": "5c634949220d751e3db4fbd49dabae4fa1101afbf48036ff92a455dc2b2f0680"
+    },
+    "baselineRootAcceptance": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-attempt-all-scratch/generated-fixture-strict-review-1/root-review.json",
+      "bytes": 888,
+      "sha256": "e94f12b6d8d0fe361c5f98328bf250c88797af56102d37ff7696470a00bdcf67"
+    },
+    "expectedOrderedInventory": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-final-1/expected-inventory.json",
+      "bytes": 243422,
+      "sha256": "31f2d699129f57098422ddb9cc3c9e3460e5f06ade4206f3965f9dcdde3d23b8"
+    },
+    "exactOrderedUniqueIds": 3964,
+    "allSharedStatusesPreserved": true,
+    "sharedOrderEqual": true,
+    "literalNotExecutedPayloadChanges": 0,
+    "normalization": false,
+    "missingIds": [
+      "bundletest/*",
+      "projecttest/*"
+    ],
+    "newRows": {
+      "total": 112,
+      "projectPassed": 99,
+      "bundlePassed": 11,
+      "bundleDeferred": 2
+    },
+    "literalChanges": [
+      {
+        "id": "examplestest/everyGuideExampleChecks",
+        "baseline": {
+          "status": "failed",
+          "failure": {
+            "message": "attempt to index field '__nuppCoverage' (a nil value)",
+            "file": ".../ownership-attempt-all/src/nupp/compiler/aot/scalar.nupp",
+            "line": 95
+          },
+          "notExecuted": null
+        },
+        "actual": {
+          "status": "failed",
+          "failure": {
+            "message": "attempt to index field '__nuppCoverage' (a nil value)",
+            "file": "...t/bundle-port-contract/src/nupp/compiler/aot/scalar.nupp",
+            "line": 95
+          },
+          "notExecuted": null
+        }
+      },
+      {
+        "id": "spitest/typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions",
+        "baseline": {
+          "status": "failed",
+          "failure": {
+            "message": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-20080-1792258086863089000-0-0-20080-7ffd000c56ad15a0-1229/out/main.lua: No such file or directory (os error 2)",
+            "file": "tests/spitest.lua",
+            "line": 16
+          },
+          "notExecuted": null
+        },
+        "actual": {
+          "status": "failed",
+          "failure": {
+            "message": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /private/tmp/nuvc-037e1npg/nupp-41603-1792265881187313000-0-0-41603-7ffd00070f6d1d80-1515/out/main.lua: No such file or directory (os error 2)",
+            "file": "tests/spitest.lua",
+            "line": 16
+          },
+          "notExecuted": null
+        }
+      }
+    ],
+    "explicitRootDispositions": [
+      {
+        "id": "examplestest/everyGuideExampleChecks",
+        "reason": "Same coverage nil failure and line95; only truncated originating worktree source location differs; source bytes match. Test remains failed."
+      },
+      {
+        "id": "spitest/typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions",
+        "reason": "Same missing legacy out/main.lua failure/file/line; only owned per-run temporary directory changes. Test remains failed."
+      }
+    ],
+    "all43FailedRows": [
+      {
+        "id": "benchtest/everyTopLevelNuppBenchmarkUsesTheHarness",
+        "failure": {
+          "message": "expected 11, got 6: all eleven top-level Nupp benchmarks are present",
+          "file": "tests/benchtest.lua",
+          "line": 62
+        }
+      },
+      {
+        "id": "comptimetest/computesLayoutForTheDeclaredTargetRatherThanTheHost",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "declaredmoduletest/qualifiedNamespacesSelectOneHiddenDirectRequire",
+        "failure": {
+          "message": "module 'tecs.world.query' not found:\n\tno nupp source for module 'tecs.world.query'\n\tno nupp source for module 'tecs.world.query'\n\tno native extension declares 'tecs.world.query'\n\tno file 'tests/../build/tecs/world/query.lua'\n\tno file 'tests/tecs/world/query.lua'\n\tno file './tecs/world/query.lua'\n\tno file './tecs/world/query/init.lua'"
+        }
+      },
+      {
+        "id": "derivetest/debugsDerivedStructsAndRecordsHoldingThem",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "derivetest/fingerprintsNestedDebugMapKeysAndIgnoresPathSpelling",
+        "failure": {
+          "message": "the image depends on the invocation path spelling:\n  want: \"shape 0 Mapped identity=derive_test:Mapped entries:any debug:any\\\n        function module:derive_test 0 0 43 3 :v\\\n          source derive_test\\\n          const 0 str \\\"nupp.compiler.runtime.typewitness\\\"\\\n          const 1 str \\\"install\\\"\\\n          const 2 str \\\"_G\\\"\\\n          const 3 str \\\"nupp\\\"\\\n          const 4 num 1\\\n          const 5 builtin vm.tableAppendResults\\\n          const 6 str \\\"__reflect\\\"\\\n          const 7 str \\\"declaration\\\"\\\n          const 8 str \\\"<chunk>\\\\000runtime\\\\0001\\\"\\\n          const 9 str \\\"__index\\\"\\\n          const 10 str \\\"\\\\000nupp:recordType\\\"\\\n          const 11 str \\\"nupp....\n  got:  \"shape 0 Mapped identity=derive_test:Mapped entries:any debug:any\\\n        function module:derive_test 0 0 43 3 :v\\\n          source derive_test\\\n          const 0 str \\\"nupp.compiler.runtime.typewitness\\\"\\\n          const 1 str \\\"install\\\"\\\n          const 2 str \\\"_G\\\"\\\n          const 3 str \\\"nupp\\\"\\\n          const 4 num 1\\\n          const 5 builtin vm.tableAppendResults\\\n          const 6 str \\\"__reflect\\\"\\\n          const 7 str \\\"declaration\\\"\\\n          const 8 str \\\"mapped\\\\000runtime\\\\0001\\\"\\\n          const 9 str \\\"__index\\\"\\\n          const 10 str \\\"\\\\000nupp:recordType\\\"\\\n          const 11 str \\\"nupp.c...",
+          "file": "tests/derivetest.lua",
+          "line": 322
+        }
+      },
+      {
+        "id": "examplestest/everyGuideExampleChecks",
+        "failure": {
+          "message": "attempt to index field '__nuppCoverage' (a nil value)",
+          "file": "...t/bundle-port-contract/src/nupp/compiler/aot/scalar.nupp",
+          "line": 95
+        }
+      },
+      {
+        "id": "gputest/cpuGpuMetadataRejectsFractionalIntegers",
+        "failure": {
+          "message": "expected rejection containing index out of bounds"
+        }
+      },
+      {
+        "id": "importctest/completeDirectDeclaratorsArePreserved",
+        "failure": {
+          "message": "missing: \"cdef struct nupp_complete_context\" not found in:\n-- generated by nupp import-c from complete_c_interop.h\n-- committed and hand-editable: fix or extend freely, re-import\n-- only when the header changes.\n\nmodule completecinterop\n\n-- import-c: skipped declaration at complete_c_interop.h:6 (typedef redefinition with different types ('struct nupp_complete_context' vs 'struct nupp_complete_context'))\n--   typedef struct { float matrix[2][3]; nupp_complete_callback callback; } nupp_complete_context;\n\ncdef function nupp_complete_get_callback(): function(int32)?\ncdef function nupp_complete_get_row(): int32[4]*?\ncdef function nupp_complete_set_callbacks(callbacks: function(int32)?*?)\n-- import-c: skipped function nupp_complete_use_context at complete_c_interop.h:11 (unsupported-c-type: parameter 1 is struct nupp_complete_context is not imported)\n\nexport = { nupp_complete_get_callback = nupp_complete_get_callback, nupp_complete_get_row = nupp_complete_get_row, nupp_complete_set_callbacks = nupp_complete_set_callbacks }\n",
+          "file": "tests/importctest.lua",
+          "line": 128
+        }
+      },
+      {
+        "id": "jsonfuseddifferentialtest/theFusedDecoderRejectsEveryDocumentLunajsonRejects",
+        "failure": {
+          "message": "expected a truthy value, got false: lunajson accepted the malformed 1. as 1",
+          "file": "tests/jsonfuseddifferentialtest.lua",
+          "line": 470
+        }
+      },
+      {
+        "id": "jsonpolicytest/decodeAndPullAnswerAReason",
+        "failure": {
+          "message": "expected a truthy value, got nil: runtime error: expected an integer",
+          "file": "tests/jsonpolicytest.lua",
+          "line": 72
+        }
+      },
+      {
+        "id": "jsonpolicytest/decodeProblemsNameTheTextNotTheDecoder",
+        "failure": {
+          "message": "expected a truthy value, got false: \"1.\" was accepted",
+          "file": "tests/jsonpolicytest.lua",
+          "line": 206
+        }
+      },
+      {
+        "id": "layouttest/aFixedArrayFieldIsLaidOutInline",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Vertex\n    pos: float[3]\n    uv: float[2]\n    id: int32\nend\nreturn layoutof(Vertex)\n",
+          "file": "tests/layouttest.lua",
+          "line": 389
+        }
+      },
+      {
+        "id": "layouttest/aFixedArrayIsUsableAtRuntime",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Vertex\n    pos: float[3]\n    id: int32\nend\n\nlocal v = new Vertex()\nv.pos[0] = 1.5\nv.pos[2] = 3.5\nv.id = 7\nreturn v.pos[0] + v.pos[2] + v.id\n",
+          "file": "tests/layouttest.lua",
+          "line": 429
+        }
+      },
+      {
+        "id": "layouttest/aFixedArrayOfStructsIsSizedFromItsElementCtype",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Cell\n    a: float\n    b: float\nend\n\nlocal struct Grid\n    cells: Cell[4]\n    n: int32\nend\nreturn layoutof(Grid)\n",
+          "file": "tests/layouttest.lua",
+          "line": 408
+        }
+      },
+      {
+        "id": "layouttest/aForwardPointerBetweenStructsWorks",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct A\n    b: B*?\n    n: int32\nend\n\nlocal struct B\n    a: A*?\n    n: int32\nend\n\nlocal x = new A(nil, 7)\nlocal y = new B(nil, 8)\nx.b = y\ny.a = x\nlocal total: integer = 0\n@unsafe do\n    total = x.b.n * 10 + y.a.n\nend\nreturn total\n",
+          "file": "tests/layouttest.lua",
+          "line": 358
+        }
+      },
+      {
+        "id": "layouttest/aNestedStructIsExpandedInTheFingerprint",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Inner\n    a: float\n    b: float\nend\n\nlocal struct Outer\n    inner: Inner\n    w: float\nend\nreturn layoutof(Outer)\n",
+          "file": "tests/layouttest.lua",
+          "line": 219
+        }
+      },
+      {
+        "id": "layouttest/aNestedStructIsSizedFromItsCtype",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Inner\n    a: float\n    b: float\nend\n\nlocal struct Outer\n    inner: Inner\n    w: float\nend\nreturn layoutof(Outer)\n",
+          "file": "tests/layouttest.lua",
+          "line": 99
+        }
+      },
+      {
+        "id": "layouttest/aNullablePointerIsStillAPointer",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Inner\n    a: float\nend\n\nlocal struct Maybe\n    p: Inner*?\n    n: int32\nend\nreturn layoutof(Maybe)\n",
+          "file": "tests/layouttest.lua",
+          "line": 142
+        }
+      },
+      {
+        "id": "layouttest/aPointerIsNotFollowedIntoTheFingerprint",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Inner\n    a: float\n    b: float\nend\n\nlocal struct Holder\n    p: Inner*\n    value: int32\nend\nreturn layoutof(Holder)\n",
+          "file": "tests/layouttest.lua",
+          "line": 248
+        }
+      },
+      {
+        "id": "layouttest/aPointerKeepsItsPointeeInTheSpelling",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Inner\n    a: float\nend\n\nlocal struct Pointy\n    p: Inner*\n    n: int32\nend\nreturn layoutof(Pointy)\n",
+          "file": "tests/layouttest.lua",
+          "line": 123
+        }
+      },
+      {
+        "id": "layouttest/aSelfReferencingChainCanBeWalked",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Node\n    next: Node*?\n    value: int32\nend\n\nlocal head = new Node(nil, 1)\nlocal tail = new Node(nil, 2)\nhead.next = tail\nlocal value: int32 = 0\n@unsafe do\n    value = head.next.value\nend\nreturn value\n",
+          "file": "tests/layouttest.lua",
+          "line": 295
+        }
+      },
+      {
+        "id": "layouttest/aSelfReferencingPointerWorks",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Node\n    next: Node*?\n    value: int32\nend\n\nlocal head = new Node(nil, 1)\nlocal tail = new Node(nil, 2)\nhead.next = tail\nreturn layoutof(Node).size\n",
+          "file": "tests/layouttest.lua",
+          "line": 277
+        }
+      },
+      {
+        "id": "layouttest/everyNumberIsTheTargets",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Vec3\n    x: float\n    y: float\n    z: float\nend\nreturn layoutof(Vec3)\n",
+          "file": "tests/layouttest.lua",
+          "line": 66
+        }
+      },
+      {
+        "id": "layouttest/reportsFieldsInDeclarationOrder",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Vec3\n    x: float\n    y: float\n    z: float\nend\nreturn layoutof(Vec3)\n",
+          "file": "tests/layouttest.lua",
+          "line": 50
+        }
+      },
+      {
+        "id": "layouttest/sizeAndPaddingAreDifferentQuestions",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct Mixed\n    tag: int8\n    value: number\n    id: int32\nend\nreturn layoutof(Mixed)\n",
+          "file": "tests/layouttest.lua",
+          "line": 84
+        }
+      },
+      {
+        "id": "layouttest/theFingerprintDistinguishesLayouts",
+        "failure": {
+          "message": "raised: runtime error: nupp: conflicting native struct declaration\nlocal struct S\n    x: float\n    y: int32\nend\nreturn layoutof(S)\n",
+          "file": "tests/layouttest.lua",
+          "line": 161
+        }
+      },
+      {
+        "id": "methodtest/interfacesCarryDefaultBodies",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "methodtest/structMethodsDispatchThroughMetatype",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "perfbudgettest/theBenchmarkProgramsStayWithinTheirBytecodeBudgets",
+        "failure": {
+          "message": "expected a truthy value, got false: bench/aos.bench.nupp compiles to 474 instructions, over its budget of 345\nbench/soa.bench.nupp compiles to 766 instructions, over its budget of 617",
+          "file": "tests/perfbudgettest.lua",
+          "line": 180
+        }
+      },
+      {
+        "id": "preludecachetest/aStoredPreludeIsNotRestoredOverAnotherIdentity",
+        "failure": {
+          "message": "expected a truthy value, got false: module 'ffi' not found:\n\tno nupp source for module 'ffi'\n\tno nupp source for module 'ffi'\n\tno native extension declares 'ffi'\n\tno file 'tests/../build/ffi.lua'\n\tno file 'tests/ffi.lua'\n\tno file './ffi.lua'\n\tno file './ffi/init.lua'",
+          "file": "tests/preludecachetest.lua",
+          "line": 307
+        }
+      },
+      {
+        "id": "processtest/aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+        "failure": {
+          "message": "expected a truthy value, got false: the driver slept in the platform between quiet passes",
+          "file": "tests/processtest.lua",
+          "line": 1415
+        }
+      },
+      {
+        "id": "processtest/drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+        "failure": {
+          "message": "expected a truthy value, got false: the driver slept in the platform between quiet passes",
+          "file": "tests/processtest.lua",
+          "line": 1452
+        }
+      },
+      {
+        "id": "runtimereflectiontest/genericReflectionSupportsStructWitnesses",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "serdetest/structsUseTheSameWitnessAndCodec",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "spitest/typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions",
+        "failure": {
+          "message": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /private/tmp/nuvc-037e1npg/nupp-41603-1792265881187313000-0-0-41603-7ffd00070f6d1d80-1515/out/main.lua: No such file or directory (os error 2)",
+          "file": "tests/spitest.lua",
+          "line": 16
+        }
+      },
+      {
+        "id": "structtest/bitWidthKeepsTheDeclaredType",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "structtest/dottedStructConstructorReachesItsMetatable",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "structtest/inlineStructMethodsUseTheFfiMetatypeNamespace",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "structtest/methodsOnADottedStructAttachToItsMetatable",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "structtest/nestedStructReadBorrowsItsParent",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "structtest/nestedStructsByValue",
+        "failure": {
+          "message": "runtime error: nupp: conflicting native struct declaration"
+        }
+      },
+      {
+        "id": "vmemitcachetest/aBodyEditToAWidelyImportedModuleStopsAtItsInterface",
+        "failure": {
+          "message": "expected a truthy value, got false: only the edited module is lowered, lowered 5",
+          "file": "tests/vmemitcachetest.lua",
+          "line": 238
+        }
+      },
+      {
+        "id": "vmemitcachetest/renumberingEverythingAfterAnEditStillReplays",
+        "failure": {
+          "message": "expected a truthy value, got false: only the grown module is lowered, lowered 5",
+          "file": "tests/vmemitcachetest.lua",
+          "line": 274
+        }
+      }
+    ],
+    "all36DeferredRows": [
+      {
+        "id": "bundletest/aRegionWhoseExtentWasForgedIsRefusedBeforeItCrosses",
+        "notExecuted": {
+          "reason": "missing capability native-region-transfer"
+        }
+      },
+      {
+        "id": "bundletest/nativeSharedBytesAreAccountedUntilCollected",
+        "notExecuted": {
+          "reason": "missing capability native-shared-bytes"
+        }
+      },
+      {
+        "id": "aotbuildtest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aotchecktest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aotrelationstest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aotsimdindicestest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aottest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aottexttest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aotverifytest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "aotvisittest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "browserhosttest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "browserprovidertest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "browserworkerstest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "bulkcolumntest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "cabitest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "clitest/*",
+        "notExecuted": {
+          "reason": "port-required: runs on LuaJIT (tests/run) until it is ported to the VM"
+        }
+      },
+      {
+        "id": "concatbuffertest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "gentest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "hostbinarytest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "hostchanneltest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "hostembeddingtest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "loweringinvarianttest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "optimizetest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "passpermutationtest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "processprovidertest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "runnertest/*",
+        "notExecuted": {
+          "reason": "harness: runs on LuaJIT (tests/run) until it is ported to the VM"
+        }
+      },
+      {
+        "id": "rusttoolchaintest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "sharedbytestest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "simdfixedlanestest/*",
+        "notExecuted": {
+          "reason": "port-required: runs on LuaJIT (tests/run) until it is ported to the VM"
+        }
+      },
+      {
+        "id": "simdlanetest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "soatest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "targetprofiletest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "targetvectorlayouttest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "toolchaintest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "valuebuildertest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      },
+      {
+        "id": "workerstartuptest/*",
+        "notExecuted": {
+          "reason": "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+        }
+      }
+    ],
+    "isolatedProcessControls": "Both quiet-sleep controls passed alone but retain exactly their prior failures in the full-state report. No broad process-sleep repair or 41-failure result is claimed.",
+    "strictComparatorRemainsFalse": true,
+    "rawOkRemainsFalse": true
+  },
+  "limits": [
+    "No green full-suite claim: all 43 failures are retained.",
+    "Two capability-specific bundle cases remain deferred; suite promotion does not implement those capabilities.",
+    "Parser performance describes the isolated fixed 45-sample experiment, not a cumulative worker/project performance measurement.",
+    "Unrelated prototype and failed/stopped artifacts remain preserved; no automatic message normalization or rerun was used."
+  ]
+}

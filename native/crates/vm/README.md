@@ -4120,3 +4120,62 @@ reviewed small real-AOT fixture passes all four GC modes instead. Sources,
 providers and original cache state remain unchanged. See
 [AOT map evidence](tests/compiler-aot-borrowed-maps-investigation.json) for the
 complete samples, gates, timeout disposition and preserved source identities.
+
+## Structured workers and compiler ports (2026-10-17)
+
+Structured workers keep task and suspension state in the current VM. Forks
+transfer their owned graph immediately, queue beyond 64 running workers per
+interpreter and mark a task started on actual dispatch. Queued cancellation
+and checkpoint restore preserve moved resources. Argument validation retains
+registered resource codecs while refusing foreign metatables; nested
+structured workers are refused. Direct-root and parking-cleanup traces retain
+worker context. Native-callback stack fidelity remains a separate positions lane
+limit.
+
+VM `attemptAll` calls publish resolved cleanup callbacks before evaluating
+values. Project packaging retains source without a bytecode dumper, and
+parallel check-only results count checked modules without inventing generated
+code. The ownership, bundle and project suites now run in the portable corpus.
+
+The ordinary command is
+`./bin/nupp test --jobs=1 --json --exclude=memarenatest`.
+Its complete report contains 3,964 ordered cases: 3,885 pass, 43 fail and 36
+remain deferred. All shared statuses match the retained baseline. Project
+passes 99 cases, ownership passes 300, and bundle passes 11 with two explicit
+capability deferrals. Root review accepts two literal source/temporary-path
+changes while retaining both failures and the failed strict comparison.
+The two platform-sleep cases pass alone but still fail in full-suite state.
+
+Release native tests pass 340 cases with default features and 276 without
+code generation, with four ignored in each; interpreter-only targets check.
+The 199 compiled native inputs match the linked runtime. The separate DEV
+provider key covers 192 inputs. Generated Lua verifies all 506 modules, and
+the actual default runner verifies 501 sources plus its original trailer.
+Cold checking compiles 505 modules with two workers and no retries. Official
+VM self-hosting retains identical raw C1, C2 and C3 images (`37cf5302...`),
+separately from the accepted C0 input (`7b80b79f...`). No pinned Lua stage-zero
+execution is claimed. See
+[combined port evidence](tests/combined-ports-acceptance.json) for exact source,
+artifact, stopped-wrapper recovery, failure and capability records.
+
+## Image parser allocation measurement (2026-10-17)
+
+The image parser reuses its token vector and constructs five existing errors
+lazily. Its fixed warm-startup trial passes both required 5% margins, and the
+conditional root trial stays within its 5% regression guard.
+
+All 45 samples remain: nine warm lexer rounds, one diagnostic cold round and
+five root rounds, each including baseline, candidate and LuaJIT. Median paired
+warm cycles fall 9.66%, instructions 11.49% and wall time 9.84%; peak RSS rises
+0.03%. Root cycles fall 0.51% and wall time 0.23%, a no-regression result for
+this startup objective. The single cold comparison has wall time up 1.73%
+and peak RSS up 13.73%; it remains diagnostic. Warm candidate wall median
+0.55 s stays above LuaJIT's 0.42 s. Foreign CPU activity remains recorded.
+
+The compiler image, object, maps, ABI 4 and `JIT_OPT=none` stay unchanged in
+that isolated trial. The scanner and quoted/Unicode/error behavior stay
+unchanged. No samples are added or discarded, and no cumulative speed claim
+is made for the combined correctness changes. See
+[parser allocation
+evidence](tests/compiler-image-parser-allocation-investigation.json)
+for every sample, paired ratio, source identity and preserved failed wrapper.

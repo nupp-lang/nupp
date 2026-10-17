@@ -1,0 +1,596 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Fixed performance and combined correctness accepted for codegen-experiment against the known 43-failure baseline",
+  "scope": "Reuse one per-image token Vec<&str> and lazily construct five existing image parser errors. Same compiler image, Nupp/Lua sources, workload root, accepted object/maps/owned sidecar, ABI4 and JIT_OPT=none. Scanner body, quoted/Unicode boundaries, image format and error messages are unchanged.",
+  "disposition": {
+    "executionAccepted": true,
+    "performanceAccepted": true,
+    "warmPrimaryPassed": true,
+    "rootGuardExecuted": true,
+    "rootGuardPassed": true,
+    "acceptedForSourceComposition": true,
+    "landingAccepted": true,
+    "sharedFinalGatesPending": false,
+    "ordinaryBroadPassed": false,
+    "candidateWarmStillSlowerThanLua": true,
+    "latestAcceptedSpeedBeforeComposition": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+    "combinedSourceAcceptedAgainstKnownBaseline": true
+  },
+  "sourcePrototype": {
+    "commit": "de63a789ffffd85de4fd17d740c9cdfa7f692016",
+    "branch": "vm-image-parser-allocation",
+    "worktree": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-evidence",
+    "files": [
+      "native/crates/vm/src/image.rs",
+      "native/crates/vm/tests/image_loading.rs"
+    ],
+    "postExecutionSourcePreservationOnly": true,
+    "testedBytesUnchanged": true,
+    "sourceCommitReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/source-commit-1/receipt.json",
+      "sha256": "50dc99ee13c6a4814378134e73b153411e0a352c9a4abe146f0eedc9d383e8ca"
+    },
+    "executedSourceFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/source-1/source-freeze.json",
+      "sha256": "55df79df6316522e4641a22ad9d6e09bf6066c5496d0bc3e9065351eb6cc0c5c"
+    },
+    "priorProductionDelta": {
+      "scope": "The sole pre-parser VM production delta from accepted C0 is the two main.rs JIT_SPEC_STATS reporting lines guarded cfg(feature=\"jit\"). Both compared linked-C0 feature sets exclude jit, so those lines compile out. Other intervening VM changes are test-only.",
+      "sourceDifference": {
+        "path": "/Users/dowling/projects/nupp-wt/cli-startup-phases-scratch/proposal-1/accepted-source-difference.patch",
+        "sha256": "88551e35aa6b76e55639ba2b3c6a73a2013b9520cf08e9a94c3f7fe3bcdbd7c3"
+      },
+      "linkedFeatures": [
+        "aot-linked",
+        "c-headers",
+        "native-ffi",
+        "compression",
+        "net",
+        "http",
+        "regex",
+        "markdown"
+      ],
+      "defaultFeatures": false
+    }
+  },
+  "protocol": {
+    "primary": "Warm lexer CLI, including process startup and all GC work; paired median cycles AND real wall each must fall at least5%",
+    "warmRounds": 9,
+    "warmProcesses": 27,
+    "coldRounds": 1,
+    "coldProcesses": 3,
+    "coldRole": "Diagnostic only; one triplet cannot settle the repository target. Hardware instruction/cycle counters describe the launched process; wall includes waiting. user/sys values are retained without assuming the same scope as hardware counters.",
+    "conditionalRootRounds": 5,
+    "rootProcesses": 15,
+    "rootGate": "Run only after both warm margins pass; paired median cycles AND wall may regress at most5%",
+    "order": [
+      "warm9",
+      "cold1 regardless of warm verdict",
+      "root5 only if both warm margins pass"
+    ],
+    "engineOrder": "baseline/Lua/candidate, reversed on odd rounds",
+    "LuaEveryRound": true,
+    "all45SamplesRetained": true,
+    "noRetriesExtensionsDiscardsOrRetuning": true,
+    "jobs": 2,
+    "warmCompiled": 0,
+    "warmReused": 36,
+    "coldCompiled": 505,
+    "coldWorkers": 2,
+    "coldRetries": 0,
+    "safetyDeadlineSeconds": {
+      "lexer": 300,
+      "cold-check": 600,
+      "emit": 7200
+    },
+    "hostQuiet": false,
+    "foreignActivity": "PID99684 ./build/app observed at100% in release window; untouched. Terminal raw observation retained in terminal proof.",
+    "protocolReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/proposal-1/protocol.proposed.json",
+      "sha256": "12a7630cb2e442da422f4bef21fedda28a1e1be38626aebbbb5e7524bbed62be"
+    },
+    "releasedConfig": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-proposal-1/config.released.json",
+      "sha256": "4da95ba774e3453e43e0c552106533c7e83138aa1f2dcdda16342011321577e2"
+    },
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-proposal-1/measure.py",
+      "sha256": "6b0a91a095a8482e111eef1710412f5b81dba091ba6e109f1fae50b786edf47f"
+    },
+    "windowRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-proposal-1/root-window-release.json",
+      "sha256": "bb39d3095ad27ec7191b0174c2dbb6a6d7248896ec55f10e0c85c03cace3deab"
+    }
+  },
+  "pairedMedianRelativeChanges": {
+    "lexer": {
+      "cycles elapsed": -0.09655289748269125,
+      "instructions retired": -0.11493226629447828,
+      "real": -0.0983606557377048,
+      "maximum resident set size": 0.00027224774544842845
+    },
+    "cold-check": {
+      "cycles elapsed": -0.02677755283867922,
+      "instructions retired": -0.010864399757506749,
+      "real": 0.017298735861609904,
+      "maximum resident set size": 0.13726486384944447
+    },
+    "emit": {
+      "cycles elapsed": -0.0051166065050384235,
+      "instructions retired": -0.005823656146491274,
+      "real": -0.0023181169757487963,
+      "maximum resident set size": 0.011407313374942607
+    }
+  },
+  "perEngineMedians": {
+    "lexer": {
+      "baseline": {
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 13423543168,
+        "cycles elapsed": 2574224728,
+        "maximum resident set size": 481312768
+      },
+      "luajit": {
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.06,
+        "instructions retired": 6858426652,
+        "cycles elapsed": 1814860407,
+        "maximum resident set size": 74661888
+      },
+      "candidate": {
+        "real": 0.55,
+        "user": 0.49,
+        "sys": 0.05,
+        "instructions retired": 11880744930,
+        "cycles elapsed": 2335960441,
+        "maximum resident set size": 481427456
+      }
+    },
+    "cold-check": {
+      "candidate": {
+        "real": 45.87,
+        "user": 74.61,
+        "sys": 1.11,
+        "instructions retired": 128904439996,
+        "cycles elapsed": 23482283706,
+        "maximum resident set size": 4364320768
+      },
+      "baseline": {
+        "real": 45.09,
+        "user": 73.18,
+        "sys": 1.09,
+        "instructions retired": 130320291742,
+        "cycles elapsed": 24128382750,
+        "maximum resident set size": 3837558784
+      },
+      "luajit": {
+        "real": 53.96,
+        "user": 77.26,
+        "sys": 8.51,
+        "instructions retired": 133402230208,
+        "cycles elapsed": 38659964773,
+        "maximum resident set size": 2841133056
+      }
+    },
+    "emit": {
+      "candidate": {
+        "real": 111.95,
+        "user": 110.95,
+        "sys": 0.88,
+        "instructions retired": 2640038196658,
+        "cycles elapsed": 474075390942,
+        "maximum resident set size": 3761274880
+      },
+      "baseline": {
+        "real": 112.2,
+        "user": 111.25,
+        "sys": 0.89,
+        "instructions retired": 2655080094547,
+        "cycles elapsed": 475456290524,
+        "maximum resident set size": 3716890624
+      },
+      "luajit": {
+        "real": 214.48,
+        "user": 194.03,
+        "sys": 17.02,
+        "instructions retired": 3086720366911,
+        "cycles elapsed": 902154035157,
+        "maximum resident set size": 1663008768
+      }
+    }
+  },
+  "statisticsScope": "Median of paired candidate/baseline relative changes is distinct from a ratio of per-engine medians. No whole-root5% speedup is claimed: root is a no-regression guard for this warm-startup objective. Candidate warm wall median0.55s remains above Lua0.42s.",
+  "allLuaReferences": {
+    "lexer": [
+      {
+        "repeat": 0,
+        "real": 0.43,
+        "user": 0.36,
+        "sys": 0.06,
+        "cycles": 1858276260,
+        "instructions": 7093035527,
+        "rss": 74858496
+      },
+      {
+        "repeat": 1,
+        "real": 0.43,
+        "user": 0.35,
+        "sys": 0.07,
+        "cycles": 1784464901,
+        "instructions": 6479129994,
+        "rss": 82231296
+      },
+      {
+        "repeat": 2,
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.06,
+        "cycles": 1811864287,
+        "instructions": 6858426652,
+        "rss": 74448896
+      },
+      {
+        "repeat": 3,
+        "real": 0.43,
+        "user": 0.35,
+        "sys": 0.06,
+        "cycles": 1836190067,
+        "instructions": 6879551021,
+        "rss": 74563584
+      },
+      {
+        "repeat": 4,
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.06,
+        "cycles": 1825795002,
+        "instructions": 6834460546,
+        "rss": 74661888
+      },
+      {
+        "repeat": 5,
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.06,
+        "cycles": 1814860407,
+        "instructions": 6909468283,
+        "rss": 74481664
+      },
+      {
+        "repeat": 6,
+        "real": 0.41,
+        "user": 0.34,
+        "sys": 0.07,
+        "cycles": 1730289157,
+        "instructions": 6462348743,
+        "rss": 82395136
+      },
+      {
+        "repeat": 7,
+        "real": 0.39,
+        "user": 0.32,
+        "sys": 0.06,
+        "cycles": 1707926832,
+        "instructions": 6482546065,
+        "rss": 82804736
+      },
+      {
+        "repeat": 8,
+        "real": 0.43,
+        "user": 0.36,
+        "sys": 0.06,
+        "cycles": 1865565170,
+        "instructions": 7054037635,
+        "rss": 74072064
+      }
+    ],
+    "cold-check": [
+      {
+        "repeat": 0,
+        "real": 53.96,
+        "user": 77.26,
+        "sys": 8.51,
+        "cycles": 38659964773,
+        "instructions": 133402230208,
+        "rss": 2841133056
+      }
+    ],
+    "emit": [
+      {
+        "repeat": 0,
+        "real": 146.14,
+        "user": 121.79,
+        "sys": 10.38,
+        "cycles": 565847476798,
+        "instructions": 1823143080338,
+        "rss": 1593655296
+      },
+      {
+        "repeat": 1,
+        "real": 143.28,
+        "user": 121.09,
+        "sys": 10.64,
+        "cycles": 564568788152,
+        "instructions": 1840111275762,
+        "rss": 1569325056
+      },
+      {
+        "repeat": 2,
+        "real": 241.35,
+        "user": 219.54,
+        "sys": 18.75,
+        "cycles": 1019513891400,
+        "instructions": 3549211298062,
+        "rss": 1697087488
+      },
+      {
+        "repeat": 3,
+        "real": 249.35,
+        "user": 225.84,
+        "sys": 19.57,
+        "cycles": 1051371675717,
+        "instructions": 3694007172367,
+        "rss": 1663008768
+      },
+      {
+        "repeat": 4,
+        "real": 214.48,
+        "user": 194.03,
+        "sys": 17.02,
+        "cycles": 902154035157,
+        "instructions": 3086720366911,
+        "rss": 1687257088
+      }
+    ]
+  },
+  "rawResults": {
+    "lexer": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/perf-lexer/results.json",
+      "sha256": "3c105d420474869241bce2c1ee52d12b0670edebe3f9c79beb05787e6b1fa201"
+    },
+    "cold-check": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/perf-cold-check/results.json",
+      "sha256": "808815622be6243f4ea93425090ca45ad1d10ee351b9dfc55420d366cda6f7e4"
+    },
+    "emit": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/perf-emit/results.json",
+      "sha256": "0470ce4e35d14a562803fda6d703f846c4a73aaf78eec56b2a0f0b56b6df7e30"
+    }
+  },
+  "measurementReceipt": {
+    "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/measure.receipt.json",
+    "sha256": "aefc0e3a396d2137b09a30ed483aab70d995bfb69717017d3a504b45b24d7658"
+  },
+  "independentRootPerformanceReview": {
+    "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/root-performance-review.json",
+    "sha256": "7c53ed09892282783d4aa5b5cb61afaf610e883e31485f0577946f9d07842f68"
+  },
+  "terminalSourceCacheAndProcessProof": {
+    "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/measurement-1/terminal-proof.json",
+    "sha256": "9bdad963e31badcea8c74ecaf26fc7ec034a67db947c9bc9d7c4c9b04403f847"
+  },
+  "correctness": {
+    "completion": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/correctness-completion-1/completion.json",
+      "sha256": "9b8eba624ecf9d9657ff4e911f22f04725cbbc7c7254bb6ca6814fb7ffd3f636"
+    },
+    "nativeTopLevel": {
+      "private": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 40
+      },
+      "focused": {
+        "passed": 72,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 0
+      },
+      "full-aot-vm": {
+        "passed": 320,
+        "failed": 0,
+        "ignored": 4,
+        "filtered": 0
+      },
+      "full-no-codegen-vm": {
+        "passed": 253,
+        "failed": 0,
+        "ignored": 4,
+        "filtered": 0
+      }
+    },
+    "nestedSubprocessSummariesKeptSeparate": true,
+    "ABI": 4,
+    "compiledFunctions": 6580,
+    "noexecSmokeCases": 13,
+    "freshSmokeProcesses": 2,
+    "sameRootRawImageSha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+    "checkParity": "Both baseline/candidate cold505 modules, parallel2 workers/retries0; warm0compiled/36reused; normalized outputs equal; original checks.buf670805... restored.",
+    "quotedUnicodeAndErrors": "New private2/public2 include actual GC stress/interleave/oracle/quarantine load/call and seven exact original Result errors/line numbers.",
+    "fixtures": "Two valid and seven Result-error CLI fixtures match exact exit/stdout/stderr. Existing malformed entry panic matches101+empty output. No panic payload is observable with the default suppressed hook. Original failed wrapper is preserved and explicitly reviewed; no rerun.",
+    "originalFailedFixtureWrapper": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-1/fixtures.receipt.json",
+      "sha256": "33f20df38888b0c1ec39e0996ebe89d63c91113d0c4f3c815424a0b84f13c995"
+    },
+    "rootFixtureReview": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-1/fixtures-root-review.json",
+      "sha256": "01e56f9679cde5747ca68da23ee19e6e4700a1d5e8263cad6aeaf03a6d20be25"
+    },
+    "receipts": {
+      "private": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/correctness-1/private/receipt.json",
+        "sha256": "1ab2f746968cb8f5e20cc3134066a6a30c81fe5d33899cc26d1d2fc32fa32c38"
+      },
+      "focused": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/correctness-1/focused/receipt.json",
+        "sha256": "5b232fc374abc4bbcecf617c9711c3bc5531d6abee42b3cf4d306a1067bc6ee8"
+      },
+      "full-aot-vm": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/correctness-1/full-aot-vm/receipt.json",
+        "sha256": "2553389651db56514265da789e4de82cdf94115f3388d96819ce01c974d037ad"
+      },
+      "full-no-codegen-vm": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/correctness-1/full-no-codegen-vm/receipt.json",
+        "sha256": "ce62eee3e24e1bcf54eb43dabfe7e139d316fb5c42666d2c4fd987869b55304d"
+      },
+      "link": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-2-continued/link.receipt.json",
+        "sha256": "f7b830dbad44ad3c8e6452f80ce3ab06b2b77da4c3ea188752f54cfde91e5b38"
+      },
+      "smoke": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-2-continued/smoke.receipt.json",
+        "sha256": "93cec96a5d46d839c9e91aca03253df1428a11f5611117515af40372db6a0721"
+      },
+      "fixtures": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-2-continued/fixtures.receipt.json",
+        "sha256": "d0686763c49aca77e485ccedbf70c67da0ba8886022d18449451199941a6985d"
+      },
+      "oracle": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-2-continued/oracle.receipt.json",
+        "sha256": "7da0fe62352fa64de0dd9a978544dfe8ee7ae24aa298507e9ac08b8b49dfa78b"
+      },
+      "checks": {
+        "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-2-continued/checks.receipt.json",
+        "sha256": "69e955b7e495cce7814e7de559b1e84999a9d52e236a9c3b3f40ed2831695e14"
+      }
+    }
+  },
+  "mechanism": {
+    "source": "One token Vec retains capacity across nonempty lines and is dropped when parse exits. Only five existing eager ok_or(format!) expressions become lazy ok_or_else closures. No parser/GC/layout/ABI/codegen policy change.",
+    "staticInputCounts": {
+      "nonemptyLines": 1072517,
+      "sourceVecConstructionsBefore": 1072517,
+      "tokens": 3719468,
+      "maximumTokensPerLine": 2404,
+      "sourceEagerFormatExpressionsBefore": 968797,
+      "scope": "Static source construction/evaluation counts, not observed allocator calls, retained allocation counts, CPU shares or a speed prediction.",
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/cli-startup-phases-scratch/startup-input-counts.json",
+        "sha256": "628937441e00f3eb8344087eafaa00c96a508627acb9e16d8ac6d0d29e0b52f2"
+      }
+    },
+    "optimizedProof": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/optimized-mechanism-1.json",
+      "sha256": "a1d976446786a34cceed9293726aad3c8dc4ed9e1217080c9e8526ec26961923"
+    },
+    "nativeParserCodeBytes": {
+      "baseline": 36516,
+      "candidate": 34604,
+      "delta": -1912
+    },
+    "retainedWork": "Token scanning/Unicode predicates, capacity checks/growth, length writes, eventual buffer drop and error-path formatting remain.",
+    "priorPhaseDiagnostic": {
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/cli-startup-phases-scratch/diagnostic-1/receipt.json",
+        "sha256": "d0cc25354aec36721b71e248e9cac45b6193e0f3a00e7f3aa93bd0637c4f988b"
+      },
+      "scope": "One main-only wall diagnostic under concurrent correctness/foreignCPU. Combined image load parse/verify/install/text-copy bucket, no tokenizer CPU share or speed verdict."
+    }
+  },
+  "artifacts": {
+    "baselineRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+      "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+    },
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+      "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "baselineObject": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o",
+      "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa"
+    },
+    "baselineMaps": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.maps",
+      "sha256": "fa5cd609ab548363eeed6e5986823df3e8b382873004a7581e52b727854ad270"
+    },
+    "baselineManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.manifest",
+      "sha256": "4a796bda9d2759743f8596ccdec61fa8e5cda7665d8b8a21681df0552d1f21b2"
+    },
+    "lua": {
+      "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+      "sha256": "88b0294dd40134dabdf3e0dbcfd46c06f4bce1925f809c8cc6934d8ea30321a5"
+    },
+    "perfHarness": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/compiler-frame-perf.py",
+      "sha256": "5c47853fc8e203b641ba99ab5cea7dfc9daa4d2cb0a2f4d3b91e3721a35ee403"
+    },
+    "smokeHarness": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/compiler-aot-smoke.py",
+      "sha256": "b4804ad87ba15a3556fd77e0fd6240a8e1bb10596449a38c7f29b989bb78ff89"
+    },
+    "luaVerifier": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/verify-generated.lua",
+      "sha256": "b571912f2d10b435ea31f19f57eb8237203ced35b886baf09479592e162ad134"
+    },
+    "nativeProvider": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+      "sha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+    },
+    "nativeStatic": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.a",
+      "sha256": "6ca54efe7e3ce838f4621283d15b5b055cdb8442f8aa37395d42d97f986816b3"
+    },
+    "nativeComplete": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/.complete",
+      "sha256": "d117fa006ba9208500b2930ce69cbde436c647afa917cb7396a9bc9111a46dd2"
+    },
+    "sameRootOracle": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/control.image",
+      "sha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db"
+    },
+    "baselineSidecar": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.rs",
+      "sha256": "aba3bcd8f405ace22c3c423f5d00969edb9783d5a742a11ba2462ad630f16985",
+      "bytes": 870830
+    },
+    "candidateRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/preparation-1/candidate.runtime",
+      "sha256": "8d9743a6c347b7340e657e4cdff73ab0c99349ab5d2f1690d587a78ed6e39c48"
+    }
+  },
+  "nativeProviderAudit": {
+    "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/lua-native-provider-audit-post-repair/receipt.json",
+    "sha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a"
+  },
+  "LuaSourceProof": {
+    "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/prepare-lua.receipt.json",
+    "sha256": "c2018850a7e03ec9ec3ad905aaac45b473692aa59ae7ee3f9b79d107f2a0362d"
+  },
+  "workloadSourceFreeze": {
+    "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/source-freeze.json",
+    "sha256": "63dbfaaa40814af0bef72f5dc459f81d3e5b5cde558df267d9a7207dbdd1a9d5"
+  },
+  "sharedFinalGateDisposition": {
+    "testedRevision": "b63d986d61d6e14e5816c500ef9aa738f4d56907",
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-continuation-output-1/root-review.json",
+      "bytes": 2464,
+      "sha256": "5d5dbbb91e18e1f7bbd5ab34170f1d76e6105112414aa342897cecbe451533e5"
+    },
+    "permanentCombinedEvidence": "combined-ports-acceptance.json",
+    "ordinaryBroad": {
+      "total": 3964,
+      "passed": 3885,
+      "failed": 43,
+      "skipped": 0,
+      "notExecuted": 36,
+      "ok": false
+    },
+    "ordinaryBroadPassed": false,
+    "strictLiteralComparisonRemainsFalse": true,
+    "scope": "Compiled parser source bytes match the accepted isolated trial. Combined release native, focused, cold, official VM self-host and complete ordinary broad gates passed their stated baseline-relative scope. No new timing, retuning or cumulative performance claim.",
+    "acceptedIntegrationBranch": "codegen-experiment"
+  },
+  "originalReviewedDraft": {
+    "path": "/Users/dowling/projects/nupp-wt/image-parser-allocation-scratch/evidence-draft-1/compiler-image-parser-allocation-investigation.json",
+    "bytes": 22951,
+    "sha256": "14af2d0404bef8a12320eac7cd2e99791b903337f7662f597edac9a57a403cfb"
+  }
+}
