@@ -7,6 +7,10 @@ function coroutines.localMap(_: string): any
     return setmetatable({}, {__mode = "k"})
 end
 
+function coroutines.localState(_: string, initialize: function(): any): any
+    return initialize()
+end
+
 function coroutines.create(body: any): thread
     return coroutine.create(body)
 end

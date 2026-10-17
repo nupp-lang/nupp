@@ -23,6 +23,41 @@ pub(crate) fn put(vm: &mut Interp, value: Value, name: &str, item: Value) {
     vm.set_index(value, key, item);
     vm.close_scope(root);
 }
+fn worker_failure(vm: &mut Interp, handle: Value, raw: Value) -> Value {
+    let trace = field(vm, handle, "_workerTraceback");
+    if trace == Value::NIL {
+        return raw;
+    }
+    if field(vm, handle, "_workerFailureReady") == Value::TRUE {
+        return field(vm, handle, "_workerFailure");
+    }
+    let roots = vm.open_scope();
+    vm.handles.extend([handle, raw, trace]);
+    let rendered = vm.handled_error(Value::builtin(builtins::id_of("tostring").unwrap()), raw);
+    vm.handles.push(rendered);
+    let value = if rendered == Value::NIL || rendered.is_num() || vm.is_stringish(rendered) {
+        let mut text = if rendered == Value::NIL {
+            Vec::new()
+        } else {
+            builtins::tostring(vm, rendered)
+        };
+        if !text.is_empty() {
+            text.push(b'\n');
+        }
+        text.extend_from_slice(b"stack traceback:\n\t[nupp-worker]");
+        for line in String::from_utf8_lossy(vm.bytes_of(trace)).lines() {
+            text.extend_from_slice(b"\n\t");
+            text.extend_from_slice(line.trim_start().as_bytes());
+        }
+        vm.new_string_bytes(&text)
+    } else {
+        rendered
+    };
+    put(vm, handle, "_workerFailure", value);
+    put(vm, handle, "_workerFailureReady", Value::TRUE);
+    vm.close_scope(roots);
+    value
+}
 fn method(vm: &mut Interp, value: Value, name: &str, builtin: &str) {
     put(
         vm,
@@ -95,7 +130,12 @@ fn settle(vm: &mut Interp, handle: Value) -> Option<TaskId> {
     let text = vm.intern(text);
     put(vm, handle, "_status", text);
     if matches!(st, Status::Failed(_) | Status::Cancelled) {
-        let value = vm.tasks[task.index].error;
+        let raw = vm.tasks[task.index].error;
+        let value = if matches!(st, Status::Failed(_)) {
+            worker_failure(vm, handle, raw)
+        } else {
+            raw
+        };
         put(vm, handle, "_error", value);
         if matches!(st, Status::Failed(_)) {
             put(vm, handle, "_failed", Value::TRUE);
@@ -248,10 +288,18 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
     if (vm.nonsuspending_cleanup != 0 || vm.callback_depth.get() != 0)
         && !matches!(
             name,
-            "tasks.isCancelled" | "tasks.checkpoint" | "tasks.deadline"
-                | "tasks.coRunning" | "tasks.coStatus" | "tasks.coIsYieldable" | "tasks.coCreate"
-                | "tasks.pollWorkers" | "tasks.isDone" | "tasks.status"
-                | "tasks.vmClose" | "tasks.vmDiscard"
+            "tasks.isCancelled"
+                | "tasks.checkpoint"
+                | "tasks.deadline"
+                | "tasks.coRunning"
+                | "tasks.coStatus"
+                | "tasks.coIsYieldable"
+                | "tasks.coCreate"
+                | "tasks.pollWorkers"
+                | "tasks.isDone"
+                | "tasks.status"
+                | "tasks.vmClose"
+                | "tasks.vmDiscard"
         )
     {
         vm.err("task operation in a nonsuspending cleanup callback")
@@ -286,6 +334,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 .unwrap_or(Value::NIL),
         ]),
         "tasks.open" | "tasks.familyOpen" | "tasks.workerOpen" => {
+            if name == "tasks.workerOpen" && vm.is_structured_worker() {
+                vm.err("nupp: a worker task cannot open another worker scope");
+            }
             let limit = if name != "tasks.open" {
                 Value::NIL
             } else {
@@ -327,12 +378,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             };
             let scope = vm.new_table();
             let root = vm.register(scope);
-            put(
-                vm,
-                scope,
-                "_soft",
-                Value::boolean(name != "tasks.open"),
-            );
+            put(vm, scope, "_soft", Value::boolean(name != "tasks.open"));
             put(vm, scope, "_owner", Value::num(tid as f64));
             put(
                 vm,
@@ -344,7 +390,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             );
             let detached = name == "tasks.workerOpen";
             put(vm, scope, "_detached", Value::boolean(detached));
-            if !detached { set_deadline(vm, tid, deadline); }
+            if !detached {
+                set_deadline(vm, tid, deadline);
+            }
             let table = vm.new_table();
             put(vm, scope, "_children", table);
             put(vm, scope, "_limit", limit);
@@ -603,7 +651,9 @@ pub(crate) fn on_finish(vm: &mut Interp, tid: usize) {
     if matches!(st, Status::Failed(_)) && field(vm, scope, "_soft") != Value::TRUE {
         if field(vm, scope, "_failed") != Value::TRUE {
             put(vm, scope, "_failed", Value::TRUE);
-            put(vm, scope, "_failure", vm.tasks[tid].error);
+            let raw = vm.tasks[tid].error;
+            let failure = worker_failure(vm, handle, raw);
+            put(vm, scope, "_failure", failure);
         }
         for child in children(vm, scope) {
             if field(vm, child, "_settled") == Value::TRUE {
@@ -685,4 +735,80 @@ fn family_await(vm: &mut Interp, scope: Value, handles: Value, race: bool) -> An
 
 pub(crate) fn scope_children(vm: &mut Interp, scope: Value) -> Vec<TaskId> {
     prune(vm, scope)
+}
+
+#[cfg(test)]
+mod worker_failure_tests {
+    use super::*;
+    fn fixture(tail: &str) -> (Interp, Value, Value) {
+        let text = format!(
+            r#"
+function render 0 1 10 1 v:v
+const 0 str "count"
+const 1 num 1
+const 2 str "rendered"
+GetField 2 1 0
+K 3 1
+Add 2 2 3
+SetField 1 0 2
+{tail}
+end
+entry 0
+"#
+        );
+        let mut vm = Interp::new();
+        crate::image::load(&mut vm, &text).unwrap();
+        vm.install_globals();
+        let raw = vm.new_table();
+        vm.registered.push(raw);
+        put(&mut vm, raw, "count", Value::num(0.0));
+        let meta = vm.new_table();
+        vm.registered.push(meta);
+        put(&mut vm, meta, "__tostring", Value::func(0));
+        vm.set_metatable(raw, meta);
+        let handle = vm.new_table();
+        vm.registered.push(handle);
+        let trace = vm.intern("at failInsideWorker (jobs.nupp:23)");
+        put(&mut vm, handle, "_workerTraceback", trace);
+        let tid = vm.spawn(0, &[raw]);
+        vm.tasks[tid].error = raw;
+        vm.heap.stress = true;
+        vm.heap.oracle = true;
+        (vm, handle, raw)
+    }
+    #[test]
+    fn public_worker_error_renders_once_and_keeps_raw_task_value() {
+        let (mut vm, handle, raw) = fixture("K 4 2\nRet 4");
+        let public = worker_failure(&mut vm, handle, raw);
+        let text = String::from_utf8_lossy(vm.bytes_of(public));
+        assert!(
+            text.starts_with("rendered\nstack traceback:\n\t[nupp-worker]"),
+            "{text}"
+        );
+        assert!(text.contains("failInsideWorker (jobs.nupp:23)"), "{text}");
+        assert_eq!(worker_failure(&mut vm, handle, raw), public);
+        assert_eq!(field(&mut vm, raw, "count"), Value::num(1.0));
+        assert_eq!(vm.tasks[0].error, raw);
+    }
+    #[test]
+    fn a_raising_tostring_is_protected_and_cached() {
+        let (mut vm, handle, raw) = fixture("K 4 2\nMove 6 1\nCallDyn 4 5 1\nRet 5");
+        // Calling the string "rendered" raises after the count is incremented.
+        let public = worker_failure(&mut vm, handle, raw);
+        assert!(
+            vm.bytes_of(public)
+                .starts_with(b"error in error handling\nstack traceback:")
+        );
+        assert_eq!(worker_failure(&mut vm, handle, raw), public);
+        assert_eq!(field(&mut vm, raw, "count"), Value::num(1.0));
+        assert_eq!(vm.tasks[0].error, raw);
+    }
+    #[test]
+    fn a_nonstring_tostring_result_is_not_forced_to_a_string() {
+        let (mut vm, handle, raw) = fixture("Ret 1");
+        assert_eq!(worker_failure(&mut vm, handle, raw), raw);
+        assert_eq!(worker_failure(&mut vm, handle, raw), raw);
+        assert_eq!(field(&mut vm, raw, "count"), Value::num(1.0));
+        assert_eq!(vm.tasks[0].error, raw);
+    }
 }

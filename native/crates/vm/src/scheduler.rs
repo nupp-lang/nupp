@@ -560,6 +560,7 @@ impl Interp {
                     Err(error) => {
                         let value = self.error_value(error);
                         self.tasks[tid].error = value;
+                        self.capture_worker_traceback(tid);
                         let message = if self.is_stringish(value) {
                             String::from_utf8_lossy(self.bytes_of(value)).into_owned()
                         } else {
@@ -570,7 +571,9 @@ impl Interp {
                             eprintln!("task failed: {message}");
                             for t in (tid..self.tasks.len()).rev() {
                                 let trace = self.backtrace(t);
-                                if !trace.is_empty() { eprint!("{trace}"); }
+                                if !trace.is_empty() {
+                                    eprint!("{trace}");
+                                }
                             }
                         }
                         Some(Status::Failed(message))

@@ -77,19 +77,29 @@ suspension.Handler = contract.Handler
 -- The main thread has no coroutine object, so it gets its own slot.
 local coroutines = require("nupp.suspension.internal.coroutines")
 local installed = coroutines.localMap("installed")
-local mainInstalled = nil
+-- Sources retain their identity: two libraries may both call theirs "io".
+local providerState = coroutines.localState("suspension", function(): any
+    return {sources = {}, sourceSequence = 0, sourcesVersion = 0, turnGeneration = 0, turnWaiters = {}}
+end) as {
+    mainInstalled: any,
+    sources: {any},
+    sourceSequence: integer,
+    sourcesVersion: integer,
+    turnGeneration: integer,
+    turnWaiters: {function(boolean)},
+    turnSource: suspension.Source?
+}
 
 local running = coroutine.running
 -- Turn ownership follows `suspension.create` just as an installation does. A host
 -- coroutine starts a token family; children created inside it divide that token,
 -- while independently scheduled host coroutines retain their own remaining budget.
 local turnOwners = coroutines.localMap("owners")
-local mainTurnOwner = {}
 
 local function currentTurnOwner(): any
     local co = running()
     if co == nil then
-        return mainTurnOwner
+        return _G
     end
 
     return turnOwners[co] or co
@@ -100,7 +110,7 @@ end
 -- accepted it and two extents may share one handler.
 local function effectiveInstallation()
     local co = running()
-    local current = co == nil and mainInstalled or installed[co]
+    local current = co == nil and providerState.mainInstalled or installed[co]
     -- A coroutine created under an extent may not start until after that extent has
     -- ended. Using its handler then would add parks to bookkeeping nobody will ever
     -- release, so a closed installation is stepped over in favor of whatever it
@@ -123,13 +133,6 @@ local function effective()
     return current and current.handler or nil
 end
 
--- Sources, held by identity rather than by name: two libraries may both call theirs
--- "io", and neither should be able to unregister the other's.
-local sources: {any} = {}
-local sourceSequence: integer = 0
-local sourcesVersion: integer = 0
-local turnGeneration: integer = 0
-
 local function sourceBefore(left: any, right: any): boolean
     if left.order ~= right.order then
         return left.order < right.order
@@ -145,10 +148,10 @@ end
 -- sequence, so this is both the insertion point and the place a mutating poll resumes.
 local function firstSourceAfter(source: any): integer
     local first: integer = 1
-    local last: integer = (#sources + 1) as integer
+    local last: integer = (#providerState.sources + 1) as integer
     while first < last do
         local middle = math.floor((first + last) / 2) as integer
-        if middle <= #sources and not sourceBefore(source, sources[middle]) then
+        if middle <= #providerState.sources and not sourceBefore(source, providerState.sources[middle]) then
             first = middle + 1
         else
             last = middle
@@ -166,10 +169,10 @@ function SourceMT.release(self: any): nil
         return
     end
     self._released = true
-    for index = 1, #sources do
-        if sources[index] == self then
-            table.remove(sources, index)
-            sourcesVersion = sourcesVersion + 1
+    for index = 1, #providerState.sources do
+        if providerState.sources[index] == self then
+            table.remove(providerState.sources, index)
+            providerState.sourcesVersion = providerState.sourcesVersion + 1
             break
         end
     end
@@ -182,7 +185,7 @@ local function addSource(
     wait: (function(integer): integer)?,
     active: (function(suspension.Source): boolean)?
 ): any
-    sourceSequence = sourceSequence + 1
+    providerState.sourceSequence = providerState.sourceSequence + 1
     local source = setmetatable(
         {
             release = SourceMT.release,
@@ -192,12 +195,12 @@ local function addSource(
             wait = wait,
             active = active,
             _released = false,
-            _sequence = sourceSequence,
+            _sequence = providerState.sourceSequence,
         },
         contract.Source as any
     )
-    table.insert(sources, firstSourceAfter(source), source)
-    sourcesVersion = sourcesVersion + 1
+    table.insert(providerState.sources, firstSourceAfter(source), source)
+    providerState.sourcesVersion = providerState.sourcesVersion + 1
 
     return source
 end
@@ -239,26 +242,26 @@ function suspension.poll(): integer
     -- A host poll is the boundary between aggregate turns. Drivers that exhausted
     -- the prior token are resumed by a source later in this pass; drivers first
     -- reached after the pass see the same new generation.
-    turnGeneration = turnGeneration + 1
+    providerState.turnGeneration = providerState.turnGeneration + 1
     local settled = 0
     -- A registration sequence is the pass boundary: additions are ordered into the
     -- live list immediately but do not run until the next pass. When a callback adds
     -- or releases a source, binary search finds the first source after the one just
-    -- visited. The ordinary path remains one array read and one call per source.
-    local boundary = sourceSequence
-    local version = sourcesVersion
+    -- visited. Each source is polled once unless a callback changes the list.
+    local boundary = providerState.sourceSequence
+    local version = providerState.sourcesVersion
     local index: integer = 1
-    while index <= #sources do
-        local source = sources[index]
+    while index <= #providerState.sources do
+        local source = providerState.sources[index]
         if source._sequence > boundary then
             index = (index + 1) as integer
         else
             settled = settled + (source.poll() or 0)
-            if sourcesVersion == version then
+            if providerState.sourcesVersion == version then
                 index = (index + 1) as integer
             else
                 index = firstSourceAfter(source)
-                version = sourcesVersion
+                version = providerState.sourcesVersion
             end
         end
     end
@@ -276,8 +279,8 @@ local function waitCandidates(waiting: any): {any}
     local associated = waiting.context and waiting.context._associated
     local preferred = {}
     if associated ~= nil then
-        for index = 1, #sources do
-            local source = sources[index]
+        for index = 1, #providerState.sources do
+            local source = providerState.sources[index]
             if associated[source] and not source._released and source.wait ~= nil then
                 preferred[#preferred + 1] = source.wait
             end
@@ -288,8 +291,8 @@ local function waitCandidates(waiting: any): {any}
     end
 
     local fallback = {}
-    for index = 1, #sources do
-        local source = sources[index]
+    for index = 1, #providerState.sources do
+        local source = providerState.sources[index]
         if not source._released and source.wait ~= nil then
             fallback[#fallback + 1] = source.wait
         end
@@ -301,8 +304,8 @@ end
 local function blockingPark(waiting: any): nil
     while not waiting:ready() do
         local active = false
-        for index = 1, #sources do
-            local source = sources[index]
+        for index = 1, #providerState.sources do
+            local source = providerState.sources[index]
             local isActive = source.active
             if not source._released and (isActive == nil or isActive(source)) then
                 active = true
@@ -627,7 +630,7 @@ local function closeInstallation(self: any): nil
     if not self._restored then
         self._restored = true
         if self._co == nil then
-            mainInstalled = self._previous
+            providerState.mainInstalled = self._previous
         else
             installed[self._co] = self._previous
         end
@@ -700,7 +703,7 @@ local function installHandler(handler: suspension.Handler, transparent: boolean)
     local co = running()
     local previous
     if co == nil then
-        previous = mainInstalled
+        previous = providerState.mainInstalled
     else
         previous = installed[co]
     end
@@ -725,7 +728,7 @@ local function installHandler(handler: suspension.Handler, transparent: boolean)
     installation._released = false
     installation._parks = {}
     if co == nil then
-        mainInstalled = installation
+        providerState.mainInstalled = installation
     else
         installed[co] = installation
     end
@@ -893,15 +896,13 @@ local ACTIVATIONS_PER_TURN: integer = 64
 
 local TURN_ORDER: integer = 30
 local turnTokens = coroutines.localMap("tokens")
-local turnWaiters: {function(boolean)} = {}
-local turnSource: suspension.Source? = nil
 
 local function openNextTurn(): integer
-    if #turnWaiters == 0 then
+    if #providerState.turnWaiters == 0 then
         return 0
     end
-    local waking = turnWaiters
-    turnWaiters = {}
+    local waking = providerState.turnWaiters
+    providerState.turnWaiters = {}
     for index = 1, #waking do
         waking[index](true)
     end
@@ -910,14 +911,14 @@ local function openNextTurn(): integer
 end
 
 local function turnDeferralSource(): suspension.Source
-    local existing = turnSource
+    local existing = providerState.turnSource
     if existing ~= nil and not (existing as any)._released then
         return existing
     end
     local created = suspension.source("nupp.suspension.turn", TURN_ORDER, openNextTurn, nil, function(): boolean
-        return #turnWaiters > 0
+        return #providerState.turnWaiters > 0
     end)
-    turnSource = created
+    providerState.turnSource = created
 
     return created
 end
@@ -938,8 +939,8 @@ function suspension.turnAvailable(): boolean
     end
     local owner = currentTurnOwner()
     local token = turnTokens[owner]
-    if token == nil or token.generation ~= turnGeneration or token.host ~= host then
-        turnTokens[owner] = {host = host, generation = turnGeneration, remaining = ACTIVATIONS_PER_TURN,}
+    if token == nil or token.generation ~= providerState.turnGeneration or token.host ~= host then
+        turnTokens[owner] = {host = host, generation = providerState.turnGeneration, remaining = ACTIVATIONS_PER_TURN,}
 
         return true
     end
@@ -950,7 +951,7 @@ end
 --- Records one coroutine activation against the current turn.
 function suspension.consumeTurn(): nil
     local token = turnTokens[currentTurnOwner()]
-    if token ~= nil and token.generation == turnGeneration then
+    if token ~= nil and token.generation == providerState.turnGeneration then
         token.remaining = token.remaining - 1
     end
 end
@@ -962,12 +963,12 @@ function suspension.deferTurn(): nil
         context: suspension.Context
     ): function()
         context:uses(turnDeferralSource())
-        turnWaiters[#turnWaiters + 1] = resume
+        providerState.turnWaiters[#providerState.turnWaiters + 1] = resume
 
         return function(): nil
-            for index = #turnWaiters, 1, -1 do
-                if turnWaiters[index] == resume then
-                    table.remove(turnWaiters, index)
+            for index = #providerState.turnWaiters, 1, -1 do
+                if providerState.turnWaiters[index] == resume then
+                    table.remove(providerState.turnWaiters, index)
 
                     break
                 end

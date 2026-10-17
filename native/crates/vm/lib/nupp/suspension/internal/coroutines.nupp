@@ -20,6 +20,31 @@ function coroutines.localMap(name: string): any
     })
 end
 
+-- Resolve the current VM on every access. A worker copies the proxy without
+-- retaining the parent VM's backing state.
+function coroutines.localState(name: string, initialize: function(): any): any
+    local field = "\0nupp:local-state:" .. name
+
+    local function current(): any
+        local value = rawget(_G, field)
+        if value == nil then
+            value = initialize()
+            rawset(_G, field, value)
+        end
+
+        return value
+    end
+
+    return setmetatable({}, {
+        __index = function(_: any, key: any): any
+            return rawget(current(), key)
+        end,
+        __newindex = function(_: any, key: any, value: any): nil
+            rawset(current(), key, value)
+        end,
+    })
+end
+
 function coroutines.create(body: any): thread
     return @unsafe nupp.release(coroutine.create(body))
 end

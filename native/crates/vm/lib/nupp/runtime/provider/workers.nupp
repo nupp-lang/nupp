@@ -9,9 +9,14 @@ local core: any = require("nupp.vm.tasks")
 local clock = require("nupp.vm.clock")
 local suspension = require("nupp.suspension")
 local cancellation = require("nupp.suspension.cancellation")
+local coroutines = require("nupp.suspension.internal.coroutines")
 local workers = {}
-local live: {any} = {}
-local source: any = nil
+local workerState = coroutines.localState("workers", function(): any
+    return {live = {}}
+end) as {
+    live: {any},
+    source: any
+}
 local Task: any = {}
 Task.__index = Task
 
@@ -48,13 +53,13 @@ end
 local function poll(): integer
     core.pollWorkers()
     local count = 0
-    for index = #live, 1, -1 do
-        local task = live[index]
+    for index = #workerState.live, 1, -1 do
+        local task = workerState.live[index]
         if finish(task) then
             count = count + 1
         end
         if task.done then
-            table.remove(live, index)
+            table.remove(workerState.live, index)
         end
     end
 
@@ -62,8 +67,8 @@ local function poll(): integer
 end
 
 local function readiness(): any
-    if source == nil or source.released then
-        source = suspension.source(
+    if workerState.source == nil or workerState.source.released then
+        workerState.source = suspension.source(
             "nupp.vm.workers",
             30,
             poll,
@@ -77,12 +82,12 @@ local function readiness(): any
                 return count
             end,
             function(): boolean
-                return #live > 0
+                return #workerState.live > 0
             end
         )
     end
 
-    return source
+    return workerState.source
 end
 
 function Task.isDone(self: any): boolean
@@ -119,7 +124,7 @@ function workers.openScope(deadline: number?, observer: any): any
     function scope.spawn(self: any, body: any, ...: any): any
         local task = setmetatable({raw = self.raw:fork(body, ...), owner = self, done = false, waiters = {}}, Task)
         self.tasks[#self.tasks + 1] = task
-        live[#live + 1] = task
+        workerState.live[#workerState.live + 1] = task
         self.registered = self.registered + 1
         observer.created(self, task)
         readiness()

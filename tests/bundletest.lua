@@ -407,8 +407,17 @@ with scope = tasks.open() do
     const payload = scope:fork(new jobs.Payload(id = 9, label = "schema", ready = true), jobs.echoPayload)
     local malformed = new jobs.Payload(id = 10, label = "fallback", ready = false)
     local dynamicMalformed = malformed as any
-    dynamicMalformed.id = "dynamic"
-    const fallbackPayload = scope:fork(malformed, jobs.echoPayload)
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        const wrote, problem = pcall(function(): nil
+            dynamicMalformed.id = "dynamic"
+        end)
+        assert(not wrote, "a dynamic write still preserves the declared record field")
+        assert(tostring(problem):find("value does not match the declared type of field id of Payload", 1, true) ~= nil, tostring(problem))
+        assert(malformed.id == 10, "a refused write leaves the record unchanged")
+    else
+        dynamicMalformed.id = "dynamic"
+    end
+    const checkedPayload = scope:fork(malformed, jobs.echoPayload)
     const anyPayload = scope:fork(new jobs.Payload(id = 11, label = "any", ready = false), jobs.echoDynamic)
     local spare = new jobs.Payload(id = 12, label = "extra", ready = true)
     local dynamicSpare = spare as any
@@ -430,7 +439,7 @@ with scope = tasks.open() do
     const leftValue = left:await()
     const restored = returnedBox:await()
     const restoredPayload = payload:await()
-    const restoredFallback = fallbackPayload:await()
+    const restoredChecked = checkedPayload:await()
     const restoredAny = anyPayload:await()
     const restoredExtra = extraPayload:await()
     const restoredSparse = sparse:await()
@@ -452,8 +461,8 @@ with scope = tasks.open() do
         restoredPayload.label,
         restoredPayload.ready,
         restoredPayload is jobs.Payload,
-        (restoredFallback as any).id,
-        restoredFallback is jobs.Payload,
+        (restoredChecked as any).id,
+        restoredChecked is jobs.Payload,
         (restoredAny as any).id,
         restoredAny is jobs.Payload,
         (restoredExtra as any).extra,
@@ -552,7 +561,10 @@ end
     assert(builtOk, "the native worker binary builds: " .. built)
     local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk, "the native worker binary runs: " .. output)
-    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\tdynamic\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\n"
+    local checkedId = stampsVmPrograms() and "10" or "dynamic"
+    local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\t"
+        .. checkedId
+        .. "\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\n"
     assert(output == expected, "results, records, captures, and failures cross structured cleanup: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
