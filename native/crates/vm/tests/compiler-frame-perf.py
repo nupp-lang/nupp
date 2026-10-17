@@ -8,6 +8,9 @@ comparison requires that ROOT/build already contains the current compiler.
 Example: compiler-frame-perf.py --case emit --baseline OLD --candidate NEW \
     --image ROOT.image --root CHECKOUT --output NEW_DIRECTORY --repeats 3
 
+Compiler source changes can select --baseline-image OLD.image and
+--candidate-image NEW.image instead. Linked runtimes must match their image.
+
 Checks preserve the original project state, isolate it per runtime, and keep
 shared stores separate too. Warm checks must report zero compiled modules.
 """
@@ -33,7 +36,9 @@ def main():
     parser.add_argument("--case", choices=["emit", "lexer", "cold-check", "warm-check"], required=True)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
-    parser.add_argument("--image", type=Path, required=True)
+    parser.add_argument("--image", type=Path, help="shared compiler image unless overridden per label")
+    parser.add_argument("--baseline-image", type=Path)
+    parser.add_argument("--candidate-image", type=Path)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repeats", type=int, default=3)
@@ -45,9 +50,15 @@ def main():
         parser.error("this harness reads macOS /usr/bin/time -l counters")
     if args.repeats < 1 or args.jobs < 1:
         parser.error("repeats and jobs must be positive")
-    root, image, out = args.root.resolve(), args.image.resolve(), args.output.resolve()
+    root, out = args.root.resolve(), args.output.resolve()
+    images = {}
+    for name in ["baseline", "candidate"]:
+        path = getattr(args, name + "_image") or args.image
+        if path is None:
+            parser.error(f"pass --{name}-image or the shared --image")
+        images[name] = path.resolve()
     runtimes = {name: path.resolve() for name, path in [("baseline", args.baseline), ("candidate", args.candidate)]}
-    for path in [image, *runtimes.values()]:
+    for path in [*images.values(), *runtimes.values()]:
         if not path.is_file():
             parser.error(f"missing input: {path}")
     lua_prefix = None
@@ -73,9 +84,12 @@ def main():
     for name in ["NUPP_ENGINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY", "NUPP_VM_EMIT_CACHE",
                  "NUPP_CACHE_DIR", "JIT_THRESHOLD", "JIT_SPECIALIZE", "JIT_SPEC_FRAMES", "NO_AOT"]:
         base.pop(name, None)
-    report = dict(case=args.case, imageSha256=sha(image), root=str(root), jobs=args.jobs,
+    report = dict(case=args.case, root=str(root), jobs=args.jobs,
+                  images={name: dict(path=str(path), sha256=sha(path)) for name, path in images.items()},
                   binaries={name: dict(path=str(path), sha256=sha(path)) for name, path in runtimes.items()},
                   practicalMargin=0.05, results=[])
+    if report["images"]["baseline"]["sha256"] == report["images"]["candidate"]["sha256"]:
+        report["imageSha256"] = report["images"]["baseline"]["sha256"]
     if args.luajit:
         report["binaries"]["luajit"] = dict(path=str(args.luajit), sha256=sha(args.luajit))
     def save():
@@ -90,14 +104,14 @@ def main():
             env["NUPP_LAUNCHER_TOOLCHAIN_KEY"] = "|".join([str(root), *(env.get(k, "") for k in
                                                     ["NUPP_CC", "NUPP_CXX", "NUPP_TOOLCHAIN_DIR"])])
         else:
-            env.update(NUPP_VM_CLI_IMAGE=str(image), NUPP_VM_BINARY=str(runtimes[label]))
+            env.update(NUPP_VM_CLI_IMAGE=str(images[label]), NUPP_VM_BINARY=str(runtimes[label]))
         suffix = f"-{iteration}" if args.case == "cold-check" else ""
         env["NUPP_CACHE_DIR"] = str(out / ("cache-" + label + suffix))
         return env
     def command(label, iteration):
         cli = ([str(args.luajit), "-e", "package.path=" + json.dumps(str(root / "build/?.lua;"), ensure_ascii=False)
                 + " .. package.path", str(root / "build/nupp/tools/main.lua")]
-               if label == "luajit" else [str(runtimes[label]), "exec", str(image), "nupp.tools.vm.root"])
+               if label == "luajit" else [str(runtimes[label]), "exec", str(images[label]), "nupp.tools.vm.root"])
         if args.case != "emit":
             return [*cli, "check", "--json", *(["src/nupp/compiler/syntax/lexer.nupp"] if args.case == "lexer" else [])]
         dest = out / f"{iteration}-{label}.image"
@@ -105,7 +119,7 @@ def main():
             return [*cli, "run", "native/crates/vm/emit/root.lua", str(root), str(dest)]
         text = (root / "src/nupp/tools/vm/project.nupp").read_text()
         extras = "".join(re.findall(r'"([^\"]*)"', re.search(r"project.ROOT_EXTRAS = (.*?)\n\n", text, re.S)[1]))
-        return [str(runtimes[label]), "run", str(image), "nupp.tools.vm.project", "emit", str(root),
+        return [str(runtimes[label]), "run", str(images[label]), "nupp.tools.vm.project", "emit", str(root),
                 "nupp.tools.vm.root", extras, "--output", str(dest)]
     state = root / "build/cache/checks.buf"
     lock = state.parent / ".compiler-frame-perf"
@@ -163,13 +177,16 @@ def main():
                     result = json.loads(done.stdout)
                     assert result["ok"], result
                     record["timing"] = result["timing"]
+                    semantic = {key: value for key, value in result.items() if key != "timing"}
+                    record["outputSha256"] = hashlib.sha256(
+                        json.dumps(semantic, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
                     if args.case != "cold-check":
                         assert result["timing"]["compiledModules"] == 0, result["timing"]
                     if state.exists():
                         shutil.copy2(state, kept)
                 else:
                     record["outputSha256"] = sha(out / f"{iteration}-{label}.image")
-                    assert len({r["outputSha256"] for r in report["results"] if "outputSha256" in r}) == 1
+                assert len({r["outputSha256"] for r in report["results"] if "outputSha256" in r}) == 1
                 save()
     finally:
         if checking:

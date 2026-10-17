@@ -3736,8 +3736,9 @@ pointers again. The view, native return marker and native activations carry
 no checkpoint state. Physical stack maps and logical recovery descriptors
 remain separate, and all boundary spills still precede a native call.
 
-`tests/compiler-frame-perf.py` compares frozen linked runtimes against the
-same compiler image. It interleaves processes, retains instruction and cycle
+`tests/compiler-frame-perf.py` compares frozen linked runtimes with either a
+shared compiler image or separate `--baseline-image` and `--candidate-image`
+inputs. Each linked runtime must match its image. It interleaves processes, retains instruction and cycle
 counts, verifies emitted bytes, pins compiler workers to their parent's
 engine, and isolates each check's project state and shared cache. It never
 builds or downloads dependencies. A LuaJIT comparison needs a current Lua
@@ -3763,3 +3764,31 @@ The final cold repository sample improves from 57.20 to 53.87 s, behind
 LuaJIT's 46.83 s. Warm repository checks are 0.90 and 0.88 s. These results
 leave the broader compiler-speed gate open. Exact hashes, counters, sample
 counts and scope are in `tests/compiler-frame-perf-results.json`.
+
+## Narrowing invalidation measurements (2026-10-16)
+
+Root-name indexing of checker field facts was measured and rejected. Both
+implementations preserve the narrowing regressions, but neither clears the
+compiler-speed gate.
+
+Replacing flat maps with root buckets takes 2.3% more instructions across
+three interleaved root-emit pairs; paired cycles decrease 1.1% and wall time
+0.8%, within the 5% margin. A lazy secondary index preserves flat lookups
+and snapshots, but its initial pair takes 4.5% more instructions with only
+0.7% fewer cycles. Each changed image has its own AOT object and linked
+runtime, built from the same Rust sources. All emits produce identical bytes.
+The trials overlap separate-worktree builds or tests, so wall times are not
+a quiet-host verdict.
+
+A fresh 45-second baseline sample, beginning about 15 seconds into the
+emit, attributes 1.26% to `clearNarrowed` and `clearNarrowedBelow`, including
+helpers. The handoff estimated about 12% for the broader narrowing write
+path. The new share applies only to that checker-heavy interval; it does not
+measure the whole emit's invalidation share or explain the difference from
+the earlier estimate.
+
+The compiler keeps its original implementation. Regression tests cover
+segment boundaries, ancestor and retained sibling scopes, snapshots,
+reinsertion and captured-field restoration. Exact inputs, counters,
+validation limits and the rejected patches' hashes are recorded in
+`tests/compiler-narrowing-perf-results.json`.

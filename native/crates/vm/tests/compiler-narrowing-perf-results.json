@@ -1,0 +1,722 @@
+{
+  "experiment": "Root-name index for checker field-fact invalidation",
+  "date": "2026-10-16",
+  "baselineRevision": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+  "runtimeSource": "f65c9ed5a for all variants; separately link AOT against each compiler image",
+  "workload": "Uncached whole-root emit from unchanged codegen-experiment sources at f65c9ed5a",
+  "primaryMetric": "cycles elapsed; instruction counts and wall time retained; 5% practical duration margin",
+  "concurrency": "Paired runs overlapped builds/tests in the separate task worktree; host load recorded in each result. Wall time is not a quiet-host verdict.",
+  "correctness": "Every successful emit from both implementations matches the same SHA-256.",
+  "disposition": "Reject both compiler implementations: no useful measured cycle improvement; retain tests, harness, and evidence only.",
+  "primaryBuckets": {
+    "description": "Replace each scope flat field-fact map with root-name buckets.",
+    "disposition": "Rejected after three interleaved pairs.",
+    "patchSha256": "84e53a4632b5b94ef22f2f5ce86f7440c775d0e04b834d1ba2c0907e05be3d52",
+    "rawResults": {
+      "case": "emit",
+      "root": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+      "jobs": 2,
+      "images": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+          "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate.image",
+          "sha256": "5a60e7074ebd13b0b0e399dcd1575c7eafcf00816b010313087112cc123b0c7c"
+        }
+      },
+      "binaries": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+          "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate-runtime",
+          "sha256": "9038e6d85be6ee8747dcee8cd665a844f47940dd2dcaf700921d7a5b18a2c7f9"
+        }
+      },
+      "practicalMargin": 0.05,
+      "results": [
+        {
+          "label": "baseline",
+          "repeat": 0,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/0-baseline.image"
+          ],
+          "loadBefore": [
+            2.5439453125,
+            3.13671875,
+            2.9794921875
+          ],
+          "loadAfter": [
+            2.65966796875,
+            2.9775390625,
+            2.9326171875
+          ],
+          "real": 113.06,
+          "user": 109.94,
+          "sys": 1.43,
+          "instructions retired": 2560316801651,
+          "cycles elapsed": 479090573237,
+          "maximum resident set size": 5306220544,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "candidate",
+          "repeat": 0,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/0-candidate.image"
+          ],
+          "loadBefore": [
+            2.65966796875,
+            2.9775390625,
+            2.9326171875
+          ],
+          "loadAfter": [
+            3.26513671875,
+            3.0361328125,
+            2.9521484375
+          ],
+          "real": 116.56,
+          "user": 113.87,
+          "sys": 1.3,
+          "instructions retired": 2634478354599,
+          "cycles elapsed": 482377103619,
+          "maximum resident set size": 3415474176,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "candidate",
+          "repeat": 1,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/1-candidate.image"
+          ],
+          "loadBefore": [
+            3.26513671875,
+            3.0361328125,
+            2.9521484375
+          ],
+          "loadAfter": [
+            4.50244140625,
+            3.63232421875,
+            3.20166015625
+          ],
+          "real": 126.77,
+          "user": 125.45,
+          "sys": 1.28,
+          "instructions retired": 2631731866480,
+          "cycles elapsed": 476273167084,
+          "maximum resident set size": 3435757568,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "baseline",
+          "repeat": 1,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/1-baseline.image"
+          ],
+          "loadBefore": [
+            4.50244140625,
+            3.63232421875,
+            3.20166015625
+          ],
+          "loadAfter": [
+            4.52294921875,
+            3.9638671875,
+            3.39111328125
+          ],
+          "real": 127.81,
+          "user": 126.32,
+          "sys": 1.43,
+          "instructions retired": 2572049572830,
+          "cycles elapsed": 483893406511,
+          "maximum resident set size": 5314609152,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "baseline",
+          "repeat": 2,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/2-baseline.image"
+          ],
+          "loadBefore": [
+            4.52294921875,
+            3.9638671875,
+            3.39111328125
+          ],
+          "loadAfter": [
+            3.9658203125,
+            3.96435546875,
+            3.46435546875
+          ],
+          "real": 118.16,
+          "user": 116.69,
+          "sys": 1.37,
+          "instructions retired": 2572318527789,
+          "cycles elapsed": 481014544431,
+          "maximum resident set size": 4776411136,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "candidate",
+          "repeat": 2,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/candidate.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/emit-pairs/2-candidate.image"
+          ],
+          "loadBefore": [
+            3.9658203125,
+            3.96435546875,
+            3.46435546875
+          ],
+          "loadAfter": [
+            4.46044921875,
+            4.107421875,
+            3.5791015625
+          ],
+          "real": 116.62,
+          "user": 115.32,
+          "sys": 1.21,
+          "instructions retired": 2631809296841,
+          "cycles elapsed": 475554409018,
+          "maximum resident set size": 3435708416,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        }
+      ],
+      "medians": {
+        "candidate": {
+          "real": 116.62,
+          "user": 115.32,
+          "sys": 1.28,
+          "instructions retired": 2631809296841,
+          "cycles elapsed": 476273167084,
+          "maximum resident set size": 3435708416
+        },
+        "baseline": {
+          "real": 118.16,
+          "user": 116.69,
+          "sys": 1.43,
+          "instructions retired": 2572049572830,
+          "cycles elapsed": 481014544431,
+          "maximum resident set size": 5306220544
+        }
+      }
+    },
+    "changes": {
+      "real": {
+        "candidatePercentChanges": [
+          3.0957013974880487,
+          -0.8137078475862647,
+          -1.3033175355450122
+        ],
+        "pairedMedianPercentChange": -0.8137078475862647
+      },
+      "user": {
+        "candidatePercentChanges": [
+          3.5746770965981556,
+          -0.6887270424319136,
+          -1.1740509041048952
+        ],
+        "pairedMedianPercentChange": -0.6887270424319136
+      },
+      "sys": {
+        "candidatePercentChanges": [
+          -9.090909090909083,
+          -10.48951048951048,
+          -11.678832116788328
+        ],
+        "pairedMedianPercentChange": -10.48951048951048
+      },
+      "instructions retired": {
+        "candidatePercentChanges": [
+          2.8965772087335973,
+          2.3204177042486895,
+          2.3127294854550673
+        ],
+        "pairedMedianPercentChange": 2.3204177042486895
+      },
+      "cycles elapsed": {
+        "candidatePercentChanges": [
+          0.6859935397589556,
+          -1.5747764537533016,
+          -1.1351289636073014
+        ],
+        "pairedMedianPercentChange": -1.1351289636073014
+      },
+      "maximum resident set size": {
+        "candidatePercentChanges": [
+          -35.63263818986865,
+          -35.35258248093274,
+          -28.0692486853795
+        ],
+        "pairedMedianPercentChange": -35.35258248093274
+      }
+    }
+  },
+  "lazySecondaryIndex": {
+    "description": "Keep flat field-fact maps and index only invalidation. Build per-scope index on first invalidation; guard maintenance/helper calls.",
+    "disposition": "Rejected at initial paired probe; no full duration verdict claimed from one pair.",
+    "patchSha256": "486fabb75b39de3cd72325ffcd48b8c1d0ce721a700920f44153290c600afbe1",
+    "rawResults": {
+      "case": "emit",
+      "root": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+      "jobs": 2,
+      "images": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+          "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary.image",
+          "sha256": "19137f90133a616eb546d4fd87c86efeab9568c1b91284069f3dae46fa0564b7"
+        }
+      },
+      "binaries": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+          "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary-runtime",
+          "sha256": "69281954f9c7ac2c491f6e0078b8bd4e90a28aba492921b408f748338c5928b5"
+        }
+      },
+      "practicalMargin": 0.05,
+      "results": [
+        {
+          "label": "baseline",
+          "repeat": 0,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary-probe/0-baseline.image"
+          ],
+          "loadBefore": [
+            2.2470703125,
+            2.66845703125,
+            2.86376953125
+          ],
+          "loadAfter": [
+            3.47802734375,
+            3.0498046875,
+            2.99072265625
+          ],
+          "real": 121.66,
+          "user": 120.23,
+          "sys": 1.37,
+          "instructions retired": 2559282830889,
+          "cycles elapsed": 487585867742,
+          "maximum resident set size": 5286592512,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        },
+        {
+          "label": "candidate",
+          "repeat": 0,
+          "status": 0,
+          "command": [
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary-runtime",
+            "run",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary.image",
+            "nupp.tools.vm.project",
+            "emit",
+            "/Users/dowling/projects/nupp-wt/codegen-experiment",
+            "nupp.tools.vm.root",
+            "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+            "--output",
+            "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/secondary-probe/0-candidate.image"
+          ],
+          "loadBefore": [
+            3.47802734375,
+            3.0498046875,
+            2.99072265625
+          ],
+          "loadAfter": [
+            3.81201171875,
+            3.3359375,
+            3.111328125
+          ],
+          "real": 124.97,
+          "user": 122.17,
+          "sys": 1.32,
+          "instructions retired": 2673734602549,
+          "cycles elapsed": 484211517416,
+          "maximum resident set size": 3589701632,
+          "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+        }
+      ],
+      "medians": {
+        "candidate": {
+          "real": 124.97,
+          "user": 122.17,
+          "sys": 1.32,
+          "instructions retired": 2673734602549,
+          "cycles elapsed": 484211517416,
+          "maximum resident set size": 3589701632
+        },
+        "baseline": {
+          "real": 121.66,
+          "user": 120.23,
+          "sys": 1.37,
+          "instructions retired": 2559282830889,
+          "cycles elapsed": 487585867742,
+          "maximum resident set size": 5286592512
+        }
+      }
+    },
+    "changes": {
+      "real": {
+        "candidatePercentChanges": [
+          2.7206970244944895
+        ],
+        "pairedMedianPercentChange": 2.7206970244944895
+      },
+      "user": {
+        "candidatePercentChanges": [
+          1.6135739831988571
+        ],
+        "pairedMedianPercentChange": 1.6135739831988571
+      },
+      "sys": {
+        "candidatePercentChanges": [
+          -3.649635036496357
+        ],
+        "pairedMedianPercentChange": -3.649635036496357
+      },
+      "instructions retired": {
+        "candidatePercentChanges": [
+          4.472025142303004
+        ],
+        "pairedMedianPercentChange": 4.472025142303004
+      },
+      "cycles elapsed": {
+        "candidatePercentChanges": [
+          -0.6920525284349499
+        ],
+        "pairedMedianPercentChange": -0.6920525284349499
+      },
+      "maximum resident set size": {
+        "candidatePercentChanges": [
+          -32.09800785947166
+        ],
+        "pairedMedianPercentChange": -32.09800785947166
+      }
+    }
+  },
+  "baselineProfile": {
+    "totalSelfSamples": 33643,
+    "interval": "45 seconds beginning about 15 seconds after root emit start",
+    "notBenchmarkGate": true,
+    "exclusiveInnermostNupp": {
+      "nupp.compiler.check.narrow.facts.aliasTarget": {
+        "samples": 676,
+        "percent": 2.009333293701513
+      },
+      "nupp.compiler.check.narrow.facts.clearNarrowed": {
+        "samples": 289,
+        "percent": 0.8590197069226883
+      },
+      "nupp.compiler.check.narrow.copiesOf": {
+        "samples": 230,
+        "percent": 0.6836489017031775
+      },
+      "nupp.compiler.check.narrow.facts.snapshotNarrowed": {
+        "samples": 143,
+        "percent": 0.42505127366762774
+      },
+      "nupp.compiler.check.narrow.facts.clearNarrowedBelow": {
+        "samples": 134,
+        "percent": 0.39829979490532946
+      },
+      "nupp.compiler.check.narrow.beneath": {
+        "samples": 94,
+        "percent": 0.2794043337395595
+      },
+      "nupp.compiler.check.narrow.facts.clearWrite": {
+        "samples": 71,
+        "percent": 0.21103944356924176
+      },
+      "nupp.compiler.check.narrow.facts.applyFacts": {
+        "samples": 66,
+        "percent": 0.19617751092352048
+      },
+      "nupp.compiler.check.narrow.facts.pathKey": {
+        "samples": 63,
+        "percent": 0.18726035133608773
+      },
+      "nupp.compiler.check.narrow.facts.clearAliasesBelow": {
+        "samples": 60,
+        "percent": 0.17834319174865498
+      },
+      "nupp.compiler.check.narrow.facts.invalidateForCall": {
+        "samples": 59,
+        "percent": 0.17537080521951073
+      },
+      "nupp.compiler.check.narrow.facts.analyzeCond": {
+        "samples": 57,
+        "percent": 0.16942603216122223
+      },
+      "nupp.compiler.check.narrow.facts.clearAliases": {
+        "samples": 54,
+        "percent": 0.16050887257378949
+      },
+      "nupp.compiler.check.narrow.facts.discriminantBase": {
+        "samples": 45,
+        "percent": 0.13375739381149124
+      },
+      "nupp.compiler.check.narrow.facts.forgetWritten": {
+        "samples": 18,
+        "percent": 0.0535029575245965
+      },
+      "nupp.compiler.check.narrow.facts.lookupNarrowed": {
+        "samples": 14,
+        "percent": 0.041613411408019496
+      },
+      "nupp.compiler.check.narrow.narrow.install.fn1597": {
+        "samples": 13,
+        "percent": 0.038641024878875246
+      },
+      "nupp.compiler.check.narrow.facts.hideCapturedNarrowing": {
+        "samples": 11,
+        "percent": 0.03269625182058675
+      },
+      "nupp.compiler.check.narrow.facts.mergeFacts": {
+        "samples": 8,
+        "percent": 0.023779092233153998
+      },
+      "nupp.compiler.check.narrow.facts.summaries": {
+        "samples": 4,
+        "percent": 0.011889546116576999
+      },
+      "nupp.compiler.check.narrow.writtenLater": {
+        "samples": 3,
+        "percent": 0.00891715958743275
+      },
+      "nupp.compiler.check.narrow.visibleEntry": {
+        "samples": 2,
+        "percent": 0.0059447730582884994
+      },
+      "nupp.compiler.check.narrow.narrow.install.fn1592": {
+        "samples": 2,
+        "percent": 0.0059447730582884994
+      },
+      "nupp.compiler.check.narrow.carryFixedWidth": {
+        "samples": 2,
+        "percent": 0.0059447730582884994
+      },
+      "nupp.compiler.check.narrow.clearNameNarrowing": {
+        "samples": 2,
+        "percent": 0.0059447730582884994
+      },
+      "nupp.compiler.check.narrow.narrow.install": {
+        "samples": 1,
+        "percent": 0.0029723865291442497
+      },
+      "nupp.compiler.check.narrow.alwaysTruthy": {
+        "samples": 1,
+        "percent": 0.0029723865291442497
+      },
+      "nupp.compiler.check.narrow.facts.noteAlias": {
+        "samples": 1,
+        "percent": 0.0029723865291442497
+      }
+    },
+    "inclusiveUnion": {
+      "clearNarrowed/clearNarrowedBelow": {
+        "samples": 423,
+        "percent": 1.2573195018280177
+      },
+      "aliasTarget/copiesOf": {
+        "samples": 1178,
+        "percent": 3.5014713313319263
+      },
+      "all narrow module": {
+        "samples": 5094,
+        "percent": 15.141336979460808
+      }
+    },
+    "runtime": {
+      "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+      "sha256": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+    },
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+      "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+    },
+    "root": {
+      "path": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+      "revision": "f65c9ed5ae2b49082b3f131b123116435128dbe7"
+    },
+    "commands": {
+      "emit": [
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline-runtime",
+        "run",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/Users/dowling/projects/nupp-wt/codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+        "--output",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/profile-baseline-20261016-202337/profile-baseline.image"
+      ],
+      "sample": [
+        "/usr/bin/sample",
+        "45849",
+        "45",
+        "-file",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/profile-baseline-20261016-202337/sample.txt"
+      ],
+      "aggregate": [
+        "python3",
+        "/Users/dowling/projects/nupp-wt/compiler-speed-scratch/prof.py",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/profile-baseline-20261016-202337/sample.txt",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "100"
+      ]
+    },
+    "output": {
+      "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/profile-baseline-20261016-202337/profile-baseline.image",
+      "sha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e",
+      "matchesEarlierBaselineRootOutput": true
+    },
+    "status": 0,
+    "limitations": "Sample covers only about 15\u201360 seconds of an uncached root emit, a checker-heavy interval. Shares are interval CPU sample attribution, not whole-emit global costs or a benchmark gate. Candidate builds ran concurrently."
+  },
+  "rawArtifacts": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch",
+  "validation": {
+    "primaryFocused": {
+      "total": 171,
+      "passed": 171,
+      "failed": 0,
+      "jobs": 2,
+      "suites": [
+        "narrowingtest",
+        "narrowtest",
+        "checktest"
+      ]
+    },
+    "primaryShared": {
+      "status": "failed to produce usable aggregate report",
+      "reason": "One worker wrote no report, another mixed ordinary output with JSON; included missing ffi and duplicate queue-claim stderr. Not evidence of a broad pass."
+    },
+    "secondarySerial": {
+      "total": 484,
+      "passed": 482,
+      "failed": 2,
+      "jobs": 1,
+      "failures": [
+        {
+          "case": "declaredmoduletest/qualifiedNamespacesSelectOneHiddenDirectRequire",
+          "reason": "module 'tecs.world.query' not found"
+        },
+        {
+          "case": "methodtest/structMethodsDispatchThroughMetatype",
+          "reason": "conflicting native struct declaration"
+        }
+      ]
+    },
+    "finalSource": "Both checker source files restored byte-for-byte to baseline; no compiler/runtime implementation retained.",
+    "revertedFocused": {
+      "total": 171,
+      "passed": 171,
+      "failed": 0,
+      "jobs": 1,
+      "suites": [
+        "narrowingtest",
+        "narrowtest",
+        "checktest"
+      ]
+    },
+    "baselineFailureReproduction": {
+      "revision": "f65c9ed5a",
+      "jobs": 1,
+      "suites": [
+        "methodtest",
+        "declaredmoduletest"
+      ],
+      "total": 98,
+      "passed": 96,
+      "failed": 2,
+      "result": "Same two cases and reasons as secondarySerial; unrelated to the rejected index."
+    },
+    "fixpoint": "Not run: both compiler source files restored byte-for-byte; retained changes are tests, benchmark harness, and design/evidence records.",
+    "harnessSharedImageSmoke": {
+      "case": "lexer",
+      "repeats": 1,
+      "bothLabelsStatus": 0,
+      "bothLabelsCompiledModules": 0,
+      "semanticOutputsEqual": true,
+      "restoredOriginalState": true
+    },
+    "harnessStatic": "python3 -m py_compile and --help passed"
+  },
+  "remainingSpeedGate": "Open: retain the separate root-emit, warm-lexer and whole-repository check targets. Per-entry runtime/TLS/field-cache costs are next."
+}

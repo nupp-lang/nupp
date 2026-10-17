@@ -8,6 +8,7 @@ local envMod = require("nupp.compiler.project.env")
 local mutation = require("nupp.compiler.check.mutation")
 local analysis = require("nupp.compiler.analysis")
 local narrowing = require("nupp.compiler.types.narrowing")
+local narrow = require("nupp.compiler.check.narrow")
 local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -24,7 +25,9 @@ local function diagsOf(src, opts)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 local CFG = table.concat({"local record Cfg", "    port: number?", "    name: string", "end",}, "\n")
 
@@ -36,6 +39,7 @@ function M.aWholeSingleTypeSurvivesSubtraction()
     local function shown(t)
         return T.tostring(t)
     end
+
     testAssert.equal(shown(narrowing.subtract(T.boolean, T.boolean)), "boolean")
     testAssert.equal(shown(narrowing.subtract(T.string, T.string)), "string")
     testAssert.equal(shown(narrowing.subtract(T.nil_, T.nil_)), "nil")
@@ -1494,31 +1498,159 @@ end
 -- the narrowing the alias could not name: the call records the entries its callee
 -- writes, and those are what invalidate the fact (the `callMutatedEntries` path).
 function M.aCallThroughAnAliasEndsTheCalleesCapturedFact()
-    local prelude = table.concat({
-        "local function get(): string? return 'abc' end",
-        "local x: string? = get()",
-        "local function f(): nil x = nil end",
-    }, "\n")
+    local prelude = table.concat(
+        {
+            "local function get(): string? return 'abc' end",
+            "local x: string? = get()",
+            "local function f(): nil x = nil end",
+        },
+        "\n"
+    )
     testAssert.equal(
         diagsOf(table.concat({prelude, "local g = f", "if x ~= nil then", "    g()", "    print(#x)", "end",}, "\n")),
         "NUPP2003:7"
     )
     testAssert.equal(
-        diagsOf(table.concat({
-            prelude,
-            "if x ~= nil then",
-            "    do",
-            "        local x = 2",
-            "        local h = f",
-            "        h()",
-            "        print(x)",
-            "    end",
-            "    print(#x)",
-            "end",
-        }, "\n")),
+        diagsOf(
+            table.concat(
+                {
+                    prelude,
+                    "if x ~= nil then",
+                    "    do",
+                    "        local x = 2",
+                    "        local h = f",
+                    "        h()",
+                    "        print(x)",
+                    "    end",
+                    "    print(#x)",
+                    "end",
+                },
+                "\n"
+            )
+        ),
         "NUPP2003:11"
     )
     assertClean(table.concat({prelude, "local g = f", "if x ~= nil then", "    print(#x)", "    g()", "end",}, "\n"))
+end
+
+function M.pathInvalidationRespectsSegmentsAcrossScopes()
+    local outer = {vars = {}}
+    local c = {scope = outer}
+    local facts = narrow.install(c)
+    facts.applyFacts({
+        ["root.a"] = T.string,
+        ["root.a.child"] = T.number,
+        ["root.ab"] = T.boolean,
+        ["roots.a"] = T.integer,
+    })
+    c.scope = {vars = {}, parent = outer}
+    facts.applyFacts({["root.a.grandchild"] = T.integer, ["root.sibling"] = T.string})
+    facts.clearNarrowed("root.a")
+    testAssert.equal(facts.lookupNarrowed("root.a"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.a.child"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.a.grandchild"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.ab"), T.boolean)
+    testAssert.equal(facts.lookupNarrowed("root.sibling"), T.string)
+    testAssert.equal(facts.lookupNarrowed("roots.a"), T.integer)
+
+    facts.applyFacts({["root.a"] = T.string, ["root.a.child"] = T.number})
+    facts.clearNarrowedBelow("root.a")
+    testAssert.equal(facts.lookupNarrowed("root.a"), T.string)
+    testAssert.equal(facts.lookupNarrowed("root.a.child"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.ab"), T.boolean)
+    testAssert.equal(facts.lookupNarrowed("roots.a"), T.integer)
+
+    facts.clearNarrowedBelow("root")
+    testAssert.equal(facts.lookupNarrowed("root.a"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.ab"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.sibling"), nil)
+    testAssert.equal(facts.lookupNarrowed("roots.a"), T.integer)
+    facts.applyFacts({["root.new"] = T.number})
+    facts.clearNarrowed("root")
+    testAssert.equal(facts.lookupNarrowed("root.new"), nil)
+    facts.applyFacts({["root.new"] = T.boolean})
+    testAssert.equal(facts.lookupNarrowed("root.new"), T.boolean)
+end
+
+function M.pathFactsStayWithTheirRetainedScope()
+    local outer = {vars = {}}
+    local c = {scope = outer}
+    local facts = narrow.install(c)
+    facts.applyFacts({["root.a"] = T.string, ["other.a"] = T.number})
+    local first = {vars = {}, parent = outer}
+    c.scope = first
+    facts.applyFacts({["root.a"] = T.integer, ["root.child"] = T.boolean})
+    local snapshot = facts.snapshotNarrowed()
+    testAssert.equal(snapshot["root.a"], T.integer)
+    testAssert.equal(snapshot["root.child"], T.boolean)
+    testAssert.equal(snapshot["other.a"], T.number)
+
+    local second = {vars = {}, parent = outer}
+    c.scope = second
+    testAssert.equal(facts.lookupNarrowed("root.a"), T.string)
+    testAssert.equal(facts.lookupNarrowed("root.child"), nil)
+    facts.applyFacts({["root.second"] = T.number})
+    facts.clearNarrowed("root")
+    testAssert.equal(facts.lookupNarrowed("root.a"), nil)
+    testAssert.equal(facts.lookupNarrowed("root.second"), nil)
+    testAssert.equal(facts.lookupNarrowed("other.a"), T.number)
+
+    c.scope = first
+    testAssert.equal(facts.lookupNarrowed("root.a"), T.integer)
+    testAssert.equal(facts.lookupNarrowed("root.child"), T.boolean)
+    facts.clearNarrowedBelow("root")
+    facts.applyFacts({["root.child"] = T.string})
+    testAssert.equal(facts.lookupNarrowed("root.child"), T.string)
+    c.scope = second
+    testAssert.equal(facts.lookupNarrowed("root.child"), nil)
+    testAssert.equal(snapshot["root.a"], T.integer)
+    testAssert.equal(snapshot["root.child"], T.boolean)
+end
+
+function M.aCapturedFieldFactReturnsAfterTheClosureIsChecked()
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "local box: {value: string?} = {value = 'x'}",
+                    "local other: {value: string?} = {value = 'y'}",
+                    "if box.value ~= nil and other.value ~= nil then",
+                    "    local function read(): nil",
+                    "        local stale: string = box.value",
+                    "        local stable: string = other.value",
+                    "    end",
+                    "    local restored: string = box.value",
+                    "    box.value = nil",
+                    "    local invalidated: string = box.value",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:5 NUPP2001:10"
+    )
+end
+
+function M.aCapturedFieldFactReturnsAfterAClosureReplacesItsRoot()
+    testAssert.equal(
+        diagsOf(
+            table.concat(
+                {
+                    "local box: {value: string?} = {value = 'x'}",
+                    "if box.value ~= nil then",
+                    "    local function reset(): nil",
+                    "        box = {value = nil}",
+                    "    end",
+                    "    local restored: string = box.value",
+                    "    box = {value = nil}",
+                    "    local invalidated: string = box.value",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:8"
+    )
 end
 
 return M
