@@ -1,0 +1,225 @@
+{
+  "status": "Prune the current specialization policy after bounded whole-compiler diagnostics",
+  "executionAccepted": true,
+  "correctnessAccepted": true,
+  "mechanismObserved": true,
+  "performanceVerdict": null,
+  "fixedGateClaim": false,
+  "purpose": "Single generic and single specialized-frame JIT root emit; concurrent correctness workload explicitly allowed, not idle-host performance evidence",
+  "artifacts": {
+    "genericReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/generic.receipt.json",
+      "sha256": "ace9bc21f7c295aef221610eae3d35a36fac7180722c4d636ec671eaaa6a33fd",
+      "bytes": 5271
+    },
+    "specializedReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/specialized.receipt.json",
+      "sha256": "89ea1b515e3b779062e615167a27ca03b777581263c142c113ca23ae3345c31d",
+      "bytes": 5348
+    },
+    "genericStdout": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/generic.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "genericStderr": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/generic.stderr",
+      "sha256": "099bc750661e007ab0e70148332d7d17cc1d3936723fa44c08fd4690047223a6",
+      "bytes": 1024
+    },
+    "specializedStdout": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/specialized.stdout",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "specializedStderr": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/specialized.stderr",
+      "sha256": "c8ac8641e3e2dbf60fc761c535b3c591749f776c9d658a65bee849414338e0f5",
+      "bytes": 1049
+    },
+    "genericImage": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/generic.image",
+      "sha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+      "bytes": 21221399
+    },
+    "specializedImage": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/specialized.image",
+      "sha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+      "bytes": 21221399
+    },
+    "concurrencyLog": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/concurrency.jsonl",
+      "sha256": "27998de9a67fe3e8007d41161bb14408483e30765c45c3594af69608857999ec",
+      "bytes": 864
+    },
+    "terminalProcessProof": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/terminal-process-proof.json",
+      "sha256": "011540d9ef552bf036bb186585470f1017837b70eb5d3025c1d36a59e6cfb4c7",
+      "bytes": 443
+    },
+    "config": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-proposal-v3/config.pilot-released.json",
+      "sha256": "2e249a8b18aaa198b46e838704a281609d66f02a8d2c96c6b41f7b0d9aead477",
+      "bytes": 8726
+    },
+    "protocol": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-proposal-v3/protocol.diagnostic-released.json",
+      "sha256": "0fb1037a266d3dc021bfaa159b881b50488a373834e269deb60a43dc70016172",
+      "bytes": 5927
+    },
+    "rootRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-proposal-v3/root-release.json",
+      "sha256": "912b17c7a589b2249e942cfb95c708c27c6d3fd00f65bb8236a94b2f8354bb2d",
+      "bytes": 1625
+    },
+    "runtimeProof": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-output-stats-scratch/preserved-1/receipt.json",
+      "sha256": "852ed84a84b1f1b675f420b890be1d2fd0e6c55d28262d46b39a889912412906",
+      "bytes": 2571
+    },
+    "runtimeAccounting": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-output-stats-scratch/preserved-1/runtime-comparison.json",
+      "sha256": "6d06033def747dae0ed97b7cf945ac8dfed150f01a2d2bd628a82c57fc0d1b9e",
+      "bytes": 2273
+    },
+    "sealedCompletion": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/completion.json",
+      "bytes": 7635,
+      "sha256": "c2dfb2e418060f9df3005c17edb551288c6feaf9a1b804aed54aaa0a7195b2c2"
+    },
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-proposal-v3/jit-compiler-pilot.py",
+      "bytes": 8810,
+      "sha256": "305b5d977e644b5725dba32a69f83ab4146541b0df58ffc1d2877baaeef5bdce"
+    },
+    "authoritativeConcurrencyCorrection": {
+      "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-2/concurrency-correction.json",
+      "sha256": "38f96bd9f5ce8fd21bd7e61bf1c98898bee3903970090a4838bceb1aae52038f",
+      "bytes": 1184
+    }
+  },
+  "sourceFreeze": {
+    "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/source-freeze.json",
+    "sha256": "63dbfaaa40814af0bef72f5dc459f81d3e5b5cde558df267d9a7207dbdd1a9d5"
+  },
+  "runtimeSourceFreeze": {
+    "path": "/Users/dowling/projects/nupp-wt/jit-output-stats-scratch/preserved-1/runtime-source-freeze.json",
+    "sha256": "fe3547b00d8e8a0b006dab8f10a063c4d4dc8f6e4dd2197e82e07afe14a90ebd"
+  },
+  "allSourceRuntimeNativeProviderAndOraclePinsStillMatch": true,
+  "samePatchedRuntimeBothArms": {
+    "path": "/Users/dowling/projects/nupp-wt/jit-output-stats-scratch/preserved-1/jit-output-stats.runtime",
+    "sha256": "74aa261ac914c0f0fe72e36c5c60dbdccb37e4600fa41d1151741a7dbda1d8be"
+  },
+  "sameCompilerImageBothArms": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+    "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+  },
+  "rawImagesEqualExactSameRootOracle": {
+    "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/control.image",
+    "sha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db"
+  },
+  "diagnosticWholeProcessMetrics": {
+    "real": {
+      "generic": 230.68,
+      "specialized": 244.81,
+      "relativePercent": 6.125368475810644
+    },
+    "user": {
+      "generic": 228.36,
+      "specialized": 241.8,
+      "relativePercent": 5.885444035733056
+    },
+    "sys": {
+      "generic": 1.96,
+      "specialized": 2.45,
+      "relativePercent": 25.00000000000002
+    },
+    "instructions retired": {
+      "generic": 3835363614398,
+      "specialized": 4103843172305,
+      "relativePercent": 7.000107027639424
+    },
+    "cycles elapsed": {
+      "generic": 951405353970,
+      "specialized": 1016144840256,
+      "relativePercent": 6.804616561790056
+    },
+    "maximum resident set size": {
+      "generic": 4456660992,
+      "specialized": 4474175488,
+      "relativePercent": 0.39299592298898123
+    }
+  },
+  "genericStats": {
+    "functions": 0,
+    "feedbackSites": 0,
+    "feedbackKiB": 0,
+    "tierUps": 0,
+    "versions": 0,
+    "specializedSites": 0,
+    "guardMisses": 0,
+    "deopts": 0,
+    "settled": 0,
+    "invalidated": 0,
+    "versionRecords": 0,
+    "retainedCodeMetadataKiB": 0,
+    "refused": 0
+  },
+  "specializedStats": {
+    "functions": 1732,
+    "feedbackSites": 53495,
+    "feedbackKiB": 3840,
+    "tierUps": 984,
+    "versions": 12,
+    "specializedSites": 67,
+    "guardMisses": 0,
+    "deopts": 428,
+    "settled": 976,
+    "invalidated": 0,
+    "versionRecords": 1748,
+    "retainedCodeMetadataKiB": 70130,
+    "refused": 0
+  },
+  "bothGroupsGone": true,
+  "runtimeReportingCostIncludedBothArms": true,
+  "originalPilot1FailurePreserved": {
+    "path": "/Users/dowling/projects/nupp-wt/jit-specialization-scratch/pilot-1/generic.receipt.json",
+    "sha256": "28cade181eb947a8448ad4837d1a3f3744be7d84d34cb6e64e12cf9e812619d1"
+  },
+  "limitsUnchanged": {
+    "timeoutSecondsEach": 900,
+    "retries": 0,
+    "samplesAdded": 0,
+    "capsOrThresholdTuning": false
+  },
+  "interpretationLimits": [
+    "One pair with allowed concurrent ownership correctness and worker Rust activity is not a fixed5% performance verdict.",
+    "Actual versions/sites prove specialization executed; no total JIT-compilation CPU or unprinted frame-entry count is inferred.",
+    "Whole-process observations include startup, generic frame compilation, tiering, and opt-in report cost.",
+    "No full5pair protocol, defaults, or tuning authorized; await root budget disposition.",
+    "The original concurrency log includes an approximate worker start message. Its preserved separate correction binds the authoritative focused-only worker receipt and exact interval; no measurements, original logs or completion receipts changed."
+  ],
+  "createdAt": 1792252562.295764,
+  "date": "2026-10-17",
+  "schemaVersion": 1,
+  "disposition": {
+    "decision": "Prune before an extended performance trial",
+    "performanceGateVerdict": null,
+    "reason": "Actual specialized versions exist, but this diagnostic pair adds 7% instructions and about 6% whole-process time including startup. The current policy does not justify the next experiment budget.",
+    "defaultChanged": false,
+    "JitOptimizationPolicyChanged": false,
+    "reportingFixCommit": "8510c5991fad62d5df33780a3e2a4b04f7d41fd2",
+    "latestAcceptedSpeedCommit": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+    "notRun": [
+      "Five-pair fixed performance trial",
+      "Specialized compiler self-host stage chain",
+      "Specialized cold and warm check parity",
+      "Full specialized compiler corpus"
+    ],
+    "preservation": "Retain all raw observations and the original missing-statistics wrapper failure. No thresholds, caps, probes or compile schedules were retuned."
+  },
+  "packagingScope": "Original retained tool included AOT emitter machinery; the new matching runtime uses default JIT features, no aot-linked entries. Both new arms use the same exact runtime. No original observation is reused as a paired baseline.",
+  "startupScope": "Specialized heap frames compile an instrumented generic version on first entry; the generic arm waits for heat 200. Both whole-process totals include their actual compile schedules and reporting costs. The diagnostic is not an installed linked-AOT improvement claim.",
+  "metadataScope": "Retained code and metadata includes generic instrumented version records. The specialized-code cap does not bound all generic instrumentation."
+}

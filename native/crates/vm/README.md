@@ -4064,3 +4064,35 @@ entries. Object generation takes 164.35 s and linking 39.52 s, separately
 from execution. These static changes do not meet the performance gate.
 No additional samples, broad run or default-policy change follow the
 rejection. See [AOT optimization evidence](tests/compiler-aot-speed-investigation.json).
+
+## Whole-compiler specialization diagnostic (2026-10-17)
+
+The current opt-in specialization policy is pruned after two bounded compiler
+emits. Both produce identical same-root output on one matching unlinked JIT
+runtime. Specialization creates 12 versions covering 67 sites.
+
+| Whole-process diagnostic | Generic JIT | Specialized frames |
+| --- | --- | --- |
+| Wall time | 230.68 s | 244.81 s |
+| Instructions | 3,835,363,614,398 | 4,103,843,172,305 |
+| Cycles | 951,405,353,970 | 1,016,144,840,256 |
+| Peak RSS | 4,456,660,992 B | 4,474,175,488 B |
+
+The pair adds 7.00% instructions and 6.13% wall time. This is an experiment
+budget decision, not a fixed five-pair performance verdict. Concurrent
+correctness work and foreign CPU activity remain recorded. No extended timing,
+specialized self-hosting or full specialized-corpus run follows. Defaults and
+thresholds remain unchanged. This JIT comparison makes no installed linked-AOT
+improvement claim.
+
+The specialized arm compiles instrumented heap frames on first entry; generic
+JIT waits for heat 200. Startup, compilation, feedback and reporting are included.
+Counters show 984 tier-ups, 428 deopts and 976 settled functions. The 1,748
+version records retain 70,130 KiB of code and metadata, including generic
+instrumentation; the specialized-code cap does not bound that total.
+
+The first generic emit succeeded but its wrapper stopped because file output
+exited before statistics reporting. `8510c5991` reports opt-in statistics on
+that path, preserving exact output bytes. Both new arms use its tested runtime;
+the original failed wrapper remains separate. See
+[JIT diagnostic evidence](tests/compiler-jit-specialization-investigation.json).
