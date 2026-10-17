@@ -756,7 +756,7 @@ function lower.emit(
         return dst
     end
 
-    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, emitSafeCall, deferCleanup, rearmCleanup
+    local expr, block, stmt, stmtReclaim, defineFunction, markCaptures, callInto, emitClosure, emitIs, openSpill, emitCall, emitSafeCall, deferCleanup, rearmCleanup, registerCleanups
     local queueModule
     -- Expression kinds that write their destination only after every read of
     -- their operands, so the destination may be a register the operands name.
@@ -1645,6 +1645,9 @@ function lower.emit(
             local args = node.args and node.args.exprs or {}
             local src = oi == "region" and args[2] or args[1]
             if oi == "drop" or oi == "attemptAll" then
+                if oi == "attemptAll" then
+                    registerCleanups(f, node.cleanupRegistrations)
+                end
                 local guards = {}
                 for i, guard in pairs(node.ownerCleanupGuards or {}) do
                     for _, slot in ipairs(f.cleanupOwners and f.cleanupOwners[guard.owner] or {}) do
@@ -3733,13 +3736,6 @@ function lower.emit(
         return registry
     end
 
-    local function registerCleanups(f: Fn, registrations, value)
-        for _, registration in ipairs(registrations or {}) do
-            local registry = cleanupRegistry(f)
-            f:op("SetField", registry, f:const("str", registration.cleanup.key), value)
-        end
-    end
-
     local function cleanupReference(name)
         local result
         for member in name:gmatch("[^.]+") do
@@ -3748,6 +3744,17 @@ function lower.emit(
         end
 
         return result
+    end
+
+    registerCleanups = function(f: Fn, registrations, value)
+        for _, registration in ipairs(registrations or {}) do
+            local callback = value
+            if callback == nil then
+                callback = exprAs(f, cleanupReference(registration.cleanup.name), "v")
+            end
+            local registry = cleanupRegistry(f)
+            f:op("SetField", registry, f:const("str", registration.cleanup.key), callback)
+        end
     end
 
     local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"

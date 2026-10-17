@@ -3810,7 +3810,10 @@ function M.ownershipCallsReplaceAdoptReleaseAndDropSyntax()
         )
     )
     testAssert.equal(
-        codes(RESOURCE .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"),
+        codes(
+            RESOURCE
+            .. "\nlocal raw = resource_create()\nlocal value = nupp.adopt<affine(resource*, resource_free)>(raw)"
+        ),
         "NUPP2604"
     )
 end
@@ -4482,38 +4485,46 @@ end
 -- failure are obligations of their own. This is the contract automatic
 -- destruction and resource sets already keep, reached from a terminal.
 function M.attemptAllRunsEveryStepAfterAFailure()
-    local source = table.concat(
-        {
-            "local record Resource id: integer end",
-            "local calls = ''",
-            "local function stop(value: Resource): nil",
-            "   calls = calls .. 'stop'",
-            "   error('stop failed')",
-            "end",
-            "local function release(value: Resource): nil",
-            "   calls = calls .. ',release'",
-            "end",
-            "local function finish(takes value: Resource): nil",
-            "   nupp.attemptAll(value, stop, release)",
-            "end",
-            "local function open(): affine(Resource, finish)",
-            "   return new Resource(id = 1)",
-            "end",
-            "local ok = pcall(function()",
-            "   local value = open()",
-            "   nupp.drop(value)",
-            "end)",
-            "return calls, ok",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
-    local chunk, loadErr = program.load(result, "ownership-attempt-all")
-    assert(chunk, tostring(loadErr))
-    local calls, ok = chunk()
-    testAssert.equal(calls, "stop,release", "every step is attempted")
-    testAssert.equal(ok, false, "and the failure still propagates")
+    local invocations = {"   nupp.attemptAll(value, stop, release)"}
+    if program.onVm() then
+        -- VM lowering also publishes callbacks when the intrinsic is an expression.
+        invocations[#invocations + 1] = "   local completed: nil = nupp.attemptAll(value, stop, release)"
+        invocations[#invocations + 1] = "   return nupp.attemptAll(value, stop, release)"
+    end
+    for index, invocation in ipairs(invocations) do
+        local source = table.concat(
+            {
+                "local record Resource id: integer end",
+                "local calls = ''",
+                "local function stop(value: Resource): nil",
+                "   calls = calls .. 'stop'",
+                "   error('stop failed')",
+                "end",
+                "local function release(value: Resource): nil",
+                "   calls = calls .. ',release'",
+                "end",
+                "local function finish(takes value: Resource): nil",
+                invocation,
+                "end",
+                "local function open(): affine(Resource, finish)",
+                "   return new Resource(id = 1)",
+                "end",
+                "local ok = pcall(function()",
+                "   local value = open()",
+                "   nupp.drop(value)",
+                "end)",
+                "return calls, ok",
+            },
+            "\n"
+        )
+        local result, diags = checked(source)
+        testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
+        local chunk, loadErr = program.load(result, "ownership-attempt-all" .. index)
+        assert(chunk, tostring(loadErr))
+        local calls, ok = chunk()
+        testAssert.equal(calls, "stop,release", "every step is attempted")
+        testAssert.equal(ok, false, "and the failure still propagates")
+    end
 end
 
 -- A step that consumes the value leaves every later one running on something
@@ -6045,6 +6056,7 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
         local result, diags = checked(source)
         testAssert.equal(#diags, 0, diags[1] and diags[1].msg or "check")
         local found, seen = {}, {}
+
         local function walk(node)
             if type(node) ~= "table" or seen[node] then
                 return
@@ -6057,6 +6069,7 @@ function M.aCleanupKeyDoesNotMoveWithTextAboveIt()
                 walk(child)
             end
         end
+
         walk(result.root)
         table.sort(found)
         assert(#found > 0, "no cleanup key was registered")
@@ -8585,27 +8598,31 @@ function M.ownershipIntrinsicsCannotBeStoredAsValues()
     end
 end
 
-
 -- An alias for a generic interface names the same type the interface does, in a
 -- borrowed parameter as anywhere else. The alias's arguments used to be resolved
 -- under that parameter's loan, so a Closeable binder lost its cleanup through the
 -- alias, and a method written against the alias no longer fit the contract the
 -- interface itself spelled.
 function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
-    assertClean(table.concat({
-        "local interface Sink<S>",
-        "    apply: function(self, exclusive state: S): nil",
-        "end",
-        "local type Alias<S> = Sink<S>",
-        "local interface Uses",
-        "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
-        "end",
-        "local record Impl is Uses",
-        "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
-        "    end",
-        "end",
-        "print(new Impl())",
-    }, "\n"))
+    assertClean(
+        table.concat(
+            {
+                "local interface Sink<S>",
+                "    apply: function(self, exclusive state: S): nil",
+                "end",
+                "local type Alias<S> = Sink<S>",
+                "local interface Uses",
+                "    run: function<S is nupp.Closeable>(self, sink: Sink<S>): nil",
+                "end",
+                "local record Impl is Uses",
+                "    function run<S is nupp.Closeable>(self, sink: Alias<S>): nil",
+                "    end",
+                "end",
+                "print(new Impl())",
+            },
+            "\n"
+        )
+    )
 end
 
 return M
