@@ -1,0 +1,808 @@
+{
+  "date": "2026-10-17",
+  "recordedAtUtc": "2026-10-17T07:27:47.225519+00:00",
+  "status": "Recorded local experiment; standalone typing candidate not accepted",
+  "scope": "Standalone Shape/Slot typing in lower, lowerstate and relink; aarch64 macOS, accepted ABI 4 runtime.",
+  "disposition": "Unchanged on speed within the predeclared 5% margin. Not accepted or merged as a standalone speed improvement.",
+  "acceptedSpeedImprovement": false,
+  "compilerPatchMerged": false,
+  "typingQueueStepCompleted": false,
+  "preservation": "Compiler patch and complete generated Lua snapshot remain unmerged in typed-shapes-scratch/standalone-snapshot. Physical replay correctness repair and regression coverage are validated separately.",
+  "source": {
+    "baseRevision": "16a827b8a03661b4856009b062aac4260d1c8e11",
+    "root": "/Users/dowling/projects/nupp-wt/typed-shapes",
+    "branch": "vm-typed-shapes",
+    "compilerDiffSha256": "eed399d3f08a924af10b09938657254039043d49a282c5eff3b48e322d11f6a9",
+    "fileSha256": {
+      "src/nupp/compiler/vm/lowerstate.nupp": "779d194333af6741a9ffe97daf5e0e9de33beed5d64815c9a5eab95789aa22ec",
+      "src/nupp/compiler/vm/lower.nupp": "9cf5174098971ea9ebdb6d3a51257f4b148f03926407a1385dde62c8ab5c9784",
+      "src/nupp/compiler/vm/relink.nupp": "3426c871d329d22bcb5768582702c0274f2f0dede327b18e053d60ef203b2d3a",
+      "tests/vmemitcachetest.lua": "9cbecda465ea6b6db3aef93bd07ee16d91eb02ba6cef78e7ac66921fafb00bf7"
+    },
+    "preservedFourFilePatch": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-validation-4files.patch",
+      "sha256": "9f8a79e91f3da7b4d532de0f5c01259ca0d7854e0243ece038a7cd9aa85f5946"
+    },
+    "scope": "Three compiler files plus vmemitcachetest regression diff; compiler hash excludes tests."
+  },
+  "artifacts": {
+    "runtimeAbi": 4,
+    "binariesAndInputImages": {
+      "binaries": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-runtime",
+          "sha256": "e2a3f6ab637120178fc4bbd431cac87fe67b22d9b0faf6ef8196f4b68635a442"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-runtime",
+          "sha256": "c3aec618e10f3d5345505dd5fa17a5e44c9a613a8379800229ec4081be099c0d"
+        },
+        "luajit": {
+          "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+          "sha256": "88b0294dd40134dabdf3e0dbcfd46c06f4bce1925f809c8cc6934d8ea30321a5"
+        }
+      },
+      "images": {
+        "baseline": {
+          "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+          "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+        },
+        "candidate": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/C2.image",
+          "sha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031"
+        }
+      }
+    },
+    "baselineAotObject": {
+      "object": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o",
+        "bytes": 149230824,
+        "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+      },
+      ".manifest": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.manifest",
+        "bytes": 122907,
+        "sha256": "fc18be73a36b7f0753958624b6d208d760fda1f4877b6277b8299eac90e841f2"
+      },
+      ".maps": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.maps",
+        "bytes": 68028424,
+        "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+      },
+      ".rs": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.rs",
+        "bytes": 870777,
+        "sha256": "1e80ad0e034283500c89d358604f1bdc443b92b44eefec447660066fc150d3d3"
+      }
+    },
+    "candidateAotOutputs": {
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.o": {
+        "bytes": 149280784,
+        "sha256": "5cec82a5c60abe689448804e742fee7d0fcc0ce80a4744be21877f37e283cf76"
+      },
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.o.rs": {
+        "bytes": 870789,
+        "sha256": "85af406ca51f582bc27c5f94fae3272345ef710d5aa226ed1426374654bfa063"
+      },
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.o.maps": {
+        "bytes": 68032612,
+        "sha256": "8f02f259d3a1da71b7b03be6e9832102cd85e520cb1f45e9cdd91e7336bd1100"
+      },
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.o.manifest": {
+        "bytes": 122907,
+        "sha256": "b071d933d510f786c287c52db4a293c5979c36066108714aa178fe423b70a118"
+      }
+    },
+    "aotTool": {
+      "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-retained",
+      "sha256": "3f7cb39bb4c19062a271c2b3fb9ddf1a94744d880434b884fc781d57a789a9b3"
+    },
+    "images": {
+      "C1": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/C1.image",
+        "sha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031",
+        "bytes": 21214670
+      },
+      "C2": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/C2.image",
+        "sha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031",
+        "bytes": 21214670
+      },
+      "final": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.image",
+        "sha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031",
+        "bytes": 21214670
+      },
+      "independentLua": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/luajit-current-root.image",
+        "bytes": 21214670,
+        "sha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031"
+      }
+    },
+    "luaCurrentSourceProof": {
+      "authoredSourcesUnchanged": true,
+      "modules": {
+        "nupp.compiler.vm.lower": {
+          "sourceSha256": "9cf5174098971ea9ebdb6d3a51257f4b148f03926407a1385dde62c8ab5c9784",
+          "sourceHash": "66fc9537edad0a171bd2c8597b3cbaa6",
+          "generatedSha256": "9aff8ba6d4d0e792a2f28fef4c4cf5efbded97f1ee872a3a2921b5458371bc0e",
+          "generatedBytes": 174514
+        },
+        "nupp.compiler.vm.lowerstate": {
+          "sourceSha256": "779d194333af6741a9ffe97daf5e0e9de33beed5d64815c9a5eab95789aa22ec",
+          "sourceHash": "fca4502a0cff35016d86f6c7b399b979",
+          "generatedSha256": "d2a0ad9378f5f9d1111afe2f81172e0c6bbbfbcc0b0bf9c6e7d37a5242baf36c",
+          "generatedBytes": 22405
+        },
+        "nupp.compiler.vm.relink": {
+          "sourceSha256": "3426c871d329d22bcb5768582702c0274f2f0dede327b18e053d60ef203b2d3a",
+          "sourceHash": "4861b11615c8c41dab1e9a9621f94572",
+          "generatedSha256": "9c319bfd96b1ce23d749e5527ab677e3ab0dbce0afa23e9e0a7145914c1aed84",
+          "generatedBytes": 21079
+        }
+      },
+      "lua": {
+        "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+        "sha256": "88b0294dd40134dabdf3e0dbcfd46c06f4bce1925f809c8cc6934d8ea30321a5",
+        "patchReceiptMatches": true
+      },
+      "nativeProvider": {
+        "currentKey": "83bc50a44d6b3431",
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+        "sha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+        "stagedMatches": true
+      },
+      "mainLuaSha256": "0561e0a3127ca08ae2c0772f6d1371f233d0c849a0792f47d716a4be3db63686",
+      "builds": [
+        {
+          "reportSha256": "aba8af83de593c2f4308d17cff5825061b46d30d159cc404b7ccf59db72ebd71",
+          "ok": true,
+          "compiledModules": 141,
+          "reusedModules": 365
+        },
+        {
+          "reportSha256": "f35d37fb7d4d37ea17cc2882e6012eb26eb042e9d94444aef58aecd755486fcb",
+          "ok": true,
+          "compiledModules": 0,
+          "reusedModules": 506
+        }
+      ]
+    },
+    "rustInputSha256": {
+      "Cargo.toml": "ce9f82c9dd5b9a1a39bc1d840606ca65cb4a43628b981ac631908be484b2389a",
+      "Cargo.lock": "8f4a504dff70d3b3618977ac94b5964109da9d4a53fdddb09c1495823775f7f6",
+      "rust-toolchain.toml": "54231ca6bea6a491dfa45c5c1e12cc7485ae94c16a374e52933ee1a7cb48248f",
+      ".cargo/config.toml": "98325c3b86d3492bb233f5adb0515808c148b2b7903ef594a387a91de911e9c0",
+      "scripts/toolchain": "cc0b3d4d22c1f21d9d88ae96633b33724fd90dbcccf9cdaa27e613f9f968841a",
+      "scripts/toolchain.pins": "f7ac93c2bad81c61b0b6378166cd898564d562e796c19fbd4eb37fe64bb2f5f5",
+      "native/crates/vm/Cargo.toml": "5c2b0c81b23918f3b35691a114da3ad1aa2b7a63d2ef86794bd8dc3206fc9a74",
+      "native/crates/vm/build.rs": "3c17815fc43299fcc047703f8b00ca5fe8707cb25248323d82f6bc7a69425ca7",
+      "native/crates/vm/src/main.rs": "a93b1d494527782e7e201b1f2b0f5182ed022f5b0f907fa1d83d4ad1906e6458",
+      "native/crates/vm/src/jit.rs": "e18a7d47addde6f512bd579beaeb6090085d09a529d0ee0e46d38fd4e8c82514",
+      "native/crates/vm/src/compiled.rs": "2c96e72e1d431efe73e57848656eb0f3dbb506e1ba57b3d5ff91ab6f3ad42848"
+    }
+  },
+  "build": {
+    "aotCommand": [
+      "/usr/bin/time",
+      "-l",
+      "/Users/dowling/projects/nupp-wt/entry-context-scratch/aot-tool-retained",
+      "aot",
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/C2.image",
+      "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate.o",
+      "--frames"
+    ],
+    "aotEnvironment": {
+      "JIT_OPT": "none",
+      "CARGO_NET_OFFLINE": "true",
+      "NUPP_HOST_OFFLINE": "1"
+    },
+    "aotElapsedSeconds": 430.907704208,
+    "compiledFunctions": 6580,
+    "imageFunctions": 6580,
+    "linkCommand": [
+      "/usr/bin/time",
+      "-l",
+      "/Users/dowling/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/cargo",
+      "build",
+      "--release",
+      "-p",
+      "nupp-vm",
+      "--no-default-features",
+      "--features",
+      "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown",
+      "--offline",
+      "-j",
+      "4"
+    ],
+    "linkElapsedSeconds": 29.143647292,
+    "limit": "AOT overlapped fixpoint stage three; these elapsed receipts establish no build-time speedup. No optimizer or specialization defaults changed."
+  },
+  "protocol": {
+    "statistic": "Median of per-repeat C_i/B_i - 1; not ratio of engine medians.",
+    "rootPairs": 3,
+    "warmLexerPairs": 5,
+    "coldRepositoryPairs": 1,
+    "order": "B,L,C then C,L,B, alternating by repeat",
+    "jobs": 2,
+    "primaryMetric": "cycles elapsed",
+    "rootMaximumRatio": 0.95,
+    "warmMaximumRatio": 1.05,
+    "noPairExtension": true,
+    "warmCompiledModules": 0,
+    "stateRestored": true,
+    "oracle": "Global output equality per case; all emits equal C1, C2, successful fixpoint and current-source Lua.",
+    "noConfidenceIntervalClaim": true,
+    "coldScope": "One diagnostic pair only. Parent PMU counters omit worker totals; no whole-repository verdict."
+  },
+  "performance": {
+    "analyzerExitCode": 1,
+    "evidenceValidation": "complete",
+    "gates": {
+      "rootCycles": {
+        "medianPairedRelativeChange": -0.01658417755214614,
+        "maximumRatio": 0.95,
+        "passed": false
+      },
+      "warmLexerCycles": {
+        "medianPairedRelativeChange": -0.03732113967322925,
+        "maximumRatio": 1.05,
+        "passed": true
+      }
+    },
+    "cases": [
+      {
+        "case": "emit",
+        "repeatsPerEngine": 3,
+        "candidateVsBaseline": {
+          "cycles elapsed": -0.01658417755214614,
+          "instructions retired": 0.030072850726984734,
+          "real": 0.0014975334742777235,
+          "maximum resident set size": -0.2797040745514028
+        },
+        "pairedCycleChanges": [
+          -0.01658417755214614,
+          -0.018288807453795353,
+          0.022654776770972385
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "cycles elapsed": 483295463596,
+            "instructions retired": 2579122590265,
+            "real": 113.67,
+            "maximum resident set size": 5270241280
+          },
+          "luajit": {
+            "cycles elapsed": 614701209158,
+            "instructions retired": 1984411498844,
+            "real": 146.34,
+            "maximum resident set size": 1630584832
+          },
+          "candidate": {
+            "cycles elapsed": 478324283201,
+            "instructions retired": 2667448948181,
+            "real": 113.69,
+            "maximum resident set size": 3809280000
+          }
+        },
+        "candidateVsLua": {
+          "cycles elapsed": -0.20944844642448845,
+          "instructions retired": 0.3442761716634797,
+          "real": -0.21174512930735623,
+          "maximum resident set size": 1.3361434040372577
+        },
+        "baselineVsLua": {
+          "cycles elapsed": -0.22172907393283947,
+          "instructions retired": 0.3000920780334464,
+          "real": -0.2232472324723247,
+          "maximum resident set size": 2.2433105915215577
+        },
+        "outputSha256": "6782d2eac66b87e92166cec6f61dcf7fc26cd1585980943375293196b6639031",
+        "diagnosticOnly": false
+      },
+      {
+        "case": "lexer",
+        "repeatsPerEngine": 5,
+        "candidateVsBaseline": {
+          "cycles elapsed": -0.03732113967322925,
+          "instructions retired": -0.026037922035433425,
+          "real": -0.046875,
+          "maximum resident set size": -0.03691329592267023
+        },
+        "pairedCycleChanges": [
+          -0.04366780201765452,
+          -0.030964210485983745,
+          -0.035160107307524724,
+          -0.048177168891548106,
+          -0.03732113967322925
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "cycles elapsed": 2716405589,
+            "instructions retired": 13987692808,
+            "real": 0.64,
+            "maximum resident set size": 504938496
+          },
+          "luajit": {
+            "cycles elapsed": 1343475395,
+            "instructions retired": 5143950368,
+            "real": 0.31,
+            "maximum resident set size": 82870272
+          },
+          "candidate": {
+            "cycles elapsed": 2613112950,
+            "instructions retired": 13611047531,
+            "real": 0.61,
+            "maximum resident set size": 486408192
+          }
+        },
+        "candidateVsLua": {
+          "cycles elapsed": 0.9464970200856273,
+          "instructions retired": 1.6459735988644812,
+          "real": 0.967741935483871,
+          "maximum resident set size": 4.862566739173423
+        },
+        "baselineVsLua": {
+          "cycles elapsed": 1.0178361591090193,
+          "instructions retired": 1.7194133812062473,
+          "real": 1.064516129032258,
+          "maximum resident set size": 5.092149495748467
+        },
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "diagnosticOnly": false
+      },
+      {
+        "case": "cold-check",
+        "repeatsPerEngine": 1,
+        "candidateVsBaseline": {
+          "cycles elapsed": -0.14893310308989782,
+          "instructions retired": -0.118901489224711,
+          "real": -0.0428363485132045,
+          "maximum resident set size": -0.5662891166702805
+        },
+        "pairedCycleChanges": [
+          -0.14893310308989782
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "cycles elapsed": 28629755800,
+            "instructions retired": 151474761489,
+            "real": 48.09,
+            "maximum resident set size": 10503176192
+          },
+          "luajit": {
+            "cycles elapsed": 37532854258,
+            "instructions retired": 133423386467,
+            "real": 60.18,
+            "maximum resident set size": 2934865920
+          },
+          "candidate": {
+            "cycles elapsed": 24365837428,
+            "instructions retired": 133464186768,
+            "real": 46.03,
+            "maximum resident set size": 4555341824
+          }
+        },
+        "candidateVsLua": {
+          "cycles elapsed": -0.3508130966936386,
+          "instructions retired": 0.000305795723526181,
+          "real": -0.2351279494848787,
+          "maximum resident set size": 0.5521464857924412
+        },
+        "baselineVsLua": {
+          "cycles elapsed": -0.2372081376172539,
+          "instructions retired": 0.1352939353436715,
+          "real": -0.20089730807577266,
+          "maximum resident set size": 2.5787584435884554
+        },
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "diagnosticOnly": true
+      }
+    ],
+    "luaRootWallSeconds": [
+      144.23,
+      251.09,
+      146.34
+    ],
+    "luaReferenceLimit": "Current-source reference, separate from candidate acceptance. Retain all three Lua root runs, including the 251.09-second middle run. Lower RSS is a process observation, not an allocation proof."
+  },
+  "codeEvidence": {
+    "scope": "Static opcode sites in 182 functions selected by image source metadata; not executed counts or predicted speed.",
+    "baselineGroups": {
+      "box": 594,
+      "calls": 2951,
+      "cells": 220,
+      "closures": 179,
+      "deferSites": 1,
+      "fieldReads": 2554,
+      "fieldWrites": 196,
+      "records": 179,
+      "resultHandling": 2651,
+      "slotReads": 338,
+      "slotWrites": 583,
+      "tables": 401,
+      "unbox": 363
+    },
+    "candidateGroups": {
+      "box": 616,
+      "calls": 2965,
+      "cells": 220,
+      "closures": 179,
+      "deferSites": 1,
+      "fieldReads": 2422,
+      "fieldWrites": 187,
+      "records": 180,
+      "resultHandling": 2663,
+      "slotReads": 459,
+      "slotWrites": 594,
+      "tables": 408,
+      "unbox": 369
+    },
+    "opcodeDelta": {
+      "Add": -4,
+      "CallDyn": 12,
+      "CallK": 2,
+      "Eq": 3,
+      "FAdd": -1,
+      "FK": -1,
+      "FUnbox": -9,
+      "GetField": -132,
+      "GetIdx": -3,
+      "GetIdxF": -9,
+      "GetIdxI": 12,
+      "GetSlot": 121,
+      "GetUpval": 4,
+      "IAdd": 5,
+      "IBox": 22,
+      "IK": 8,
+      "IUnbox": 15,
+      "Jmp": 14,
+      "JmpIf": 4,
+      "JmpIfNot": 16,
+      "K": 42,
+      "Mod": 1,
+      "Move": 59,
+      "Ne": 7,
+      "NewRecord": 1,
+      "NewTableN": 7,
+      "Nil": 7,
+      "Not": 5,
+      "PadResults": 12,
+      "Require": 16,
+      "Ret": 3,
+      "RetN": 2,
+      "SetField": -9,
+      "SetIdx": 3,
+      "SetMethod": 2,
+      "SetSlot": 11
+    },
+    "groupDelta": {
+      "box": 22,
+      "calls": 14,
+      "fieldReads": -132,
+      "fieldWrites": -9,
+      "records": 1,
+      "resultHandling": 12,
+      "slotReads": 121,
+      "slotWrites": 11,
+      "tables": 7,
+      "unbox": 6
+    },
+    "alreadyShapedConstructors": {
+      "declareShape": {
+        "B0": {
+          "records": 3,
+          "slotWrites": 10,
+          "tables": 5,
+          "calls": 19
+        },
+        "C1": {
+          "records": 3,
+          "slotWrites": 12,
+          "tables": 5,
+          "calls": 19
+        }
+      },
+      "structShape": {
+        "B0": {
+          "records": 2,
+          "slotWrites": 6,
+          "tables": 3,
+          "calls": 9
+        },
+        "C1": {
+          "records": 2,
+          "slotWrites": 6,
+          "tables": 3,
+          "calls": 9
+        }
+      },
+      "physicalField": {
+        "B0": {
+          "records": 1,
+          "slotWrites": 5,
+          "tables": 0,
+          "calls": 2
+        },
+        "C1": {
+          "records": 1,
+          "slotWrites": 5,
+          "tables": 0,
+          "calls": 2
+        }
+      }
+    },
+    "interpretation": "Baseline structural literals already emit NewRecord/SetSlot. Do not credit them as new eliminated table allocations. GetField -132 and GetSlot +121 are site deltas, not a one-to-one replacement proof. Candidate also adds NewTableN +7, calls +14, boxing +22, net unboxing +6."
+  },
+  "validation": {
+    "compilerCheck": {
+      "ok": true,
+      "diagnostics": 0
+    },
+    "earlierFocusedComparison": {
+      "scope": "Earlier seven-suite screen before final evidence freeze.",
+      "both": {
+        "total": 101,
+        "passed": 70,
+        "failed": 31
+      },
+      "statusOrMessageDifferences": 0
+    },
+    "physicalCacheRegressions": {
+      "candidateFocusedPassed": 2,
+      "candidateFocusedTotal": 2,
+      "baselineDisposition": {
+        "total": 2,
+        "passed": 1,
+        "failed": 1,
+        "failure": "anIsolatedPhysicalConsumerReplaysForeignShapeMetadata: lower.nupp:971: attempt to index field node (a nil value)",
+        "finding": "Foreign physical shapes omit the resolved declaration identity read by shapeTest to emit storage.structIs. The candidate incidentally includes the missing node metadata; isolate and validate that repair before landing the tests."
+      },
+      "standaloneRepair": {
+        "compilerCheckDiagnostics": 0,
+        "newPhysicalCases": {
+          "total": 2,
+          "passed": 2
+        },
+        "fullSuite": {
+          "total": 9,
+          "passed": 7,
+          "failed": 2
+        },
+        "existingFailureIdsAndMessages": "both exactly match focused-baseline-comparison.json",
+        "compilerChange": "one assignment: shape.node = {resolvedType = t} in foreignShape physical branch",
+        "fixpoint": {
+          "exitCode": 0,
+          "command": [
+            "./bin/nupp",
+            "fixpoint",
+            "--json"
+          ],
+          "result": {
+            "diagnostics": [],
+            "kind": "compiler",
+            "ok": true,
+            "target": "vm"
+          }
+        },
+        "minimalPatch": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/minimal-fix.patch",
+          "sha256": "7ac485f1609f2bebf9d809ca765cbe2f50c0e08ab023121e917c903512bef395"
+        },
+        "fullSuiteBaselineComparison": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/fixed-full-suite-baseline-comparison.json",
+          "sha256": "3fc24f7570b84267d175bb5c37f730b382b54e4e2f44cf28da8c159fef6e9c71"
+        },
+        "finalImage": {
+          "sourcePath": "/Users/dowling/projects/nupp-wt/typed-shapes-validation/build/vm-fixpoint/root.image",
+          "preservedPath": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/root.image",
+          "bytes": 21215450,
+          "sha256": "0ae6550009026c81d53900e49ff22a74092ea311c7dfcf755f99393a7ebc7a7e"
+        },
+        "separateEvidence": "compiler-physical-replay-regression.json",
+        "revision": "489b4268e2237173fcad85603d2808fcb26cfa8c"
+      }
+    },
+    "serialShared": {
+      "matchedIds": 1956,
+      "baseline": {
+        "schemaVersion": 1,
+        "ok": false,
+        "total": 1956,
+        "passed": 1891,
+        "failed": 28,
+        "skipped": 0,
+        "notExecuted": 37,
+        "durationMs": 781936.1940917969
+      },
+      "candidate": {
+        "schemaVersion": 1,
+        "ok": false,
+        "total": 1956,
+        "passed": 1891,
+        "failed": 28,
+        "skipped": 0,
+        "notExecuted": 37,
+        "durationMs": 843944.8530273438
+      },
+      "statusChanges": 0,
+      "failureMessageChanges": 0,
+      "runnerComparisonUsable": true,
+      "rawPrefixPreserved": "q\nk\n  (corpus unavailable; oracle skipped)\n"
+    },
+    "pairedHeaders": {
+      "matchedIds": 56,
+      "baseline": {
+        "schemaVersion": 1,
+        "ok": false,
+        "total": 56,
+        "passed": 55,
+        "failed": 1,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 14877.0380859375
+      },
+      "candidate": {
+        "schemaVersion": 1,
+        "ok": false,
+        "total": 56,
+        "passed": 55,
+        "failed": 1,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 15274.029052734375
+      },
+      "statusChanges": 0,
+      "failureMessageChanges": 0,
+      "cheaderCompleteDirectDeclaratorsDecode": "passed both",
+      "importcCompleteDirectDeclaratorsArePreserved": "failed both with identical typedef-redefinition/missing-cdef message"
+    },
+    "broadReportLimits": {
+      "aggregatePassClaim": false,
+      "reason": "Parallel shared-worker stdout had q/k/corpus text before JSON. Strict parent decoding rejected it; complete worker payloads were not retained, only truncated parent excerpts and stderr traces.",
+      "candidateFailureTraces": 36,
+      "baselineFailureTraces": 39,
+      "matchingMessages": 36,
+      "candidateOnlyFailedTraceIds": [],
+      "baselineOnlyFailedTraceIds": [
+        "carraytest/elementReadBorrowsTheArray",
+        "carraytest/elementsAreReferencesIntoTheArray",
+        "carraytest/valuesRoundTripThroughTheArray"
+      ],
+      "scope": "Trace matching reconstructs neither success rows nor a complete shared or parent aggregate. Serial shared and paired headers are separate reliable evidence."
+    },
+    "selfHost": {
+      "exitCode": 0,
+      "C1EqualsC2EqualsFinal": true,
+      "independentLuaMatches": true
+    },
+    "aotSmoke": {
+      "freshProcesses": 3,
+      "compiledFunctions": 6580,
+      "imageFunctions": 6580,
+      "allRecordedChecksPassed": true
+    },
+    "limit": "Baseline-equivalent failures remain failures. No full-suite pass, cross-platform proof, production typing acceptance or migration completion claimed."
+  },
+  "hostConditions": {
+    "ownWorkDuringTiming": "All three agents completed; no own builds or tests remain active. Timing uses frozen source and artifacts.",
+    "externalBackgroundProcess": {
+      "pid": 99684,
+      "parentPid": 99210,
+      "binary": "./build/app",
+      "cwd": "/Users/dowling/projects/nupp-wt/stragglers-scratch/thr",
+      "observedAge": "15 hours 35 minutes before timing",
+      "cpuPercentObservations": [
+        100.0,
+        99.1
+      ],
+      "kind": "pre-existing coroutine reproduction from a separate worktree",
+      "sourceSha256": "a7984b13ccf3442cac2d6dca72ad24fcb68870e15f62cbccd55be3055c8e914f",
+      "handling": "Unmodified. All own builds, tests and other benchmarks are idle; interleaving and per-run load measurements retain this external background condition. Do not describe the whole host as idle."
+    },
+    "loadAverageBeforeTiming": [
+      2.55322265625,
+      3.8486328125,
+      5.17578125
+    ],
+    "limit": "Whole host was not idle. Background activity does not establish a cause for timing variance."
+  },
+  "evidenceReceipts": [
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/measurement-protocol.json",
+      "sha256": "6cbf9448a96e53e235b91137885ed3b937f98bede343db4aa93674d8e3471a87"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/measurement-ready.json",
+      "sha256": "52a0d8ecf41089921475e6a9268a9a1524c992a7fd980060bc28c7e9b1efbab7"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/pre-fixpoint-source-receipt.json",
+      "sha256": "9e359192b742476a5685b40dff973c12f837196902d8c8cbb41cd5e1eeccb90b"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-validation-source-receipt.json",
+      "sha256": "f43e9fd4a2bfff45a14d58207803a7742b81dd8e8db0aba93ff32858aba1d6a3"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/fixpoint-receipt.json",
+      "sha256": "8704d11783cac035e58a78613204083ac8bc00b6a40e98daa0546848254e14eb"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-aot-build-receipt.json",
+      "sha256": "9e64bb9d29f1c51fbe73caf2ffa2c68bb21bedb447c65ae5d5d680606fc29746"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-link-receipt.json",
+      "sha256": "b853b3716eb623813b53bdb04a489f18756f724d163aa3ada36784b2191795b4"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/aot-smoke/results.json",
+      "sha256": "dece793002a35446702bdaee4b63db8df13be43201f48461002db02c7564710d"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/luajit-current-source-proof.json",
+      "sha256": "4cbcc79288150a70bd743b9f2731bc92babfed4b0800d82343c3ce12fe49dc40"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/luajit-current-root-receipt.json",
+      "sha256": "780235c503b30babc15793adc489c027e3b72e36831b1daa7a2612478098bc44"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/check-4.json",
+      "sha256": "689cc1395bd134827eedb88902577df9082b913aba3f71410ac8d5ad6ef39eb3"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/focused-baseline-comparison.json",
+      "sha256": "d53e70fee34d0913be53a582becb28330e0173e74e12dc5c3b715179257b6166"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-tests-5.json",
+      "sha256": "16f6388427002a99aafe392bb3d5c891c99ee2c1a700d5cfa792aa55a70ebc9b"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-shared-serial-vs-baseline.json",
+      "sha256": "1b00448d618e3a5f5201aa9a3f6e1f1215f5d772bdaf19446ff791d7df635ac3"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-declarators-focused-vs-baseline.json",
+      "sha256": "b4c45000de4d68d6a9ff3ed2b0878cba4b7b0bd455f82c9b6877c953e924b36c"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/full-shared-failure-trace-comparison.json",
+      "sha256": "0054340e6daa205a612943a4f004d7ce2c630635b1b76254429b9133da6607f0"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/candidate-shared-salvage-receipt.json",
+      "sha256": "459474c832b72154e78c4a0f4fb01e125d4e0724125c91afdb3803fe552115b9"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/baseline-full-vendored-receipt.json",
+      "sha256": "e6463a5c2fff0bc19f592ef0b2740ef2b766d0f28e508ce1ad4d2a3ed85ee7bd"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/opcodes-B0-C1.json",
+      "sha256": "35afdfc4d2f265d767b4ee0f3338c96bf19f90e0fc3ae699e06627559e58f675"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/paired-verdict.json",
+      "sha256": "55248d5a6e5bc758bdb4c877dacf7a340109bc9ec17a546eeaa61a68e943ada8"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/perf-emit/results.json",
+      "sha256": "18c96932990c9c05c7ee3d43aec63d4a4e09441481883a729d4269c21942d701"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/perf-lexer/results.json",
+      "sha256": "4950242a69a8607a83943ee930f093f9bfe060805295a35ac8ff1b93da55b51f"
+    },
+    {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/perf-cold-repository/results.json",
+      "sha256": "53ff942795b68eb326db0f5701ef2fe16adf7e454e08df85b1f23a98f51ff260"
+    }
+  ],
+  "preservedSnapshotManifest": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/standalone-snapshot/manifest.json",
+    "sha256": "bc12f60dc3b02705620f365bc16e540f7c08187563b1688eee3f2c51cbb19c16"
+  }
+}

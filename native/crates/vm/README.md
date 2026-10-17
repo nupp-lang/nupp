@@ -3841,3 +3841,62 @@ inliner needs body-dependency invalidation with a sound fallback for running
 images. The discarded prototype, profile receipts, and contract evidence are
 recorded in `tests/compiler-predicate-investigation.json`. Regression coverage
 in `tests/vmpredicatecalltest.lua` preserves the observable call behavior.
+
+## Shape and Slot typing measurements (2026-10-17)
+
+Standalone Shape/Slot typing misses the required 5% cycle reduction.
+The compiler patch remains unmerged for the next typing investigation.
+
+Three interleaved root-emit pairs compare the accepted ABI 4 compiler with a
+separately linked candidate on identical frozen sources. Median paired
+candidate/baseline changes are:
+
+| Metric | Root emit | Warm lexer, five pairs |
+| --- | --- | --- |
+| Cycles | -1.6584% | -3.7321% |
+| Instructions | +3.0073% | -2.6038% |
+| Wall time | +0.1498% | -4.6875% |
+| Peak RSS | -27.9704% | -3.6913% |
+
+The root result misses the required 5% cycle reduction. Warm lexer checks
+stay below the 5% regression ceiling, but do not accept the candidate on
+their own. No pairs were added or discarded, and no confidence interval is
+claimed. The RSS reduction is a process observation, not an allocation proof.
+
+Across 182 lower, relink and lowerstate functions, static image counts remove
+132 `GetField` sites and add 121 `GetSlot` sites. They also add seven
+`NewTableN` sites, 14 calls, 22 boxing sites and six net unboxing sites.
+The baseline already shapes the relevant constructors: `declareShape`,
+`structShape` and `physicalField` have three, two and one `NewRecord` sites,
+with 10, six and five `SetSlot` sites. Those allocations are not new gains;
+static counts do not predict executed work.
+
+C1, C2 and the successful fixpoint image are byte-identical, as is an
+independent current-source LuaJIT emit. All timed emits reproduce those
+bytes. The reliable serial shared comparison matches all 1,956 case IDs,
+statuses and failure messages: 1,891 pass, 28 fail and 37 are not executed in
+both versions. The paired header selection matches all 56 cases, including
+one identical import-c failure. Earlier focused failures also match baseline.
+Parallel broad reports have shared-worker framing failures; matching failure
+traces do not establish an aggregate pass.
+
+The new isolated physical-importer regression fails on the unchanged compiler:
+its foreign shape lacks declaration metadata. The typing candidate incidentally
+repairs that omission. The separate one-line repair passes both physical replay regressions. Its
+full suite is 7/9; both remaining failures match baseline IDs and messages.
+Official fixpoint passes for the isolated repair. Its evidence is in
+`tests/compiler-physical-replay-regression.json`.
+
+Current LuaJIT references remain separate from candidate acceptance. Root
+wall medians are 113.67 s baseline, 113.69 s candidate and 146.34 s LuaJIT;
+the 251.09 s middle LuaJIT run remains included. Warm lexer medians are
+0.64, 0.61 and 0.31 s. One cold repository pair records 48.09, 46.03 and
+60.18 s. That pair is diagnostic only; parent CPU counters omit worker totals.
+Own builds and tests were idle during timing, but an old coroutine
+reproduction from another worktree continued consuming a CPU. The whole host
+was not idle.
+
+Exact source, image, runtime, AOT and Lua identities, paired counters,
+validation limits and preserved-patch receipts are in
+`tests/compiler-shape-typing-investigation.json`. The typing queue item
+remains open; evidence and regression coverage have a separate disposition.
