@@ -119,6 +119,99 @@ function M.copyabilityIsPreservedAcrossInterfaceImages()
     assert(not relations.isA(T.borrowed(T.string), loaded))
 end
 
+-- One producer image may be restored into several independent environments.
+local function selfBinderImage(name)
+    local path = "/project/self-binder-" .. name .. ".nupp"
+    local producer = indexed(name, path)
+    local binder = T.typevar(name, path .. ":49:self:producer")
+    producer.selfType, binder.bound = binder, producer
+    local image, problem = encode({sample = semantic("sample", producer)})
+    assert(image, problem)
+
+    return image, producer, binder, path
+end
+
+function M.restoringASelfBinderDoesNotRebindItsProducer()
+    local image, producer, binder, path = selfBinderImage("ProducerIsolation")
+    local recipient = indexed("ProducerIsolation", path)
+    assert(recipient ~= producer, "a separate environment owns its nominal")
+    local decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = recipient}})
+    assert(decoded, problem)
+    assert(binder.bound == producer, "restoring must not rebind the producer environment")
+    assert(recipient.selfType ~= binder, "the recipient owns a separate self binder")
+    assert(recipient.selfType.bound == recipient, "restored self binds the receiving nominal")
+    assert(decoded.sample.exports.types.Value == recipient, "the exported edge uses the receiving nominal")
+end
+
+function M.restoringASelfBinderReusesTheSameRecipient()
+    local image, producer, binder, path = selfBinderImage("RecipientReuse")
+    local recipient = indexed("RecipientReuse", path)
+    local options = {nominals = {[producer.declarationKey] = recipient}}
+    local decoded, problem = interfaceimage.decode(image, options)
+    assert(decoded, problem)
+    local self = recipient.selfType
+    decoded, problem = interfaceimage.decode(image, options)
+    assert(decoded, problem)
+    assert(recipient.selfType == self, "restoring into one recipient reuses its self binder")
+    assert(self.bound == recipient, "the reused binder stays bound to its recipient")
+    assert(binder.bound == producer, "repeated restore leaves the producer bound unchanged")
+end
+
+function M.restoringASelfBinderKeepsTwoRecipientsIsolated()
+    local image, producer, binder, path = selfBinderImage("RecipientIsolation")
+    local first = indexed("RecipientIsolation", path)
+    local second = indexed("RecipientIsolation", path)
+    assert(first ~= second and first ~= producer and second ~= producer)
+    local decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = first}})
+    assert(decoded, problem)
+    local firstSelf = first.selfType
+    decoded, problem = interfaceimage.decode(image, {nominals = {[producer.declarationKey] = second}})
+    assert(decoded, problem)
+    assert(first.selfType == firstSelf and firstSelf.bound == first, "a later recipient leaves the first unchanged")
+    assert(second.selfType ~= firstSelf and second.selfType.bound == second, "the second owns its self binder")
+    assert(binder.bound == producer, "both recipients leave the producer bound unchanged")
+end
+
+function M.restoringDuplicateSelfIdentitiesKeepsEachOwnerBound()
+    local firstPath = "/project/duplicate-self-first.nupp"
+    local secondPath = "/project/duplicate-self-second.nupp"
+    local first = indexed("DuplicateFirst", firstPath)
+    local second = indexed("DuplicateSecond", secondPath)
+    local firstBinder = T.typevar("DuplicateFirst", firstPath .. ":49:self:producer")
+    local secondBinder = T.typevar("DuplicateSecond", secondPath .. ":49:self:producer")
+    first.selfType, firstBinder.bound = firstBinder, first
+    second.selfType, secondBinder.bound = secondBinder, second
+    local image, problem = encode({first = semantic("first", first), second = semantic("second", second)})
+    assert(image, problem)
+    local sharedIdentity = "/project/duplicate-self:49:self:unbound"
+    local binders = 0
+    for _, node in ipairs(image.descriptor.types) do
+        if node.kind == "typevar"
+            and (node.identity == firstBinder.identity or node.identity == secondBinder.identity)
+        then
+            node.identity = sharedIdentity
+            binders = binders + 1
+        end
+    end
+    assert(binders == 2, "the fixture gives two reciprocal self binders one raw identity")
+    local json = require("nupp.codec.json")
+    local before = json.encode(image)
+    local firstRecipient = indexed("DuplicateFirst", firstPath)
+    local secondRecipient = indexed("DuplicateSecond", secondPath)
+    local decoded
+    decoded, problem = interfaceimage.decode(image, {
+        nominals = {[first.declarationKey] = firstRecipient, [second.declarationKey] = secondRecipient,}
+    })
+    assert(decoded, problem)
+    assert(
+        firstRecipient.selfType ~= secondRecipient.selfType,
+        "owners do not share an initially unbound interned binder"
+    )
+    assert(firstRecipient.selfType.bound == firstRecipient and secondRecipient.selfType.bound == secondRecipient)
+    assert(firstBinder.bound == first and secondBinder.bound == second, "producer bounds remain unchanged")
+    assert(json.encode(image) == before, "decoding does not rewrite the serialized payload")
+end
+
 function M.roundTripsRecursiveNominalMetadata()
     local self = T.typevar("self", "interface-image:self")
     local element = T.typevar("Element", "interface-image:element")

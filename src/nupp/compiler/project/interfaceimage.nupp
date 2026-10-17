@@ -709,6 +709,7 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
     local origins = options and options.origins or nil
     local declarations: {integer} = {}
     local reserved: {any} = {}
+    local selfOwners: {[integer]: integer} = {}
 
     -- Recursive declarations and binders are slots. Allocate every slot before a
     -- structural constructor sees an edge to it.
@@ -744,7 +745,19 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
                 declarations[#declarations + 1] = index
             end
         elseif node.kind == "typevar" then
-            built[index] = T.typevar(node.name or "T", node.identity or namespace .. "type\0" .. tostring(index))
+            local ownerIndex = node.bound
+            local owner = exactInteger(ownerIndex) and nodes[ownerIndex] or nil
+            if type(owner) == "table"
+                and owner.nominal == true
+                and owner.kind ~= "external"
+                and not owner.instantiation
+                and owner.selfType == index
+            then
+                -- Its receiving declaration may be a later descriptor slot.
+                selfOwners[index] = ownerIndex
+            else
+                built[index] = T.typevar(node.name or "T", node.identity or namespace .. "type\0" .. tostring(index))
+            end
         elseif node.kind == "packvar" then
             built[index] = T.packvar(node.name or "P", node.identity or namespace .. "pack\0" .. tostring(index))
         elseif node.kind == "constVar" then
@@ -755,6 +768,26 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
                 node.domain or "unknown",
                 node.identity or namespace .. "const\0" .. tostring(index)
             )
+        end
+    end
+
+    -- Self binders are interned by identity, but each receiving declaration
+    -- owns its bound. Reuse an identity only while it belongs to this nominal.
+    local selfBounds: {[T.TypeVar]: any} = {}
+    for index, node in ipairs(nodes) do
+        local ownerIndex = selfOwners[index]
+        if ownerIndex ~= nil then
+            local owner = built[ownerIndex]
+            local identity = node.identity or namespace .. "type\0" .. tostring(index)
+            local binder = T.typevar(node.name or "T", identity) as T.TypeVar
+            local bound = selfBounds[binder] or binder.bound
+            while bound ~= nil and bound ~= owner do
+                identity = identity .. ":self:" .. owner.id
+                binder = T.typevar(node.name or "T", identity) as T.TypeVar
+                bound = selfBounds[binder] or binder.bound
+            end
+            selfBounds[binder] = owner
+            built[index] = binder
         end
     end
 
