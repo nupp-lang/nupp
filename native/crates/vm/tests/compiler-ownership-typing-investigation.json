@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 1,
+  "kind": "compiler-ownership-typing-investigation",
+  "date": "2026-10-17",
+  "disposition": "pruned before AOT and timing; no measured speed verdict",
+  "integrationBase": "006c87457c103acd40d64f5b728255ac3e9075e2",
+  "latestAcceptedSpeedCommit": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+  "source": {
+    "branch": "vm-ownership-pass-contract",
+    "preservationCommit": "4715122585e4f56fc995f4f52063a6df35307fb7",
+    "meaning": "Post-execution local preservation only; not merged or accepted. Original uncommitted execution source receipt remains authoritative, and all source bytes remain equal.",
+    "changedFiles": [
+      "src/nupp/compiler/check/ownership.nupp",
+      "src/nupp/compiler/check/state.nupp",
+      "src/nupp/compiler/check/calls.nupp"
+    ],
+    "merged": false
+  },
+  "decision": {
+    "reason": "The exact 28 changed functions account for 3.0813% of observed root main-thread nearest-AOT samples. Most work within them remains, while the required integer correction adds numeric helper and possible allocation cost. End this bounded candidate before expensive gates.",
+    "limits": [
+      "This sampled context share is not a hard CPU ceiling or a speed estimate.",
+      "Helper descendants are included; nested mapped functions are excluded. Workers and nonlocal GC effects limit attribution.",
+      "No ownership candidate timing was executed; this is a budget decision rather than a failed performance measurement."
+    ],
+    "prunedCandidateTarget": {
+      "rootPairs": 3,
+      "requiredCycleReduction": 0.05,
+      "warmPairs": 5,
+      "maximumWarmRegression": 0.05,
+      "coldPairsDiagnosticOnly": 1
+    }
+  },
+  "validation": {
+    "cold": {
+      "exitCode": 0,
+      "diagnostics": [],
+      "compiledModules": 505,
+      "reusedModules": 0,
+      "sourceUnchanged": true,
+      "cacheAndRocksRestoredExactly": true
+    },
+    "focused": {
+      "total": 405,
+      "passed": 404,
+      "failed": 1,
+      "notExecuted": 0,
+      "scope": "405 ownership/typelevel rows match accepted selected baseline IDs/statuses/full failure messages. Known attemptAll failure retained. Current-source precheck only; no full broad equivalence."
+    }
+  },
+  "emission": {
+    "functions": 6580,
+    "verified": true,
+    "oracleLimit": "One accepted-C0 emission verifies the candidate and its static mechanism. It is not a same-source cross-engine byte-equality oracle."
+  },
+  "mechanism": {
+    "functions": 6580,
+    "changedFunctions": 28,
+    "readsToSlots": 50,
+    "writesToSlots": 70,
+    "factsReadsToSlots": 48,
+    "factsWritesToSlots": 70,
+    "capabilityReadsToSlots": 2,
+    "staticInstructionNet": 4,
+    "costs": "The integer counter adds IBox/IUnbox/FToI one each plus typed arithmetic. IBox may allocate; unchanged explicit allocation opcodes do not establish unchanged allocations or GC cost.",
+    "limits": "Reads retain tag/shape/fallback guards; writes retain helper work. Cached plain Facts graph objects may use expected-name fallback. No dispatch CPU-share or native fast-path hit rate was measured."
+  },
+  "wholeImage": {
+    "matchedUniqueFunctions": 6500,
+    "duplicateFunctions": 80,
+    "duplicateGroups": 27,
+    "duplicateExecutableMultisetsIdentical": true,
+    "shapeHeaders": 2105,
+    "shapeHeadersIdenticalIgnoringLocalIds": true,
+    "moduleInitializersExact": 650,
+    "frameHeadersUnchanged": true,
+    "callAndPaddingSitesUnchanged": true,
+    "explicitAllocationOpcodeSitesUnchanged": true,
+    "dynamicAllocationsClaimedUnchanged": false
+  },
+  "lifecycle": "No new nominal Ops/wrapper/object/default construction; original ownership plain object, closure installs/order, private staged Checker assertion, empty/create=false/result1 aliases, synthetic entries, derives nominal identity and later calls.apply extension remain unchanged. Actual selected receiver/result provenance is independently reviewed.",
+  "notRun": [
+    "official VM fixpoint",
+    "independent generated-Lua full image oracle",
+    "candidate AOT/link",
+    "candidate AOT smoke",
+    "ordinary full candidate suite",
+    "performance measurements"
+  ],
+  "relatedPrunedContracts": {
+    "ownershipEntry": "Bindings, parsed nodes, synthetic roots and nil have distinct genuine producers. Erased shared views alone do not remove field work. No fake nominal cast or wrapper was introduced.",
+    "callfactsHints": "Fresh products already use records and slots. Erased walker schemas alone have no demonstrated removed work; no candidate implementation or new timing was run."
+  },
+  "artifacts": {
+    "trialDisposition": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/trial-disposition.json",
+      "sha256": "668d35049cfb51b9c5201626515753e229cd25916e836602f7ef435ffe7b508d",
+      "bytes": 6574
+    },
+    "sourceFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/eligibility-source-freeze.json",
+      "sha256": "88e60bd15cd2379ce93e13e757b8b65fb0d828bbd773fbef5bebd3c20e5a838c",
+      "bytes": 644641
+    },
+    "candidatePatch": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/candidate.patch",
+      "sha256": "ddf58c9ad8036e8ce6b22f2776ad7812498577150168bef7b858af24a10fdff2",
+      "bytes": 11345
+    },
+    "preservation": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/prototype-preservation-commit.json",
+      "sha256": "f5673c82e9925dabdb322c5921749ba3738a53bd39dcc210e548f6f83a0c6456",
+      "bytes": 1323
+    },
+    "staticEligibility": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/eligibility-inventory-1/eligibility-report.json",
+      "sha256": "0be9c9c03e13f4d5b564fe7f96ba54f6d2caff35713b20b42ddc6846039ca197",
+      "bytes": 10402
+    },
+    "originalEligibilityWordingCorrection": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/eligibility-allocation-wording-correction/receipt.json",
+      "sha256": "090d45abab03609ce3342bcf871169f873966391ce030d39e64577b04c00054b",
+      "bytes": 1334
+    },
+    "selectedConsumers": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/independent-consumer-ir-1/receipt.json",
+      "sha256": "5c6f3778f6a564a046e6fd4e2859fce0bd6de80f88109b6b65b930556495f4b8",
+      "bytes": 2019
+    },
+    "affectedProfileContexts": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/independent-consumer-ir-1/affected-profile-context.json",
+      "sha256": "a94f90cf916a76b0512edc5c858d9dad05aecd78c45e9e828698785388c16926",
+      "bytes": 11325
+    },
+    "coldCheck": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/cold-check-1/receipt.json",
+      "sha256": "838dd3677cf6916d2409b6481e1ba563c8bb21a449064467c7b01153662766f1",
+      "bytes": 9421
+    },
+    "focusedReport": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/focused-2.stdout",
+      "sha256": "5fcfaed3c8b9470c485622ee4f816eaee27913491fe97d869c3d78bbd4bb5e6b",
+      "bytes": 95776
+    },
+    "focusedComparison": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/focused-2-baseline-comparison.json",
+      "sha256": "743e6c835c73200027680f8e61038d346fb3eaadedd73d38843d3859ed6ccd74",
+      "bytes": 1041
+    },
+    "emission": {
+      "path": "/Users/dowling/projects/nupp-wt/ownership-pass-contract-scratch/eligibility-emit-1/execution.receipt.json",
+      "sha256": "44b37f73f32e80c0465a789b7da1d47ce7eaa761a8345cf8bd8631a69cd29ec2",
+      "bytes": 2430
+    },
+    "backendCosts": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-next-queue-audit/ownership-slot-backend-cost.json",
+      "sha256": "d026634758595ffda62bdbb7851467dacd3a61c604de6aeddd2e12593941337b",
+      "bytes": 10173
+    },
+    "freshProfile": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/profile-accepted-c0-006c/run.json",
+      "sha256": "9f2e9d2b7f60b705065dc85b0fa66a20ee3fcb4ca692716d1a9df21fe1e366d6",
+      "bytes": 10243
+    },
+    "profileAttribution": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/profile-accepted-c0-006c-analysis/attribution.json",
+      "sha256": "f42b91b4a73c8affc886272e4ba54b4ec6843c074b2939d3c4230e1e08308e83",
+      "bytes": 626418
+    },
+    "entryAndPassContractAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-next-queue-audit/ownership-entry-pass-handles.json",
+      "sha256": "cb797b34e72ac2ad6ac414e07f27f7c50f1415176b76f1d32d06779ece69e42b",
+      "bytes": 38097
+    },
+    "factReturnProducers": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-next-queue-audit/capability-facts-return-paths.json",
+      "sha256": "be122e2588d10408ed09533184d050f0436dba7c1a5d02d186e50d26e4be7183",
+      "bytes": 14983
+    },
+    "callfactsPruneProtocol": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/callfacts-hints-next-protocol/prune-protocol.json",
+      "sha256": "ccd24580bb2b4fad8b533d0c54ccb4c5d1b12a778f199b1bc98322e5ed1a560a",
+      "bytes": 17572
+    },
+    "typeSystemGapQueueAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-next-queue-audit/type-system-gap-queue-audit.json",
+      "bytes": 23602,
+      "sha256": "b1c4d531b65ac6a411f1d05136fe1e7af8b18828d6ab4aae94378124133c06a4"
+    }
+  },
+  "nextQueueReview": {
+    "scope": "Source-backed reconciliation of the five handoff type-system gaps; no compiler implementation change.",
+    "items": [
+      {
+        "queueOrder": 1,
+        "request": "{...} is not a fresh literal",
+        "status": "Already implemented; no current failing reproduction",
+        "implementationCommit": "91ba480c8e6c576e8e97edcc4cbc464774eb964f",
+        "reason": "Every positional constructor passes fresh=true, including expanded trailing calls and varargs. Expansion removes exact positional elems only. Stored bindings settle freshness.",
+        "limits": "Existing trailing-call and expansion tests passed in preserved baseline. No dedicated literal-vararg freshness test was identified; its source path is fixed, but that exact scenario was not separately executed here."
+      },
+      {
+        "queueOrder": 2,
+        "request": "Nested array literals do not fit {T}",
+        "status": "Already implemented; relevant existing baseline regression passed",
+        "implementationCommit": "91ba480c8e6c576e8e97edcc4cbc464774eb964f",
+        "reason": "Fresh-array element covariance recurses; stored nested aliases remain invariant. Positive nested tuple-array literal exists at checktest474; nested {{integer}} initialization at566 expects only subsequent line2 widening error."
+      },
+      {
+        "queueOrder": 3,
+        "request": "Integer-indexed shape with a named property does not fit {T}",
+        "status": "Reproduced once; unresolved collection contract, no implementation approved",
+        "reason": "Accepted C0 parses both read/write integer indexers plus label and rejects assigning the shape to integer array. Map-only source is also rejected, so named property is not the discriminating cause. No shape-to-array relation exists. Indexer reads are optional; array reads are deliberately nonoptional.",
+        "limits": [
+          "No parse diagnostics; exactly five NUPP2001 assignment errors and one NUPP2002 required-read error.",
+          "Mixed literal success is through generic gradual table inference, not evidence of indexed-shape-to-array support.",
+          "No model-side relation probe or AST command was run; diagnostic text supplies the parsed structural type.",
+          "A blanket integer-indexer-to-array relation would additionally admit sparse maps and change documented optional-read semantics. Preserve read/write safety and establish intended dense-sequence provenance before any fix."
+        ]
+      },
+      {
+        "queueOrder": 4,
+        "request": "type(v)==number does not narrow inside ipairs over a cast array",
+        "status": "Current intentional language limit; not an ipairs-specific missing propagation fix",
+        "reason": "The only recognized type-string subject classification requires exact unknown and the unshadowed global type. Declared unions are deliberately not narrowed by type(); is is the documented construct.",
+        "limits": "The exact ipairs/cast variant was not executed. Existing typeNameTestsClassifyAnUnknown passed and intentionally requires a diagnostic for a declared string|number type() branch. Any extension must revise that contract rather than special-case loop provenance."
+      },
+      {
+        "queueOrder": 5,
+        "request": "Pack-union results do not narrow sibling slots",
+        "status": "Already implemented with executed positive and negative regression evidence",
+        "reason": "Expanded pack alternatives attach one group to sibling bindings; literal equality and truthiness filter arms and propagate each slot. Simple copied names join the group; reassignment clears the reassigned name correlation.",
+        "limits": "Evidence covers protected calls, declared pack unions and generic wrapper wrong-type rejection; does not claim arbitrary discriminants, mutable aliases or all pack transforms are complete."
+      }
+    ],
+    "existingSuiteCoverage": {
+      "checktest": {
+        "passed": 103
+      },
+      "narrowingtest": {
+        "passed": 47
+      },
+      "packtest": {
+        "passed": 42
+      }
+    },
+    "probe": "One external accepted-C0 diagnostic check; six expected rejections, no parse errors. Dense-sequence versus sparse-indexer contract is unresolved; no permissive relation was implemented."
+  }
+}

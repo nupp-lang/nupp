@@ -4006,3 +4006,26 @@ candidate does not complete central Node typing. See
 [Node investigation evidence](tests/compiler-node-typing-investigation.json)
 for every sample, raw report and artifact identity, the exact SPI disposition,
 carried-proof scope, mechanism costs and preserved unmerged source.
+
+## Ownership typing investigation (2026-10-17)
+
+The ownership pass-handle trial is pruned before AOT and timing. Its patch
+remains unmerged on `vm-ownership-pass-contract`; no speed change is accepted.
+
+Cold checking compiles all 505 modules without diagnostics. Focused coverage
+matches all 405 baseline cases, including the known `attemptAll` failure.
+One verified image has 6,580 functions and replaces 50 field reads and 70
+writes with slots. Reads retain guards; writes retain runtime helpers. The
+integer result-slot correction adds boxing and unboxing, and boxing may
+allocate. Module initializers and explicit allocation opcode counts match.
+
+The 28 changed functions together account for 3.08% of observed main-thread
+nearest-AOT samples in the fresh accepted-C0 profile. Most work inside those
+functions remains, which weakens the fixed 5% root-cycle hypothesis. This is
+an experiment-budget decision, not a hard CPU bound or measured speed verdict;
+workers, unsampled work and nonlocal GC effects limit the attribution.
+
+Self-hosting, independent Lua output, candidate AOT, broad validation and
+performance gates were not run. See
+[ownership investigation evidence](tests/compiler-ownership-typing-investigation.json)
+for source, profile, emitted-work and validation identities.
