@@ -1063,17 +1063,22 @@ end
 --- Only for a binary that will run on the machine building it. A dump records the
 --- endianness and the VM configuration it was made for and is refused by a VM that
 --- does not match, so a cross-stamped binary keeps its source payload rather than
---- carrying bytecode its host would reject at startup.
+--- carrying bytecode its host would reject at startup. A compiler without a
+--- bytecode dumper also keeps the source payload.
 local function payloadBytes(text: string, selectedPlatform: string?): string?, integer?, string?
     local hostKey = require("nupp.tools.build.platform").hostKey()
     if selectedPlatform ~= nil and selectedPlatform ~= hostKey then
+        return text, 0
+    end
+    local dump = rawget(string, "dump")
+    if type(dump) ~= "function" then
         return text, 0
     end
     local chunk, loadErr = loadstring(text, "=nupp-payload")
     if not chunk then
         return nil, nil, "the bundle did not compile: " .. tostring(loadErr)
     end
-    local ok, dumped = pcall(string.dump, chunk, "ds")
+    local ok, dumped = pcall(dump, chunk, "ds")
     if not ok then
         return nil, nil, "the bundle did not dump: " .. tostring(dumped)
     end

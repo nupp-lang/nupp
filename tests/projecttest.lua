@@ -1,5 +1,6 @@
 local testAssert = require("nupp.test")
 local project = require("nupp.tools.build.project")
+local buildPackage = require("nupp.tools.build.package")
 local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
@@ -27,6 +28,33 @@ local function read(path)
     local text = f:read("*a")
     f:close()
     return text
+end
+
+-- Runtime modules without carried Lua artifacts are compiled from staged source.
+-- Count those records independently; project invalidation expectations stay exact.
+local function compiledRuntimeSources(dir, projectModules)
+    local expected, seen = {}, {}
+    for _, name in ipairs(projectModules) do
+        expected[name] = true
+    end
+    local state = assert(json.decode(read(dir .. "/out/.nupp-state.json")))
+    local prefix = dir .. "/out/cache/runtime-source/"
+    local count = 0
+    for name, record in pairs(state.modules) do
+        if record.sourcePath then
+            if record.sourcePath:sub(1, #prefix) == prefix then
+                count = count + 1
+            else
+                assert(expected[name], "unexpected project source module: " .. name)
+                seen[name] = true
+            end
+        end
+    end
+    for _, name in ipairs(projectModules) do
+        assert(seen[name], "missing project source module: " .. name)
+    end
+
+    return count
 end
 
 --- Where a project's content-keyed stores went.
@@ -131,6 +159,49 @@ local function answerFrom(dir)
 end
 
 local M = {}
+
+function M.payloadWithoutBytecodeDumperKeepsSource()
+    local dump = rawget(string, "dump")
+    rawset(string, "dump", nil)
+    local ok, payload, flags, err = pcall(
+        buildPackage.payloadBytes,
+        "this is source, not compiled here",
+        buildPlatform.hostKey()
+    )
+    rawset(string, "dump", dump)
+    assert(ok, payload)
+    testAssert.equal(payload, "this is source, not compiled here")
+    testAssert.equal(flags, 0)
+    testAssert.equal(err, nil)
+end
+
+function M.payloadBytecodeDumperPreservesFlagsAndFailures()
+    local dump = rawget(string, "dump")
+    local calls = 0
+    rawset(string, "dump", function(chunk, options)
+        calls = calls + 1
+        assert(type(chunk) == "function")
+        assert(options == "ds")
+        return "test-bytecode"
+    end)
+    local ok, payload, flags, err = pcall(buildPackage.payloadBytes, "return true", buildPlatform.hostKey())
+    rawset(string, "dump", dump)
+    assert(ok, payload)
+    testAssert.equal(calls, 1)
+    testAssert.equal(payload, "test-bytecode")
+    testAssert.equal(flags, 1)
+    testAssert.equal(err, nil)
+
+    rawset(string, "dump", function()
+        error("test dumper failure", 0)
+    end)
+    ok, payload, flags, err = pcall(buildPackage.payloadBytes, "return true", buildPlatform.hostKey())
+    rawset(string, "dump", dump)
+    assert(ok, payload)
+    testAssert.equal(payload, nil)
+    testAssert.equal(flags, nil)
+    testAssert.equal(err, "the bundle did not dump: test dumper failure")
+end
 
 function M.sha256KnownVectors()
     testAssert.equal(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -527,7 +598,8 @@ return comptime do return nupp.sizeof(PointerSized) end
 
     local lp64 = {}
     testAssert.equal(project.build(dir, {stats = lp64}), 0)
-    testAssert.equal(lp64.checkedModules, 1, "the first target is checked")
+    local runtime = compiledRuntimeSources(dir, {"main"})
+    testAssert.equal(lp64.checkedModules, 1 + runtime, "the first target checks the project and runtime source")
 
     local warm = {}
     testAssert.equal(project.build(dir, {stats = warm}), 0)
@@ -536,7 +608,8 @@ return comptime do return nupp.sizeof(PointerSized) end
     write(dir .. "/nupp.lua", manifest("i686-unknown-linux-gnu"))
     local ilp32 = {}
     testAssert.equal(project.build(dir, {stats = ilp32}), 0)
-    testAssert.equal(ilp32.checkedModules, 1, "changing the target invalidates the old result")
+    testAssert.equal(compiledRuntimeSources(dir, {"main"}), runtime)
+    testAssert.equal(ilp32.checkedModules, 1 + runtime, "changing the target invalidates the old results")
     remove(dir)
 end
 
@@ -566,13 +639,14 @@ return comptime do return nupp.sizeof(models.Wire) end
 
     local cold = {}
     testAssert.equal(project.build(dir, {stats = cold}), 0)
-    testAssert.equal(cold.checkedModules, 2, "the layout reader and declaration check cold")
+    local runtime = compiledRuntimeSources(dir, {"main", "models"})
+    testAssert.equal(cold.checkedModules, 2 + runtime, "the layout reader, declaration and runtime source check cold")
 
     write(dir .. "/src/models.nupp", model:gsub("return 1", "return 2"))
     local body = {}
     testAssert.equal(project.build(dir, {stats = body}), 0)
     testAssert.equal(body.checkedModules, 1, "a body edit checks only its module")
-    testAssert.equal(body.reusedModules, 1, "the layout reader cuts off at the interface")
+    testAssert.equal(body.reusedModules, 1 + runtime, "the layout reader and runtime cut off at the interface")
 
     write(dir .. "/src/models.nupp", model:gsub("value: int32", "value: number"))
     local changed = {}
@@ -1624,19 +1698,24 @@ return {
 
     local cold = {}
     testAssert.equal(project.build(dir, {stats = cold}), 0)
-    testAssert.equal(cold.checkedModules, 2, "cold build checks the closure")
+    local runtime = compiledRuntimeSources(dir, {"main", "lib"})
+    testAssert.equal(cold.checkedModules, 2 + runtime, "cold build checks the project and runtime closure")
 
     local warm = {}
     testAssert.equal(project.build(dir, {stats = warm}), 0)
     testAssert.equal(warm.checkedModules, 0, "warm build checks no modules")
     testAssert.equal(warm.generatedModules, 0, "warm build generates no modules")
-    testAssert.equal(warm.reusedModules, 2, "warm build reuses the closure")
+    testAssert.equal(warm.reusedModules, 2 + runtime, "warm build reuses the project and runtime closure")
 
     write(dir .. "/src/lib.nupp", depV1:gsub("return 1", "return 2"))
     local bodyEdit = {}
     testAssert.equal(project.build(dir, {stats = bodyEdit}), 0)
     testAssert.equal(bodyEdit.checkedModules, 1, "body edit checks only the changed dependency")
-    testAssert.equal(bodyEdit.reusedModules, 1, "body edit reuses the dependent after interface cutoff")
+    testAssert.equal(
+        bodyEdit.reusedModules,
+        1 + runtime,
+        "body edit reuses the dependent and runtime after interface cutoff"
+    )
 
     write(
         dir .. "/src/lib.nupp",
@@ -1652,7 +1731,11 @@ return {
     local interfaceEdit = {}
     testAssert.equal(project.build(dir, {stats = interfaceEdit}), 0)
     testAssert.equal(interfaceEdit.checkedModules, 2, "interface edit rechecks the dependency and dependent")
-    testAssert.equal(interfaceEdit.reusedModules, 0, "changed interface invalidates the dependent record")
+    testAssert.equal(
+        interfaceEdit.reusedModules,
+        runtime,
+        "changed interface invalidates the dependent but preserves the runtime"
+    )
     remove(dir)
 end
 
@@ -1716,7 +1799,8 @@ return {
 
     local cold = {}
     testAssert.equal(project.build(dir, {stats = cold}), 0)
-    testAssert.equal(cold.checkedModules, 3, "cold build checks every project module")
+    local runtime = compiledRuntimeSources(dir, {"main", "model", "unrelated"})
+    testAssert.equal(cold.checkedModules, 3 + runtime, "cold build checks every project module and runtime source")
 
     local warm = {}
     testAssert.equal(project.build(dir, {stats = warm}), 0)
@@ -1726,13 +1810,13 @@ return {
     local unrelatedEdit = {}
     testAssert.equal(project.build(dir, {stats = unrelatedEdit}), 0)
     testAssert.equal(unrelatedEdit.checkedModules, 1, "unrelated export edit checks only its declaring module")
-    testAssert.equal(unrelatedEdit.reusedModules, 2, "the reflecting module remains reusable")
+    testAssert.equal(unrelatedEdit.reusedModules, 2 + runtime, "the reflecting module and runtime remain reusable")
 
     write(dir .. "/src/model.nupp", model:gsub("name: string", "name: string\n   count: integer"))
     local reflectedEdit = {}
     testAssert.equal(project.build(dir, {stats = reflectedEdit}), 0)
     testAssert.equal(reflectedEdit.checkedModules, 2, "reflected field edit checks its declaration and reader")
-    testAssert.equal(reflectedEdit.reusedModules, 1, "unrelated module remains reusable")
+    testAssert.equal(reflectedEdit.reusedModules, 1 + runtime, "unrelated module and runtime remain reusable")
     remove(dir)
 end
 
@@ -1815,10 +1899,12 @@ return {
     local cold = {}
     testAssert.equal(project.check(dir, {stats = cold, diagnostics = {}}), 0)
     testAssert.equal(cold.checkedModules, 2, "a cold check checks the closure")
+    testAssert.equal(cold.generatedModules, 0, "a check does not generate module artifacts")
 
     local warm = {}
     testAssert.equal(project.check(dir, {stats = warm, diagnostics = {}}), 0)
     testAssert.equal(warm.checkedModules, 0, "a warm check checks nothing")
+    testAssert.equal(warm.generatedModules, 0, "a warm check does not generate module artifacts")
     testAssert.equal(warm.reusedModules, 2, "a warm check reuses the closure")
 
     -- A body edit stops at the unchanged interface, exactly as a build does.
@@ -2314,6 +2400,7 @@ return {
         local codec = rawget(_G, "__nupp_plain_codec") or require("string.buffer")
         local envelope = codec.decode(file:read("*a"))
         file:close()
+
         return envelope.slots[1].stamp
     end
 
@@ -2651,11 +2738,7 @@ return {
         ),
     })
     testAssert.equal(project.build(dir), 0)
-    testAssert.equal(
-        answerFrom(dir),
-        "5",
-        "the shared parent contains its transitive static implementation"
-    )
+    testAssert.equal(answerFrom(dir), "5", "the shared parent contains its transitive static implementation")
     remove(dir)
 end
 
@@ -2971,11 +3054,7 @@ pub extern "C" fn tiny_drops() -> i32 { DROPS.load(Ordering::SeqCst) }
         binding:find('from "@lib/' .. libraryName("tiny_rust") .. '"', 1, true),
         "the cbindgen import names the copied cdylib relatively: " .. binding
     )
-    testAssert.equal(
-        answerFrom(dir),
-        "1",
-        "leaving the returned Box at scope end calls its Rust destructor once"
-    )
+    testAssert.equal(answerFrom(dir), "1", "leaving the returned Box at scope end calls its Rust destructor once")
     remove(dir)
 end
 
@@ -3401,9 +3480,7 @@ end
 -- under test" the way a test command's subject always is.
 function M.namedTaskRunsItsArgvWithoutBuildingByDefault()
     local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
+        ["nupp.lua"] = [[
 return {
    include = {"src"},
    tasks = {

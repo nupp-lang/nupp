@@ -2023,6 +2023,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     stats.generatedModules = stats.generatedModules + 1
                     linkCompiled(item.name, record)
                 elseif usable and previous then
+                    if parallelChecked[item.name] then
+                        stats.checkedModules = stats.checkedModules + 1
+                    end
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
                     records[item.name].external = external or nil
