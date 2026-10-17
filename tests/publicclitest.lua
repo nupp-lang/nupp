@@ -55,7 +55,54 @@ function M.rejectsInvalidDerivedSchemasDuringChecking()
     end
 end
 
+-- A standalone VM program starts without the compiler's loaded CLI modules.
+local function runVmPrimitiveProbe()
+    local fs = require("nupp.compiler.fs")
+    local project = require("nupp.tools.build.project")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(fs.mkdir(dir))
+    local ok, problem = pcall(function()
+        assert(
+            fs.writeFile(
+                dir .. "/nupp.lua",
+                [[return {include = {"."}, build = {
+    kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
+}}]]
+            )
+        )
+        assert(
+            fs.writeFile(
+                dir .. "/main.nupp",
+                [[module main
+assert(rawget(_G, "__nupp_load_image") ~= nil, "the primitive probe runs on the VM")
+local cli = require("nupp.cli")
+assert(package.loaded["nupp.cli.internal.optparser"])
+assert(not package.loaded["nupp.cli.internal.decode"])
+assert(not package.loaded["nupp.cli.internal.application"])
+assert(not package.loaded["nupp.cli.internal.terminal"])
+assert(not package.loaded["nupp.derive"])
+local parser = cli.optParser({"--flag"})
+assert(parser:next() == cli.longOption)
+assert(parser:key() == "flag")
+]]
+            )
+        )
+        assert(project.build(dir, {}) == 0, "the primitive CLI probe did not build")
+        local status, output = process.capture({dir .. "/out/binary"})
+        assert(status == 0, output)
+        assert(output == "", output)
+    end)
+    local removed, removeProblem = require("nupp.io.files").remove(dir, true)
+    assert(removed, removeProblem)
+    assert(ok, problem)
+end
+
 function M.primitiveLoadingDoesNotPullInHigherLayers()
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        runVmPrimitiveProbe()
+        return
+    end
     local runtimePipe = assert(io.popen(("'%s/scripts/toolchain' luajit"):format(ROOT)))
     local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
     runtimePipe:close()
@@ -78,6 +125,21 @@ assert(parser:key() == "flag")
 end
 
 function M.derivedMetadataNamesInterfacesStably()
+    if rawget(_G, "__nupp_load_image") ~= nil then
+        local command = require("nupp.tools.cli.version").commandType
+        local entry = assert(require("nupp.derive").entry(command), "Version has its derived runtime recipe")
+        local found = false
+        for _, member in ipairs(assert(entry.schema.members)) do
+            local interface = member.interface
+            if interface ~= nil then
+                assert(type(interface) == "string", "a derived member names its interface")
+                assert(not interface:find("nominal#%d+%(Runnable%)"), interface)
+                found = found or interface == "cliModule.Runnable"
+            end
+        end
+        assert(found, "Version's emitted runtime recipe names cliModule.Runnable")
+        return
+    end
     local file = assert(io.open(ROOT .. "/build/nupp/tools/cli/version.lua", "rb"))
     local generated = file:read("*a")
     file:close()
