@@ -1,0 +1,951 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Complete; reject borrowed AOT slot payload prototype under the fixed warm startup gate",
+  "scope": "Same accepted compiler image, unchanged Nupp/Lua compiler sources and workload root; runtime owns JIT slot vectors and borrows immutable AOT slot bytes. ABI4 and JIT_OPT=none unchanged.",
+  "disposition": {
+    "executionAccepted": true,
+    "performanceAccepted": false,
+    "reason": "Warm paired median cycles and wall reductions both miss the predeclared5% margin. Root guard skipped as declared; no extra samples, retry or retuning.",
+    "warmPrimaryPassed": false,
+    "rootGuardExecuted": false,
+    "ordinaryBroadExecuted": false,
+    "productionMapChangeLanded": false,
+    "latestAcceptedSpeedCommit": "f65c9ed5ae2b49082b3f131b123116435128dbe7"
+  },
+  "preservedPrototype": {
+    "branch": "vm-aot-borrowed-maps",
+    "commit": "2a62e261a15b8e982bfee05e2bc25805e0ca4605",
+    "worktree": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps",
+    "postExecutionPreservationOnly": true,
+    "testedBytesUnchanged": true,
+    "clean": true,
+    "files": {
+      "native/crates/vm/build.rs": "61d4d3b28509742f534a511abb982889326a25c17ac01b83ef159b6eb67844b9",
+      "native/crates/vm/src/compiled.rs": "19c1efc79e7863dc276dec06d74d14966de05f183786e89a7e46d51457a36918",
+      "native/crates/vm/src/jit.rs": "099ed781ee13e95adf0021ceee506d196fa348ca40f86525916c32ac7b95f5f5",
+      "native/crates/vm/src/main.rs": "f78ae113af219f0b5d0a606c200b3260938e559f8cf11549264d9092bb756a4f",
+      "native/crates/vm/tests/stack_maps.rs": "0dd9d3be6846ed22d7b8ea8f9cca871a2a8c1a737dae3b1e7365df06b7934758"
+    },
+    "separateLandedNoCodegenFixtureRepair": "0b152c187c978ce738f84292e515329f2f3c049b"
+  },
+  "protocol": {
+    "primary": "Warm lexer CLI including process startup and all GC work",
+    "warmRounds": 9,
+    "warmProcesses": 27,
+    "requiredWarmPairedCyclesAndWallReduction": 0.05,
+    "coldRounds": 1,
+    "coldProcesses": 3,
+    "coldRole": "Diagnostic only; one triplet cannot settle the repository target. Hardware instruction/cycle counters describe the launched process; wall includes waiting. user/sys values are retained without assuming the same scope as hardware counters.",
+    "conditionalRootRoundsDeclared": 5,
+    "conditionalRootProcessesExecuted": 0,
+    "rootCondition": "Run only if both warm primary margins pass; both root cycles and wall then permit at most5% regression",
+    "order": "Warm9, cold1, root5 only if warm passes; baseline/Lua/candidate per round, reversed on odd rounds",
+    "LuaEveryRound": true,
+    "all30SamplesRetained": true,
+    "jobs": 2,
+    "warmCompiled": 0,
+    "warmReused": 36,
+    "coldCompiled": 505,
+    "coldWorkers": 2,
+    "coldRetries": 0,
+    "safetyDeadlineSeconds": {
+      "lexer": 300,
+      "cold-check": 600,
+      "emit": 7200
+    },
+    "timeoutsDuringMeasurement": false,
+    "hostQuiet": false,
+    "foreignActivity": [
+      "99684 99210  99.1 ./build/app"
+    ]
+  },
+  "pairedMedianRelativeChanges": {
+    "lexer": {
+      "cycles elapsed": -0.02758520423764954,
+      "instructions retired": -0.03802786216527998,
+      "real": -0.033333333333333326,
+      "maximum resident set size": -0.15202668209508896
+    },
+    "cold-check": {
+      "cycles elapsed": 0.008896106797753323,
+      "instructions retired": 0.007423104455763996,
+      "real": 0.0331553182020472,
+      "maximum resident set size": -0.06373424953793527
+    }
+  },
+  "perEngineMedians": {
+    "lexer": {
+      "baseline": {
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.04,
+        "instructions retired": 13474186526,
+        "cycles elapsed": 2573626743,
+        "maximum resident set size": 481296384
+      },
+      "luajit": {
+        "real": 0.33,
+        "user": 0.27,
+        "sys": 0.06,
+        "instructions retired": 5367513111,
+        "cycles elapsed": 1438373953,
+        "maximum resident set size": 80396288
+      },
+      "candidate": {
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 12969838310,
+        "cycles elapsed": 2488772437,
+        "maximum resident set size": 408174592
+      }
+    },
+    "cold-check": {
+      "baseline": {
+        "real": 44.94,
+        "user": 72.58,
+        "sys": 1.23,
+        "instructions retired": 130238923588,
+        "cycles elapsed": 23786672059,
+        "maximum resident set size": 4272717824
+      },
+      "luajit": {
+        "real": 47.01,
+        "user": 67.55,
+        "sys": 7.77,
+        "instructions retired": 103875514524,
+        "cycles elapsed": 29898550558,
+        "maximum resident set size": 3080323072
+      },
+      "candidate": {
+        "real": 46.43,
+        "user": 75.16,
+        "sys": 1.17,
+        "instructions retired": 131205700722,
+        "cycles elapsed": 23998280834,
+        "maximum resident set size": 4000399360
+      }
+    }
+  },
+  "allTimedSamples": {
+    "lexer": [
+      {
+        "repeat": 0,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.54,
+        "sys": 0.04,
+        "instructions retired": 13511755317,
+        "cycles elapsed": 2567661425,
+        "maximum resident set size": 481017856,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 0,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.33,
+        "user": 0.26,
+        "sys": 0.06,
+        "instructions retired": 5326428144,
+        "cycles elapsed": 1434447405,
+        "maximum resident set size": 80855040,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 0,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 12962081008,
+        "cycles elapsed": 2500982884,
+        "maximum resident set size": 408174592,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 1,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 12961792018,
+        "cycles elapsed": 2488772437,
+        "maximum resident set size": 407928832,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 1,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.06,
+        "instructions retired": 6824818872,
+        "cycles elapsed": 1799359240,
+        "maximum resident set size": 74498048,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 1,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 13474186526,
+        "cycles elapsed": 2576376181,
+        "maximum resident set size": 481296384,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 2,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 13441448811,
+        "cycles elapsed": 2573626743,
+        "maximum resident set size": 481280000,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 2,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.39,
+        "user": 0.32,
+        "sys": 0.06,
+        "instructions retired": 6333324957,
+        "cycles elapsed": 1672815740,
+        "maximum resident set size": 82149376,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 2,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.57,
+        "user": 0.52,
+        "sys": 0.04,
+        "instructions retired": 12969838310,
+        "cycles elapsed": 2453309182,
+        "maximum resident set size": 407928832,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 3,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 12964806671,
+        "cycles elapsed": 2487073140,
+        "maximum resident set size": 407601152,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 3,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.33,
+        "user": 0.26,
+        "sys": 0.06,
+        "instructions retired": 5233202546,
+        "cycles elapsed": 1420310678,
+        "maximum resident set size": 80297984,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 3,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.04,
+        "instructions retired": 13561521676,
+        "cycles elapsed": 2590624601,
+        "maximum resident set size": 481280000,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 4,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 13387636046,
+        "cycles elapsed": 2562228664,
+        "maximum resident set size": 481345536,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 4,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.33,
+        "user": 0.26,
+        "sys": 0.06,
+        "instructions retired": 5335160859,
+        "cycles elapsed": 1412607296,
+        "maximum resident set size": 80396288,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 4,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 13052813236,
+        "cycles elapsed": 2491549063,
+        "maximum resident set size": 408518656,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 5,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.59,
+        "user": 0.54,
+        "sys": 0.04,
+        "instructions retired": 13054449361,
+        "cycles elapsed": 2485854166,
+        "maximum resident set size": 408158208,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 5,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.33,
+        "user": 0.27,
+        "sys": 0.06,
+        "instructions retired": 5367513111,
+        "cycles elapsed": 1438373953,
+        "maximum resident set size": 81477632,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 5,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.59,
+        "user": 0.54,
+        "sys": 0.04,
+        "instructions retired": 13387953365,
+        "cycles elapsed": 2546828906,
+        "maximum resident set size": 481673216,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 6,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.04,
+        "instructions retired": 13420854694,
+        "cycles elapsed": 2581630849,
+        "maximum resident set size": 481411072,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 6,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.42,
+        "user": 0.35,
+        "sys": 0.07,
+        "instructions retired": 6703143490,
+        "cycles elapsed": 1811225896,
+        "maximum resident set size": 74596352,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 6,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.6,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 12986540000,
+        "cycles elapsed": 2511043615,
+        "maximum resident set size": 408223744,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 7,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.61,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 12989138676,
+        "cycles elapsed": 2549150933,
+        "maximum resident set size": 408420352,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 7,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.39,
+        "user": 0.32,
+        "sys": 0.06,
+        "instructions retired": 6393013241,
+        "cycles elapsed": 1679233915,
+        "maximum resident set size": 82313216,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 7,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.61,
+        "user": 0.56,
+        "sys": 0.05,
+        "instructions retired": 13512714340,
+        "cycles elapsed": 2575859783,
+        "maximum resident set size": 481181696,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 8,
+        "label": "baseline",
+        "status": 0,
+        "real": 0.61,
+        "user": 0.55,
+        "sys": 0.04,
+        "instructions retired": 13501242024,
+        "cycles elapsed": 2552601594,
+        "maximum resident set size": 481427456,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 8,
+        "label": "luajit",
+        "status": 0,
+        "real": 0.33,
+        "user": 0.27,
+        "sys": 0.06,
+        "instructions retired": 5319068457,
+        "cycles elapsed": 1420962392,
+        "maximum resident set size": 80183296,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      },
+      {
+        "repeat": 8,
+        "label": "candidate",
+        "status": 0,
+        "real": 0.58,
+        "user": 0.53,
+        "sys": 0.04,
+        "instructions retired": 12960249252,
+        "cycles elapsed": 2474339108,
+        "maximum resident set size": 408518656,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 0,
+        "reusedModules": 36,
+        "parallel": null
+      }
+    ],
+    "cold-check": [
+      {
+        "repeat": 0,
+        "label": "baseline",
+        "status": 0,
+        "real": 44.94,
+        "user": 72.58,
+        "sys": 1.23,
+        "instructions retired": 130238923588,
+        "cycles elapsed": 23786672059,
+        "maximum resident set size": 4272717824,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 505,
+        "reusedModules": 0,
+        "parallel": {
+          "batches": 476,
+          "mode": "parallel",
+          "rechecked": 0,
+          "retries": 0,
+          "workers": 2
+        }
+      },
+      {
+        "repeat": 0,
+        "label": "luajit",
+        "status": 0,
+        "real": 47.01,
+        "user": 67.55,
+        "sys": 7.77,
+        "instructions retired": 103875514524,
+        "cycles elapsed": 29898550558,
+        "maximum resident set size": 3080323072,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 505,
+        "reusedModules": 0,
+        "parallel": {
+          "batches": 476,
+          "mode": "parallel",
+          "rechecked": 0,
+          "retries": 0,
+          "workers": 2
+        }
+      },
+      {
+        "repeat": 0,
+        "label": "candidate",
+        "status": 0,
+        "real": 46.43,
+        "user": 75.16,
+        "sys": 1.17,
+        "instructions retired": 131205700722,
+        "cycles elapsed": 23998280834,
+        "maximum resident set size": 4000399360,
+        "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab",
+        "compiledModules": 505,
+        "reusedModules": 0,
+        "parallel": {
+          "batches": 476,
+          "mode": "parallel",
+          "rechecked": 0,
+          "retries": 0,
+          "workers": 2
+        }
+      }
+    ]
+  },
+  "mechanism": {
+    "staticCounts": {
+      "functions": 6580,
+      "functionsWithNonemptyMapVectors": 6229,
+      "zeroMapFunctions": 351,
+      "maps": 849105,
+      "nonemptySlotVectors": 849105,
+      "emptySlotVectors": 0,
+      "slotEntries": 14439604,
+      "slotsPerMapMin": 1,
+      "slotsPerMapMax": 147,
+      "duplicatePCsWithinFunction": 0,
+      "slotPayloadBytes": 57758416,
+      "mapHeaderBytes": 10189260,
+      "functionHeaderBytes": 78960,
+      "fileHeaderBytes": 4,
+      "fileBytes": 68026640,
+      "trailingBytes": 0
+    },
+    "removedStartupWork": "Borrowing avoids constructing849,105nonempty owned AOT slot vectors and copying57,758,416bytes of slot payload into them. Function map-header vectors remain. These are static construction counts, not observed allocator calls or CPU shares.",
+    "unchanged": "Serialized maps, object code, manifest, exact-PC lookup, frame/range rules, JIT-owned vectors and JIT code-owner teardown. Borrowed reads safely decode little-endian u32 bytes without alignment casts.",
+    "costsRetained": "Map-header allocation/decoding, static map bytes and byte-wise slot decoding during GC. This is subtraction of a startup allocation/copy mechanism, not a CPU-share attribution.",
+    "objectMapsManifestByteIdentical": true,
+    "artifactMap": {
+      "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/candidate.o": {
+        "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa",
+        "bytes": 149226248
+      },
+      "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/candidate.o.maps": {
+        "sha256": "fa5cd609ab548363eeed6e5986823df3e8b382873004a7581e52b727854ad270",
+        "bytes": 68026640
+      },
+      "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/candidate.o.rs": {
+        "sha256": "22a450b33bb166d32b9bac2a0999089ab038b685062ab214509dc0d1bd3756ba",
+        "bytes": 871389
+      },
+      "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/candidate.o.manifest": {
+        "sha256": "4a796bda9d2759743f8596ccdec61fa8e5cda7665d8b8a21681df0552d1f21b2",
+        "bytes": 122907
+      }
+    },
+    "emitterReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/fresh-emitter/receipt.json",
+      "sha256": "77321b71ce8ffedeb7baceca7103a2866feea3165fe79282d8939a0cc95f9b2f"
+    },
+    "objectEmissionSecondsSeparateFromExecution": 381.75128984451294,
+    "linkSecondsSeparateFromExecution": 40.93964600563049
+  },
+  "correctness": {
+    "rust": {
+      "focused": {
+        "topLevelTotals": {
+          "passed": 36,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 0
+        },
+        "nestedReexecSummariesExcludedFromTotals": true,
+        "sourceUnchanged": true,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/focused/receipt.json",
+          "sha256": "1b056df3ba2857a5fd61e8a052fc321de3e678948a3614847513044106d052fc"
+        }
+      },
+      "full-aot-vm": {
+        "topLevelTotals": {
+          "passed": 318,
+          "failed": 0,
+          "ignored": 4,
+          "filtered": 0
+        },
+        "nestedReexecSummariesExcludedFromTotals": true,
+        "sourceUnchanged": true,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/full-aot-vm/receipt.json",
+          "sha256": "9ddcc99983f188d028f9d6979c033e7cee84dd1dc530f2e63e28e3b3c935e3f3"
+        }
+      },
+      "full-no-codegen-vm": {
+        "topLevelTotals": {
+          "passed": 250,
+          "failed": 0,
+          "ignored": 4,
+          "filtered": 0
+        },
+        "nestedReexecSummariesExcludedFromTotals": true,
+        "sourceUnchanged": true,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/full-no-codegen-vm/receipt.json",
+          "sha256": "ae34bcdcc93d4e126bfefdc48efe7c619e3623661c0242ef533bceefe82f2dc8"
+        }
+      }
+    },
+    "normalAbiVerify": true,
+    "compilerFunctions": 6580,
+    "smokeChecks": 13,
+    "freshSmokeProcesses": 2,
+    "executableMemoryDenied": true,
+    "sameRootOutputSha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+    "coldAndWarmDiagnosticParity": true,
+    "sourceNativeProviderAndGeneratedLuaPinsVerified": true,
+    "cacheStateRestored": true,
+    "checkStateSha256": "6708051618b5f751a59914043edc1427741d1c2f4c2b07718ab4578b166feed8",
+    "ownedMeasurementGroupsGone": true,
+    "fullCompilerGcDiagnostic": {
+      "candidate": "Timed out180seconds; failed and not passing evidence",
+      "baseline": "Exact acceptedC0 control also timed out180seconds; failed and not passing evidence",
+      "rootDisposition": "Only the additional real-GC diagnostic was replaced by the bounded existing80function specialization fixture; performance protocol unchanged"
+    },
+    "smallRealAotGc": {
+      "functions": 80,
+      "stackMaps": 1651,
+      "rootSlotEntries": 10401,
+      "allFourFlags": {
+        "GC_STRESS": "1",
+        "GC_INTERLEAVE": "1",
+        "GC_ORACLE": "1",
+        "GC_QUARANTINE": "1"
+      },
+      "candidateNoExec": true,
+      "results": [
+        {
+          "case": "unstable",
+          "engine": "control",
+          "result": 81600,
+          "cycles": 1801,
+          "compiledFrames": 0
+        },
+        {
+          "case": "unstable",
+          "engine": "aot",
+          "result": 81600,
+          "cycles": 1800,
+          "compiledFrames": 1601
+        },
+        {
+          "case": "weak",
+          "engine": "control",
+          "result": 1200,
+          "cycles": 603,
+          "compiledFrames": 0
+        },
+        {
+          "case": "weak",
+          "engine": "aot",
+          "result": 1200,
+          "cycles": 602,
+          "compiledFrames": 803
+        }
+      ],
+      "scope": "Actual generated borrowed maps and native heap frames; four bounded control/AOT processes, not synthetic-only stack-map coverage"
+    }
+  },
+  "artifactIdentities": {
+    "baselineRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+      "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+    },
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+      "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "baselineObject": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o",
+      "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa"
+    },
+    "baselineMaps": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.maps",
+      "sha256": "fa5cd609ab548363eeed6e5986823df3e8b382873004a7581e52b727854ad270"
+    },
+    "baselineManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.manifest",
+      "sha256": "4a796bda9d2759743f8596ccdec61fa8e5cda7665d8b8a21681df0552d1f21b2"
+    },
+    "aotTool": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/fresh-emitter/matching-emitter",
+      "sha256": "938f7af2134bc856b53b2b990a3950330cf96aee9984b94bf1296976c4416998"
+    },
+    "lua": {
+      "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+      "sha256": "88b0294dd40134dabdf3e0dbcfd46c06f4bce1925f809c8cc6934d8ea30321a5"
+    },
+    "perfHarness": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/compiler-frame-perf.py",
+      "sha256": "5c47853fc8e203b641ba99ab5cea7dfc9daa4d2cb0a2f4d3b91e3721a35ee403"
+    },
+    "smokeHarness": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/compiler-aot-smoke.py",
+      "sha256": "b4804ad87ba15a3556fd77e0fd6240a8e1bb10596449a38c7f29b989bb78ff89"
+    },
+    "luaVerifier": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/verify-generated.lua",
+      "sha256": "b571912f2d10b435ea31f19f57eb8237203ced35b886baf09479592e162ad134"
+    },
+    "nativeProvider": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+      "sha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+    },
+    "nativeStatic": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.a",
+      "sha256": "6ca54efe7e3ce838f4621283d15b5b055cdb8442f8aa37395d42d97f986816b3"
+    },
+    "nativeComplete": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes/build/rust/native/83bc50a44d6b3431/.complete",
+      "sha256": "d117fa006ba9208500b2930ce69cbde436c647afa917cb7396a9bc9111a46dd2"
+    },
+    "sameRootOracle": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/control.image",
+      "sha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db"
+    },
+    "matchingEmitterProof": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/fresh-emitter/receipt.json",
+      "sha256": "77321b71ce8ffedeb7baceca7103a2866feea3165fe79282d8939a0cc95f9b2f"
+    },
+    "candidateRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/candidate.runtime",
+      "sha256": "b1a600e1764e4440584b9a70397be16d1c92305537f015b3cf5a59102caff9bd"
+    }
+  },
+  "references": {
+    "measurement": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-1/measure.receipt.json",
+      "sha256": "77d20e5ff2bbbd7250d0e47cacf227c57af3e66b0d3576d06b9f2e4fbc8f8225"
+    },
+    "terminal": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-1/terminal-proof.json",
+      "sha256": "9d2ab6c15d2ada38f94813c31ced1e4dd3e4562c0354db0d5eb6228a0bfd05a5"
+    },
+    "correctnessCompletion": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-completion-1/completion.json",
+      "sha256": "1c9566e473fb11a2290a902f0b72f5cd54ffc1a299ef0244d77adb99084ada4a"
+    },
+    "protocol": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/protocol-1.json",
+      "sha256": "33e2d25f83041d0075471d3755811401f64698e6ab26dd124184c9b01f4a1ac2"
+    },
+    "releasedConfig": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-proposal-2/config.measurement-released.json",
+      "sha256": "e3c900a125e6ed3a6f5d2f9e396f311370d2cd77c94c13dba8fe34fa44b86b77"
+    },
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-proposal-2/measure.py",
+      "sha256": "5e90fece7af204a5e29c8928fd30d2331fc8429ee044d5a2d8345253dea29652"
+    },
+    "postCommitBuildFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-proposal-1/post-commit-source-freeze.json",
+      "sha256": "ae332e40e57db502be72421a4b10c93ffee8e5328ccc2411dbbbfa8436b575de"
+    },
+    "executedBuildFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-2/source-freeze.json",
+      "sha256": "0ae46f353d8c0da7da260d45402af0fabf7c4786ae2e2e498df676e3c6ecdb91"
+    },
+    "prototypePreservation": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/prototype-preservation-1/receipt.json",
+      "sha256": "8cf31d345427102b1f0cf315f2d74ce1dfab1cdd1b538f9e3889df6e119a9318"
+    },
+    "object": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/object.receipt.json",
+      "sha256": "2fd76ed656be9d6240c26a93b0cd9fb9d26cf6a19b1c7c6cbc5224dab32bdcc5"
+    },
+    "link": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/link.receipt.json",
+      "sha256": "a03512ac97c85006eaa642d1183c2563476c298fe41d5c71dad34b28ca7feb83"
+    },
+    "abiVerify": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/compiler-image-verify.receipt.json",
+      "sha256": "ac5d7bc520efa0074be46d7c6c1def9707ae1b29f30d0dc5e968e580f31eb613"
+    },
+    "smoke": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/smoke/results.json",
+      "sha256": "9205f288d8d495e6bcc3535f30e8fe00e3df854f79ca58bf764d61068ef9dd71"
+    },
+    "sameRootOracle": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/oracle.receipt.json",
+      "sha256": "b331104f116c6a4099c7005c9a58d3e676c63f70d5963636ba2516919300bd0d"
+    },
+    "checks": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/checks.receipt.json",
+      "sha256": "73aa9d455dc9b4ece23a1e2733f9cf10b055c6fee4d287d83946d3857b325209"
+    },
+    "candidateCompilerGcTimeout": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/preparation-1/linked-gc.receipt.json",
+      "sha256": "13cc5cebbac1e9b66dbe99ce2d73b2dd982d07d1fd5d8811448aab57efd4a290"
+    },
+    "baselineCompilerGcTimeout": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/baseline-gc-1/receipt.json",
+      "sha256": "142ead2df201c99fcd3b7654a10b82e24e7cb09afecaec76ff9d5c631086202d"
+    },
+    "smallRealAotGc": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/small-gc-1/receipt.json",
+      "sha256": "603091d0bbdc533662b29e2a22c05223fc4e4ae23c13707bb606c9719d1168cc"
+    },
+    "smallGcProposal": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/small-gc-proposal-1.json",
+      "sha256": "a43163509a5ad39ec18b8911fbf73f85430dbdbcbddb2b5ab8719d6b9054a490"
+    },
+    "originalNoCodegenFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/correctness-1/full-no-codegen-vm/receipt.json",
+      "sha256": "a1e5649d28eb8654b5b0bbdff2433036e5a2390c4be721bc27ca474e1f226fbd"
+    },
+    "noCodegenBaselineProof": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/no-codegen-baseline-source-proof.json",
+      "sha256": "3c142772a0e003ed3e5aeeaddb31574ba2f644ddacb49197b118461a231473eb"
+    },
+    "landedCfgRepair": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/foreign-loader-guard-commit/receipt.json",
+      "sha256": "d651e99aeb13892ed6989581cf4cb5bba286f3a9b2dadacc8ef1fbb35b116b78"
+    },
+    "staticMapAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/warm-startup-map-scratch/read-only-1/audit.json",
+      "sha256": "bf832e4a1ebc2ef78655e7592cda0c5c3ae6829fa35207c5326bdc9b28f79f88"
+    },
+    "workloadFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/source-freeze.json",
+      "sha256": "63dbfaaa40814af0bef72f5dc459f81d3e5b5cde558df267d9a7207dbdd1a9d5"
+    },
+    "nativeProviderAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/lua-native-provider-audit-post-repair/receipt.json",
+      "sha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a"
+    },
+    "reusedLuaProof": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/prepare-lua.receipt.json",
+      "sha256": "c2018850a7e03ec9ec3ad905aaac45b473692aa59ae7ee3f9b79d107f2a0362d"
+    },
+    "rootWindowRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-proposal-2/root-window-release.json",
+      "sha256": "61e08608fce8d0ab5ae9ddb0a2b20bbdb91c5e760df93c85c682cd909e35ed89"
+    },
+    "lexerRawResults": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-1/perf-lexer/results.json",
+      "sha256": "5562c5a93d43c8407746aaf2f93c9a477a6eac2016c508846fb06d144496c202"
+    },
+    "cold-checkRawResults": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-borrowed-maps-scratch/measurement-1/perf-cold-check/results.json",
+      "sha256": "b72cb525d1b9ee0daff5c95c5b97519c0e350027844c4bf30c940f307fe8e4b7"
+    }
+  },
+  "limits": [
+    "No root timing or root regression verdict because the warm primary failed.",
+    "No full ordinary broad suite follows the rejected performance gate.",
+    "Paired median changes differ from ratios of independent per-engine medians.",
+    "RSS reduction does not satisfy the cycles-and-wall acceptance margin.",
+    "The candidate warm wall median0.58s remains above the measured Lua reference0.33s.",
+    "Static construction counts are not observed allocator calls or measured CPU shares.",
+    "The fixture repair is landed independently; the five map prototype files remain unmerged."
+  ]
+}

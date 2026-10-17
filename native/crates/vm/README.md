@@ -4096,3 +4096,27 @@ exited before statistics reporting. `8510c5991` reports opt-in statistics on
 that path, preserving exact output bytes. Both new arms use its tested runtime;
 the original failed wrapper remains separate. See
 [JIT diagnostic evidence](tests/compiler-jit-specialization-investigation.json).
+
+## AOT map startup measurement (2026-10-17)
+
+Borrowed AOT slot payloads miss the fixed warm startup gate. The prototype
+remains unmerged on `vm-aot-borrowed-maps`; the latest accepted speed change
+stays `f65c9ed5a`.
+
+Nine interleaved warm rounds retain all 27 samples. Median paired cycles fall
+2.76% and wall time 3.33%, missing the required 5% reduction in each. Peak RSS
+falls 15.20%. Independent wall medians are 0.60 s baseline, 0.58 s candidate
+and 0.33 s LuaJIT. The cold round retains all three diagnostic samples. The
+conditional root trial and full ordinary broad suite do not run. Foreign CPU
+activity remains recorded; no extra samples or tuning follow.
+
+The object, serialized maps and manifest remain byte-identical for all 6,580
+functions. Borrowing avoids constructing 849,105 nonempty owned slot vectors while
+retaining map headers and exact-PC lookup. These static construction counts
+are not observed allocator calls or CPU shares.
+Rust, ABI, no-exec smoke, same-root output and cold/warm parity checks pass.
+Both compiler-sized GC diagnostics time out and remain failed; an explicitly
+reviewed small real-AOT fixture passes all four GC modes instead. Sources,
+providers and original cache state remain unchanged. See
+[AOT map evidence](tests/compiler-aot-borrowed-maps-investigation.json) for the
+complete samples, gates, timeout disposition and preserved source identities.
