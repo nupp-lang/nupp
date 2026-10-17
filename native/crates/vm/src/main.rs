@@ -404,6 +404,8 @@ fn main() {
         if !it.is_stringish(first) { eprintln!("--output: {} returned {}, not a string", args[4], show(&it, first)); std::process::exit(1); }
         std::fs::write(path, it.bytes_of(first)).unwrap_or_else(|e| { eprintln!("--output {path}: {e}"); std::process::exit(1) });
         it.heap.report_stats("output");
+        #[cfg(feature = "jit")]
+        if std::env::var_os("JIT_SPEC_STATS").is_some() { eprintln!("{}", nupp_vm::specialize::report(&it)); }
         std::process::exit(0);
     }
     let shown: Vec<String> = outs.iter().map(|&v| show(&it, v)).collect();
