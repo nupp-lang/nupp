@@ -3958,3 +3958,51 @@ compiled and no diagnostics; official VM self-hosting reaches byte-identical
 C2 and C3 in its own worktree. That proof does not execute pinned Lua stage
 zero. See [transport evidence](tests/worker-report-transport-results.json) for
 source and artifact identities, failure scope, and validation limits.
+
+## Node input and metadata producer measurements (2026-10-17)
+
+The cumulative Node input and fresh metadata producer trial misses its fixed
+5% root-cycle reduction gate. The compiler patch remains isolated and
+unmerged; the latest accepted compiler-speed change stays `f65c9ed5a`.
+
+Median paired candidate/baseline changes use three root-emit pairs and five
+warm lexer pairs on identical frozen sources:
+
+| Metric | Root emit | Warm lexer |
+| --- | --- | --- |
+| Cycles | +0.1212% | -1.0191% |
+| Instructions | -0.0786% | -0.1246% |
+| Wall time | +1.1462% | 0.0000% |
+| Peak RSS | -1.0873% | +0.1549% |
+
+The warm result stays within its regression ceiling but does not accept the
+candidate. Paired percentages are medians of matched ratios, not ratios of
+independent engine medians. Root wall medians are 112.98 s baseline,
+114.72 s candidate and 250.01 s LuaJIT. All LuaJIT samples, including
+137.82, 250.01 and 254.28 s, remain included. Warm wall medians are 0.62,
+0.63 and 0.40 s; the single cold samples are 45.03, 45.46 and 48.23 s.
+The cold samples are diagnostic only because parent counters omit workers.
+No samples or pairs were added or discarded. Own work was idle during timing,
+but foreign PID 99684 was observed consuming a CPU; the host was not idle.
+
+Complete ordinary serial reports retain 3,555 baseline cases and 3,558
+candidate cases, with 43 failures and 37 deferred in each. The candidate adds
+three passing regressions. Shared case statuses, order and deferred payloads
+match; 42 failure messages match exactly. One SPI fixture has an explicitly
+reviewed temporary-path difference, with both cases still failed. The literal
+strict comparison remains failed and preserved. No broad-suite pass is claimed.
+
+The early cold, focused, VM fixpoint, Lua oracle, AOT, link and smoke proofs
+carry across fixture-only source changes through explicit equivalence
+receipts. The focused ownership regression is a source-module precheck, not a
+full-selection pass. Actual C1, C2, C3 and independent Lua images match; this
+VM fixpoint does not claim pinned Lua stage-zero execution. All 6,581 functions
+link under unchanged ABI 4 and `JIT_OPT=none`; the unchanged smoke harness
+passes 13 checks in two fresh processes with executable memory denied.
+
+Fresh producer helper removal has deterministic source and image evidence,
+but its invocation counts are not CPU shares or predicted speedups. The
+candidate does not complete central Node typing. See
+[Node investigation evidence](tests/compiler-node-typing-investigation.json)
+for every sample, raw report and artifact identity, the exact SPI disposition,
+carried-proof scope, mechanism costs and preserved unmerged source.

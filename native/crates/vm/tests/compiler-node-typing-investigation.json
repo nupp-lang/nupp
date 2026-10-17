@@ -1,0 +1,2689 @@
+{
+  "date": "2026-10-17",
+  "recordedAtUtc": "2026-10-17T13:11:55.076197+00:00",
+  "status": "Completed local experiment; rejected at the fixed 5% root-cycle gate",
+  "trialComplete": true,
+  "acceptedSpeedImprovement": false,
+  "compilerPatchMerged": false,
+  "typingQueueStepCompleted": false,
+  "disposition": "Root median paired cycles increase by 0.1212417161%, missing the required 5% reduction. Keep the cumulative Node source patch unmerged; retain all samples and correctness dispositions. No extended pair set.",
+  "latestAcceptedCompilerSpeedCommit": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+  "candidateScope": [
+    "Parsed return-expression/cache boundary without fake CST casts.",
+    "Capture producer records and canonical inferredType producer/hint boundaries.",
+    "Fresh Name/Literal metadata producers using readonly reader views and rawset numeric aliases on fresh anonymous wrappers.",
+    "Generic copied constructor bodies, witness copies, in-place rewrites and central lower reader remain unchanged. No Shape/Slot stack, giant central Node annotation, nominal producer records, safe-method plumbing, checker relation change or ordinary call ABI change."
+  ],
+  "preservation": {
+    "branch": "vm-node-typing",
+    "worktree": "/Users/dowling/projects/nupp-wt/node-typing",
+    "head": "a6e045437d4d13a0b13909e99489e7af5ead8f38",
+    "cleanWhenRecorded": true,
+    "unmergedSourceRetained": true,
+    "scratchRoot": "/Users/dowling/projects/nupp-wt/node-typing-scratch",
+    "frozenCandidateReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-rawset-literal-mechanism/receipt.json",
+      "bytes": 3864,
+      "sha256": "2c4e325a721e933b30cd1a506b5b2929b4dcca45b8a3da462c83a25910475244"
+    },
+    "finalSourceFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+      "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+    },
+    "candidatePatch": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/candidate.patch",
+      "bytes": 34240,
+      "sha256": "071551d928da8e853b647c3b23395fc428c8af3431f1b34faa1666b556b1402d"
+    },
+    "sourceEquivalence": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/source-equivalence.json",
+      "bytes": 4572,
+      "sha256": "e8f2099c1731ba2dd32b87a0829ad0bb5233b8f4fdd2f1d95e4a67a57db3e7dc"
+    },
+    "oldFailedAttemptsAndRawArtifactsRetained": true,
+    "noCompilerTestSourceChangedByThisEvidence": true
+  },
+  "artifacts": {
+    "runtimeAbi": 4,
+    "jitOpt": "none",
+    "noJit": "1",
+    "features": "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown",
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-gate-driver/node-gates.py",
+      "sha256": "1693ae312d7a48b90553ceefc8703cb8479d49c131bcc0363dcb17621917f20a"
+    },
+    "measurementConfig": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-measurement-plan/config.measurement-released.json",
+      "bytes": 17757,
+      "sha256": "60064ee18adc5197ddbb135894b0c8b6829b29d04e515ab11aa718240d9df4f4"
+    },
+    "baselineImage": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+      "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "baselineRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+      "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+    },
+    "candidateImage": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+      "bytes": 21221102,
+      "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+    },
+    "candidateRuntime": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+      "bytes": 217800328,
+      "sha256": "0088d5502b454d4ded933976c2ccaecdfa9e2de8e99dbbfaff81ea84aa01a434"
+    },
+    "candidateObject": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/candidate.o",
+      "bytes": 149251824,
+      "sha256": "6dfe6cf15b4696574f32b827bcb43036f32d99876cd67089663ab56dbb98e921"
+    },
+    "candidateManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/candidate.o.manifest",
+      "bytes": 122926,
+      "sha256": "cd6c11b00ac7b77a1ed829cc09e03f11f350899afbd6fbc47c3b0b581850bbfd"
+    },
+    "candidateMaps": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/candidate.o.maps",
+      "bytes": 68046880,
+      "sha256": "3771a5c3c4c90a3bab202063de660c11b9f1d434292e293a77660411b99b29d0"
+    },
+    "candidateRsSidecar": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/candidate.o.rs",
+      "bytes": 870945,
+      "sha256": "6ec355736bc67086cf044382db3ea713b923d0265b1228969176aa9e5791e82b"
+    },
+    "lua": {
+      "path": "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+      "sha256": "88b0294dd40134dabdf3e0dbcfd46c06f4bce1925f809c8cc6934d8ea30321a5"
+    },
+    "keyedLuaProvider": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+      "sha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+    },
+    "providerKeyAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/lua-native-provider-audit-post-repair/receipt.json",
+      "sha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a"
+    },
+    "providerBeforeAfterChecks": [
+      {
+        "case": "emit",
+        "before": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        },
+        "after": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        }
+      },
+      {
+        "case": "lexer",
+        "before": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        },
+        "after": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        }
+      },
+      {
+        "case": "cold-check",
+        "before": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        },
+        "after": {
+          "auditReceiptSha256": "0a4d79a02449a8dbf6b5b380b985d5efa86ebe6885dd886465cc40081994829a",
+          "nativeKey": "83bc50a44d6b3431",
+          "configuredProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/rust/native/83bc50a44d6b3431/target/release/libnupp_native.dylib",
+          "providerSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9",
+          "stagedProvider": "/Users/dowling/projects/nupp-wt/node-typing/build/lib/libnupp_native_dev.dylib",
+          "stagedSha256": "2af919a1acc1671e696d992b4a4c64a4de9d7fac1c36778b2f83b75a7c1006b9"
+        }
+      }
+    ]
+  },
+  "protocol": {
+    "declaredProtocol": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/node-boundary-protocol.json",
+      "sha256": "d9418e540f9f8db2a45f56dc942f03ed3419e7d94d4d11e7a6f873c0fd5a1fb2"
+    },
+    "measurementRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-measurement-plan/root-timing-window-release.json",
+      "bytes": 1943,
+      "sha256": "4da4dd9cdbe6a2b591a5ff96966cd445f7a5e30dbbf943c9bec51da08679c08d"
+    },
+    "rootPairs": 3,
+    "warmLexerPairs": 5,
+    "coldRepositoryPairs": 1,
+    "luaRuns": {
+      "emit": 3,
+      "lexer": 5,
+      "cold-check": 1
+    },
+    "jobs": 2,
+    "requiredRootCycleReduction": 0.05,
+    "warmLexerCycleRegressionCeiling": 0.05,
+    "order": "baseline,Lua,candidate on even repeats; candidate,Lua,baseline on odd repeats",
+    "extraPairs": false,
+    "discardedSamples": false,
+    "retriesAfterResults": false,
+    "sourceUnchangedDuringMeasurement": true
+  },
+  "performance": {
+    "rootDisposition": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/root-performance-disposition.json",
+      "bytes": 2441,
+      "sha256": "3eb0b6cd3df49ec8b80ad0c2d62d65ed976df0e9468f7e904a0af118350aa95b"
+    },
+    "independentAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/performance-independent-audit.json",
+      "bytes": 23216,
+      "sha256": "d9774f65a6cbf6f29467d12e22caec29b81145f5428b59fa156d1dac83729404"
+    },
+    "executionReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure.receipt.json",
+      "bytes": 182267,
+      "sha256": "c2cb92367bbe7e14fcb185c23c239ae5a6f0358e20d7881532a8872ae5755c60"
+    },
+    "executionAccepted": true,
+    "performanceAccepted": false,
+    "verdict": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/performance-verdict.json",
+      "bytes": 5049,
+      "sha256": "fac10c0a516e65e9195d0595d3a144b4ecb768b3583874d2aa034fc05604f437"
+    },
+    "rootCyclesPassed": false,
+    "warmLexerCyclesPassed": true,
+    "pairedMedianRelativeChanges": {
+      "emit": {
+        "cycles elapsed": 0.0012124171609690926,
+        "instructions retired": -0.0007859113901126369,
+        "real": 0.011461823311585295,
+        "maximum resident set size": -0.010873347251217802
+      },
+      "lexer": {
+        "cycles elapsed": -0.010191095661989946,
+        "instructions retired": -0.0012460493152410823,
+        "real": 0.0,
+        "maximum resident set size": 0.0015492388522160283
+      },
+      "cold-check": {
+        "cycles elapsed": 0.015170130848342733,
+        "instructions retired": 0.010318675775446096,
+        "real": 0.009549189429269411,
+        "maximum resident set size": 0.03548247683468864
+      }
+    },
+    "pairedStatistic": "median over repeat-matched (candidate/baseline - 1) ratios; not the ratio of independent per-engine medians",
+    "luaReferencesFromReceipt": {
+      "emit": {
+        "baselineVsLua": {
+          "cycles elapsed": -0.5343243998006344,
+          "instructions retired": -0.25483817537062614,
+          "real": -0.5530178792848286,
+          "maximum resident set size": 1.2500611887256103
+        },
+        "candidateVsLua": {
+          "cycles elapsed": -0.5376146047992783,
+          "instructions retired": -0.25852362024473685,
+          "real": -0.5400583976640934,
+          "maximum resident set size": 1.2182714037691196
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 112.98,
+            "user": 111.64,
+            "sys": 1.25,
+            "instructions retired": 2664748267473,
+            "cycles elapsed": 479728313891,
+            "maximum resident set size": 3767009280
+          },
+          "candidate": {
+            "real": 114.72,
+            "user": 112.18,
+            "sys": 1.29,
+            "instructions retired": 2663077400277,
+            "cycles elapsed": 477911985446,
+            "maximum resident set size": 3726049280
+          },
+          "luajit": {
+            "real": 250.01,
+            "user": 221.3,
+            "sys": 18.95,
+            "instructions retired": 3576066539370,
+            "cycles elapsed": 1030177045320,
+            "maximum resident set size": 1673510912
+          }
+        },
+        "diagnosticOnly": false
+      },
+      "lexer": {
+        "baselineVsLua": {
+          "cycles elapsed": 0.5320702613137265,
+          "instructions retired": 1.1285456363641213,
+          "real": 0.5499999999999998,
+          "maximum resident set size": 4.9039570491151325
+        },
+        "candidateVsLua": {
+          "cycles elapsed": 0.5127820151888465,
+          "instructions retired": 1.1322500093567975,
+          "real": 0.5249999999999999,
+          "maximum resident set size": 4.984557513363691
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 0.62,
+            "user": 0.56,
+            "sys": 0.05,
+            "instructions retired": 13602664672,
+            "cycles elapsed": 2635504597,
+            "maximum resident set size": 486457344
+          },
+          "luajit": {
+            "real": 0.4,
+            "user": 0.32,
+            "sys": 0.07,
+            "instructions retired": 6379345991,
+            "cycles elapsed": 1720224368,
+            "maximum resident set size": 82395136
+          },
+          "candidate": {
+            "real": 0.63,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13585715081,
+            "cycles elapsed": 2610359058,
+            "maximum resident set size": 487227392
+          }
+        },
+        "diagnosticOnly": false
+      },
+      "cold-check": {
+        "baselineVsLua": {
+          "cycles elapsed": 1.029879999075764,
+          "instructions retired": 2.559421716492373,
+          "real": -0.06634874559402848,
+          "maximum resident set size": 0.4359019613424806
+        },
+        "candidateVsLua": {
+          "cycles elapsed": 1.0606735442681772,
+          "instructions retired": 2.59615023513294,
+          "real": -0.057433132904830986,
+          "maximum resident set size": 0.4868513194226991
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 45.03,
+            "user": 72.95,
+            "sys": 1.36,
+            "instructions retired": 133382723806,
+            "cycles elapsed": 24410326760,
+            "maximum resident set size": 4132192256
+          },
+          "candidate": {
+            "real": 45.46,
+            "user": 73.51,
+            "sys": 1.4,
+            "instructions retired": 134759056887,
+            "cycles elapsed": 24780634611,
+            "maximum resident set size": 4278812672
+          },
+          "luajit": {
+            "real": 48.23,
+            "user": 71.72,
+            "sys": 8.36,
+            "instructions retired": 37473144356,
+            "cycles elapsed": 12025502380,
+            "maximum resident set size": 2877767680
+          }
+        },
+        "diagnosticOnly": true
+      }
+    },
+    "measurements": {
+      "emit": {
+        "rawResults": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/results.json",
+          "bytes": 13529,
+          "sha256": "c120b9d8a33b99a41028f077ef2e41d0ec1e8734afd9ea9fb5eae689f918f9e0"
+        },
+        "command": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-emit.command.json",
+          "bytes": 2569,
+          "sha256": "f8b9ec487c4bded1fee4ba3f60981a5bf14767ae840a038f382f7d39c5b48829"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-emit.stdout",
+          "bytes": 9249,
+          "sha256": "a2a98e57749ffb1ab07b8e8cbd2d8af3143799e574dd4b3a55b4125fc3c403a4"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-emit.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "jobs": 2,
+        "samplesInOriginalOrder": [
+          {
+            "label": "baseline",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-baseline.image"
+            ],
+            "loadBefore": [
+              2.81494140625,
+              2.916015625,
+              3.2626953125
+            ],
+            "loadAfter": [
+              3.626953125,
+              3.1650390625,
+              3.3134765625
+            ],
+            "real": 111.75,
+            "user": 110.42,
+            "sys": 1.25,
+            "instructions retired": 2665171989300,
+            "cycles elapsed": 477333258412,
+            "maximum resident set size": 3768074240,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "luajit",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "run",
+              "native/crates/vm/emit/root.lua",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-luajit.image"
+            ],
+            "loadBefore": [
+              3.626953125,
+              3.1650390625,
+              3.3134765625
+            ],
+            "loadAfter": [
+              3.408203125,
+              3.369140625,
+              3.369140625
+            ],
+            "real": 250.01,
+            "user": 224.95,
+            "sys": 19.21,
+            "instructions retired": 3640828826239,
+            "cycles elapsed": 1044423549766,
+            "maximum resident set size": 1689206784,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "candidate",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-candidate.image"
+            ],
+            "loadBefore": [
+              3.408203125,
+              3.369140625,
+              3.369140625
+            ],
+            "loadAfter": [
+              3.5400390625,
+              3.41943359375,
+              3.38330078125
+            ],
+            "real": 114.99,
+            "user": 112.18,
+            "sys": 1.35,
+            "instructions retired": 2663077400277,
+            "cycles elapsed": 477911985446,
+            "maximum resident set size": 3747119104,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "candidate",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-candidate.image"
+            ],
+            "loadBefore": [
+              3.5400390625,
+              3.41943359375,
+              3.38330078125
+            ],
+            "loadAfter": [
+              3.5458984375,
+              3.49609375,
+              3.416015625
+            ],
+            "real": 114.72,
+            "user": 113.35,
+            "sys": 1.29,
+            "instructions retired": 2702165506273,
+            "cycles elapsed": 484275654966,
+            "maximum resident set size": 3726049280,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "luajit",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "run",
+              "native/crates/vm/emit/root.lua",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-luajit.image"
+            ],
+            "loadBefore": [
+              3.5458984375,
+              3.49609375,
+              3.416015625
+            ],
+            "loadAfter": [
+              3.64794921875,
+              3.65673828125,
+              3.49462890625
+            ],
+            "real": 137.82,
+            "user": 123.03,
+            "sys": 11.24,
+            "instructions retired": 1881742721264,
+            "cycles elapsed": 575450592639,
+            "maximum resident set size": 1599438848,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "baseline",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-baseline.image"
+            ],
+            "loadBefore": [
+              3.64794921875,
+              3.65673828125,
+              3.49462890625
+            ],
+            "loadAfter": [
+              3.33154296875,
+              3.53515625,
+              3.46533203125
+            ],
+            "real": 113.42,
+            "user": 112.07,
+            "sys": 1.25,
+            "instructions retired": 2651821468065,
+            "cycles elapsed": 481956234955,
+            "maximum resident set size": 3767009280,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "baseline",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-baseline.image"
+            ],
+            "loadBefore": [
+              3.33154296875,
+              3.53515625,
+              3.46533203125
+            ],
+            "loadAfter": [
+              3.2138671875,
+              3.40478515625,
+              3.4169921875
+            ],
+            "real": 112.98,
+            "user": 111.64,
+            "sys": 1.25,
+            "instructions retired": 2664748267473,
+            "cycles elapsed": 479728313891,
+            "maximum resident set size": 3765501952,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "luajit",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "run",
+              "native/crates/vm/emit/root.lua",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-luajit.image"
+            ],
+            "loadBefore": [
+              3.2138671875,
+              3.40478515625,
+              3.4169921875
+            ],
+            "loadAfter": [
+              3.27490234375,
+              3.35986328125,
+              3.392578125
+            ],
+            "real": 254.28,
+            "user": 221.3,
+            "sys": 18.95,
+            "instructions retired": 3576066539370,
+            "cycles elapsed": 1030177045320,
+            "maximum resident set size": 1673510912,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          },
+          {
+            "label": "candidate",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "run",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.project",
+              "emit",
+              "/Users/dowling/projects/nupp-wt/node-typing",
+              "nupp.tools.vm.root",
+              "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+              "--output",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-candidate.image"
+            ],
+            "loadBefore": [
+              3.27490234375,
+              3.35986328125,
+              3.392578125
+            ],
+            "loadAfter": [
+              3.0419921875,
+              3.244140625,
+              3.3388671875
+            ],
+            "real": 112.31,
+            "user": 110.99,
+            "sys": 1.24,
+            "instructions retired": 2651568871376,
+            "cycles elapsed": 476338820227,
+            "maximum resident set size": 3564191744,
+            "outputSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+          }
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "real": 112.98,
+            "user": 111.64,
+            "sys": 1.25,
+            "instructions retired": 2664748267473,
+            "cycles elapsed": 479728313891,
+            "maximum resident set size": 3767009280
+          },
+          "candidate": {
+            "real": 114.72,
+            "user": 112.18,
+            "sys": 1.29,
+            "instructions retired": 2663077400277,
+            "cycles elapsed": 477911985446,
+            "maximum resident set size": 3726049280
+          },
+          "luajit": {
+            "real": 250.01,
+            "user": 221.3,
+            "sys": 18.95,
+            "instructions retired": 3576066539370,
+            "cycles elapsed": 1030177045320,
+            "maximum resident set size": 1673510912
+          }
+        },
+        "diagnosticOnly": false,
+        "allSamplesRetained": true
+      },
+      "lexer": {
+        "rawResults": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/results.json",
+          "bytes": 25121,
+          "sha256": "81934225ecb72e3d14495b389882dee515a77f84b65b09974f1edf2e24c21616"
+        },
+        "command": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-lexer.command.json",
+          "bytes": 2570,
+          "sha256": "e04a1f5791392ec766bd317612ac1807c88f76f4244649d206aa74a968a300ce"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-lexer.stdout",
+          "bytes": 10210,
+          "sha256": "ea15f813be2254a1e8b45063e0353e960fa4f9e634cf18081d6dde87c03d5ea9"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-lexer.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "jobs": 2,
+        "samplesInOriginalOrder": [
+          {
+            "label": "baseline",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.33642578125,
+              3.30126953125,
+              3.357421875
+            ],
+            "loadAfter": [
+              3.33642578125,
+              3.30126953125,
+              3.357421875
+            ],
+            "real": 0.62,
+            "user": 0.55,
+            "sys": 0.05,
+            "instructions retired": 13578729072,
+            "cycles elapsed": 2635504597,
+            "maximum resident set size": 486457344,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 378.5458984375,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 378.5458984375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.38916015625,
+              3.3125,
+              3.36083984375
+            ],
+            "loadAfter": [
+              3.35791015625,
+              3.30712890625,
+              3.3583984375
+            ],
+            "real": 0.4,
+            "user": 0.32,
+            "sys": 0.07,
+            "instructions retired": 6379345991,
+            "cycles elapsed": 1720224368,
+            "maximum resident set size": 82395136,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 381.04296875,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 381.04296875
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.61,
+            "user": 0.55,
+            "sys": 0.05,
+            "instructions retired": 13602360549,
+            "cycles elapsed": 2602324486,
+            "maximum resident set size": 487047168,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 373.964111328125,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 373.964111328125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.63,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13579764977,
+            "cycles elapsed": 2597757424,
+            "maximum resident set size": 487342080,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 385.81787109375,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 385.81787109375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.35,
+            "user": 0.28,
+            "sys": 0.07,
+            "instructions retired": 5525879550,
+            "cycles elapsed": 1501077745,
+            "maximum resident set size": 82804736,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 338.544921875,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 338.544921875
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "baseline",
+            "repeat": 1,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.63,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13605903733,
+            "cycles elapsed": 2645847129,
+            "maximum resident set size": 486408192,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 387.596923828125,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 387.596923828125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "baseline",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.62,
+            "user": 0.56,
+            "sys": 0.05,
+            "instructions retired": 13582035293,
+            "cycles elapsed": 2615239481,
+            "maximum resident set size": 486473728,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 378.038818359375,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 378.038818359375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.44,
+            "user": 0.36,
+            "sys": 0.07,
+            "instructions retired": 7233916090,
+            "cycles elapsed": 1888071208,
+            "maximum resident set size": 71729152,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 419.81298828125,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 419.81298828125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 2,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.64,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13579517792,
+            "cycles elapsed": 2643553720,
+            "maximum resident set size": 487227392,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 393.06201171875,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 393.06201171875
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 3,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "real": 0.66,
+            "user": 0.59,
+            "sys": 0.06,
+            "instructions retired": 13585715081,
+            "cycles elapsed": 2725165635,
+            "maximum resident set size": 495255552,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 405.890869140625,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 405.890869140625
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 3,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.4091796875,
+              3.318359375,
+              3.36181640625
+            ],
+            "loadAfter": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "real": 0.34,
+            "user": 0.27,
+            "sys": 0.06,
+            "instructions retired": 5376704848,
+            "cycles elapsed": 1463669763,
+            "maximum resident set size": 82755584,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 321.591064453125,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 321.591064453125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "baseline",
+            "repeat": 3,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "loadAfter": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "real": 0.63,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13602664672,
+            "cycles elapsed": 2594083817,
+            "maximum resident set size": 486457344,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 386.65283203125,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 386.65283203125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "baseline",
+            "repeat": 4,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "loadAfter": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "real": 0.61,
+            "user": 0.55,
+            "sys": 0.05,
+            "instructions retired": 13762820335,
+            "cycles elapsed": 2637235376,
+            "maximum resident set size": 486539264,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 379.532958984375,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 379.532958984375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 4,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "loadAfter": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "real": 0.43,
+            "user": 0.35,
+            "sys": 0.07,
+            "instructions retired": 7023034822,
+            "cycles elapsed": 1856898318,
+            "maximum resident set size": 71827456,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 413.421875,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 413.421875
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 4,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json",
+              "src/nupp/compiler/syntax/lexer.nupp"
+            ],
+            "loadBefore": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "loadAfter": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "real": 0.61,
+            "user": 0.55,
+            "sys": 0.05,
+            "instructions retired": 13586299285,
+            "cycles elapsed": 2610359058,
+            "maximum resident set size": 487161856,
+            "timing": {
+              "compiledModules": 0,
+              "optimizerFacts": {
+                "consumed": 138,
+                "families": {
+                  "callableEffects": 60,
+                  "callableRelations": 60
+                },
+                "produced": 2,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 120
+              },
+              "phases": [
+                {
+                  "durationMs": 373.130859375,
+                  "name": "check"
+                }
+              ],
+              "reusedModules": 36,
+              "slowest": [],
+              "specializedBodies": 0,
+              "totalMs": 373.130859375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          }
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "real": 0.62,
+            "user": 0.56,
+            "sys": 0.05,
+            "instructions retired": 13602664672,
+            "cycles elapsed": 2635504597,
+            "maximum resident set size": 486457344
+          },
+          "luajit": {
+            "real": 0.4,
+            "user": 0.32,
+            "sys": 0.07,
+            "instructions retired": 6379345991,
+            "cycles elapsed": 1720224368,
+            "maximum resident set size": 82395136
+          },
+          "candidate": {
+            "real": 0.63,
+            "user": 0.57,
+            "sys": 0.05,
+            "instructions retired": 13585715081,
+            "cycles elapsed": 2610359058,
+            "maximum resident set size": 487227392
+          }
+        },
+        "diagnosticOnly": false,
+        "allSamplesRetained": true
+      },
+      "cold-check": {
+        "rawResults": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/results.json",
+          "bytes": 10631,
+          "sha256": "339a44ba98b05781e34074ee344533fa6d6e79ba3e320f9f754004af43b7f7ce"
+        },
+        "command": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-cold-check.command.json",
+          "bytes": 2579,
+          "sha256": "3260ddd0763e1a376502f93326b71a01858f971b67a07faac49e67648cb4a579"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-cold-check.stdout",
+          "bytes": 2423,
+          "sha256": "26bda1a36a037a4f37e3f3fe58763ce1ea38dedd0cde543b5f0ef7ae4df7894c"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/measure-cold-check.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "jobs": 2,
+        "samplesInOriginalOrder": [
+          {
+            "label": "baseline",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json"
+            ],
+            "loadBefore": [
+              3.5361328125,
+              3.34619140625,
+              3.37109375
+            ],
+            "loadAfter": [
+              3.537109375,
+              3.36083984375,
+              3.37255859375
+            ],
+            "real": 45.03,
+            "user": 72.95,
+            "sys": 1.36,
+            "instructions retired": 133382723806,
+            "cycles elapsed": 24410326760,
+            "maximum resident set size": 4132192256,
+            "timing": {
+              "compiledModules": 506,
+              "optimizerFacts": {
+                "consumed": 6572,
+                "families": {
+                  "callableEffects": 1554,
+                  "callableRelations": 1554
+                },
+                "produced": 20,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 3108
+              },
+              "parallel": {
+                "batches": 477,
+                "mode": "parallel",
+                "rechecked": 0,
+                "retries": 0,
+                "workers": 2
+              },
+              "phases": [
+                {
+                  "durationMs": 40302.35498046875,
+                  "name": "parallel check"
+                },
+                {
+                  "durationMs": 3929.786865234375,
+                  "name": "generate"
+                },
+                {
+                  "durationMs": 202.8388671875,
+                  "name": "check"
+                },
+                {
+                  "durationMs": 201.40380859375,
+                  "name": "scan"
+                },
+                {
+                  "durationMs": 129.3798828125,
+                  "name": "other"
+                },
+                {
+                  "durationMs": 15.890869140625,
+                  "name": "persist"
+                },
+                {
+                  "durationMs": 1.139404296875,
+                  "name": "resolve"
+                }
+              ],
+              "reusedModules": 0,
+              "slowest": [
+                {
+                  "durationMs": 48.454833984375,
+                  "module": "nupp.runtime.vendor.lunajson.decoder"
+                },
+                {
+                  "durationMs": 16.114013671875,
+                  "module": "nupp.runtime.vendor.lunajson.encoder"
+                },
+                {
+                  "durationMs": 2.57421875,
+                  "module": "nupp.workers.native"
+                },
+                {
+                  "durationMs": 2.189208984375,
+                  "module": "nupp.serde.internal.identity"
+                },
+                {
+                  "durationMs": 1.5400390625,
+                  "module": "nupp.text.internal.buffer"
+                }
+              ],
+              "specializedBodies": 0,
+              "totalMs": 44782.827880859375
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "luajit",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp/.nupp-cache/toolchain/40c39f0309fe4a99/luajit/bin/luajit-2.1.1785763465",
+              "-e",
+              "package.path=\"/Users/dowling/projects/nupp-wt/node-typing/build/?.lua;\" .. package.path",
+              "/Users/dowling/projects/nupp-wt/node-typing/build/nupp/tools/main.lua",
+              "check",
+              "--json"
+            ],
+            "loadBefore": [
+              3.537109375,
+              3.36083984375,
+              3.37255859375
+            ],
+            "loadAfter": [
+              3.30224609375,
+              3.33154296875,
+              3.35986328125
+            ],
+            "real": 48.23,
+            "user": 71.72,
+            "sys": 8.36,
+            "instructions retired": 37473144356,
+            "cycles elapsed": 12025502380,
+            "maximum resident set size": 2877767680,
+            "timing": {
+              "compiledModules": 506,
+              "optimizerFacts": {
+                "consumed": 6572,
+                "families": {
+                  "callableEffects": 1554,
+                  "callableRelations": 1554
+                },
+                "produced": 20,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 3108
+              },
+              "parallel": {
+                "batches": 477,
+                "mode": "parallel",
+                "rechecked": 0,
+                "retries": 0,
+                "workers": 2
+              },
+              "phases": [
+                {
+                  "durationMs": 45800.781005859375,
+                  "name": "parallel check"
+                },
+                {
+                  "durationMs": 1605.010986328125,
+                  "name": "generate"
+                },
+                {
+                  "durationMs": 349.18798828125,
+                  "name": "check"
+                },
+                {
+                  "durationMs": 292.576171875,
+                  "name": "other"
+                },
+                {
+                  "durationMs": 89.507568359375,
+                  "name": "scan"
+                },
+                {
+                  "durationMs": 4.193115234375,
+                  "name": "persist"
+                }
+              ],
+              "reusedModules": 0,
+              "slowest": [
+                {
+                  "durationMs": 85.7568359375,
+                  "module": "nupp.runtime.vendor.lunajson.decoder"
+                },
+                {
+                  "durationMs": 44.462890625,
+                  "module": "nupp.runtime.vendor.lunajson.encoder"
+                },
+                {
+                  "durationMs": 5.1240234375,
+                  "module": "nupp.serde.internal.identity"
+                },
+                {
+                  "durationMs": 3.830078125,
+                  "module": "nupp.workers.native"
+                },
+                {
+                  "durationMs": 3.212158203125,
+                  "module": "nupp.text.internal.buffer"
+                }
+              ],
+              "specializedBodies": 0,
+              "totalMs": 48142.05517578125
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          },
+          {
+            "label": "candidate",
+            "repeat": 0,
+            "status": 0,
+            "command": [
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.runtime",
+              "exec",
+              "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/candidate.image",
+              "nupp.tools.vm.root",
+              "check",
+              "--json"
+            ],
+            "loadBefore": [
+              3.30224609375,
+              3.33154296875,
+              3.35986328125
+            ],
+            "loadAfter": [
+              4.080078125,
+              3.51953125,
+              3.42529296875
+            ],
+            "real": 45.46,
+            "user": 73.51,
+            "sys": 1.4,
+            "instructions retired": 134759056887,
+            "cycles elapsed": 24780634611,
+            "maximum resident set size": 4278812672,
+            "timing": {
+              "compiledModules": 506,
+              "optimizerFacts": {
+                "consumed": 6572,
+                "families": {
+                  "callableEffects": 1554,
+                  "callableRelations": 1554
+                },
+                "produced": 20,
+                "selectionChangedModules": 0,
+                "selectorMs": 0,
+                "unique": 3108
+              },
+              "parallel": {
+                "batches": 477,
+                "mode": "parallel",
+                "rechecked": 0,
+                "retries": 0,
+                "workers": 2
+              },
+              "phases": [
+                {
+                  "durationMs": 40564.741943359375,
+                  "name": "parallel check"
+                },
+                {
+                  "durationMs": 4066.76708984375,
+                  "name": "generate"
+                },
+                {
+                  "durationMs": 207.634765625,
+                  "name": "check"
+                },
+                {
+                  "durationMs": 202.656982421875,
+                  "name": "scan"
+                },
+                {
+                  "durationMs": 138.0888671875,
+                  "name": "other"
+                },
+                {
+                  "durationMs": 16.2041015625,
+                  "name": "persist"
+                },
+                {
+                  "durationMs": 1.105224609375,
+                  "name": "resolve"
+                }
+              ],
+              "reusedModules": 0,
+              "slowest": [
+                {
+                  "durationMs": 52.193115234375,
+                  "module": "nupp.runtime.vendor.lunajson.decoder"
+                },
+                {
+                  "durationMs": 16.400146484375,
+                  "module": "nupp.runtime.vendor.lunajson.encoder"
+                },
+                {
+                  "durationMs": 2.688232421875,
+                  "module": "nupp.workers.native"
+                },
+                {
+                  "durationMs": 2.22900390625,
+                  "module": "nupp.serde.internal.identity"
+                },
+                {
+                  "durationMs": 1.52392578125,
+                  "module": "nupp.text.internal.buffer"
+                }
+              ],
+              "specializedBodies": 0,
+              "totalMs": 45197.23681640625
+            },
+            "outputSha256": "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+          }
+        ],
+        "perEngineMedians": {
+          "baseline": {
+            "real": 45.03,
+            "user": 72.95,
+            "sys": 1.36,
+            "instructions retired": 133382723806,
+            "cycles elapsed": 24410326760,
+            "maximum resident set size": 4132192256
+          },
+          "candidate": {
+            "real": 45.46,
+            "user": 73.51,
+            "sys": 1.4,
+            "instructions retired": 134759056887,
+            "cycles elapsed": 24780634611,
+            "maximum resident set size": 4278812672
+          },
+          "luajit": {
+            "real": 48.23,
+            "user": 71.72,
+            "sys": 8.36,
+            "instructions retired": 37473144356,
+            "cycles elapsed": 12025502380,
+            "maximum resident set size": 2877767680
+          }
+        },
+        "diagnosticOnly": true,
+        "allSamplesRetained": true
+      }
+    },
+    "rawCounterAndOutputArtifacts": [
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-baseline.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-baseline.stderr",
+        "sha256": "de5e8b63c0cefe946d86689b9d74f625f004131fc4651af93071581bbffe6b45"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-baseline.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-luajit.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-luajit.stderr",
+        "sha256": "5ecddbcc74ef56f7d64f94b8fab48dc0f508c6463f237df9e2b1aa6ef8dd5e3f"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-luajit.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-candidate.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-candidate.stderr",
+        "sha256": "ec8307384767dc57fab18652e3ef36d0e10af4dab8c5a5835bdcba9f190dbffd"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/0-candidate.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-candidate.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-candidate.stderr",
+        "sha256": "b66fd1abc7b40728fe9c010d85ad09683bdd94332573ea5b2ad1f566ec28e97a"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-candidate.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-luajit.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-luajit.stderr",
+        "sha256": "d55e42fe52100dcfed916bcd4c4b7617d64fb378af7aa3696d466364782b8076"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-luajit.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-baseline.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-baseline.stderr",
+        "sha256": "078e51e855158e195091e6cfb2b4cf5e3faca6863b57e7576e628598c485445b"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/1-baseline.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-baseline.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-baseline.stderr",
+        "sha256": "77e96e757a9131bca8be76b7aa11450bb1083d9aba7ba0ceada274d0b59b92a0"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-baseline.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-luajit.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-luajit.stderr",
+        "sha256": "6c5181f763312f91a19a27f1beca9a1452f7972f5ed76f38227b1979dfd17f20"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-luajit.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-candidate.stdout",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-candidate.stderr",
+        "sha256": "97c013e4c6663aef011007bec439a82c9101968604fd50490dbc9f9d7c5ed518"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-emit/2-candidate.image",
+        "sha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-baseline.stdout",
+        "sha256": "06eebdd6c1fcf5b2c35e380ed451df5ec339a78e4037e211bd59f9e628fbb687"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-baseline.stderr",
+        "sha256": "d4242174df7331dd93c9f7b480ddc45c007d7165a1aedb10751d3b46925b3840"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-luajit.stdout",
+        "sha256": "3d1b8e9c4917496f686be2e2fe5c01b6434a248692b7ecdb581d82e151fde445"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-luajit.stderr",
+        "sha256": "ce5509255e06a718781d84bf74f330562652967e1fb1e551afdb6d4cfd3c2c27"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-candidate.stdout",
+        "sha256": "6382e38c88f3e4ad9c38095a2068239ca3e8a0734641eac18417d12f2e639fd3"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/0-candidate.stderr",
+        "sha256": "a2290dc272d1fb67b8a98fd567799a70695c5ad3adee6f3669062a6dd414bd0a"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-candidate.stdout",
+        "sha256": "988c8576a9398e58f446b8a547886543cd500858c8041d585b39169b1b603e68"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-candidate.stderr",
+        "sha256": "a49725e3011cde309e8fc40a821a0a969345320e3df5100728747c588cee4b0e"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-luajit.stdout",
+        "sha256": "ae13a07bf4130f0c26dcbdfd4d49b55f533e811dee66924b5900ae98a0f93168"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-luajit.stderr",
+        "sha256": "c8ca7605b15d989aca3a59a488d1934dc1fe944a2370f104a5cf16a348c8fe54"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-baseline.stdout",
+        "sha256": "abaf5c009746fe48d1ac68b0c7394543a891aa4c190445139e8f17c2cd6d33de"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/1-baseline.stderr",
+        "sha256": "b127b95174b4cd3af3486648a7751f8f5125397301182b71802a821413fc2750"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-baseline.stdout",
+        "sha256": "12984ef660861fb033b099b089bc91bca3d239d16a857fd959216876a94b5ccb"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-baseline.stderr",
+        "sha256": "15122d214373bb4f7b910afe60f60c58b96bcfbe00695f4c34130c90cad2568a"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-luajit.stdout",
+        "sha256": "a24b2dd70f20fab3d29bed354d72609195f0b36b25c852e7e9432efb61e5eca1"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-luajit.stderr",
+        "sha256": "0cf7d15b99d66378156196a6ab920eabca54d66e0aba937c898fd0c07d469bcb"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-candidate.stdout",
+        "sha256": "71c81507a4814ee40fa799df6de159a6a58b9f1431174a369131212108a7f11a"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/2-candidate.stderr",
+        "sha256": "5c34e929d58f85c916e2a6a51220fefe254a131735e10450729a37414431e243"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-candidate.stdout",
+        "sha256": "08d0af66ed3fa6f00bf36ce4b97bf18d98d4c0b2872a238bb0189698f6b401a5"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-candidate.stderr",
+        "sha256": "0ead4b3956ed31254ad47ca6a6101cdac7ef628f06e340d5184c23da85e83dcd"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-luajit.stdout",
+        "sha256": "08351c287bdfd7d483ea58fe10f7183aff12cdb9646676e68fd4b490a28d0f3d"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-luajit.stderr",
+        "sha256": "b846bc0ba13a47099dffa1fc009b38c6caf71008e17f3c09f7cf261b02393444"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-baseline.stdout",
+        "sha256": "5c2106490a65b9b6a0cf6a608db68f395aea2b6bb826d3f2b3db00785d06428b"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/3-baseline.stderr",
+        "sha256": "9f2d3d960bbec2439bc26b652ddfdee953e071c986f5887081ebcb4b8c73c0dd"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-baseline.stdout",
+        "sha256": "ca68cee7035ea1534ec5869c95e55be638f72498f3e82cd8451bb6a32b91ebfc"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-baseline.stderr",
+        "sha256": "1480413b1a5554372784b4f301888ce8bb23fbdb7ff62d49bbbd44a9d7d8fc63"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-luajit.stdout",
+        "sha256": "026db0ee3effdac967883747e5c65197bf312548719a69c384337486be451c40"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-luajit.stderr",
+        "sha256": "f81e6d787c5e8350fa73bc64de7c4190a0f0d3992b292a36925df84b385c209e"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-candidate.stdout",
+        "sha256": "e756af72df64774dcf14488f76e6f9b3962ce72cd3f79b94dcb2ef6ab347e3c0"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-lexer/4-candidate.stderr",
+        "sha256": "6edfed1fdebb5c5ca8c015bb4d8c910ac199955e17e3aca9e1333140c4d2ddea"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-baseline.stdout",
+        "sha256": "0e35481d03b94e63ed346293b383cb506d05c808f216b24196e277911c67ae6b"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-baseline.stderr",
+        "sha256": "4fd45f61502ade8b41b07ab9defb2e0bedfb31b43c926eae6cbd548b87390324"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-luajit.stdout",
+        "sha256": "2de38d514e72ee98d0506eb43c53b26e166e57f6c19f2c015d17609dbd68170b"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-luajit.stderr",
+        "sha256": "6a1ce85f8043a383c3e3e240520b352cdc8f26614d2950ae011d47e260f8d5b0"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-candidate.stdout",
+        "sha256": "9e4e7b1b201bede34ca75b5c87591adb8bc3138b79709dc5e33fa4e46764fdb0"
+      },
+      {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/perf-cold-check/0-candidate.stderr",
+        "sha256": "b65d45401f32accaee757fbf391e3edb5333df2b0ca25396a362bb2f781341b7"
+      }
+    ],
+    "limits": [
+      "One cumulative candidate; no extension or extra pair set.",
+      "Cold sample diagnostic only; parent counters omit worker totals.",
+      "No confidence interval or statistical significance claimed.",
+      "Source/receipt checks cannot prove a quiet host; retain recorded external load."
+    ],
+    "allTimedRootImagesEqualFrozenCandidate": true,
+    "allWarmChecksCompiledZeroModules": true,
+    "coldCheckDiagnosticOnly": "One sample per engine; parent PMU counters omit child worker totals. No whole-repository speed verdict.",
+    "retainedLuaEmitWallSecondsInOriginalOrder": [
+      250.01,
+      137.82,
+      254.28
+    ]
+  },
+  "validation": {
+    "broadSuitePassed": false,
+    "baseline": {
+      "rawReport": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-namespace-fixed/report.json",
+        "sha256": "ed2d142b8afb00d138b31ce44940981cfab9921bfe85198afeb97345d2851f8b"
+      },
+      "rootAcceptance": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-namespace-fixed/root-baseline-acceptance.json",
+        "bytes": 4115,
+        "sha256": "ba63af188b433e9abce47be23fc75540d24ae61a0a8081f9b6914ce399dc248d"
+      },
+      "route": {
+        "route": "ordinary-project-test",
+        "routeReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-namespace-fixed/route-derived-reviewed.json",
+          "sha256": "80226045ee8f9de5cac6b503dec33d599a700b05439d0d529961c2d13e607657"
+        },
+        "defaultRunnerProof": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/receipt.json",
+          "sha256": "a735e76102034cb042b3e41c3c298c168a9f7ebf6f0acc0f5582c13a1aef65ca"
+        },
+        "defaultRunnerSha256": "67cb8b9d63bd96035ce4713ff633fa399d5705ca29749d9533b761d28f454c5c",
+        "payloadSha256": "05ff537c261072fbb360aa27b8a5d47cc06a3ce60203d2c7d7e61bc0bc8bc671",
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-namespace-fixed/report.json",
+          "sha256": "ed2d142b8afb00d138b31ce44940981cfab9921bfe85198afeb97345d2851f8b"
+        }
+      },
+      "counts": {
+        "total": 3555,
+        "passed": 3475,
+        "failed": 43,
+        "skipped": 0,
+        "notExecuted": 37
+      }
+    },
+    "candidate": {
+      "rawReport": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/broad.stdout",
+        "sha256": "941d4886eb0600da2cab9877be956044ef03aa1dcd31abdfad04dc01d4229732"
+      },
+      "rawCollectionReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-candidate-full-serial-raw/raw-collection.receipt.json",
+        "bytes": 11352,
+        "sha256": "8470dfff950e150490e1a7d98c9f7cb911240ca44d49d477b876cd51f02e5630"
+      },
+      "actualProcessRouteProof": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-candidate-full-serial-raw/process-route-proof.json",
+        "bytes": 775,
+        "sha256": "1d1db39c91f25befde948962aa3c877fc26792720b18e496e5fabf95e4fc12da"
+      },
+      "preparationReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-candidate-runner-preflight-v2/preparation.receipt.json",
+        "bytes": 9205,
+        "sha256": "07e9c885d93d379d9d4355e42b731e9420849d7b488329e1c3f4e4daf678fae9"
+      },
+      "counts": {
+        "total": 3558,
+        "passed": 3478,
+        "failed": 43,
+        "skipped": 0,
+        "notExecuted": 37
+      },
+      "runnerHealth": {
+        "duplicateIds": {},
+        "unusableRunnerRows": []
+      },
+      "headerAndMetrics": {
+        "actualRows": 3558,
+        "actualStatusCounts": {
+          "passed": 3478,
+          "failed": 43,
+          "skipped": 0,
+          "notExecuted": 37
+        },
+        "headerCountersMatchRows": true,
+        "okMatchesFailedCount": true,
+        "finiteNonnegativeDurationsChecked": 4682,
+        "failureMessageHandling": "Exact original bytes/text retained; no worktree path normalization.",
+        "finiteSignedMetricsValidated": 0
+      },
+      "sourceUnchanged": true,
+      "defaultRunnerBefore": {
+        "defaultRunnerSha256": "668c14f1c2bd1ce4c7366bf80bdaa839a95c91ff6b06865551a7ecb945cd8741",
+        "payloadSha256": "a27b5c61bd59d34b968475a4b7847b6944446b8eef152119bda06f08261f5ebd",
+        "cachedPayloadSha256": "a27b5c61bd59d34b968475a4b7847b6944446b8eef152119bda06f08261f5ebd",
+        "trailer": {
+          "version": 1,
+          "flags": 2,
+          "offset": 9292832,
+          "length": 23664518,
+          "trailerAt": 32957350,
+          "digestHex": "bfa465da1fee4388"
+        },
+        "modules": 502,
+        "functions": 8956,
+        "candidateCliImageSha256": "d72b7f14571dc58bf3736145243443b868f2d02f51e1909be7677ee83db961b5",
+        "candidateRuntimeSha256": "0088d5502b454d4ded933976c2ccaecdfa9e2de8e99dbbfaff81ea84aa01a434",
+        "sourceRunnerSha256": "ecedb5b8d11d9de2f78ec3b90d90def3abf3ac5ff7b086ebf0ef6c6cc3ac7511",
+        "actualDefaultRunner": true,
+        "aotRunnerSubstitution": false,
+        "sourceProofSha256": "571105cd45e6fa89e13c42a5e455216a73dec03cca8d516edeb7aa848d1cdc95"
+      },
+      "defaultRunnerAfter": {
+        "executableSha256": "668c14f1c2bd1ce4c7366bf80bdaa839a95c91ff6b06865551a7ecb945cd8741",
+        "cachedPayloadSha256": "a27b5c61bd59d34b968475a4b7847b6944446b8eef152119bda06f08261f5ebd"
+      }
+    },
+    "strictComparison": {
+      "originalFailedReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/comparison-failed.receipt.json",
+        "bytes": 759,
+        "sha256": "a1c758ffc1854e24e4bac67d9d8bda2a3147da95c703adb2dfc59d927ce2c897"
+      },
+      "originalComparison": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/broad.comparison.json",
+        "bytes": 9355,
+        "sha256": "d17a1d864491bc3cc62d52fb3c46df12ba6b246b09c854cfa541e0296924147f"
+      },
+      "literalStrictComparisonPassed": false,
+      "rootDisposition": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/root-full-serial-disposition.json",
+        "bytes": 3875,
+        "sha256": "056771c11309573d8df61afc9905d029b4f0482e719cfab8a9cb75d8bf551531"
+      },
+      "reviewedBroadReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/broad.receipt.json",
+        "bytes": 175830,
+        "sha256": "37928bc6041be734681f05f29ce9041707a362ca3c14db5ae4ca9b029c250b47"
+      },
+      "all3555BaselineIdsAndStatusesRetained": true,
+      "relativeOrderMatchesAfterNewPassingCasesRemoved": true,
+      "deferredPayloadsEqual": 37,
+      "newPassingIds": [
+        "interfaceimagetest/vmFreshMetadataLiteralsPreserveOrderedAliases",
+        "interfaceimagetest/vmFreshMetadataNamesKeepTheirTokensAndEmptyChildren",
+        "typeleveltest/vmParsedExpressionsSurviveRepeatedLowering"
+      ],
+      "retainedFailedCases": 43,
+      "literalEqualFailureMessages": 42,
+      "explicitObservedSPITemporaryPathVariance": {
+        "id": "spitest/typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions",
+        "baselineMessage": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-83499-1792237034268450000-0-0-83499-7ffd0007f3ed0ff0-1227/out/main.lua: No such file or directory (os error 2)",
+        "candidateMessage": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/nupp-1880-1792238243319675000-0-0-1880-7ffd0007b9692b80-1227/out/main.lua: No such file or directory (os error 2)",
+        "baselineMessageSha256": "b116eecf845de520965598c152aa8083fef3dc3e92bff330299c0f1ab9ab0c0e",
+        "candidateMessageSha256": "020484d61cc985318e0cba07f9f03c2c6a90fc53f14288325f86d28cf71ad640",
+        "literalMessagesEqual": false,
+        "sharedPrefix": "expected a truthy value, got false: tests/spitest.lua:80: expected a truthy value, got nil: /var/folders/v5/7chmy7qs3wb3xs0jhwntgjx00000gn/T/",
+        "sharedSuffix": "/out/main.lua: No such file or directory (os error 2)",
+        "baselineTemporaryDirectoryComponent": "nupp-83499-1792237034268450000-0-0-83499-7ffd0007f3ed0ff0-1227",
+        "candidateTemporaryDirectoryComponent": "nupp-1880-1792238243319675000-0-0-1880-7ffd0007b9692b80-1227",
+        "scope": "Only this exact observed message pair; both remain failed. The unchanged fixture successfully builds/runs the VM program and checks SPI output before asserting stale removed Lua output at line80. No general path normalization or future exception."
+      },
+      "generalPathNormalization": false,
+      "scope": "Root accepted this exact observed failure-message pair for the fixed experiment. Both SPI rows remain failed; no broad pass or automatic future exception."
+    },
+    "earlySevenProofs": {
+      "cold-check": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/cold-check.receipt.json",
+          "bytes": 174681,
+          "sha256": "3a65e2e273f57b524612d7f364ea3f35a455edc9da9c146a4bcf57fc478156e8"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/cold-check.receipt.json",
+          "sha256": "27321b0dfa5e3fed9a1c7eb01cbd9d0c34e7e70c2663185c23ad0532a6864b3f"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/cold-check.carried.receipt.json",
+          "sha256": "1ee4b1bcd896f80cce46c426b829c9e9cda5ebdc797355bd5fd344e1d3f1afe4"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "focused": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/focused.receipt.json",
+          "bytes": 173315,
+          "sha256": "a8642ff125126f6504fe6632e59ae176fecd5707d059c13920c496a76b4b8e2d"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/focused.receipt.json",
+          "sha256": "d52c4add7d68a77e7e47da0032135da7e4bed761cc3331e8781b8755dffb4b04"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/focused.carried.receipt.json",
+          "sha256": "b50b7edab946e5aac2ab2b15ccb3d59c33bb80708fcaba363c455cd7322d5a00"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "fixpoint": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/fixpoint.receipt.json",
+          "bytes": 175986,
+          "sha256": "1f6aeae916499a0a792eaa51b678e364d9a1192d286ba14ec81c31be944e0910"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/fixpoint.receipt.json",
+          "sha256": "9e891f2247d55b061cd2a26b971c1fd6b003e08617dd6a5ae7782cc55af3ebe2"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/fixpoint.carried.receipt.json",
+          "sha256": "f2ef20e79fe40c97da906e9a37f40988493341b0856fce97260dd22d9fa59af0"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "lua-oracle": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/lua-oracle.receipt.json",
+          "bytes": 229568,
+          "sha256": "6158d330ef7621983673b75705ef0d77a70c23c8f34b2a021e2cc7fc21524f62"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/lua-oracle.receipt.json",
+          "sha256": "669e353560c13e1914d3420ddb7dda6bf0e258927e80ad80c2626202f6e11d89"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/lua-oracle.carried.receipt.json",
+          "sha256": "d427f3b5d71cc248e8104ff615f28e5a547b7adc319f9f9529f2472501149a77"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "aot": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/aot.receipt.json",
+          "bytes": 173338,
+          "sha256": "3ee408b179de8bc66dd6f901c1872551bdc0ccb40c2629f42fc220b090764a7f"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/aot.receipt.json",
+          "sha256": "6b95971c392e523a992fa65aede96601dec53cb2f594e69e443ca5e3f2fe7cc4"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/aot.carried.receipt.json",
+          "sha256": "c9641a1e775d1c38a16fbc20e2b80918178925c71f206f9ae243e4a7dff55aaa"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "link": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/link.receipt.json",
+          "bytes": 172891,
+          "sha256": "2f663e667d44a6401ff047983091d13b9a24ee97f31e87b61130a1d1514e9240"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/link.receipt.json",
+          "sha256": "96b2a9ae6872138616e3d882a4e174950f1576f1fb7f1ccdf42e0ead48f86fc8"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/link.carried.receipt.json",
+          "sha256": "0712428729b8fcfd67560d84dff441fc74ca205c6cfda0099e3b26108364a7c1"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      },
+      "smoke": {
+        "currentContextReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-strict-full-serial-continuation/smoke.receipt.json",
+          "bytes": 172723,
+          "sha256": "31477e7ebb54b29c37b038ece8ee2a9ea098fe0b6c369079088324fa6f31f667"
+        },
+        "originalExecutedReceipt": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/smoke.receipt.json",
+          "sha256": "79c632da181ce012ffb630811297e6d3fce0ce7a9cf7b6058b66c8772e38352b"
+        },
+        "fixtureOnlyAcceptance": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/smoke.carried.receipt.json",
+          "sha256": "a7f17d73193f238fe4f5b510be7a410db04b700a81e2bc8a19ae9a29220cea90"
+        },
+        "executedSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-second-gates-release/post-rebase-source.json",
+          "sha256": "36d9dbd97c5837ed9bf1b40322cf2303e8be52438d40a499d4e7900ec7dde5ce"
+        },
+        "currentSource": {
+          "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-namespace-fixture-release/post-rebase-source.json",
+          "sha256": "b46210fe91064373e187bf899835c5d6d03ef093fdabae86f76f057fc390b325"
+        },
+        "newExecutionClaimed": false
+      }
+    },
+    "earlyScope": {
+      "fixtureOnlyCarry": "Original commands ran source36d9; source-equivalence proofs carry them to sourceb462 after URI/path fixture/evidence-only rebase. No commands are claimed rerun on new source.",
+      "focused": "519-case old-host source-module precheck:514 passed,5 exact baseline failures; all4 added regressions passed there. Not a full candidate CLI pass.",
+      "ownership": "ownershiptest is port-required/not-executed in full ordinary selection, so the capture regression is not a fourth full-selection pass.",
+      "coldCheck": "506 modules,0 reused,2 workers,no retries/rechecks,empty diagnostics; original cache restored.",
+      "fixpoint": "Official VM fixpoint succeeds; independent held-FD freshness proof preserves actual C1=C2=C3 raw bytes. Original watcher-wrapper preservation failure stays failed. This does not claim pinned Lua stage-zero execution.",
+      "luaOracle": "505 generated modules plus2 external declarations, source verified; independent same-root raw image equals frozen VM image.",
+      "aot": "All6581 ordered IDs0..6580,ABI4,refused0; same linked features.",
+      "smoke": "Unchanged harness13/13 passed,2 fresh processes,executable memory denied."
+    },
+    "smokeResults": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2-continued/aot-smoke/results.json",
+      "bytes": 2255,
+      "sha256": "4cf43de991b170291e4bb15722570510dde420ab1055d01030dacddf6cc589a9"
+    },
+    "heldFdFreshnessProof": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2/raw-preserver/receipt-with-freshness.json",
+      "bytes": 818,
+      "sha256": "e9060fd278cc811e1beec59441f55ac8bed7c90bd0b52b1bfdf547c93bb434d5"
+    },
+    "originalFixpointWatcherFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-full-gates-2/fixpoint.receipt.json",
+      "bytes": 171214,
+      "sha256": "ca794e5d2f6ddb42eaaa54b20bd666834e3abf2982909bffc765b2a8ca344aa4"
+    }
+  },
+  "mechanism": {
+    "frozenEvidence": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-rawset-literal-mechanism/rawset-mechanism.json",
+      "bytes": 11049,
+      "sha256": "4a1f02acc83bf3e2b448cf7a806fa32a8fb88d03d94e07e16a3d52a6dc938b9e"
+    },
+    "independentReview": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-rawset-literal-independent-review.json",
+      "bytes": 4078,
+      "sha256": "b259e2a851c1e2421e37e13c9fbf93b53b8426e4fd5e48f4edefe0e4a90ebc3c"
+    },
+    "trueKeyInvocationDiagnostic": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/metadata-invocations-accepted-true-key/comparison.json",
+      "bytes": 3665,
+      "sha256": "52d916caefb3fd4f1e9741c6a90adea3694b964bcc88877abc129d8123641f11"
+    },
+    "invocationArithmetic": {
+      "source": "../metadata-invocations-accepted/mechanism-result.json and counts.json; accepted Lua-host diagnostic, not native executed counters",
+      "nameCalls": 18304,
+      "dataCalls": 79783,
+      "bracketFields": 30429,
+      "tableLiterals": 11330,
+      "removedGenericNodeCalls": 128516,
+      "removedUnconditionalScratchArrays": 257032,
+      "addedRawsetCalls": 91287,
+      "retainedUserDataSorts": 11330,
+      "retainedUserDataKeysSorted": 30429,
+      "limitations": "Source/counter arithmetic only; no duration, bytes, peak RSS or CPU-share inference."
+    },
+    "staticDataFunctionEvidence": {
+      "nameAndDataGetSlotSites": 0,
+      "anonymousRecordIdentitiesNull": true,
+      "dataNameBaselineToRawset": {
+        "NewRecord": [
+          6,
+          9
+        ],
+        "NewTableN": [
+          2,
+          2
+        ],
+        "CallK": [
+          6,
+          0
+        ],
+        "RetN": [
+          5,
+          0
+        ],
+        "CallDyn": [
+          11,
+          16
+        ],
+        "PadResults": [
+          12,
+          16
+        ]
+      },
+      "dataPlainToRawset": {
+        "NewRecord": [
+          7,
+          9
+        ],
+        "NewTableN": [
+          4,
+          2
+        ]
+      },
+      "rawsetCallDynSites": 3,
+      "rawsetArgumentsEach": 3,
+      "rawsetPaddedResultsEach": 1,
+      "extraIterationCallDynSites": 2,
+      "newExplicitBoxingUnboxingSites": 0,
+      "lowerMatchedFunctions": 122,
+      "lowerAggregateOpcodeDelta": {}
+    },
+    "limitations": "Counts quantify static code sites and source arithmetic on frozen accepted Lua metadata requests. They are not native executed invocation counts, allocation bytes, CPU shares or a speed forecast. Existing useful anonymous shaping already existed; rawset helper/iteration/result-padding costs remain in the net comparison."
+  },
+  "hostConditions": {
+    "windowRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/node-measurement-plan/root-timing-window-release.json",
+      "bytes": 1943,
+      "sha256": "4da4dd9cdbe6a2b591a5ff96966cd445f7a5e30dbbf943c9bec51da08679c08d"
+    },
+    "otherOwnWorkIdle": true,
+    "ownedCompilerTestRuntimeProcessesObserved": [],
+    "observedActiveHostProcesses": [
+      "99684 99210 99210 100.0   4448    21:28:17 ./build/app"
+    ],
+    "wholeHostIdleClaimed": false,
+    "interpretation": "Foreign PID99684 was observed consuming100%CPU at window release; host load is recorded, not controlled. All slower Lua samples remain included. No confidence interval or significance claim."
+  },
+  "evidenceOnlyWork": {
+    "compilerCommandsRun": false,
+    "testsRun": false,
+    "formatCommandsRun": false,
+    "commitsCreated": false,
+    "mergePerformed": false
+  }
+}
