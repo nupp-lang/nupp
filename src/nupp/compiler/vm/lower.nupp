@@ -798,6 +798,32 @@ function lower.emit(
         return coerce(f, r, c, want, dst)
     end
 
+    -- Indexing accepts the value a producer actually answered, including nil
+    -- from an open result pack. Its inferred element type does not establish
+    -- an integer or float register. Numeric literals establish their own value.
+    local function indexOperand(f: Fn, node)
+        local literal = node
+        while literal.kind == "paren" do
+            literal = literal.expr
+        end
+        if literal.kind == "number"
+            and isNumeric(literal.inferredType)
+            and not wideKind(node.inferredType)
+            and not wideKind(literal.inferredType)
+            and not node.wideIntegerLiteralTag
+            and not literal.wideIntegerLiteralTag
+        then
+            local class = isIntegerish(literal) and "i" or "f"
+            return exprAs(f, node, class), class
+        end
+        local reg, class = expr(f, node)
+        if class == "i" or class == "f" then
+            return reg, class
+        end
+
+        return coerce(f, reg, class, "v"), "v"
+    end
+
     -- Emits a condition and the branch taken when it is false: a typed
     -- comparison branches on its integer register, anything else on its value.
     local function condBranch(f: Fn, node, site)
@@ -2552,16 +2578,8 @@ function lower.emit(
         if numeric and k == "bracketIndex" then
             local o = exprAs(f, node.obj, "v");
             local d = f:reg()
-            if isIntegerish(node.expr) then
-                local i = exprAs(f, node.expr, "i");
-                f:op("GetIdxI", d, o, i)
-            elseif isNumeric(node.expr.inferredType) then
-                local i = exprAs(f, node.expr, "f");
-                f:op("GetIdxF", d, o, i)
-            else
-                local i = exprAs(f, node.expr, "v");
-                f:op("GetIdx", d, o, i)
-            end
+            local i, keyClass = indexOperand(f, node.expr)
+            f:op(keyClass == "i" and "GetIdxI" or keyClass == "f" and "GetIdxF" or "GetIdx", d, o, i)
             if want == "i" and integer then
                 local ir = f:freg();
                 f:op("IUnbox", ir, d);
@@ -2994,16 +3012,8 @@ function lower.emit(
             end
         elseif k == "bracketIndex" then
             local o = exprAs(f, node.obj, "v")
-            if isIntegerish(node.expr) then
-                local i = exprAs(f, node.expr, "i");
-                f:op("GetIdxI", dst, o, i)
-            elseif isNumeric(node.expr.inferredType) then
-                local i = exprAs(f, node.expr, "f");
-                f:op("GetIdxF", dst, o, i)
-            else
-                local i = exprAs(f, node.expr, "v");
-                f:op("GetIdx", dst, o, i)
-            end
+            local i, keyClass = indexOperand(f, node.expr)
+            f:op(keyClass == "i" and "GetIdxI" or keyClass == "f" and "GetIdxF" or "GetIdx", dst, o, i)
         elseif k == "call" or k == "methodCall" or k == "safeCall" then
             emitCall(f, node, dst)
         elseif k == "safeIndex" or k == "safeBracket" then
@@ -3632,12 +3642,14 @@ function lower.emit(
             local o = evaluate(target.obj, "v")
             if plainKey then
                 return {o = o, i = evaluate(target.expr, "v"), class = "v"}
-            elseif isIntegerish(target.expr) then
-                return {o = o, i = evaluate(target.expr, "i"), class = "i"}
-            elseif isNumeric(target.expr.inferredType) then
-                return {o = o, i = evaluate(target.expr, "f"), class = "f"}
             end
-            return {o = o, i = evaluate(target.expr, "v"), class = "v"}
+            local i, keyClass = indexOperand(f, target.expr)
+            if held then
+                local hold = keyClass == "v" and f:reg() or f:freg()
+                coerce(f, i, keyClass, keyClass, hold)
+                i = hold
+            end
+            return {o = o, i = i, class = keyClass}
         end
 
         return nil
@@ -3715,16 +3727,8 @@ function lower.emit(
                 return
             end
             local o = exprAs(f, target.obj, "v")
-            if isIntegerish(target.expr) then
-                local i = exprAs(f, target.expr, "i");
-                f:op("SetIdxI", o, i, valueReg)
-            elseif isNumeric(target.expr.inferredType) then
-                local i = exprAs(f, target.expr, "f");
-                f:op("SetIdxF", o, i, valueReg)
-            else
-                local i = exprAs(f, target.expr, "v");
-                f:op("SetIdx", o, i, valueReg)
-            end
+            local i, keyClass = indexOperand(f, target.expr)
+            f:op(keyClass == "i" and "SetIdxI" or keyClass == "f" and "SetIdxF" or "SetIdx", o, i, valueReg)
         else
             error("assignment target " .. target.kind)
         end
@@ -3886,7 +3890,7 @@ function lower.emit(
         if not node then
             return false
         end
-        if node.kind == "paren" or node.kind == "asExpr" then
+        if node.kind == "paren" or node.kind == "asExpr" or node.kind == "castExpr" then
             return mayBeAbsent(node.expr)
         end
         -- A field a generic record declares at a type parameter holds whatever
@@ -3920,6 +3924,22 @@ function lower.emit(
         end
 
         return false
+    end
+
+    -- An inferred alias inherits the source binding's actual representation.
+    -- Parameters, cells, spills and upvalues remain boxed even when their
+    -- element type is numeric; aliases must not turn a possible nil into an
+    -- eager numeric conversion. Explicit annotations retain their boundaries.
+    local function boxedAlias(f: Fn, node)
+        while node.kind == "paren" or node.kind == "asExpr" or node.kind == "castExpr" do
+            node = node.expr
+        end
+        if node.kind ~= "name" then
+            return false
+        end
+        local reg, class, cell, spill = f:lookup(tokText(node.token))
+
+        return reg == nil or class == "v" or cell == true or spill ~= nil
     end
 
     stmt = function(f: Fn, node)
@@ -3973,7 +3993,11 @@ function lower.emit(
                 -- Arithmetic over an `any` operand is typed `number` as an
                 -- approximation the checker marks untrusted: a metamethod may
                 -- answer anything, so only an annotation makes it a number slot.
-                local inferred = value and not untrustedValue(value) and value.inferredType or nil
+                local inferred = value
+                    and not untrustedValue(value)
+                    and (ty or not boxedAlias(f, value))
+                    and value.inferredType
+                    or nil
                 if not absent and not f.captured[name] and (ty or not assignedNames[name]) then
                     if (isInteger(ty) or (not ty and isInteger(inferred)))
                         and not isRemainder(value)
