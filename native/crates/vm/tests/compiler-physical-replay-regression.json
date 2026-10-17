@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-17",
+  "baseRevision": "16a827b8a03661b4856009b062aac4260d1c8e11",
+  "problem": "An isolated foreign physical-struct importer reconstructs a Shape without node.resolvedType. shapeTest then fails while reading its runtime declaration identity for storage.structIs.",
+  "repair": "In foreignShape physical struct branch, retain shape.node = {resolvedType = t}; no Shape/Slot record conversion.",
+  "scope": "Correctness repair only; separate from the unmerged Shape/Slot typing prototype.",
+  "sourceSha256": {
+    "src/nupp/compiler/vm/lower.nupp": "a644d53d6365b3226c22f5671e26710d6be7f81f89a7daa3054ea3bdc1811d09",
+    "src/nupp/compiler/vm/lowerstate.nupp": "94343b7a0640ea25824b449d692ae0f2fd1041d970cd7fbccf23d60a9e30f42b",
+    "src/nupp/compiler/vm/relink.nupp": "60316b6d89439e51e980441a3086aa9de2112adc4d1036e027d21f55a53ab2ac",
+    "tests/vmemitcachetest.lua": "9cbecda465ea6b6db3aef93bd07ee16d91eb02ba6cef78e7ac66921fafb00bf7"
+  },
+  "compilerSourceAggregate": {
+    "rootRelativePattern": "src/**/*.nupp",
+    "count": 506,
+    "recipe": "SHA256 of sorted root-relative POSIX path + NUL + bytes + NUL for each source",
+    "sha256": "c3200397922db33de4adec76469574d2ef890e27b465f0880aedc91062f699cf"
+  },
+  "baseline": {
+    "physicalCases": {
+      "total": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "failedCase": "vmemitcachetest/anIsolatedPhysicalConsumerReplaysForeignShapeMetadata",
+    "failure": {
+      "message": "attempt to index field 'node' (a nil value)",
+      "file": "src/nupp/compiler/vm/lower.nupp",
+      "line": 971
+    }
+  },
+  "validation": {
+    "formatExitCode": 0,
+    "diffCheckExitCode": 0,
+    "compilerModuleCheck": {
+      "exitCode": 0,
+      "ok": true,
+      "diagnostics": []
+    },
+    "newPhysicalCases": {
+      "exitCode": 0,
+      "total": 2,
+      "passed": 2,
+      "failed": 0
+    },
+    "fullEmitCacheSuite": {
+      "exitCode": 1,
+      "total": 9,
+      "passed": 7,
+      "failed": 2,
+      "onlyKnownBaselineFailures": true,
+      "exactFailureMessages": {
+        "vmemitcachetest/aBodyEditToAWidelyImportedModuleStopsAtItsInterface": "expected a truthy value, got false: only the edited module is lowered, lowered 5",
+        "vmemitcachetest/renumberingEverythingAfterAnEditStillReplays": "expected a truthy value, got false: only the grown module is lowered, lowered 5"
+      }
+    },
+    "officialFixpoint": {
+      "exitCode": 0,
+      "command": [
+        "./bin/nupp",
+        "fixpoint",
+        "--json"
+      ],
+      "result": {
+        "diagnostics": [],
+        "kind": "compiler",
+        "ok": true,
+        "target": "vm"
+      }
+    }
+  },
+  "finalImage": {
+    "sourcePath": "/Users/dowling/projects/nupp-wt/typed-shapes-validation/build/vm-fixpoint/root.image",
+    "preservedPath": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/root.image",
+    "bytes": 21215450,
+    "sha256": "0ae6550009026c81d53900e49ff22a74092ea311c7dfcf755f99393a7ebc7a7e"
+  },
+  "receipt": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/repair-final-receipt.json",
+    "sha256": "302b2ac21ebbb1448ca1ea50b6ab1b3650cda34281796b8e8660481051b7772a"
+  },
+  "minimalPatch": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/physical-cache-baseline-disposition/minimal-fix.patch",
+    "bytes": 600,
+    "sha256": "7ac485f1609f2bebf9d809ca765cbe2f50c0e08ab023121e917c903512bef395"
+  },
+  "limits": [
+    "The two cache-count failures remain failures; both IDs and full messages match baseline.",
+    "No typing speed improvement, full-suite pass or cross-platform result is claimed."
+  ]
+}

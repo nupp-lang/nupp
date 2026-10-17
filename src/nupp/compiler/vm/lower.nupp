@@ -347,6 +347,7 @@ function lower.emit(
         if t.declKind == "struct" then
             -- Laid out from its type, as its own module lays out its declaration.
             shape.physical = true
+            shape.node = {resolvedType = t}
             shape.layout = require(
                 "nupp.compiler.vm.metadata"
             ).structLayout({resolvedType = t, name = {text = name}}, layoutTarget)

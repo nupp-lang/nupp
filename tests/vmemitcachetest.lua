@@ -28,6 +28,7 @@ local function read(path)
     end
     local text = file:read("*a")
     file:close()
+
     return text
 end
 
@@ -147,6 +148,7 @@ local function tempProject()
     write(dir .. "/src/b.nupp", B)
     write(dir .. "/src/leaf.nupp", LEAF)
     write(dir .. "/src/main.nupp", MAIN)
+
     return dir
 end
 
@@ -174,13 +176,14 @@ local function same(expected, actual, what)
         if e ~= a then
             local from = expected:sub(1, i):match(".*\n()") or 1
             error(
-                ("%s: the cached emit differs from an emit from nothing at line %d:\n  scratch: %s\n  cached:  %s")
-                    :format(
-                        what,
-                        line,
-                        expected:sub(from, (expected:find("\n", i, true) or #expected + 1) - 1),
-                        actual:sub(from, (actual:find("\n", i, true) or #actual + 1) - 1)
-                    ),
+                (
+                    "%s: the cached emit differs from an emit from nothing at line %d:\n  scratch: %s\n  cached:  %s"
+                ):format(
+                    what,
+                    line,
+                    expected:sub(from, (expected:find("\n", i, true) or #expected + 1) - 1),
+                    actual:sub(from, (actual:find("\n", i, true) or #actual + 1) - 1)
+                ),
                 2
             )
         end
@@ -262,8 +265,8 @@ function M.renumberingEverythingAfterAnEditStillReplays()
     local edited = SHAPES:gsub(
         "function shapes%.length",
         "local record Extra\n    note: string\nend\n\nlocal function extra(): Extra\n"
-            .. '    local make = function(): Extra\n        return new Extra(note = "x")\n    end\n'
-            .. "    return make()\nend\n\nlocal EXTRA = extra()\n\nfunction shapes.length"
+        .. '    local make = function(): Extra\n        return new Extra(note = "x")\n    end\n'
+        .. "    return make()\nend\n\nlocal EXTRA = extra()\n\nfunction shapes.length"
     )
     write(dir .. "/src/shapes.nupp", edited)
     local image, stats = cached(dir)
@@ -313,24 +316,204 @@ function M.relinkRelocatesWhatTheImageLoaderRelocates()
         end
     end
     assert(next(functions) and next(shapes), "found no relocated operands; the loader's spelling moved")
+
     local function same(expected, actual, what)
         for opcode, position in pairs(expected) do
-            assert(actual[opcode] == position, ("%s operand %d of %s is not relocated by the linker"):format(
-                what,
-                position,
-                opcode
-            ))
+            assert(
+                actual[opcode] == position,
+                ("%s operand %d of %s is not relocated by the linker"):format(what, position, opcode)
+            )
         end
         for opcode, position in pairs(actual) do
-            assert(expected[opcode] == position, ("the linker relocates %s operand %d of %s, which the loader does not"):format(
-                what,
-                position,
-                opcode
-            ))
+            assert(
+                expected[opcode] == position,
+                ("the linker relocates %s operand %d of %s, which the loader does not"):format(what, position, opcode)
+            )
         end
     end
+
     same(functions, relink.FUNCTION_OPERANDS, "function")
     same(shapes, relink.SHAPE_OPERANDS, "shape")
+end
+
+local PHYSICAL = [[
+module physical
+local physical = {}
+struct physical.Packet
+    offset: uint32
+    ready: boolean : 1
+    link: uint8*?
+end
+struct physical.Other
+    offset: uint32
+    ready: boolean : 1
+    link: uint8*?
+end
+export = physical
+]]
+
+local PHYSICAL_MAIN = [[
+module main
+local physical = require("physical")
+local main = {}
+function main.isPacket(value: any): boolean
+    return value is physical.Packet
+end
+function main.isOther(value: any): boolean
+    return value is physical.Other
+end
+function main.start(): boolean
+    local packet = new physical.Packet(0, false, nil)
+    if not main.isPacket(packet) or main.isOther(packet) then
+        return false
+    end
+    if packet.offset ~= 0 or packet.ready or packet.link ~= nil then
+        return false
+    end
+    packet.offset = 7
+    packet.ready = true
+    return packet.offset == 7 and packet.ready and packet.link == nil
+end
+export = main
+]]
+
+local physicalSerial = 0
+
+local function physicalProject()
+    physicalSerial = physicalSerial + 1
+    local provider = "vmemitcachephysical" .. physicalSerial
+    local entry = "vmemitcacheentry" .. physicalSerial
+    local source = PHYSICAL_MAIN:gsub("module main", "module " .. entry, 1)
+        :gsub('require%("physical"%)', 'require("' .. provider .. '")')
+    local dir = tempProject()
+    write(dir .. "/src/" .. provider .. ".nupp", (PHYSICAL:gsub("module physical", "module " .. provider, 1)))
+    write(dir .. "/src/" .. entry .. ".nupp", source)
+    write(
+        dir .. "/nupp.lua",
+        (
+            "return {include = {\"src\"}, build = {entries = {%q}, layoutTarget = %q}}\n"
+        ):format(entry, require("nupp.compiler.targetlayout").hostKey())
+    )
+
+    return dir, entry, provider, source
+end
+
+local function physicalScratch(dir, entry)
+    return project.emit(dir, entry, "", nil)
+end
+
+local function physicalCached(dir, entry)
+    local image = project.emitCached(dir, entry, "", nil, dir .. "/cache")
+    return image, emitcache.last.stats
+end
+
+local function runPhysicalImage(image, what)
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if loadImage then
+        local chunk = assert(loadImage(image))
+        assert(chunk().start() == true, what .. ": physical identity, fields, and metadata survive")
+    end
+end
+
+function M.physicalStructIdentityAndMetadataSurviveCacheReplay()
+    local dir, entry, _, source = physicalProject()
+    local expected = physicalScratch(dir, entry)
+    local cold, coldStats = physicalCached(dir, entry)
+    same(expected, cold, "physical cold")
+    assert(coldStats.replayed == 0 and coldStats.lowered >= 2, "the cold cache lowers the physical modules")
+    assert(coldStats.kept == coldStats.lowered, "the physical modules can be kept")
+    runPhysicalImage(cold, "physical cold")
+
+    local warm, warmStats = physicalCached(dir, entry)
+    same(expected, warm, "physical warm")
+    assert(warmStats.lowered == 0, "the unchanged physical project lowers nothing")
+    assert(warmStats.replayed == coldStats.lowered, "the physical modules are replayed")
+    assert(warmStats.checked == 0, "the warm physical interfaces are restored")
+    runPhysicalImage(warm, "physical warm")
+
+    -- Re-lower the consumer against restored provider interfaces and registry data.
+    write(dir .. "/src/" .. entry .. ".nupp", (source:gsub("packet.offset = 7", "packet.offset = (7)")))
+    local edited, stats = physicalCached(dir, entry)
+    same(physicalScratch(dir, entry), edited, "physical consumer edit")
+    assert(stats.lowered == 1, "only the physical consumer is lowered again")
+    assert(stats.replayed == coldStats.lowered - 1, "its provider is replayed")
+    assert(stats.restored > 0, "the consumer reads restored interfaces")
+    runPhysicalImage(edited, "physical consumer edit")
+    remove(dir)
+end
+
+-- Full-graph replay can find the provider's shape before the consumer asks for
+-- it. A separately lowered consumer must reconstruct its foreign physical shape.
+function M.anIsolatedPhysicalConsumerReplaysForeignShapeMetadata()
+    local compile = require("nupp.tools.cli.compile")
+    local envMod = require("nupp.compiler.project.env")
+    local lower = require("nupp.compiler.vm.lower")
+    local targetLayout = require("nupp.compiler.targetlayout")
+    local dir, entry, providerName = physicalProject()
+    local path = dir .. "/src/" .. entry .. ".nupp"
+    local kept = {}
+    local keptCount = 0
+    local reuse = {
+        fragment = function(name)
+            return kept[name]
+        end,
+        keep = function(name, fragment)
+            kept[name] = fragment
+            keptCount = keptCount + 1
+        end,
+    }
+
+    local function isolated(reuseCache)
+        local env = envMod.new(dir, {cacheDir = dir .. "/isolated-check"})
+        local diagnostics = {}
+        local result = compile.check(path, env, {moduleName = entry}, diagnostics)
+        assert(result, tostring(diagnostics[1] and diagnostics[1].msg))
+        result.root.vmModuleExports = result.moduleExports
+        envMod.persist(env)
+
+        return lower.emit(
+            entry,
+            {},
+            function(name)
+                return name == entry and path or nil
+            end,
+            function()
+                return result.root
+            end,
+            nil,
+            nil,
+            targetLayout.hostKey(),
+            nil,
+            reuseCache
+        )
+    end
+
+    local expected = isolated(nil)
+    local cold = isolated(reuse)
+    assert(kept[entry], "the isolated consumer kept a fragment")
+    same(expected, cold, "isolated physical cold")
+    local coldKeptCount = keptCount
+    local warm = isolated(reuse)
+    same(expected, warm, "isolated physical warm")
+    assert(keptCount == coldKeptCount, "the isolated consumer replayed instead of lowering again")
+    assert(not warm:find("\nmodule " .. providerName .. " ", 1, true), "the provider is outside the consumer image")
+
+    -- Runtime execution needs the physical declarations already registered, as
+    -- when the dynamic module loader supplies a separately compiled consumer.
+    local loadImage = rawget(_G, "__nupp_load_image")
+    if loadImage then
+        local provider = assert(loadImage(project.emit(dir, providerName, "", nil)))()
+        assert(provider.Packet and provider.Other, "the provider returns both physical type witnesses")
+        local prior = package.loaded[providerName]
+        package.loaded[providerName] = provider
+        local ok, problem = pcall(function()
+            runPhysicalImage(cold, "isolated physical cold")
+            runPhysicalImage(warm, "isolated physical warm")
+        end)
+        package.loaded[providerName] = prior
+        assert(ok, problem)
+    end
+    remove(dir)
 end
 
 return M
