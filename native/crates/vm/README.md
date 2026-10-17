@@ -4279,3 +4279,18 @@ canonical image links all 6,589 ABI-4 entries and passes all 13 executable-memor
 denial controls in two fresh processes. These are isolated acceptance results;
 combined corpus integration remains pending. See
 [the C history acceptance record](tests/c-declaration-history-acceptance.json).
+
+## Unary type-call dispatch trial (2026-10-17)
+
+The actual-callee unary `type` guard is rejected. All 30 fixed samples remain:
+nine warm triplets and one diagnostic cold triplet, with a fresh LuaJIT
+reference in each. Warm paired median wall time rises 1.67% and cycles rise
+1.34%; both needed to fall at least 5%. Instructions fall 2.32%, which does not
+meet that duration gate. Warm wall medians are 0.62 s baseline, 0.63 s candidate
+and 0.49 s LuaJIT. Root rounds were correctly skipped.
+
+The native, linked-runtime and current-source parity controls pass, and the
+original cache bytes and inode are restored. The one favorable cold comparison
+stays diagnostic. The prototype remains on its isolated branch and in an exact
+source archive; this results branch retains baseline production code. See
+[the complete trial record](tests/unary-type-call-performance.json).

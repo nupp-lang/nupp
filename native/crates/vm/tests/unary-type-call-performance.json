@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "verdict": "rejected",
+  "productionChangeIntegrated": false,
+  "sourceBase": "b0e64f6f8935783a9a4bfbca6c336c32e8fd68a4",
+  "preservedPrototypeRevision": "2ae8eb933",
+  "hypothesis": "Guard unary dynamic calls by actual type builtin identity to bypass generic argument/callee dispatch.",
+  "mechanism": "The six native controls preserve aliases, rebinding, arity, spread fallback, limits, GC and call counters; assembly bypasses generic dispatch. Inline argument storage was already present, so this is not an allocation-elimination claim.",
+  "correctness": {
+    "defaultAotPassed": 385,
+    "plain8Passed": 318,
+    "ignoredEach": 5,
+    "interpreterOnlyCompilation": "passed",
+    "linkedEntries": 6589,
+    "ABI": 4,
+    "noexecControlsPassed": 13,
+    "rootSameDomainRawBytesEqual": true,
+    "rootSameDomainSha256": "f94872aa79f4af4fee70a317e94fa77dafef0cc10b21e9437d04251c1268bc06"
+  },
+  "protocol": {
+    "warmTriplets": 9,
+    "diagnosticColdTriplets": 1,
+    "conditionalRootTriplets": 5,
+    "rootTripletsExecuted": 0,
+    "retainedRows": 30,
+    "jobs": 2,
+    "warmGate": "Both paired median cycle and wall changes must be <= -5%.",
+    "rootGate": "Both paired median cycle and wall changes must be <= +5%.",
+    "rootSkippedBecause": "Warm gate failed.",
+    "freshLuaEveryRound": true,
+    "retryDiscardOrExtension": false
+  },
+  "pairedMedianRelativeChanges": {
+    "lexer": {
+      "real": 0.016666666666666607,
+      "cycles elapsed": 0.013442036288917603,
+      "instructions retired": -0.023247541687467232,
+      "maximum resident set size": 0.001662877116774597
+    },
+    "cold-check": {
+      "real": -0.13648100331980817,
+      "cycles elapsed": -0.06875508433834232,
+      "instructions retired": -0.017804778474038496,
+      "maximum resident set size": -0.013117467225487123
+    }
+  },
+  "absoluteMedians": {
+    "lexer": {
+      "baseline": {
+        "real": 0.62,
+        "cycles elapsed": 2405948676
+      },
+      "luajit": {
+        "real": 0.49,
+        "cycles elapsed": 1960135255
+      },
+      "candidate": {
+        "real": 0.63,
+        "cycles elapsed": 2428675345
+      }
+    },
+    "cold-check": {
+      "baseline": {
+        "real": 54.22,
+        "cycles elapsed": 27536809477
+      },
+      "luajit": {
+        "real": 65.29,
+        "cycles elapsed": 39971522398
+      },
+      "candidate": {
+        "real": 46.82,
+        "cycles elapsed": 25643513819
+      }
+    }
+  },
+  "conclusion": "Warm wall rises1.67% and cycles rise1.34%; instructions fall2.32%. Reject despite the single favorable diagnostic cold triplet. No root performance result exists.",
+  "staticTradeoffs": {
+    "dynamicCallCodeBytes": {
+      "baseline": 4576,
+      "candidate": 5376
+    },
+    "dynamicCallStackBytes": {
+      "baseline": 416,
+      "candidate": 432
+    },
+    "runtimeBytes": {
+      "baseline": 218977112,
+      "candidate": 218977144
+    }
+  },
+  "restoration": {
+    "originalChecksBytesAndInodeRestored": true,
+    "sourcesArtifactsAndNativeProviderMatchedDuringTrial": true,
+    "allOwnedTerminal": true,
+    "harnessLockAbsent": true,
+    "activeResultsBranch": "Baseline production sources restored after archival; this results branch changes only README and evidence. Historical receipt paths describe the measured snapshot, which is preserved in the prototype commit and source archive."
+  },
+  "metricScopeLimits": [
+    "Paired median relative changes, no statistical confidence interval or stable-host claim beyond root window checklist.",
+    "Each sample whole launched-process wall/RSS; macOS PMU instructions/cycles cover launched parent scope, not summed worker CPU. Cold time user may include children, so no cold whole-repository CPU speed verdict.",
+    "One cold pair is a retained sample, not a duration gate.",
+    "Warm result must report0compiled/36reused on every timed engine/Lua sample; cold505/0 actual2workers/0retries. Warmup3calls36/0 outside timing.",
+    "Fresh contemporaneous Lua is measured every repeat; historical0.42s is context only.",
+    "Baseline/candidate differ only unary type builtin dispatch in2Rust files. Nupp source/shared canonical image/object same; no parser/hash gains attributed to this idea."
+  ],
+  "measuredSourceArchive": {
+    "native/crates/vm/src/builtins.rs": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/rejected-prototype-1/native/crates/vm/src/builtins.rs",
+      "bytes": 127644,
+      "sha256": "160df15d2c565e7eae9d901a945e8f6a0f3325379278addc9c4db7b43beaa395"
+    },
+    "native/crates/vm/src/interp.rs": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/rejected-prototype-1/native/crates/vm/src/interp.rs",
+      "bytes": 208104,
+      "sha256": "9b21339bd426656b56cb64e7e6b4f47c8f3954d512b5d4a8cfdc8365eee26d9b"
+    },
+    "native/crates/vm/tests/type_call.rs": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/rejected-prototype-1/native/crates/vm/tests/type_call.rs",
+      "bytes": 12406,
+      "sha256": "c5ede11bd8b6a6f939bcbcf9d669fa43da84b1e89919b6397fb957212aff530f"
+    }
+  },
+  "evidence": {
+    "fixedTrial": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/fixed45-1/receipt.json",
+      "bytes": 53650,
+      "sha256": "223089ee9bfb50e48e4ed3d0ce1748cce45d3d1e5dfd97487d2a9530759e1f81"
+    },
+    "independentAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/fixed45-audit-1/report.json",
+      "bytes": 9576,
+      "sha256": "3e89ced8cfe34a92d7c3ab0be3e0b392eb93fa602886ff8008b8394a6575f645"
+    },
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/rejected-prototype-1/root-review.json",
+      "bytes": 1721,
+      "sha256": "18b500e1dc8ed3ea483623867cb732d5195c7756939889253f708dfee7256d00"
+    },
+    "nativeMatrix": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/native-matrix-1/receipt.json",
+      "bytes": 2488782,
+      "sha256": "eec4bd503aa911bd5737890d3b6b8f132e26642cbb8dfac1e5cfb13605f48286"
+    },
+    "linkedMechanism": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/linked-mechanism-1/receipt.json",
+      "bytes": 73936,
+      "sha256": "6b1b094db22c8284cb020ce82a44ce41d7cd0452cc189e532963a3402ed426b1"
+    },
+    "currentDomainParity": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/current-domain-completion-1/proof.json",
+      "bytes": 7271,
+      "sha256": "838c18c2bc30a63f6628db3cec8a177b520dc663bf3ee7663592a6a7d8c7bec3"
+    },
+    "preservedLuaFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/current-domain-parity-1/receipt.json",
+      "bytes": 1397735,
+      "sha256": "0daf757b4c7ed916267eb621219160f1d4b4669a71b1249f481f128c78a0dc4e"
+    },
+    "correctedLuaParity": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/lua-parity-correction-1/receipt.json",
+      "bytes": 176271,
+      "sha256": "ccac3ea325990929f05230ffef505e0a96eee51d42aa650158a59b681a130ddc"
+    },
+    "warmSamples": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/fixed45-1/lexer/results.json",
+      "bytes": 43065,
+      "sha256": "6e76f33da84b3672d96c539e04354007b6ba50424cfc456367738b3056e1ca25"
+    },
+    "coldSamples": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/fixed45-1/cold-check/results.json",
+      "bytes": 10698,
+      "sha256": "36587ddc3bcc9ecff4c5596ab18a44cd25a867033382559fd2dd48c3f524395d"
+    },
+    "staticTradeoffs": {
+      "path": "/Users/dowling/projects/nupp-wt/type-call-fast-path-scratch/static-tradeoffs-1/report.json",
+      "bytes": 1478,
+      "sha256": "02477394ccee50f091ad1e6194ed0f001974f3ef38a10ec7691d6310e64b7abd"
+    }
+  }
+}
