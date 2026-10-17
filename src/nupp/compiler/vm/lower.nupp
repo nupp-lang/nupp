@@ -1329,8 +1329,25 @@ function lower.emit(
     local function emitSimd(f: Fn, operation, ty, operands, dst, nres)
         -- Evaluate once in source order before placing the argument window.
         local args = {}
-        for _, operand in ipairs(operands) do
-            args[#args + 1] = exprAs(f, operand, "v")
+        for i, operand in ipairs(operands) do
+            if operation == "transpose" and i == #operands and (multiCall(operand) or operand.kind == "vararg") then
+                local count = ty.lanes - #args
+                local at = f:reg()
+                for _ = 2, count do
+                    f:reg()
+                end
+                if operand.kind == "vararg" then
+                    assert(f.vararg, "... outside a vararg function")
+                    f:op("VarargN", at, count)
+                else
+                    emitCall(f, operand, at, count)
+                end
+                for j = 0, count - 1 do
+                    args[#args + 1] = at + j
+                end
+            else
+                args[#args + 1] = exprAs(f, operand, "v")
+            end
         end
         local base = f:reg()
         for _, value in ipairs(args) do
@@ -1342,7 +1359,7 @@ function lower.emit(
             local resultCounts: {
                 [string]: integer
             } = {interleave = 2, deinterleave = 2, loadPairs = 2, loadTriples = 3, loadQuads = 4}
-            local results = resultCounts[operation] or 1
+            local results = operation == "transpose" and #args or resultCounts[operation] or 1
             for i = 0, (nres or 1) - 1 do
                 if i < results then
                     f:op("Move", dst + i, base + i)
@@ -1471,6 +1488,23 @@ function lower.emit(
             then
                 ty = simdType(node.inferredType)
                 operation = "species"
+            elseif identity and identity.module == "nupp.simd" and identity.member == "transpose" then
+                local targetlayout = require("nupp.compiler.targetlayout")
+                local pack = node.argumentPack
+                assert(pack and not pack.tail and not pack.alternatives, "SIMD transpose needs a fixed row pack")
+                local rows = pack.head
+                assert(#rows >= 2 and #rows <= 64, "SIMD transpose needs between 2 and 64 fixed-width rows")
+                local element, lanes = targetlayout.storageVector(rows[1])
+                assert(element and lanes == #rows, "SIMD transpose needs a square tile of fixed-width vectors")
+                for _, rowType in ipairs(rows) do
+                    local rowElement, rowLanes = targetlayout.storageVector(rowType)
+                    assert(
+                        rowElement == element and rowLanes == lanes,
+                        "SIMD transpose rows must have the same vector type"
+                    )
+                end
+                ty = {family = "Vector", element = element, lanes = lanes}
+                operation = "transpose"
             elseif node.simdMath then
                 ty = args[1] and simdType(args[1].inferredType)
                 operation = node.simdMath

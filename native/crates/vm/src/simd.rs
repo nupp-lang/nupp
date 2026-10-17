@@ -105,6 +105,7 @@ pub const OPERATIONS: &[&str] = &[
     "storePairs",
     "storeTriples",
     "storeQuads",
+    "transpose",
 ];
 pub const CAPACITY: usize = 512;
 const PREFIX: usize = 16;
@@ -424,6 +425,16 @@ fn prepare_impl(
     let w = width(kind);
     p.mask = u64::from(s.mask);
     match name {
+        "transpose" => {
+            if s.species || args.len() != s.lanes {
+                vm.err("SIMD transpose requires a square tile of vector rows");
+            }
+            for &row in args {
+                if shape(vm, row) != Some(s) {
+                    vm.err("SIMD transpose rows must have the same vector type");
+                }
+            }
+        }
         "map" => {
             if !s.species || !floating(kind) {
                 vm.err("SIMD map requires a floating species");
@@ -889,6 +900,35 @@ pub fn finish(vm: &mut Interp, p: &Packet, args: &[Value]) -> Value {
         return Value::num((best + 1) as f64);
     }
     match operation {
+        "transpose" => {
+            // Copy every input before the first managed allocation. Earlier
+            // columns stay rooted while later columns are allocated.
+            let mut rows = Vec::with_capacity(lanes * lanes * w);
+            for &row in args {
+                rows.extend_from_slice(&vm.bytes_of(row)[PREFIX..]);
+            }
+            vm.extra_n = 0;
+            vm.last_nres = 1;
+            let mut first = Value::NIL;
+            for column in 0..lanes {
+                let mut bits = [0; CAPACITY];
+                for row in 0..lanes {
+                    let at = (row * lanes + column) * w;
+                    bits[row * w..(row + 1) * w].copy_from_slice(&rows[at..at + w]);
+                }
+                let next = value(vm, s, &bits);
+                if column == 0 {
+                    first = next;
+                    vm.handles.push(first);
+                } else {
+                    vm.extra[column - 1] = next;
+                    vm.extra_n = column;
+                }
+            }
+            vm.last_nres = lanes;
+            vm.handles.pop();
+            first
+        }
         "species" | "widen" | "narrow" => value(vm, Shape { species: true, ..s }, &[]),
         "lanes" => Value::num(lanes as f64),
         "interleave" | "deinterleave" | "loadPairs" | "loadTriples" | "loadQuads" => {
@@ -897,7 +937,7 @@ pub fn finish(vm: &mut Interp, p: &Packet, args: &[Value]) -> Value {
             } else {
                 [&p.out, &p.b, &p.c, &p.a]
             };
-            let count = result_count(p.operation as u8);
+            let count = result_count(p.operation as u8, args.len());
             let first = value(vm, s, slices[0]);
             vm.handles.push(first);
             for i in 1..count {
@@ -1089,6 +1129,7 @@ pub fn valid_descriptor(op: u8, kind: u8, source: u8, argc: usize) -> bool {
         return false;
     }
     let (min, max) = match name {
+        "transpose" => (2, 64),
         "map" => (3, 5),
         "species" => (1, 2),
         "load" | "gather" => (3, 4),
@@ -1142,11 +1183,12 @@ pub fn valid_descriptor(op: u8, kind: u8, source: u8, argc: usize) -> bool {
     true
 }
 
-pub fn result_count(op: u8) -> usize {
-    match OPERATIONS[op as usize] {
-        "interleave" | "deinterleave" | "loadPairs" => 2,
-        "loadTriples" => 3,
-        "loadQuads" => 4,
+pub fn result_count(op: u8, argc: usize) -> usize {
+    match OPERATIONS.get(op as usize).copied() {
+        Some("transpose") => argc,
+        Some("interleave" | "deinterleave" | "loadPairs") => 2,
+        Some("loadTriples") => 3,
+        Some("loadQuads") => 4,
         _ => 1,
     }
 }

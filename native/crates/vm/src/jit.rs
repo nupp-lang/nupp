@@ -2022,9 +2022,9 @@ impl<M: Module> Compiler<M> {
                             let call = hcall!("j_simd_finish", &[packet, args, count]);
                             setr!(base, b.inst_results(call)[0]);
                         }
-                        if crate::simd::result_count(op) > 1 {
+                        if crate::simd::result_count(op, nargs as usize) > 1 {
                             let extra = runtime_addr(&mut b, runtime, 1, extra_addr);
-                            for i in 1..crate::simd::result_count(op) { let value = b.ins().load(types::I64, flags, extra, ((i-1)*8)as i32); setr!(base as usize+i, value); }
+                            for i in 1..crate::simd::result_count(op, nargs as usize) { let value = b.ins().load(types::I64, flags, extra, ((i-1)*8)as i32); setr!(base as usize+i, value); }
                         }
                     }
                     Op::SpanLen(d,s,_) => { seti!(d,native_ptrs[&s].1); }

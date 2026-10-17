@@ -207,7 +207,10 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
         GetSlot(d, o, _, _) => r(&[(V, d), (V, o)]),
         SetSlot(o, _, v, _) => r(&[(V, o), (V, v)]),
         TagCheckRec(d, v, _) | IsRec(d, v, _) => r(&[(V, d), (V, v)]),
-        Simd(_, _, _, base, n) => r(&(0..=n).filter_map(|i| base.checked_add(i).map(|r| (V, r))).collect::<Vec<_>>()),
+        Simd(code, _, _, base, n) => {
+            let last = (n as usize).max(crate::simd::result_count(code, n as usize).saturating_sub(1));
+            r(&(0..=last).filter_map(|i| (base as usize + i).try_into().ok().map(|r| (V, r))).collect::<Vec<_>>())
+        }
         SpanLen(d, s, _) => r(&[(I,d),(V,s)]),
         SpanBounds(s, i, n, _, _) => r(&[(V,s),(I,i),(I,n)]),
         SpanLoad(d, s, i, n, _, _, _) => r(&[(X,d),(V,s),(I,i),(I,n)]),
@@ -286,7 +289,8 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
                 if !carrier { return Err(format!("pc {pc}: physical scalar kind does not match register carrier")); }
             }
             Op::Simd(op, kind, source, base, argc) => {
-                if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base.checked_add(argc).is_none() {
+                let last = (argc as usize).max(crate::simd::result_count(op, argc as usize).saturating_sub(1));
+                if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base as usize + last > u8::MAX as usize {
                     return Err(format!("pc {pc}: invalid SIMD descriptor or argument window"));
                 }
             }
@@ -322,8 +326,8 @@ impl RegSet {
 /// written (a buffer append, a typed call's window) appears in both.
 pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
     if let Op::Simd(code, _, _, base, argc) = *op {
-        return ((0..crate::simd::result_count(code)).map(|i| (C::V, base+i as u8)).collect(),
-            (1..=argc).map(|i| (C::V,base+i)).collect());
+        return ((0..crate::simd::result_count(code, argc as usize)).filter_map(|i| (base as usize + i).try_into().ok().map(|r| (C::V, r))).collect(),
+            (1..=argc as usize).filter_map(|i| (base as usize + i).try_into().ok().map(|r| (C::V, r))).collect());
     }
     use Op::*;
     use C::*;

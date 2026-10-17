@@ -352,7 +352,7 @@ pub(crate) fn execute(p: &mut Packet, operation: u8, kind: u8, source: u8) -> Re
     if op == "convert" {
         return convert(p, kind, source);
     }
-    if matches!(op, "species" | "lanes" | "widen" | "narrow" | "loadPairs" | "loadTriples" | "loadQuads" | "storePairs" | "storeTriples" | "storeQuads") {
+    if matches!(op, "species" | "lanes" | "widen" | "narrow" | "transpose" | "loadPairs" | "loadTriples" | "loadQuads" | "storePairs" | "storeTriples" | "storeQuads") {
         return Ok(());
     }
     if op.ends_with("Dot") {

@@ -389,6 +389,65 @@ return tile
     testAssert.deepEqual(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
 end
 
+function M.transposeExpandsOneTypedRowPackOnce()
+    local run = compile(
+        PRELUDE
+        .. [[
+local type Row = simd.Vector<uint32, simd.Fixed<2>>
+local calls: integer = 0
+local function pair(): (Row, Row)
+    calls = calls + 1
+    local s = simd.species(array.uint32, 2)
+    return s:iota(11, 1), s:iota(21, 1)
+end
+return function(): ({number}, integer)
+    local c1, c2 = simd.transpose(pair())
+    return {c1:extract(1), c1:extract(2), c2:extract(1), c2:extract(2)}, calls
+end
+]]
+    )
+    local columns, calls = run()
+    testAssert.equal(calls, 1, "the helper producing both rows runs once")
+    testAssert.deepEqual(columns, {11, 21, 12, 22})
+end
+
+function M.transposeEvaluatesTheFirstRowBeforeTheTrailingTypedPack()
+    local run = compile(
+        PRELUDE
+        .. [[
+local type Row = simd.Vector<uint32, simd.Fixed<3>>
+local events: {integer} = {}
+local firstCalls: integer = 0
+local restCalls: integer = 0
+local function first(): Row
+    firstCalls = firstCalls + 1
+    events[#events + 1] = 1
+    local s = simd.species(array.uint32, 3)
+    return s:iota(11, 1)
+end
+local function rest(): (Row, Row)
+    restCalls = restCalls + 1
+    events[#events + 1] = 2
+    local s = simd.species(array.uint32, 3)
+    return s:iota(21, 1), s:iota(31, 1)
+end
+return function(): ({number}, {integer}, integer, integer)
+    local c1, c2, c3 = simd.transpose(first(), rest())
+    return {
+        c1:extract(1), c1:extract(2), c1:extract(3),
+        c2:extract(1), c2:extract(2), c2:extract(3),
+        c3:extract(1), c3:extract(2), c3:extract(3)
+    }, events, firstCalls, restCalls
+end
+]]
+    )
+    local columns, events, firstCalls, restCalls = run()
+    testAssert.deepEqual(events, {1, 2})
+    testAssert.equal(firstCalls, 1)
+    testAssert.equal(restCalls, 1)
+    testAssert.deepEqual(columns, {11, 21, 31, 12, 22, 32, 13, 23, 33})
+end
+
 function M.memoryMethodsMoveWholeChunks()
     local run = compile(
         PRELUDE
@@ -479,8 +538,18 @@ end
         0,
     })
     testAssert.deepEqual(written, {
-        2, 1, 4, 3, 6, 5, 8, 7, -- storePairs with the halves swapped
-        4, 4, -1, -1, -- storeQuads from nine writes lane one of each vector and stops at the span; scatter then writes twelve and eleven
+        2,
+        1,
+        4,
+        3,
+        6,
+        5,
+        8,
+        7, -- storePairs with the halves swapped
+        4,
+        4,
+        -1,
+        -1, -- storeQuads from nine writes lane one of each vector and stops at the span; scatter then writes twelve and eleven
     })
 end
 
@@ -532,10 +601,17 @@ end
         12, -- two stored fields read into vectors and added
     })
     testAssert.deepEqual(measured, {
-        48, 16, -- the struct
-        0, 4, 4, -- mass
-        16, 16, 16, -- pos
-        32, 12, 16, -- tail: twelve payload bytes, sixteen aligned
+        48,
+        16, -- the struct
+        0,
+        4,
+        4, -- mass
+        16,
+        16,
+        16, -- pos
+        32,
+        16,
+        16, -- tail: twelve payload bytes occupy sixteen
     })
 end
 

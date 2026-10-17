@@ -449,6 +449,24 @@ function metadata.structLayout(declaration, target)
 
             return result, nil, signature
         end
+        local element, lanes = layouts.storageVector(subject)
+        if element and lanes then
+            if lanes < 2 or lanes > 64 then
+                return nil, "VM stored vectors require 2 through 64 lanes"
+            end
+            local elementBytes = assert(layouts.VECTOR_ELEMENT_BYTES[element])
+            local measured, reason = layouts.vector(target, elementBytes, lanes)
+            if not measured then
+                return nil, reason
+            end
+            return {
+                kind = "vector",
+                element = {kind = element},
+                count = lanes,
+                size = measured.size,
+                alignment = measured.alignment
+            }, nil, "vector<" .. element .. ";" .. tostring(lanes) .. ">"
+        end
         local tag = subject.tag
         if tag == "nominal" then
             if #(subject.typeParams or {}) > 0

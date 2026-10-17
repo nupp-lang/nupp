@@ -2550,7 +2550,7 @@ impl Interp {
                             self.extra_n = 0; self.last_nres = 1;
                             let v = crate::simd::finish(self, &packet, &args);
                             r!(base) = v;
-                            for k in 1..crate::simd::result_count(op) { r!(base as usize + k) = self.extra[k - 1]; }
+                            for k in 1..crate::simd::result_count(op, n) { r!(base as usize + k) = self.extra[k - 1]; }
                         }
                     }
                     Op::SpanLen(d, s, k) => { let (_, n) = crate::storage::native_span(self, r!(s), k, false); ir!(d) = n as i64; }

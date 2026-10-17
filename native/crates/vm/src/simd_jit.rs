@@ -173,6 +173,7 @@ pub fn emit(
         op,
         "species"
             | "lanes"
+            | "transpose"
             | "widen"
             | "narrow"
             | "loadPairs"

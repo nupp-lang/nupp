@@ -5,7 +5,7 @@ use crate::{
     builtins,
     heap::{KIND_BYTES, KIND_RECORD, KIND_TABLE},
     interp::Interp,
-    numeric,
+    numeric, simd,
     value::Value,
 };
 
@@ -578,6 +578,23 @@ fn bitfield(vm: &Interp, field: Value) -> Option<Bits> {
         width: count(vm, width) as u32,
     })
 }
+// A stored fixed vector is a managed value at the language boundary and raw
+// lanes in memory. Its element IDs belong to SIMD, not PHYSICAL_SCALARS.
+fn vector_shape(vm: &Interp, ty: Value) -> simd::Shape {
+    let element = text(vm, get(vm, get(vm, ty, "element"), "kind"));
+    let kind = simd::ELEMENTS.iter().position(|name| *name == element.as_str())
+        .unwrap_or_else(|| vm.err("nupp: unsupported stored vector element")) as u8;
+    let lanes = count(vm, get(vm, ty, "count"));
+    if !(2..=64).contains(&lanes) {
+        vm.err("nupp: stored vectors require 2 through 64 lanes");
+    }
+    simd::Shape { kind, lanes, mask: false, species: false }
+}
+fn vector_bits(vm: &Interp, value: Value, shape: simd::Shape) -> &[u8] {
+    // shape() checked the managed header and exact payload extent first.
+    let bytes = vm.bytes_of(value);
+    &bytes[bytes.len() - simd::width(shape.kind) * shape.lanes..]
+}
 // Validate compiler facts against the executing host ABI, including every
 // nested offset. A foreign-target descriptor must never become native memory.
 fn measure(vm: &Interp, ty: Value, depth: usize) -> (usize, usize) {
@@ -599,6 +616,16 @@ fn measure(vm: &Interp, ty: Value, depth: usize) -> (usize, usize) {
     } else {
         match kind {
             "pointer" => (std::mem::size_of::<usize>(), std::mem::align_of::<usize>()),
+            "vector" => {
+                let shape = vector_shape(vm, ty);
+                let (width, _) = measure(vm, get(vm, ty, "element"), depth + 1);
+                let payload = width * shape.lanes;
+                // Match targetlayout.vector's allocator cap independently of
+                // compiler-supplied size/alignment (i686:8; other modeled hosts:16).
+                let cap = if cfg!(target_arch = "x86") { 8 } else { 16 };
+                let alignment = payload.next_power_of_two().min(cap).max(width);
+                (aligned(vm, payload, alignment), alignment)
+            }
             "array" => {
                 let (width, alignment) = measure(vm, get(vm, ty, "element"), depth + 1);
                 (
@@ -723,6 +750,10 @@ fn type_key(vm: &Interp, ty: Value, depth: usize) -> String {
             format!("{name}*")
         }
         "pointer" => format!("{}*", type_key(vm, get(vm, ty, "element"), depth + 1)),
+        "vector" => {
+            let shape = vector_shape(vm, ty);
+            format!("vector<{};{}>", simd::ELEMENTS[shape.kind as usize], shape.lanes)
+        }
         "array" => format!(
             "{}[{}]",
             type_key(vm, get(vm, ty, "element"), depth + 1),
@@ -792,6 +823,8 @@ fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
         let (name, _) = layout(vm, element, 0);
         if kind == "pointer" {
             format!("{name}*")
+        } else if kind == "vector" {
+            format!("vector<{name};{n}>")
         } else {
             format!("{name}[{n}]")
         }
@@ -809,7 +842,7 @@ fn descriptor(vm: &mut Interp, kind: &str, element: Value, n: usize) -> Value {
     if element != Value::NIL {
         set(vm, result, "element", element);
     }
-    if kind == "array" {
+    if matches!(kind, "array" | "vector") {
         set(vm, result, "count", Value::num(n as f64));
     }
     let (size, alignment) = measure(vm, result, 0);
@@ -857,9 +890,9 @@ fn normalize_layout(vm: &mut Interp, input: Value, methods: Value, depth: usize)
     if scalar_width(&kind).is_some() {
         return descriptor(vm, &kind, Value::NIL, 0);
     }
-    if kind == "array" {
+    if matches!(kind.as_str(), "array" | "vector") {
         let element = normalize_layout(vm, get(vm, input, "element"), Value::NIL, depth + 1);
-        return descriptor(vm, "array", element, count(vm, get(vm, input, "count")));
+        return descriptor(vm, &kind, element, count(vm, get(vm, input, "count")));
     }
     if kind == "pointer" && get(vm, input, "element") == Value::NIL {
         return pointer_field(vm, input);
@@ -1061,6 +1094,10 @@ fn value_isa(vm: &Interp, ty: Value, value: Value) -> bool {
     if scalar_width(&kind).is_some() {
         return numeric::is_numeric(value);
     }
+    if kind == "vector" {
+        measure(vm, ty, 0);
+        return simd::shape(vm, value) == Some(vector_shape(vm, ty));
+    }
     is_native(value) && is_view(vm, value) && same_type(vm, ty, view(vm, value).ty)
 }
 fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
@@ -1068,6 +1105,10 @@ fn allocate_value(vm: &mut Interp, ty: Value) -> Value {
     let kind = text(vm, get(vm, ty, "kind"));
     if scalar_width(&kind).is_some() {
         return decode(vm, &kind, &[0; 8]);
+    }
+    if kind == "vector" {
+        let shape = vector_shape(vm, ty);
+        return simd::value(vm, shape, &vec![0; simd::width(shape.kind) * shape.lanes]);
     }
     if !matches!(kind.as_str(), "array" | "struct" | "union") {
         vm.err("nupp: cannot allocate a raw native pointer");
@@ -1106,6 +1147,13 @@ fn read_member(vm: &mut Interp, v: View, ty: Value, offset: usize, bits: Option<
         let mut bytes = [0; 8];
         bytes[..width].copy_from_slice(&vm.bytes_of(v.owner)[offset..end]);
         return decode(vm, &kind, &bytes[..width]);
+    }
+    if kind == "vector" {
+        let shape = vector_shape(vm, ty);
+        let payload = simd::width(shape.kind) * shape.lanes;
+        let bits = vm.bytes_of(v.owner)[offset..offset + payload].to_vec();
+        vm.handles.extend_from_slice(&[v.owner, ty]);
+        return simd::value(vm, shape, &bits);
     }
     if !matches!(kind.as_str(), "struct" | "union" | "array") {
         vm.err("nupp: raw native pointers are not VM storage values");
@@ -1148,6 +1196,15 @@ fn write_member(
     } else if scalar_width(&kind).is_some() {
         let bytes = encode(vm, &kind, value);
         vm.bytes_mut(v.owner)[offset..end].copy_from_slice(&bytes);
+    } else if kind == "vector" {
+        let shape = vector_shape(vm, ty);
+        if simd::shape(vm, value) != Some(shape) {
+            vm.err("nupp: vector assignment requires the same element kind and lane count");
+        }
+        let bits = vector_bits(vm, value, shape).to_vec();
+        let output = &mut vm.bytes_mut(v.owner)[offset..end];
+        output.fill(0);
+        output[..bits.len()].copy_from_slice(&bits);
     } else {
         if !value_isa(vm, ty, value) {
             vm.err("nupp: aggregate assignment requires the same native type");
@@ -1419,6 +1476,17 @@ fn initialize_value(vm: &mut Interp, ty: Value, args: &[Value]) -> Value {
         } else {
             result
         };
+    }
+    if kind == "vector" {
+        if args.is_empty() {
+            return result;
+        }
+        if args.len() != 1 || !value_isa(vm, ty, args[0]) {
+            vm.err("nupp: stored vector initializer requires one vector of the same shape");
+        }
+        let shape = vector_shape(vm, ty);
+        let bits = vector_bits(vm, args[0], shape).to_vec();
+        return simd::value(vm, shape, &bits);
     }
     let target = view(vm, result);
     if matches!(kind.as_str(), "struct" | "union") {
@@ -1848,6 +1916,11 @@ pub fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
                 if scalar_width(&kind).is_some() {
                     let bytes = encode(vm, &kind, arg(1));
                     return decode(vm, &kind, &bytes);
+                }
+                if kind == "vector" {
+                    let shape = vector_shape(vm, ty);
+                    let bits = vector_bits(vm, arg(1), shape).to_vec();
+                    return simd::value(vm, shape, &bits);
                 }
                 let result = allocate_value(vm, ty);
                 vm.handles.push(result);
