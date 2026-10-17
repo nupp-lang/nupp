@@ -21,7 +21,8 @@ local function files(main, descriptor)
         [
             "nupp.lua"
         ] = [[return {include = {"src"}, build = {
-            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
+            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"},
+            payloadOutput = "out/main.image"
         }}]],
         ["nupp/spi.json"] = descriptor or [[{"example.api.Codec":["example.first","example.second"]}]],
         [
@@ -77,7 +78,7 @@ print("ok")]]
         assert(output == "ok\n", output)
         assert(#produced.spi == 2)
         assert(produced.spi[1].interface == "example.api.Codec")
-        local code = assert(fs.readFile(dir .. "/out/main.lua"))
+        local code = assert(fs.readFile(dir .. "/out/main.image"))
         assert(code:find('"example.api.Codec"', 1, true), code)
     end)
 end

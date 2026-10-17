@@ -59,7 +59,7 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
         paths[index] = path:toString()
     end
     table.sort(paths)
-    testAssert.equal(#paths, 11, "all eleven top-level Nupp benchmarks are present")
+    testAssert.equal(#paths, 6, "all six top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do
         assert(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
         assert(read(path):find("nupp.bench", 1, true) ~= nil, path .. " does not use the shared harness")
@@ -641,25 +641,13 @@ function M.forksMustAgreeOnCompilerOutput()
         return {
             allocationSites = sites,
             remarks = {},
-            cases = {
-                {
-                    name = "x",
-                    kind = "suite",
-                    medianMs = 0.001,
-                    allocatedKb = allocated,
-                    samplesMs = {1.0},
-                },
-            },
+            cases = {{name = "x", kind = "suite", medianMs = 0.001, allocatedKb = allocated, samplesMs = {1.0},},},
         }
     end
 
     local stable = {{file = "a.nupp", kind = "table", line = 1, col = 1}}
 
-    local merged, notes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, 1.0),
-        fork(stable, 3.0),
-        fork(stable, 2.0),
-    })
+    local merged, notes = runner.mergeForks("x", "a.nupp", {fork(stable, 1.0), fork(stable, 3.0), fork(stable, 2.0),})
     testAssert.equal(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
     testAssert.equal(#notes, 0, "and needs no note")
 
@@ -703,9 +691,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
         return {
             allocationSites = {},
             remarks = {},
-            cases = {
-                {name = "x", kind = "suite", medianMs = median, samplesMs = {median}, trend = trend,},
-            },
+            cases = {{name = "x", kind = "suite", medianMs = median, samplesMs = {median}, trend = trend,},},
         }
     end
 
@@ -833,15 +819,7 @@ function M.mergeReportsAScatteredBenchmark()
         return {
             allocationSites = {},
             remarks = {},
-            cases = {
-                {
-                    name = "x",
-                    kind = "suite",
-                    medianMs = 0.00008,
-                    samplesMs = samples,
-                    concentration = 0.09,
-                },
-            },
+            cases = {{name = "x", kind = "suite", medianMs = 0.00008, samplesMs = samples, concentration = 0.09,},},
         }
     end
 

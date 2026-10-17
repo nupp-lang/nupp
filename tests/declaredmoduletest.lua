@@ -355,15 +355,24 @@ end
             local image = program.image(checked.result, "usequery", dir .. "/src/usequery.nupp")
             assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
 
+            local previousUse = package.loaded.usequery
+            local previousQuery = package.loaded["tecs.world.query"]
             package.loaded.usequery = nil
             package.loaded["tecs.world.query"] = nil
             local env = projectEnv(dir)
             local removeLoader = installProject(env)
-            local use = require("usequery")
+            local ok, problem = pcall(function()
+                local use = require("usequery")
+                -- The hidden direct require executes inside answer on the VM,
+                -- so the project loader must remain installed through the call.
+                testAssert.equal(use.answer(), 43, "qualified module call")
+            end)
             removeLoader()
-            package.loaded.usequery = nil
-            package.loaded["tecs.world.query"] = nil
-            testAssert.equal(use.answer(), 43, "qualified module call")
+            package.loaded.usequery = previousUse
+            package.loaded["tecs.world.query"] = previousQuery
+            if not ok then
+                error(problem, 0)
+            end
         end
     )
 end
