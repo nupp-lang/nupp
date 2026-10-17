@@ -432,12 +432,6 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             if limit.is_num() && live.len() >= limit.as_num() as usize {
                 return Wait(live[0]);
             }
-            // Bound native threads even when the task scope itself is unlimited.
-            if name == "tasks.fork" && vm.workers.len() >= 64 {
-                if let Some((task, _)) = vm.worker_records().into_iter().next() {
-                    return Wait(task);
-                }
-            }
             let deadline = field(vm, scope, "_deadline");
             let schedule = if name == "tasks.fork" {
                 Interp::fork_inner
@@ -500,6 +494,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                     let operation = field(vm, handle, "_name");
                     vm.tasks[task.index].error = cancellation(vm, operation, arg(1));
                     vm.cancel_task(task).unwrap();
+                    let _ = vm.cancel_queued_worker(task);
                 }
                 return Values(vec![Value::boolean(active.is_some())]);
             }
@@ -509,10 +504,12 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             if name == "tasks.status" {
                 let text = if let Some(task) = active {
                     vm.intern(
-                        if vm.tasks[task.index].stack[vm.tasks[task.index].cur()] >> 32 == 0 {
-                            "queued"
-                        } else {
+                        if vm.worker_started(task).unwrap_or_else(|| {
+                            vm.tasks[task.index].stack[vm.tasks[task.index].cur()] >> 32 != 0
+                        }) {
                             "running"
+                        } else {
+                            "queued"
                         },
                     )
                 } else {

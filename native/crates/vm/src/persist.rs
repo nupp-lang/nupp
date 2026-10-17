@@ -2122,6 +2122,14 @@ pub fn load_vm(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs) ->
     load_vm_channels(data,policies,codecs,Default::default())
 }
 pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs, registry:crate::channels::Shared) -> Result<Interp> {
+    load_vm_channels_mode(data, policies, codecs, registry, false)
+}
+// An unstarted worker has no host pool or native provider effects. Do not open
+// resources or start host threads while validating its queued snapshot.
+pub(crate) fn load_queued_worker_vm(data: &[u8], registry: crate::channels::Shared) -> Result<Interp> {
+    load_vm_channels_mode(data, &Policies::default(), &mut ResourceCodecs::default(), registry, true)
+}
+fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut ResourceCodecs, registry:crate::channels::Shared, queued: bool) -> Result<Interp> {
     policies.checkpoint_safe()?;
     let regions = data.get(8) == Some(&2);
     let mut r = Reader {
@@ -2132,7 +2140,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     let mut vm = Interp::new();
     vm.channel_registry=registry;
     codecs.insert(crate::channels::KIND.into(),Box::new(crate::channels::Codec {registry:vm.channel_registry.clone(),transfer:false}));
-    crate::snapshot::install_codecs(codecs);
+    if !queued { crate::snapshot::install_codecs(codecs); }
     let n = r.count()?;
     for _ in 0..n {
         match r.byte()? {
@@ -2303,6 +2311,7 @@ pub(crate) fn load_vm_channels(data: &[u8], policies: &Policies, codecs: &mut Re
     let graph = r.bytes()?;
     let scheduler = read_scheduler(&mut r)?;
     r.done()?;
+    if queued && host.is_some() { return Err("queued worker checkpoint has a host pool".into()); }
     let roots = load_graph_with(&mut vm, graph, policies, None, Some(codecs), true, None)?;
     // Publish every root before doing anything that can allocate in the heap.
     let mut new_handles = get_roots(&roots, &handles)?;
