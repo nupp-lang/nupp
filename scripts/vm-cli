@@ -33,7 +33,7 @@ def source_state():
     try:
         paths = subprocess.check_output([
             "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "src", "templates", "native", "runtime",
-            "scripts", "bin", "nupp.lua", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo",
+            "scripts", "bin", "nupp.lua", "tests/run.lua", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo",
         ], cwd=ROOT, stderr=subprocess.DEVNULL).split(b"\0")
     except subprocess.CalledProcessError:
         return {"revision": None, "fingerprint": None}
@@ -122,17 +122,24 @@ def install(args):
         (stage / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         (stage / "format").write_text(FORMAT + "\n")
         package = PACKAGES / generation
-        if package.exists():
-            validate_files(package, receipt)
-        else:
+        reused = package.exists()
+        if not reused:
             try:
                 stage.rename(package)
             except OSError:
                 if not package.exists():
                     raise
-                validate_files(package, receipt)
-        # Readers see either complete immutable generation. Existing children
-        # retain the previous absolute paths through their inherited environment.
+                reused = True
+        if reused:
+            validate_files(package, receipt)
+            if (package / "format").read_text().strip() != FORMAT:
+                raise ValueError("incomplete VM CLI package")
+            # Artifact bytes stay immutable. A validated repeated installation
+            # refreshes only its installation provenance, using the same source
+            # snapshot the staged receipt took before validation.
+            os.replace(stage / "receipt.json", package / "receipt.json")
+        # Readers see a complete generation with an atomic installation receipt.
+        # Existing children retain their absolute runtime and image paths.
         handle, pending = tempfile.mkstemp(prefix=".current-", dir=PACKAGES)
         try:
             with os.fdopen(handle, "w") as target:

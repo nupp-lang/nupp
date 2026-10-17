@@ -68,7 +68,9 @@ end
 -- on the way in.
 function M.theFloatWitnessRoundsEveryOperationToBinary32()
     local array = require("nupp.mem.array")
-    local f32 = nupp.math.f32
+    local mathLibrary = {}
+    require("nupp.compiler.runtime.math").install(mathLibrary)
+    local f32 = mathLibrary.f32
     local wide = simd.reducer.orderedSum(0.1)
     local narrow = simd.reducer.orderedSum(array.float, 0.1)
     wide:add(0.2)

@@ -50,7 +50,11 @@ local BUNDLED = {
 -- "CODE:line" strings, which is what a case about one declaration wants to see.
 local function diagsUnderPrelude(source)
     local result = parser.parse(source, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or ""))
+    testAssert.equal(
+        #result.errors,
+        0,
+        "syntax errors in test source: " .. (result.errors[1] and result.errors[1].msg or "")
+    )
     local out = {}
     for _, d in ipairs(check.check(result, "test.nupp", strictEnv(), {strict = true}) or {}) do
         if d.severity == "error" then
@@ -83,7 +87,11 @@ function M.uuidUsesItsContractWithoutNativeCompilerServices()
     testAssert.equal(uuid.byname.randomBytes, nil, "unrelated operations are absent")
     local exports = assert(env.resolveModuleExports(env, "nupp.util"))
     testAssert.equal(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
-    testAssert.equal(rawget(env.bundled, "nupp.runtime.provider.nativeuuid"), nil, "the native implementation was not loaded")
+    testAssert.equal(
+        rawget(env.bundled, "nupp.runtime.provider.nativeuuid"),
+        nil,
+        "the native implementation was not loaded"
+    )
 end
 
 -- What `pcall` hands back on failure is whatever was raised, so the error slot is
@@ -380,6 +388,18 @@ end
     -- runs the File terminal at lexical scope exit.
     local image = program.image(parsed, "files-owner")
     assert(image:find('"close"', 1, true), "the public File terminal runs at lexical scope exit")
+end
+
+function M.runnerResourceMapsToItsManifestSource()
+    local bundled = require("nupp.compiler.bundled")
+    local saved = debug.getinfo
+    debug.getinfo = function()
+        return {source = "@" .. ROOT .. "/build/nupp/compiler/bundled.lua"}
+    end
+    local ok, path = pcall(bundled.sourcePathFor, "/nupp/test/runner.lua")
+    debug.getinfo = saved
+    assert(ok, path)
+    testAssert.equal(path, ROOT .. "/tests/run.lua", "the carried runner maps to the manifest source")
 end
 
 return M

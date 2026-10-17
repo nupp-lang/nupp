@@ -16,12 +16,13 @@ function M.workerCommandQuotesShellMetacharactersInTheCompilerPath()
         return savedGetenv(name)
     end
     package.loaded["nupp.compiler.bundled"] = {
-        source = function()
-            return "return 0"
+        source = function(relative)
+            assert(relative == "/nupp/test/runner.lua", tostring(relative))
+            return "assert(arg[1] == '--json'); assert(arg[2] == '--worker-report=/tmp/report path.json'); return 0"
         end,
     }
 
-    local ok, problem = pcall(runner.run, {})
+    local ok, problem = pcall(runner.run, {"--json", "--worker-report=/tmp/report path.json"})
     local command = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND")
     os.getenv = savedGetenv
     arg = savedArg

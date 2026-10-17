@@ -46,6 +46,7 @@ local engine = rawget(_G, "__nupp_load_image") and "vm" or "luajit"
 -- which shares every module already loaded rather than lowering copies. LuaJIT
 -- finds the compiled copies a build left on `package.path` instead.
 local vmModules = nil
+
 local function installVmModules()
     local loadImage = rawget(_G, "__nupp_load_image")
     if not loadImage or vmModules then
@@ -53,12 +54,18 @@ local function installVmModules()
     end
     local compile = require("nupp.tools.cli.compile")
     vmModules = require("nupp.compiler.project.env").new(".")
-    require("nupp.compiler.runtime").install(vmModules, function(modulePath, e, name)
-        local image = compile.image(modulePath, e, name)
-        return image, image == nil and "type errors" or nil
-    end, nil, nil, function(image)
-        return loadImage(image)
-    end)
+    require("nupp.compiler.runtime").install(
+        vmModules,
+        function(modulePath, e, name)
+            local image = compile.image(modulePath, e, name)
+            return image, image == nil and "type errors" or nil
+        end,
+        nil,
+        nil,
+        function(image)
+            return loadImage(image)
+        end
+    )
 end
 
 package.preload.testjson = package.preload.testjson or function()
@@ -472,6 +479,7 @@ local test = require("nupp.test")
 assert = test.assert
 
 local asJson = false
+local workerReportPath = nil
 local verbose = false
 -- Suites named on the command line. A list rather than one name: `nupp test a b`
 -- used to keep whichever came last and silently run something else, or nothing.
@@ -529,6 +537,13 @@ local timingRows = 15
 for _, argument in ipairs(arg) do
     if argument == "--json" then
         asJson = true
+    elseif argument:match("^%-%-worker%-report=") then
+        local path = argument:sub(#"--worker-report=" + 1)
+        if workerReportPath ~= nil or path == "" then
+            io.stderr:write("nupp: --worker-report requires one nonempty path\n")
+            os.exit(2)
+        end
+        workerReportPath = path
     elseif argument == "--verbose" then
         verbose = true
     elseif argument == "--color" then
@@ -609,6 +624,10 @@ for _, argument in ipairs(arg) do
         io.stderr:write("nupp: unknown test option: " .. argument .. "\n")
         os.exit(2)
     end
+end
+if workerReportPath and (not asJson or listing or embedded) then
+    io.stderr:write("nupp: --worker-report requires a process JSON report\n")
+    os.exit(2)
 end
 if colorProblem then
     io.stderr:write("nupp: " .. colorProblem .. "\n")
@@ -1358,7 +1377,9 @@ local function loadSuite(suite)
         if not image then
             local reasons = {}
             for _, diagnostic in ipairs(collected) do
-                reasons[#reasons + 1] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg or diagnostic.message)
+                reasons[
+                    #reasons + 1
+                ] = tostring(diagnostic.code) .. " " .. tostring(diagnostic.msg or diagnostic.message)
             end
             error("cannot compile Nupp test suite " .. path .. ": " .. table.concat(reasons, "; "), 0)
         end
@@ -2089,6 +2110,182 @@ local timingsPath = buildRoot .. "/.nupp-test-times.json"
 --- is a miss rather than a wrong answer.
 local shardCacheRoot = buildRoot .. "/.nupp-test-cache"
 
+-- Reports are process-private files. Suite output is never a framing protocol.
+local function shellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local workerReports = {root = nil, next = 0}
+
+local function workerArtifacts()
+    if not workerReports.root then
+        assert(os.execute("mkdir -p " .. shellQuote(shardCacheRoot)) == 0, "cannot create the worker report root")
+        local ticket = assert(os.tmpname():match("[^/\\]+$"))
+        local directory = shardCacheRoot .. "/reports-" .. ticket
+        assert(os.execute("mkdir " .. shellQuote(directory)) == 0, "cannot reserve worker reports")
+        workerReports.root = directory
+    end
+    workerReports.next = workerReports.next + 1
+    local prefix = workerReports.root .. "/worker-" .. workerReports.next
+
+    return {report = prefix .. ".json", stdout = prefix .. ".out", stderr = prefix .. ".err"}
+end
+
+local function writeWorkerArtifact(path, text)
+    local file = assert(io.open(path, "wb"))
+    assert(file:write(text))
+    assert(file:close())
+end
+
+local function readWorkerArtifact(path)
+    local file, problem = io.open(path, "rb")
+    if not file then
+        return nil, problem
+    end
+    local text, readProblem = file:read("*a")
+    local closed, closeProblem = file:close()
+    if text == nil or not closed then
+        return nil, readProblem or closeProblem
+    end
+
+    return text
+end
+
+local function validWorkerReport(report, document)
+    local function count(value)
+        return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
+    end
+
+    local function array(value)
+        if type(value) ~= "table" then
+            return false
+        end
+        if document then
+            local ok, isArray = pcall(testJson.isArray, value)
+            if not ok or not isArray then
+                return false
+            end
+        end
+        local size, keys = #value, 0
+        for key in pairs(value) do
+            if not count(key) or key < 1 or key > size then
+                return false
+            end
+            keys = keys + 1
+        end
+
+        return keys == size
+    end
+
+    if type(report) ~= "table"
+        or (document and report.schemaVersion ~= REPORT_SCHEMA_VERSION)
+        or type(report.ok) ~= "boolean"
+        or not array(report.tests)
+        or not array(report.suites)
+        or type(report.durationMs) ~= "number"
+        or report.durationMs < 0
+        or report.durationMs >= math.huge
+        or report.durationMs ~= report.durationMs
+    then
+        return false, "invalid worker report header"
+    end
+    local counts = {passed = 0, failed = 0, skipped = 0, ["not-executed"] = 0}
+    for _, record in ipairs(report.tests) do
+        if type(record) ~= "table"
+            or type(record.id) ~= "string"
+            or type(record.suite) ~= "string"
+            or type(record.name) ~= "string"
+            or counts[record.status] == nil
+            or type(record.durationMs) ~= "number"
+            or record.durationMs < 0
+            or record.durationMs >= math.huge
+            or record.durationMs ~= record.durationMs
+            or (
+                record.status == "failed"
+                and (type(record.failure) ~= "table" or type(record.failure.message) ~= "string")
+            )
+        then
+            return false, "invalid worker test row"
+        end
+        -- These optional measurements are consumed by the parent after merge.
+        -- Match the public metric API before concatenating or adding fields.
+        if record.metrics ~= nil then
+            if not array(record.metrics) then
+                return false, "invalid worker metrics array"
+            end
+            for _, metric in ipairs(record.metrics) do
+                if type(metric) ~= "table"
+                    or type(metric.name) ~= "string"
+                    or metric.name == ""
+                    or type(metric.value) ~= "number"
+                    or metric.value ~= metric.value
+                    or metric.value == math.huge
+                    or metric.value == -math.huge
+                    or (metric.unit ~= nil and type(metric.unit) ~= "string")
+                then
+                    return false, "invalid worker metric"
+                end
+            end
+        end
+        counts[record.status] = counts[record.status] + 1
+    end
+    if not count(report.total) or report.total ~= #report.tests or report.ok ~= (counts.failed == 0) then
+        return false, "invalid worker total"
+    end
+    for _, key in ipairs({"passed", "failed", "skipped", "notExecuted"}) do
+        local status = key == "notExecuted" and "not-executed" or key
+        if not count(report[key]) or report[key] ~= counts[status] then
+            return false, "invalid worker counter " .. key
+        end
+    end
+    -- Failed beforeAll/afterAll hooks are result rows, not declared cases.
+    -- A sliced suite may also run no cases. suite.tests is not report.total.
+    for _, suite in ipairs(report.suites) do
+        if type(suite) ~= "table" or type(suite.suite) ~= "string" then
+            return false, "invalid worker suite row"
+        end
+    end
+    if report.claimed ~= nil then
+        if not array(report.claimed) then
+            return false, "invalid worker claims"
+        end
+        for _, name in ipairs(report.claimed) do
+            if type(name) ~= "string" then
+                return false, "invalid worker claim"
+            end
+        end
+    end
+
+    return true
+end
+
+local function readWorkerReport(path, status)
+    if status == nil then
+        return nil, "missing worker exit status"
+    elseif status ~= 0 and status ~= 1 then
+        return nil, status > 128 and ("worker killed by signal %d (exit %d)"):format(status - 128, status)
+            or ("worker exit %d"):format(status)
+    end
+    local text, problem = readWorkerArtifact(path)
+    if text == nil then
+        return nil, "cannot read report: " .. tostring(problem)
+    end
+    local decoded, report = pcall(testJson.decode, text)
+    if not decoded then
+        return nil, "JSON decode: " .. tostring(report)
+    end
+    local valid, why = validWorkerReport(report, true)
+    if not valid then
+        return nil, why
+    end
+    -- The shell's terminal marker survives hosts whose pipe close loses status.
+    if status ~= (report.ok and 0 or 1) then
+        return nil, "report and worker exit disagree: " .. tostring(status)
+    end
+
+    return report
+end
+
 local recordedOnce = nil
 
 local function recorded()
@@ -2458,9 +2655,7 @@ local processCalls = {
 }
 
 local shellCalls = {"os.execute", "io.popen",}
-local SHELLING = {
-    serdecontracttest = true,
-}
+local SHELLING = {serdecontracttest = true,}
 local sourceBySuite = {}
 
 local function suiteSource(suiteInfo)
@@ -2603,7 +2798,6 @@ if #shard == 0
     and not coverage
 then
     do
-        local json = testJson
         local shareable, alone, shelling = {}, {}, {}
         for _, suiteInfo in ipairs(suites) do
             local selectedLane = suiteLane(suiteInfo)
@@ -2684,7 +2878,8 @@ then
                             local ok, report = pcall(function()
                                 return child.task:await()
                             end)
-                            if ok and type(report) == "table" then
+                            local valid, why = validWorkerReport(report, false)
+                            if ok and valid then
                                 report.shard = {
                                     index = child.index,
                                     names = (report.claimed and #report.claimed > 0) and report.claimed
@@ -2695,7 +2890,9 @@ then
                                 }
                                 reports[#reports + 1] = report
                             else
-                                reports[#reports + 1] = {names = {child.label}, failure = tostring(report)}
+                                reports[
+                                    #reports + 1
+                                ] = {names = {child.label}, failure = ok and why or tostring(report)}
                             end
                         end
                         scope:close()
@@ -2728,7 +2925,8 @@ then
                     -- least useful thing known about it: whether it was killed, ran out
                     -- of memory, or wrote something that was not JSON all read the
                     -- same.
-                    local errors = ("%s/shard-%d.err"):format(shardCacheRoot, index)
+                    local artifacts = workerArtifacts()
+                    local errors = artifacts.stderr
                     local cache = ownCache and ("NUPP_CACHE_DIR='%s/shard-%d' "):format(shardCacheRoot, index) or ""
                     -- The shell reports the wait status because this end cannot:
                     -- LuaJIT's `close` on a pipe answers whether it closed, not what
@@ -2755,16 +2953,26 @@ then
                     local fresh = executionLane == "isolated" and "NUPP_TEST_FRESH_QUEUE_PIECES=1 " or ""
                     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
                     local worker = (
-                        "%s%s%s%s --json %s --color=%s%s"
-                    ):format(cache, progress, fresh, invocation, lane.arg, colorMode, verbose and " --verbose" or "")
+                        "%s%s%s%s --json --worker-report=%s %s --color=%s%s"
+                    ):format(
+                        cache,
+                        progress,
+                        fresh,
+                        invocation,
+                        shellQuote(artifacts.report),
+                        lane.arg,
+                        colorMode,
+                        verbose and " --verbose" or ""
+                    )
                     local command = (
                         "{ %s; echo \"__status__:$nupp_status\" >&2; } 2>'%s'"
-                    ):format(groupedWorker(worker), errors)
+                    ):format(groupedWorker(worker), errors:gsub("'", "'\\''"))
                     running[
                         #running + 1
                     ] = {
                         label = label,
                         errors = errors,
+                        artifacts = artifacts,
                         index = index,
                         startedAt = now() - started,
                         pipe = io.popen(command, "r")
@@ -2780,8 +2988,11 @@ then
                     else
                         local text = child.pipe:read("*a")
                         local _, how, code = child.pipe:close()
-                        local decoded, report = pcall(json.decode, text or "")
-                        if decoded and type(report) == "table" then
+                        writeWorkerArtifact(child.artifacts.stdout, text or "")
+                        local said = readWorkerArtifact(child.errors) or ""
+                        local status = tonumber(said:match("__status__:(%d+)%s*$"))
+                        local report, reportProblem = readWorkerReport(child.artifacts.report, status)
+                        if report then
                             -- What the parent knows and the child cannot: which shard
                             -- this was, when it was started, and when this end finished
                             -- reading it. The child's own `durationMs` is its wall
@@ -2801,16 +3012,24 @@ then
                             -- Everything known about the death, in the failure itself.
                             -- A signal names how it was killed; the tail of its
                             -- standard error says what it managed to complain about
-                            -- first; the length of what it wrote separates "nothing at
-                            -- all" from "not JSON".
+                            -- first. The report and both streams remain in full in
+                            -- the private artifacts, even when only excerpts fit here.
                             local why = {}
                             if how then
                                 why[#why + 1] = ("%s %s"):format(tostring(how), tostring(code))
                             end
                             local written = text or ""
                             why[#why + 1] = ("%d bytes on stdout"):format(#written)
-                            if not decoded then
-                                why[#why + 1] = "JSON decode: " .. tostring(report)
+                            why[
+                                #why + 1
+                            ] = "artifacts: "
+                                .. child.artifacts.report
+                                .. ", "
+                                .. child.artifacts.stdout
+                                .. ", "
+                                .. child.errors
+                            if reportProblem then
+                                why[#why + 1] = reportProblem
                                 if #written > 0 then
                                     local head = written:sub(1, 1000)
                                     local tail = #written > 1000 and written:sub(-1000) or nil
@@ -2824,7 +3043,7 @@ then
                             if errored then
                                 local said = errored:read("*a") or ""
                                 errored:close()
-                                local status = said:match("__status__:(%d+)")
+                                local status = said:match("__status__:(%d+)%s*$")
                                 if status then
                                     local code = tonumber(status) or 0
                                     why[#why + 1] = code > 128 and ("killed by signal %d"):format(code - 128)
@@ -2833,8 +3052,8 @@ then
                                 end
                                 -- The last suite the worker said it was starting. An
                                 -- undecodable report does not prove the worker died: it
-                                -- may have exited normally after a test failure while
-                                -- an inherited writer corrupted stdout. The marks
+                                -- may have exited normally after a test failure but
+                                -- failed to finish its private report. The marks
                                 -- themselves are taken out of what gets printed: there
                                 -- is one per suite, and a lane's worth of them would
                                 -- bury the message they are here to qualify.
@@ -3387,10 +3606,6 @@ local function recordPieceFailure(spec, message)
     }
 end
 
-local function shellQuote(value)
-    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
-end
-
 --- Runs one claimed isolated piece in a new process.
 ---
 --- The long-lived process owns only queue claims and aggregation. The child is
@@ -3400,40 +3615,35 @@ end
 --- per-lane compiler store without retaining its process state.
 local function runFreshPiece(spec)
     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
-    local errors = os.tmpname()
+    local artifacts = workerArtifacts()
+    local errors = artifacts.stderr
     local worker = (
-        "NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"
-    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "")
+        "NUPP_TEST_SUPERVISED_PIECE=1 %s --json --worker-report=%s --shard=%s --color=%s%s"
+    ):format(invocation, shellQuote(artifacts.report), shellQuote(spec), colorMode, verbose and " --verbose" or "")
     local command = (
         "{ %s; printf '\n__piece_status__:%%d\n' $nupp_status; } 2>%s"
     ):format(groupedWorker(worker), shellQuote(errors))
     local pipe = io.popen(command, "r")
     if not pipe then
-        os.remove(errors)
-        recordPieceFailure(spec, "the isolated piece could not be started")
+        recordPieceFailure(spec, "the isolated piece could not be started; artifacts: " .. artifacts.report)
         mark("E")
         return
     end
     local text = pipe:read("*a") or ""
     pipe:close()
+    writeWorkerArtifact(artifacts.stdout, text)
     local status = tonumber(text:match("__piece_status__:(%d+)%s*$"))
     text = text:gsub("%s*__piece_status__:%d+%s*$", "")
-    local errorFile = io.open(errors, "rb")
-    local stderr = errorFile and (errorFile:read("*a") or "") or ""
-    if errorFile then
-        errorFile:close()
-    end
-    os.remove(errors)
-    local decoded, report = pcall(testJson.decode, text)
-    if not decoded or type(report) ~= "table" then
+    local stderr = readWorkerArtifact(errors) or ""
+    local report, reportProblem = readWorkerReport(artifacts.report, status)
+    if not report then
         local detail = {
             "the isolated piece wrote no report",
             status and ("exit " .. status) or "unreported exit status",
             #text .. " bytes on stdout",
         }
-        if not decoded then
-            detail[#detail + 1] = "JSON decode: " .. tostring(report)
-        end
+        detail[#detail + 1] = "artifacts: " .. artifacts.report .. ", " .. artifacts.stdout .. ", " .. errors
+        detail[#detail + 1] = reportProblem
         if #text > 0 then
             detail[#detail + 1] = "stdout: " .. text:sub(-2000)
         end
@@ -3633,8 +3843,8 @@ for _, deferred in ipairs(deferredSuites) do
         status = "not-executed",
         notExecuted = {
             reason = deferred.class == "retired"
-                and "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
-                or deferred.class .. ": runs on LuaJIT (tests/run) until it is ported to the VM",
+            and "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
+            or deferred.class .. ": runs on LuaJIT (tests/run) until it is ported to the VM",
         },
     }
     suiteRecords[
@@ -3862,33 +4072,36 @@ if embedded then
 elseif asJson then
     local json = testJson
     utf8Strings(results)
-    io.write(
-        json.encode({
-            schemaVersion = REPORT_SCHEMA_VERSION,
-            ok = report.ok,
-            total = total,
-            passed = passed,
-            skipped = skipped,
-            notExecuted = notExecutedCount,
-            failed = failed,
-            durationMs = duration,
-            tests = json.asArray(results),
-            metrics = json.asArray(metricTotals),
-            suites = json.asArray(suiteRecords),
-            shards = json.asArray(sharded and sharded.shards or {}),
-            -- What the packer said each phase could not finish under, beside
-            -- what it did. A phase far above its prediction was packed from
-            -- stale timings or starved a lane; one at its prediction is as
-            -- short as that much work gets, and only less work shortens it.
-            prediction = (predictions.isolated or predictions.shared or predictions.shell)
-            and {processIsolated = predictions.isolated, shared = predictions.shared, shell = predictions.shell,}
-            or nil,
-            -- What this process took off a queue, which is how the parent tells work
-            -- that ran from work whose worker died holding it. A run that was not
-            -- handed a queue took nothing, and says nothing.
-            claimed = #claimed > 0 and json.asArray(claimed) or nil
-        }) .. "\n"
-    )
+    local document = json.encode({
+        schemaVersion = REPORT_SCHEMA_VERSION,
+        ok = report.ok,
+        total = total,
+        passed = passed,
+        skipped = skipped,
+        notExecuted = notExecutedCount,
+        failed = failed,
+        durationMs = duration,
+        tests = json.asArray(results),
+        metrics = json.asArray(metricTotals),
+        suites = json.asArray(suiteRecords),
+        shards = json.asArray(sharded and sharded.shards or {}),
+        -- What the packer said each phase could not finish under, beside
+        -- what it did. A phase far above its prediction was packed from
+        -- stale timings or starved a lane; one at its prediction is as
+        -- short as that much work gets, and only less work shortens it.
+        prediction = (predictions.isolated or predictions.shared or predictions.shell)
+        and {processIsolated = predictions.isolated, shared = predictions.shared, shell = predictions.shell,}
+        or nil,
+        -- What this process took off a queue, which is how the parent tells work
+        -- that ran from work whose worker died holding it. A run that was not
+        -- handed a queue took nothing, and says nothing.
+        claimed = #claimed > 0 and json.asArray(claimed) or nil
+    }) .. "\n"
+    if workerReportPath then
+        writeWorkerArtifact(workerReportPath, document)
+    else
+        io.write(document)
+    end
 else
     if failed > 0 then
         io.write("\n" .. paint("1;31", "Failures:") .. "\n")
@@ -3917,9 +4130,13 @@ else
         for _, deferred in ipairs(deferredSuites) do
             names[#names + 1] = deferred.name
         end
-        io.write(("Engine: vm%s\n"):format(
-            #names > 0 and ("; %d left to LuaJIT (tests/run): %s"):format(#names, table.concat(names, " ")) or ""
-        ))
+        io.write(
+            (
+                "Engine: vm%s\n"
+            ):format(
+                #names > 0 and ("; %d left to LuaJIT (tests/run): %s"):format(#names, table.concat(names, " ")) or ""
+            )
+        )
     end
     if timingRows > 0 and #suiteRecords > 0 then
         io.write(timingReport())

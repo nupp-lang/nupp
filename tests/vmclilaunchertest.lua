@@ -31,6 +31,7 @@ local function readFile(path)
     end
     local text = file:read("*a")
     file:close()
+
     return text
 end
 
@@ -66,6 +67,9 @@ PACKAGES = os.path.join(ROOT, ".nupp/vm-cli")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 from generation import generation
 command = sys.argv[1]
+# This fixture has no source receipt. The real-script control tests content matches.
+if command == "current":
+    sys.exit(1)
 with open(os.path.join(ROOT, "builds.log"), "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\n")
 if command == "build":
@@ -102,12 +106,18 @@ local function plantedTree()
     -- The generation the tree starts with, built from sources older than its stamp.
     assert(
         os.execute(
-            ("cd '%s' && python3 -c 'import sys; sys.path.insert(0, \"scripts\"); "
-                .. "from generation import generation; generation(\".nupp/vm-cli\", \"gen0\")'"):format(dir)
+            (
+                "cd '%s' && python3 -c 'import sys; sys.path.insert(0, \"scripts\"); "
+                .. "from generation import generation; generation(\".nupp/vm-cli\", \"gen0\")'"
+            ):format(dir)
         ) == 0
     )
     plant(".nupp/vm-cli/stamp", "")
-    assert(os.execute(("touch -t 202001010000 '%s/src/compiler.nupp' '%s/templates' '%s'/scripts/*"):format(dir, dir, dir)) == 0)
+    assert(
+        os.execute(
+            ("touch -t 202001010000 '%s/src/compiler.nupp' '%s/templates' '%s'/scripts/*"):format(dir, dir, dir)
+        ) == 0
+    )
     assert(os.execute(("touch -t 202001020000 '%s/.nupp/vm-cli/stamp'"):format(dir)) == 0)
 
     return dir, plant
@@ -129,6 +139,7 @@ local function builds(dir)
             count = count + 1
         end
     end
+
     return count
 end
 
@@ -157,7 +168,10 @@ function M.aSourceEditRebuildsBeforeTheCommandRuns()
     assert(out:find("rebuilding the VM compiler", 1, true), out)
     assert(out:find("RAN gen1 check", 1, true), "the command did not run the rebuilt generation: " .. out)
     assert(builds(dir) == 1, "one edit, one build")
-    assert(readFile(dir .. "/builds.log"):find("build --seed pinned --no-aot", 1, true), "the rebuild lowers with the pinned one")
+    assert(
+        readFile(dir .. "/builds.log"):find("build --seed pinned --no-aot", 1, true),
+        "the rebuild lowers with the pinned one"
+    )
     out = ran(dir, "check")
     assert(out:find("RAN gen1 check", 1, true) and builds(dir) == 1, "a current generation was rebuilt: " .. out)
     remove(dir)
@@ -166,13 +180,15 @@ end
 function M.concurrentCommandsShareOneRebuild()
     local dir = plantedTree()
     edit(dir)
-    local script = ([[
+    local script = (
+        [[
         cd '%s'
         for n in 1 2 3; do
             %s FAKE_BUILD_SECONDS=2 ./bin/nupp check > ran$n.txt 2>&1 &
         done
         wait
-    ]]):format(dir, ENV)
+    ]]
+    ):format(dir, ENV)
     capture(script)
     assert(builds(dir) == 1, "three commands started " .. builds(dir) .. " builds")
     for n = 1, 3 do
@@ -208,13 +224,17 @@ end
 function M.anEditDuringARebuildIsBuiltNextTime()
     local dir = plantedTree()
     edit(dir)
-    capture(([[
+    capture(
+        (
+            [[
         cd '%s'
         %s FAKE_BUILD_SECONDS=2 ./bin/nupp check > first.txt 2>&1 &
         sleep 1
         printf -- '-- during\n' >> src/compiler.nupp
         wait
-    ]]):format(dir, ENV))
+    ]]
+        ):format(dir, ENV)
+    )
     assert(builds(dir) == 1, readFile(dir .. "/first.txt"))
     local out = ran(dir, "check")
     assert(builds(dir) == 2, "the edit made during the first build was never built: " .. out)
@@ -242,8 +262,9 @@ function M.anExplicitImageBypassesTheRebuild()
     local generation = readFile(dir .. "/.nupp/vm-cli/current"):match("%x+")
     local package = dir .. "/.nupp/vm-cli/" .. generation
     local out = capture(
-        ("cd '%s' && %s NUPP_VM_CLI_IMAGE='%s/compiler.image' NUPP_VM_BINARY='%s/runtime' ./bin/nupp check 2>&1")
-            :format(dir, ENV, package, package)
+        (
+            "cd '%s' && %s NUPP_VM_CLI_IMAGE='%s/compiler.image' NUPP_VM_BINARY='%s/runtime' ./bin/nupp check 2>&1"
+        ):format(dir, ENV, package, package)
     )
     assert(out:find("RAN gen0 check", 1, true), out)
     assert(builds(dir) == 0, "an explicitly selected image was rebuilt")
@@ -257,6 +278,171 @@ function M.helpWorkersAndTheSwitchNeverRebuild()
     assert(ran(dir, "__comptime-worker"):find("RAN gen0", 1, true))
     assert(ran(dir, "check", "NUPP_VM_AUTO_REBUILD=0"):find("RAN gen0 check", 1, true))
     assert(builds(dir) == 0, "a command that asks for no rebuild built")
+    remove(dir)
+end
+
+function M.aRunnerResourceEditRebuildsAndRetriesAfterFailure()
+    local dir, plant = plantedTree()
+    assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
+    plant("tests/run.lua", "-- carried runner\n")
+    assert(os.execute(("touch -t 202001010000 '%s/tests/run.lua'"):format(dir)) == 0)
+    assert(ran(dir, "check"):find("RAN gen0 check", 1, true))
+    assert(builds(dir) == 0)
+    plant("fail-build", "")
+    plant("tests/run.lua", "-- edited carried runner\n")
+    assert(ran(dir, "check"):find("RAN gen0 check", 1, true))
+    assert(builds(dir) == 1)
+    assert(ran(dir, "check"):find("did not build from these sources", 1, true))
+    assert(builds(dir) == 1)
+    os.remove(dir .. "/fail-build")
+    plant("tests/run.lua", "-- carried runner changed again\n")
+    assert(ran(dir, "check"):find("RAN gen2 check", 1, true))
+    assert(builds(dir) == 2, "a runner-only edit unlocked a failed rebuild")
+    assert(ran(dir, "check"):find("RAN gen2 check", 1, true))
+    assert(builds(dir) == 2, "the unchanged runner reused its generation")
+    remove(dir)
+end
+
+function M.realSourceFingerprintIncludesRunnerBytesWithoutTimestamps()
+    local dir, plant = plantedTree()
+    assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
+    plant("tests/run.lua", "-- original runner\n")
+    assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli'"):format(ROOT, dir)) == 0)
+    assert(os.execute(("cd '%s' && git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    -- current/status validate only receipt bytes. This fake package never builds
+    -- or runs a compiler; sourceNow supplies the actual script's fingerprint.
+    plant(
+        "receipt.py",
+        [[
+import hashlib, json
+from pathlib import Path
+root = Path('.')
+package = root / '.nupp/vm-cli' / (root / '.nupp/vm-cli/current').read_text().strip()
+digest = lambda name: hashlib.sha256((package / name).read_bytes()).hexdigest()
+(package / 'receipt.json').write_text(json.dumps({
+    'runtimeSha256': digest('runtime'), 'imageSha256': digest('compiler.image'),
+    'sourceAtInstall': {'fingerprint': 'not-recorded'}
+}))
+]]
+    )
+    assert(os.execute(("cd '%s' && python3 receipt.py"):format(dir)) == 0)
+    local json = require("nupp.codec.json")
+    local before = assert(json.decode(capture(("cd '%s' && python3 scripts/vm-cli status"):format(dir))))
+    local selected = readFile(dir .. "/.nupp/vm-cli/current"):match("%x+")
+    local receipt = json.decode(readFile(dir .. "/.nupp/vm-cli/" .. selected .. "/receipt.json"))
+    receipt.sourceAtInstall = before.sourceNow
+    plant(".nupp/vm-cli/" .. selected .. "/receipt.json", json.encode(receipt))
+
+    local function current()
+        return capture(("cd '%s' && python3 scripts/vm-cli current; printf 'CURRENT:%%d\\n' $?"):format(dir))
+    end
+
+    assert(current():find("CURRENT:0", 1, true), "unchanged sources are current")
+    plant("tests/run.lua", "-- changed runner bytes\n")
+    assert(os.execute(("touch -t 202001010000 '%s/tests/run.lua'"):format(dir)) == 0)
+    assert(current():find("CURRENT:1", 1, true), "runner bytes changed without a newer timestamp")
+    plant("tests/run.lua", "-- original runner\n")
+    assert(current():find("CURRENT:0", 1, true), "restored bytes restore the fingerprint")
+    remove(dir)
+end
+
+function M.reinstallingIdenticalArtifactsRefreshesOnlyValidatedInstallProvenance()
+    local dir, plant = plantedTree()
+    assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
+    plant("tests/run.lua", "-- original installed runner\n")
+    assert(os.execute(("cp '%s/scripts/vm-cli' '%s/scripts/vm-cli'"):format(ROOT, dir)) == 0)
+    plant(
+        "runtime.fake",
+        [=[#!/bin/sh
+case "$1" in
+    verify)
+        if [ "${NUPP_INSTALL_FIXTURE_FAIL:-}" = verify ]; then
+            echo 'fixture verifier rejected' >&2
+            exit 7
+        fi
+        ;;
+    exec)
+        if [ "${NUPP_INSTALL_FIXTURE_FAIL:-}" = help ]; then
+            echo 'fixture help rejected' >&2
+            exit 8
+        fi
+        printf 'Usage: fixture root CLI\n'
+        ;;
+    *) exit 9 ;;
+esac
+]=]
+    )
+    plant("compiler.image", "module nupp.tools.vm.root 0 root\n")
+    assert(os.execute(("chmod +x '%s/runtime.fake'"):format(dir)) == 0)
+    assert(os.execute(("cd '%s' && git init -q && git add bin scripts src templates tests"):format(dir)) == 0)
+    plant(
+        "install-control.py",
+        [=[
+import hashlib, json, os, subprocess, sys
+from pathlib import Path
+root = Path.cwd()
+packages = root / '.nupp/vm-cli'
+def command(*args, expected=0, fail=None):
+    env = dict(os.environ)
+    env.pop('NUPP_INSTALL_FIXTURE_FAIL', None)
+    if fail is not None:
+        env['NUPP_INSTALL_FIXTURE_FAIL'] = fail
+    result = subprocess.run([sys.executable, 'scripts/vm-cli', *args], env=env, capture_output=True, text=True)
+    assert result.returncode == expected, (args, result.returncode, result.stdout, result.stderr)
+    return result
+install = ('install', '--runtime', 'runtime.fake', '--image', 'compiler.image', '--linked')
+def status():
+    return json.loads(command('status').stdout)
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+command(*install)
+first = status()
+command('current')
+assert first['sourceChangedSinceInstall'] is False
+selected = (packages / 'current').read_bytes()
+package = Path(first['package'])
+immutable = {name: (package / name).read_bytes() for name in ['runtime', 'compiler.image', 'format']}
+original_hashes = {name: digest(package / name) for name in immutable}
+receipt = (package / 'receipt.json').read_bytes()
+stamp = (packages / 'stamp').read_bytes()
+stamp_time = (packages / 'stamp').stat().st_mtime_ns
+runner = root / 'tests/run.lua'
+original_time = runner.stat()
+runner.write_bytes(b'-- changed installed runner with restored timestamp\n')
+os.utime(runner, ns=(original_time.st_atime_ns, original_time.st_mtime_ns))
+assert runner.stat().st_mtime_ns == original_time.st_mtime_ns
+command('current', expected=1)
+stale = status()
+assert stale['sourceChangedSinceInstall'] is True
+assert stale['sourceNow']['fingerprint'] != first['receipt']['sourceAtInstall']['fingerprint']
+for fail, message in [('verify', 'fixture verifier rejected'), ('help', 'fixture help rejected')]:
+    result = command(*install, expected=1, fail=fail)
+    assert message in result.stderr, result.stderr
+    assert (packages / 'current').read_bytes() == selected
+    assert (package / 'receipt.json').read_bytes() == receipt
+    assert (packages / 'stamp').read_bytes() == stamp
+    assert (packages / 'stamp').stat().st_mtime_ns == stamp_time
+    assert {name: (package / name).read_bytes() for name in immutable} == immutable
+    command('current', expected=1)
+command(*install)
+after = status()
+command('current')
+assert (packages / 'current').read_bytes() == selected
+assert after['package'] == first['package']
+assert {name: (package / name).read_bytes() for name in immutable} == immutable
+assert {name: digest(package / name) for name in immutable} == original_hashes
+assert after['receipt']['runtimeSha256'] == first['receipt']['runtimeSha256']
+assert after['receipt']['imageSha256'] == first['receipt']['imageSha256']
+assert after['receipt']['sourceAtInstall'] == after['sourceNow']
+assert after['receipt']['sourceAtInstall'] != first['receipt']['sourceAtInstall']
+assert after['sourceChangedSinceInstall'] is False
+assert after['receipt']['sourceProvenance'] == first['receipt']['sourceProvenance']
+assert after['receipt']['sourceProvenance'] == 'Source state at installation, not a claim that supplied artifacts were built from it.'
+print('INSTALL_REFRESH_OK')
+]=]
+    )
+    local output = capture(("cd '%s' && python3 install-control.py 2>&1"):format(dir))
+    assert(output:find("INSTALL_REFRESH_OK", 1, true), output)
     remove(dir)
 end
 

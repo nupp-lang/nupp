@@ -87,12 +87,16 @@ end
 
 --- Where a carried file was copied from. The build writes the declarations under
 --- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, and
---- everything else it carries keeps the path it has under `src`.
+--- the test runner comes from `tests/run.lua`. Everything else it carries keeps
+--- the path it has under `src`.
 ---
 --- A guess, in the sense that the manifest owns the real mapping and this does not
 --- read it. It is a safe one: a path this gets wrong names a file that is not
 --- there, and a file that is not there is one this says nothing about.
 local function sourcePath(root: string, relative: string): string
+    if relative == "/nupp/test/runner.lua" then
+        return root .. "/tests/run.lua"
+    end
     if relative:sub(1, 7) == "/decls/" then
         return root .. "/src/nupp/compiler" .. relative
     end
@@ -107,7 +111,7 @@ end
 --- from drifting apart in silence.
 ---
 --- @param relative the path under the compiled modules, beginning with a slash
---- @return the path in `src` it was copied from, or nil outside a checkout
+--- @return its checkout path, or nil outside a checkout
 function bundled.sourcePathFor(relative: string): string?
     local root = checkoutRoot()
     if root == nil then

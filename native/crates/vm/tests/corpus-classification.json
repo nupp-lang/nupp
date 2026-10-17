@@ -1532,6 +1532,12 @@
       "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances"
     },
     {
+      "suite": "workerreporttest",
+      "class": "portable",
+      "facilities": "getinfo,spawn",
+      "reason": "process report transport and fresh-piece regressions using file fixtures, shell subprocesses, JSON, and the bundled CLI; no LuaJIT-only or worker-state APIs"
+    },
+    {
       "suite": "workerstartuptest",
       "class": "retired",
       "facilities": "-",

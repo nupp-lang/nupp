@@ -1,0 +1,680 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Implementation accepted; ordinary public full serial baseline pending",
+  "purpose": "Process worker report transport, carried source freshness and repeated-install provenance correctness repair",
+  "baseRevision": "a6f840ef0316f13c71fe2fe471e82b7aa190e085",
+  "sourceFiles": {
+    "tests/run.lua": "ecedb5b8d11d9de2f78ec3b90d90def3abf3ac5ff7b086ebf0ef6c6cc3ac7511",
+    "bin/nupp": "deb3754ece56bc0d1fd2163248fa5df1baf15eb32572d2c5832dc10e820c6daf",
+    "scripts/vm-cli": "24ea421dc8acbbd80b75c82d9e8de357bcf6cd184b2e1a152ab9882aa6b2303d",
+    "src/nupp/compiler/bundled.nupp": "08b79283bab7fa64f7bfe988135cf64cb122edb29dfd625326f847e15e89a9e5",
+    "tests/vmclilaunchertest.lua": "b544385506f4850f15dc5361a99539127e5202580f18dac0ee57727be840232a",
+    "tests/testrunnertest.lua": "3e0c388d09c1dc9f787f9aca68ca64b46487e0aebc05d04f5e424dcde364d898",
+    "tests/bundleddeclstest.lua": "92128fcb6675fe86c5a66c040bb5f25a9989cde8ed29536ccc16481e61734827",
+    "native/crates/vm/tests/corpus-classification.json": "18dfec0e27b04e25553ed37ada540dea89b02dffe5fc9adb67be03b5453330b1",
+    "tests/workerreporttest.lua": "84dd58336187330d5ac63331a503b40844f6d70693d6b9ed334b9716948f8712",
+    "tests/simdreducertest.lua": "20f74e528dda59f757300039abf952c8c2427ffe3a2ad65ba58af0939caf4dcd"
+  },
+  "sourceSnapshot": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/final-source-with-reducer-receipt.json",
+    "bytes": 1629,
+    "sha256": "b1c66430a08a3b9a01044e1d4d61eb449446db00ea6110ccbd150439a92847b2"
+  },
+  "repair": {
+    "reports": "Both process collectors consume one complete private JSON report, validate terminal exit/counters/rows and consumed optional per-row metrics, and preserve raw report/stdout/stderr files with unique invocation paths.",
+    "metrics": "Dense optional metric array; table rows; nonempty string name; finite signed numeric value; nil or string unit. Public metric API stays unchanged.",
+    "carriedSource": "Runner resource maps to tests/run.lua; both freshness inventories include that physical source. Exact source/carried/root resource/defaultRunner embedded bytes were verified.",
+    "install": "After successful immutable-file/format/verifier/help validation, repeated/racing identical-generation installation atomically publishes the actual staged source receipt while preserving runtime/image/format bytes.",
+    "reducerFixture": "The float witness oracle installs its own math namespace. Old C0 reproduces the prior ambient-namespace failure; corrected exact case passes old/current and full reducer suite passes4/4."
+  },
+  "artifactPolicy": {
+    "runtimeAbi": 4,
+    "heapFrameEntries": true,
+    "jitOptimization": "none",
+    "compiledFunctions": 6580,
+    "refusedFunctions": 0,
+    "cargoFeatures": "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "defaultRuntimePolicyChanged": false,
+    "customAotTestRunnerActivated": false,
+    "buildTimeOrPerformanceImprovementClaimed": false
+  },
+  "artifacts": {
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+      "bytes": 21224819,
+      "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "runtime": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+      "bytes": 217750360,
+      "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+    },
+    "object": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o",
+      "bytes": 149226248,
+      "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa"
+    },
+    "manifest": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.manifest",
+      "bytes": 122907,
+      "sha256": "4a796bda9d2759743f8596ccdec61fa8e5cda7665d8b8a21681df0552d1f21b2"
+    },
+    "rootEmitReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/root-emit-receipt.json",
+      "bytes": 3748,
+      "sha256": "07fdb01b16590e30f5bf1169c263c1277525548631d8a434e92c434029852df3"
+    },
+    "imageInputProvenance": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/installer-apply-and-image-provenance.json",
+      "bytes": 59175,
+      "sha256": "f0f5522376b08fd935ebc24e21fa09dbf078bf54e86ce033e19397490ddd7e97"
+    },
+    "ordinaryDefaultRunnerProof": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/receipt.json",
+      "bytes": 2157,
+      "sha256": "a735e76102034cb042b3e41c3c298c168a9f7ebf6f0acc0f5582c13a1aef65ca"
+    },
+    "ordinaryDefaultRunnerArchive": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/default.nupp-test",
+      "bytes": 33038496,
+      "sha256": "67cb8b9d63bd96035ce4713ff633fa399d5705ca29749d9533b761d28f454c5c"
+    },
+    "ordinaryPayload": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/runner.payload",
+      "bytes": 23662997,
+      "sha256": "05ff537c261072fbb360aa27b8a5d47cc06a3ce60203d2c7d7e61bc0bc8bc671"
+    },
+    "sourceCarriedEmbeddedRunner": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-default-runner-proof/runner.resource.lua",
+      "bytes": 170065,
+      "sha256": "ecedb5b8d11d9de2f78ec3b90d90def3abf3ac5ff7b086ebf0ef6c6cc3ac7511"
+    }
+  },
+  "validation": {
+    "ordinaryCliControls": {
+      "command": [
+        "./bin/nupp",
+        "test",
+        "--jobs=1",
+        "--json",
+        "workerreporttest"
+      ],
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/normal-cli-controls.json",
+        "bytes": 1992,
+        "sha256": "29976985ae68bbb9f07b9c6b7ecfc94954d263105d92f3091f7124ce2a10814a"
+      },
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/normal-cli-controls-receipt.json",
+        "bytes": 1747,
+        "sha256": "d8a37d4b91f4a82c492246bc6771b2940bff2013bb6d80f48d67b5e2fe5237b3"
+      },
+      "summary": {
+        "schemaVersion": 1,
+        "ok": true,
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 32471.115966796875
+      },
+      "runnerHealth": {
+        "duplicateIds": {},
+        "unusableRunnerRows": []
+      }
+    },
+    "freshPortableCorpus": {
+      "status": "passed",
+      "passed": 6,
+      "failed": 0,
+      "suiteExecutionSeconds": 31.306,
+      "suiteTimeoutSeconds": 600,
+      "results": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/corpus-workerreport/results.json",
+        "bytes": 450,
+        "sha256": "02de9eb5f69aaa2ee69a7c296f418edecbca32f160e3917578c383419598dff6"
+      },
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/corpus-workerreport-receipt.json",
+        "bytes": 2672,
+        "sha256": "842efcdaf88d6526a0b04ccfea1b37c8d9eb9d65fa8a7c0e635a9d38fa73e843"
+      },
+      "scope": "Fresh workerreporttest corpus image with ordinary real installed CLI subprocess controls; no ignored generated runner prerequisite."
+    },
+    "remainingFocusedSuites": {
+      "command": [
+        "./bin/nupp",
+        "test",
+        "--internal-runner",
+        "vmclilaunchertest",
+        "testrunnertest",
+        "bundleddeclstest",
+        "--jobs=2",
+        "--json"
+      ],
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/focused-cli-suites.json",
+        "bytes": 9475,
+        "sha256": "a0c4feb356c6720bf02df07cefeab68c6e85ab9f8c0107ca4c004b75a2d65070"
+      },
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/focused-cli-suites-receipt.json",
+        "bytes": 2856,
+        "sha256": "de8b11e54863438eab383278e625e458387bf9008da8da7ffd4af796da963d55"
+      },
+      "summary": {
+        "schemaVersion": 1,
+        "ok": true,
+        "total": 26,
+        "passed": 26,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 19159.601806640625
+      },
+      "runnerHealth": {
+        "duplicateIds": {},
+        "unusableRunnerRows": []
+      }
+    },
+    "serialShared": {
+      "run": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--internal-runner",
+          "--lane=shared",
+          "--jobs=1",
+          "--json",
+          "--exclude=memarenatest"
+        ],
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-cli-suites.json",
+          "bytes": 469927,
+          "sha256": "6eaa28de83c47b36138f6feb459d5f85eb52728b318132911a18cd273f6b6764"
+        },
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-cli-suites-receipt.json",
+          "bytes": 2839,
+          "sha256": "21b0aa4edf00d1dbd39772a0ead0ae73b902d5bce48e2e59ccb621376c9f19a7"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": false,
+          "total": 1957,
+          "passed": 1892,
+          "failed": 28,
+          "skipped": 0,
+          "notExecuted": 37,
+          "durationMs": 360874.18701171875
+        },
+        "runnerHealth": {
+          "duplicateIds": {},
+          "unusableRunnerRows": []
+        }
+      },
+      "comparison": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-baseline-comparison.json",
+        "bytes": 10214,
+        "sha256": "9df9de5c25c2e8d575b45eedd8723f8a2f85c88f4af459538e74b54b0ba3407b"
+      },
+      "matchedExistingIds": 1956,
+      "existingStatusAndFullMessagesIdentical": true,
+      "newPassingId": "bundleddeclstest/runnerResourceMapsToItsManifestSource",
+      "baselineRevision": "06de49967803518dc70e5aefbc6d221d023e89ad"
+    },
+    "parallelShared": {
+      "run": {
+        "command": [
+          "./bin/nupp",
+          "test",
+          "--internal-runner",
+          "--lane=shared",
+          "--jobs=2",
+          "--json",
+          "--exclude=memarenatest"
+        ],
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-parallel-cli-suites.json",
+          "bytes": 477722,
+          "sha256": "772a8e4750c5833e2b50fa8245774a8e219d8195b87273d6e84dec303da59318"
+        },
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-parallel-cli-suites-receipt.json",
+          "bytes": 2854,
+          "sha256": "ae187f4f6955e6c7df110bd7cfc34aed88fa90ab5d97f0af40ba2fb35274b685"
+        },
+        "summary": {
+          "schemaVersion": 1,
+          "ok": false,
+          "total": 1957,
+          "passed": 1881,
+          "failed": 39,
+          "skipped": 0,
+          "notExecuted": 37,
+          "durationMs": 358987.4033203125
+        },
+        "runnerHealth": {
+          "duplicateIds": {},
+          "unusableRunnerRows": []
+        }
+      },
+      "comparison": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/shared-parallel-vs-serial.json",
+        "bytes": 20062,
+        "sha256": "90be76505da6c3fca2ea2c2f988c2054ced57fb347bb96d1dcd5b31478fbf6fa"
+      },
+      "behaviorDisposition": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/parallel-behavior-disposition.json",
+        "bytes": 82003,
+        "sha256": "3ee7dd57edc2d017a3ea063e7a1566c68ccb32405d760ea6261ca22264412a28"
+      },
+      "scope": "Complete collector report. Native order-dependent failures have exact prior individual16a evidence. Then-unmatched math failure was reproduced on accepted C0 and its fixture corrected separately; this report remains unchanged."
+    },
+    "fullParallelInternalRoute": {
+      "command": [
+        "./bin/nupp",
+        "test",
+        "--internal-runner",
+        "--jobs=2",
+        "--json",
+        "--exclude=memarenatest"
+      ],
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/full-cli-suites.json",
+        "bytes": 869249,
+        "sha256": "cb01d3ab956a2607d4be53eba542bf4fbbb267c4f2e1216a09c2df0f24dbf3ef"
+      },
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/full-cli-suites-receipt.json",
+        "bytes": 3511,
+        "sha256": "bf0d3c0b048e4701537fbaeb1f0ad11386ffcbb4d9254a1e627dd00c8ea37082"
+      },
+      "summary": {
+        "schemaVersion": 1,
+        "ok": false,
+        "total": 3555,
+        "passed": 3472,
+        "failed": 46,
+        "skipped": 0,
+        "notExecuted": 37,
+        "durationMs": 1330711.99609375
+      },
+      "runnerHealth": {
+        "duplicateIds": {},
+        "unusableRunnerRows": []
+      },
+      "failureEvidence": {
+        "historicalAudit": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/full-parallel-failure-audit.json",
+          "bytes": 274598,
+          "sha256": "d7fca5fdc05a3238b104b782d050bf265abd02cd44efc2b1517a68928e7e8c19"
+        },
+        "additionalOldAndCurrentProbes": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/baseline-probes/comparison.json",
+          "bytes": 14466,
+          "sha256": "8bf7ac8e9cc987ff9ce635e1343dac7dc41f0784b968f5ae3f181d19408afa9e"
+        },
+        "rootDisposition": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/baseline-failure-disposition.json",
+          "bytes": 3929,
+          "sha256": "ae6a10e2997de282683651571216517343723e76e93c9240e34a89b9ecf4b83c"
+        },
+        "exactPriorMessageMatches": 45,
+        "explicitVariablePathFixtureDisposition": 1,
+        "unclassified": 0,
+        "allFailedRowsRetained": true,
+        "pathNormalizationApplied": false,
+        "failedRows": [
+          {
+            "id": "benchtest/everyTopLevelNuppBenchmarkUsesTheHarness",
+            "fullMessageSha256": "2361213d98218ee34240f35830e807a7fd8c4e52cd87e34477b463185f77e4b0"
+          },
+          {
+            "id": "carraytest/elementReadBorrowsTheArray",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "carraytest/elementsAreReferencesIntoTheArray",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "carraytest/valuesRoundTripThroughTheArray",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "declaredmoduletest/qualifiedNamespacesSelectOneHiddenDirectRequire",
+            "fullMessageSha256": "0564d8f0c12cb7a9001f7b029d5511ffa88eaaf436ffdd8e647b0c161cc03496"
+          },
+          {
+            "id": "derivetest/fingerprintsNestedDebugMapKeysAndIgnoresPathSpelling",
+            "fullMessageSha256": "e6da25778f3d5e504f3ef5d39a05e2df6af88d8a7e5db597713c6b9c4179edc8"
+          },
+          {
+            "id": "gputest/cpuGpuMetadataRejectsFractionalIntegers",
+            "fullMessageSha256": "efce9e324029cbba976801ece91de9a035f03486be5f063770ff744005b987c5"
+          },
+          {
+            "id": "importctest/completeDirectDeclaratorsArePreserved",
+            "fullMessageSha256": "bc750441b4314644d6642e4f33beececfb8ee018f29014ae1f4961028df99e37"
+          },
+          {
+            "id": "ioscalarstest/readsThroughAnyReader",
+            "fullMessageSha256": "35be1cb9a9619045cc3cfd075e094ff01de420709c4c18556e35c7a314c4447a"
+          },
+          {
+            "id": "jsonfuseddifferentialtest/theFusedDecoderRejectsEveryDocumentLunajsonRejects",
+            "fullMessageSha256": "adf0f568c1a087006c02e91f01c4a75a48662c064de2b012743f2b1f88a60eaa"
+          },
+          {
+            "id": "jsonpolicytest/decodeAndPullAnswerAReason",
+            "fullMessageSha256": "ce34584e02e77dc61c991fb8e57d33cfc29dfc38c6bdf0c13ebb642109c31ed9"
+          },
+          {
+            "id": "jsonpolicytest/decodeProblemsNameTheTextNotTheDecoder",
+            "fullMessageSha256": "589fc5e45171a8c79f2a24f9cb19955e2118d1b91eb741f77e316f7de8a6f9f8"
+          },
+          {
+            "id": "layouttest/aFixedArrayIsUsableAtRuntime",
+            "fullMessageSha256": "e8a7d6671ecbdfb0d672a054f80a9f58e4c2e5063ec3f8aa3949fd7067c7e453"
+          },
+          {
+            "id": "layouttest/aFixedArrayOfStructsIsSizedFromItsElementCtype",
+            "fullMessageSha256": "7623585346e5043b12a9838bb4f3fc721fd4ea755b086e26db1d50e02f1150ef"
+          },
+          {
+            "id": "layouttest/aForwardPointerBetweenStructsWorks",
+            "fullMessageSha256": "5c32020c4485f9194c8ecb36e4f61363f2d0d12b1a25217a2cc8975711a95564"
+          },
+          {
+            "id": "layouttest/aMethodDeclaredBeforeLayoutofIsNotAField",
+            "fullMessageSha256": "34216498fbd5c182bd708eb5a09d853bba5c8efe7945bf0bd3ee5f42da75f917"
+          },
+          {
+            "id": "layouttest/aNestedStructIsExpandedInTheFingerprint",
+            "fullMessageSha256": "4bf36eb0e8181b8d524b9c700a2050177f501f0fe5a08aabbc05bd1f327846dd"
+          },
+          {
+            "id": "layouttest/aNestedStructIsSizedFromItsCtype",
+            "fullMessageSha256": "4bf36eb0e8181b8d524b9c700a2050177f501f0fe5a08aabbc05bd1f327846dd"
+          },
+          {
+            "id": "layouttest/aNullablePointerIsStillAPointer",
+            "fullMessageSha256": "40308c0f79ec82e520b1153fd5fc20742b85c79a7110ab884ffc99e04f67426a"
+          },
+          {
+            "id": "layouttest/aPointerIsNotFollowedIntoTheFingerprint",
+            "fullMessageSha256": "d02b3ac623745d8ef48f5fd094ba619d62b24e86046e4f319132ea0d3cf8f4c3"
+          },
+          {
+            "id": "layouttest/aPointerKeepsItsPointeeInTheSpelling",
+            "fullMessageSha256": "ce4aff107620967822f34221a8c5ea28932efd20d3f8b9abf645977bfff22e43"
+          },
+          {
+            "id": "layouttest/aSelfReferencingChainCanBeWalked",
+            "fullMessageSha256": "45836a932b74a95feefadb2e39929987469998bb007db403d721cb644f64ae44"
+          },
+          {
+            "id": "layouttest/aSelfReferencingPointerWorks",
+            "fullMessageSha256": "16cd99344d5973a819a6a668045e870e2ae2ef0057b10b060cac6b5572d9a8f9"
+          },
+          {
+            "id": "layouttest/everyNumberIsTheTargets",
+            "fullMessageSha256": "ccef58490ae1e3169d3210d5b3892b9a7cf6d01f274e5a015344cc40d1508c0b"
+          },
+          {
+            "id": "layouttest/reportsFieldsInDeclarationOrder",
+            "fullMessageSha256": "ccef58490ae1e3169d3210d5b3892b9a7cf6d01f274e5a015344cc40d1508c0b"
+          },
+          {
+            "id": "layouttest/sizeAndPaddingAreDifferentQuestions",
+            "fullMessageSha256": "647b792fc659106e0911b5959fc72f0b14fa5279e76145d995ce69a7622b1336"
+          },
+          {
+            "id": "layouttest/theFingerprintDistinguishesLayouts",
+            "fullMessageSha256": "1b55b1a5e7e3cb5ea0351345e83132ec7dd2027c2eafd71b4f97436ab087fd35"
+          },
+          {
+            "id": "layouttest/theSameCtypeAnswersFromTheSameTable",
+            "fullMessageSha256": "e38a3d8910a1a1ea8eb29f2e6bec50ccd561bae5f3f3d0fea09c10f9db54fd15"
+          },
+          {
+            "id": "methodtest/structMethodsDispatchThroughMetatype",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "perfbudgettest/theBenchmarkProgramsStayWithinTheirBytecodeBudgets",
+            "fullMessageSha256": "c0ea082727e276284355aff9f4479e76ae83a931d76e86a05a5fc5f99483c88e"
+          },
+          {
+            "id": "spitest/typedLazyIterationRetainsModuleIdentityAndBindsDirectFunctions",
+            "fullMessageSha256": "f26986eff6c76a55ab28b53ffbe3273264c655607f4ff8e0929cb9be19061432"
+          },
+          {
+            "id": "structtest/aStructBindingHoldsNothingUntilAssigned",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/bitWidthKeepsTheDeclaredType",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/dottedStructConstructorReachesItsMetatable",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/inlineStructMethodsUseTheFfiMetatypeNamespace",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/istypeNarrowingAtRuntime",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/methodsOnADottedStructAttachToItsMetatable",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/nestedStructReadBorrowsItsParent",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/nestedStructsByValue",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/referenceSemantics",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/runtimeStructSemantics",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/structConstructionUsesTrailingFieldDefaults",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/structConstructorReturnsTheInstance",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "structtest/structConstructorRunsUnderNew",
+            "fullMessageSha256": "73e15e0819bdba38e852fd2e187cdacd70633feb1f1ca20c37b319d90171e150"
+          },
+          {
+            "id": "vmemitcachetest/aBodyEditToAWidelyImportedModuleStopsAtItsInterface",
+            "fullMessageSha256": "33bfc050b30c78ebc165d6b3e0059824ef7c7db6f4bc7f1f2f9bacf353262b79"
+          },
+          {
+            "id": "vmemitcachetest/renumberingEverythingAfterAnEditStillReplays",
+            "fullMessageSha256": "de48481cf4627ecb837ec2864d57206e1c5bdb6d9551d768ab18ae9e4dae3c3c"
+          }
+        ]
+      },
+      "rawWorkerFiles": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/full-parallel-worker-reports/receipt.json",
+        "bytes": 30411,
+        "sha256": "2a9748d404adeb55f220197a9230a576c9767bf2aaee5dfda142c6489c53d1a8"
+      }
+    },
+    "ordinaryFullSerial": {
+      "status": "PENDING",
+      "requiredEntryRoute": "ordinary-project.test",
+      "requiredCommand": [
+        "./bin/nupp",
+        "test",
+        "--jobs=1",
+        "--json",
+        "--exclude=memarenatest"
+      ],
+      "expectedRawReport": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial.json",
+      "expectedReceipt": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-receipt.json",
+      "processRouteProof": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-process-proof.json",
+        "bytes": 1454,
+        "sha256": "aa9e21236d2e3dfd35a33cf8ed4fb651b905bcf26e6b59b8ec52c6fa95c979be"
+      },
+      "counterAndFailureDisposition": "PENDING; no result inferred from starts"
+    },
+    "coldVmRepositoryCheck": {
+      "status": "passed",
+      "diagnostics": 0,
+      "compiledModules": 505,
+      "reusedModules": 0,
+      "workers": 2,
+      "retries": 0,
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/cold-check-receipt.json",
+        "bytes": 6866,
+        "sha256": "ca366948ec8ee4349e16e8f20e075fcf3f8151f4035efe8e1f83241b90715451"
+      },
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/cold-check.json",
+        "bytes": 1089,
+        "sha256": "bf0e801c57586d1d905d5a1b4fd0e122556b52beabf9c762a840a88109280b5d"
+      },
+      "scope": "Independent source-identical worker-report-fixpoint WT; private cold shared store."
+    },
+    "officialVmFixpoint": {
+      "status": "passed",
+      "officialC2EqualsC3": true,
+      "extraC1EqualsC2": true,
+      "imageSha256": "b7a4fc897ee3b8b3e20b71215bed956a0ff763808d3fcdb3437bedc0b46261b7",
+      "imageBytes": 21224477,
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/pipeline-receipt.json",
+        "bytes": 238319,
+        "sha256": "dba28f291564e0e4d3d13ee63c2e771fcf145c15a7f846abf977f657346aa1f0"
+      },
+      "completion": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/completion.json",
+        "bytes": 7288,
+        "sha256": "1466ef893fb3116c39b35fe2acedbefee5dd12c9e555e5b0d8ed503f9a0e4962"
+      },
+      "scope": "Official VM self-hosting in independent source-identical worker-report-fixpoint WT. This is not pinned Lua stage-zero execution or cross-WT raw image equality."
+    },
+    "aotNoexecSmoke": {
+      "status": "passed",
+      "freshProcesses": 2,
+      "compiledFunctions": 6580,
+      "linkedEntrySymbols": 6580,
+      "perProcessCompiledFrameEntries": 1841553,
+      "mmapAndMprotectDenialExitStatus": 86,
+      "fixtureExecutionResult": 42,
+      "mismatchRejected": true,
+      "invalidDiagnosticParity": [
+        "NUPP2001"
+      ],
+      "sameRootFixtureOracleSha256": "8c55ce13e430fb917658e505d3f1e2ddba12f9f4831198c7a951d001d3adbbc2",
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/aot-smoke-receipt.json",
+        "bytes": 18719,
+        "sha256": "de8d525d1f7167260eb54585e6c877b1b5858dba31ecbd54a3c4f60c7f1ec1cf"
+      },
+      "results": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/official-fixpoint/aot-smoke/results.json",
+        "bytes": 2253,
+        "sha256": "f1614e0a8371decc9e1b418a1e2ebc3728ff525ac2fa86112c5307b1b28f9c48"
+      },
+      "scope": "Unchanged tracked harness --frames --runs2; demo.math raw oracle in independent fixpoint WT, matching exact18fixture/harness/project inputs plus ten repair source files. No root re-emit or cross-root byte claim."
+    },
+    "installerRedGreen": {
+      "originalExitStatus": 1,
+      "patchedExitStatus": 0,
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/installer-receipt-refresh/private-controls-receipt.json",
+        "bytes": 4075,
+        "sha256": "04d69c715f0ed96a0f1be0d84eaecae18e4850319999bc1c75ea78637789b6af"
+      },
+      "fullLauncherSuiteAlsoPassed": true
+    },
+    "reducerContract": {
+      "oldC0OriginalFailure": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/math-namespace-baseline-probe/receipt.json",
+        "bytes": 779,
+        "sha256": "d8770642a687d22b0c3120bbdf9b02542ff506d08ebb32238e6f4e7c821a904a"
+      },
+      "fixedOldC0": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/reducer-fixed-c0-receipt.json",
+        "bytes": 3863,
+        "sha256": "61dbf02e6ca00184c7baee8158f41d24f6e166caaf9673db0c949e73ee7f1f2b"
+      },
+      "fixedCurrent": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/reducer-fixed-current-receipt.json",
+        "bytes": 3569,
+        "sha256": "c86a555ff23238c88853cd98b638f9a892c0c1753c0fc6a8f5ec6b4ee70b70cc"
+      },
+      "fullSuite": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/reducer-fixed-suite-receipt.json",
+        "bytes": 3514,
+        "sha256": "42a65747540eeae6c05afe37daefc3edffffb5f4ffa3384820af7f1a1d4efe06"
+      },
+      "fullSuitePassed": 4
+    }
+  },
+  "limits": [
+    "Full jobs2 contains46 failed rows; this is not a broad pass. Retired/deferred rows remain not-executed and distinct from report loss.",
+    "Only memarenatest is excluded for its existing module-top ffi port gap; no compatibility layer or classification change was added for it.",
+    "SPI raw messages have unequal temporary paths. They remain unnormalized; future candidate differences still require review.",
+    "An earlier optional direct Lua-static probe produced66 unclassified diagnostics. It is separate from the passing505-module VM repository check and is not treated as a static pass.",
+    "The canceled internal fullserial run has only43bytes of stdout prefix and no complete aggregate; no case outcomes are inferred. It cannot substitute for the ordinary public manifest-runner baseline.",
+    "Earlier preparation pipeline/preflight receipts are preserved separately, including scratch continuation NameError after completed build/link/install. Final source/payload and behavioral gates separately bind the retained artifacts.",
+    "Source hashes match across worktrees; root-specific raw VM images differ. Official VM fixpoint does not claim pinned stage-zero bootstrapping, and smoke compares its own same-root fixture oracle."
+  ],
+  "supersededPreparations": {
+    "internalSerialCancellation": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/full-serial-internal-cancellation-control.json",
+      "bytes": 3209,
+      "sha256": "6747376ef30e7f044e2c087e2b0ba291149f02a4f95b85053beec353ff5d40b0"
+    },
+    "internalPartialReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/full-serial-cli-suites-receipt.json",
+      "bytes": 3525,
+      "sha256": "9a1abe7de00a76926b069a626629aec038611501c9bb4aa32fa5e570c0b612a9"
+    },
+    "sourceLoadedPreflight": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/source-loaded-preflight-disposition.json",
+      "bytes": 6763,
+      "sha256": "1998d33cca37873f62454870bf05d2fad1139c1324ff647f0e8bb471cf6424e9"
+    },
+    "firstArtifactPreparation": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation/preparation-disposition.json",
+      "bytes": 6460,
+      "sha256": "cafadfb93b16b415cb727daf5ff554a41d738b1f1ceee71d92e844bacb916d32"
+    },
+    "scratchContinuation": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/artifact-pipeline-receipt.json",
+      "bytes": 6779,
+      "sha256": "804092c4ca1c7043078d730cb83c9f6171e284c47f20c96e5f20b469edd9d2b8"
+    },
+    "luaStaticProbe": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/check.stdout",
+      "bytes": 37970,
+      "sha256": "5966f668f5ece4f8fe962e4086f5f3881797c4a9f01065ddbd256892714463fc"
+    }
+  }
+}

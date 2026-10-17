@@ -3900,3 +3900,39 @@ Exact source, image, runtime, AOT and Lua identities, paired counters,
 validation limits and preserved-patch receipts are in
 `tests/compiler-shape-typing-investigation.json`. The typing queue item
 remains open; evidence and regression coverage have a separate disposition.
+
+## Process worker reports (2026-10-17)
+
+Process workers write their final JSON to private files unique to each
+invocation. Both collectors validate complete reports, terminal exits and
+consumed metric fields while retaining raw reports, stdout and stderr for
+diagnosis.
+
+The portable transport suite runs its six controls through the ordinary
+installed CLI and through a fresh VM corpus image within the 600-second
+limit. The ordinary acceptance baseline uses the manifest test runner:
+
+```bash
+./bin/nupp test --jobs=1 --json --exclude=memarenatest
+```
+
+The ordinary full serial baseline is running. Its complete report and exact
+failure disposition are required before Node broad validation and timing.
+
+The full parallel report retains all 3,555 case IDs: 3,472 pass, 46 fail and 37
+are not executed. Prior evidence matches 45 failure messages exactly. The
+remaining SPI fixture still expects a Lua output file after a VM build; its
+distinct temporary paths remain recorded without normalization. These are
+complete reports with behavior failures, not broad passes.
+
+Repeated installation of identical runtime and image bytes now refreshes the
+validated source receipt atomically. The generation and immutable artifacts
+stay unchanged, and failed verifier or help checks preserve the prior receipt.
+
+ABI 4 and the JIT optimization policy stay unchanged. All 6,580 compiler
+functions link, and the unchanged smoke harness passes in two fresh processes
+with executable memory denied. The cold VM check passes with 505 modules
+compiled and no diagnostics; official VM self-hosting reaches byte-identical
+C2 and C3 in its own worktree. That proof does not execute pinned Lua stage
+zero. See [transport evidence](tests/worker-report-transport-results.json) for
+source and artifact identities, failure scope, and validation limits.
