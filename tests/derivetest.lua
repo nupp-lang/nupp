@@ -15,7 +15,12 @@ local function compileAt(source, filename, opts)
     filename = filename or "derive_test.nupp"
     local parsed = parser.parse(source, filename)
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, filename, env, opts)
+    local checking = {}
+    for key, value in pairs(opts or {}) do
+        checking[key] = value
+    end
+    checking.moduleName = checking.moduleName or "derive_test"
+    local diagnostics = check.check(parsed, filename, env, checking)
 
     return parsed, diagnostics, parsed
 end
@@ -48,21 +53,22 @@ local function errorsOf(source)
     return out, diagnostics
 end
 
-local function run(source)
-    local parsed, diagnostics = compile(source)
+local function run(moduleName, source)
+    local parsed, diagnostics = compileAt(source, moduleName .. ".nupp", {moduleName = moduleName})
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
             error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, source), 2)
         end
     end
 
-    return program.run(parsed, "derive_test")
+    return program.run(parsed, moduleName)
 end
 
 local M = {}
 
 function M.constructsFreshMutableDefaults()
     local result = run(
+        "derivetest.constructsFreshMutableDefaults",
         [[
 local record Options
     tags: {string} = {}
@@ -91,6 +97,7 @@ end
 
 function M.supportsNestedAndBoundedGenericDebugRecords()
     local result = run(
+        "derivetest.supportsNestedAndBoundedGenericDebugRecords",
         [[
 @derive(nupp.derive.Debug)
 local record Item
@@ -122,6 +129,7 @@ function M.debugsDerivedStructsAndRecordsHoldingThem()
     -- A struct's derived debug is the renderer itself; reading it as a custom
     -- method made the renderer call itself until the stack ran out.
     local result = run(
+        "derivetest.debugsDerivedStructsAndRecordsHoldingThem",
         [[
 @derive(nupp.derive.Debug)
 local struct Point
@@ -469,6 +477,7 @@ end
 
 function M.delimitsTheRuntimeFromAnEmittedFirstLine()
     local result = run(
+        "derivetest.delimitsTheRuntimeFromAnEmittedFirstLine",
         [[local marker = "first"
 @derive(nupp.derive.Debug)
 local record First value: integer end

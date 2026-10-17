@@ -21,7 +21,9 @@ local function diagsOf(src, filename)
     return table.concat(out, " ")
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
 
 -- Each fragment is its own module: native struct declarations are process-wide
 -- and keyed by module, and two fragments are different programs.
@@ -32,7 +34,7 @@ local function run(src)
     local name = "methodtest" .. fragments
     local result = parser.parse(src, name .. ".nupp")
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, name .. ".nupp", env)
+    local diags = check.check(result, name .. ".nupp", env, {moduleName = name})
     testAssert.equal(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
     local chunk, err = program.load(result, name)
     if not chunk then
@@ -201,7 +203,10 @@ function M.dottedMembersTakeNoReceiver()
 end
 
 function M.recordMethodsRunAtRuntime()
-    testAssert.equal(run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")), "ok")
+    testAssert.equal(
+        run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")),
+        "ok"
+    )
 end
 
 function M.structMethodsDispatchThroughMetatype()
@@ -355,7 +360,10 @@ function M.newRefusesWhatCannotBeConstructed()
     testAssert.equal(diagsOf("local prim = new string()"), "NUPP2206:1")
     -- a closed set of literals is a union, and a value of it is one of the
     -- literals, written directly
-    testAssert.equal(diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")), "NUPP2206:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")),
+        "NUPP2206:2"
+    )
 end
 
 -- A refinement is what `is` compiles to. The values here were never built by
@@ -1624,7 +1632,10 @@ function M.fieldDefaultsMustBeClosedAndFitTheirFields()
         ),
         "NUPP2202:3 NUPP2202:4"
     )
-    testAssert.equal(diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")), "NUPP2202:2")
+    testAssert.equal(
+        diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")),
+        "NUPP2202:2"
+    )
 end
 
 -- A metamethod declaration is a contract, and a metatable literal is where the
@@ -1817,6 +1828,7 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
             "\n"
         )
     end
+
     local identity = table.concat(
         {
             "Box.__call = function<T>(self: Box<T>, value: T): T",
@@ -1833,13 +1845,15 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
     -- the contract is the literal's slot, so an unannotated one takes its types
     testAssert.equal(
         run(
-            box("function(self, value: T): T") .. table.concat(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
                 {
                     "Box.__call = function(self, value)",
                     "   return self.default",
                     "end",
                     "local box = new Box(default = 1)",
-            "local made: integer = box(2)",
+                    "local made: integer = box(2)",
                     "return made",
                 },
                 "\n"
@@ -1850,7 +1864,9 @@ function M.aGenericRecordsContractIsInstalledByALiteral()
     -- and it still holds for every instance, not only the ones the literal names
     testAssert.equal(
         diagsOf(
-            box("function(self, value: T): T") .. table.concat(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
                 {"Box.__call = function<T>(self: Box<T>, value: T): string", "   return 'x'", "end",},
                 "\n"
             )
@@ -1988,12 +2004,7 @@ function M.anAnnotatedMetatableIsHeldToTheSameRules()
     )
     testAssert.equal(diagsOf(i64 .. "\nlocal mt: metatable<I64> = {__tostring = 42}" .. "\nreturn mt"), "NUPP2123:5")
     testAssert.equal(
-        diagsOf(
-            i64 .. table.concat(
-                {"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}",},
-                "\n"
-            )
-        ),
+        diagsOf(i64 .. table.concat({"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}",}, "\n")),
         "NUPP2118:6"
     )
     assertClean(

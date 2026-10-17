@@ -15,12 +15,13 @@ local env = envMod.new(HERE .. "/..")
 -- Each program is its own module, so the structs two programs declare under one
 -- name stay distinct declarations.
 local programs = 0
+
 local function runs(src, label)
     programs = programs + 1
     local name = "layout_test_" .. programs
     local result = parser.parse(src, name .. ".nupp")
     testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
-    local diags = check.check(result, name .. ".nupp", env)
+    local diags = check.check(result, name .. ".nupp", env, {moduleName = name})
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
             error(("%s: %s: %s\n%s"):format(label or "", diag.code, diag.msg, src), 2)

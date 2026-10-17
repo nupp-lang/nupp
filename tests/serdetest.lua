@@ -12,23 +12,25 @@ local function diagnostics(source)
     return check.check(parsed, "serde_test.nupp", env)
 end
 
-local function run(source)
-    local parsed = parser.parse(source, "serde_test.nupp")
+local function run(moduleName, source)
+    local filename = moduleName .. ".nupp"
+    local parsed = parser.parse(source, filename)
     assert(#parsed.errors == 0, "serde fixture parses")
-    local problems = check.check(parsed, "serde_test.nupp", env)
+    local problems = check.check(parsed, filename, env, {moduleName = moduleName})
     for _, problem in ipairs(problems) do
         if problem.severity ~= "warning" and problem.severity ~= "note" then
             error(problem.code .. ": " .. problem.msg, 2)
         end
     end
 
-    return program.run(parsed, "serde_test", "serde_test.nupp")
+    return program.run(parsed, moduleName, filename)
 end
 
 local M = {}
 
 function M.schemaDebugPreservesWideIntegerSupport()
     local result = run(
+        "serdetest.schemaDebugPreservesWideIntegerSupport",
         [=[
 @derive(nupp.derive.Debug)
 local record Wide
@@ -45,6 +47,7 @@ end
 -- used to render as a bare table, because only fields carried the type's name.
 function M.debugNamesRecordsInsideContainers()
     local result = run(
+        "serdetest.debugNamesRecordsInsideContainers",
         [=[
 @derive(nupp.derive.Debug)
 local record Child
@@ -72,6 +75,7 @@ end
 
 function M.debugPoliciesDoNotRequireTraversableFieldTypes()
     local result = run(
+        "serdetest.debugPoliciesDoNotRequireTraversableFieldTypes",
         [=[
 @derive(nupp.derive.Debug)
 local record Policies
@@ -122,6 +126,7 @@ local json = require("nupp.serde.json")
 
 function M.declarationBindingsAreLazyAndCached()
     local result = run(
+        "serdetest.declarationBindingsAreLazyAndCached",
         imports
         .. [[
 local record User
@@ -145,6 +150,7 @@ end
 
 function M.rejectsMalformedAndOutOfRangeValues()
     local result = run(
+        "serdetest.rejectsMalformedAndOutOfRangeValues",
         imports
         .. [=[
 local record Value
@@ -173,6 +179,7 @@ end
 function M.nonFiniteMembersAreRefused()
     assert(
         run(
+            "serdetest.nonFiniteMembersAreRefused",
             imports
             .. [[
 local record Value value: number end
@@ -188,6 +195,7 @@ end
 
 function M.structsUseTheSameWitnessAndCodec()
     local result = run(
+        "serdetest.structsUseTheSameWitnessAndCodec",
         imports
         .. [[
 local struct Vec3 x: float y: float z: float end
@@ -203,6 +211,7 @@ end
 
 function M.recursiveContainersRestoreNominalValues()
     local result = run(
+        "serdetest.recursiveContainersRestoreNominalValues",
         imports
         .. [[
 local record Node
@@ -222,6 +231,7 @@ end
 
 function M.policiesAreLocalToTheBinding()
     local result = run(
+        "serdetest.policiesAreLocalToTheBinding",
         imports
         .. [[
 local record User
@@ -247,6 +257,7 @@ end
 
 function M.debugDoesNotAuthorizeOrRestrictSerialization()
     local result = run(
+        "serdetest.debugDoesNotAuthorizeOrRestrictSerialization",
         imports
         .. [[
 @derive(nupp.derive.Debug)
@@ -265,6 +276,7 @@ end
 
 function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
     local result = run(
+        "serdetest.bufferAndEmbeddedWriterKeepTheirBoundaries",
         imports
         .. [[
 local record User id: integer end

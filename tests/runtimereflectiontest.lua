@@ -8,10 +8,12 @@ local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
-local function checked(source)
-    local parsed = parser.parse(source, "runtime_reflection.nupp")
+local function checked(source, moduleName)
+    moduleName = moduleName or "runtime_reflection"
+    local filename = moduleName .. ".nupp"
+    local parsed = parser.parse(source, filename)
     testAssert.equal(#parsed.errors, 0, "syntax errors")
-    local diagnostics = check.check(parsed, "runtime_reflection.nupp", env)
+    local diagnostics = check.check(parsed, filename, env, {moduleName = moduleName})
     testAssert.equal(#diagnostics, 0, "check: " .. (diagnostics[1] and diagnostics[1].msg or ""))
 
     return parsed
@@ -22,14 +24,15 @@ local function compile(source)
     return program.image(checked(source), "runtime_reflection")
 end
 
-local function run(source)
-    return program.run(checked(source), "runtime_reflection")
+local function run(moduleName, source)
+    return program.run(checked(source, moduleName), moduleName)
 end
 
 local M = {}
 
 function M.constructionKeepsStoredCallbacksAndOmitsMethods()
     local result = run(
+        "runtimereflectiontest.constructionKeepsStoredCallbacksAndOmitsMethods",
         [[
 local events = require("nupp.events")
 @derive(events.Event)
@@ -58,6 +61,7 @@ end
 
 function M.recordsExposeTypeWitnessesAndLazyDescriptors()
     local result = run(
+        "runtimereflectiontest.recordsExposeTypeWitnessesAndLazyDescriptors",
         [[
 local record User
     id: integer
@@ -98,10 +102,13 @@ return quiet.value
 end
 
 function M.extensionsAreTypedAndLazy()
-    local User = run([[
+    local User = run(
+        "runtimereflectiontest.extensionsAreTypedAndLazy",
+        [[
 local record User id: integer end
 return {target = User, info = User.reflect() as nupp.reflect.Info}
-]])
+]]
+    )
     local reflection = _G.nupp.reflect
     local calls = 0
     local key = reflection.extensionKey(function(info)
@@ -120,6 +127,7 @@ end
 
 function M.genericConsumersReceiveUnannotatedTypeMetadata()
     local result = run(
+        "runtimereflectiontest.genericConsumersReceiveUnannotatedTypeMetadata",
         [[
 local function describe<T>(target: Type<T>): nupp.reflect.Info
     return nupp.reflect.runtime(target)
@@ -148,6 +156,7 @@ end
 
 function M.genericReflectionSupportsStructWitnesses()
     local result = run(
+        "runtimereflectiontest.genericReflectionSupportsStructWitnesses",
         [[
 local function describe<T>(target: Type<T>): nupp.reflect.Info
     return nupp.reflect.runtime(target)
@@ -167,6 +176,7 @@ end
 
 function M.localWitnessDescriptorsFollowTheirOwnersLifetime()
     local make = run(
+        "runtimereflectiontest.localWitnessDescriptorsFollowTheirOwnersLifetime",
         [[
 return function(): (unknown, nupp.reflect.Info)
     local record Item
@@ -194,6 +204,7 @@ end
 
 function M.witnessMetadataDoesNotReplaceUserStaticMembers()
     local result = run(
+        "runtimereflectiontest.witnessMetadataDoesNotReplaceUserStaticMembers",
         [[
 local record User
     id: integer
@@ -213,18 +224,22 @@ return {name = info.name, custom = User.reflect()}
 end
 
 function M.aModuleReturnCanUseATypeWitness()
-    local info = run([[
+    local info = run(
+        "runtimereflectiontest.aModuleReturnCanUseATypeWitness",
+        [[
 local record Message
     text: string
 end
 return nupp.reflect.runtime(Message)
-]])
+]]
+    )
     testAssert.equal(info.name, "Message")
     testAssert.equal(info.fields[1].name, "text")
 end
 
 function M.nestedWitnessesRetainTheirDeclarationsAcrossShadowing()
     local result = run(
+        "runtimereflectiontest.nestedWitnessesRetainTheirDeclarationsAcrossShadowing",
         [[
 local record Leaf
     value: integer
@@ -249,6 +264,7 @@ end
 
 function M.forwardWitnessesResolveAfterTheirDeclarationExecutes()
     local result = run(
+        "runtimereflectiontest.forwardWitnessesResolveAfterTheirDeclarationExecutes",
         [[
 local record First
     next: Second?
@@ -272,6 +288,7 @@ end
 
 function M.freshLocalGraphsDoNotShareRuntimeWitnesses()
     local result = run(
+        "runtimereflectiontest.freshLocalGraphsDoNotShareRuntimeWitnesses",
         [[
 local function make(): (nupp.reflect.Info, Type<unknown>?)
     local record Child
@@ -296,6 +313,7 @@ end
 
 function M.aliasesRetainMetadataWhenTheirTypeIsErased()
     local result = run(
+        "runtimereflectiontest.aliasesRetainMetadataWhenTheirTypeIsErased",
         [[
 local record User
     name: string
@@ -322,7 +340,7 @@ local Alias = User;
 local value = new User(name = "a")
 return getmetatable(value) == Alias and User == (Alias as any)
 ]]
-    testAssert.equal(run(source), true)
+    testAssert.equal(run("runtimereflectiontest.identityAndMetatableUsesDoNotCarryDescriptors", source), true)
     testAssert.equal(compile(source):find("__reflect", 1, true), nil)
 end
 

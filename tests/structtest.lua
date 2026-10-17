@@ -10,11 +10,11 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
 
 -- Parse and check, keeping the checked tree for running it.
-local function compile(src, file)
+local function compile(src, file, moduleName)
     file = file or "test.nupp"
     local result = parser.parse(src, file)
     testAssert.equal(#result.errors, 0, "syntax errors")
-    local diags = check.check(result, file, env)
+    local diags = check.check(result, file, env, {moduleName = moduleName})
 
     return result, diags
 end
@@ -29,15 +29,18 @@ local function diagsOf(src)
     return table.concat(out, " "), diags
 end
 
-local assertClean = assertions.check(diagsOf, function(src) return "expected clean check:\n" .. src end)
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean check:\n" .. src
+end)
 
 -- Compile a clean program and execute it. Each program is its own module, so
 -- the structs two programs declare under one name stay distinct declarations.
 local programs = 0
+
 local function run(src)
     programs = programs + 1
     local name = "struct_test_" .. programs
-    local result, diags = compile(src, name .. ".nupp")
+    local result, diags = compile(src, name .. ".nupp", name)
     testAssert.equal(#diags, 0, "check diagnostics" .. (diags[1] and (": " .. diags[1].msg) or ""))
 
     return program.run(result, name)
@@ -88,9 +91,12 @@ return v.x + v.y]]), 8)
     -- positional construction
     testAssert.equal(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
     -- float storage really is float-width (not a Lua table)
-    testAssert.equal(run(VEC .. [[
+    testAssert.equal(
+        run(VEC .. [[
 local v = new Vec2(0.1, 0)
-return v.x == 0.1]]), false) -- 0.1 is not representable in float32
+return v.x == 0.1]]),
+        false
+    ) -- 0.1 is not representable in float32
 end
 
 function M.structConstructionUsesTrailingFieldDefaults()
@@ -249,10 +255,13 @@ return m.missing]]), true)
     testAssert.equal(run(FLAGS .. [[
 local m = new Marks(7, true, false, true)
 return m.typeColon]]), false)
-    testAssert.equal(run(FLAGS .. [[
+    testAssert.equal(
+        run(FLAGS .. [[
 local m = new Marks(7, false, false, false)
 m.breakOp = true
-return m.breakOp]]), true)
+return m.breakOp]]),
+        true
+    )
 end
 
 -- Three flags fit in the padding after a uint32 either way, so packing is only
@@ -287,7 +296,10 @@ end
 
 function M.bitWidthCheckedLikeAnyField()
     assertClean(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal b: boolean = m.missing")
-    testAssert.equal(diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"), "NUPP2001:8")
+    testAssert.equal(
+        diagsOf(FLAGS .. "local m = new Marks(1, true, false, true)\nlocal n: number = m.missing"),
+        "NUPP2001:8"
+    )
 end
 
 -- A width is the C bitfield the field lowers to, so it needs a layout to sit in and

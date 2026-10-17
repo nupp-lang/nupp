@@ -94,11 +94,7 @@ end
 -- method, and a VM image lowered against it described a different record.
 function M.storedFieldOrderLeavesMethodsOut()
     local command = indexed("Command", "/project/sample.nupp")
-    command.byname = {
-        verbose = T.boolean,
-        run = T.func({}, {T.integer}),
-        file = T.string,
-    }
+    command.byname = {verbose = T.boolean, run = T.func({}, {T.integer}), file = T.string,}
     command.writeByname = {verbose = T.boolean, run = T.func({}, {T.integer}), file = T.string}
     command.fieldOrder = {"verbose", "file"}
     local loaded = roundTrip(command)
@@ -679,6 +675,64 @@ function M.vmMetadataLiteralsPreserveBinaryIdentity()
     for _, value in ipairs({"module\0runtime\0" .. "1", "\1" .. "23", "\255\0\"\\"}) do
         local literal = metadata.literal(value)
         testAssert.equal(assert(loadstring("return " .. literal.token.text))(), value)
+    end
+end
+
+function M.fragmentRuntimeIdentitiesBelongToTheCheckedModule()
+    local parser = require("nupp.compiler.syntax.parser")
+    local check = require("fragment")
+    local program = require("program")
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..")
+    local source = [[
+local struct Value
+    x: int32
+end
+local original = new Value(7)
+local function read(): int32
+    return original.x
+end
+local function matches(value: unknown): boolean
+    return value is Value
+end
+return {value = original, read = read, matches = matches}
+]]
+
+    local function fresh(moduleName, text)
+        local filename = moduleName .. ".nupp"
+        local parsed = parser.parse(text or source, filename)
+        testAssert.equal(#parsed.errors, 0, "fixture parses")
+        local diagnostics = check.check(parsed, filename, env, {moduleName = moduleName})
+        testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].code .. ": " .. diagnostics[1].msg)
+
+        return parsed, parsed.root.blocks[1].stats[1].resolvedType
+    end
+
+    local first, nominalA = fresh("fragment_identity_a")
+    local keyA = nominalA.runtimeDeclarationKey
+    local imageA = program.image(first, "fragment_identity_a")
+    testAssert.equal(#check.check(first, "fragment_identity_a.nupp", env, {moduleName = "fragment_identity_a"}), 0)
+    testAssert.equal(program.image(first, "fragment_identity_a"), imageA, "same-unit AST recheck is deterministic")
+    local a = program.run(first, "fragment_identity_a")
+    local second, nominalB = fresh("fragment_identity_b")
+    assert(nominalA ~= nominalB, "independent units must not share checker-owned nominal facts")
+    assert(keyA ~= nominalB.runtimeDeclarationKey, "identical source under two unit names must have distinct keys")
+    testAssert.equal(nominalA.runtimeDeclarationKey, keyA, "checking another unit must not mutate the first nominal")
+    local b = program.run(second, "fragment_identity_b")
+    testAssert.equal(a.read(), 7, "old native values remain live after loading another unit")
+    testAssert.equal(b.read(), 7)
+    testAssert.equal(a.matches(a.value), true)
+    testAssert.equal(a.matches(b.value), false, "matching layouts do not make independent nominal types identical")
+    local repeated = fresh("fragment_identity_a")
+    testAssert.equal(
+        program.image(repeated, "fragment_identity_a"),
+        imageA,
+        "fresh same-unit checking is deterministic"
+    )
+    if program.onVm() then
+        local changed = fresh("fragment_identity_a", source:gsub("int32", "number"))
+        local ok, problem = pcall(program.run, changed, "fragment_identity_a")
+        assert(not ok and tostring(problem):find("conflicting native struct declaration", 1, true), tostring(problem))
+        testAssert.equal(a.read(), 7, "a rejected layout replacement preserves old values")
     end
 end
 

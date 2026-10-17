@@ -23,27 +23,28 @@ local env = envMod.new(HERE .. "/..")
 -- Checks. Comptime runs during checking, so a diagnostic it produced is in the list
 -- this returns.
 local function compile(src, selectedEnv, opts)
-    local result = parser.parse(src, "test.nupp")
+    local filename = opts and opts.moduleName and opts.moduleName .. ".nupp" or "test.nupp"
+    local result = parser.parse(src, filename)
     testAssert.equal(#result.errors, 0, "syntax errors in test source")
-    local diags = check.check(result, "test.nupp", selectedEnv or env, opts)
+    local diags = check.check(result, filename, selectedEnv or env, opts)
 
     return result, diags
 end
 
 -- The image a source lowers to.
 local function image(src)
-    return program.image((compile(src)), "test")
+    return program.image((compile(src, nil, {moduleName = "test"})), "test")
 end
 
-local function runIn(src, selectedEnv)
-    local result, diags = compile(src, selectedEnv)
+local function runIn(moduleName, src, selectedEnv)
+    local result, diags = compile(src, selectedEnv, {moduleName = moduleName})
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
             error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
         end
     end
 
-    return program.run(result, "comptime_layout_test")
+    return program.run(result, moduleName)
 end
 
 -- A refused block has no value to type, so a fixture returning it would also be
@@ -63,15 +64,15 @@ end
 
 -- Compiles, loads and runs, so that what is asserted is the program's behaviour rather
 -- than the shape of the text that produced it.
-local function run(src, ...)
-    local result, diags = compile(src)
+local function run(moduleName, src, ...)
+    local result, diags = compile(src, nil, {moduleName = moduleName})
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
             error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
         end
     end
 
-    return program.run(result, "comptime_test", nil, ...)
+    return program.run(result, moduleName, nil, ...)
 end
 
 local function firstLocalBinding(result)
@@ -397,13 +398,25 @@ local function layoutEnv(target)
 end
 
 function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
-    local lp64 = runIn(LAYOUT_SOURCE, layoutEnv("aarch64-unknown-linux-gnu"))
+    local lp64 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_1",
+        LAYOUT_SOURCE,
+        layoutEnv("aarch64-unknown-linux-gnu")
+    )
     testAssert.equal(table.concat(lp64, ","), "48,8,8,24,4,8,48,4", "LP64 layout")
 
-    local ilp32 = runIn(LAYOUT_SOURCE, layoutEnv("i686-unknown-linux-gnu"))
+    local ilp32 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_2",
+        LAYOUT_SOURCE,
+        layoutEnv("i686-unknown-linux-gnu")
+    )
     testAssert.equal(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
 
-    local wasm32 = runIn(LAYOUT_SOURCE, layoutEnv("wasm32-unknown-emscripten"))
+    local wasm32 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_3",
+        LAYOUT_SOURCE,
+        layoutEnv("wasm32-unknown-emscripten")
+    )
     testAssert.equal(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
 end
 
@@ -473,7 +486,11 @@ return comptime do return nupp.offsetof(Value, name) end
 end
 
 function M.evaluatesAnArithmeticBlock()
-    testAssert.equal(run("return comptime do return (2 + 3) * 4 end"), 20, "block result")
+    testAssert.equal(
+        run("comptimetest.evaluatesAnArithmeticBlock", "return comptime do return (2 + 3) * 4 end"),
+        20,
+        "block result"
+    )
 end
 
 function M.keepsAScalarComptimeLiteralOnAConstBinding()
@@ -503,7 +520,7 @@ const SQUARES = comptime do
 end
 return SQUARES[4], #SQUARES
 ]]
-    local value, count = run(src)
+    local value, count = run("comptimetest.buildsATableWithALoop", src)
     testAssert.equal(value, 16, "the fourth square")
     testAssert.equal(count, 5, "the table's length")
 end
@@ -535,7 +552,7 @@ const CRC = comptime do
 end
 return CRC
 ]]
-    local got = run(src)
+    local got = run("comptimetest.matchesAnIndependentComputationOfTheSameTable", src)
     local want = {}
     for byte = 0, 255 do
         local acc = byte
@@ -557,14 +574,26 @@ end
 function M.worksAtEveryOptimizationLevel()
     -- Comptime is semantics, not an optimization: `-O0` must still produce the value.
     -- `compile` never optimizes, so reaching the value at all is the assertion.
-    testAssert.equal(run("return comptime do return 7 end"), 7, "result at -O0")
+    testAssert.equal(
+        run("comptimetest.worksAtEveryOptimizationLevel", "return comptime do return 7 end"),
+        7,
+        "result at -O0"
+    )
 end
 
 function M.staysAName()
     -- `comptime` opens a block only when `do` follows it on the same line. Everywhere
     -- else it is the identifier it always was.
-    testAssert.equal(run("local comptime = 3\nreturn comptime"), 3, "a local of that name")
-    testAssert.equal(run("local function f(comptime) return comptime end\nreturn f(9)"), 9, "a parameter of that name")
+    testAssert.equal(
+        run("comptimetest.staysAName.fragment_1", "local comptime = 3\nreturn comptime"),
+        3,
+        "a local of that name"
+    )
+    testAssert.equal(
+        run("comptimetest.staysAName.fragment_2", "local function f(comptime) return comptime end\nreturn f(9)"),
+        9,
+        "a parameter of that name"
+    )
 end
 
 function M.typesTheResultAgainstItsContext()
@@ -601,20 +630,69 @@ function M.reachesNoAmbientLibrary()
 end
 
 function M.reachesTheAllowlistedLibraries()
-    testAssert.equal(run('return comptime do return string.rep("-", 3) end'), "---", "string.rep")
-    testAssert.equal(run("return comptime do return math.floor(7 / 2) end"), 3, "math.floor")
-    testAssert.equal(run('return comptime do return table.concat({"a", "b"}, ",") end'), "a,b", "table.concat")
+    testAssert.equal(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_1",
+            'return comptime do return string.rep("-", 3) end'
+        ),
+        "---",
+        "string.rep"
+    )
+    testAssert.equal(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_2",
+            "return comptime do return math.floor(7 / 2) end"
+        ),
+        3,
+        "math.floor"
+    )
+    testAssert.equal(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_3",
+            'return comptime do return table.concat({"a", "b"}, ",") end'
+        ),
+        "a,b",
+        "table.concat"
+    )
     -- The compiler runs on a LuaJIT with no table.clone of its own, so this is the
     -- evaluator's own copy answering, not one borrowed from the host.
-    testAssert.equal(run("return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"), 5, "table.clone")
-    testAssert.equal(run("return comptime do return bit.band(0xff, 0x0f) end"), 15, "bit.band")
-    testAssert.equal(run('return comptime do return ("x"):upper() end'), "X", "a string method")
+    testAssert.equal(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_4",
+            "return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"
+        ),
+        5,
+        "table.clone"
+    )
+    testAssert.equal(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_5",
+            "return comptime do return bit.band(0xff, 0x0f) end"
+        ),
+        15,
+        "bit.band"
+    )
+    testAssert.equal(
+        run("comptimetest.reachesTheAllowlistedLibraries.fragment_6", 'return comptime do return ("x"):upper() end'),
+        "X",
+        "a string method"
+    )
 end
 
 function M.preservesFalseAndNilFromLogicalAnd()
-    testAssert.equal(run("return comptime do return true and false end"), false, "a false right operand survives and")
     testAssert.equal(
-        run("return comptime do local value = true and nil return value == nil end"),
+        run(
+            "comptimetest.preservesFalseAndNilFromLogicalAnd.fragment_1",
+            "return comptime do return true and false end"
+        ),
+        false,
+        "a false right operand survives and"
+    )
+    testAssert.equal(
+        run(
+            "comptimetest.preservesFalseAndNilFromLogicalAnd.fragment_2",
+            "return comptime do local value = true and nil return value == nil end"
+        ),
         true,
         "a nil right operand survives and"
     )
@@ -692,11 +770,15 @@ end
 -- disagree about the same expression.
 function M.keepsLuaOperandCoercion()
     testAssert.equal(
-        run("return comptime do return (\"10\" as any) + 1 end"),
+        run("comptimetest.keepsLuaOperandCoercion.fragment_1", "return comptime do return (\"10\" as any) + 1 end"),
         11,
         "a numeric string still converts for arithmetic"
     )
-    testAssert.equal(run("return comptime do return 1 .. 2 end"), "12", "a number still spells itself for concatenation")
+    testAssert.equal(
+        run("comptimetest.keepsLuaOperandCoercion.fragment_2", "return comptime do return 1 .. 2 end"),
+        "12",
+        "a number still spells itself for concatenation"
+    )
 end
 
 function M.iteratesDeterministically()
@@ -712,7 +794,11 @@ const KEYS = comptime do
 end
 return KEYS
 ]]
-    testAssert.equal(run(src), "apple,mango,zebra", "pairs answers in sorted order")
+    testAssert.equal(
+        run("comptimetest.iteratesDeterministically", src),
+        "apple,mango,zebra",
+        "pairs answers in sorted order"
+    )
 end
 
 function M.stopsEndlessRecursionOfBlocks()
@@ -749,10 +835,7 @@ function M.recoversWhenTheWorkerCrashes()
     local worker = require("nupp.compiler.comptime.worker")
     local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
     os.execute(("rm -rf %q"):format(root))
-    assert(
-        failure and failure.message:find("crashed", 1, true),
-        "the parent converts a worker crash into one failure"
-    )
+    assert(failure and failure.message:find("crashed", 1, true), "the parent converts a worker crash into one failure")
 end
 
 --- The worker protocol carries bytes, because a string is bytes.
@@ -837,6 +920,7 @@ end
 -- pattern-bound name was silently nil.
 function M.bindsAPatternFromItsSource()
     local x, z = run(
+        "comptimetest.bindsAPatternFromItsSource",
         [[
 local v = comptime do
     local t: {x: integer, y: integer} = {x = 1, y = 2}
@@ -855,6 +939,7 @@ end
 function M.callsAHelperWithoutItsOptionalArgument()
     testAssert.equal(
         run(
+            "comptimetest.callsAHelperWithoutItsOptionalArgument",
             [[
 @comptime local function pick(a: integer, b: integer?): integer
     return a + (b or 10)
@@ -905,7 +990,7 @@ const graph: nupp.__MaterializedTest = comptime do
 end
 return graph.value, graph.nodes
 ]]
-    local value, nodes = run(src)
+    local value, nodes = run("comptimetest.materializesACyclicOpaqueGraphAtAnExplicitBoundary", src)
     testAssert.equal(value, 18, "the provider lowers its canonical payload")
     testAssert.equal(nodes, 2, "the cyclic graph crosses the worker as flat data")
     testAssert.equal(image(src):find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
@@ -919,7 +1004,7 @@ end
 const made = build({value = 37} as nupp.__MaterializationTestInput)
 return made.value, made.nodes
 ]]
-    local value, nodes = run(src)
+    local value, nodes = run("comptimetest.materializesAFactoryWithOrdinaryRuntimeInputs", src)
     testAssert.equal(value, 37, "the generated factory reads its declared runtime input")
     testAssert.equal(nodes, 1, "the generated result keeps its provider data")
 end
@@ -937,7 +1022,7 @@ const ANSWER: integer = comptime do
 end
 return ANSWER
 ]]
-    testAssert.equal(run(src), 42, "comptime helpers compose")
+    testAssert.equal(run("comptimetest.callsTypedComptimeHelpersAndErasesThem", src), 42, "comptime helpers compose")
     local _, diags = compile(src)
     testAssert.equal(#diags, 0, "typed helpers check")
     testAssert.equal(image(src):find("double", 1, true), nil, "a comptime helper has no runtime declaration")
@@ -951,7 +1036,7 @@ function M.recursesWithinTheSharedEvaluationBudget()
 end
 return comptime do return factorial(6) end
 ]]
-    testAssert.equal(run(src), 720, "recursive comptime helper")
+    testAssert.equal(run("comptimetest.recursesWithinTheSharedEvaluationBudget", src), 720, "recursive comptime helper")
 end
 
 function M.keepsComptimeHelpersOutOfRuntimeValues()
@@ -1065,6 +1150,7 @@ end
 
 function M.compoundAssignmentAgreesWithItsOperator()
     local floored, joined = run(
+        "comptimetest.compoundAssignmentAgreesWithItsOperator",
         [[
 local v = comptime do
     local q = 7
@@ -1098,12 +1184,16 @@ function M.quotesNumbersThatReadBackUnchanged()
     -- searched for rather than assumed.
     for _, value in ipairs({0.1, 1 / 3, 2 ^ 0.5, 1e300, 5e-324, 123456789.123456789}) do
         local src = ("return comptime do return %.17g end"):format(value)
-        testAssert.equal(run(src), value, "round trip for " .. tostring(value))
+        testAssert.equal(
+            run("comptimetest.quotesNumbersThatReadBackUnchanged", src),
+            value,
+            "round trip for " .. tostring(value)
+        )
     end
 end
 
 function M.quotesNegativeZeroApart()
-    local answer = run("return comptime do return -0.0 end")
+    local answer = run("comptimetest.quotesNegativeZeroApart", "return comptime do return -0.0 end")
     testAssert.equal(1 / answer, -math.huge, "negative zero keeps its sign")
 end
 
@@ -1127,7 +1217,7 @@ const T: {[integer]: string} = comptime do
 end
 return T[1], T[2], T[4], T[3]
 ]]
-    local one, two, four, three = run(src)
+    local one, two, four, three = run("comptimetest.spellsASparseTableOneWay", src)
     testAssert.equal(one, "a", "first")
     testAssert.equal(two, "b", "second")
     testAssert.equal(four, "d", "fourth")
