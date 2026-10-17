@@ -132,6 +132,43 @@ const POSITION_KEYS: {[string]: boolean} = {line = true, col = true, offset = tr
 --- `path:offset:name`) replaced by their order. An edit that moves declarations
 --- without adding, removing or reordering any leaves this text alone.
 local function interfaceText(image: any, path: string): string
+    -- A live self binder can include its environment's nominal id to avoid
+    -- rebinding another check's declaration. Compare that binder by its proven
+    -- semantic owner, without changing the binder or the serialized image.
+    local selfIdentities: {[any]: string} = {}
+    local owners: {[string]: integer} = {}
+    local ambiguous: {[string]: boolean} = {}
+    local nodes = type(image.descriptor) == "table" and image.descriptor.types or nil
+    if type(nodes) == "table" then
+        for index, owner in ipairs(nodes) do
+            local selfIndex = type(owner) == "table" and owner.selfType or nil
+            local binder = type(selfIndex) == "number"
+                and selfIndex >= 1
+                and selfIndex <= #nodes
+                and selfIndex % 1 == 0
+                and nodes[selfIndex]
+                or nil
+            if type(owner) == "table"
+                and owner.nominal == true
+                and type(owner.declarationKey) == "string"
+                and owner.declarationKey ~= ""
+                and type(owner.kind) == "string"
+                and type(owner.name) == "string"
+                and type(binder) == "table"
+                and binder.kind == "typevar"
+                and type(binder.identity) == "string"
+                and binder.identity ~= ""
+                and binder.bound == index
+            then
+                local key = owner.declarationKey .. "\0self\0" .. owner.kind .. "\0" .. owner.name
+                if owners[key] ~= nil and owners[key] ~= index then
+                    ambiguous[key] = true
+                end
+                owners[key] = index
+                selfIdentities[binder] = key
+            end
+        end
+    end
     local escaped = path:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
     local pattern = "(" .. escaped .. "[:%z])(%d+)([:%z])"
     local offsets: {[string]: boolean} = {}
@@ -144,7 +181,12 @@ local function interfaceText(image: any, path: string): string
         elseif type(value) == "table" then
             for key, item in pairs(value as table) do
                 collect(key)
-                collect(item)
+                local selfIdentity = key == "identity" and selfIdentities[value]
+                if selfIdentity and not ambiguous[selfIdentity] then
+                    collect(selfIdentity)
+                else
+                    collect(item)
+                end
             end
         end
     end
@@ -190,7 +232,12 @@ local function interfaceText(image: any, path: string): string
             for _, key in ipairs(keys) do
                 write(key)
                 out[#out + 1] = "="
-                write((value as table)[key])
+                local selfIdentity = key == "identity" and selfIdentities[value]
+                if selfIdentity and not ambiguous[selfIdentity] then
+                    write(selfIdentity)
+                else
+                    write((value as table)[key])
+                end
                 out[#out + 1] = ","
             end
             out[#out + 1] = "}"

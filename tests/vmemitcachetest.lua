@@ -254,6 +254,39 @@ function M.anExportedRecordEditReachesItsImporters()
     remove(dir)
 end
 
+-- A function's signature alone is not its interface: callers consume the
+-- allocation guarantee too, so a same-signature body edit must invalidate them.
+function M.aCallableFactChangeReachesItsImporters()
+    local interfaceimage = require("nupp.compiler.project.interfaceimage")
+    local original = interfaceimage.encode
+    local observed = {}
+    local dir = tempProject()
+    interfaceimage.encode = function(semantics, options)
+        local image, problem = original(semantics, options)
+        if image and semantics.shapes then
+            local facts = image.modules[1].callGuarantees.length
+            observed[#observed + 1] = facts.noAllocate == true
+        end
+
+        return image, problem
+    end
+    local ok, problem = pcall(function()
+        cached(dir)
+        assert(observed[1] == true, "the original function does not allocate")
+        local edited = SHAPES:gsub("return p%.x %+ p%.y", "local pair = {p.x, p.y}\n    return pair[1] + pair[2]")
+        write(dir .. "/src/shapes.nupp", edited)
+        local image, stats = cached(dir)
+        same(scratch(dir), image, "callable effect edit")
+        assert(observed[#observed] == false, "the edited function allocates")
+        assert(stats.lowered >= 4, "the callable fact's readers are lowered again, lowered " .. stats.lowered)
+    end)
+    interfaceimage.encode = original
+    remove(dir)
+    if not ok then
+        error(problem, 0)
+    end
+end
+
 -- Lowered first, `shapes` decides where every later module's functions and shapes
 -- are numbered from. Growing it with a record and functions of its own moves all
 -- of them without changing what it exports, and the replays relocate. (Called
