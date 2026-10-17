@@ -76,12 +76,12 @@ pub fn of_op(op: &Op) -> Effects {
 pub fn of_helper(name: &str) -> Effects {
     match name {
         // Feedback recording and the collector's insertion barrier.
-        "j_spec_note_receiver" | "j_spec_barrier" | "j_field_caches" | "j_slot_hash" | "j_last_nres" | "j_frame_poll" => Effects::NONE,
+        "j_spec_note_receiver" | "j_spec_barrier" | "j_field_caches" | "j_slot_hash" | "j_last_nres" | "j_frame_poll" | "j_frame_context" | "j_frame_refresh" => Effects::NONE,
         // Counting a miss or an exit may plan and compile a version, which
         // allocates; it never writes program state or runs Nupp code.
         "j_spec_miss" | "j_spec_deopt" | "j_spec_tier_up" => Effects::ALLOCATES,
         "j_new_table" | "j_new_table_sized" | "j_new_record" | "j_new_cell" | "j_new_closure" | "j_ibox" | "j_ubox" | "j_new_buffer" | "j_new_bytes" => Effects::ALLOCATES.union(Effects::THROWS),
-        "j_frame_step" => Effects::UNKNOWN.union(Effects::TRANSFERS),
+        "j_frame_step" | "j_frame_call" | "j_frame_ret" | "j_frame_finish" => Effects::UNKNOWN.union(Effects::TRANSFERS),
         _ => Effects::UNKNOWN,
     }
 }

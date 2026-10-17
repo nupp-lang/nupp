@@ -1,0 +1,190 @@
+{
+  "date": "2026-10-16",
+  "scope": "aarch64 macOS; frozen linked compiler AOT; warm filesystem; two check workers; local prototype branch",
+  "baseRevision": "e292aee3f1894d364eda1704b119cef1b43f2367",
+  "candidateNativeSourceSha256": "62488a81babdc5bcb3be70924ec87db8a5d3ce216e49596b73e42d9ecbc3faa1",
+  "imageSha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+  "outputSha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e",
+  "binaries": {
+    "baseline": "a4a283ee0ce4621587096e08943d4f957c8d2ffd137bd5c6a964b16d81f92cda",
+    "candidate": "4a5e2e2af6ce6af8f7b302dcef2316215665ded4a50b5e9f8e1716c577dce6a3"
+  },
+  "practicalMargin": 0.05,
+  "rootEmit": {
+    "pairs": 3,
+    "primaryMetric": "cycles elapsed",
+    "medians": {
+      "baseline": {
+        "real": 134.1,
+        "user": 132.25,
+        "sys": 1.75,
+        "instructions retired": 2831192461728,
+        "cycles elapsed": 551950288937,
+        "maximum resident set size": 4977950720
+      },
+      "candidate": {
+        "real": 126.39,
+        "user": 124.57,
+        "sys": 1.77,
+        "instructions retired": 2561122797408,
+        "cycles elapsed": 519879549110,
+        "maximum resident set size": 5306597376
+      }
+    },
+    "pairedReductions": [
+      {
+        "real": 0.030826,
+        "instructions retired": 0.076588,
+        "cycles elapsed": 0.0514
+      },
+      {
+        "real": 0.044238,
+        "instructions retired": 0.093976,
+        "cycles elapsed": 0.057485
+      },
+      {
+        "real": 0.05906,
+        "instructions retired": 0.098007,
+        "cycles elapsed": 0.067267
+      }
+    ],
+    "medianPairedReductions": {
+      "real": 0.044238,
+      "instructions retired": 0.093976,
+      "cycles elapsed": 0.057485
+    },
+    "verdict": "Cycles improve beyond the 5% margin; paired wall time remains within that margin. Medians are not confidence intervals."
+  },
+  "luaRootReference": {
+    "samples": 1,
+    "earlierInSameSession": true,
+    "seconds": 219.29,
+    "note": "Matching LuaJIT workers; same image output. Not interleaved with the final runtime."
+  },
+  "warmLexer": {
+    "samplesPerEngine": 5,
+    "medians": {
+      "candidate": {
+        "real": 0.66,
+        "user": 0.59,
+        "sys": 0.06,
+        "instructions retired": 13791545977,
+        "cycles elapsed": 2773711833,
+        "maximum resident set size": 505085952
+      },
+      "baseline": {
+        "real": 0.67,
+        "user": 0.61,
+        "sys": 0.05,
+        "instructions retired": 14586428993,
+        "cycles elapsed": 2816223664,
+        "maximum resident set size": 416628736
+      },
+      "luajit": {
+        "real": 0.33,
+        "user": 0.26,
+        "sys": 0.06,
+        "instructions retired": 5185781239,
+        "cycles elapsed": 1414373106,
+        "maximum resident set size": 81395712
+      }
+    },
+    "compiledModules": 0
+  },
+  "warmRepository": {
+    "samplesPerEngine": 1,
+    "medians": {
+      "baseline": {
+        "real": 0.9,
+        "user": 0.76,
+        "sys": 0.07,
+        "instructions retired": 18191212614,
+        "cycles elapsed": 3580431313,
+        "maximum resident set size": 503054336
+      },
+      "candidate": {
+        "real": 0.88,
+        "user": 0.74,
+        "sys": 0.07,
+        "instructions retired": 17553369541,
+        "cycles elapsed": 3546129712,
+        "maximum resident set size": 591740928
+      }
+    },
+    "compiledModules": 0
+  },
+  "coldRepository": {
+    "samplesPerEngine": 1,
+    "medians": {
+      "luajit": {
+        "real": 46.83,
+        "user": 70.15,
+        "sys": 8.84,
+        "instructions retired": 51732757754,
+        "cycles elapsed": 16485477473,
+        "maximum resident set size": 2751676416
+      },
+      "candidate": {
+        "real": 53.87,
+        "user": 86.98,
+        "sys": 2.63,
+        "instructions retired": 149134686087,
+        "cycles elapsed": 29939923381,
+        "maximum resident set size": 10172645376
+      },
+      "baseline": {
+        "real": 57.2,
+        "user": 92.07,
+        "sys": 2.76,
+        "instructions retired": 171506591958,
+        "cycles elapsed": 32499491008,
+        "maximum resident set size": 10083237888
+      }
+    },
+    "note": "Cold project check state and shared store; filesystem cache remains warm. Time counters are as reported by /usr/bin/time -l."
+  },
+  "defaultJit": {
+    "pairsPerProgram": 21,
+    "processWallSeconds": {
+      "classes": {
+        "baseline": 0.1839772499999981,
+        "candidate": 0.18775712500000452
+      },
+      "shapes": {
+        "baseline": 0.21276562500000296,
+        "candidate": 0.20059495799999638
+      }
+    },
+    "policy": "Keep existing JIT calls; native call lowering is AOT only."
+  },
+  "aotGeneration": {
+    "samplesPerVariant": 1,
+    "baseline": {
+      "real": 223.22,
+      "user": 221.97,
+      "sys": 1.09
+    },
+    "candidate": {
+      "real": 356.43,
+      "user": 354.96,
+      "sys": 1.35
+    },
+    "identicalObjectAfterPolicyChange": true
+  },
+  "sizeBytes": {
+    "baselineObject": 112629528,
+    "candidateObject": 149230824,
+    "baselineStackMaps": 35035112,
+    "candidateStackMaps": 68028424,
+    "baselineRuntime": 153888488,
+    "candidateRuntime": 217750152
+  },
+  "acceptance": {
+    "compiledFunctions": 6580,
+    "imageFunctions": 6580,
+    "executableMemoryDenied": true,
+    "checkStateRestored": true,
+    "emittedBytesIdentical": true
+  },
+  "remaining": "Compiler speed gate stays open: lexer checks and the final cold repository check still trail LuaJIT. JIT native calls need their own whole-process acceptance."
+}

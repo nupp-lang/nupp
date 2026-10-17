@@ -638,7 +638,7 @@ impl Interp {
         }
         if convention.frame() {
             #[cfg(feature = "compiled-runtime")]
-            { self.frame_entries.resize(self.funcs.len(), 0); self.frame_entries[fid as usize] = entry; }
+            { self.invalidate_frame_context(); self.frame_entries.resize(self.funcs.len(), 0); self.frame_entries[fid as usize] = entry; }
         } else {
             // Never resized here: compiled code holds the table's address.
             self.entries[fid as usize] = entry;
@@ -807,6 +807,7 @@ impl Interp {
         let first = v.entries == 1;
         let hot = v.entries == tier;
         if first {
+            self.invalidate_frame_context();
             self.frame_entries.resize(self.funcs.len(), 0);
             if self.frame_entries[fid as usize] == 0 {
                 let installed = self.spec_generic_plan(fid, Convention::Frame, 0).and_then(|plan| self.spec_compile(fid, plan).ok()).and_then(|v| self.spec_install(v).ok());

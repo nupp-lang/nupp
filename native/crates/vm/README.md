@@ -3715,3 +3715,51 @@ Evidence: `tests/clayout-smoke.py` builds the oracle and runs
 `tests/clayout-project` on the Rust, threaded, JIT and compiled-frame engines
 under collector stress with the root oracle and quarantine;
 `tests/foreign.rs` passes unions and a struct holding one by value both ways.
+
+## Direct native heap-frame calls (2026-10-16)
+
+In linked AOT, an ordinary `CallDyn` or `CallK` can push its heap frame,
+call the compiled entry and deliver up to eight return values entirely in
+generated code.
+The guards require a local function or closure, exactly the declared value
+parameters, no varargs, a compiled entry, enough stack room and fewer than
+96 nested native calls. Rejected calls use the boundary driver. Budgeted
+execution, unwinding, traced calls and specialized frame entries also keep
+the driver path. A function that can register cleanup or protected returns
+uses the existing return helper.
+
+Generated code reads a transient C layout owned by the VM; its offsets
+belong to the AOT runtime ABI. Task creation,
+stack growth, entry-table growth, hot patches and cleanup transitions
+invalidate it; reentrant helpers refresh it before native code reads its
+pointers again. The view, native return marker and native activations carry
+no checkpoint state. Physical stack maps and logical recovery descriptors
+remain separate, and all boundary spills still precede a native call.
+
+`tests/compiler-frame-perf.py` compares frozen linked runtimes against the
+same compiler image. It interleaves processes, retains instruction and cycle
+counts, verifies emitted bytes, pins compiler workers to their parent's
+engine, and isolates each check's project state and shared cache. It never
+builds or downloads dependencies. A LuaJIT comparison needs a current Lua
+compiler and the matching cached, patched interpreter. Run from a quiet
+checkout with no other compiler process using the selected root.
+
+The default JIT keeps the existing helper calls. An early prototype slowed
+the class workload from 150 to 170 ms. The final 21-pair comparison against
+a freshly built baseline stays within the 5% margin for classes (184 to
+188 ms process wall); records take 213 to 201 ms. The AOT choice is static,
+and the new bookkeeping follows the existing hot fields.
+
+On the frozen compiler image, three interleaved process pairs retire 9.4%
+fewer instructions and take 5.7% fewer cycles (paired medians). Wall medians
+are 134.10 and 126.39 s; the paired wall reduction is 4.4%, within the 5%
+margin. Outputs match. This buys lower execution cost at an AOT build cost:
+223.22 to 356.43 s for object generation, 107.4 to 142.3 MiB for the object,
+and 146.8 to 207.7 MiB for the linked runtime. Physical stack maps grow from
+33.4 to 64.9 MiB. The default JIT does not pay that code growth.
+
+Warm lexer checks remain unchanged (0.67 to 0.66 s), behind LuaJIT's 0.33 s.
+The final cold repository sample improves from 57.20 to 53.87 s, behind
+LuaJIT's 46.83 s. Warm repository checks are 0.90 and 0.88 s. These results
+leave the broader compiler-speed gate open. Exact hashes, counters, sample
+counts and scope are in `tests/compiler-frame-perf-results.json`.

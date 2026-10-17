@@ -76,6 +76,9 @@ pub struct Compiler<M: Module> {
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
     runtime_data: Option<FuncId>,
+    /// Exercise the object lowering with the in-process collector oracle.
+    #[cfg(test)]
+    pub(crate) native_frame_calls: bool,
     pub object_maps: Vec<(u32, usize, Vec<(u32, u32, Vec<u32>)>)>,
     /// What the next compile specializes on or instruments (`specialize`);
     /// taken by that compile.
@@ -96,6 +99,154 @@ fn runtime_addr(b: &mut FunctionBuilder, table: Option<FuncRef>, slot: i32, jit_
     } else {
         b.ins().iconst(types::I64, jit_addr)
     }
+}
+
+// Only the explicit C view crosses into generated code. Keep its offsets
+// derived from the runtime declaration rather than duplicating a word order.
+fn frame_field(b: &mut FunctionBuilder, view: Value, offset: usize) -> Value {
+    b.ins().load(types::I64, MemFlagsData::new().with_notrap(), view, offset as i32)
+}
+macro_rules! frame_offset { ($field:ident) => { std::mem::offset_of!(crate::compiled::FrameContext, $field) } }
+
+fn frame_boundary_call(b: &mut FunctionBuilder, helpers: &HashMap<&str, FuncRef>, name: &str, args: &[Value], err: Block) -> Value {
+    let call = b.ins().call(helpers[name], args);
+    let answer = b.inst_results(call)[0];
+    let fail = b.ins().icmp_imm(IntCC::Equal, answer, ERROR);
+    let ready = b.create_block(); b.ins().brif(fail, err, &[], ready, &[]);
+    b.switch_to_block(ready); b.seal_block(ready);
+    b.ins().call(helpers["j_frame_refresh"], &[]);
+    answer
+}
+
+/// Try an ordinary value call without entering the runtime's call driver.
+/// Every rejected guard precedes the first frame write.
+fn frame_direct_call(b: &mut FunctionBuilder, helpers: &HashMap<&str, FuncRef>, view: Value, hdr: Value,
+                     callee: Value, args: &[Value], base: u8, pc: usize, caller_words: usize, err: Block) -> Value {
+    let flags = MemFlagsData::new().with_notrap();
+    let slow = b.create_block(); b.set_cold_block(slow);
+    let out = b.create_block(); b.append_block_param(out, types::I64);
+    let closure = b.create_block(); let bare = b.create_block();
+    let target = b.create_block(); b.append_block_param(target, types::I64); b.append_block_param(target, types::I64);
+    let tag = b.ins().band_imm(callee, !PAYLOAD);
+    let object = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_OBJ_TAG);
+    b.ins().brif(object, closure, &[], bare, &[]);
+    b.switch_to_block(closure); b.seal_block(closure);
+    let object = b.ins().band_imm(callee, PAYLOAD);
+    let kind = b.ins().load(types::I8, flags, object, OFF_KIND);
+    let is_closure = b.ins().icmp_imm(IntCC::Equal, kind, KIND_CLOSURE as i64);
+    let fid = b.ins().load(types::I32, flags, object, OFF_AUX);
+    let fid = b.ins().uextend(types::I64, fid);
+    b.ins().brif(is_closure, target, &[fid.into(), callee.into()], slow, &[]);
+    b.switch_to_block(bare); b.seal_block(bare);
+    // Bare function handles from another image are resolved by the helper.
+    let tag = b.ins().band_imm(callee, !0xffff_ffff_i64);
+    let local = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | T_FUNC_TAG);
+    let fid = b.ins().band_imm(callee, 0xffff_ffff);
+    let nil = b.ins().iconst(types::I64, NIL);
+    b.ins().brif(local, target, &[fid.into(), nil.into()], slow, &[]);
+    b.switch_to_block(target); b.seal_block(target);
+    let fid = b.block_params(target)[0]; let closure = b.block_params(target)[1];
+    let functions = frame_field(b, view, frame_offset!(functions));
+    let valid = b.ins().icmp(IntCC::UnsignedLessThan, fid, functions);
+    let signature = b.create_block(); b.ins().brif(valid, signature, &[], slow, &[]);
+    b.switch_to_block(signature); b.seal_block(signature);
+    let offset = b.ins().ishl_imm(fid, 3);
+    let info = frame_field(b, view, frame_offset!(info)); let info = b.ins().iadd(info, offset);
+    let info = b.ins().load(types::I64, flags, info, 0);
+    let convention = b.ins().band_imm(info, 0xffff);
+    let matches = b.ins().icmp_imm(IntCC::Equal, convention, (1 << 8) | args.len() as i64);
+    let entry_check = b.create_block(); b.ins().brif(matches, entry_check, &[], slow, &[]);
+    b.switch_to_block(entry_check); b.seal_block(entry_check);
+    let entries = frame_field(b, view, frame_offset!(entries)); let entry = b.ins().iadd(entries, offset);
+    let entry = b.ins().load(types::I64, flags, entry, 0);
+    let none = b.ins().icmp_imm(IntCC::Equal, entry, 0);
+    let refused = b.ins().icmp_imm(IntCC::Equal, entry, -1);
+    let missing = b.ins().bor(none, refused);
+    let stack_check = b.create_block(); b.ins().brif(missing, slow, &[], stack_check, &[]);
+    b.switch_to_block(stack_check); b.seal_block(stack_check);
+    let enabled = frame_field(b, view, frame_offset!(enabled));
+    let check = b.create_block(); b.ins().brif(enabled, check, &[], slow, &[]);
+    b.switch_to_block(check); b.seal_block(check);
+    let nested_ptr = frame_field(b, view, frame_offset!(nested));
+    let nested = b.ins().load(types::I64, flags, nested_ptr, 0);
+    let room = b.ins().icmp_imm(IntCC::UnsignedLessThan, nested, crate::compiled::NESTED_CALL_LIMIT as i64);
+    let tags = b.create_block(); b.ins().brif(room, tags, &[], slow, &[]);
+    b.switch_to_block(tags); b.seal_block(tags);
+    let stack = frame_field(b, view, frame_offset!(stack));
+    let distance = b.ins().isub(hdr, stack); let caller = b.ins().ushr_imm(distance, 3);
+    let next = b.ins().iadd_imm(caller, caller_words as i64);
+    let words = b.ins().ushr_imm(info, 16); let end = b.ins().iadd(next, words);
+    let len = frame_field(b, view, frame_offset!(stack_len));
+    let fits = b.ins().icmp(IntCC::UnsignedLessThanOrEqual, end, len);
+    let push = b.create_block(); b.ins().brif(fits, push, &[], slow, &[]);
+    b.switch_to_block(push); b.seal_block(push);
+    let offset = b.ins().ishl_imm(next, 3); let header = b.ins().iadd(stack, offset);
+    let caller_fid = b.ins().load(types::I32, flags, hdr, 0); let caller_fid = b.ins().uextend(types::I64, caller_fid);
+    let caller_pc = b.ins().iconst(types::I64, (pc as i64 + 1) << 32); let caller_pc = b.ins().bor(caller_fid, caller_pc);
+    b.ins().store(flags, caller_pc, hdr, 0);
+    b.ins().store(flags, fid, header, 0);
+    let result = b.ins().iadd_imm(caller, (crate::interp::HDR + base as usize) as i64);
+    let result = b.ins().ishl_imm(result, 32); let link = b.ins().bor(caller, result);
+    b.ins().store(flags, link, header, 8); b.ins().store(flags, closure, header, 16);
+    let size = b.ins().ishl_imm(words, 33); b.ins().store(flags, size, header, 24);
+    for (i, &arg) in args.iter().enumerate() { b.ins().store(flags, arg, header, ((crate::interp::HDR + 1 + i) * 8) as i32); }
+    let current = frame_field(b, view, frame_offset!(current)); b.ins().store(flags, next, current, 0);
+    let depth_ptr = frame_field(b, view, frame_offset!(depth)); let depth = b.ins().load(types::I64, flags, depth_ptr, 0);
+    let depth1 = b.ins().iadd_imm(depth, 1); b.ins().store(flags, depth1, depth_ptr, 0);
+    let nested1 = b.ins().iadd_imm(nested, 1); b.ins().store(flags, nested1, nested_ptr, 0);
+    let direct_ptr = frame_field(b, view, frame_offset!(direct)); let direct = b.ins().load(types::I64, flags, direct_ptr, 0);
+    b.ins().store(flags, next, direct_ptr, 0);
+    let count = frame_field(b, view, frame_offset!(count)); let n = b.ins().load(types::I64, flags, count, 0);
+    let n = b.ins().iadd_imm(n, 1); b.ins().store(flags, n, count, 0);
+    let mut sig = b.func.signature.clone(); sig.params.truncate(2);
+    let sig = b.import_signature(sig); let zero = b.ins().iconst(types::I64, 0);
+    let call = b.ins().call_indirect(sig, entry, &[header, zero]); let answer = b.inst_results(call)[0];
+    b.ins().store(flags, direct, direct_ptr, 0); b.ins().store(flags, depth, depth_ptr, 0); b.ins().store(flags, nested, nested_ptr, 0);
+    let error = b.ins().icmp_imm(IntCC::Equal, answer, ERROR);
+    let returned = b.create_block(); b.ins().brif(error, err, &[], returned, &[]);
+    b.switch_to_block(returned); b.seal_block(returned);
+    let done = b.ins().icmp_imm(IntCC::Equal, answer, crate::compiled::FRAME_RETURN as i64);
+    let complete = b.create_block(); let finish = b.create_block(); b.set_cold_block(finish);
+    b.ins().brif(done, complete, &[], finish, &[]);
+    b.switch_to_block(finish); b.seal_block(finish);
+    let answer = frame_boundary_call(b, helpers, "j_frame_finish", &[answer, caller], err);
+    b.ins().jump(out, &[answer.into()]);
+    b.switch_to_block(complete); b.seal_block(complete);
+    // A helper in the callee may have grown the heap stack.
+    let stack = frame_field(b, view, frame_offset!(stack)); let offset = b.ins().ishl_imm(caller, 3);
+    let header = b.ins().iadd(stack, offset); b.ins().jump(out, &[header.into()]);
+    b.switch_to_block(slow); b.seal_block(slow);
+    let pc = b.ins().iconst(types::I64, pc as i64);
+    let answer = frame_boundary_call(b, helpers, "j_frame_step", &[pc], err);
+    b.ins().jump(out, &[answer.into()]);
+    b.switch_to_block(out); b.seal_block(out);
+    b.block_params(out)[0]
+}
+
+/// Only functions that cannot register their own cleanup or protected return
+/// use this path, and only when a native caller explicitly owns the return.
+fn frame_direct_return(b: &mut FunctionBuilder, view: Value, hdr: Value, values: &[Value]) {
+    let flags = MemFlagsData::new().with_notrap();
+    let direct_ptr = frame_field(b, view, frame_offset!(direct));
+    let direct = b.ins().load(types::I64, flags, direct_ptr, 0);
+    let stack = frame_field(b, view, frame_offset!(stack));
+    let distance = b.ins().isub(hdr, stack); let frame = b.ins().ushr_imm(distance, 3);
+    let owns = b.ins().icmp(IntCC::Equal, direct, frame);
+    let enabled = frame_field(b, view, frame_offset!(enabled)); let enabled = b.ins().icmp_imm(IntCC::NotEqual, enabled, 0); let owns = b.ins().band(owns, enabled);
+    let fast = b.create_block(); let slow = b.create_block(); b.ins().brif(owns, fast, &[], slow, &[]);
+    b.switch_to_block(fast); b.seal_block(fast);
+    let link = b.ins().load(types::I64, flags, hdr, 8);
+    let caller = b.ins().band_imm(link, 0xffff_ffff); let result = b.ins().ushr_imm(link, 32);
+    let result = b.ins().ishl_imm(result, 3); let result = b.ins().iadd(stack, result);
+    if values.is_empty() { let nil = b.ins().iconst(types::I64, NIL); b.ins().store(flags, nil, result, 0); }
+    else { for (i, &value) in values.iter().enumerate() { b.ins().store(flags, value, result, (i * 8) as i32); } }
+    let extra = frame_field(b, view, frame_offset!(extra));
+    for (i, &value) in values.iter().skip(1).enumerate() { b.ins().store(flags, value, extra, (i * 8) as i32); }
+    let nres = frame_field(b, view, frame_offset!(nres)); let n = b.ins().iconst(types::I64, values.len() as i64); b.ins().store(flags, n, nres, 0);
+    let extra_n = frame_field(b, view, frame_offset!(extra_n)); let zero = b.ins().iconst(types::I64, 0); b.ins().store(flags, zero, extra_n, 0);
+    let current = frame_field(b, view, frame_offset!(current)); b.ins().store(flags, caller, current, 0);
+    let done = b.ins().iconst(types::I64, crate::compiled::FRAME_RETURN as i64); b.ins().return_(&[done]);
+    b.switch_to_block(slow); b.seal_block(slow);
 }
 
 impl Compiler<JITModule> {
@@ -135,7 +286,12 @@ impl Compiler<JITModule> {
     /// its recovery points and fact uses are left in `last_recovery` and
     /// `last_fact_uses`.
     pub fn compile_version(&mut self, f: &Function, fid: u32, frame: bool) -> Result<crate::specialize::versions::CompiledCode, String> {
-        let (id, primary, code_len, maps) = self.compile_function(f, fid, frame)?;
+        #[cfg(test)]
+        let code = if self.native_frame_calls { self.compile_function::<true>(f, fid, frame) }
+            else { self.compile_function::<false>(f, fid, frame) };
+        #[cfg(not(test))]
+        let code = self.compile_function::<false>(f, fid, frame);
+        let (id, primary, code_len, maps) = code?;
         self.module.finalize_definitions().unwrap();
         let start = self.module.get_finalized_function(primary) as usize;
         let n = maps.len();
@@ -174,7 +330,7 @@ impl Compiler<ObjectModule> {
     }
 
     pub fn try_compile_object_mode(&mut self, f: &Function, fid: u32, frame: bool) -> Result<(), String> {
-        let (_, _, code_len, maps) = self.compile_function(f, fid, frame)?;
+        let (_, _, code_len, maps) = self.compile_function::<true>(f, fid, frame)?;
         self.object_maps.push((fid, code_len, maps));
         Ok(())
     }
@@ -202,7 +358,7 @@ impl<M: Module> Compiler<M> {
             module.declare_function(name, Linkage::Import, &sig).unwrap()
         });
         let ctx = module.make_context();
-        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, object_maps: Vec::new(), plan: None, last_recovery: Vec::new(), last_fact_uses: Vec::new() }
+        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, #[cfg(test)] native_frame_calls: false, object_maps: Vec::new(), plan: None, last_recovery: Vec::new(), last_fact_uses: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.
@@ -359,7 +515,7 @@ impl<M: Module> Compiler<M> {
         });
         self.stubs = Some(Stubs { probe, dispatch, iter });
     }
-    fn compile_function(&mut self, f: &Function, fid: u32, frame: bool) -> Result<(FuncId, FuncId, usize, Vec<(u32, u32, Vec<u32>)>), String> {
+    fn compile_function<const NATIVE_FRAME_CALLS: bool>(&mut self, f: &Function, fid: u32, frame: bool) -> Result<(FuncId, FuncId, usize, Vec<(u32, u32, Vec<u32>)>), String> {
         self.ensure_stubs();
         // A specialization plan is a JIT input only: object code has no
         // runtime to answer its guards' misses.
@@ -391,6 +547,7 @@ impl<M: Module> Compiler<M> {
         let native_dump = std::env::var("NUPP_NATIVE_DUMP").ok();
         self.ctx.want_disasm = native_dump.is_some();
         let frame_live = frame.then(|| crate::verify::liveness(f));
+        let native_calls = frame && NATIVE_FRAME_CALLS;
         let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
         // Packets of non-elided operations die at `j_simd_finish`, so one slot
         // serves them all; an elided packet outlives its operation and keeps its own.
@@ -455,6 +612,12 @@ impl<M: Module> Compiler<M> {
                 (0..rvars.len()).map(|_| { let v = b.declare_var(types::I64); let zero = b.ins().iconst(types::I64, 0); b.def_var(v, zero); v }).collect()
             } else { Vec::new() };
             let params: Vec<Value> = b.block_params(entry).to_vec();
+            let frame_context = if native_calls {
+                let c = b.ins().call(helper_refs["j_frame_context"], &[]); Some(b.inst_results(c)[0])
+            } else { None };
+            let direct_return = native_calls && !f.code.iter().any(|op| matches!(op,
+                Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter | Op::AffineMark(..) | Op::CleanupLive(..)
+                | Op::Disarm(..) | Op::DisarmAt(..) | Op::RearmAt(..) | Op::Unwind(..) | Op::PCall(..)));
             let mut ptrs: HashMap<u8, (Value, Value)> = HashMap::new();
             let uses_storage = f.code.iter().any(|o| matches!(o, Op::StorageLen(..) | Op::FLoad(..) | Op::FStore(..) | Op::VLoad(..) | Op::VStore(..) | Op::VLoadM(..) | Op::VStoreM(..)));
             // The closure this activation runs: handed over in CUR_CLOSURE by
@@ -634,7 +797,7 @@ impl<M: Module> Compiler<M> {
             macro_rules! setr { ($i:expr, $v:expr) => { let v = $v; cond_of.remove(&($i as u8)); facts.define($i as u8); b.def_var(rvars[$i as usize], v); if !simd_locals.is_empty() { let zero = b.ins().iconst(types::I64, 0); b.def_var(simd_locals[$i as usize], zero); } } }
             // A helper call whose result is checked for the error sentinel: a
             // raise inside the helper leaves through `err_block`.
-            macro_rules! hcall { ($name:expr, $args:expr) => {{ let c = b.ins().call(helper_refs[$name], $args); let r = b.inst_results(c)[0]; let is_err = b.ins().icmp_imm(IntCC::Equal, r, ERROR); let cont = b.create_block(); b.ins().brif(is_err, err_block, &[], cont, &[]); b.switch_to_block(cont); b.seal_block(cont); c }} }
+            macro_rules! hcall { ($name:expr, $args:expr) => {{ let c = b.ins().call(helper_refs[$name], $args); let r = b.inst_results(c)[0]; let is_err = b.ins().icmp_imm(IntCC::Equal, r, ERROR); let cont = b.create_block(); b.ins().brif(is_err, err_block, &[], cont, &[]); b.switch_to_block(cont); b.seal_block(cont); if native_calls && crate::effects::of_helper($name).has(crate::effects::Effects::REENTERS) { b.ins().call(helper_refs["j_frame_refresh"], &[]); } c }} }
             macro_rules! check_err { ($r:expr) => {{ let r = $r; let is_err = b.ins().icmp_imm(IntCC::Equal, r, ERROR); let cont = b.create_block(); b.ins().brif(is_err, err_block, &[], cont, &[]); b.switch_to_block(cont); b.seal_block(cont); }} }
             macro_rules! obj_of { ($r:expr) => {{ let v = rv!($r); b.ins().band_imm(v, PAYLOAD) }} }
             macro_rules! is_num2 { ($p:expr, $q:expr) => {{ let mp = b.ins().band_imm($p, QNAN); let np = b.ins().icmp_imm(IntCC::NotEqual, mp, QNAN); let mq = b.ins().band_imm($q, QNAN); let nq = b.ins().icmp_imm(IntCC::NotEqual, mq, QNAN); b.ins().band(np, nq) }} }
@@ -759,9 +922,24 @@ impl<M: Module> Compiler<M> {
                             Op::Ret(..) | Op::RetNil | Op::RetN(..) => "j_frame_ret",
                             _ => "j_frame_step",
                         };
-                        let c = hcall!(helper, &[pcv]);
+                        if direct_return {
+                            let values = match *op {
+                                Op::Ret(r) => Some(vec![rv!(r)]),
+                                Op::RetNil => Some(Vec::new()),
+                                Op::RetN(start, n) if n <= 8 => Some((0..n).map(|i| rv!(start + i)).collect()),
+                                _ => None,
+                            };
+                            if let Some(values) = values { let hdr = b.use_var(hdr_var); frame_direct_return(&mut b, frame_context.unwrap(), hdr, &values); }
+                        }
+                        let answer = match *op {
+                            Op::CallDyn(fr, base, n) | Op::CallK(_, fr, base, n, _) if n < 64 && native_calls => {
+                                let hdr = b.use_var(hdr_var); let callee = rv!(fr);
+                                let args: Vec<_> = (0..n).map(|i| rv!(base as usize + 1 + i as usize)).collect();
+                                frame_direct_call(&mut b, &helper_refs, frame_context.unwrap(), hdr, callee, &args, base, pc, f.frame_words(), err_block)
+                            }
+                            _ => { let c = hcall!(helper, &[pcv]); b.inst_results(c)[0] }
+                        };
                         // 1 leaves for the driver; anything else is the frame's address.
-                        let answer = b.inst_results(c)[0];
                         let transfer = b.ins().icmp_imm(IntCC::Equal, answer, 1);
                         let leave = b.create_block(); let resume = b.create_block();
                         b.ins().brif(transfer, leave, &[], resume, &[]);

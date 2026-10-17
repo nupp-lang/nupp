@@ -111,6 +111,93 @@ pub extern "C" fn j_field_caches(fid: u64, count: u64) -> u64 {
     bank.as_mut_ptr() as u64
 }
 
+/// A transient view for native heap-frame calls. Generated code uses only
+/// this C layout, never the layout of Rust's Vec or Interp. Reentrant helpers
+/// refresh it before compiled code uses a task or entry-table pointer again.
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct FrameContext {
+    pub stack: u64,
+    pub stack_len: u64,
+    pub current: u64,
+    pub entries: u64,
+    pub info: u64,
+    pub functions: u64,
+    pub nested: u64,
+    pub depth: u64,
+    pub count: u64,
+    pub direct: u64,
+    pub nres: u64,
+    pub extra: u64,
+    pub extra_n: u64,
+    pub enabled: u64,
+    pub valid: u64,
+}
+
+/// An inline return, consumed only by the native caller that pushed the frame.
+/// Ordinary driver entries cannot produce it.
+pub(crate) const FRAME_RETURN: u64 = u64::MAX - 2;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_context() -> u64 {
+    &*ctx().frame_context as *const FrameContext as u64
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_refresh() -> u64 {
+    let it = ctx();
+    if it.frame_context.valid != 0 { return &*it.frame_context as *const FrameContext as u64; }
+    for (fid, f) in it.funcs.iter().enumerate().skip(it.frame_info.len()) {
+        // Coroutine wrappers share the unavailable thunk and must enter the
+        // interpreter's wrapper dispatch even when that thunk is compiled.
+        let plain = fid as u32 != it.unavailable_fid && !f.vararg && f.ret != b'f' && f.sig.iter().all(|&c| c == b'v');
+        it.frame_info.push(f.nparams as u64 | ((plain as u64) << 8) | ((f.frame_words() as u64) << 16));
+    }
+    let unwinding = it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&it.native_task))
+        && it.unwind_state(it.native_task) != V::NIL;
+    let enabled = it.instruction_budget.is_none() && !unwinding
+        && it.jit_threshold == 0 && !it.trace && nesting_enabled();
+    #[cfg(feature = "jit")]
+    let enabled = enabled && !it.spec.frames;
+    let task = &mut it.tasks[it.native_task];
+    *it.frame_context = FrameContext {
+        stack: task.stack.as_mut_ptr() as u64,
+        stack_len: task.stack.len() as u64,
+        current: task.current_address() as u64,
+        entries: it.frame_entries.as_ptr() as u64,
+        info: it.frame_info.as_ptr() as u64,
+        functions: it.frame_entries.len().min(it.frame_info.len()) as u64,
+        nested: &mut it.nested_calls as *mut usize as u64,
+        depth: &mut it.native_frame_depth as *mut usize as u64,
+        count: &mut it.compiled_frame_entries as *mut u64 as u64,
+        direct: &mut it.direct_frame as *mut usize as u64,
+        nres: &mut it.last_nres as *mut usize as u64,
+        extra: it.extra.as_mut_ptr() as u64,
+        extra_n: &mut it.extra_n as *mut usize as u64,
+        enabled: enabled as u64,
+        valid: 1,
+    };
+    &*it.frame_context as *const FrameContext as u64
+}
+
+/// Complete an uncommon callee exit (park, interpreter resume or cleanup).
+/// The common inline return never enters Rust.
+#[unsafe(no_mangle)]
+pub extern "C" fn j_frame_finish(next: u64, stop: u64) -> u64 {
+    let it = ctx();
+    let depth = std::mem::replace(&mut it.native_frame_depth, 0);
+    let result = it.guarded(|it| {
+        let tid = it.native_task;
+        match it.finish_callee(tid, stop as usize, next) {
+            Ok(true) => V(frame_address(it, tid)),
+            Ok(false) => V::ERROR,
+            Err(exit) => { it.native_exit = Some(exit); V(1) }
+        }
+    });
+    it.native_frame_depth = depth;
+    result.0
+}
+
 /// The helpers: name, address, arity.
 pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
     let table: Vec<(&'static str, *const u8, usize)> = vec![
@@ -123,6 +210,7 @@ pub fn helper_table() -> Vec<(&'static str, *const u8, usize)> {
         ("j_frame_poll", j_frame_poll as *const u8, 0),
         ("j_ibox", j_ibox as *const u8, 1), ("j_ubox", j_ubox as *const u8, 1), ("j_numeric", j_numeric as *const u8, 2),
         ("j_get_index_i", j_get_index_i as *const u8, 2), ("j_set_index_i", j_set_index_i as *const u8, 3),
+        ("j_frame_context", j_frame_context as *const u8, 0), ("j_frame_refresh", j_frame_refresh as *const u8, 0), ("j_frame_finish", j_frame_finish as *const u8, 2),
         ("j_frame_step", j_frame_step as *const u8, 1), ("j_frame_call", j_frame_call as *const u8, 1), ("j_frame_ret", j_frame_ret as *const u8, 1),
         ("j_storage_ptr", j_storage_ptr as *const u8, 1), ("j_storage_len", j_storage_len as *const u8, 1), ("j_slot_hash", j_slot_hash as *const u8, 1),
         ("j_len_value", j_len_value as *const u8, 1), ("j_len_number", j_len_number as *const u8, 1),
@@ -156,7 +244,7 @@ pub extern "C" fn j_frame_poll() -> u64 {
 /// How many calls deep compiled frames run nested in native code before the
 /// outermost driver takes over again. Each level holds a compiled activation
 /// and the helper's own frames on the native stack.
-const NESTED_CALL_LIMIT: usize = 96;
+pub(crate) const NESTED_CALL_LIMIT: usize = 96;
 
 /// The calls whose callee may run nested: ordinary calls only, so a protected
 /// call, a module load or a cleanup keeps the outermost driver's handling.

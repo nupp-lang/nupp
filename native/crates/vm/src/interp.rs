@@ -365,6 +365,7 @@ pub struct Task {
 impl Task {
     pub(crate) fn restored(stack: Vec<u64>, cur: usize, state: State, deliver_at: usize) -> Self { Self { stack, cur, state, deliver_at, result: Value::NIL, error: Value::NIL, results: Vec::new(), cleanups: Vec::new(), protected: Vec::new() } }
     pub fn cur(&self) -> usize { self.cur }
+    pub(crate) fn current_address(&mut self) -> *mut usize { &mut self.cur }
     pub fn set_cur(&mut self, s: usize) { self.cur = s; }
     /// Records the top frame's pc in its header, where the backtrace reads it.
     pub fn note_pc(&mut self, pc: usize) { let s = self.cur; self.stack[s] = (self.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); }
@@ -518,8 +519,8 @@ pub struct Interp {
     /// registers are current only at boundary operations, which step with
     /// this lowered again.
     pub(crate) native_frame_depth: usize,
-    /// Calls a compiled frame is running natively inside a boundary helper
-    /// (`drive_until`): each holds a native activation below the callee.
+    /// Calls running nested on the native stack, directly or through a boundary
+    /// helper: each holds a native activation below the callee.
     pub(crate) nested_calls: usize,
     /// Set when nesting reached its limit: every nested driver returns to the
     /// outermost one, which resumes the frames flat and clears it.
@@ -562,6 +563,13 @@ pub struct Interp {
     pub spec: Box<crate::specialize::State>,
     /// Each loaded module's functions, for body patches by id (`hotpatch`).
     pub hot: crate::hotpatch::State,
+    // Keep transient native-call bookkeeping after the existing hot fields.
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) frame_context: Box<crate::compiled::FrameContext>,
+    #[cfg(feature = "compiled-runtime")]
+    pub(crate) frame_info: Vec<u64>,
+    /// The only frame allowed to return directly into its native caller.
+    pub(crate) direct_frame: usize,
 }
 
 struct TaskRoots<'a> { tasks: &'a [Task], funcs: &'a [Function], handles: &'a [Value], registered: &'a [Value], extra: &'a [Value; MAX_RESULTS], extra_n: usize, pending: Option<Value>, resources: &'a std::collections::HashMap<Value, String>, foreign: &'a crate::foreign::State }
@@ -636,7 +644,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, nested_calls: 0, unwind_nested: false, unwinds: Value::NIL, string_meta: Value::NIL, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_threshold: 0, #[cfg(feature = "compiled-runtime")] frame_heat: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, hot: Default::default(), #[cfg(feature = "jit")] spec: Default::default() } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, #[cfg(feature = "compiled-runtime")] frame_context: Default::default(), #[cfg(feature = "compiled-runtime")] frame_info: Vec::new(), direct_frame: usize::MAX, native_exit: None, compiled_frame_entries: 0, native_frame_depth: 0, nested_calls: 0, unwind_nested: false, unwinds: Value::NIL, string_meta: Value::NIL, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_threshold: 0, #[cfg(feature = "compiled-runtime")] frame_heat: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, hot: Default::default(), #[cfg(feature = "jit")] spec: Default::default() } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -678,6 +686,7 @@ impl Interp {
         let off_f = f.off_f();
         // Arguments past the declared parameters are dropped, as Lua drops them.
         for (i, &a) in args.iter().enumerate().take(f.nparams as usize) { if typed && f.sig[i] == b'f' { t.stack[s0 + off_f + fi] = a.as_num().to_bits(); fi += 1; } else { vi += 1; t.stack[s0 + HDR + vi] = a.0; } }
+        self.invalidate_frame_context();
         self.tasks.push(t);
         self.tasks.len() - 1
     }
@@ -787,7 +796,8 @@ impl Interp {
         let caller_fid = t.stack[s] & 0xffff_ffff;
         t.stack[s] = caller_fid | ((pc as u64) << 32);
         let ns = s + frame_words_of(t.stack[s + 3]);
-        if t.stack.len() < ns + words { let n = (ns + words).max(t.stack.len() * 2); t.stack.resize(n, 0); }
+        let grew = t.stack.len() < ns + words;
+        if grew { let n = (ns + words).max(t.stack.len() * 2); t.stack.resize(n, 0); }
         // No other register is cleared: the root walk filters words that are
         // not live object slots (`Heap::is_live_slot`), and a register the
         // function reads before writing is a verifier error. Parameters the
@@ -803,6 +813,7 @@ impl Interp {
             for i in nargs as usize..nparams { *st.add(ns + HDR + 1 + i) = Value::NIL.0; }
         }
         t.cur = ns;
+        if grew { self.invalidate_frame_context(); }
     }
     /// The slow call: a spread pack after the fixed arguments (`nargs` flagged
     /// by 128), a vararg callee packing its surplus, or both.
@@ -819,7 +830,8 @@ impl Interp {
         t.stack[s] = caller_fid | ((pc as u64) << 32);
         // The callee's surplus arguments go just below its header, in the frame.
         let ns = s + frame_words_of(t.stack[s + 3]) + nvar;
-        if t.stack.len() < ns + words { let m = (ns + words).max(t.stack.len() * 2); t.stack.resize(m, 0); }
+        let grew = t.stack.len() < ns + words;
+        if grew { let m = (ns + words).max(t.stack.len() * 2); t.stack.resize(m, 0); }
         for i in 0..nvar { t.stack[ns - nvar + i] = args[nparams + i].0; }
         t.stack[ns] = f as u64;
         t.stack[ns + 1] = s as u64 | ((args_at as u64) << 32);
@@ -827,6 +839,7 @@ impl Interp {
         t.stack[ns + 3] = header3(0, false, words, nvar);
         for i in 0..nparams { t.stack[ns + HDR + 1 + i] = if i < args.len() { args[i].0 } else { Value::NIL.0 }; }
         t.cur = ns;
+        if grew { self.invalidate_frame_context(); }
     }
     /// Pops the frame, delivering `v` to the caller's result register; true when
     /// the task is finished.
@@ -1506,11 +1519,22 @@ impl Interp {
         h.bytes_mut()
     }
     pub fn is_stringish(&self, v: Value) -> bool { v.as_obj().map(|p| unsafe { (*p.as_ptr()).is_stringish() }).unwrap_or(false) }
+    /// A task, frame, entry table or cleanup state changed. Native helpers
+    /// refresh the view on return; ordinary reads reuse it without rebuilding.
+    #[inline]
+    pub(crate) fn invalidate_frame_context(&mut self) {
+        #[cfg(feature = "compiled-runtime")]
+        { self.frame_context.valid = 0; }
+    }
+
     /// Forgets what was derived from a function's body after a hot patch
     /// replaced it: specialized versions and feedback, liveness, vector
     /// requirements, field caches, and a compiled frame entry, which is built
     /// again from the new body on demand.
     pub(crate) fn invalidate_function(&mut self, fid: u32) {
+        self.invalidate_frame_context();
+        #[cfg(feature = "compiled-runtime")]
+        self.frame_info.clear();
         // First, so specialization retires the field-cache bank that compiled
         // code of the old body may still point at, rather than dropping it.
         #[cfg(feature = "jit")]

@@ -128,6 +128,7 @@ impl Interp {
         error: Value,
         handler: Option<Protected>,
     ) {
+        self.invalidate_frame_context();
         let old = self.unwind_state(tid);
         if old != Value::NIL && mode == "normal" {
             return;
@@ -321,6 +322,7 @@ impl Interp {
         value
     }
     pub(crate) fn complete_normal_cleanup(&mut self, tid: usize) {
+        self.invalidate_frame_context();
         let state = self.unwind_state(tid);
         if state == Value::NIL {
             return;
@@ -334,6 +336,7 @@ impl Interp {
         }
     }
     pub(crate) fn resume_unwind(&mut self, tid: usize) -> Option<Outcome> {
+        self.invalidate_frame_context();
         let state = self.unwind_state(tid);
         if state == Value::NIL {
             return None;
