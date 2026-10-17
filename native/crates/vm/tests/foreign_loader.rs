@@ -180,6 +180,7 @@ fn machine(mode: Mode, module_path: &Path) -> Box<Interp> {
     if matches!(mode, Mode::Threaded) {
         vm.prepare_threaded();
     }
+    #[cfg(feature = "jit")]
     if matches!(mode, Mode::Typed | Mode::Frame) {
         use nupp_vm::{compiled, jit::Jit};
         vm.entries.resize(vm.funcs.len(), 0);
@@ -558,7 +559,14 @@ fn loader_resolves_names_paths_and_module_relative_libraries_and_anchors_them() 
 #[test]
 fn callbacks_lend_retain_rebind_release_and_refuse_in_every_tier() {
     let fixture = Fixture::build();
-    for mode in [Mode::Rust, Mode::Threaded, Mode::Typed, Mode::Frame] {
+    for mode in [
+        Mode::Rust,
+        Mode::Threaded,
+        #[cfg(feature = "jit")]
+        Mode::Typed,
+        #[cfg(feature = "jit")]
+        Mode::Frame,
+    ] {
         let mut vm = machine(mode, &fixture.root.join("build/generated/binding.nupp"));
         let path = string(&mut vm, fixture.path());
         let library = builtin(&mut vm, "foreign.load", &[path])[0];
