@@ -1184,6 +1184,12 @@
       "reason": "tests nupp.mem.sharedbytes blocks the LuaJIT engine host hands out through ffi; the VM has no sharedbytes provider; the file goes with the engine host"
     },
     {
+      "suite": "shellsyntaxtest",
+      "class": "portable",
+      "facilities": "-",
+      "reason": "portable shell, depfile, and glob scanner regression"
+    },
+    {
       "suite": "simdequivalencedrivertest",
       "class": "retired",
       "facilities": "-",
@@ -1197,9 +1203,9 @@
     },
     {
       "suite": "simdfixedlanestest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,spawn,lua-generator",
-      "reason": "simd.transpose and stored simd.Vector<T, simd.Fixed<N>> struct fields have no VM lowering"
+      "reason": "fixed VM transpose and stored fixed vectors; multi-result forwarding and target vector layout are covered by ordinary VM programs"
     },
     {
       "suite": "simdfleetequivalencetest",
@@ -1389,9 +1395,9 @@
     },
     {
       "suite": "targetvectorlayouttest",
-      "class": "retired",
+      "class": "portable",
       "facilities": "-",
-      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+      "reason": "VM target vector descriptors preserve occupied size, alignment, padding, stride and foreign ABI refusal"
     },
     {
       "suite": "taskfailuretest",
@@ -1520,6 +1526,12 @@
       "reason": "ported: runs in the VM corpus image, its fragments and programs as VM images and its providers as VM instances; the fingerprint module is instanced from source with the runtime's answers as its globals"
     },
     {
+      "suite": "vmindexkeytest",
+      "class": "portable",
+      "facilities": "load,getinfo",
+      "reason": "VM images preserve absent numeric keys, assignment evaluation order and exact wide keys while retaining proven typed index instructions"
+    },
+    {
       "suite": "vmpredicatecalltest",
       "class": "portable",
       "facilities": "load,getinfo,spawn",
@@ -1554,12 +1566,6 @@
       "class": "retired",
       "facilities": "-",
       "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
-    },
-    {
-      "suite": "shellsyntaxtest",
-      "class": "portable",
-      "facilities": "-",
-      "reason": "portable shell, depfile, and glob scanner regression"
     }
   ]
 }
