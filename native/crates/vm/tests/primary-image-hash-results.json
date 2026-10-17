@@ -1,0 +1,594 @@
+{
+  "schemaVersion": 1,
+  "experiment": "Primary image raw SHA256 backend",
+  "date": "2026-10-17",
+  "status": "Root accepted source and fixed trial for codegen-experiment integration",
+  "decision": {
+    "retainCandidateForIntegration": true,
+    "rootPerformanceReview": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/root-review.json",
+      "bytes": 32391,
+      "sha256": "b2d615f38402b1b946e5d5da9cfa1e97c14c4d647b7ccdeade6e5700b41c65a2"
+    },
+    "runtimePolicy": "Use existing locked ring0.17.14 for raw primary image SHA256 only on little-endian AArch64 with net; retain sha2 fallback for every other target/feature set. Ordinary JIT remains none.",
+    "performanceClaim": "Fixed warm startup practical gate met; root regression ceilings met. No overall compiler performance victory or warm Lua parity claim.",
+    "noFurtherTiming": true
+  },
+  "source": {
+    "nativeBaseHead": "b63d986d61d6e14e5816c500ef9aa738f4d56907",
+    "nativeFullFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-plan-1/source-freeze.json",
+      "bytes": 635897,
+      "sha256": "806367ebde1dd00535f6976bf4abd74694134b3e47be891e641cf12982f90912"
+    },
+    "nativeFreezeFiles": 4533,
+    "productionFiles": {
+      "Cargo.lock": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash/Cargo.lock",
+        "bytes": 77234,
+        "sha256": "4d18d7b575a90a928a55f0d3128d3e90ce2826c366668812898d169d16974f67"
+      },
+      "native/crates/vm/Cargo.toml": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash/native/crates/vm/Cargo.toml",
+        "bytes": 4575,
+        "sha256": "2c7b1124756bab9aab8f2f1e7b532b07d38a4a4d8263f99669317280cdd8a1de"
+      },
+      "native/crates/vm/src/persist.rs": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash/native/crates/vm/src/persist.rs",
+        "bytes": 93185,
+        "sha256": "929fcc0d98f62dafaeb2507d23b523455e8159bf408615ca78c6ecad0bf2b95e"
+      }
+    },
+    "newNativeTest": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash/native/crates/vm/tests/primary_image_hash.rs",
+      "bytes": 2504,
+      "sha256": "5ba9dcd1a650d4625854161a6f2b9c989817e939f424a50179a0d49655a4d63f"
+    },
+    "recordedCompiledInputs": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-plan-1/compiled-inputs.json",
+      "bytes": 22332,
+      "sha256": "fcdb1f43cb3b4b094c521000c9411f4b0c555ca329e8bdcdad68c1b41e65e2b7"
+    },
+    "compiledInputScope": {
+      "recordedTrackedPaths": 199,
+      "newUntrackedTestPinnedSeparately": "native/crates/vm/tests/primary_image_hash.rs",
+      "rootReviewedUnion": 200,
+      "proof": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/root-review.json",
+        "bytes": 1630,
+        "sha256": "e248f7b7678b0fad932133aa5a180aecb8bbae1b1a010da62d1fd5204d44a8ae"
+      },
+      "scope": "Original199 manifest is immutable; full source freeze and actual Cargo test boundaries include the new test. No false full200 original manifest claim."
+    },
+    "workloadFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/source-freeze.json",
+      "sha256": "63dbfaaa40814af0bef72f5dc459f81d3e5b5cde558df267d9a7207dbdd1a9d5"
+    },
+    "workloadSourceFiles": 4527,
+    "workloadRoot": "/Users/dowling/projects/nupp-wt/aot-opt-speed",
+    "workloadRevisionScope": "Frozen006 compiler source. Runtime e377 matches b63 production Rust; kernel IMAGE7b80 is the old C0 bootstrap, not a current-source compiler image.",
+    "unchanged": "Interp/Task/layouts/jit.rs/object ABI4, emitter/code_digest/vm.sha256 and dependency versions unchanged; Cargo.lock adds only VM\u2192existing ring edge."
+  },
+  "kernels": {
+    "baseline": {
+      "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/shared-native-parser-1/shared.runtime",
+      "bytes": 217824296,
+      "sha256": "e377af5c9c91d01adf39522174ad5e364c98aede8d7129de6c56550edb30022d"
+    },
+    "candidate": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/candidate.runtime",
+      "bytes": 217823640,
+      "sha256": "ba3eeb4aeb438e6eabfd5fa63ff8411f0d0aaca088554a4202e6211f1d1801d1"
+    },
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.image",
+      "bytes": 21224819,
+      "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "object": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o",
+      "bytes": 149226248,
+      "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa"
+    },
+    "objectMaps": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.maps",
+      "bytes": 68026640,
+      "sha256": "fa5cd609ab548363eeed6e5986823df3e8b382873004a7581e52b727854ad270"
+    },
+    "objectSidecar": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.rs",
+      "bytes": 870830,
+      "sha256": "aba3bcd8f405ace22c3c423f5d00969edb9783d5a742a11ba2462ad630f16985"
+    },
+    "objectManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o.manifest",
+      "bytes": 122907,
+      "sha256": "4a796bda9d2759743f8596ccdec61fa8e5cda7665d8b8a21681df0552d1f21b2"
+    }
+  },
+  "features": {
+    "runtime": "--no-default-features --features aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown; JIT_OPT=none; ABI4; all6580 functions",
+    "objectReuseEligibility": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-plan-1/object-reuse-eligibility.json",
+      "bytes": 9224,
+      "sha256": "6261589770d4346b06af58682d60b06ae98d47a4b7a4104995d31045787a0131"
+    },
+    "nativeProviderProof": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/lua-provider-current-readonly.json",
+      "bytes": 134075,
+      "sha256": "31a278ce9ebbcd471a6bff60fd2d827aafd1aa2f00487d7cdcb166b5bffb59e6"
+    },
+    "nativeProviderScope": "Frozen workload native191 recipe and provider83bc source/features are distinct from the current candidate199+newtest domain; no candidate DEV key alias.",
+    "luaCompiler": "504 generated modules +2 external declarations, all506 prior verifier rows byte-revalidated before/after timing.",
+    "nativeProviderRawFeatures": "base,compression,files,gpu,http,net,process,tls,uri,uuid",
+    "nativeProviderEffectiveFeatures": [
+      "base",
+      "compression",
+      "files",
+      "filesystem",
+      "gpu",
+      "http",
+      "net",
+      "process",
+      "tls",
+      "uri",
+      "uuid"
+    ]
+  },
+  "mechanism": {
+    "before": "Baseline primary_image_hash directly calls software sha2 compression on this Darwin ARM64 artifact.",
+    "after": "Actual fresh linked primary_image_hash selects ring SHA256 Algorithm constant\u2192Context update callback+0x48\u2192ARM hardware SHA256 body. Exact selected-call disassembly/constant proof retained.",
+    "proof": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/fresh-linked-runtime/selected-call-proof.json",
+      "bytes": 3084,
+      "sha256": "cdd6e0a1274e8beaef415b7d8bb2e19e67f3442af6885e989ce9521a2377d10a"
+    },
+    "fallbackProof": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/candidate-mechanism-1/receipt.json",
+      "bytes": 5381,
+      "sha256": "5460b28be17ed0b5770c995d12fde11813a1a517dfbed06021a1353c72a6cfd3"
+    },
+    "limits": "Static mechanism is not the speed result. Other architectures/OSes were not measured; ring owns CPU fallback selection."
+  },
+  "correctness": {
+    "focusedNet": {
+      "rawDigestVectorsPassed": 2,
+      "identityCheckpointAndRealImagePassed": 3,
+      "failed": 0,
+      "actualCurrentImageSha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+    },
+    "focusedNoNet": {
+      "rawDigestVectorsPassed": 2,
+      "identityCheckpointAndRealImagePassed": 3,
+      "failed": 0,
+      "allTargetsCheckPassed": true
+    },
+    "digestCases": "Raw standard vectors, embeddedNUL, Unicode, padding boundaries, appended-image primary identity, actual21,224,819byte C0 image and checkpoint identity.",
+    "fullNativeMatrices": {
+      "full-release-default-aot": {
+        "passed": 347,
+        "failed": 0,
+        "ignored": 5
+      },
+      "full-release-no-codegen": {
+        "passed": 280,
+        "failed": 0,
+        "ignored": 5
+      }
+    },
+    "ignoredScope": "Each full matrix retains5 ignored rows. The external current-image fixture remains ignored in these totals but was executed separately in both focused backend gates. Other ignored rows are not counted as passed.",
+    "smoke": {
+      "results": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/aot-smoke/results.json",
+        "bytes": 2255,
+        "sha256": "93901f852f4b4656fd5c59802c7cecdaa292a90fa5d6895605a00f5c3c6939b5"
+      },
+      "ABI": 4,
+      "allFunctions": 6580,
+      "freshNoExecProcesses": 2,
+      "checksPassed": 13,
+      "scope": "Unchanged smoke harness; both demo IMAGE bytes identical within its own workload root; denial probes, mismatch refusal and diagnostic parity preserved."
+    },
+    "compilerParity": {
+      "proof": {
+        "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/compiler-parity-1/root-review.json",
+        "bytes": 1359,
+        "sha256": "a4d80aededaad1c2e26ddacc294549c766bb8d5d519fbb0a2263c13554d8bb91"
+      },
+      "ownedStages": 32,
+      "bothCold": {
+        "compiled": 505,
+        "reused": 0,
+        "workers": 2,
+        "retries": 0
+      },
+      "allFourLexerCalls": {
+        "compiled": 0,
+        "reused": 36
+      },
+      "literalNonTimingJsonEqual": true,
+      "bothSameRootRawImages": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+      "parserFixtures": {
+        "valid": 2,
+        "resultErrors": 7,
+        "exactRawStdoutStderrAndExitParity": true,
+        "existingMalformedPanic": {
+          "bothExitCode": 101,
+          "rawTracesPreserved": true,
+          "payloadEqualityClaimed": false
+        }
+      }
+    },
+    "stoppedPreparation": "Initial scratch executable-path parser stopped after five actual default successes; read-only identity recovery preserved originals, then only unrun minimal gates executed. No successful native default test was rerun for that scratch parser correction.",
+    "broadOrFixpointNewlyRun": false
+  },
+  "fixedPerformance": {
+    "definition": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/protocol.json",
+      "bytes": 873,
+      "sha256": "ac731e47e5e930c9e9e6a26f42dd5ba16da2ab42cd052a056184c70eac85a5ff"
+    },
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/run.py",
+      "bytes": 17989,
+      "sha256": "4e510fce124e9122db7e21ce313f39702ee275a865e773cb4bc692052dd4c2d5"
+    },
+    "config": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/config.json",
+      "bytes": 20116,
+      "sha256": "9c0c58e25073d26b74df010b95dcf8f8abc3c0542ef012c1445a6c8eb33fa8b8"
+    },
+    "windowRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/root-release-1.json",
+      "bytes": 932,
+      "sha256": "66033492ce14ce3a212c01ab6b3563b42bc466638cf50305d9668a6e26282784"
+    },
+    "schedule": {
+      "warmPairs": 9,
+      "coldPairs": 1,
+      "conditionalRootPairs": 5,
+      "jobs": 2,
+      "luaEveryRepeat": true,
+      "measuredRows": 45,
+      "order": "B/L/C on even repeat, C/L/B on odd repeat",
+      "rootCondition": "Both warm paired median cycles and wall<=\u22120.05; true, so all5 root pairs ran.",
+      "discardRetryExtensionRetuning": false
+    },
+    "calculation": "For each repeat compute candidateCounter/baselineCounter\u22121, then median across paired relative changes. Per-engine medians are separate descriptive values, not the verdict formula.",
+    "warmGate": {
+      "requiredCycles": -0.05,
+      "requiredWall": -0.05,
+      "passed": true
+    },
+    "rootCeilings": {
+      "maximumCyclesRegression": 0.05,
+      "maximumWallRegression": 0.05,
+      "passed": true
+    },
+    "results": {
+      "lexer": {
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/lexer/results.json",
+          "bytes": 43569,
+          "sha256": "5ab2ed6267073c6084cde80db2276a1fea9d936176be91bbc86be7f66f479f8c"
+        },
+        "pairs": 9,
+        "measuredSamples": 27,
+        "pairedMedianRelativeChanges": {
+          "cycles elapsed": -0.055050379763097235,
+          "instructions retired": -0.05016394360327692,
+          "real": -0.05555555555555558,
+          "maximum resident set size": -0.000952834683182413
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 0.54,
+            "user": 0.49,
+            "sys": 0.04,
+            "cycles elapsed": 2330444762,
+            "instructions retired": 11883885125,
+            "maximum resident set size": 481345536
+          },
+          "luajit": {
+            "real": 0.39,
+            "user": 0.32,
+            "sys": 0.06,
+            "cycles elapsed": 1689379768,
+            "instructions retired": 6354193800,
+            "maximum resident set size": 81444864
+          },
+          "candidate": {
+            "real": 0.51,
+            "user": 0.46,
+            "sys": 0.04,
+            "cycles elapsed": 2198262694,
+            "instructions retired": 11299523212,
+            "maximum resident set size": 480952320
+          }
+        },
+        "semanticOutputHashes": [
+          "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+        ]
+      },
+      "cold-check": {
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/cold-check/results.json",
+          "bytes": 10787,
+          "sha256": "d496fbcb4c642a90b41917e2e8d11cca9d083f626bd357c29f27d5faa36335ce"
+        },
+        "pairs": 1,
+        "measuredSamples": 3,
+        "pairedMedianRelativeChanges": {
+          "cycles elapsed": 9.472556307343893e-05,
+          "instructions retired": -0.002378077069927209,
+          "real": 0.04430521369433893,
+          "maximum resident set size": -0.03397495616962909
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 44.69,
+            "user": 72.5,
+            "sys": 1.14,
+            "cycles elapsed": 23698988184,
+            "instructions retired": 128808637396,
+            "maximum resident set size": 4466966528
+          },
+          "luajit": {
+            "real": 62.64,
+            "user": 89.65,
+            "sys": 9.53,
+            "cycles elapsed": 37527299618,
+            "instructions retired": 132983281519,
+            "maximum resident set size": 2893070336
+          },
+          "candidate": {
+            "real": 46.67,
+            "user": 75.5,
+            "sys": 1.17,
+            "cycles elapsed": 23701233084,
+            "instructions retired": 128502320529,
+            "maximum resident set size": 4315201536
+          }
+        },
+        "semanticOutputHashes": [
+          "d390de03a4d0eb6372f5eb2cf69f9102093f8554915329b0cbcfca0a91711cab"
+        ]
+      },
+      "emit": {
+        "report": {
+          "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/emit/results.json",
+          "bytes": 20975,
+          "sha256": "1589ca2decac1327bbf945f1c4e1ff16c4577cdca68238ada31ebb90f0272e69"
+        },
+        "pairs": 5,
+        "measuredSamples": 15,
+        "pairedMedianRelativeChanges": {
+          "cycles elapsed": 0.0003749052830614996,
+          "instructions retired": -0.00034787110161482726,
+          "real": -0.0023857912874436504,
+          "maximum resident set size": -0.0023647949410122715
+        },
+        "perEngineMedians": {
+          "baseline": {
+            "real": 113.86,
+            "user": 112.46,
+            "sys": 0.88,
+            "cycles elapsed": 478806285508,
+            "instructions retired": 2652174865107,
+            "maximum resident set size": 3721150464
+          },
+          "luajit": {
+            "real": 221.34,
+            "user": 199.06,
+            "sys": 18.04,
+            "cycles elapsed": 925481498395,
+            "instructions retired": 3125598467720,
+            "maximum resident set size": 1636122624
+          },
+          "candidate": {
+            "real": 113.28,
+            "user": 111.88,
+            "sys": 1.28,
+            "cycles elapsed": 479354289827,
+            "instructions retired": 2651252250115,
+            "maximum resident set size": 3714154496
+          }
+        },
+        "semanticOutputHashes": [
+          "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db"
+        ]
+      }
+    },
+    "absoluteWarmWallSeconds": {
+      "baseline": 0.54,
+      "candidate": 0.51,
+      "freshLua": 0.39,
+      "historicalLuaContext": 0.42,
+      "candidateStillSlowerThanFreshLua": true
+    },
+    "coldSampleScope": "Single diagnostic pair wall44.69\u219246.67s, +4.4305%; Lua62.64s. No duration verdict or aggregate-worker CPU claim.",
+    "all15RootImagesByteEqual": true,
+    "allTimedWarm": {
+      "compiled": 0,
+      "reused": 36
+    },
+    "allCold": {
+      "compiled": 505,
+      "reused": 0,
+      "workers": 2,
+      "retries": 0
+    },
+    "rawArtifacts": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-audit-1/raw-artifacts.json",
+      "bytes": 27543,
+      "sha256": "7c6bce7267ed510038ef4ba64ab1b1915b4f09e97474791c4a0e5bf95144110b"
+    },
+    "rootAcceptance": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/root-review.json",
+      "bytes": 32391,
+      "sha256": "b2d615f38402b1b946e5d5da9cfa1e97c14c4d647b7ccdeade6e5700b41c65a2"
+    }
+  },
+  "preservation": {
+    "sourceKernelObjectLuaProviderHashesUnchanged": true,
+    "originalChecksBefore": {
+      "present": true,
+      "symlink": false,
+      "link": null,
+      "sha256": "6708051618b5f751a59914043edc1427741d1c2f4c2b07718ab4578b166feed8",
+      "bytes": 206140,
+      "lstatIdentity": {
+        "device": 16777231,
+        "inode": 153396807,
+        "mode": 33188,
+        "uid": 501,
+        "gid": 20,
+        "links": 1,
+        "size": 206140,
+        "mtimeNs": 1792224470022815085
+      }
+    },
+    "originalChecksAfter": {
+      "present": true,
+      "symlink": false,
+      "link": null,
+      "sha256": "6708051618b5f751a59914043edc1427741d1c2f4c2b07718ab4578b166feed8",
+      "bytes": 206140,
+      "lstatIdentity": {
+        "device": 16777231,
+        "inode": 153396807,
+        "mode": 33188,
+        "uid": 501,
+        "gid": 20,
+        "links": 1,
+        "size": 206140,
+        "mtimeNs": 1792224470022815085
+      }
+    },
+    "originalBytesAndInodeRestored": true,
+    "ownedTerminal": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-audit-1/owned-terminal-proof.json",
+      "bytes": 57895,
+      "sha256": "fa15509c6765dbd9053b5a571f721f7c576ea94ac266cbd3d6de411be5f35030"
+    },
+    "allRecordedOwnedPidBirthIdentitiesTerminal": true,
+    "wrapperAndHarnessLocksAbsent": true,
+    "originalAndAllRawArtifactsPreserved": true
+  },
+  "limits": [
+    "Foreign appPID99684 and SpotlightPID65083 CPU activity was recorded at window release; unrelated processes were untouched. No quiet-host or statistical confidence interval claim.",
+    "macOS time-l PMU cycles/instructions measure launched-parent scope, not the sum of child worker counters; time user may include child CPU.",
+    "Warm lexer remains slower than contemporary Lua. Hash-specific startup gain is separate from prior parser work; no old parser gain is attributed to this candidate.",
+    "Cold has1pair only and rose4.43% wall; it is diagnostic under the frozen protocol.",
+    "This trial uses frozen006 source/oldC0 image and exact reviewed kernels. Future source composition/rebase/install has separate validation scope.",
+    "No new dependency package/version/download, source annotations, default JIT policy, full broad suite, pinned-stage0 fixpoint, or release/push is claimed."
+  ],
+  "artifacts": {
+    "candidateDefinition": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/candidate-plan-reviewed.json",
+      "bytes": 5062,
+      "sha256": "5d129f2827dce4947874f9f7f6523daa71b1590a1f0873c9785c2f07a5e8fa82"
+    },
+    "focusedSummary": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/correctness-summary.json",
+      "bytes": 3668,
+      "sha256": "84f790506d73c1be30b55b5b0be286ba01795a89e453f4bf6f0edaef17498391"
+    },
+    "stoppedFocusedPreparation": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/focused-1/receipt.json",
+      "bytes": 325135,
+      "sha256": "233d037a217b173d98ba80e6e3cd45709b7e7565406fb73b7691a8e134c8ced6"
+    },
+    "readOnlyProofRecovery": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/default-proof-recovery-1/receipt.json",
+      "bytes": 2868,
+      "sha256": "1675c3541de67ad2a39ccf3c673d5a5c74212b087659b2bc76f1759b44c8675c"
+    },
+    "remainingMinimalGates": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/focused-2/receipt.json",
+      "bytes": 94758,
+      "sha256": "2d6205b2c773ce3ad5c34fb0453a07722c3302f2bb02528a9eb5a1e3c1de7538"
+    },
+    "nativeLinkSmoke": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/receipt.json",
+      "bytes": 1970090,
+      "sha256": "2aa8bce7860e21f4fa3ece4f6ac31435c502ae4f391c5d220de64769fa458e25"
+    },
+    "nativeRootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/root-review.json",
+      "bytes": 1630,
+      "sha256": "e248f7b7678b0fad932133aa5a180aecb8bbae1b1a010da62d1fd5204d44a8ae"
+    },
+    "nativeSelectedCall": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/fresh-linked-runtime/selected-call-proof.json",
+      "bytes": 3084,
+      "sha256": "cdd6e0a1274e8beaef415b7d8bb2e19e67f3442af6885e989ce9521a2377d10a"
+    },
+    "smoke": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/native-link-1/aot-smoke/results.json",
+      "bytes": 2255,
+      "sha256": "93901f852f4b4656fd5c59802c7cecdaa292a90fa5d6895605a00f5c3c6939b5"
+    },
+    "compilerParity": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/compiler-parity-1/receipt.json",
+      "bytes": 115377,
+      "sha256": "1962c530d5da23e7737c69e1d7e21fcc316bffde4220d6e8f2b56b2894b57bd2"
+    },
+    "compilerParityRootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/compiler-parity-1/root-review.json",
+      "bytes": 1359,
+      "sha256": "a4d80aededaad1c2e26ddacc294549c766bb8d5d519fbb0a2263c13554d8bb91"
+    },
+    "fixedTrial": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/receipt.json",
+      "bytes": 85325,
+      "sha256": "7fac19800211c6aa41068abab75cc38b51855c61225d2d878e039d2eec0841b1"
+    },
+    "fixedTrialRootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-1/root-review.json",
+      "bytes": 32391,
+      "sha256": "b2d615f38402b1b946e5d5da9cfa1e97c14c4d647b7ccdeade6e5700b41c65a2"
+    },
+    "rawIndex": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-audit-1/raw-artifacts.json",
+      "bytes": 27543,
+      "sha256": "7c6bce7267ed510038ef4ba64ab1b1915b4f09e97474791c4a0e5bf95144110b"
+    },
+    "counterAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-audit-1/completion.json",
+      "bytes": 26661,
+      "sha256": "88a2c1410656c052f25e234c471d3b0709773e19e9ef2ddf7633061e764fc191"
+    },
+    "ownedTerminal": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/fixed-performance-audit-1/owned-terminal-proof.json",
+      "bytes": 57895,
+      "sha256": "fa15509c6765dbd9053b5a571f721f7c576ea94ac266cbd3d6de411be5f35030"
+    },
+    "fixedDriver": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/run.py",
+      "bytes": 17989,
+      "sha256": "4e510fce124e9122db7e21ce313f39702ee275a865e773cb4bc692052dd4c2d5"
+    },
+    "fixedConfig": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/config.json",
+      "bytes": 20116,
+      "sha256": "9c0c58e25073d26b74df010b95dcf8f8abc3c0542ef012c1445a6c8eb33fa8b8"
+    },
+    "fixedProtocol": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/protocol.json",
+      "bytes": 873,
+      "sha256": "ac731e47e5e930c9e9e6a26f42dd5ba16da2ab42cd052a056184c70eac85a5ff"
+    },
+    "rootWindowRelease": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/root-release-1.json",
+      "bytes": 932,
+      "sha256": "66033492ce14ce3a212c01ab6b3563b42bc466638cf50305d9668a6e26282784"
+    },
+    "luaProviderProof": {
+      "path": "/Users/dowling/projects/nupp-wt/primary-image-hash-scratch/performance-plan-1/lua-provider-current-readonly.json",
+      "bytes": 134075,
+      "sha256": "31a278ce9ebbcd471a6bff60fd2d827aafd1aa2f00487d7cdcb166b5bffb59e6"
+    }
+  },
+  "sourceCommitIdentityRecordedByGit": true
+}

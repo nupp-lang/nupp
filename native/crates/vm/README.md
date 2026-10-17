@@ -4179,3 +4179,43 @@ is made for the combined correctness changes. See
 [parser allocation
 evidence](tests/compiler-image-parser-allocation-investigation.json)
 for every sample, paired ratio, source identity and preserved failed wrapper.
+
+## Primary image hashing (2026-10-17)
+
+Primary image hashing meets its fixed warm startup gate on little-endian AArch64
+with `net`. It uses the existing `ring` SHA-256 backend for the raw image bytes
+and retains `sha2` on other targets or without `net`.
+
+Nine warm pairs and one cold pair precede five conditional root pairs. Every
+pair includes LuaJIT, all 45 samples remain, and the median paired
+candidate/baseline changes are:
+
+| Metric | Warm lexer | Root emit |
+| --- | --- | --- |
+| Cycles | -5.5050% | +0.0375% |
+| Instructions | -5.0164% | -0.0348% |
+| Wall time | -5.5556% | -0.2386% |
+| Peak RSS | -0.0953% | -0.2365% |
+
+Both warm reductions exceed the required 5%; both root changes stay within the
+5% regression ceilings. Warm wall medians are 0.54 s baseline, 0.51 s candidate
+and 0.39 s LuaJIT, so the warm LuaJIT gap remains. This is a hash-specific
+startup improvement, separate from prior parser work.
+
+The single cold pair rises from 44.69 to 46.67 s, or 4.43%; LuaJIT takes 62.64
+s. It is diagnostic: parent PMU counters omit worker CPU totals. Foreign CPU
+activity remains recorded, so the trial makes no quiet-host or
+confidence-interval claim.
+
+Digest, checkpoint and real-image controls pass with and without `net`. Full
+default+AOT and no-codegen matrices pass 347 and 280 tests, respectively,
+with five ignored rows each; the ignored real-image fixture ran separately in
+both focused gates. All 6,580 ABI 4 entries link, and the unchanged smoke harness passes 13
+checks in two fresh processes with executable memory denied.
+
+Cold checks compile all 505 modules with two workers and no retries; every timed
+warm check reuses 36 modules. All root image bytes match, source and provider
+hashes remain fixed, and the original cache bytes and inode are restored. No
+additional samples or build-time speed claim follow. See [primary image hash
+evidence](tests/primary-image-hash-results.json) for the exact kernels, backend
+selection, raw counters and scope.

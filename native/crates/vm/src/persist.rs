@@ -357,8 +357,23 @@ fn unframe(data: &[u8], kind: u8) -> Result<&[u8]> {
 /// objects can reattach only after comparing this to their build-time digest.
 pub fn primary_image_hash(vm: &Interp) -> Result<[u8; 32]> {
     match vm.code_events.first() {
-        Some(CodeEvent::Image(text)) => Ok(Sha256::digest(text.as_bytes()).into()),
+        Some(CodeEvent::Image(text)) => Ok(primary_image_digest(text.as_bytes())),
         _ => Err("linked code requires an image loaded before runtime globals".into()),
+    }
+}
+
+// Hash the raw image bytes without the persistence code digest's tags/lengths.
+// ring is already part of a net-enabled ARM64 runtime through TLS; its backend
+// selects CPU SHA256 support. Other targets and minimal builds retain sha2.
+fn primary_image_digest(bytes: &[u8]) -> [u8; 32] {
+    #[cfg(all(target_arch = "aarch64", target_endian = "little", feature = "net"))]
+    {
+        let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
+        digest.as_ref().try_into().expect("SHA256 has 32 bytes")
+    }
+    #[cfg(not(all(target_arch = "aarch64", target_endian = "little", feature = "net")))]
+    {
+        Sha256::digest(bytes).into()
     }
 }
 
@@ -2442,4 +2457,48 @@ fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut Resource
         vm.clock.restore(saved.as_num());
     }
     Ok(vm)
+}
+
+#[cfg(test)]
+mod primary_image_digest_tests {
+    use super::primary_image_digest;
+    use sha2::{Digest, Sha256};
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn raw_primary_image_hash_matches_standard_vectors() {
+        for (input, expected) in [
+            (
+                &b""[..],
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                &b"abc"[..],
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                &b"a\0b"[..],
+                "59b271ae1bbcb1d31d41929817f4b16fb439eb4f31520b5ad1d5ce98920a7138",
+            ),
+        ] {
+            assert_eq!(hex(&primary_image_digest(input)), expected);
+        }
+    }
+
+    #[test]
+    fn raw_primary_image_hash_matches_sha2_at_padding_and_binary_boundaries() {
+        for length in [
+            1, 2, 3, 31, 32, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 1024, 65537,
+        ] {
+            let bytes: Vec<u8> = (0..length).map(|i| (i * 37 + 129) as u8).collect();
+            let expected: [u8; 32] = Sha256::digest(&bytes).into();
+            assert_eq!(primary_image_digest(&bytes), expected, "{length} bytes");
+        }
+        let unicode = "image λ 🦀\0é\r\n".as_bytes();
+        let expected: [u8; 32] = Sha256::digest(unicode).into();
+        assert_eq!(primary_image_digest(unicode), expected);
+    }
 }

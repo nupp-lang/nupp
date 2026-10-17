@@ -1456,6 +1456,7 @@ dependencies = [
  "nupp-native-tls",
  "pulldown-cmark",
  "regex",
+ "ring",
  "serde_json",
  "sha2",
  "tikv-jemallocator",
