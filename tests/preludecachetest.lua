@@ -232,20 +232,38 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
         saved[name] = value
     end
 
-    -- What a lane does between suites: every compiler module is loaded afresh,
-    -- except the one that owns type identity.
-    -- On the VM the trivia arena is the table provider the host installed, and a
-    -- fresh copy of the module would reach for the `ffi` one, which the VM has
-    -- not got; it keeps its provider the way `types` keeps identity.
+    -- Reload compiler modules over the same type identity, keeping the host's
+    -- runtime providers and the VM's selected trivia arena in place.
     local vm = rawget(_G, "__nupp_load_image") ~= nil
+
     local function unloadAllButTypes()
         for name in pairs(package.loaded) do
             if type(name) == "string"
-                and name:match("^nupp%.")
+                and name:match("^nupp%.compiler%.")
                 and name ~= "nupp.compiler.types"
-                and not (vm and name:match("^nupp%.compiler%.syntax%.triviaarena"))
+                and not (
+                    vm
+                    and (
+                        name == "nupp.compiler.hostpid"
+                        or name == "nupp.compiler.nativehash"
+                        or name == "nupp.compiler.nativecdecl"
+                        or name:match("^nupp%.compiler%.syntax%.triviaarena")
+                    )
+                )
             then
                 package.loaded[name] = nil
+            end
+        end
+        test.equal(package.loaded["nupp.compiler.types"], saved["nupp.compiler.types"], "type identity stays shared")
+        if vm then
+            for _, name in ipairs({
+                "nupp.compiler.hostpid",
+                "nupp.compiler.nativehash",
+                "nupp.compiler.nativecdecl",
+                "nupp.digest.internal.sha256",
+            }) do
+                assert(saved[name] ~= nil, "the VM installed " .. name)
+                test.equal(package.loaded[name], saved[name], "the host provider stays installed: " .. name)
             end
         end
     end
@@ -266,10 +284,15 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
     local ok, problem = pcall(function()
         -- The first writes the image, the second is a first environment again and
         -- finds it.
+        local originalEnv = require("nupp.compiler.project.env")
         unloadAllButTypes()
-        require("nupp.compiler.project.env").new(dir, {cacheDir = store})
+        local firstEnv = require("nupp.compiler.project.env")
+        assert(firstEnv ~= originalEnv, "the first compiler environment module was reloaded")
+        firstEnv.new(dir, {cacheDir = store})
         unloadAllButTypes()
-        local env = require("nupp.compiler.project.env").new(dir, {cacheDir = store})
+        local secondEnv = require("nupp.compiler.project.env")
+        assert(secondEnv ~= firstEnv, "the second compiler environment module was reloaded")
+        local env = secondEnv.new(dir, {cacheDir = store})
 
         local types = require("nupp.compiler.types")
         local byId, shared = {}, {}
