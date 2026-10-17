@@ -1,0 +1,354 @@
+{
+  "schemaVersion": 1,
+  "status": "Fixture-only cleanup accepted; ordinary selected3 and complete process/suspension95 pass; no complete repository baseline or controlled red/green",
+  "scope": "test-fixture-only cleanup; no compiler or runtime semantics change claimed",
+  "changedSource": "tests/processtest.lua",
+  "before": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/processtest.before.lua",
+    "bytes": 65099,
+    "sha256": "626b4093c8e5fbf4be7d246fb7d5114c98e14c7ddfce067e418a42c5539f35bb"
+  },
+  "formattedCandidate": {
+    "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/processtest.formatted.lua",
+    "bytes": 65114,
+    "sha256": "bf0c9a2779c2c21ed9570246c51d142ebd366012ca0609739478293970886406"
+  },
+  "behavior": "After awaited task and scope closure, snapshot sleeps; close child; preserve exitCode==0 and snapshot>0 assertions. Cleanup itself cannot satisfy the measured wait assertion. Other diff hunks are formatter output.",
+  "originalStateDependentObservation": {
+    "fullSerial": {
+      "status": "INCOMPLETE_CANCELED",
+      "requiredEntryRoute": "ordinary-project.test",
+      "requiredCommand": [
+        "./bin/nupp",
+        "test",
+        "--jobs=1",
+        "--json",
+        "--exclude=memarenatest"
+      ],
+      "attemptCompletedAsBaseline": false,
+      "completeAggregateAvailable": false,
+      "wrapperExitCode": 15,
+      "elapsedSeconds": 2374.486850375,
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/ordinary-full-serial.json",
+        "bytes": 43,
+        "sha256": "6df194157e2e56406246cb7bca8d42bfbd54eeb3f05a00fa11546c26a07af38b"
+      },
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/ordinary-full-serial.stderr",
+        "bytes": 166200,
+        "sha256": "55fdf85d160911bbbd2342a245cc741a6e445b3f034fe550e2c225d64ea6c63a"
+      },
+      "terminalReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/terminal-process-receipt.json",
+        "bytes": 5536,
+        "sha256": "9d03728fdc7db7a3a75b1b5242bb5c5f308c6be6089a2ef3e714888e34ff5f10"
+      },
+      "cancellationControl": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/cancellation-control.json",
+        "bytes": 4867,
+        "sha256": "8e4eede4bc18559665300e0660e092134fa4168189df01c29cb4fd3242de5ced"
+      },
+      "terminalProof": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/terminal-proof.json",
+        "bytes": 1977,
+        "sha256": "3c8b825fffaabacbe3d0767cf9d7c0988d5f08b2a40932000c88d4357938f4c9"
+      },
+      "counterAndFailureDisposition": "No full-case counters or complete baseline inferred from trace output.",
+      "replacementFullBaseline": "PENDING; still required before Node broad comparison and timing",
+      "fixtureCleanupEvidence": "process-fixture-cleanup-results.json"
+    },
+    "traceEvidenceOnly": [
+      {
+        "line1Based": 2848,
+        "text": "__failure__:tests/processtest.lua:1414: expected a truthy value, got false: the driver slept in the platform between quiet passes"
+      },
+      {
+        "line1Based": 3420,
+        "text": "__failure__:tests/suspensiontest.lua:521: expected false, got true: an idle context pump is not something that can make progress: gave up"
+      },
+      {
+        "line1Based": 3455,
+        "text": ".__case__:reportsAWaitNothingCanComplete"
+      }
+    ],
+    "sourceFlow": "Original sleep assertion precedes child:close, so that assertion failure skips teardown. Later context-source assertion fails and no-readiness test does not finish. These observations do not establish a complete report or a runtime repair.",
+    "sourceAndRunnerPreserved": {
+      "source10Unchanged": true,
+      "defaultRunnerUnchanged": true,
+      "payloadUnchanged": true,
+      "defaultRunnerSha256": "67cb8b9d63bd96035ce4713ff633fa399d5705ca29749d9533b761d28f454c5c",
+      "payloadSha256": "05ff537c261072fbb360aa27b8a5d47cc06a3ce60203d2c7d7e61bc0bc8bc671",
+      "selectedCompilerRuntime": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-validation/.nupp/vm-cli/2e1261ed5991e55356fe78b0ee2af38273ea7051be29524e1d6b00f0ae892624/runtime",
+        "bytes": 217750360,
+        "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+      },
+      "selectedCompilerImage": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-validation/.nupp/vm-cli/2e1261ed5991e55356fe78b0ee2af38273ea7051be29524e1d6b00f0ae892624/compiler.image",
+        "bytes": 21224819,
+        "sha256": "7b80b79f26934e9c71990212a329bdaba4e8d6d9263ca6fcda259d3bc43f6eb3"
+      }
+    }
+  },
+  "freshOriginalReplay": {
+    "status": "passed; negative replay of state-dependent failure",
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "--case=processtest/aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+      "--case=suspensiontest/aContextSourceTakesAnActivityPredicate",
+      "--case=suspensiontest/reportsAWaitNothingCanComplete"
+    ],
+    "entryRoute": "ordinary-project.test",
+    "sourceSha256": "626b4093c8e5fbf4be7d246fb7d5114c98e14c7ddfce067e418a42c5539f35bb",
+    "summary": {
+      "schemaVersion": 1,
+      "ok": true,
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0,
+      "durationMs": 10417.04296875
+    },
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/red.json",
+      "bytes": 1346,
+      "sha256": "40f0f7b69169cc318e0f91f83274f975c92bf996799d59c55475c60095d0b3ef"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/red.stderr",
+      "bytes": 160,
+      "sha256": "7c4b896c3cd4b907228ab04015ae6de943516b45e3fabc15351a29e531fd8a89"
+    },
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/red-receipt.json",
+      "bytes": 3305,
+      "sha256": "ae8d63cf9e0da066a8fca73926b4bab469770027a4af58870740071ee0d6b621"
+    },
+    "limitation": "All three cases pass on original626 in a fresh selected run; this is not a successful reproduction and must not be called a red result despite historical filename."
+  },
+  "formattedOrdinarySelectedThree": {
+    "status": "passed",
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "--case=processtest/aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+      "--case=suspensiontest/aContextSourceTakesAnActivityPredicate",
+      "--case=suspensiontest/reportsAWaitNothingCanComplete"
+    ],
+    "cwd": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+    "entryRoute": "ordinary-project.test",
+    "summary": {
+      "schemaVersion": 1,
+      "ok": true,
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0,
+      "durationMs": 10892.085205078125
+    },
+    "sourceUnchanged": true,
+    "sourceSha256": "bf0c9a2779c2c21ed9570246c51d142ebd366012ca0609739478293970886406",
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-focused/stdout",
+      "bytes": 1365,
+      "sha256": "2c4a2c7b68d271863315f673cc061cc99fed88bd57e83531c750ca73e3a343e5"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-focused/stderr",
+      "bytes": 160,
+      "sha256": "7c4b896c3cd4b907228ab04015ae6de943516b45e3fabc15351a29e531fd8a89"
+    },
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-focused/receipt.json",
+      "bytes": 874,
+      "sha256": "24fcbcf76d06c02e420a16928efba754941c5c61013e84506df391abf67eda84"
+    },
+    "limitation": "Existing cases on formattedbf0c pass; natural state-dependent original failure is not replayed."
+  },
+  "wholeSuitePair": {
+    "status": "passed",
+    "scope": "both complete existing process+suspension suites through ordinary public CLI; not a full repository baseline",
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "processtest",
+      "suspensiontest"
+    ],
+    "cwd": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+    "entryRoute": "ordinary-project.test",
+    "sourceSha256": "bf0c9a2779c2c21ed9570246c51d142ebd366012ca0609739478293970886406",
+    "sourceUnchanged": true,
+    "summary": {
+      "schemaVersion": 1,
+      "ok": true,
+      "total": 95,
+      "passed": 95,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0,
+      "durationMs": 11152.31103515625
+    },
+    "caseCountsBySuite": {
+      "processtest": 53,
+      "suspensiontest": 42
+    },
+    "runnerHealth": {
+      "duplicateIds": {},
+      "unusableRunnerRows": []
+    },
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-pair/stdout",
+      "bytes": 21676,
+      "sha256": "e9f7c5b3bfc0800b41b8414526eed3a47f35115241cd29d9147ed8d52927da56"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-pair/stderr",
+      "bytes": 4667,
+      "sha256": "a37a0974be0a036e3e2ba2899b3aadc22d1cb90c7870bdfcf5db531ac9832b4e"
+    },
+    "receipt": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/process-fixture-cleanup/integration-pair/receipt.json",
+      "bytes": 703,
+      "sha256": "4b18419c407c5de00d022adcb543a6d78aada8b9ce87ccd0da6d16e8a5c0b103"
+    }
+  },
+  "controlledInjection": {
+    "status": "INCOMPLETE_NO_VERIFIED_OUTCOME",
+    "redGreenReproductionEstablished": false,
+    "controlledGreenRun": {
+      "status": "NOT_RUN"
+    },
+    "attempts": [
+      {
+        "directory": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/fault-red",
+        "status": "INCOMPLETE; external deadline; no verified intercept or outcome",
+        "command": [
+          "/Users/dowling/projects/nupp-wt/typed-shapes-validation/build/nupp-test",
+          "--jobs=1",
+          "--json",
+          "processcleanupprobetest"
+        ],
+        "scope": "Explicit fault injection at exact original sleep assertion, testing failure cleanup only; unchanged ordinary manifest defaultRunner executable launched directly in private fixture, not public project.test baseline.",
+        "totalDeadlineSeconds": 90,
+        "exitCode": -15,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/fault-red/receipt.json",
+          "bytes": 3100,
+          "sha256": "8ec2a7e33f7809c67e3cde595d1b7f27a5e2d6c1d6d1cc8f4c3726836aa0a25b"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/fault-red/stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/fault-red/stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "completedRunnerReport": false,
+        "interceptVerified": false,
+        "defaultRunnerUnchanged": true,
+        "sourceInventoryRestored": null,
+        "markerScope": "No markers in private run; warmed/primed runs emit only aForcedWaitAssertionFailure case marker, not completion or verified interception."
+      },
+      {
+        "directory": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/warm-fault-red",
+        "status": "INCOMPLETE; external deadline; no verified intercept or outcome",
+        "command": [
+          "/Users/dowling/projects/nupp-wt/typed-shapes-validation/build/nupp-test",
+          "--jobs=1",
+          "--json",
+          "processcleanupprobetest"
+        ],
+        "scope": "Explicit fault injection at exact original sleep assertion, testing failure cleanup only; unchanged ordinary manifest defaultRunner executable launched directly in warmed validation cwd with temporary owned probe suite, not public project.test baseline.",
+        "totalDeadlineSeconds": 90,
+        "exitCode": -15,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/warm-fault-red/receipt.json",
+          "bytes": 3872,
+          "sha256": "d0644e77c715f05d61e281ba71b962313dac740d5df9ce985e824461bcc08ed6"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/warm-fault-red/stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/warm-fault-red/stderr",
+          "bytes": 37,
+          "sha256": "eb5f23e7b34387327cbe612cc23f05c2b6f95d138b7ee72a5240f63d5021765a"
+        },
+        "completedRunnerReport": false,
+        "interceptVerified": false,
+        "defaultRunnerUnchanged": true,
+        "sourceInventoryRestored": true,
+        "markerScope": "No markers in private run; warmed/primed runs emit only aForcedWaitAssertionFailure case marker, not completion or verified interception."
+      },
+      {
+        "directory": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/primed-fault-red",
+        "status": "INCOMPLETE; external deadline; no verified intercept or outcome",
+        "command": [
+          "/Users/dowling/projects/nupp-wt/typed-shapes-validation/build/nupp-test",
+          "--jobs=1",
+          "--json",
+          "processcleanupprobetest"
+        ],
+        "scope": "Explicit fault injection at exact original sleep assertion after existing read fixture primes providerstate without wrapping assertions, testing failure cleanup only; unchanged ordinary manifest defaultRunner executable launched directly in warmed validation cwd with temporary owned probe suite, not public project.test baseline.",
+        "totalDeadlineSeconds": 90,
+        "exitCode": -15,
+        "receipt": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/primed-fault-red/receipt.json",
+          "bytes": 3957,
+          "sha256": "df78a5fee08d964045b9bb3f28eb81cad6bfd505e96db43442d8698a6575fc9b"
+        },
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/primed-fault-red/stdout",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/primed-fault-red/stderr",
+          "bytes": 37,
+          "sha256": "eb5f23e7b34387327cbe612cc23f05c2b6f95d138b7ee72a5240f63d5021765a"
+        },
+        "completedRunnerReport": false,
+        "interceptVerified": false,
+        "defaultRunnerUnchanged": true,
+        "sourceInventoryRestored": true,
+        "markerScope": "No markers in private run; warmed/primed runs emit only aForcedWaitAssertionFailure case marker, not completion or verified interception."
+      }
+    ],
+    "finalDisposition": {
+      "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/process-fixture-cleanup/probe-disposition.json",
+      "bytes": 7663,
+      "sha256": "3404c072ef22ee81364174280ca578262bae17a3cd08e7ab4391bccb35f66e80"
+    },
+    "scope": "Preparations to test cleanup sequencing only; none proves the original state-dependent failure, a successful injected assertion, or subsequent cleanup behavior. No further attempts are inferred."
+  },
+  "selectedCaseIds": [
+    "processtest/aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning",
+    "suspensiontest/aContextSourceTakesAnActivityPredicate",
+    "suspensiontest/reportsAWaitNothingCanComplete"
+  ],
+  "limits": [
+    "Evidence preparation read preserved artifacts; the separate ordinary installed-CLI validation commands are recorded above.",
+    "Canceled ordinary full serial remains incomplete, not passing or a usable Node full baseline.",
+    "Fresh-original3 replay, formatted ordinary3+95 validation, and incomplete explicit injection preparations are distinct evidence classes.",
+    "Original fresh3PASS does not reproduce the state-dependent original full-run failure.",
+    "No controlled red/green claim: all three90-second preparations lack verified interception/completed reports; no controlled green was run.",
+    "No runtime semantics, compiler performance, broad acceptance, or queue completion claim.",
+    "Existing transport full-parallel report and prior scoped gates remain unchanged; this fixture evidence does not establish ordinary full serial acceptance."
+  ],
+  "acceptanceScope": "Root accepts minimal fixture-only cleanup from actual original skipped-close source flow, retained exit/sleep assertions, preserved original stalled-run evidence, and ordinary selected3 plus complete95-case process/suspension validation."
+}

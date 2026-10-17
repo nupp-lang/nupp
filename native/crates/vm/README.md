@@ -3916,8 +3916,21 @@ limit. The ordinary acceptance baseline uses the manifest test runner:
 ./bin/nupp test --jobs=1 --json --exclude=memarenatest
 ```
 
-The ordinary full serial baseline is running. Its complete report and exact
-failure disposition are required before Node broad validation and timing.
+The ordinary full serial attempt was canceled without a complete report. A
+process-fixture assertion failed before child cleanup, and a later suspension
+case stalled. Its raw output and terminal receipt remain preserved; it is
+not a complete baseline.
+
+The fixture now snapshots the wait's sleep count and closes the child before
+checking its exit and sleep assertions. Ordinary validation passes the three
+selected cases and all 95 process/suspension cases. The original fixture also
+passes the fresh three-case replay, which does not reproduce the earlier
+state-dependent failure. Three explicit injection preparations ended at their
+external deadlines without a verified outcome; no red/green reproduction is
+claimed. A complete ordinary full baseline remains required before Node broad
+comparison and timing. See
+[fixture cleanup evidence](tests/process-fixture-cleanup-results.json) for the
+source, report identities and limits.
 
 The full parallel report retains all 3,555 case IDs: 3,472 pass, 46 fail and 37
 are not executed. Prior evidence matches 45 failure messages exactly. The

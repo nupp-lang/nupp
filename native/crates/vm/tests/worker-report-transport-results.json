@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "date": "2026-10-17",
-  "status": "Implementation accepted; ordinary public full serial baseline pending",
+  "status": "Implementation accepted; first ordinary full serial attempt canceled incomplete; replacement baseline pending",
   "purpose": "Process worker report transport, carried source freshness and repeated-install provenance correctness repair",
   "baseRevision": "a6f840ef0316f13c71fe2fe471e82b7aa190e085",
   "sourceFiles": {
@@ -522,7 +522,7 @@
       }
     },
     "ordinaryFullSerial": {
-      "status": "PENDING",
+      "status": "INCOMPLETE_CANCELED",
       "requiredEntryRoute": "ordinary-project.test",
       "requiredCommand": [
         "./bin/nupp",
@@ -531,14 +531,38 @@
         "--json",
         "--exclude=memarenatest"
       ],
-      "expectedRawReport": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial.json",
-      "expectedReceipt": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-receipt.json",
-      "processRouteProof": {
-        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-process-proof.json",
-        "bytes": 1454,
-        "sha256": "aa9e21236d2e3dfd35a33cf8ed4fb651b905bcf26e6b59b8ec52c6fa95c979be"
+      "attemptCompletedAsBaseline": false,
+      "completeAggregateAvailable": false,
+      "wrapperExitCode": 15,
+      "elapsedSeconds": 2374.486850375,
+      "report": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/ordinary-full-serial.json",
+        "bytes": 43,
+        "sha256": "6df194157e2e56406246cb7bca8d42bfbd54eeb3f05a00fa11546c26a07af38b"
       },
-      "counterAndFailureDisposition": "PENDING; no result inferred from starts"
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/ordinary-full-serial.stderr",
+        "bytes": 166200,
+        "sha256": "55fdf85d160911bbbd2342a245cc741a6e445b3f034fe550e2c225d64ea6c63a"
+      },
+      "terminalReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/terminal-process-receipt.json",
+        "bytes": 5536,
+        "sha256": "9d03728fdc7db7a3a75b1b5242bb5c5f308c6be6089a2ef3e714888e34ff5f10"
+      },
+      "cancellationControl": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/cancellation-control.json",
+        "bytes": 4867,
+        "sha256": "8e4eede4bc18559665300e0660e092134fa4168189df01c29cb4fd3242de5ced"
+      },
+      "terminalProof": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/ordinary-full-serial-hang/terminal-proof.json",
+        "bytes": 1977,
+        "sha256": "3c8b825fffaabacbe3d0767cf9d7c0988d5f08b2a40932000c88d4357938f4c9"
+      },
+      "counterAndFailureDisposition": "No full-case counters or complete baseline inferred from trace output.",
+      "replacementFullBaseline": "PENDING; still required before Node broad comparison and timing",
+      "fixtureCleanupEvidence": "process-fixture-cleanup-results.json"
     },
     "coldVmRepositoryCheck": {
       "status": "passed",
