@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "status": "isolated C history repair accepted; integration pending",
+  "baseRevision": "b0e64f6f8935783a9a4bfbca6c336c32e8fd68a4",
+  "sourceCode": {
+    "native/crates/vm/src/cdecl.rs": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/src/cdecl.rs",
+      "bytes": 48361,
+      "sha256": "fc30b60207c2b950bd4d38514d8b2162145bfc3f1889800439c966e1b8b9b0d4"
+    },
+    "native/crates/vm/tests/c_declarations.rs": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/tests/c_declarations.rs",
+      "bytes": 24694,
+      "sha256": "8517197e5640b333192ab719750c631e6115b6cb0deae230a31fe94e3a9b8868"
+    }
+  },
+  "contracts": [
+    "Anonymous struct/union members have no tag binding; recurse through their children and retain named nested-tag and enum refusal.",
+    "Use Clang top-level declaration starts to bound complete token groups, including trailing attributes and semicolons.",
+    "Retain binding/type certificates, current-unit ownership, lexical/preprocessing/diagnostic refusals and ordinary Clang conflict fallback."
+  ],
+  "native": {
+    "default-aot": {
+      "passed": 383,
+      "ignored": 5,
+      "boundaries": 57,
+      "nestedExcluded": 6
+    },
+    "plain8": {
+      "passed": 316,
+      "ignored": 5,
+      "boundaries": 57,
+      "nestedExcluded": 6
+    }
+  },
+  "focusedDeclarationTests": 23,
+  "interpreterOnlyCompilation": "passed",
+  "ordinaryPublic": {
+    "passed": 76,
+    "failed": 0,
+    "sourceModulesVerified": 501,
+    "externalDeclarations": 2,
+    "originalRawTrailerDigestVerified": true,
+    "executedRunner": "Live owned proc_pidpath exactly matched the frozen default runner"
+  },
+  "linked": {
+    "runtime": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/canonical-linked-1/runtime",
+      "bytes": 218977256,
+      "sha256": "d76f8fa66f26d6458f21036bf6b2d5a06a0448de1fb524eab5e33c5da28438d7"
+    },
+    "ABI": 4,
+    "functions": 6589,
+    "smokePassed": 13,
+    "freshProcesses": 2,
+    "executableMemoryDenied": true
+  },
+  "canonicalImage": {
+    "sha256": "602f892070bbdaa4d724eb5505c4db60dc3c13bd2a027f5111b92e0ea3a7bf79",
+    "bytes": 21190493,
+    "functions": 6589
+  },
+  "objectReuse": "Matched canonical object is valid: only C parser and native tests changed; compiler, JIT, compiled helpers, Interp layout and ABI are unchanged.",
+  "acceptedEvidence": {
+    "native": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/native-matrix-1/receipt.json",
+      "bytes": 2426868,
+      "sha256": "2f94ac88e13cd636863d48b6642f287b248c3849812d7244aff4e054fa7e9bc0"
+    },
+    "ordinaryC76": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/ordinary-public-C76-2/receipt.json",
+      "bytes": 87244,
+      "sha256": "2ed949de50c4a85c1427a5f5bcf4d663c8265b22643af8394402ece0440f989c"
+    },
+    "linkedRecovery": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/canonical-link-recovery-1/receipt.json",
+      "bytes": 10909,
+      "sha256": "f05de48af3643f39dfcb9f61716b046bdb1cca24d631645212b63a619e5104a8"
+    },
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/final-root-review.json",
+      "bytes": 3040,
+      "sha256": "ced541912abf8de109a2f6c6289b71a2f8f9b7d8e7b2473f5bea3b7036061c6d"
+    },
+    "anonymousGreen": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/green-anonymous-history-1/receipt.json",
+      "bytes": 28651,
+      "sha256": "ce20730c789b6e483d768fc491bb04606a7053b68d3e3754d0757fd6b7423792"
+    },
+    "attributeGreen": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/green-attribute-history-1/receipt.json",
+      "bytes": 28653,
+      "sha256": "8b2261a153cb73143a92853df0d6585d39fcea236251777ec81516fb5b4ae0f5"
+    }
+  },
+  "preservedEvidence": {
+    "anonymousSemanticRed": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/red-anonymous-history-2/receipt.json",
+      "bytes": 13669,
+      "sha256": "498b278e755b2e7192e2fbdb75c28b8dc31261cf41d17689e89093f16b68cda9"
+    },
+    "attributeSemanticRed": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/red-trailing-attribute-probe-2/receipt.json",
+      "bytes": 23310,
+      "sha256": "89993df51eef004cc89d3be36ad0a99b2182509841218305d91ed6520efef47e"
+    },
+    "wrongFixtureRed": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/red-anonymous-history-1/receipt.json",
+      "bytes": 30727,
+      "sha256": "53c231c91a5c6a5ccb154deb4a56ccb8412117481fd111f710b2be0c50e7d109"
+    },
+    "instrumentationCompileFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/red-trailing-attribute-probe-1/receipt.json",
+      "bytes": 7943,
+      "sha256": "afa71a1089ac8f47487738674197612f0e4304ed43b3bb08b00fe4a33783088b"
+    },
+    "firstCandidatePublicFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/ordinary-public-C76-1/receipt.json",
+      "bytes": 73281,
+      "sha256": "ef967943cad0c3ab56368294dce05927fa5e94c7df8e36d4106348c469bffc7a"
+    },
+    "linkedWrapperFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/canonical-linked-1/receipt.json",
+      "bytes": 69224,
+      "sha256": "111eab0ed8b6c553a14166b1cebd42574ac5e57384db91f3acf5d93415c856b8"
+    }
+  },
+  "wrapperRecovery": "canonical-linked-1 asserted generic cargo:rustc-link-arg; actual successful link uses cargo:rustc-link-arg-bin=nupp-vm. Recovery read three existing successful stages, verified actual directive/sidecar, and ran only still-unrun smoke. Original receipt remains failed.",
+  "limits": [
+    "No new full corpus aggregate or performance claim.",
+    "No cross-platform validation.",
+    "Canonical compiler fixpoint is reused because compiler sources and code generation are unchanged."
+  ]
+}

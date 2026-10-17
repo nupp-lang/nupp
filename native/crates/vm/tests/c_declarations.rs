@@ -520,3 +520,104 @@ fn replay_does_not_hide_nested_tag_rebinding() {
     );
     assert_eq!(request(&mut registry, "functions", ""), before);
 }
+#[test]
+fn anonymous_aggregate_members_keep_unrelated_replay_available() {
+    let mut registry = Registry::new().unwrap();
+    let whole = COMPLETE_UNITS.join("\n");
+    let first = inspect(&mut registry, json!(whole), Value::Null);
+    let id = complete_model(&mut registry, &first, false);
+    let aggregate =
+        "struct layout_tagged { int32_t tag; union { int32_t i; double d; }; int32_t after; };";
+    let aggregate_model = inspect(&mut registry, json!(aggregate), Value::Null);
+    assert_eq!(aggregate_model["structs"][0]["anonymous"], 1);
+    let before = request(&mut registry, "type", "struct layout_tagged");
+    let split = inspect(&mut registry, json!(COMPLETE_UNITS), Value::Null);
+    assert_eq!(complete_model(&mut registry, &split, true), id);
+    assert_eq!(
+        request(&mut registry, "type", "struct layout_tagged"),
+        before
+    );
+}
+
+#[test]
+fn anonymous_members_do_not_hide_nested_namespace_changes() {
+    for member in [
+        "union { struct Hidden { int n; } h; };",
+        "struct { struct Hidden { int n; } h; };",
+    ] {
+        let mut registry = Registry::new().unwrap();
+        request(&mut registry, "declare", "int visit(struct Hidden *value);");
+        request(
+            &mut registry,
+            "declare",
+            &format!("struct AnonymousWrapper {{ {member} }};"),
+        );
+        assert!(
+            registry
+                .execute(
+                    &json!({"operation":"declare", "text":"int visit (struct Hidden *value);"})
+                )
+                .is_err(),
+            "anonymous member hid a file-scope tag: {member}"
+        );
+    }
+    let mut registry = Registry::new().unwrap();
+    request(
+        &mut registry,
+        "declare",
+        "typedef struct { int FUTURE_ENUM; } BeforeNestedEnum;",
+    );
+    request(
+        &mut registry,
+        "declare",
+        "struct NestedEnumWrapper { enum { FUTURE_ENUM = 1 } value; };",
+    );
+    assert!(registry.execute(&json!({"operation":"declare", "text":"typedef struct { int /* replay */ FUTURE_ENUM; } BeforeNestedEnum;"})).is_err(), "nested enum bindings must still close replay");
+}
+
+#[test]
+fn trailing_type_attributes_keep_unrelated_replay_available() {
+    let mut registry = Registry::new().unwrap();
+    let first = inspect(&mut registry, json!(COMPLETE_UNITS.join("\n")), Value::Null);
+    let id = complete_model(&mut registry, &first, false);
+    request(
+        &mut registry,
+        "declare",
+        "typedef int32_t layout_wide_int __attribute__((aligned(8)));",
+    );
+    let before = request(&mut registry, "type", "layout_wide_int");
+    let split = inspect(&mut registry, json!(COMPLETE_UNITS), Value::Null);
+    assert_eq!(complete_model(&mut registry, &split, true), id);
+    assert_eq!(request(&mut registry, "type", "layout_wide_int"), before);
+}
+
+#[test]
+fn trailing_attributes_belong_to_their_declaration_group() {
+    let mut registry = Registry::new().unwrap();
+    let declaration = "typedef struct { int value; } Attributed __attribute__((aligned(8)));";
+    let function = "int attr_use(Attributed *value);";
+    let first = inspect(
+        &mut registry,
+        json!(format!("{declaration} {function}")),
+        Value::Null,
+    );
+    assert_eq!(first["rejected"], json!([]));
+    let id = first["structs"][0]["id"].clone();
+    let split = inspect(
+        &mut registry,
+        json!([
+            "typedef struct { int /* trivia */ value; } Attributed __attribute__ ((aligned (8)));",
+            function
+        ]),
+        Value::Null,
+    );
+    assert_eq!(split["rejected"], json!([]));
+    assert_eq!(split["structs"][0]["id"], id);
+    assert_eq!(split["structs"][0]["unit"], 1);
+    assert_eq!(split["functions"][0]["unit"], 2);
+    assert!(registry.execute(&json!({"operation":"declare", "text":"typedef struct { int value; } Attributed __attribute__((aligned(16)));"})).is_err(), "changed attribute tokens must use Clang diagnostics");
+    let repeated = inspect(&mut registry, json!(declaration), Value::Null);
+    assert_eq!(repeated["rejected"], json!([]));
+    assert_eq!(repeated["structs"][0]["id"], id);
+    assert_eq!(repeated["functions"], json!([]));
+}

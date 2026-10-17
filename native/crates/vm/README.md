@@ -4252,7 +4252,13 @@ literal tokens remain significant. Private tokenization retains the accepted
 typedef context and refuses lexical, parsing, preprocessing, fatal or unknown
 nonsemantic diagnostic categories. It never publishes the private model.
 
-Preprocessing, unsupported roots and nested tags missing from the complete
+Anonymous struct and union members introduce no tag binding, so they do not
+close replay. Their children still undergo the namespace check. Clang cursor
+ranges can end before trailing type attributes; the next accepted top-level
+declaration bounds the token group, which must cover the cursor and end with a
+semicolon. Attribute tokens remain part of the certificate.
+
+Preprocessing, unsupported roots and named nested tags missing from the complete
 file-scope inventory close the new replay path. Normal Clang parsing remains
 the fallback, including real conflicting declarations. The existing exact
 whole-text replay policy remains. Inspection records which struct/enum IDs and
@@ -4264,3 +4270,12 @@ IDs, so no libclang token or cursor outlives its translation unit.
 
 These repairs are assembled on the validation branch. Focused evidence does
 not yet establish the combined native, public CLI or self-hosting gates.
+
+The C history repair passes all 23 native declaration controls and all 76
+ordinary public C cases, including the earlier split-import failure. Full
+native builds pass 383 default-plus-AOT and 316 no-codegen tests, with five
+explicit ignores each; interpreter-only compilation passes too. The matching
+canonical image links all 6,589 ABI-4 entries and passes all 13 executable-memory
+denial controls in two fresh processes. These are isolated acceptance results;
+combined corpus integration remains pending. See
+[the C history acceptance record](tests/c-declaration-history-acceptance.json).

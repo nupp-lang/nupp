@@ -807,7 +807,11 @@ impl Registry {
                     let usr = api.text((api.clang_getCursorUSR)((api.clang_getCanonicalCursor)(
                         cursor,
                     )));
-                    if usr.is_empty() || !root_tags.contains(&usr) {
+                    // An anonymous aggregate member has no tag name to bind.
+                    // Its children still need the same namespace check.
+                    let anonymous_member = matches!(cursor.kind, 2 | 3)
+                        && (api.clang_Cursor_isAnonymousRecordDecl)(cursor) != 0;
+                    if !anonymous_member && (usr.is_empty() || !root_tags.contains(&usr)) {
                         return true;
                     }
                 }
@@ -848,22 +852,21 @@ impl Registry {
             }
         }
         let (mut at, mut result) = (0, Vec::new());
-        for (a, b, cursors) in merged {
+        let mut merged = merged.into_iter().peekable();
+        while let Some((a, b, cursors)) = merged.next() {
             if at >= tokens.len() || tokens[at].start != a {
                 return None;
             }
             let first = at;
-            while at < tokens.len() && tokens[at].end <= b {
+            // Clang can end a declaration cursor before its trailing type
+            // attributes. The next top-level declaration bounds this parsed
+            // group's tokens, including those attributes and its semicolon.
+            let limit = merged.peek().map_or(end, |range| range.0);
+            while at < tokens.len() && tokens[at].end <= limit {
                 at += 1;
             }
-            if at == first {
+            if at == first || tokens[at - 1].end < b || tokens[at - 1].spelling != ";" {
                 return None;
-            }
-            if tokens[at - 1].spelling != ";" {
-                if tokens.get(at).is_none_or(|t| t.spelling != ";") {
-                    return None;
-                }
-                at += 1;
             }
             let mut refs = Environment::default();
             let mut claims = Claims::default();
