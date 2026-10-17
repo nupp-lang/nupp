@@ -1,0 +1,336 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Completed; reject AOT speed policy under the fixed performance gate",
+  "source": {
+    "root": "/Users/dowling/projects/nupp-wt/aot-opt-speed",
+    "head": "006c87457c103acd40d64f5b728255ac3e9075e2",
+    "trackedFiles": 4527,
+    "allHashesMatch": true,
+    "statusClean": true
+  },
+  "scope": "Unchanged compiler image and sources; only AOT object emission uses JIT_OPT=speed. Execution remains linked ABI 4, no JIT or specialization.",
+  "disposition": {
+    "executionAccepted": true,
+    "performanceAccepted": false,
+    "requiredRootCycleReduction": 0.05,
+    "observedRootCycleReduction": 0.007504521428150612,
+    "warmCycleCeilingPassed": true,
+    "defaultPolicyChanged": false,
+    "latestAcceptedSpeedCommit": "f65c9ed5ae2b49082b3f131b123116435128dbe7",
+    "broadRun": false,
+    "reason": "Root-cycle reduction misses the predeclared 5% gate; no extra samples, retuning or default change."
+  },
+  "protocol": {
+    "rootPairs": 5,
+    "warmLexerPairs": 5,
+    "coldRepositoryPairs": 1,
+    "LuaSamplesEveryRound": true,
+    "timedRows": 33,
+    "order": "baseline, LuaJIT, candidate; reversed on odd rounds",
+    "jobs": 2,
+    "coldWorkers": 2,
+    "coldRetries": 0,
+    "allSamplesRetained": true,
+    "hostQuiet": false,
+    "foreignProcess": "PID 99684 observed consuming a CPU; left untouched"
+  },
+  "pairedMedianRelativeChanges": {
+    "emit": {
+      "cycles elapsed": -0.007504521428150612,
+      "instructions retired": -0.014710632887366626,
+      "real": -0.012780409330592657,
+      "maximum resident set size": 0.01968385993973243
+    },
+    "lexer": {
+      "cycles elapsed": -0.01227071544037317,
+      "instructions retired": -0.011374705092409343,
+      "real": 0.0,
+      "maximum resident set size": -0.01048403567295253
+    },
+    "cold-check": {
+      "cycles elapsed": -0.016949969021008315,
+      "instructions retired": -0.026794344147550886,
+      "real": 0.0006659267480577657,
+      "maximum resident set size": 0.029569781300168074
+    }
+  },
+  "perEngineMedians": {
+    "emit": {
+      "luajit": {
+        "real": 230.52,
+        "user": 200.44,
+        "sys": 18.17,
+        "instructions retired": 3207059992618,
+        "cycles elapsed": 938515013055,
+        "maximum resident set size": 1644773376
+      },
+      "candidate": {
+        "real": 110.54,
+        "user": 109.2,
+        "sys": 1.27,
+        "instructions retired": 2614946154127,
+        "cycles elapsed": 469399740270,
+        "maximum resident set size": 3792027648
+      },
+      "baseline": {
+        "real": 111.89,
+        "user": 110.52,
+        "sys": 1.3,
+        "instructions retired": 2642410955695,
+        "cycles elapsed": 473056182873,
+        "maximum resident set size": 3718971392
+      }
+    },
+    "lexer": {
+      "luajit": {
+        "real": 0.41,
+        "user": 0.34,
+        "sys": 0.06,
+        "instructions retired": 6595042407,
+        "cycles elapsed": 1774941375,
+        "maximum resident set size": 80953344
+      },
+      "baseline": {
+        "real": 0.61,
+        "user": 0.55,
+        "sys": 0.05,
+        "instructions retired": 13423903368,
+        "cycles elapsed": 2585423495,
+        "maximum resident set size": 481329152
+      },
+      "candidate": {
+        "real": 0.6,
+        "user": 0.54,
+        "sys": 0.05,
+        "instructions retired": 13271210426,
+        "cycles elapsed": 2567487971,
+        "maximum resident set size": 476200960
+      }
+    },
+    "cold-check": {
+      "candidate": {
+        "real": 45.08,
+        "user": 72.97,
+        "sys": 1.46,
+        "instructions retired": 128191467667,
+        "cycles elapsed": 23717831329,
+        "maximum resident set size": 4486692864
+      },
+      "baseline": {
+        "real": 45.05,
+        "user": 73.72,
+        "sys": 1.49,
+        "instructions retired": 131720841218,
+        "cycles elapsed": 24126779494,
+        "maximum resident set size": 4357832704
+      },
+      "luajit": {
+        "real": 45.01,
+        "user": 65.47,
+        "sys": 7.56,
+        "instructions retired": 37154188081,
+        "cycles elapsed": 11704568665,
+        "maximum resident set size": 3004366848
+      }
+    }
+  },
+  "LuaRootWallSeconds": [
+    242.15,
+    242.42,
+    136.0,
+    222.72,
+    230.52
+  ],
+  "static": {
+    "functions": 6580,
+    "identicalManifest": true,
+    "baseline": {
+      "codeBytes": 135499612,
+      "stackMaps": 849105,
+      "rootSlotEntries": 14439604,
+      "metadataBytes": 68026636,
+      "fileHeaderBytes": 4
+    },
+    "candidate": {
+      "codeBytes": 131028312,
+      "stackMaps": 831899,
+      "rootSlotEntries": 14134666,
+      "metadataBytes": 66600412,
+      "fileHeaderBytes": 4
+    },
+    "delta": {
+      "codeBytes": -4471300,
+      "stackMaps": -17206,
+      "rootSlotEntries": -304938,
+      "metadataBytes": -1426224,
+      "fileHeaderBytes": 0
+    },
+    "relativeDelta": {
+      "codeBytes": -0.03299861847574881,
+      "stackMaps": -0.0202636894141478,
+      "rootSlotEntries": -0.021118169168628187,
+      "metadataBytes": -0.02096566997668381,
+      "fileHeaderBytes": 0.0
+    },
+    "codeSizeDirections": {
+      "smaller": 5718,
+      "same": 171,
+      "larger": 691
+    },
+    "objects": {
+      "baseline": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.o",
+        "bytes": 149226248,
+        "sha256": "7958b91df9c3857d55e0c44d4157eaf51053fabb13a4289c81b6d479f3662cfa"
+      },
+      "candidate": {
+        "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/speed.o",
+        "bytes": 144477440,
+        "sha256": "548c702fca7562221ffedbc3aaf2f0b41547667d798bf8b8758e6e987a35f13c"
+      }
+    },
+    "runtime": {
+      "baseline": {
+        "path": "/Users/dowling/projects/nupp-wt/typed-shapes-scratch/worker-report-transport/validation-metrics/transport.runtime",
+        "bytes": 217750360,
+        "sha256": "cc9a3a6c3f8372193db6581711659effea33b4c6f2c27c195c20a67d65acb086"
+      },
+      "candidate": {
+        "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/speed.runtime",
+        "bytes": 211805896,
+        "sha256": "0942c8560557347abfd22e2aa2885e784eff42dd91a701d9911c58d53267a54a"
+      }
+    },
+    "typedNativeSubtraction": {
+      "predicate": "jit.rs544: native_simd::required(op) && !matches!(op,Op::Simd(..)); required at native_simd.rs9-23; exact text mnemonic names confirmed in image.rs182-244",
+      "alreadyExplicitSpeedFunctionsInThisImage": 0,
+      "scope": "Zero of these 6580 current compiler functions carry the non-Simd required opcode set, so none hit the explicit typed_native optimize path. This does not imply general runtime typed-native kernels gain newly from speed. ObjectModule speed also applies to shared stub.probe."
+    }
+  },
+  "buildCostSeconds": {
+    "objectGeneration": 164.351,
+    "offlineLink": 39.523
+  },
+  "correctness": {
+    "sameRootOracleSha256": "5f4fc3f1c7f1f622fa6f8664ff5e6047d5348366eb77849ed3546e81a1c186db",
+    "all15RootOutputsEqual": true,
+    "all15WarmChecksCompiledZero": true,
+    "all3ColdChecksCompiled505": true,
+    "diagnosticsMatch": true,
+    "sourceStillFrozen": true,
+    "compilerAotSmoke": "13 checks, two fresh processes, executable memory denied",
+    "checksBufferRestored": true,
+    "ordinaryBroadPassClaimed": false
+  },
+  "limits": [
+    "Paired medians are medians of matched relative changes, not ratios of engine medians.",
+    "Cold one-pair values are diagnostic only; parent counters omit worker CPU totals.",
+    "Object generation and linking costs are separate from compiler root execution.",
+    "Static code size is not dynamic execution frequency.",
+    "Official compiler-source fixpoint would use a different program runtime and was not run for unchanged sources.",
+    "Foreign CPU activity and all variable LuaJIT samples remain recorded; no confidence interval or quiet-host claim."
+  ],
+  "artifacts": {
+    "protocol": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/protocol.json",
+      "bytes": 5599,
+      "sha256": "4d10dd35fcf2c590d9809fa7646eda1dba34cf011e0247736113dce9b3b76d94"
+    },
+    "sourceFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/source-freeze.json",
+      "bytes": 980654,
+      "sha256": "63dbfaaa40814af0bef72f5dc459f81d3e5b5cde558df267d9a7207dbdd1a9d5"
+    },
+    "driver": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/aot-speed-gates.py",
+      "bytes": 16538,
+      "sha256": "0462a7699b42361277db1d150514995b02716b5241c2724e19a80a567dc44372"
+    },
+    "configuration": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/config.measurement-released.json",
+      "bytes": 15073,
+      "sha256": "70a9079cb95e5971af446572e237643c8022b51adb13bf814223176859a9ffec"
+    },
+    "timingWindow": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/proposal-v2/root-timing-window-release.json",
+      "bytes": 727,
+      "sha256": "35f1b5a2180efc2d70c4d8d2d12dc28a1d9d0f747401ce111aa67ddb167ddfeb"
+    },
+    "staticComparison": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/static-comparison/summary.json",
+      "bytes": 20496,
+      "sha256": "23274d8d235ae61d481f92cacc7ba0f762cf9d86bff4ffb359e3c9dc327fe1f9"
+    },
+    "allFunctionComparison": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/static-comparison/comparison.json",
+      "bytes": 8143104,
+      "sha256": "e0568fc62854bc7cf8a3e6200bc6145523ba751b2690457f5a162b5b63b9edaa"
+    },
+    "independentAudit": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/independent-timing-audit/audit.json",
+      "bytes": 42127,
+      "sha256": "d289c63e9b8f1143984718018bb8662e3187d4fca953e26db4fa499d59b411dd"
+    },
+    "object": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/object.receipt.json",
+      "bytes": 3355,
+      "sha256": "045f7c1419b8b13f4ab334252811fddd70e2ae1f371fb10d6369854507fe5ac4"
+    },
+    "link": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/link.receipt.json",
+      "bytes": 3210,
+      "sha256": "c3eb04d6ee3b8f7854a67f2b3d31ccc77ebcb72c65b74436fe6457a74e88fce2"
+    },
+    "smoke": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/smoke.receipt.json",
+      "bytes": 3077,
+      "sha256": "5bb790b4cccddd84fa8001ab718d5394ba408ba30bde01775cc8633c129e6550"
+    },
+    "oracle": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/oracle.receipt.json",
+      "bytes": 10337,
+      "sha256": "36c8c711e9b8f1371f9bee034d3c904ba75788f3e4a4d57984a94fb5068ca570"
+    },
+    "checks": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/checks.receipt.json",
+      "bytes": 14298,
+      "sha256": "2ce23af36cdf83851b396813d5358defa9bda5fdb391c02bcb735ea3bbeee701"
+    },
+    "prepare-lua": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/prepare-lua.receipt.json",
+      "bytes": 59954,
+      "sha256": "c2018850a7e03ec9ec3ad905aaac45b473692aa59ae7ee3f9b79d107f2a0362d"
+    },
+    "measure": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/measure.receipt.json",
+      "bytes": 12306,
+      "sha256": "c282809e444b6f18ffa4e1dcd2a77e1d520c197438159344365ec66c6a94c9a6"
+    },
+    "preparation-completion": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/preparation-completion.json",
+      "bytes": 14104,
+      "sha256": "3f4a322384073b15187daf739e6fa840955c845bd50a99dcaa8e0d3944522e9f"
+    },
+    "final-completion": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/final-completion.json",
+      "bytes": 86766,
+      "sha256": "827d1e693ff03252da7935bc6fff90f9333a0162c032b201c75c98abbc1c7bb3"
+    },
+    "terminal-process-proof": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/terminal-process-proof.json",
+      "bytes": 333,
+      "sha256": "7ee9e32fbecb4a16b32189ae7cff32f2a6427d24832b5886dfa89a9672bab70e"
+    },
+    "disposition-proposed": {
+      "path": "/Users/dowling/projects/nupp-wt/aot-speed-scratch/run-2/disposition-proposed.json",
+      "bytes": 1488,
+      "sha256": "0658aa9affbdcd11e18ce7e3ca69a67ea168e985a57581575b0d9e5426089ade"
+    },
+    "retainedEmitterProvenance": {
+      "path": "/Users/dowling/projects/nupp-wt/node-typing-scratch/speed-aot-policy-audit/retained-tool-provenance.json",
+      "bytes": 25109,
+      "sha256": "f6f608603dceaf1dad066b7d36ec75e93e9a2149135fac7d2915a3731a322e6e"
+    }
+  }
+}

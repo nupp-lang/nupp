@@ -4029,3 +4029,38 @@ Self-hosting, independent Lua output, candidate AOT, broad validation and
 performance gates were not run. See
 [ownership investigation evidence](tests/compiler-ownership-typing-investigation.json)
 for source, profile, emitted-work and validation identities.
+
+## AOT optimization measurement (2026-10-17)
+
+AOT `opt_level=speed` misses its fixed 5% root-cycle reduction gate. The
+default remains `none`; the latest accepted speed change stays `f65c9ed5a`.
+Only object optimization changes, with identical sources, image and ABI 4.
+
+Five interleaved root pairs and five warm lexer pairs give these median
+paired candidate/baseline changes:
+
+| Metric | Root emit | Warm lexer |
+| --- | --- | --- |
+| Cycles | -0.7505% | -1.2271% |
+| Instructions | -1.4711% | -1.1375% |
+| Wall time | -1.2780% | 0.0000% |
+| Peak RSS | +1.9684% | -1.0484% |
+
+Independent root wall medians are 111.89 s baseline, 110.54 s candidate
+and 230.52 s LuaJIT. All LuaJIT samples remain: 242.15, 242.42, 136.00,
+222.72 and 230.52 s. Warm medians are 0.61, 0.60 and 0.41 s. The single
+cold samples are 45.05, 45.08 and 45.01 s, a diagnostic comparison whose
+parent counters omit worker CPU totals. Paired ratios differ from ratios
+of independent medians. Foreign CPU activity remained during timing.
+
+All 33 timed processes succeed; root output bytes match the same-root
+oracle, warm checks compile no modules, and cold checks compile all 505
+with two workers and no retries. All 6,580 functions link, and the unchanged
+smoke harness passes 13 checks in two fresh processes without executable
+memory. Source, provider, generated Lua and cache restoration checks pass.
+
+Code shrinks from 135,499,612 to 131,028,312 bytes, with 17,206 fewer GC map
+entries. Object generation takes 164.35 s and linking 39.52 s, separately
+from execution. These static changes do not meet the performance gate.
+No additional samples, broad run or default-policy change follow the
+rejection. See [AOT optimization evidence](tests/compiler-aot-speed-investigation.json).
