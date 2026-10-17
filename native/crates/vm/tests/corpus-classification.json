@@ -333,9 +333,9 @@
     },
     {
       "suite": "bundletest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,getinfo,coroutine,spawn",
-      "reason": "a worker forked with a record whose field was made dynamic refuses it ('value does not match the declared type of field id of Payload'); a scheduler that parks the main coroutine needs a whole-VM checkpoint for coroutine continuations"
+      "reason": "ported: structured workers preserve VM-local scheduler state, cancellation, traces and bounded thread admission; unsupported native capabilities stay explicit"
     },
     {
       "suite": "bytecodelistingtest",
@@ -945,9 +945,9 @@
     },
     {
       "suite": "ownershiptest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,env,ffi,getinfo,coroutine,spawn,lua-generator",
-      "reason": "nupp.attemptAll runs no step when the suite lowers it as a fragment (calls stay empty), though `nupp run` of the same source attempts every step"
+      "reason": "ported: fragment lowering publishes attemptAll cleanup callbacks before running the cleanup"
     },
     {
       "suite": "packtest",
@@ -1047,9 +1047,9 @@
     },
     {
       "suite": "projecttest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,string.buffer,getinfo,spawn",
-      "reason": "cross-target stamping and the incremental check counts differ on the VM"
+      "reason": "ported: archives retain source without a bytecode dumper and incremental statistics include source-backed runtime modules and parallel check-only results"
     },
     {
       "suite": "providerconformancetest",
