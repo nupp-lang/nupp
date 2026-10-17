@@ -1,0 +1,515 @@
+{
+  "date": "2026-10-17",
+  "recordedAtUtc": "2026-10-17T05:02:29.909308+00:00",
+  "baseRevision": "a69bf2d76164e38053f2fb1359b7668d2b6f7284",
+  "scope": "aarch64 macOS; local VM compiler investigation; accepted ABI 4 runtime",
+  "disposition": "Set aside the bounded imported predicate inliner before performance measurement because live provider body patches can leave existing callers stale.",
+  "performanceClaim": null,
+  "profile": {
+    "receipt": {
+      "root": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+      "revision": "a69bf2d76164e38053f2fb1359b7668d2b6f7284",
+      "dirtyStatus": "",
+      "runtime": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-runtime",
+        "bytes": 217750040,
+        "sha256": "e2a3f6ab637120178fc4bbd431cac87fe67b22d9b0faf6ef8196f4b68635a442"
+      },
+      "image": {
+        "path": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "bytes": 21759203,
+        "sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e"
+      },
+      "functionCount": 6580,
+      "interval": {
+        "delaySeconds": 15,
+        "durationSeconds": 45
+      },
+      "notBenchmarkGate": true,
+      "limitations": "Interval CPU sample attribution, not whole-emit global cost or a duration benchmark. Run only after independent builds and tests finish.",
+      "objectArtifacts": {
+        "object": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o",
+          "bytes": 149230824,
+          "sha256": "211bdfcddb810245244c191be2e1b6cfb91f43d1669c94150920e3873262fc97"
+        },
+        ".manifest": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.manifest",
+          "bytes": 122907,
+          "sha256": "fc18be73a36b7f0753958624b6d208d760fda1f4877b6277b8299eac90e841f2"
+        },
+        ".maps": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.maps",
+          "bytes": 68028424,
+          "sha256": "ffdf9014d934adc997a565bcf35b546476960418745d72b3f3e1af25da01d1da"
+        },
+        ".rs": {
+          "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained.o.rs",
+          "bytes": 870777,
+          "sha256": "1e80ad0e034283500c89d358604f1bdc443b92b44eefec447660066fc150d3d3"
+        }
+      },
+      "objectManifestHeaders": {
+        "runtime-abi": "4",
+        "image-sha256": "2ed87ecb2ebd03ba3e091ed96a174945bbb51f3b83305c054e52467fde68f21e",
+        "functions": "6580"
+      },
+      "environment": {
+        "NO_JIT": "1",
+        "NUPP_COMPILER_ROOT": "/Users/dowling/projects/nupp-wt/codegen-experiment",
+        "NUPP_VM_AUTO_REBUILD": "0",
+        "NUPP_CHECK_JOBS": "2",
+        "NUPP_VM_CLI_IMAGE": "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "NUPP_VM_BINARY": "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-runtime",
+        "NUPP_CACHE_DIR": "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/shared-store"
+      },
+      "emitCache": "NUPP_VM_EMIT_CACHE unset: full uncached lowering",
+      "command": [
+        "/Users/dowling/projects/nupp-wt/entry-context-scratch/retained-runtime",
+        "run",
+        "/Users/dowling/projects/nupp-wt/narrow-root-index-scratch/baseline.image",
+        "nupp.tools.vm.project",
+        "emit",
+        "/Users/dowling/projects/nupp-wt/codegen-experiment",
+        "nupp.tools.vm.root",
+        "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess",
+        "--output",
+        "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/emitted.image"
+      ],
+      "pid": 76764,
+      "sampleCommand": [
+        "/usr/bin/sample",
+        "76764",
+        "45",
+        "-file",
+        "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/sample.txt"
+      ],
+      "sampleStatus": 0,
+      "status": 0,
+      "inputHashesUnchanged": true,
+      "output": {
+        "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/emitted.image",
+        "bytes": 21213651,
+        "sha256": "68e15f41e03102090b34f0bb4a358c79f0bb4ee417569ff6534a99f6627de25e"
+      },
+      "matchesExpectedOutput": true
+    },
+    "totalSelfSamples": 37289,
+    "isToken": {
+      "samples": 2759,
+      "percent": 7.398964842178659
+    },
+    "attribution": "Leaf samples attributed to their innermost compiled Nupp function, including runtime helper work.",
+    "limitation": "Only the 45-second interval about 15-60 seconds into uncached root emission; not whole-emit share or a predicted speedup.",
+    "functionId": 857,
+    "imageFunction": "function isToken 857 1 15 2 v:v\n  source nupp.compiler.syntax.cst\n  const 0 str \"trivia\"\n  lines 2844x5\n  Move 4 1\n  GetField 3 4 0\n  Nil 5\n  Ne 2 3 5\n  Ret 2\nend",
+    "rawSample": {
+      "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/sample.txt",
+      "bytes": 39244817,
+      "sha256": "eb84545eb70dd8f7eaf2ca907c05986913cb5c277de037172b81501b3d6c6ef7"
+    },
+    "shares": {
+      "path": "/Users/dowling/projects/nupp-wt/entry-context-scratch/profile-retained-20261016-2333/shares.json",
+      "bytes": 287312,
+      "sha256": "7cf3a3a49008482b30ecff596f94b15a4bc009f5b610a73cec5e28683f45399a"
+    }
+  },
+  "contracts": {
+    "schema": "nupp-inlining-contract-audit/1",
+    "recordedAtUtc": "2026-10-17T04:53:37.230177+00:00",
+    "baseRevision": "a69bf2d76164e38053f2fb1359b7668d2b6f7284",
+    "sourceSnapshot": "Restored accepted base: every source excerpt and hash was re-read dynamically and byte-verified against HEAD a69bf2d76164e38053f2fb1359b7668d2b6f7284. No candidate implementation is present in these source excerpts.",
+    "disposition": "Rejected before performance measurement because independently patchable provider bodies can leave inlined importers stale.",
+    "performanceClaim": null,
+    "scope": "Bounded imported single-parameter generic field-versus-nil predicate inlining. No source edits, builds, or tests were performed for this audit.",
+    "contracts": [
+      {
+        "id": "frames",
+        "observation": "A generic GetField can invoke __index. The callback can inspect its caller source or function using debug.getinfo(2), and inlining removes the provider frame.",
+        "evidence": [
+          "relax-default",
+          "relax-callee",
+          "frames-permission",
+          "generic-index-callback",
+          "getinfo-level"
+        ],
+        "archivedTrialCorrection": "The fact producer was changed to require callee-scoped @relax(\"frames\", \"error-site\"). Unrelaxed providers must retain their call."
+      },
+      {
+        "id": "error-site",
+        "observation": "An __index callback can raise at a chosen caller level. Removing its provider frame changes source attribution even when the field operation itself is retained.",
+        "evidence": [
+          "error-site-permission",
+          "error-level"
+        ],
+        "archivedTrialCorrection": "Require explicit error-site relaxation in addition to frames; neither permission implies the other."
+      },
+      {
+        "id": "implicit-require-load-order",
+        "observation": "A simple-looking provider.present(...) can be a checker-qualified namespace projection rather than a local imported binding. Its normal lowering emits Require before GetField. Skipping callee evaluation can suppress module initialization.",
+        "evidence": [
+          "load-order-permission",
+          "qualified-checker",
+          "qualified-require"
+        ],
+        "archivedTrialCorrection": "Reject qualifiedModule/compilerModule/namespacePath callees and arguments. Admit only stable lexical imported bindings in this trial."
+      },
+      {
+        "id": "raw-provider-body-patch",
+        "observation": "The runtime documents function IDs as the stable callable identity and replacement bodies as visible on each next call. vm.hotPatch forwards one module image to hotpatch::apply. Same-signature, same-capture provider body edits are accepted unless linked native code prevents replacement; no inline dependency registry or importer-version guard is checked.",
+        "failure": "After present(value) changes from value.tag ~= nil to value.other ~= nil, an old inlined importer still reads tag while a real call by ID reads other.",
+        "evidence": [
+          "function-body-contract",
+          "raw-patch-entry",
+          "single-module-patch",
+          "body-validation",
+          "body-replacement"
+        ]
+      },
+      {
+        "id": "watch-changed-path-only",
+        "observation": "Source watch revalidates loaded roots but compiles patch images only for changed paths. Inferred callable facts are deliberately excluded from runtime ABI comparisons, so a changed predicate fact alone does not force a restart or produce an importer patch.",
+        "failure": "A provider-only file event can patch the provider while unchanged importer source keeps running its old inlined bytecode.",
+        "evidence": [
+          "changed-path-input",
+          "facts-excluded-runtime-abi",
+          "watch-rechecks-roots",
+          "watch-compiles-paths",
+          "watch-patch-module"
+        ]
+      },
+      {
+        "id": "fresh-whole-image-cache",
+        "observation": "When callable facts are published, fresh or cached whole-image emission can invalidate importers correctly: interface images preserve callGuarantees, interfaceOf hashes the encoded full interface, and fragment replay checks dependency digests. The rejected trial published inlinePredicate through that existing path.",
+        "boundary": "These build-time checks produce correct new images. They do not modify already-running importer bodies or constrain raw patch acceptance.",
+        "evidence": [
+          "encode-facts",
+          "restore-facts",
+          "full-export-copy",
+          "encode-interface",
+          "digest-interface",
+          "dependency-digest-check"
+        ]
+      }
+    ],
+    "whyTheTwoRelaxationsAreInsufficient": [
+      "frames permits removing the provider activation; error-site permits changed error attribution.",
+      "Neither permission authorizes a different field predicate or stale return values after an otherwise accepted provider body patch.",
+      "Neither permission authorizes removing implicit module initialization; load-order is a separate guarantee.",
+      "Correct cached image rebuilding does not establish correctness of a running image after a provider-only patch."
+    ],
+    "futurePrerequisites": [
+      {
+        "requirement": "Choose and enforce an explicit live-body dependency policy before enabling cross-module bytecode inlining.",
+        "soundOptions": [
+          "Keep calls in all reloadable images, with enforceable runtime policy identifying immutable images/providers.",
+          "Guard the inlined body against provider generation or body identity and fall back to the ordinary call after a change.",
+          "Record inline dependencies and require recompilation/publication of affected importers as part of a coordinated patch transaction.",
+          "Mark providers whose bodies were inlined as nonpatchable and reject their replacement at runtime."
+        ]
+      },
+      {
+        "requirement": "Cover both compiler-managed watch and direct vm.hotPatch. Disabling only watch inlining leaves direct raw patch behavior unresolved."
+      },
+      {
+        "requirement": "Add regressions for provider-only raw body replacement, provider-only watch events, relaxation removal, frame-sensitive __index, error attribution, and qualified namespace initialization."
+      },
+      {
+        "requirement": "If runtime dependency metadata or guards are added, preserve them through worker code recipes, snapshots, and hotpatch replay."
+      },
+      {
+        "requirement": "Retain exact callable identity, mutation safeguards, closed fact validation, generic GetField semantics, and fresh/cached image equivalence."
+      },
+      {
+        "requirement": "After semantic acceptance, measure the representative root emit using distinct matching compiler images and the standing paired cycle margin. A hotspot share is not a measured speedup."
+      }
+    ],
+    "sourceRoot": "/Users/dowling/projects/nupp-wt/predicate-inline",
+    "evidence": {
+      "relax-default": {
+        "file": "docs/reference/annotations.md",
+        "firstLine": 671,
+        "lastLine": 674,
+        "sourceSha256": "e46994cb2d3e265529742e4f60f4ddf458ee7bcbc54af99bec2c6687e2d89e41",
+        "excerpt": "A guarantee is a property of a running program that a reader could notice, and\nNupp keeps every one of them by default. `@relax` says a function may give one\nup, which is what lets a rewrite that would otherwise change observable behavior\napply there."
+      },
+      "relax-callee": {
+        "file": "docs/reference/annotations.md",
+        "firstLine": 683,
+        "lastLine": 685,
+        "sourceSha256": "e46994cb2d3e265529742e4f60f4ddf458ee7bcbc54af99bec2c6687e2d89e41",
+        "excerpt": "That says two things about `dispatch`: a traceback through it need not show the\nframes it would have shown, and an error raised inside it need not report the\nposition it would have reported. Nothing else about it changes."
+      },
+      "frames-permission": {
+        "file": "docs/reference/annotations.md",
+        "firstLine": 696,
+        "lastLine": 696,
+        "sourceSha256": "e46994cb2d3e265529742e4f60f4ddf458ee7bcbc54af99bec2c6687e2d89e41",
+        "excerpt": "| `frames` | a traceback shows the frames the source describes | inlining a call away |"
+      },
+      "error-site-permission": {
+        "file": "docs/reference/annotations.md",
+        "firstLine": 695,
+        "lastLine": 695,
+        "sourceSha256": "e46994cb2d3e265529742e4f60f4ddf458ee7bcbc54af99bec2c6687e2d89e41",
+        "excerpt": "| `error-site` | an error reports the position that raised it | hoisting a check or a chain out of a loop |"
+      },
+      "load-order-permission": {
+        "file": "docs/reference/annotations.md",
+        "firstLine": 694,
+        "lastLine": 694,
+        "sourceSha256": "e46994cb2d3e265529742e4f60f4ddf458ee7bcbc54af99bec2c6687e2d89e41",
+        "excerpt": "| `load-order` | modules initialize in the order the requires run | hoisting an import, or binding a callee statically |"
+      },
+      "getinfo-level": {
+        "file": "native/crates/vm/src/builtins.rs",
+        "firstLine": 1592,
+        "lastLine": 1597,
+        "sourceSha256": "adbe68a5a2de07d702a4bfbe7045450a64942bc15a7e26fe7a05045795b98dd3",
+        "excerpt": "            // `debug.getinfo(level | function, what)`. A builtin pushes no frame, so\n            // level 1 is its caller; past the outermost frame the answer is nil.\n            // A function argument is described by its own chunk.\n            let target = arg(args, 0);\n            let (fid, line, func) = if target.is_num() {\n                match it.frame_at_level(target.as_num().max(1.0) as usize) { Ok(found) => found, Err(()) => return outs![Value::NIL] }"
+      },
+      "generic-index-callback": {
+        "file": "native/crates/vm/src/interp.rs",
+        "firstLine": 1849,
+        "lastLine": 1853,
+        "sourceSha256": "8ead69121486020e3413ec47c24903be659c97b9187d0922c366703da04975c9",
+        "excerpt": "            let h = self.metamethod(t, crate::metamethods::MM::Index);\n            if h == Value::NIL { return Value::NIL; }\n            if h.as_obj().map(|p| matches!(unsafe { (*p.as_ptr()).kind }, KIND_TABLE | KIND_RECORD)).unwrap_or(false) { t = h; continue; }\n            let outs = self.call_value(h, &[t, key]);\n            return outs.first().copied().unwrap_or(Value::NIL);"
+      },
+      "error-level": {
+        "file": "native/crates/vm/src/builtins.rs",
+        "firstLine": 746,
+        "lastLine": 752,
+        "sourceSha256": "adbe68a5a2de07d702a4bfbe7045450a64942bc15a7e26fe7a05045795b98dd3",
+        "excerpt": "            let level = match arg(args, 3) { v if v == Value::NIL => 1, v if v.is_num() => v.as_num() as i64, _ => 1 };\n            let mut raised = message;\n            if level > 0 && (it.is_stringish(message) || message.is_num()) {\n                let site = if level == 1 { it.caller_function().map(|fid| (fid, arg(args, 1).as_num() as u32)) } else { it.caller_line(level as usize - 1) };\n                if let Some((fid, line)) = site.filter(|&(_, line)| line != 0) {\n                    let mut text = format!(\"{}:{}: \", it.chunk_id(fid), line).into_bytes();\n                    text.extend(tostring(it, message));"
+      },
+      "qualified-checker": {
+        "file": "src/nupp/compiler/check/index.nupp",
+        "firstLine": 203,
+        "lastLine": 209,
+        "sourceSha256": "80f62ea4e9d5db3c7df861095d20567fde05274a104de8853c2187b9fa167696",
+        "excerpt": "                (node as any).namespacePath = written\n                if #suffix == 1 then\n                    node.exactCallExport = {\n                        module = candidate,\n                        member = suffix[1],\n                        identity = candidate .. \".\" .. suffix[1],\n                    }"
+      },
+      "qualified-require": {
+        "file": "src/nupp/compiler/vm/lower.nupp",
+        "firstLine": 2757,
+        "lastLine": 2767,
+        "sourceSha256": "f8a6bcd06ce2f7e4aea38b1e4354057dcb3027c4a8c2dd5c88841d9b876d24d1",
+        "excerpt": "        elseif (k == \"name\" or k == \"dotIndex\") and (node.qualifiedModule or node.compilerModule) then\n            -- The checker resolves namespace projections, including shadowing.\n            -- A matching file alone is not evidence of a runtime module.\n            local name = node.qualifiedModule or node.compilerModule\n            queueModule(name)\n            f:op(\"Require\", dst, f:const(\"str\", name))\n            for _, member in ipairs(node.qualifiedMembers or {}) do\n                local t = f:reg();\n                f:op(\"GetField\", t, dst, f:const(\"str\", member));\n                f:op(\"Move\", dst, t)\n            end"
+      },
+      "function-body-contract": {
+        "file": "native/crates/vm/src/hotpatch.rs",
+        "firstLine": 4,
+        "lastLine": 6,
+        "sourceSha256": "3f52ee9e43431f3da4fed6a2e1a1bbe86392fc8d2d6798d5a3c48d4c3db6c43e",
+        "excerpt": "//! Functions are ids. A closure, a method table entry, a `func` constant and a\n//! direct call all name the id, never the body, so replacing the body stored\n//! at an id is what every caller sees on its next call; nothing is rebound."
+      },
+      "raw-patch-entry": {
+        "file": "native/crates/vm/src/builtins.rs",
+        "firstLine": 930,
+        "lastLine": 935,
+        "sourceSha256": "adbe68a5a2de07d702a4bfbe7045450a64942bc15a7e26fe7a05045795b98dd3",
+        "excerpt": "        Special::VmHotpatch => {\n            // (patch text, validate only?) -> report table, or nil and why.\n            let bytes = bytes_of(it, arg(args, 0));\n            let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err(\"patch is not UTF-8\"));\n            let commit = !arg(args, 1).truthy();\n            return match crate::hotpatch::apply(it, text, commit) {"
+      },
+      "single-module-patch": {
+        "file": "native/crates/vm/src/hotpatch.rs",
+        "firstLine": 177,
+        "lastLine": 179,
+        "sourceSha256": "3f52ee9e43431f3da4fed6a2e1a1bbe86392fc8d2d6798d5a3c48d4c3db6c43e",
+        "excerpt": "    if parsed.modules.len() != 1 || parsed.modules[0].0 != header.module {\n        return Err(format!(\"a patch for {} must hold that module alone\", header.module));\n    }"
+      },
+      "body-validation": {
+        "file": "native/crates/vm/src/hotpatch.rs",
+        "firstLine": 218,
+        "lastLine": 232,
+        "sourceSha256": "3f52ee9e43431f3da4fed6a2e1a1bbe86392fc8d2d6798d5a3c48d4c3db6c43e",
+        "excerpt": "        let old = &it.funcs[fid as usize];\n        if old.nparams != f.nparams || old.sig != f.sig || old.ret != f.ret || old.vararg != f.vararg {\n            return Err(format!(\"callable signature changed: {}\", old.name));\n        }\n        if let (Some(a), Some(b)) = (old_captures.get(&fid), new_captures.get(&fid)) {\n            if a != b { return Err(format!(\"captured bindings changed: {}\", old.name)); }\n        }\n        if same_code(it, old, f) {\n            if old.debug != f.debug { report.moved += 1; }\n            continue;\n        }\n        if it.linked_frames.get(fid as usize).is_some_and(|&p| p != 0) {\n            return Err(format!(\"{} runs linked native code and cannot be replaced\", old.name));\n        }\n        changed.push(fid);"
+      },
+      "body-replacement": {
+        "file": "native/crates/vm/src/hotpatch.rs",
+        "firstLine": 264,
+        "lastLine": 265,
+        "sourceSha256": "3f52ee9e43431f3da4fed6a2e1a1bbe86392fc8d2d6798d5a3c48d4c3db6c43e",
+        "excerpt": "        let body = new_bodies.remove(&fid).expect(\"changed body\");\n        let old = std::mem::replace(&mut it.funcs[fid as usize], body);"
+      },
+      "changed-path-input": {
+        "file": "src/nupp/tools/cli/watch.nupp",
+        "firstLine": 131,
+        "lastLine": 136,
+        "sourceSha256": "7775d71302e2bc910051bc43c6d03620cfb3828cef01a53d0114927bfa484122",
+        "excerpt": "        local changed = changedInputs()\n        if #changed == 0 then\n            return {kind = \"no-change\", generation = watchSession.generation}\n        end\n        pending = nil\n        local result = watchSession:prepare(changed)"
+      },
+      "facts-excluded-runtime-abi": {
+        "file": "src/nupp/tools/hotsession.nupp",
+        "firstLine": 858,
+        "lastLine": 863,
+        "sourceSha256": "3ffeb0d91af77845fd6ac38e3aaf210115dc510dd363186eee6d04d0e831645a",
+        "excerpt": "            -- Inferred callable facts trigger checking, but are not runtime ABI.\n            -- A changed body remains patchable when the rechecked callers accept it.\n            local implementation = dependency.name == \"moduleCallGuarantees\"\n                or dependency.name == \"moduleCallGuarantee\"\n                or dependency.name == \"moduleCallableFact\"\n            if not implementation then"
+      },
+      "watch-rechecks-roots": {
+        "file": "src/nupp/tools/hotsession.nupp",
+        "firstLine": 1130,
+        "lastLine": 1133,
+        "sourceSha256": "3ffeb0d91af77845fd6ac38e3aaf210115dc510dd363186eee6d04d0e831645a",
+        "excerpt": "    for _, module in ipairs(loaded) do\n        local live = self.running[module]\n        local checked = self.inc.checkFile(live.path)\n        if fatalIn(checked.diags) then"
+      },
+      "watch-compiles-paths": {
+        "file": "src/nupp/tools/hotsession.nupp",
+        "firstLine": 1160,
+        "lastLine": 1164,
+        "sourceSha256": "3ffeb0d91af77845fd6ac38e3aaf210115dc510dd363186eee6d04d0e831645a",
+        "excerpt": "    for _, path in ipairs(paths or {}) do\n        local module = envMod.moduleNameForPath(self.inc.env, path) or path\n        local live = self.running[module]\n        if live then\n            local compiled, failure = self:compile(path, module)"
+      },
+      "watch-patch-module": {
+        "file": "src/nupp/tools/hotsession.nupp",
+        "firstLine": 1218,
+        "lastLine": 1219,
+        "sourceSha256": "3ffeb0d91af77845fd6ac38e3aaf210115dc510dd363186eee6d04d0e831645a",
+        "excerpt": "                ] = \"patch \" .. module .. \"\\nmap \" .. table.concat(map, \" \") .. \"\\n\" .. compiled.code\n                changedCount = changedCount + changed"
+      },
+      "encode-facts": {
+        "file": "src/nupp/compiler/project/interfaceimage.nupp",
+        "firstLine": 252,
+        "lastLine": 252,
+        "sourceSha256": "6970a0a3e4f1bd8e032175d3f58a76fb10a58e28ed3ee957b7b7c89058d2a16d",
+        "excerpt": "            callGuarantees = exports.callGuarantees,"
+      },
+      "restore-facts": {
+        "file": "src/nupp/compiler/project/interfaceimage.nupp",
+        "firstLine": 1336,
+        "lastLine": 1336,
+        "sourceSha256": "6970a0a3e4f1bd8e032175d3f58a76fb10a58e28ed3ee957b7b7c89058d2a16d",
+        "excerpt": "            callGuarantees = entry.callGuarantees,"
+      },
+      "full-export-copy": {
+        "file": "src/nupp/tools/vm/emitcache.nupp",
+        "firstLine": 379,
+        "lastLine": 382,
+        "sourceSha256": "556579bb3b5721e3d58a2c70c3276d7010b156e34bdada339194fb01e96259be",
+        "excerpt": "        local exported: any = {}\n        for key, value in pairs((exports or {}) as table) do\n            exported[key] = value\n        end"
+      },
+      "encode-interface": {
+        "file": "src/nupp/tools/vm/emitcache.nupp",
+        "firstLine": 397,
+        "lastLine": 398,
+        "sourceSha256": "556579bb3b5721e3d58a2c70c3276d7010b156e34bdada339194fb01e96259be",
+        "excerpt": "        local ok, image = pcall(interfaceimage.encode, {[name] = semantic}, {\n            projectPaths = projectPaths,"
+      },
+      "digest-interface": {
+        "file": "src/nupp/tools/vm/emitcache.nupp",
+        "firstLine": 416,
+        "lastLine": 416,
+        "sourceSha256": "556579bb3b5721e3d58a2c70c3276d7010b156e34bdada339194fb01e96259be",
+        "excerpt": "        return digest(interfaceText(image, path)), image"
+      },
+      "dependency-digest-check": {
+        "file": "src/nupp/tools/vm/emitcache.nupp",
+        "firstLine": 719,
+        "lastLine": 724,
+        "sourceSha256": "556579bb3b5721e3d58a2c70c3276d7010b156e34bdada339194fb01e96259be",
+        "excerpt": "        for dep, seen in pairs(kept.snapshot as table) do\n            if interfaceNow(dep as string) ~= seen then\n                trace(name, \"the interface of \" .. dep .. \" changed\")\n                return nil\n            end\n        end"
+      }
+    },
+    "archivedTrial": {
+      "receipt": "/Users/dowling/projects/nupp-wt/predicate-inline-scratch/rejected-source-receipt.json",
+      "receiptSha256": "74af15be54ac5cba3a72e49e850b46ee615f52184a7cdef2c6cbc09473cd353f",
+      "sourceDirectory": "/Users/dowling/projects/nupp-wt/predicate-inline-scratch/rejected-source",
+      "note": "Candidate producer/consumer corrections above describe rejected source only. That separately hash-verified archive and receipt preserve prototype evidence; restored-base evidence does not claim that candidate remains implemented."
+    }
+  },
+  "discardedPrototype": {
+    "patch": {
+      "path": "/Users/dowling/projects/nupp-wt/predicate-inline-scratch/rejected-predicate-inline.patch",
+      "bytes": 46846,
+      "sha256": "1061f3e689d4c3bf96720c66ed3cb4c40ab52bb1662380d0a28069d7176a96d6"
+    },
+    "sourceReceipt": {
+      "baseRevision": "a69bf2d76164e38053f2fb1359b7668d2b6f7284",
+      "files": {
+        "src/nupp/compiler/analysis.nupp": "5e29bc92165277d18fb9e2b612565495a513f22aa551a47456b2009c4f7bd46c",
+        "src/nupp/compiler/check/init.nupp": "9163181b2dacb0a220d5adf7d7f32cd413b4b888647663b5f531466dedae848b",
+        "src/nupp/compiler/inlinefacts.nupp": "33b45d5502c39aa6f9f088950463950d01f78ffe797699160fc18a1fd78d4000",
+        "src/nupp/compiler/syntax/cst.nupp": "97bc10693a30f5c363c210a6f75fcd9a74815614fe7f85cca42949abc503a4f6",
+        "src/nupp/compiler/vm/lower.nupp": "fdbfb43c9a6d9010847e7cdc75547d6645fa3846510c34ddc2ecde12e00c932d",
+        "tests/interfaceimagetest.lua": "a5377dda654a59e7a290ded1e7112320df389bf874a461b4449ba7626f15afda",
+        "tests/spanloweringtest.lua": "919a28448ce4abe896101e98475066864843a9c59eca524fce6d94e1942fa693",
+        "tests/vmemitcachetest.lua": "30c9219d2752ec3b9bb9fbf49da3217c3e259c0470002aef8519608834cea252",
+        "tests/vmpredicateinlinetest.lua": "c8429725d1ea735554e4d9119d16c04171d74c8cf988f8a9badf1d6d2dea6f6e"
+      }
+    },
+    "sourceSnapshot": "/Users/dowling/projects/nupp-wt/predicate-inline-scratch/rejected-source",
+    "optimizedCompilerBuilt": false,
+    "performanceRuns": 0,
+    "validation": "The initial four-suite attempt was interrupted before any completed test reports; it is not a validation result."
+  },
+  "retained": {
+    "compilerSourcesUnchanged": true,
+    "runtimeAbi": 4,
+    "annotationsUnchanged": true,
+    "callableFactFormatUnchanged": true,
+    "regressionSuite": "tests/vmpredicatecalltest.lua",
+    "results": {
+      "schemaVersion": 1,
+      "ok": true,
+      "total": 3,
+      "passed": 3,
+      "skipped": 0,
+      "notExecuted": 0,
+      "failed": 0,
+      "durationMs": 1840.15283203125,
+      "tests": [
+        {
+          "id": "vmpredicatecalltest/importedPredicatePreservesFieldsAndObservableProviderFrame",
+          "suite": "vmpredicatecalltest",
+          "name": "importedPredicatePreservesFieldsAndObservableProviderFrame",
+          "file": "tests/vmpredicatecalltest.lua",
+          "line": 172,
+          "durationMs": 442.080078125,
+          "status": "passed"
+        },
+        {
+          "id": "vmpredicatecalltest/providerBodyPatchReachesAnAlreadyLoadedCaller",
+          "suite": "vmpredicatecalltest",
+          "name": "providerBodyPatchReachesAnAlreadyLoadedCaller",
+          "file": "tests/vmpredicatecalltest.lua",
+          "line": 247,
+          "durationMs": 637.9970703125,
+          "status": "passed"
+        },
+        {
+          "id": "vmpredicatecalltest/qualifiedModuleInitializesExactlyOnce",
+          "suite": "vmpredicatecalltest",
+          "name": "qualifiedModuleInitializesExactlyOnce",
+          "file": "tests/vmpredicatecalltest.lua",
+          "line": 199,
+          "durationMs": 419.9169921875,
+          "status": "passed"
+        }
+      ],
+      "metrics": [],
+      "suites": [
+        {
+          "suite": "vmpredicatecalltest",
+          "durationMs": 1840.02099609375,
+          "loadMs": 339.708984375,
+          "hooksMs": 0.001953125,
+          "casesMs": 1499.994140625,
+          "tests": 3,
+          "slowestCase": "providerBodyPatchReachesAnAlreadyLoadedCaller",
+          "slowestCaseMs": 637.9970703125,
+          "engine": "vm"
+        }
+      ],
+      "shards": []
+    },
+    "resultsArtifact": {
+      "path": "/Users/dowling/projects/nupp-wt/predicate-inline-scratch/retained-tests.json",
+      "bytes": 1192,
+      "sha256": "ff218b571ae709b67bee4612c820b4e057112661bbfbcb3c68a5ad244c4450d5"
+    },
+    "fixtureCorrections": [
+      "Initial fixture module names contained invalid underscores; corrected before semantic execution.",
+      "Qualified modules initialize before the first explicit call in this setup; assert exactly-once initialization without a later timing boundary.",
+      "Provider is loaded as a standalone module before the consumer, matching the existing per-module body-patch registration. Multi-module shape registration is not covered."
+    ]
+  }
+}

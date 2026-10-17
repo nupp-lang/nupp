@@ -3820,3 +3820,24 @@ threads, image-loading reentry, schema growth, and reader hot patches.
 Validation of the retained fix is separate from the rejected experiments.
 See [compiler-entry-perf-results.json](tests/compiler-entry-perf-results.json)
 for raw measurements, artifact receipts, and validation limits.
+
+## Small predicate call investigation (2026-10-17)
+
+A fresh 45-second sample, about 15-60 seconds into an uncached emit, attributes
+7.4% of that interval to `cst.isToken`, including its runtime helpers. This
+is an interval profile, not its whole-emit share or a speedup estimate. The
+predicate must keep its `.trivia ~= nil` test: tokens also carry `kind`.
+
+A bounded imported field-versus-nil inliner was set aside before performance
+measurement. Field callbacks can observe the predicate frame and error site.
+Explicit relaxation permits those changes, but cannot permit stale behavior
+after a body patch. Raw provider-only hot patches update function IDs, while
+inlined callers would retain the old expression. Source watch currently
+patches changed files, without rebuilding every importer that observed the
+old body. Fresh whole-image cache invalidation alone does not solve that.
+
+The compiler keeps its calls, annotations, and callable-fact format. A future
+inliner needs body-dependency invalidation with a sound fallback for running
+images. The discarded prototype, profile receipts, and contract evidence are
+recorded in `tests/compiler-predicate-investigation.json`. Regression coverage
+in `tests/vmpredicatecalltest.lua` preserves the observable call behavior.
