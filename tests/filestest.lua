@@ -24,6 +24,7 @@ local function isIoError(reason, kind)
 end
 
 local root, provider, buffers, previous
+local installedBootstrap = false
 local unavailable
 
 local function temporaryRoot()
@@ -39,6 +40,7 @@ local function temporaryRoot()
 end
 
 function M.beforeAll()
+    installedBootstrap = false
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
@@ -72,6 +74,7 @@ function M.beforeAll()
         end
     )
     previous = rawget(_G, "nupp")
+    installedBootstrap = true
     _G.nupp = nil
     assert(loadstring(source))()
     provider = require("nupp.io.files")
@@ -79,8 +82,10 @@ function M.beforeAll()
 end
 
 function M.afterAll()
-    if previous ~= nil or rawget(_G, "nupp") ~= nil then
+    -- The VM reuses its namespace; restore only a bootstrap we replaced.
+    if installedBootstrap then
         _G.nupp = previous
+        installedBootstrap = false
     end
     if root then
         os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
@@ -405,7 +410,8 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
     -- the race abandons the read while it is still in flight.
     local value = tasks.race({
         function()
-            -- A race branch answers one value; `assert` would pass on the nil reason too.
+            -- A race branch answers one value; `assert` would pass on the nil reason
+            -- too.
             return (assert(files.read(inRoot("cancel/large.bin"))))
         end,
         function()
@@ -584,6 +590,7 @@ function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
                     if reads == 1 then
                         return ("one\ntw"):sub(1, count)
                     end
+
                     return nil, "the disk went away"
                 end,
                 close = function()
