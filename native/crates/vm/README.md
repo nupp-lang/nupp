@@ -4219,3 +4219,48 @@ hashes remain fixed, and the original cache bytes and inode are restored. No
 additional samples or build-time speed claim follow. See [primary image hash
 evidence](tests/primary-image-hash-results.json) for the exact kernels, backend
 selection, raw counters and scope.
+
+
+## Runtime migration boundary repairs (2026-10-17)
+
+Numeric table indexing selects a typed instruction from the register produced
+by lowering the key. A numeric annotation on an open result pack does not
+promise that its first result exists. Such boxed keys reach ordinary table
+indexing, including a metatable handler receiving nil. Held assignment targets
+preserve object/key/value evaluation order, and wide keys retain their exact
+boxed integer representation. Proven integer and float registers retain their
+typed index instructions. Explicit parameter annotations keep their contracts.
+
+`StrByte` accepts negative positions relative to the end, matching the public
+single-result string-byte operation. Rust interpretation, threaded C, compiled
+helpers and generated code share that behavior. The generated positive byte
+load stays direct; negative positions use the checked helper. Unsigned
+magnitude and checked subtraction handle the minimum signed integer.
+
+Fixed SIMD transpose accepts square packets of two through 64 equal vectors
+and preserves every result, including forwarded result tails. Stored fixed
+vectors use the VM target's vector field descriptor, copy raw lanes and clear
+padding. Their occupied field size can differ from the legacy Lua payload
+size: three floats occupy 16 bytes in the VM field model. By-value foreign
+calls and callbacks still refuse a vector storage field.
+
+C declaration replay uses libclang tokens and top-level cursor ranges. A
+request reuses accepted declarations only when all its tokens have a unique
+partition into previously certified groups under unchanged bindings and
+canonical type identities. Comments are trivia; attributes, qualifiers and
+literal tokens remain significant. Private tokenization retains the accepted
+typedef context and refuses lexical, parsing, preprocessing, fatal or unknown
+nonsemantic diagnostic categories. It never publishes the private model.
+
+Preprocessing, unsupported roots and nested tags missing from the complete
+file-scope inventory close the new replay path. Normal Clang parsing remains
+the fallback, including real conflicting declarations. The existing exact
+whole-text replay policy remains. Inspection records which struct/enum IDs and
+function names the current unit declares, then reads their current models;
+repeated declarations and completed forward types keep their identities.
+Model conversion, declaration ownership and replay certificates publish only
+after the whole accepted chunk succeeds. Cached certificates own strings and
+IDs, so no libclang token or cursor outlives its translation unit.
+
+These repairs are assembled on the validation branch. Focused evidence does
+not yet establish the combined native, public CLI or self-hosting gates.
