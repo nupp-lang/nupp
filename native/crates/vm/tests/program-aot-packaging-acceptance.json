@@ -1,0 +1,355 @@
+{
+  "schemaVersion": 1,
+  "status": "Accepted scoped ordinary scalar/SIMD packaging and native regression; G01 partial",
+  "sourceCommit": "533d72676fa5f7221108a5d1d73fb7359d97ee15",
+  "baseCommit": "9acc690a4e63a4752f99a246274d717f334f86c0",
+  "sourceFreeze": {
+    "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-plan-2/source-freeze.json",
+    "bytes": 638993,
+    "sha256": "3c9e718c8bc67fe51c3909bab2526bafa18d80b024cd10be55b62ce1453b01e1"
+  },
+  "scope": "Host-native ordinary scalar/SIMD binary packaging with no Cranelift and executable memory denied. G01 remains partial.",
+  "behavior": [
+    "Ordinary vector builds compile that exact program image into a fresh native object and link a reusable no-codegen runner archive.",
+    "Scalar ordinary builds retain the shared no-codegen runtime.",
+    "A versioned88-byte native table carries image hash/function ABI4/sparse function IDs/GC maps. Structural metadata is validated from the trusted native link; unsafe read still requires pointer storage to be readable, immutable and live for the call.",
+    "Required native code without a matching entry is refused before namespace/code publication; safe append-only parse heap metadata may remain."
+  ],
+  "ordinary": {
+    "rawFailedAttempt": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/receipt.json",
+      "bytes": 673682,
+      "sha256": "e39d3b7c1ef17b9ad3e125d4e6432f53c792c7681a0f797cd6c2f617dc613716"
+    },
+    "continuation": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-continuation-output-1/receipt.json",
+      "bytes": 6862,
+      "sha256": "ea5a7a4e926850b31e5c50dde91c3f3dcde34d101fdc30b177483466c7db9e21"
+    },
+    "firstPreProductFailure": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-4/receipt.json",
+      "bytes": 3757,
+      "sha256": "06f8d5c5f1ba421df6fc6ecd304445839b65fe6f22449657d0b7de3ce989a935"
+    },
+    "bootstrap": {
+      "seedImage": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94",
+      "seedRuntime": "a9e96ad8cc781e9614b6eb312fa1aaeba58cdee1ad717d8737046202f32e090f",
+      "scope": "Accepted older native host; current-source C1 compiler body used for both ordinary builds; no compiler AOT/selfhost claim."
+    },
+    "currentCompiler": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/current-compiler.image",
+      "bytes": 21194543,
+      "sha256": "b9c2471bde7f947926c9a6e77d42f04f15b87c3fa158dc3313866dbc221c146d"
+    },
+    "currentCompilerFunctions": 6590,
+    "compilerBuildEdges": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/current-compiler-build-edges.json",
+      "bytes": 91489,
+      "sha256": "099d9d276a3dffbed295dd4c8be88af3cb9eee6d3b69692bad9466f2f595f05c"
+    },
+    "scalar": {
+      "binary": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/scalar-project/build/binary",
+        "bytes": 2843296,
+        "sha256": "62eb0389580c815bf4d14b32e71dc8c0b18e195dc893baaeecd90b4145d5d8f2"
+      },
+      "entry": "main",
+      "payloadSha256": "23ea4015e00975dc5a1afc2fd3e814cb61f686cf74d81801a550206a99fa1755",
+      "rawTrailerDigestHex": "40713ee6fdbb48ef",
+      "trailerOffset": 2819479,
+      "nativeOffset": 2819040,
+      "digestProof": "Normal native payload reader validates original digest on successful executable startup; raw8 retained without a replacement hash algorithm",
+      "image": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/scalar.image",
+        "bytes": 434,
+        "sha256": "7a680667acc69c834f23576821f6d0eef3908662e0717298a6e2f44cc8e4331b"
+      },
+      "payload": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/scalar.payload",
+        "bytes": 439,
+        "sha256": "23ea4015e00975dc5a1afc2fd3e814cb61f686cf74d81801a550206a99fa1755"
+      },
+      "facilities": [
+        ""
+      ]
+    },
+    "vector": {
+      "binary": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/vector-project/build/binary",
+        "bytes": 3701472,
+        "sha256": "bda61eab09eb80bfce1946426c6fe76b9ec665657add61c988f618862e438d8e"
+      },
+      "entry": "main",
+      "payloadSha256": "3cb76fb1bb6472e09db243195ce6eaf950ee80381b4aa07ebc8240a2564a9bb7",
+      "rawTrailerDigestHex": "8e56fe25bdaed8c4",
+      "trailerOffset": 3675994,
+      "nativeOffset": 3557296,
+      "digestProof": "Normal native payload reader validates original digest on successful executable startup; raw8 retained without a replacement hash algorithm",
+      "image": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/vector.image",
+        "bytes": 118693,
+        "sha256": "d1c992b4361da7c231fd924eb9f1709fd40e1f8d0ffe81dd4ba424895c8ba60c"
+      },
+      "payload": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/vector.payload",
+        "bytes": 118698,
+        "sha256": "3cb76fb1bb6472e09db243195ce6eaf950ee80381b4aa07ebc8240a2564a9bb7"
+      },
+      "facilities": [
+        "vector"
+      ]
+    },
+    "programWorkspace": {
+      "main.o": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/main.o",
+        "bytes": 800,
+        "sha256": "7687cc7d1fe0ec2ed5165358bfc5dff5fabaa14ff7233f335dd8e6f2028ac1b8"
+      },
+      "program.o.manifest": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/program.o.manifest",
+        "bytes": 2096,
+        "sha256": "f01098d9b5794734c15b7a10bc66f95238ed44380cbacf191243507a29976776"
+      },
+      "program.image": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/program.image",
+        "bytes": 118693,
+        "sha256": "d1c992b4361da7c231fd924eb9f1709fd40e1f8d0ffe81dd4ba424895c8ba60c"
+      },
+      "emit.log": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/emit.log",
+        "bytes": 73,
+        "sha256": "66e0909cb9d4be294c5107808fcb3e9d2cfebffea0ebc810d4b8430d2a9c3b66"
+      },
+      "program.o.rs": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/program.o.rs",
+        "bytes": 17348,
+        "sha256": "71e7f452ceb9ed33fd94fec996149163f6229b9184f273f2afff666d6d8d7b9a"
+      },
+      "program.o": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/program.o",
+        "bytes": 792904,
+        "sha256": "2fadb6ae65beb664e4850c5ab971740c20240fa89c64e6b7372a321a81cf7f62"
+      },
+      "program.o.maps": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/program.o.maps",
+        "bytes": 141920,
+        "sha256": "ec7deff87c18b0537f18e9b3d5c665f6e5f42ac0aafa24e503b1bbeb5694ef12"
+      },
+      "link.log": {
+        "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/programs/3b7c124fdbb62f49.work.e5t18Q/link.log",
+        "bytes": 1417,
+        "sha256": "2d557bd270a9bc9ee6a433e212b864e5c344ec3971832a35fc52e75d7c204aa3"
+      }
+    },
+    "nativeBodies": {
+      "scalar": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-continuation-output-1/scalar-native-body-proof.json",
+        "bytes": 2258,
+        "sha256": "0bde7b1115f877ed8797e15bebd9558057d42f4c8b10fcbd618db4104998d676"
+      },
+      "vector": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-continuation-output-1/vector-native-body-proof.json",
+        "bytes": 2287,
+        "sha256": "d63ff387d0fa6de637094f9d58dd47ef77cbbd2e2f4059da34deeaf2cda3d660"
+      }
+    },
+    "features": {
+      "scalar": {
+        "expected": [
+          "aot-linked",
+          "compiled-runtime",
+          "native-ffi"
+        ],
+        "fingerprints": [
+          {
+            "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-runtime/target-base/release/.fingerprint/nupp-vm-f32c50e6334d02de/bin-nupp-vm.json",
+            "bytes": 1784,
+            "sha256": "f3e6f087b93c0691154ed2120b236ffc37f10057d7db71540ea61d6dc0857d8e"
+          }
+        ]
+      },
+      "vector": {
+        "expected": [
+          "aot-linked",
+          "compiled-runtime",
+          "native-ffi"
+        ],
+        "fingerprints": [
+          {
+            "path": "/Volumes/bigbertha/nupp-work/vm-nojit-current/ordinary-toolchain-1/vm-program/target-base/release/.fingerprint/nupp-vm-0dc98f1a117f0e32/lib-nupp_vm.json",
+            "bytes": 1728,
+            "sha256": "7d71ce2651246d2f78192530fa11dd569fdb42f6657ef9eb36a049db4f392f4e"
+          }
+        ]
+      }
+    },
+    "table": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-continuation-output-1/linked-table-proof.json",
+      "bytes": 1581,
+      "sha256": "02519bcb887a9cb949dc4c90dbd622151b9397d063bc4e0fcfd31df87b077cd2"
+    },
+    "interpretedOracle": {
+      "outputSha256": "5ce7aa377bc98485bcbcc1f1742aef8122b424ade0648542f8ae37ab4a22270e",
+      "sameRawProgramImage": true,
+      "linkedEntryVectorsDisabledByNoAot": true,
+      "interpreterLaneLoop": true,
+      "scope": "Stamped module-entry route; same native interpreter and image, NO_AOT suppresses both linked-entry vectors. No independent runtime implementation claim."
+    },
+    "controls": {
+      "mmapDeniedExit86": true,
+      "mprotectDeniedExit86": true,
+      "ordinaryScalarExit0": true,
+      "ordinaryVectorExit0": true,
+      "rawOutputEqualsInterpreterLane": true,
+      "allOwnedTerminal": true,
+      "sourceAndCacheBytesAndInodesUnchanged": true
+    },
+    "preservedFailures": [
+      "Read-only diskutil guard initially queried a subdirectory; no product command ran.",
+      "Unappended seed exec incorrectly called main.main for a top-level module. Both builds and denied runs already passed. The replacement used the exact stamped binary with linked entry vectors disabled.",
+      "Both original receipts remain literally failed; no successful command was rerun."
+    ],
+    "facilityFiles": {
+      "scalar": {
+        "raw": {
+          "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/scalar-project/build/.nupp-vm-program.facilities",
+          "bytes": 1,
+          "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+        },
+        "rawLines": [
+          ""
+        ],
+        "named": [],
+        "emptyLinesNotFacilities": true
+      },
+      "vector": {
+        "raw": {
+          "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/ordinary-program-output-5/vector-project/build/.nupp-vm-program.facilities",
+          "bytes": 7,
+          "sha256": "6518f4d5ccb3945012ddc71efe544006d00339a9f87eef6ed086a362c24e0a25"
+        },
+        "rawLines": [
+          "vector"
+        ],
+        "named": [
+          "vector"
+        ],
+        "emptyLinesNotFacilities": true
+      }
+    },
+    "rawFacilitiesNote": "The original producer record retains scalar facilities as one blank line; semantic names exclude only empty lines. Raw bytes/hash remain preserved."
+  },
+  "focused": {
+    "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-focused-current-2/receipt.json",
+    "bytes": 15982,
+    "sha256": "f7c64da2c4d04d77cadfd286c0e9a883f0ac5abefc837b47142ab0ad0a3432c6"
+  },
+  "formatAllSix": {
+    "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/format-current-2/receipt.json",
+    "bytes": 3454,
+    "sha256": "c80765a7f97e95128b033bf11d99987d314399da2a4f83e4ce712383639e4e9a"
+  },
+  "harnessRepair": {
+    "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/harness-repair-1/receipt.json",
+    "bytes": 820,
+    "sha256": "17ef188023a22d0ea44768e646078c55e502983551e621f4180098d666fbc191"
+  },
+  "nativeMatrix": {
+    "status": "Passed",
+    "configuration": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-plan-2/config.proposed.json",
+      "bytes": 5696,
+      "sha256": "a0c009719bea7a61bb827812a051fe06063faf13a321d5ec55c06cd35302b68d"
+    },
+    "executionReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-current-2/receipt.json",
+      "bytes": 2823122,
+      "sha256": "48253f894785d7564467ed8c796570a70d51ced4af75a0b16297fc62a5347b92"
+    },
+    "completion": {
+      "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-current-2/completion.json",
+      "bytes": 83363,
+      "sha256": "ed1efd0a44ff1d031b4ffffc08ac515649fec2f73abc46d6603cb127d5ea54f8"
+    },
+    "boundaryAudits": {
+      "default-aot": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-current-2/default-aot.boundary-audit.json",
+        "bytes": 105902,
+        "sha256": "8af2538dc460483f4a84eef664b48f42e156b8a3bf8419bcd8a24bde4b099a9f"
+      },
+      "no-codegen": {
+        "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-matrix-current-2/no-codegen.boundary-audit.json",
+        "bytes": 95509,
+        "sha256": "997a2bdd635073d1055e9d25a0c52bb9f2fe478f7d600f4e09fe15bb3b5af0ab"
+      }
+    },
+    "counts": {
+      "defaultPlusAot": {
+        "passed": 402,
+        "failed": 0,
+        "ignored": 5
+      },
+      "noCodegenFullFacilities": {
+        "passed": 335,
+        "failed": 0,
+        "ignored": 5
+      }
+    },
+    "executableBoundaryAccounting": "Each matrix has59Cargo Running executable boundaries and1doctest, matched to60top-level running/summary blocks and all test rows. Six source-defined nested fresh-process summaries are excluded; they remain in raw output.",
+    "ignored": [
+      {
+        "boundary": "unittests src/lib.rs",
+        "name": "sharing::measure::crossing_cost_does_not_grow_with_size",
+        "status": "ignored, measurement: cargo test --release --lib sharing::measure -- --ignored --nocapture",
+        "stdoutLine": 36
+      },
+      {
+        "boundary": "tests/primary_image_hash.rs",
+        "name": "current_compiler_image_matches_its_linked_raw_digest",
+        "status": "ignored, requires pinned NUPP_PRIMARY_HASH_IMAGE and NUPP_PRIMARY_HASH_EXPECTED",
+        "stdoutLine": 460
+      },
+      {
+        "boundary": "tests/self_lowering.rs",
+        "name": "emitted_lowerer_rebuilds_itself",
+        "status": "ignored, requires NUPP_COMPILER_IMAGE and NUPP_LOWERER_IMAGE",
+        "stdoutLine": 544
+      },
+      {
+        "boundary": "tests/worker_memory.rs",
+        "name": "transfer_cost_does_not_grow_with_size",
+        "status": "ignored, measurement: cargo test --release --test worker_memory -- --ignored --nocapture",
+        "stdoutLine": 723
+      },
+      {
+        "boundary": "nupp_vm documentation",
+        "name": "native/crates/vm/src/embed.rs - embed (line 11)",
+        "status": "ignored",
+        "stdoutLine": 740
+      }
+    ],
+    "interpreterAllTargets": {
+      "exitCode": 0,
+      "scope": "release --no-default-features --all-targets compile check; no runtime execution claim"
+    },
+    "allOwnedTerminal": true,
+    "sourceCacheAndPinnedArtifactsUnchanged": true
+  },
+  "remaining": [
+    "Full current-source task families/scheduled parking/vector checkpoint cross-tier and unmatched plugin refusal gate.",
+    "G02/G03 composition including relocated bindings and real source-PC blob in the88-byte table.",
+    "Combined compiler cold/selfhosting/public gates after source composition.",
+    "No Windows no-codegen packaging acceptance; Windows retains existing JIT fallback."
+  ],
+  "performanceAccepted": false,
+  "wholeG01Accepted": false,
+  "integrationAccepted": false,
+  "sourceFileCountAtExecution": 4559,
+  "sourceCommitScope": "All ordinary and broad native gates executed source533d. This later acceptance-only commit adds no source/runtime/image change.",
+  "preservedEarlierNativeFailure": {
+    "path": "/Users/dowling/projects/nupp-wt/nojit-scratch/native-focused-current-1/receipt.json",
+    "bytes": 96747,
+    "sha256": "9874a96c4ce50cd5f409ec784b363c0b8f6e184df7136601887b26dcf9b62893"
+  },
+  "focusedScope": "Earlier11 focused tests are historical to their recorded source. The same8table+3refusal controls also pass in both final-source broad native matrices."
+}
