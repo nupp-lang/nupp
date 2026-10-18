@@ -559,7 +559,7 @@ fn j_new_record_impl(shape: u64) -> u64 { let _hp = enter_helper!(); let v = ctx
 fn j_new_table_impl() -> u64 { let _hp = enter_helper!(); let v = ctx().new_table(); leave_helper!(_hp); v.0 }
 fn j_new_table_sized_impl(n: u64, m: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().new_table_sized(n as usize, m as usize); leave_helper!(_hp); v.0 }
 fn j_set_slot_impl(obj: u64, i: u64, v: u64) -> u64 { ctx().set_slot(V(obj), i as usize, V(v)); 0 }
-fn j_set_index_impl(t: u64, k: u64, v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = V(t); if it.metatable_of(t) != V::NIL { let k = it.key_for_store(V(k)); it.newindex(t, k, V(v)); } else { it.set_index(t, V(k), V(v)); } leave_helper!(_hp); 0 }
+fn j_set_index_impl(t: u64, k: u64, v: u64) -> u64 { let _hp = enter_helper!(); let it = ctx(); let t = V(t); let k = it.key_for_store(V(k)); it.newindex(t, k, V(v)); leave_helper!(_hp); 0 }
 fn j_concat_impl(a: u64, b: u64) -> u64 { let _hp = enter_helper!(); let v = ctx().concat(V(a), V(b)); leave_helper!(_hp); v.0 }
 /// Arithmetic and comparison past the number fast path: strings compare by
 /// content (codes 3 and 4 answer a boolean word); anything else is an error.
@@ -597,7 +597,7 @@ pub extern "C" fn j_get_index_i(t: u64, bits: u64) -> u64 { ctx().guarded(|_| {
 pub extern "C" fn j_set_index_i(t: u64, bits: u64, v: u64) -> u64 { ctx().guarded(|_| {
     let _hp = enter_helper!(); let it = ctx();
     let key = it.box_integer(crate::numeric::Integer { bits, unsigned: false });
-    let root = it.register(key); it.newindex(V(t), key, V(v)); it.release(root); V::NIL
+    let scope = it.open_scope(); it.handles.push(key); it.newindex(V(t), key, V(v)); it.close_scope(scope); V::NIL
 }).0 }
 
 fn j_iter_next_impl(iter: u64) -> u64 {

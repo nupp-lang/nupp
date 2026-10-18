@@ -1421,6 +1421,16 @@ impl<M: Module> Compiler<M> {
                         let arr = b.ins().load(types::I64, flags, o, OFF_AUX_PTR);
                         let off = b.ins().imul_imm(idx0, 8);
                         let addr = b.ins().iadd(arr, off);
+                        // An array hole is absent: its metatable may intercept
+                        // the write. Occupied slots and plain tables stay raw.
+                        let old = b.ins().load(types::I64, flags, addr, 0);
+                        let present = b.ins().icmp_imm(IntCC::NotEqual, old, NIL);
+                        let meta = b.ins().load(types::I64, flags, o, OFF_T_META);
+                        let no_meta = b.ins().icmp_imm(IntCC::Equal, meta, NIL);
+                        let raw = b.ins().bor(present, no_meta);
+                        let store_b = b.create_block();
+                        b.ins().brif(raw, store_b, &[], slow_b, &[]);
+                        b.switch_to_block(store_b); b.seal_block(store_b);
                         b.ins().store(flags, v, addr, 0);
                         b.ins().jump(join, &[]);
                         b.switch_to_block(slow_b); b.seal_block(slow_b);

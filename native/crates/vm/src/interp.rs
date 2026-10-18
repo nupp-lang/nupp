@@ -1855,10 +1855,10 @@ impl Interp {
         self.err("__index chain too long")
     }
     pub fn index_any(&mut self, t: Value, k: Value) -> Value { match self.key_of(k) { Some(k) => self.index(t, k), None => Value::NIL } }
-    /// A store that calls `__newindex` when a table lacks the key and its
-    /// metatable has one; raw otherwise.
+    /// A store that calls `__newindex` for an absent key through the object's
+    /// metatable or record declaration; raw otherwise.
     pub fn newindex(&mut self, t: Value, key: Value, v: Value) {
-        if self.metatable_of(t) != Value::NIL && self.get_index(t, key) == Value::NIL {
+        if self.mm_possible(crate::metamethods::MM::NewIndex) && self.get_index(t, key) == Value::NIL {
             let h = self.metamethod(t, crate::metamethods::MM::NewIndex);
             if h != Value::NIL {
                 if h.as_obj().map(|p| matches!(unsafe { (*p.as_ptr()).kind }, KIND_TABLE | KIND_RECORD)).unwrap_or(false) { return self.newindex(h, key, v); }
@@ -2450,7 +2450,7 @@ impl Interp {
                     }
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
-                    Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); if self.metatable_of(tv) != Value::NIL { let iv = self.key_for_store(iv); self.newindex(tv, iv, v); } else { self.set_index(tv, iv, v); } }
+                    Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); let iv = self.key_for_store(iv); self.newindex(tv, iv, v); }
                     Op::GetField(d, t, k) => { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_get_field(&win, d, t, k) }
                     Op::GetPhys(d,t,p)|Op::GetPhysF(d,t,p)|Op::GetPhysI(d,t,p)|Op::GetPhysU(d,t,p) => {
                         let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
@@ -2492,9 +2492,9 @@ impl Interp {
                     Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
                     Op::FNeg(d, a) => fr!(d) = -fr!(a),
                     Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.index(tv, Value::num(k)); }
-                    Op::SetIdxF(t, i, sv) => { let (tv, k, v) = (r!(t), fr!(i), r!(sv)); self.set_index(tv, Value::num(k), v); }
+                    Op::SetIdxF(t, i, sv) => { let (tv, k, v) = (r!(t), fr!(i), r!(sv)); self.newindex(tv, Value::num(k), v); }
                     Op::GetIdxI(d, t, i) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let tv = r!(t); r!(d) = self.index(tv, key); }
-                    Op::SetIdxI(t, i, s) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let (tv, v) = (r!(t), r!(s)); if self.metatable_of(tv) != Value::NIL { self.newindex(tv, key, v); } else { self.set_index(tv, key, v); } }
+                    Op::SetIdxI(t, i, s) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let (tv, v) = (r!(t), r!(s)); self.newindex(tv, key, v); }
                     Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
                     Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
                     Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),

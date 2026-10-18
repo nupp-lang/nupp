@@ -449,7 +449,7 @@ static Value h_setidxi(ARGS) {
     if (__builtin_expect(is_obj(t) && obj_kind(t) == KIND_TABLE && !(obj_flags(t) & (F_STORAGE_SCHEMA | F_PROTO)), 1)) {
         uint64_t n = obj_len(t);
         // A nil at the end shrinks the array part (the border rule): helper.
-        if (i >= 1 && (uint64_t)i <= n && (v != T_NIL || (uint64_t)i < n)) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
+        if (i >= 1 && (uint64_t)i <= n && (v != T_NIL || (uint64_t)i < n) && (((Value*)obj_ptr(t))[i - 1] != T_NIL || *(const Value*)((uintptr_t)(t & PAYLOAD) + OFF_T_META) == T_NIL)) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
     }
     if (is_obj(t)) { NOTE_PC; rt_set_index_num(ctx, t, i, v); CHECK_ERR; frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
     SLOW;

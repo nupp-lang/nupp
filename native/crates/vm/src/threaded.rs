@@ -239,7 +239,7 @@ pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
 pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
-    let r = it.guarded(|it| { let t = Value(obj); if it.metatable_of(t) != Value::NIL { it.newindex(t, Value::num(i as f64), Value(v)); } else { it.set_index(t, Value::num(i as f64), Value(v)); } Value::NIL });
+    let r = it.guarded(|it| { it.newindex(Value(obj), Value::num(i as f64), Value(v)); Value::NIL });
     if r == Value::ERROR { ctx.status = ST_ERROR; }
     sync(ctx, it);
 }

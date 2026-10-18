@@ -4294,3 +4294,32 @@ original cache bytes and inode are restored. The one favorable cold comparison
 stays diagnostic. The prototype remains on its isolated branch and in an exact
 source archive; this results branch retains baseline production code. See
 [the complete trial record](tests/unary-type-call-performance.json).
+
+## Indexed stores (2026-10-17)
+
+Semantic indexed stores call `__newindex` for absent keys through an object's
+metatable or record declaration. Float-register stores previously bypassed that
+handler, and threaded and native integer stores skipped it for array holes.
+This let `values[-1]` bypass provider bounds and let storage-view writes create
+shadow keys instead of updating the bytes used by bitset copy and fill.
+
+`SetIdx`, `SetIdxF` and `SetIdxI` share semantic dispatch. Occupied keys remain
+raw stores; `rawset`, sparse maps and exact wide keys retain their contracts.
+Guarded helper roots unwind when a handler raises. The eight controls cover
+interpretation, actual threaded dispatch, direct helpers, ordinary native entry
+and scheduled frame entry, with GC and reentry checks.
+
+The isolated native gates pass 387 tests with default+AOT and 320 with plain8,
+with five ignored rows in each. The default result reuses preserved successful
+raw output after a wrapper regex missed a spaced doctest name; it was not run
+again. Fresh emission covers all 6,589 functions of the unchanged canonical
+compiler image with ABI 4, and the linked runtime passes 13 checks in two fresh
+processes with executable memory denied. Prior AOT objects are ineligible.
+
+All ten selected ordinary GPU, provider and bitset cases pass. The actual
+runner verifies 501 source modules, two external declarations and its original
+eight-byte trailer. See
+[indexed-store evidence](tests/indexed-store-results.json)
+for source hashes, preserved failures and the recovery receipt. These gates
+establish isolated correctness, with no broad public, fixpoint, performance
+or composed migration acceptance claim.

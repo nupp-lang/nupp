@@ -1,0 +1,404 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "scope": "Isolated indexed-store repair on macOS AArch64; native correctness, freshly emitted canonical compiler AOT, linked smoke and ordinary public focused cases.",
+  "source": {
+    "baseCommit": "b0e64f6f8935783a9a4bfbca6c336c32e8fd68a4",
+    "branch": "vm-declaration-index-store",
+    "testedFiles": {
+      "native/crates/vm/csrc/dispatch.c": {
+        "bytes": 29810,
+        "sha256": "307c2e99ac133b43e74bf8b87bdefbd761cefac3064654810580d6c29e9f483b"
+      },
+      "native/crates/vm/src/compiled.rs": {
+        "bytes": 45056,
+        "sha256": "16e7b14b8c95cf9524192c451d8a66f77dd5b3f15040efa1f78756755c020555"
+      },
+      "native/crates/vm/src/interp.rs": {
+        "bytes": 207638,
+        "sha256": "02b6f6fdc43cd5258a1abd7b500f083ccb0dc865c1810edf6d4315d9d648cfc4"
+      },
+      "native/crates/vm/src/jit.rs": {
+        "bytes": 189055,
+        "sha256": "6fd47ef93f654ae33770ed73faf49ab9f58cec66718f91f4e76312fc985fbc28"
+      },
+      "native/crates/vm/src/threaded.rs": {
+        "bytes": 19039,
+        "sha256": "f69bf81e4755ef710bb009ba7720bc0c7ab03ac4136aeadfd8e0f64d1dd1d805"
+      },
+      "native/crates/vm/tests/indexed_stores.rs": {
+        "bytes": 14387,
+        "sha256": "391c5229f05007a564d2788ba2eb7406965088156b2c1d65a37cb5a4d345d5ac"
+      }
+    },
+    "freeze": {
+      "bytes": 636974,
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/source-freeze.json",
+      "sha256": "f9c27f53797a8ed37511a6bb413898dc215408d4f2c4e3aa59060f05df2227d7"
+    },
+    "abiLayoutCompilerSourcesOrDefaultsChanged": false
+  },
+  "semanticBug": {
+    "cause": "SetIdxF performed raw stores; generic and integer stores required an own metatable before checking declaration-based __newindex. Threaded and native integer array fast paths treated nil holes as occupied.",
+    "repair": "Semantic SetIdx, SetIdxF and SetIdxI dispatch through newindex, which resolves own metatables and record declarations for absent keys. Threaded and native inline array stores send interceptable holes to the helper. The compiled integer helper roots its exact key in a guarded handle scope so handler errors unwind it.",
+    "preserved": [
+      "Occupied keys use raw stores; rawset and set_index retain raw semantics.",
+      "Table handlers, handler replacement, reentry, GC and handler errors preserve their contracts.",
+      "Sparse maps retain fractional, absent and exact wide integer keys; raw maps reject nil and NaN keys.",
+      "Integer-indexed shapes remain sparse maps with optional reads and do not fit dense {T} arrays."
+    ],
+    "publicSymptoms": "Fractional GPU Shared writes bypassed validation; negative provider-array writes bypassed bounds; storage-view float-indexed writes made shadow table entries instead of updating backing bytes used by bitset copy and fill."
+  },
+  "focusedControls": {
+    "testFile": "indexed_stores.rs",
+    "names": [
+      "declaration_handlers_receive_exact_keys_with_gc_and_reentry_in_every_mode",
+      "occupied_record_keys_and_rawset_bypass_handlers",
+      "array_holes_call_newindex_but_occupied_slots_stay_raw",
+      "table_handlers_and_explicit_record_metatables_preserve_redirects",
+      "replacing_a_declaration_handler_propagates_its_error",
+      "plain_sparse_maps_keep_wide_fractional_and_absent_keys",
+      "raw_maps_continue_to_reject_nil_and_nan_keys",
+      "integer_stores_keep_keys_beyond_the_double_integer_range"
+    ],
+    "modes": {
+      "default+aot": [
+        "Interpreter",
+        "Threaded (AVAILABLE asserted)",
+        "ordinary native entry (nonzero/current entry asserted)",
+        "scheduled frame entry (compiled counter and frame entry asserted)",
+        "direct compiled helpers"
+      ],
+      "plain8": [
+        "Interpreter",
+        "Threaded (AVAILABLE asserted)",
+        "direct compiled helpers"
+      ]
+    },
+    "stress": [
+      "GC stress",
+      "stress steps",
+      "oracle",
+      "quarantine",
+      "callback GC and reentry",
+      "temporary-root balance after callback errors"
+    ],
+    "defaultAot": {
+      "counts": [
+        8,
+        0,
+        0
+      ],
+      "exitCode": 0,
+      "receipt": {
+        "bytes": 2203,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/focused-default-aot-3/receipt.json",
+        "sha256": "7641c762018a4bb776ca6accae3e17c6e34268add0832476d9949b581aa0f86b"
+      }
+    },
+    "plain8": {
+      "counts": [
+        8,
+        0,
+        0
+      ],
+      "exitCode": 0,
+      "receipt": {
+        "bytes": 2297,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/focused-plain8-1/receipt.json",
+        "sha256": "27af87139283d933164494be2fca41da831b0a36d6762955e98dbcc96f84c473"
+      }
+    },
+    "preservedRedReceipts": {
+      "baseline-red-1": {
+        "bytes": 1999,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/baseline-red-1/receipt.json",
+        "sha256": "96e845d9ab205b933a74c31525a60a7ef9aaee750cac99855dc21af5bb7be30a"
+      },
+      "hole-red-2": {
+        "bytes": 2206,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/hole-red-2/receipt.json",
+        "sha256": "2c041e14fc29eab76127dde519f25c825d6e4e62a13ce486a5c185493d51fa78"
+      },
+      "jit-hole-red-1": {
+        "bytes": 2206,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/jit-hole-red-1/receipt.json",
+        "sha256": "b79ea87443de9b84159b9a94b4df0d47ad3fc7d5261a6013aff7dfd668bc0880"
+      },
+      "helper-error-root-red-1": {
+        "bytes": 2206,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/helper-error-root-red-1/receipt.json",
+        "sha256": "2a633ffdf54a2e54592621cbe75a32dc55231714fb68e926938a733463812065"
+      }
+    }
+  },
+  "nativeMatrix": {
+    "defaultAot": {
+      "reused": true,
+      "productRerunInContinuation": false,
+      "totals": {
+        "passed": 387,
+        "failed": 0,
+        "ignored": 5,
+        "measured": 0,
+        "filtered": 0
+      },
+      "boundaries": 58,
+      "nestedSummariesExcluded": 6,
+      "audit": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/reused-native-default-aot/boundary-audit.json",
+        "bytes": 18014,
+        "sha256": "6f880d2480b34f4e5d83e136a0fa9733d8e3477d5b73f1c658c8265b98470120"
+      },
+      "stdout": {
+        "bytes": 34697,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-1/native-default-aot/stdout",
+        "sha256": "e6aa8b9b0b988e43a2df7e0b135952d5027f187139e7a2f5652785e0c563101d"
+      },
+      "stderr": {
+        "bytes": 7052,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-1/native-default-aot/stderr",
+        "sha256": "3b67709c79a5f9a44fb0a12f149d8ee9c875995d29fd35e8e991477c8fe7b8e1"
+      },
+      "rootReview": {
+        "bytes": 1663,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-proposal-1/native-default-root-review.json",
+        "sha256": "ceb8eb9e75e81ba3e0f712e040db0ea2b4f21571ec6f2867d314140e2c146763"
+      }
+    },
+    "plain8": {
+      "reused": false,
+      "totals": {
+        "passed": 320,
+        "failed": 0,
+        "ignored": 5,
+        "measured": 0,
+        "filtered": 0
+      },
+      "boundaries": 58,
+      "nestedSummariesExcluded": 6,
+      "audit": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/native-plain8/boundary-audit.json",
+        "bytes": 18011,
+        "sha256": "679edc6c4b4b5c776e7d82bb5bfad8bf36ed4d10e452f6c21a88247603983568"
+      }
+    },
+    "ignoredCases": [
+      {
+        "name": "sharing::measure::crossing_cost_does_not_grow_with_size",
+        "reason": "measurement: cargo test --release --lib sharing::measure -- --ignored --nocapture"
+      },
+      {
+        "name": "current_compiler_image_matches_its_linked_raw_digest",
+        "reason": "requires pinned NUPP_PRIMARY_HASH_IMAGE and NUPP_PRIMARY_HASH_EXPECTED"
+      },
+      {
+        "name": "emitted_lowerer_rebuilds_itself",
+        "reason": "requires NUPP_COMPILER_IMAGE and NUPP_LOWERER_IMAGE"
+      },
+      {
+        "name": "transfer_cost_does_not_grow_with_size",
+        "reason": "measurement: cargo test --release --test worker_memory -- --ignored --nocapture"
+      },
+      {
+        "name": "native/crates/vm/src/embed.rs - embed (line 11)",
+        "reason": ""
+      }
+    ],
+    "externalImageDigestFixture": "Ran separately and passed in default+AOT and plain8; the five ignored matrix rows remain recorded.",
+    "interpreterOnlyAllTargetsCheck": "passed; --no-default-features --all-targets",
+    "sourceRecipe": {
+      "nativeRecipeFiles": 198,
+      "auditFiles": 199,
+      "auditExtra": "scripts/toolchain.pins; normal recipe folds filtered pins separately",
+      "typeCandidateDifference": "The 198-file type candidate substitutes tests/type_call.rs for tests/indexed_stores.rs. Cardinality is unchanged.",
+      "comparison": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-proposal-1/native-recipe-comparison.json",
+        "bytes": 1861,
+        "sha256": "26f8c524afb53e34af921bd89130a0117f5f25de94206ab24a5e122e6a3b58a1"
+      }
+    }
+  },
+  "freshAot": {
+    "compilerImageUnchanged": true,
+    "image": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/compiler.image",
+      "bytes": 21190493,
+      "sha256": "602f892070bbdaa4d724eb5505c4db60dc3c13bd2a027f5111b92e0ea3a7bf79"
+    },
+    "emitter": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/aot-tool",
+      "bytes": 15910472,
+      "sha256": "307d49656a9cabc1392f0bab1902313a03a03e2c2b2e0aeda6783a320a0936c4"
+    },
+    "emitterSource": {
+      "jit": {
+        "path": "/Users/dowling/projects/nupp-wt/simd-port-contract/native/crates/vm/src/jit.rs",
+        "bytes": 189055,
+        "sha256": "6fd47ef93f654ae33770ed73faf49ab9f58cec66718f91f4e76312fc985fbc28"
+      },
+      "sourceFreeze": {
+        "bytes": 636974,
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/source-freeze.json",
+        "sha256": "f9c27f53797a8ed37511a6bb413898dc215408d4f2c4e3aa59060f05df2227d7"
+      }
+    },
+    "artifacts": {
+      "object": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/compiler.o",
+        "bytes": 149877064,
+        "sha256": "040a835ef38a0e54310cefe5811b7245854dbd9c1f57557f98a2866f1dc54b31"
+      },
+      "maps": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/compiler.o.maps",
+        "bytes": 68514196,
+        "sha256": "9d80a21371c74c85a40509213ea8c948710a6ee39298feb58c83445c6843626e"
+      },
+      "sidecar": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/compiler.o.rs",
+        "bytes": 872014,
+        "sha256": "788ab4c888925931cc177e1a7f88d66e561c5375d85b4c438badbe14e5d14a55"
+      },
+      "manifest": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/compiler.o.manifest",
+        "bytes": 123078,
+        "sha256": "2c341f56df0af05232493ba8013e6d5e070d5988bc0c74198cb3234b952baa32"
+      }
+    },
+    "runtime": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/runtime",
+      "bytes": 218993496,
+      "sha256": "513c051000a00c916b3bf5e1176c81e6e709e873862d05ba9fc518c923f7c498"
+    },
+    "functions": 6589,
+    "refusedFunctions": 0,
+    "runtimeAbi": 4,
+    "craneliftSymbols": false,
+    "oldAotObjectsEligible": false,
+    "oldCanonicalObject": "16b802 prefix; ineligible because jit.rs changed. No old object was reused.",
+    "linkDirective": "cargo:rustc-link-arg-bin=nupp-vm=<fresh compiler.o>; matching fresh compiler.o.rs sidecar",
+    "linkedSmoke": {
+      "status": "passed",
+      "checks": 13,
+      "freshProcesses": 2,
+      "executableMemoryDenied": true,
+      "results": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/smoke-artifacts/results.json",
+        "bytes": 2255,
+        "sha256": "26b14ce137ff40cb9608e0c0ea9c93479a3e0d2d8b4de8dfd2c2aa4e5a971e74"
+      }
+    }
+  },
+  "ordinaryPublic": {
+    "summary": {
+      "ok": true,
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0
+    },
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/ordinary-focused10/parsed.json",
+      "bytes": 4257,
+      "sha256": "6df10904f1d7aceffdde64a4974a04f6d1446d5d969b1dd7bec13769d1ca887d"
+    },
+    "cases": [
+      "gputest/cpuGpuMetadataRejectsFractionalIntegers",
+      "gputest/inclusiveScanHasDeterministicCpuMeaning",
+      "gputest/sharedScratchChecksZeroBasedBounds",
+      "gputest/tensorLayoutsCopyInputsAndValidateEveryTransformation",
+      "gputest/tensorLayoutsTransposeBroadcastAndProveInjectivity",
+      "gputest/workgroupPhasesHaveDeterministicCpuMeaning",
+      "providerconformancetest/tableStructsPreserveValueOperations",
+      "utilbitsettest/copyFromIsIndependent",
+      "utilbitsettest/randomOperationSequence",
+      "utilbitsettest/rangeAfterStaleCount"
+    ],
+    "normalInstall": {
+      "package": "/Users/dowling/projects/nupp-wt/simd-port-contract/.nupp/vm-cli/4648d5e8baa1651ba44eccdc3d4be5d775ce11ff86a47b8a9fa5c73de72712ca",
+      "statusReceiptLinked": true,
+      "sourceChangedSinceInstall": false,
+      "status": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/normal-status/stdout",
+        "bytes": 1490,
+        "sha256": "d43399f3163abf8916810cd9f8b349718568f183fac68f4a1d08abe85d869580"
+      }
+    },
+    "normalProgramRuntime": {
+      "key": "bfecea7095cf431b",
+      "preserved": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/normal-program.runtime",
+        "bytes": 9448352,
+        "sha256": "e516ab8b1639fb6ba1019c17d6e544cfd4a0801a9ba83b41fc2b996c14268754"
+      },
+      "facilities": [
+        "c-headers",
+        "compression",
+        "http",
+        "jit",
+        "markdown",
+        "net",
+        "regex"
+      ],
+      "rootCliAotRuntimeIsProgramRuntime": false
+    },
+    "actualRunner": {
+      "executable": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/runner-after/default.nupp-test",
+        "bytes": 33079968,
+        "sha256": "57e6507c59bf80487181701d57efc6fda1cfb41353177ecfa20660517b936e78"
+      },
+      "beforeAndAfterIdentical": true,
+      "observedRunnerAndNormalRuntimeStampMatch": true,
+      "sourceProof": {
+        "verifiedSourceModules": 501,
+        "externalDeclarations": 2,
+        "originalTrailerDigestVerified": true,
+        "rootCliRunnerResourceMatches": true
+      },
+      "sourceProofArtifact": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/source-proof.json",
+        "bytes": 128,
+        "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+      },
+      "sourceManifest": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/runner-source-manifest.json",
+        "bytes": 95316,
+        "sha256": "407bf9fddf436fed5e97f88bb723a1676d80be378f2f767254365d304ab852db"
+      }
+    }
+  },
+  "executionHistory": {
+    "originalFailedWrapper": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-1/receipt.json",
+      "bytes": 2248280,
+      "sha256": "052a70f5a0d69b3b4d8c72e8d9d0c3336bdbc4eb4e87a3111f1487f211d0b550"
+    },
+    "originalWrapperRemainsAccepted": false,
+    "failure": "The wrapper ignored-name regex used a nonspace token and missed the spaced embed doctest name. The product command exited zero with 387 passed, 0 failed and 5 ignored.",
+    "recovery": "Root reviewed immutable raw output. A bounded continuation used ^test (.+?) \\.\\.\\. ignored to re-audit that successful stage and ran only 18 remaining stages. No default native rerun, retries, additional gates or budget increases.",
+    "continuationReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-continuation-1/receipt.json",
+      "bytes": 1566316,
+      "sha256": "24155cb105b1a97ff5a5029393ef4124372fefac9a2a5f0a07239bf87ac76201"
+    },
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/permanent-evidence-1/root-review.json",
+      "bytes": 442,
+      "sha256": "539550e556ab58b6ea7ceb7b218f3cac494f1f967ec6c5dbb76dd4cd7079e651"
+    },
+    "rootArtifactReferencesVerified": 85,
+    "rootArtifactReferenceErrors": 0,
+    "sourceNativeArtifactsCacheRocksAndSelectionGuardsPassed": true,
+    "cacheBytesAndInodeRestored": true,
+    "remainingOwnedProcesses": [],
+    "rawAndFailuresPreserved": true
+  },
+  "limits": [
+    "Isolated candidate acceptance only; no composed migration acceptance.",
+    "No broad public suite, fixpoint, self-hosting or performance claim follows from these gates.",
+    "Old AOT objects remain ineligible for this implementation.",
+    "Root review and raw receipts remain in scratch; this JSON pins their hashes."
+  ]
+}
