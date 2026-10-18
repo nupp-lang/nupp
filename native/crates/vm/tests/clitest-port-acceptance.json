@@ -1,0 +1,344 @@
+{
+  "schemaVersion": 1,
+  "status": "FAILED: actual CLI36 reports35 passed and1 failed; no classification promotion",
+  "accepted": false,
+  "source": {
+    "testedRevision": "901c143a019b890891c58afbc432d7e6fa609c54",
+    "fullFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-proposal-4/full-source-freeze.json",
+      "bytes": 637360,
+      "sha256": "64b0375dddb3e21410e10ab8bb54fb52737f7ab82e5fed527a8c38ed86024523"
+    },
+    "composedAcceptance": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-reviewed-acceptance-1/root-review.json",
+      "bytes": 5750,
+      "sha256": "14cc1b26ded6437022b11ab56d2abdb6d19c5ff3940cfb11974bf5ad81da94be"
+    },
+    "cliExecutionConfig": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-reviewed-acceptance-1/cli36-config.released.json",
+      "bytes": 17693,
+      "sha256": "260d0cd953ab013953352ca7d40fecdad6f833381228b282a16310f140db9d87"
+    },
+    "cliDriver": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-proposal-2/run.py",
+      "bytes": 23614,
+      "sha256": "ea08ee38c8c839ad02f8c0a24d2be6d201dc9af03dffa349e817cc5ef506c139"
+    },
+    "rootRelease": {
+      "released": true,
+      "composedAccepted": true,
+      "exclusiveWorktreeOwnership": true,
+      "configSha256": "260d0cd953ab013953352ca7d40fecdad6f833381228b282a16310f140db9d87",
+      "driverSha256": "ea08ee38c8c839ad02f8c0a24d2be6d201dc9af03dffa349e817cc5ef506c139",
+      "composedReceiptSha256": "e5dfd38b3920a69542757423183f8acd1552a6ab7798f455a651badb62316c2d",
+      "composedRootReviewSha256": "14cc1b26ded6437022b11ab56d2abdb6d19c5ff3940cfb11974bf5ad81da94be",
+      "policy": "One ordinary CLI36 command600s including preparation; source-before180s and source-after180s; no retry/extension/list/broad/performance/source mutation",
+      "bindingCorrection": "Rename prospective legacy nativeDevKey/Proof fields to actual nativeProviderDomain/Proof; generic driver reference guards unchanged. Legacy key is not an observed provider."
+    }
+  },
+  "protocol": {
+    "ordinaryCommand": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "clitest"
+    ],
+    "deadlineSeconds": 600,
+    "deadlineIncludesRunnerPreparation": true,
+    "sourceBeforeDeadlineSeconds": 180,
+    "sourceAfterDeadlineSeconds": 180,
+    "retries": 0,
+    "extensions": 0,
+    "plannedCases": 36,
+    "exactOrderedInventory": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-proposal-2/inventory.json",
+      "bytes": 2485,
+      "sha256": "256f1db4c1bc5e83001b4ea689fabf2c7e51a92641378568d1f249ce9108d6b9"
+    }
+  },
+  "actual": {
+    "terminalReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/receipt.json",
+      "bytes": 125154,
+      "sha256": "5803008b8505d1a9f07ea89e5eb61a3ab19167906cdae88b8863d65e43d033e9"
+    },
+    "rootReview": null,
+    "rootDisposition": "Retain actual35pass/1fail and original assertion; keep clitest port-required. Composed504 acceptance remains separate.",
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "clitest"
+    ],
+    "deadlineSeconds": 600,
+    "commandElapsedSeconds": 60.164533375000005,
+    "exitCode": 1,
+    "stdout": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/ordinary-clitest/stdout",
+      "bytes": 8344,
+      "sha256": "35a218dc72802800a57899cc17e777c108592b6a70e89fe9e8d6de43fa030435"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/ordinary-clitest/stderr",
+      "bytes": 2066,
+      "sha256": "bef7384e82f5e42d3e5710841b16591372e38ccc28f9d0725387d6d4876aa900"
+    },
+    "parsedReport": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/ordinary-clitest/parsed.json",
+      "bytes": 10937,
+      "sha256": "23157219cd5735c8d101cb774814e641423540f6fa1a1ced7f15698020c12bf0"
+    },
+    "summary": {
+      "total": 36,
+      "passed": 35,
+      "failed": 1,
+      "notExecuted": 0,
+      "skipped": 0,
+      "ok": false
+    },
+    "exactOrdered36Ids": [
+      "clitest/aChildForkingOnItsOwnScopeChecksInAProject",
+      "clitest/aCommandModuleDoesNotLoadTheCompilerItRuns",
+      "clitest/aTableAlignsOnMeasuredTextAndPaintsAfterPadding",
+      "clitest/aTableCutsTheLastColumnToFitRatherThanLettingItWrap",
+      "clitest/bashCompletesAProgramPathFromTheFilesystem",
+      "clitest/binaryPrintsCompletionScripts",
+      "clitest/checkHoldsNuppFilesButNotLuaToTheStrictRules",
+      "clitest/checkRefusesAManifestItCannotLoad",
+      "clitest/colourIsDecidedOncePerStreamAndOverriddenByMode",
+      "clitest/completionOffersOnlyWhatTheCommandAtTheCursorTakes",
+      "clitest/completionsAskTheProgramWhereTheCursorIs",
+      "clitest/docJsonReportsEarlyConfigurationFailures",
+      "clitest/everyPublicCommandHelpHasExamples",
+      "clitest/everyRegisteredCommandHasAGrammarAndHelp",
+      "clitest/exportCDerivesAValidGuardFromAnyPath",
+      "clitest/exportCEmitsTheCanonicalTypedHeader",
+      "clitest/exportCRefusesAStructItCannotLayOut",
+      "clitest/initListsItsTemplatesAsJson",
+      "clitest/jsonPositionsAreResolvedThroughALineIndex",
+      "clitest/jsonReportsSurviveASourceByteThatIsNotUtf8",
+      "clitest/lintsUsesDefaultsOutsideAConfiguredProject",
+      "clitest/migrateChecksThenAtomicallyRenamesAnnotatedLua",
+      "clitest/migrateDoesNotClaimFilesItNeverTouched",
+      "clitest/migrateJsonListsEveryPlanAfterAFailure",
+      "clitest/namesDecidableFromTheArgumentsAreUsageErrors",
+      "clitest/ownershipAuditEnumeratesForeignContractsAndUnsafeSites",
+      "clitest/ownershipAuditFindsInlineAssertionsAndAffineCResults",
+      "clitest/ownershipAuditReportsFilesItCannotAnalyze",
+      "clitest/projectLoadingDoesNotLoadCodeGeneration",
+      "clitest/runGivesTheProgramItsOwnArgTable",
+      "clitest/runPrefixesAnErrorOnlyWhenItDoesNotNameNupp",
+      "clitest/schemaStopsAtTheProgramBoundary",
+      "clitest/serializationMigrationChecksBeforeReplacingTheSource",
+      "clitest/theBinaryHonoursColourFlagsOnRealDiagnostics",
+      "clitest/theCliHeaderExampleChecksOutsideTheRepository",
+      "clitest/theVersionFlagAndTheCommandPrintOneAgreedLine"
+    ],
+    "expectedOrderedInventory": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-proposal-2/inventory.json",
+      "bytes": 2485,
+      "sha256": "256f1db4c1bc5e83001b4ea689fabf2c7e51a92641378568d1f249ce9108d6b9"
+    },
+    "reportSuiteEngine": "vm",
+    "literalFailedRows": [
+      {
+        "id": "clitest/aCommandModuleDoesNotLoadTheCompilerItRuns",
+        "suite": "clitest",
+        "name": "aCommandModuleDoesNotLoadTheCompilerItRuns",
+        "file": "tests/clitest.lua",
+        "line": 873,
+        "durationMs": 330.427978515625,
+        "status": "failed",
+        "failure": {
+          "message": "expected a truthy value, got false: requiring a command module loads its grammar, not the compiler:\nloaded nupp.compiler.syntax.lexer\ndone\n",
+          "file": "tests/clitest.lua",
+          "line": 888
+        },
+        "output": {
+          "stdout": "",
+          "stderr": ""
+        }
+      }
+    ],
+    "literalFailedCaseArtifact": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/cli36-actual-evidence-1/literal-failed-case.json",
+      "bytes": 529,
+      "sha256": "10cd9c83d29225d20b1ca4f62f27c475d138debe2e3fa64408cc8b422266beac"
+    },
+    "beforeRunner": {
+      "default.nupp-test": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-before/default.nupp-test",
+        "bytes": 33086208,
+        "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+      },
+      "runner.payload": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-before/runner.payload",
+        "bytes": 23628488,
+        "sha256": "5efd7090900e746367f9169823655d5b8db6c95ba0521dde5e20676f0fc93db6"
+      },
+      "runner.image": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-before/runner.image",
+        "bytes": 23628483,
+        "sha256": "d6978f5903bf4496a8e9edc7799d79355d5afa86b620d12485bafb5bbd8ec053"
+      },
+      "trailer.digest.raw": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-before/trailer.digest.raw",
+        "bytes": 8,
+        "sha256": "2fdd0e32d1fde4990b938c41585853a9949bd412845ca86e9c4ebbd01fee9d3e"
+      },
+      "modules.json": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-before/modules.json",
+        "bytes": 95316,
+        "sha256": "d0bf244b43a7a24089035fdfd4fcbbcb5b56069cc3bf422976ddad4795fdee6b"
+      }
+    },
+    "afterRunner": {
+      "default.nupp-test": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-after/default.nupp-test",
+        "bytes": 33086208,
+        "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+      },
+      "runner.payload": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-after/runner.payload",
+        "bytes": 23628488,
+        "sha256": "5efd7090900e746367f9169823655d5b8db6c95ba0521dde5e20676f0fc93db6"
+      },
+      "runner.image": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-after/runner.image",
+        "bytes": 23628483,
+        "sha256": "d6978f5903bf4496a8e9edc7799d79355d5afa86b620d12485bafb5bbd8ec053"
+      },
+      "trailer.digest.raw": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-after/trailer.digest.raw",
+        "bytes": 8,
+        "sha256": "2fdd0e32d1fde4990b938c41585853a9949bd412845ca86e9c4ebbd01fee9d3e"
+      },
+      "modules.json": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-after/modules.json",
+        "bytes": 95316,
+        "sha256": "d0bf244b43a7a24089035fdfd4fcbbcb5b56069cc3bf422976ddad4795fdee6b"
+      }
+    },
+    "observedExecutedRunner": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/nupp-test",
+      "bytes": 33086208,
+      "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+    },
+    "normalProgramRuntime": {
+      "actual": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/rust/vm-runtime/261be464d687bf21/nupp-vm",
+        "bytes": 9448352,
+        "sha256": "b1240d76cf7b572b4cb9978a23ce32da8079563ddff1cda3c5ce91af184455ff"
+      },
+      "complete": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/rust/vm-runtime/261be464d687bf21/.complete",
+        "bytes": 5,
+        "sha256": "d117fa006ba9208500b2930ce69cbde436c647afa917cb7396a9bc9111a46dd2"
+      },
+      "providerDomain": "VM native services in actual runtime261be464d687bf21; legacy Lua DEV unused/unobserved",
+      "providerProof": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-review-preparation-1/vm-native-provider-domain.json",
+        "bytes": 8845,
+        "sha256": "ef2ae2364808ecff09c0ba99d96c555d651d24b52a9f83d2247af8ee351c5a13"
+      },
+      "exactStampedRunner": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/normal-derived-runner",
+        "bytes": 33086208,
+        "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+      }
+    },
+    "sourceBefore": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-source-before.json",
+      "bytes": 128,
+      "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+    },
+    "sourceAfter": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/clitest-port-output-1/runner-source-after.json",
+      "bytes": 128,
+      "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+    },
+    "sourceProofBefore": {
+      "verifiedSourceModules": 501,
+      "externalDeclarations": 2,
+      "originalTrailerDigestVerified": true,
+      "rootCliRunnerResourceMatches": true
+    },
+    "sourceProofAfter": {
+      "verifiedSourceModules": 501,
+      "externalDeclarations": 2,
+      "originalTrailerDigestVerified": true,
+      "rootCliRunnerResourceMatches": true
+    },
+    "sourceAfterVerifiedBeforeCaseVerdict": true,
+    "originalCacheEntriesRestored": true,
+    "rocksByteAndInodeUnchanged": true,
+    "finalSourceNativeKernelCacheRocksSelectionVerified": true,
+    "remainingOwnedProcesses": [],
+    "wrapperStatus": "stopped",
+    "wrapperError": "AssertionError()"
+  },
+  "promotion": {
+    "status": "REFUSED: one actual case failed",
+    "classificationBefore": "port-required",
+    "classificationAfter": "port-required",
+    "classificationEdited": false,
+    "accepted": false
+  },
+  "history": {
+    "priorAudit": {
+      "priorAudit": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/clitest-budget-audit-1/audit-and-proposal.json",
+        "bytes": 12074,
+        "sha256": "b5946283231450bce46e870ce31a6504db28df3603dae50218ec4741695931c7"
+      },
+      "rawHistoricalReportLocated": false,
+      "claimScope": "Documentary classification/README claim first32 of36 before600s; exact old raw report absent after prior bounded search. Not a full-suite pass or current execution evidence.",
+      "currentCaseSourceUnchangedFromPriorAudit": true
+    },
+    "retainedBroadClitestPlaceholder": [
+      {
+        "id": "clitest/*",
+        "suite": "clitest",
+        "name": "*",
+        "durationMs": 0,
+        "status": "not-executed",
+        "notExecuted": {
+          "reason": "port-required: runs on LuaJIT (tests/run) until it is ported to the VM"
+        }
+      }
+    ],
+    "noHistoricalRowsAmended": true
+  },
+  "limits": [
+    "Actual35pass/1fail is a failed CLI36 run, despite both source proofs and final restoration/ownership passing.",
+    "No assertion, failed message, path, status or historical row is normalized or waived. The only failed row remains clitest/aCommandModuleDoesNotLoadTheCompilerItRuns at original assertion888.",
+    "No retry, extension, classification promotion, new broad run, performance, P6 or full migration completion claim.",
+    "The accepted composed504 record and sealed draft2 remain unchanged. This separate record supersedes only the CLI pending template as execution evidence."
+  ],
+  "historicalLastFourActualStatuses": [
+    {
+      "id": "clitest/serializationMigrationChecksBeforeReplacingTheSource",
+      "status": "passed"
+    },
+    {
+      "id": "clitest/theBinaryHonoursColourFlagsOnRealDiagnostics",
+      "status": "passed"
+    },
+    {
+      "id": "clitest/theCliHeaderExampleChecksOutsideTheRepository",
+      "status": "passed"
+    },
+    {
+      "id": "clitest/theVersionFlagAndTheCommandPrintOneAgreedLine",
+      "status": "passed"
+    }
+  ],
+  "composed504AcceptanceRemainsSeparate": true,
+  "sealedComposedDraft2": {
+    "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/combined-acceptance-draft-2/composed-runtime-acceptance.draft.json",
+    "bytes": 26637,
+    "sha256": "b18c901c9d6a2d3d413a71b95a6fffbd47b832908d1f200b2af3cd5b4ba123d5"
+  }
+}

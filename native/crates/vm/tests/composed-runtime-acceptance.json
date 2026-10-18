@@ -1,0 +1,614 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "status": "Composed901c correctness accepted; separate CLI36 failed35/36",
+  "accepted": true,
+  "scope": "Composed901c native/CLI/cold/fixpoint/smoke/focused504 acceptance only",
+  "source": {
+    "testedRevision": "901c143a019b890891c58afbc432d7e6fa609c54",
+    "fullFreeze": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-proposal-4/full-source-freeze.json",
+      "bytes": 637360,
+      "sha256": "64b0375dddb3e21410e10ab8bb54fb52737f7ab82e5fed527a8c38ed86024523"
+    },
+    "compiledInputManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-proposal-4/compiled-input-union.json",
+      "bytes": 64357,
+      "sha256": "f6c51dd0c26ccab3b650aec461e8fe523ceb796bb9c991db3f37720b5e745272"
+    },
+    "trackedSourceFiles": 4545,
+    "evidenceAddedAfterExecution": true
+  },
+  "acceptedEvidence": {
+    "terminalReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/receipt.json",
+      "bytes": 4459585,
+      "sha256": "e5dfd38b3920a69542757423183f8acd1552a6ab7798f455a651badb62316c2d"
+    },
+    "rootReview": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-reviewed-acceptance-1/root-review.json",
+      "bytes": 5750,
+      "sha256": "14cc1b26ded6437022b11ab56d2abdb6d19c5ff3940cfb11974bf5ad81da94be"
+    },
+    "independentScan": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-reviewed-acceptance-1/independent-artifact-source-cache-scan.json",
+      "bytes": 492,
+      "sha256": "f23f95915d8300a4968923b9a1d6dd0f5a3e54fc7397ac4a0d98cb751dd4af20"
+    },
+    "rootArtifactReferencesChecked": 99,
+    "rootArtifactErrors": [],
+    "compilerBodyProof": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-reviewed-acceptance-1/compiler-body-source-proof.json",
+      "bytes": 9371,
+      "sha256": "427d0c4d1fd8783933b1cb369840b9300765a50e1d586a6978e8826b9e7b9e9c"
+    },
+    "nativeProviderFacts": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-review-preparation-1/vm-native-provider-domain.json",
+      "bytes": 8845,
+      "sha256": "ef2ae2364808ecff09c0ba99d96c555d651d24b52a9f83d2247af8ee351c5a13"
+    }
+  },
+  "contracts": [
+    "Select index opcodes from the actual lowered register; preserve held assignment ordering and exact wide keys.",
+    "Preserve negative string-byte positions and fixed SIMD transpose/vector storage contracts.",
+    "Preserve C declaration ownership, token groups, anonymous members, trailing attributes and ordinary Clang refusal/fallback.",
+    "Dispatch semantic indexed stores through absent-key __newindex, including record declarations and array holes; retain rawset, occupied stores, sparse maps, GC, handler errors and reentry.",
+    "Preserve explicit/inferred/gradual/absent type-call provenance; keep stage-zero and sparse-indexer rules unchanged."
+  ],
+  "native": {
+    "status": "passed",
+    "matrices": {
+      "native-default-aot": {
+        "status": "passed",
+        "totals": {
+          "passed": 391,
+          "failed": 0,
+          "ignored": 5,
+          "measured": 0,
+          "filtered": 0
+        },
+        "summaryBoundaries": 58,
+        "nestedSummariesExcluded": 6,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-default-aot/stdout",
+          "bytes": 34971,
+          "sha256": "b2f81a6d7edd8244bf3020fccf6bd8e369581b535103ebcf080e23485d4bc2ac"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-default-aot/stderr",
+          "bytes": 7514,
+          "sha256": "b35cc317510508ed881856c1f2ffd2007dd29172b6078d796cd60358d5f6e6fb"
+        }
+      },
+      "native-no-codegen": {
+        "status": "passed",
+        "totals": {
+          "passed": 324,
+          "failed": 0,
+          "ignored": 5,
+          "measured": 0,
+          "filtered": 0
+        },
+        "summaryBoundaries": 58,
+        "nestedSummariesExcluded": 6,
+        "stdout": {
+          "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-no-codegen/stdout",
+          "bytes": 271761,
+          "sha256": "d234b7bf314e46973c9bb20c57911aa8a342a8108f4077d8b681cc1522a29b06"
+        },
+        "stderr": {
+          "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-no-codegen/stderr",
+          "bytes": 5916,
+          "sha256": "1d311f54b0ae17c3cb9bec7bb649bc8585abbd543912e7588d04186d487bd86b"
+        }
+      }
+    },
+    "ignoredEach": [
+      {
+        "name": "sharing::measure::crossing_cost_does_not_grow_with_size",
+        "reason": "measurement: cargo test --release --lib sharing::measure -- --ignored --nocapture"
+      },
+      {
+        "name": "current_compiler_image_matches_its_linked_raw_digest",
+        "reason": "requires pinned NUPP_PRIMARY_HASH_IMAGE and NUPP_PRIMARY_HASH_EXPECTED"
+      },
+      {
+        "name": "emitted_lowerer_rebuilds_itself",
+        "reason": "requires NUPP_COMPILER_IMAGE and NUPP_LOWERER_IMAGE"
+      },
+      {
+        "name": "transfer_cost_does_not_grow_with_size",
+        "reason": "measurement: cargo test --release --test worker_memory -- --ignored --nocapture"
+      },
+      {
+        "name": "native/crates/vm/src/embed.rs - embed (line 11)",
+        "reason": ""
+      }
+    ],
+    "noCodegenCurrentEvidence": {
+      "currentTestExecutables": 57,
+      "currentDoctestBoundaries": 1,
+      "currentSummaryBoundaries": 58,
+      "perExecutableCountsNotInferredFromBuildOrder": true,
+      "cargoEmptyStubContext": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-no-codegen/cargo-current-context.json",
+        "bytes": 76810,
+        "sha256": "3cffe7fe8c81f8c7304b9da3546c2d6aaf100a80b6093bfdaa68fcc077eec78d"
+      },
+      "featureClosure": [
+        "aot-linked",
+        "c-headers",
+        "compiled-runtime",
+        "compression",
+        "http",
+        "markdown",
+        "native-ffi",
+        "net",
+        "regex"
+      ],
+      "featureCount": 9,
+      "emptyLinkedSidecarSha256": "6819f806184351369c048faf267f5e559966e917f12863a57cc4ada9e3968d6f"
+    },
+    "interpreterOnlyAllTargets": {
+      "status": "passed",
+      "exitCode": 0,
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-interpreter-all-targets/stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/native-interpreter-all-targets/stderr",
+        "bytes": 6525,
+        "sha256": "740f78203941d3df05c394b12d2b08805c891d25fc8fe25caaa12804357f2f54"
+      }
+    }
+  },
+  "compiler": {
+    "status": "passed",
+    "bodyProofBasis": "Observed --no-cache current-source build under complete source/native guards, fresh compiled artifacts and raw descriptor-retained root re-emissions; installed sourceAtInstall metadata is not used as body proof.",
+    "freshCommand": [
+      "python3",
+      "scripts/vm-cli",
+      "build",
+      "--seed",
+      "vm",
+      "--no-cache"
+    ],
+    "freshExitCode": 0,
+    "freshSourceBeforeAfterVerified": true,
+    "kernel": {
+      "compiler.image": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/compiler.image",
+        "bytes": 21196352,
+        "sha256": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94"
+      },
+      "compiler.o": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/compiler.o",
+        "bytes": 149944632,
+        "sha256": "d07d898c03116bb839a75fcb6835b638ff25ff8e2f9d391de84503bdcccecafd"
+      },
+      "compiler.o.maps": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/compiler.o.maps",
+        "bytes": 68548988,
+        "sha256": "a087171900048a636fccc9adf65d7120e5fb4f4eeb0e836c846436927573a0c4"
+      },
+      "compiler.o.rs": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/compiler.o.rs",
+        "bytes": 871996,
+        "sha256": "cb82c10e17034a6ec24bf6ce7a85fe0d8a7325ece59d4b3cd4b603be5efc2b7a"
+      },
+      "compiler.o.manifest": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/compiler.o.manifest",
+        "bytes": 123078,
+        "sha256": "7520bdd7053a594a08f5b5b7654d7505b85d50b84389cdd932aa801577f79a6a"
+      },
+      "runtime": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/runtime",
+        "bytes": 219092728,
+        "sha256": "a9e96ad8cc781e9614b6eb312fa1aaeba58cdee1ad717d8737046202f32e090f"
+      },
+      "aot-tool": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/first-kernel/aot-tool",
+        "bytes": 15892888,
+        "sha256": "f653138a7b4f9e5cd67996d2b03e1240428ad724512348da84413ad62bcf9a92"
+      }
+    },
+    "functions": 6589,
+    "runtimeAbi": 4,
+    "allSymbols": true,
+    "craneliftSymbols": false,
+    "oldObjectsEligible": false,
+    "canonicalRelinkRequired": false,
+    "reason": "The freshly emitted image already equals every preserved official raw stage and root FD image. No older object was reused.",
+    "selectedGeneration": "2082223063618308d546c8e873541f59aba4d5aef82f8e09a33d43e12f1baecf",
+    "installedReceipt": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/.nupp/vm-cli/2082223063618308d546c8e873541f59aba4d5aef82f8e09a33d43e12f1baecf/receipt.json",
+      "bytes": 914,
+      "sha256": "41c8fd6b9db6f034d323f1d4246cafce7299f7c39389e832019408f4eb56d31a"
+    },
+    "installationMetadataIsBodyProof": false
+  },
+  "coldCheck": {
+    "status": "passed",
+    "command": [
+      "./bin/nupp",
+      "check",
+      "--json"
+    ],
+    "ok": true,
+    "diagnostics": [],
+    "compiledModules": 505,
+    "reusedModules": 0,
+    "parallel": {
+      "mode": "parallel",
+      "workers": 2,
+      "retries": 0
+    },
+    "stdout": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/cold-check/stdout",
+      "bytes": 1091,
+      "sha256": "cddbffbd21cac937cd7c8efe7b3328c496da9f8aace34ea1c17ecfa0a66ee874"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/cold-check/stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "performanceClaim": false
+  },
+  "officialFixpoint": {
+    "status": "passed",
+    "command": [
+      "./bin/nupp",
+      "fixpoint",
+      "--json"
+    ],
+    "officialReport": {
+      "diagnostics": [],
+      "kind": "compiler",
+      "ok": true,
+      "target": "vm"
+    },
+    "rawC1C2C3RootEqual": true,
+    "preservedStages": {
+      "C1.image": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/C1.image",
+        "bytes": 21196352,
+        "sha256": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94"
+      },
+      "C2.image": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/C2.image",
+        "bytes": 21196352,
+        "sha256": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94"
+      },
+      "C3.image": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/C3.image",
+        "bytes": 21196352,
+        "sha256": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94"
+      },
+      "root.image": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/root.image",
+        "bytes": 21196352,
+        "sha256": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94"
+      }
+    },
+    "descriptorProvenance": "Actual raw stage descriptors retained during the official command; details are pinned in the body-proof and terminal receipt.",
+    "stdout": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/official-fixpoint/stdout",
+      "bytes": 61,
+      "sha256": "20e64ba977fb3e6d0bdb210a0238184fa924b96793e893f45585312ddcc185f2"
+    },
+    "stderr": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/official-fixpoint/stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "currentImageDigestControls": [
+    {
+      "name": "canonical-image-digest-default-aot",
+      "status": "passed",
+      "canonicalDigestEnv": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94",
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/canonical-image-digest-default-aot/stdout",
+        "bytes": 177,
+        "sha256": "74b2382ff5b57a7f1dd46d5e5d4d0fdc1c1acc912873cd66d460ecca51bee43b"
+      },
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/canonical-image-digest-default-aot/stderr",
+        "bytes": 7533,
+        "sha256": "74a68332928058c1b81ba3dd79cb99974d6e74dabea5e510ae23e6e143f3c7f8"
+      }
+    },
+    {
+      "name": "canonical-image-digest-plain8",
+      "status": "passed",
+      "canonicalDigestEnv": "b4d8180f7e9ceda796ea861cb38e9f113cc519dbe17d6535675e0c40a4b17b94",
+      "stdout": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/canonical-image-digest-plain8/stdout",
+        "bytes": 177,
+        "sha256": "5c328e1fe6b07b42ffb8722df2de22ddda1e605cd313887d57ef33e921cdc022"
+      },
+      "stderr": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/canonical-image-digest-plain8/stderr",
+        "bytes": 3840,
+        "sha256": "17a33dabdfaea12025df43b86f5883fab2ff281cf87331f59ba087588a49f51e"
+      }
+    }
+  ],
+  "linkedSmoke": {
+    "status": "passed",
+    "checks": 13,
+    "freshProcesses": 2,
+    "executableMemoryDenied": true,
+    "runtimeAbi": 4,
+    "functions": 6589,
+    "results": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/smoke-artifacts/results.json",
+      "bytes": 2254,
+      "sha256": "9facb1c4e851dc7283959709567fa402b545e0b5b6bdf8d1b52dd4f7f303c901"
+    }
+  },
+  "ordinaryPublic": {
+    "status": "passed",
+    "entryRoute": "ordinary-project.test",
+    "usesInternalRunner": false,
+    "command": [
+      "./bin/nupp",
+      "test",
+      "--jobs=1",
+      "--json",
+      "associatedmetadatatest",
+      "benchtest",
+      "cdeftest",
+      "cheadertest",
+      "coveragetest",
+      "declaredmoduletest",
+      "examplestest",
+      "gputest",
+      "importctest",
+      "interfaceimagetest",
+      "jsonfuseddifferentialtest",
+      "jsonpolicytest",
+      "pathtest",
+      "preludecachetest",
+      "processtest",
+      "providerconformancetest",
+      "publicclitest",
+      "simdfixedlanestest",
+      "simdreducertest",
+      "spitest",
+      "suspensiontest",
+      "targetvectorlayouttest",
+      "taskfailuretest",
+      "taskstest",
+      "utilbitsettest",
+      "vmemitcachetest",
+      "vmindexkeytest",
+      "withsuspensiontest"
+    ],
+    "summary": {
+      "ok": true,
+      "total": 504,
+      "passed": 504,
+      "failed": 0,
+      "skipped": 0,
+      "notExecuted": 0
+    },
+    "suiteCount": 28,
+    "exactOrderedUniqueIdsVerifiedByRoot": true,
+    "report": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/ordinary-focused/parsed.json",
+      "bytes": 156208,
+      "sha256": "76813c9153c5e58f3b81d3b41e200e9e002711687d0c2025e6d37bfa0a10122f"
+    },
+    "inventory": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-proposal-4/inventory504.json",
+      "bytes": 107982,
+      "sha256": "c341ac9a2e7f7b8c1098ca11ce4185dfb9e56e13efc3060a77906a74402a162c"
+    },
+    "observedRunner": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/nupp-test",
+      "bytes": 33086208,
+      "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+    },
+    "beforeAndAfterRunnerSha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb",
+    "normalProgramRuntime": {
+      "actual": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/rust/vm-runtime/261be464d687bf21/nupp-vm",
+        "bytes": 9448352,
+        "sha256": "b1240d76cf7b572b4cb9978a23ce32da8079563ddff1cda3c5ce91af184455ff"
+      },
+      "complete": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/rust/vm-runtime/261be464d687bf21/.complete",
+        "bytes": 5,
+        "sha256": "d117fa006ba9208500b2930ce69cbde436c647afa917cb7396a9bc9111a46dd2"
+      },
+      "preserved": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/normal-program.runtime",
+        "bytes": 9448352,
+        "sha256": "b1240d76cf7b572b4cb9978a23ce32da8079563ddff1cda3c5ce91af184455ff"
+      },
+      "facilities": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/build/test-runner/.nupp-vm-program.facilities",
+        "bytes": 50,
+        "sha256": "cfc55c429e538a70c6960c5e637a8b02c32e4429ceb926eab02daa8278206ddc"
+      },
+      "nativeInputs": {
+        "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-proposal-4/native-recipe-proof.json",
+        "bytes": 24213,
+        "sha256": "9a4359927875abe1bfeaf319899e53d93c67eed2ba9c6a427b6a72f64adbbeef"
+      }
+    },
+    "actualNormalProgramRuntimeKey": "261be464d687bf21",
+    "stampedExactRunner": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/normal-derived-runner",
+      "bytes": 33086208,
+      "sha256": "a899f561a788d49831223b2bd725554e808a6341d0006ac54834fc52b6ff04cb"
+    },
+    "sourceProofBefore": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/runner-source-before.json",
+      "bytes": 128,
+      "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+    },
+    "sourceProofAfter": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/runner-source-after.json",
+      "bytes": 128,
+      "sha256": "1b5c427f563c8fd5a90f967631f3658947a7c845c0fde91ac5d1b57091bcad6c"
+    },
+    "sourceProofValue": {
+      "verifiedSourceModules": 501,
+      "externalDeclarations": 2,
+      "originalTrailerDigestVerified": true,
+      "rootCliRunnerResourceMatches": true
+    },
+    "originalPayload": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/runner-after/runner.payload",
+      "bytes": 23628488,
+      "sha256": "5efd7090900e746367f9169823655d5b8db6c95ba0521dde5e20676f0fc93db6"
+    },
+    "originalRaw8": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/runner-after/trailer.digest.raw",
+      "bytes": 8,
+      "sha256": "2fdd0e32d1fde4990b938c41585853a9949bd412845ca86e9c4ebbd01fee9d3e"
+    },
+    "moduleManifest": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/final-composition-acceptance-1/runner-after/modules.json",
+      "bytes": 95316,
+      "sha256": "d0bf244b43a7a24089035fdfd4fcbbcb5b56069cc3bf422976ddad4795fdee6b"
+    }
+  },
+  "nativeProviderDomain": {
+    "domain": "VM native services embedded in actual program runtime; no legacy Lua DEV dylib claim",
+    "nativeSourceKey": "8a427b1f4002ffd4",
+    "toolKey": "40c39f0309fe4a99",
+    "actualRuntimeKey": "261be464d687bf21",
+    "actualRuntimeFeatures": "aot-linked,native-ffi,c-headers,compression,http,jit,markdown,net,regex",
+    "allThreeRuntimeBodiesByteIdentical": true,
+    "legacyDev": {
+      "key": "9adf6ee0aed334f3",
+      "scope": "UNUSED/UNOBSERVED prospective Lua DEV key only; installed VM launcher exec occurs before legacy DEV setup. No dylib artifact, provider load, generation or acceptance asserted."
+    },
+    "proof": {
+      "path": "/Users/dowling/projects/nupp-wt/absent-index-keys-scratch/root-review-preparation-1/vm-native-provider-domain.json",
+      "bytes": 8845,
+      "sha256": "ef2ae2364808ecff09c0ba99d96c555d651d24b52a9f83d2247af8ee351c5a13"
+    }
+  },
+  "restoration": {
+    "originalCacheBytesAndInodesRestored": true,
+    "cacheStateRule": "Earliest snapshot per path is original; nested intermediate snapshots restored in reverse by driver",
+    "rocksUnchanged": true,
+    "sourceClean": true,
+    "finalSourceNativeArtifactsVerified": true,
+    "remainingOwnedProcesses": [],
+    "details": "Detailed original lstat trees, intermediate snapshots and birth-aware ownership remain in the immutable terminal receipt; earliest snapshot per path is original."
+  },
+  "classification": {
+    "status": "Source inventory only; no new broad execution",
+    "classificationArtifact": {
+      "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/tests/corpus-classification.json",
+      "bytes": 57954,
+      "sha256": "1777bb53d999c4b40a0bb867def0f141eaf3e535fb19f75344f9d0fe8c605d8e"
+    },
+    "counts": {
+      "portable": 192,
+      "retired": 65,
+      "port-required": 1,
+      "harness": 3
+    },
+    "classifiedEntries": 261,
+    "sourceDeferredSuiteCount": 32,
+    "historicalBroadDeferredBreakdown": "32 exact suite/* placeholders plus two individual native-capability deferrals in bundletest; bundletest also has 11 historical passes."
+  },
+  "preservedEvidence": {
+    "historicalBroad": {
+      "status": "failed and unchanged",
+      "summary": {
+        "ok": false,
+        "total": 3985,
+        "passed": 3926,
+        "failed": 25,
+        "skipped": 0,
+        "notExecuted": 34
+      },
+      "parsed": {
+        "path": "/Users/dowling/projects/nupp-wt/runtime-composition-scratch/broad-continuation-2/parsed.json",
+        "bytes": 1236802,
+        "sha256": "62eefd6140a3339082f178b691490a0c09a1226ffb1c281e3145933262e9fb10"
+      },
+      "receipt": {
+        "path": "/Users/dowling/projects/nupp-wt/runtime-composition-scratch/broad-continuation-2/receipt.json",
+        "bytes": 30385,
+        "sha256": "9d57f06fdc6e70832d6ec412eff890d4a82a468984b399d8865b0c8d304d1c25"
+      },
+      "originalStoppedReceipt": {
+        "path": "/Users/dowling/projects/nupp-wt/runtime-composition-scratch/ordinary-full-serial-1/receipt.json",
+        "bytes": 3073058,
+        "sha256": "2fcbba577fc8f1aa131a689a76f260e34d79983570099c69a8b2d962692f3816"
+      },
+      "all25FailedAnd34DeferredRowsRetainedLiterally": true,
+      "newBroadRun": false
+    },
+    "literalBytecodeBudgetFailures": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/combined-acceptance-draft-2/historical-bytecode-budget-failures.json",
+      "bytes": 1191,
+      "sha256": "53572b3841b7b8519f299f1699d4c1cb04e615ee018cf487cec11ec3633636c4"
+    },
+    "priorFailedWrappers": {
+      "combinedPorts": {
+        "path": "/Users/dowling/projects/nupp-wt/bundle-port-contract-scratch/unified-product-validation-1/receipt.json",
+        "bytes": 110513,
+        "sha256": "bf05a54b2beb503d25df249ccb67ad0137c518d5c96f9e2d6a1dc0c8de7b6f0a"
+      },
+      "cDeclaration": {
+        "path": "/Users/dowling/projects/nupp-wt/cdecl-history-context-scratch/canonical-linked-1/receipt.json",
+        "bytes": 69224,
+        "sha256": "111eab0ed8b6c553a14166b1cebd42574ac5e57384db91f3acf5d93415c856b8"
+      },
+      "indexedStore": {
+        "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/full-gates-1/receipt.json",
+        "bytes": 2248280,
+        "sha256": "052a70f5a0d69b3b4d8c72e8d9d0c3336bdbc4eb4e87a3111f1487f211d0b550"
+      },
+      "canonicalSeed": "Keep canonical-relink-1 original failed KeyError(linked) wrapper and its separate reviewed recovery2/root review; seed use is bootstrap only."
+    },
+    "priorEvidenceManifests": {
+      "combined-ports-acceptance.json": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/tests/combined-ports-acceptance.json",
+        "bytes": 58351,
+        "sha256": "5d2c9093e5edfbef4a503cd2d439c135bb620076c81c97d8a3e1e7b424da3eb9"
+      },
+      "c-declaration-history-acceptance.json": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/tests/c-declaration-history-acceptance.json",
+        "bytes": 6026,
+        "sha256": "4b0b1ac7852aec75cc96471acc9996eab20f49b8ccb4fde10f47ee2a180e4e1f"
+      },
+      "indexed-store-results.json": {
+        "path": "/Users/dowling/projects/nupp-wt/fragment-identities/native/crates/vm/tests/indexed-store-results.json",
+        "bytes": 17729,
+        "sha256": "fdc397f341104dcd2a337c3a79de93ef912e66bf4b6ce8fc92b71173a840ca78"
+      }
+    }
+  },
+  "cli36": {
+    "status": "FAILED:35passed/1failed, no skips or deferrals, within600 seconds",
+    "accepted": false,
+    "actualEvidence": {
+      "path": "/Users/dowling/projects/nupp-wt/declaration-index-store-scratch/cli36-actual-evidence-1/cli36-actual-failure.json",
+      "bytes": 15843,
+      "sha256": "0453b373d685245b31c595941e3b20d49d0e29624cdeef77a75fb07f73b775b1"
+    },
+    "trackedEvidence": "clitest-port-acceptance.json",
+    "classificationPromotion": false,
+    "scope": "Separate ordinary CLI36 execution; accepted composed504 remains unchanged."
+  },
+  "limits": [
+    "Accepted composed correctness is scoped to frozen901c and the named gates.",
+    "Historical broad3985 remains3926passed/25failed/34deferred with raw ok=false; no broad rerun, waiver, path/message normalization or repaired aggregate.",
+    "Historical bytecode budget failure remains literal: aos462 exceeds345 and soa746 exceeds617.",
+    "CLI36 failed one lazy-loading assertion; clitest remains port-required.",
+    "No performance, P6, full migration completion, cross-platform, main merge, push or release claim."
+  ]
+}

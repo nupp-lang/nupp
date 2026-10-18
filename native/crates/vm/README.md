@@ -4323,3 +4323,25 @@ eight-byte trailer. See
 for source hashes, preserved failures and the recovery receipt. These gates
 establish isolated correctness, with no broad public, fixpoint, performance
 or composed migration acceptance claim.
+
+## Composed runtime correctness (2026-10-17)
+
+The composed `901c` source passes 391 default+AOT and 324 no-codegen native
+tests, a cold check of 505 modules, byte-identical raw self-hosting and 13
+executable-memory denial checks. All 6,589 ABI 4 entries link. The ordinary
+focused selection passes all 504 cases, including the process wait regressions;
+its actual runner verifies 501 modules and the original eight-byte trailer.
+Original cache entries and `.rocks` are restored, with no owned processes left.
+See [composed runtime evidence](tests/composed-runtime-acceptance.json) for
+source, kernel, runner and native build-context proofs.
+
+The separate ordinary CLI suite passes 35 cases and fails one within its
+unchanged 600-second command budget. Its command-module probe reports the lexer
+loaded after requiring command modules; the loader boundary remains under
+investigation. Source and restoration guards pass, but `clitest` remains
+port-required. See [CLI suite evidence](tests/clitest-port-acceptance.json) for
+the complete literal failure.
+
+The historical broad run remains 3,926 passed, 25 failed and 34 deferred. Its
+bytecode budgets still fail at 462/345 and 746/617 instructions. These scoped
+results do not establish a new broad aggregate or performance result.
