@@ -29,12 +29,12 @@ from pathlib import Path
 import platform
 import re
 import shutil
-import subprocess
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from native_simd_fixture import native_source  # noqa: E402
+from native_test_process import ProcessRunner  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("seed", type=Path, help="compiler image that emits the fixture")
@@ -46,8 +46,8 @@ args = parser.parse_args()
 if platform.system() != "Darwin":
     sys.exit("the executable-memory denial harness currently requires macOS")
 root = Path.cwd()
-out = args.output.resolve()
-out.mkdir(parents=True, exist_ok=True)
+out = args.output.absolute()
+process = ProcessRunner(out)
 target = Path(os.environ.get("CARGO_TARGET_DIR", "build/rust/target")).resolve()
 built = target / "release/nupp-vm"
 records = []
@@ -69,8 +69,8 @@ def stage(source, name):
 
 
 def cargo(*arguments, env=None):
-    command = ["cargo", "build", "-q", "--release", "-p", "nupp-vm", "--offline", *arguments]
-    subprocess.run(command, check=True, env=dict(os.environ, CARGO_TARGET_DIR=str(target), **(env or {})))
+    command = ["cargo", "build", "-q", "--release", "--locked", "-j4", "-p", "nupp-vm", "--offline", *arguments]
+    process.run(command, check=True, timeout=900, env=dict(os.environ, CARGO_TARGET_DIR=str(target), **(env or {})))
 
 
 KINDS = [
@@ -167,23 +167,17 @@ else:
 image = args.image.resolve() if args.image else out / "gate.image"
 if not args.image:
     project = out / "project"
-    shutil.rmtree(project, ignore_errors=True)
     (project / "lib/nupp/tests").mkdir(parents=True)
     (project / "nupp.lua").write_text('return {include = {"lib"}}\n')
     tests = Path(__file__).resolve().parent
     shutil.copyfile("bench/simd11/kernels.nupp", project / "lib/kernels.nupp")
     shutil.copyfile(tests / "simd-input.nupp", project / "lib/nupp/tests/vmsimd.nupp")
     shutil.copyfile(tests / "nojit-input.nupp", project / "lib/nupp/tests/nojitgate.nupp")
-    # `families` passes a table of callbacks to a scoped parameter, which the
-    # checker refuses (NUPP2602) since that fixture was written; the gate
-    # carries the rest of the task fixture.
-    tasks_source = (tests / "tasks-project/src/main.nupp").read_text()
-    families = re.search(r"^function main\.families\(\).*?^end\n", tasks_source, re.M | re.S)
-    (project / "lib/main.nupp").write_text(tasks_source.replace(families[0], "") if families else tasks_source)
+    shutil.copyfile(tests / "tasks-project/src/main.nupp", project / "lib/main.nupp")
     (project / "lib/nupp/tests/vmnativesimd.nupp").write_text(native_source()[0])
     (project / "lib/nupp/tests/nojitkinds.nupp").write_text(kinds_source())
-    p = subprocess.run([str(jit), "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit", str(project), "nupp.tests.nojitgate"],
-                       env=dict(env, NO_JIT="1"), capture_output=True, text=True, timeout=900)
+    p = process.run([str(jit), "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit", str(project), "nupp.tests.nojitgate"],
+                       env=dict(env, NO_JIT="1"), capture_output=True, text=True, timeout=600)
     (out / "emit.log").write_text(p.stderr)
     assert p.returncode == 0, p.stderr[-12000:]
     image.write_text(json.loads(p.stdout))
@@ -195,13 +189,13 @@ record("image", vectorFunctions=vector_functions)
 
 # 3. Ahead-of-time emission. Every function with vector code must compile; an
 # object without frame entries cannot run vector code and is refused.
-p = subprocess.run([str(jit), "aot", str(image), str(out / "noframes.o")], capture_output=True, text=True, timeout=900)
+p = process.run([str(jit), "aot", str(image), str(out / "noframes.o")], capture_output=True, text=True, timeout=900)
 (out / "emission-noframes.log").write_text(p.stderr)
 assert p.returncode != 0 and "vector code needs --frames" in p.stderr, p.stderr[-4000:]
 assert not (out / "noframes.o").exists()
 record("emission-without-frames-refused")
 obj = out / "gate.o"
-p = subprocess.run([str(jit), "aot", str(image), str(obj), "--frames"], capture_output=True, text=True, timeout=1800)
+p = process.run([str(jit), "aot", str(image), str(obj), "--frames"], capture_output=True, text=True, timeout=900)
 (out / "emission.log").write_text(p.stderr)
 assert p.returncode == 0, p.stderr[-12000:]
 emitted = re.search(r"aot: emitted (\d+) functions \((\d+) bytes\), refused (\d+)", p.stderr)
@@ -214,18 +208,18 @@ if args.aot_binary:
 else:
     cargo("--no-default-features", "--features", "aot-linked", env={"NUPP_AOT_OBJECT": str(obj)})
     aot = stage(built, "nupp-vm-aot")
-dependencies = subprocess.run(["cargo", "tree", "-p", "nupp-vm", "--no-default-features", "--features", "aot-linked", "--offline"],
+dependencies = process.run(["cargo", "tree", "-p", "nupp-vm", "--no-default-features", "--features", "aot-linked", "--offline"],
                               check=True, capture_output=True, text=True).stdout
 (out / "dependencies.txt").write_text(dependencies)
-symbols = subprocess.run(["nm", str(aot)], check=True, capture_output=True, text=True).stdout
+symbols = process.run(["nm", str(aot)], check=True, capture_output=True, text=True).stdout
 assert "cranelift" not in dependencies and "cranelift" not in symbols, "the linked runtime contains Cranelift"
 record("no-code-generator", binaryBytes=aot.stat().st_size)
 
 # 5. Executable memory denied: the interposer must reject both routes.
 deny = out / "deny-exec.dylib"
-subprocess.run(["cc", "-dynamiclib", str(Path(__file__).resolve().parent / "deny-exec.c"), "-o", str(deny)], check=True)
+process.run(["cc", "-dynamiclib", str(Path(__file__).resolve().parent / "deny-exec.c"), "-o", str(deny)], check=True)
 probe = out / "probe"
-subprocess.run(["cc", "-x", "c", "-o", str(probe), "-"], check=True, text=True, input=r'''
+process.run(["cc", "-x", "c", "-o", str(probe), "-"], check=True, text=True, input=r'''
 #include <sys/mman.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
@@ -237,7 +231,7 @@ int main(int argc, char **argv) {
 }
 ''')
 for mode, extra in (("mapping", []), ("protection", ["protect"])):
-    p = subprocess.run([str(probe), *extra], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True)
+    p = process.run([str(probe), *extra], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True)
     assert p.returncode == 86 and "no-JIT gate: executable memory requested" in p.stderr, (mode, p.returncode, p.stderr)
 record("executable-memory-denial-probe")
 DENIED = {"DYLD_INSERT_LIBRARIES": str(deny)}
@@ -246,8 +240,8 @@ DENIED = {"DYLD_INSERT_LIBRARIES": str(deny)}
 def run(name, binary, module, function, *extra, flags=None, restore=None, ok=True, timeout=600):
     command = [str(binary), "restore" if restore else "run", str(restore or image), module, function, *extra]
     started = time.monotonic()
-    p = subprocess.run(command, env=dict(env, **(flags or {})), capture_output=True, text=True, timeout=timeout)
-    (out / f"{name}.log").write_text(" ".join(command) + "\n" + p.stdout[-20000:] + p.stderr[-20000:])
+    p = process.run(command, env=dict(env, **(flags or {})), capture_output=True, text=True, timeout=timeout)
+    (out / f"{name}.log").write_text(" ".join(command) + "\n" + p.stdout + p.stderr)
     if ok:
         assert p.returncode == 0, (name, p.stdout[-2000:], p.stderr[-8000:])
     else:
@@ -278,7 +272,7 @@ outputs = {}
 for tier, binary, flags in (("aot", aot, dict(DENIED, **STRESS)), ("interpreter", aot, dict(DENIED, **STRESS, **INTERPRETER)),
                             ("jit", jit, dict(STRESS))):
     path = out / f"oracle-{tier}.txt"
-    p = run(f"oracle-{tier}", binary, GATE, "oracle", "--output", str(path), flags=flags, timeout=1800)
+    p = run(f"oracle-{tier}", binary, GATE, "oracle", "--output", str(path), flags=flags, timeout=900)
     outputs[tier] = (text_of(path), p.seconds)
 reference = outputs["interpreter"][0]
 lines = reference.count("\n")
@@ -295,7 +289,7 @@ SUITES = [
     ("nupp.tests.vmsimd", ["run", "workers", "missingPlugin"]),
     ("nupp.tests.vmnativesimd", ["run", "workers"]),
     ("main", ["resultPacks", "run", "cancellation", "churn", "ownership", "captures", "workers",
-              "workerSettlement", "named", "fields", "coroutines", "channels", "generators", "automaticClose"]),
+              "workerSettlement", "families", "named", "fields", "coroutines", "channels", "generators", "automaticClose"]),
 ]
 for module, functions in SUITES:
     for function in functions:
@@ -350,7 +344,7 @@ for saved_tier, saved in checkpoints.items():
         p = linked(name, GATE, "parkFinish", "--tasks", "--output", str(result), restore=saved, flags=flags)
         assert text_of(result) == expected, (name, text_of(result), expected)
         if tier == "aot":
-            # --output exits before the counters; run again for them.
+            # This distinct restore invocation validates counters independently.
             p = linked(name + "-counters", GATE, "parkFinish", "--tasks", restore=saved, flags=flags)
             entries, parks, continuations = counters(p)
             assert "linked entries after restore" in p.stderr and entries > 0 and parks > 0 and continuations > 0, p.stderr[-4000:]
@@ -374,7 +368,7 @@ assert p.stdout == "" and "image refused: function" in p.stderr and "native comp
 mismatch = out / "mismatch.image"
 mismatch.write_text(text + "\n")
 command = [str(aot), "run", str(mismatch), GATE, "oracle"]
-p = subprocess.run(command, env=dict(env, **DENIED), capture_output=True, text=True, timeout=120)
+p = process.run(command, env=dict(env, **DENIED), capture_output=True, text=True, timeout=120)
 assert p.returncode != 0 and p.stdout == "" and "aot: linked object was built for another image" in p.stderr, p.stderr[-2000:]
 record("refusals", cases=["plugin at run time (missingPlugin)", "plugin by --load", "object withheld", "another image",
                           "emission without frame entries"])

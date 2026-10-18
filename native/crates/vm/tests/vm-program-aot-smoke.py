@@ -9,12 +9,14 @@ project without vector code must still stamp onto the shared runtime. Run
 from the repository root; macOS only, because the denial interposer is.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import platform
 import shutil
-import subprocess
 import time
+
+from native_test_process import ProcessRunner
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", type=Path, required=True)
@@ -24,9 +26,8 @@ if platform.system() != "Darwin":
 root = Path.cwd()
 nupp = str(root / "bin/nupp")
 tests = Path(__file__).resolve().parent
-out = args.output.resolve()
-shutil.rmtree(out, ignore_errors=True)
-out.mkdir(parents=True)
+out = args.output.absolute()
+process = ProcessRunner(out)
 
 PROGRAM = '''module main
 
@@ -72,7 +73,7 @@ def project(name, source, kernels):
 
 def build(directory):
     started = time.monotonic()
-    p = subprocess.run([nupp, "build"], cwd=directory, capture_output=True, text=True, timeout=3600)
+    p = process.run([nupp, "build"], cwd=directory, capture_output=True, text=True, timeout=900)
     (out / f"{directory.name}-build.log").write_text(p.stdout + p.stderr)
     assert p.returncode == 0, p.stdout[-4000:] + p.stderr[-8000:]
     binary = directory / "build/binary"
@@ -83,20 +84,50 @@ def build(directory):
 vector = project("vector", PROGRAM, True)
 binary, seconds = build(vector)
 data = binary.read_bytes()
-assert b"cranelift" not in data.lower(), "the program binary carries the code generator"
+# Inspect the actual archive configuration, excluding the expected codegen
+# dependencies of the separate object emitter. A byte-string check alone is
+# not a feature or dependency proof.
+toolroot = Path(os.environ.get("NUPP_RUST_BUILD_DIR", root / "build/rust")).resolve()
+fingerprints = list((toolroot / "vm-program").glob("target-*/release/.fingerprint/nupp-vm-*/lib-nupp_vm.json"))
+assert fingerprints, "no program archive Cargo feature proof"
+for path in fingerprints:
+    report = json.loads(path.read_text())
+    features = json.loads(report["features"]) if isinstance(report["features"], str) else report["features"]
+    assert not ({"jit", "aot", "default"} & set(features)), (path, features)
+(out / "program-feature-proof.json").write_text(json.dumps(
+    [{"path": str(path), "report": json.loads(path.read_text())} for path in fingerprints], indent=2) + "\n")
+symbols = process.run(["nm", str(binary)], capture_output=True, text=True, check=True, timeout=30).stdout
+assert "cranelift" not in symbols.lower() and b"cranelift" not in data.lower(), "the program binary carries the code generator"
 deny = out / "deny-exec.dylib"
-subprocess.run(["cc", "-dynamiclib", str(tests / "deny-exec.c"), "-o", str(deny)], check=True)
+process.run(["cc", "-dynamiclib", str(tests / "deny-exec.c"), "-o", str(deny)], check=True)
 env = {k: v for k, v in os.environ.items() if not k.startswith(("SIMD_INTERPRET", "NO_JIT", "NO_AOT", "DYLD_"))}
-p = subprocess.run([str(binary)], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True, timeout=120)
+probe = out / "probe"
+process.run(["cc", "-x", "c", "-o", str(probe), "-"], check=True, text=True, input=r'''
+#include <sys/mman.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    size_t size = (size_t)sysconf(_SC_PAGESIZE);
+    void *p = mmap(0, size, argc == 1 ? PROT_READ | PROT_EXEC : PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (p == MAP_FAILED) return 1;
+    if (argc > 1) mprotect(p, size, PROT_READ | PROT_EXEC);
+    return 0;
+}
+''')
+for extra in ([], ["protect"]):
+    p = process.run([str(probe), *extra], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)),
+                    capture_output=True, text=True, timeout=120)
+    assert p.returncode == 86 and "no-JIT gate: executable memory requested" in p.stderr, p.stderr
+p = process.run([str(binary)], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True, timeout=120)
 assert p.returncode == 0, p.stderr[-4000:]
 compiled = p.stdout
-p = subprocess.run([nupp, "run", "src/main.nupp"], cwd=vector, capture_output=True, text=True, timeout=1200)
+p = process.run([nupp, "run", "src/main.nupp"], cwd=vector, env=dict(os.environ, NO_AOT="1", SIMD_INTERPRET="1", NO_JIT="1"), capture_output=True, text=True, timeout=120)
 assert p.returncode == 0, p.stderr[-4000:]
 assert p.stdout == compiled, (p.stdout, compiled)
 print(f"vector program: {binary.stat().st_size} bytes, built in {seconds:.1f} s, output equals the interpreter", flush=True)
 
 scalar = project("scalar", 'module main\nprint("scalar")\n', False)
 binary, _ = build(scalar)
-p = subprocess.run([str(binary)], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True, timeout=120)
+p = process.run([str(binary)], env=dict(env, DYLD_INSERT_LIBRARIES=str(deny)), capture_output=True, text=True, timeout=120)
 assert p.returncode == 0 and p.stdout == "scalar\n", p.stderr[-4000:]
 print(f"scalar program: {binary.stat().st_size} bytes on the shared runtime", flush=True)

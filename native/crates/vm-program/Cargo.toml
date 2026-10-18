@@ -8,7 +8,7 @@ publish.workspace = true
 # The VM runtime as an archive a program binary is linked from: the runner of
 # `nupp-vm` (its `src/main.rs`, compiled here) with no code generator, and the
 # program's own ahead-of-time object linked beside it by
-# `scripts/toolchain vm-program`. The object defines `nupp_aot_table`; the
+# `scripts/toolchain vm-program`. The object defines `nupp_aot_table_v1`; the
 # runner reads it where the `nupp-vm` binary reads generated Rust, so one
 # archive serves every program and a program build costs one native link.
 
