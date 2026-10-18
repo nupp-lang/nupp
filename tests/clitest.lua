@@ -854,15 +854,19 @@ end
 local function probeOutput(probe)
     local script = os.tmpname() .. ".lua"
     local file = assert(io.open(script, "wb"))
+    -- Only Lua children inherit the generated module path of the test harness.
     file:write(
         "for name in pairs(package.loaded) do\n"
         .. "   if name:match('^nupp%.') then package.loaded[name] = nil end\n"
         .. "end\n"
-        .. probe
+        .. (
+            "if not rawget(_G, \"__nupp_load_image\") then\n" .. "   package.path = %q\n" .. "end\n"
+        ):format(package.path) .. probe
     )
     file:close()
     local out = captureAt(HERE .. "/..", "run '" .. script .. "'")
     os.remove(script)
+
     return out
 end
 
@@ -870,9 +874,7 @@ end
 -- heavier; the compiler it needs is required inside `run`. Checked in a fresh
 -- process, since this one has long since loaded everything.
 function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
-    local probe = (
-        [[
-package.path = %q
+    local probe = [[
 for _, name in ipairs({"lsp", "bc", "ast"}) do
    require("nupp.tools.cli." .. name)
 end
@@ -883,15 +885,12 @@ for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
 end
 print("done")
 ]]
-    ):format(package.path)
     local out = probeOutput(probe)
     assert(out == "done\n", "requiring a command module loads its grammar, not the compiler:\n" .. out)
 end
 
 function M.projectLoadingDoesNotLoadCodeGeneration()
-    local probe = (
-        [[
-package.path = %q
+    local probe = [[
 require("nupp.tools.build.project")
 local policy = require("nupp.tools.build.aotcheck")
 assert(policy.mentionsGpuTarget('@aot(target = "gpu")'))
@@ -903,7 +902,6 @@ for _, name in ipairs({"nupp.tools.build.aot",
 end
 print("done")
 ]]
-    ):format(package.path)
     local out = probeOutput(probe)
     assert(out == "done\n", "project checking loads code generation:\n" .. out)
 end
