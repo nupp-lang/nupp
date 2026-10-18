@@ -1452,4 +1452,48 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     assert(sleeps > 0, "the driver slept in the platform between quiet passes")
 end
 
+-- The runner releases this source even when the original process assertion fails.
+local inactiveWaitSource = nil
+local inactiveWaitCalls = 0
+
+local function retainInactiveWaitSource()
+    testAssert.equal(suspension.handled(), false, "the process wait has no outer handler")
+    assert(inactiveWaitSource == nil, "the previous inactive source was released")
+    inactiveWaitCalls = 0
+    inactiveWaitSource = suspension.source(
+        "processtest.inactive",
+        0,
+        function()
+            return 0
+        end,
+        function(_timeoutMs)
+            inactiveWaitCalls = inactiveWaitCalls + 1
+            return 0
+        end,
+        function()
+            return false
+        end
+    )
+end
+
+function M.afterEach()
+    if inactiveWaitSource ~= nil then
+        local source = inactiveWaitSource
+        inactiveWaitSource = nil
+        source:release()
+        testAssert.equal(inactiveWaitCalls, 0, "an inactive source never replaces the process wait")
+        testAssert.equal(suspension.handled(), false, "the process wait restored its handler")
+    end
+end
+
+function M.taskWaitIgnoresAnInactiveWaitSource()
+    retainInactiveWaitSource()
+    M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
+end
+
+function M.taskDrainIgnoresAnInactiveWaitSource()
+    retainInactiveWaitSource()
+    M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
+end
+
 return M

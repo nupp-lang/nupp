@@ -281,7 +281,12 @@ local function waitCandidates(waiting: any): {any}
     if associated ~= nil then
         for index = 1, #providerState.sources do
             local source = providerState.sources[index]
-            if associated[source] and not source._released and source.wait ~= nil then
+            local isActive = source.active
+            if associated[source]
+                and not source._released
+                and source.wait ~= nil
+                and (isActive == nil or isActive(source))
+            then
                 preferred[#preferred + 1] = source.wait
             end
         end
@@ -293,7 +298,8 @@ local function waitCandidates(waiting: any): {any}
     local fallback = {}
     for index = 1, #providerState.sources do
         local source = providerState.sources[index]
-        if not source._released and source.wait ~= nil then
+        local isActive = source.active
+        if not source._released and source.wait ~= nil and (isActive == nil or isActive(source)) then
             fallback[#fallback + 1] = source.wait
         end
     end
