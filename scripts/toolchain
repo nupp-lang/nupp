@@ -601,9 +601,14 @@ take_lock() {
             rm -rf "$lock"
             continue
         fi
-        # Whoever holds it is building what this one wants, so their answer is
-        # this one's answer.
-        [ -f "$2" ] && return 1
+        # A marker is sufficient for existing callers. Components whose
+        # artifacts are separate from that marker also supply a readiness
+        # command, so contention cannot turn an incomplete cache into success.
+        if [ -f "$2" ]; then
+            if [ "$#" -eq 2 ] || (shift 2; "$@"); then
+                return 1
+            fi
+        fi
         sleep 1
         waited=$((waited + 1))
         say_waiting "$1" "$holder" "$waited"
@@ -969,7 +974,7 @@ build_rust_vm_aot_tool() {
     target="$RUST_BUILD_ROOT/vm-aot-tool/target"
     RUST_VM_AOT_TOOL_OUT="$out/$executable"
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_AOT_TOOL_OUT" ] && return 0
-    take_lock "rust-vm-aot-tool" "$out/.complete" || return 0
+    take_lock "rust-vm-aot-tool" "$out/.complete" test -f "$RUST_VM_AOT_TOOL_OUT" || return 0
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_AOT_TOOL_OUT" ] && { release_lock; return 0; }
     note "building the VM object emitter with $RUSTC"
     set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm --bin nupp-vm \
@@ -997,6 +1002,10 @@ EOF
 # facilities a program names, and the native libraries its final link needs.
 # Built once per facility set and source state, with the program runtime's
 # LTO, so a program's own link is the archive and its object.
+vm_program_archive_ready() {
+    [ -f "$RUST_VM_PROGRAM_ARCHIVE" ] && [ -s "$RUST_VM_PROGRAM_LIBRARIES" ]
+}
+
 build_rust_vm_program_archive() {
     facilities=$1
     select_rust_tools
@@ -1012,7 +1021,7 @@ build_rust_vm_program_archive() {
     RUST_VM_PROGRAM_ARCHIVE="$out/libnupp_vm_program.a"
     RUST_VM_PROGRAM_LIBRARIES="$out/link-libraries"
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_PROGRAM_ARCHIVE" ] && [ -s "$RUST_VM_PROGRAM_LIBRARIES" ] && return 0
-    take_lock "rust-vm-program-$(printf '%s' "$target" | sha256_stdin | cut -c1-16)" "$out/.complete" \
+    take_lock "rust-vm-program-$(printf '%s' "$target" | sha256_stdin | cut -c1-16)" "$out/.complete" vm_program_archive_ready \
         || return 0
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_PROGRAM_ARCHIVE" ] && [ -s "$RUST_VM_PROGRAM_LIBRARIES" ] && { release_lock; return 0; }
     note "building the VM program archive with $RUSTC"
@@ -1076,7 +1085,7 @@ build_vm_program() {
     out="$RUST_BUILD_ROOT/vm-program/programs/$digest"
     VM_PROGRAM_OUT="$out/nupp-vm"
     [ -f "$out/.complete" ] && [ -f "$VM_PROGRAM_OUT" ] && return 0
-    take_lock "vm-program-$digest" "$out/.complete" || return 0
+    take_lock "vm-program-$digest" "$out/.complete" test -f "$VM_PROGRAM_OUT" || return 0
     [ -f "$out/.complete" ] && [ -f "$VM_PROGRAM_OUT" ] && { release_lock; return 0; }
     mkdir -p "$(dirname "$out")"
     work=$(mktemp -d "$out.work.XXXXXX") || die "cannot create program link workspace"
