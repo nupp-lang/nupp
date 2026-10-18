@@ -399,9 +399,9 @@
     },
     {
       "suite": "clitest",
-      "class": "port-required",
+      "class": "portable",
       "facilities": "load,ffi,jit,getinfo,spawn,aot",
-      "reason": "its first 32 cases pass on the VM, the program-arguments case among them, and none fails; the run reaches the 600 s suite budget before the last four (serialization migration, binary colour flags, the C header example, the version line) start"
+      "reason": "ported: all 36 ordinary VM cases pass in 59.67 seconds within the unchanged 600-second budget after child-path fixture repair; actual runner/source and restoration proofs pass"
     },
     {
       "suite": "compilerpacktest",

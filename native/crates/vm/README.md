@@ -4345,3 +4345,24 @@ the complete literal failure.
 The historical broad run remains 3,926 passed, 25 failed and 34 deferred. Its
 bytecode budgets still fail at 462/345 and 746/617 instructions. These scoped
 results do not establish a new broad aggregate or performance result.
+
+## CLI probe module paths (2026-10-17)
+
+The CLI probe copied the Lua harness module path into a VM child. That path
+exposed a generated SPI index source; loading it after clearing modules loaded
+the lexer. The probe now restores the inherited path only inside Lua children.
+VM children retain their normal module path. The clear prefix, import order and
+assertions remain unchanged.
+
+All 36 ordinary VM CLI cases pass in 59.67 seconds within the unchanged
+600-second budget. Both actual runner source proofs cover 501 modules, two
+external declarations and the original eight-byte trailer. The runner bytes and
+compiler/runtime sources match the accepted composed checkpoint, and original
+cache entries are restored. This promotes `clitest` to portable, leaving 193
+portable, 65 retired and three harness suites with none port-required. See
+[CLI child-path evidence](tests/clitest-child-path-acceptance.json).
+
+The original failed CLI report remains in
+[the earlier record](tests/clitest-port-acceptance.json). The composed native,
+cold-check and self-hosting results remain tied to their original source; no
+new broad or performance result follows from this fixture repair.
