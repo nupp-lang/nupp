@@ -210,6 +210,11 @@ fn main() -> Result<(), String> {
     let mut compile_cfg = vec![];
     let mut compile_image = vec![];
     let mut adapt = vec![];
+    let mut compile_adapter = vec![];
+    let adapted = graphs
+        .iter()
+        .map(adapter::lower)
+        .collect::<Result<Vec<_>, _>>()?;
     for round in 0..13 {
         let start = Instant::now();
         let loaded = graph::decode(std::hint::black_box(&bytes))?;
@@ -234,21 +239,27 @@ fn main() -> Result<(), String> {
             std::hint::black_box(&code);
             Ok(elapsed)
         };
-        let old_compile = || -> Result<f64, String> {
+        let frame_compile = |functions: &[nupp_vm::interp::Function]| -> Result<f64, String> {
             let start = Instant::now();
-            let mut jit = nupp_vm::jit::Jit::new();
-            for (fid, f) in old_functions.iter().enumerate() {
-                jit.compile_frame(f, fid as u32)?;
+            let mut owner = Interp::new();
+            owner.jit = Some(Box::new(nupp_vm::jit::Jit::new()));
+            for (fid, f) in functions.iter().enumerate() {
+                owner.jit.as_mut().unwrap().compile_frame(f, fid as u32)?;
             }
             let elapsed = us(start);
-            std::hint::black_box(&jit);
+            std::hint::black_box(&owner);
             Ok(elapsed)
         };
-        let (e, f) = if round % 2 == 0 {
-            (graph_compile()?, old_compile()?)
+        let (e, f, h) = if round % 2 == 0 {
+            (
+                graph_compile()?,
+                frame_compile(&old_functions)?,
+                frame_compile(&adapted)?,
+            )
         } else {
-            let f = old_compile()?;
-            (graph_compile()?, f)
+            let h = frame_compile(&adapted)?;
+            let f = frame_compile(&old_functions)?;
+            (graph_compile()?, f, h)
         };
         if round > 1 {
             load_cfg.push(a);
@@ -257,6 +268,7 @@ fn main() -> Result<(), String> {
             adapt.push(d);
             compile_cfg.push(e);
             compile_image.push(f);
+            compile_adapter.push(h);
         }
     }
     let rows:Vec<_>=graphs.iter().zip(&raw).zip(&native.functions).zip(&old_functions).map(|(((g,r),c),f)|serde_json::json!({
@@ -266,8 +278,8 @@ fn main() -> Result<(), String> {
     })).collect();
     let result = serde_json::json!({"cases":cases,"raw_graph_bytes":bytes.len(),"pruned_graph_bytes":packed.len(),"old_text_image_bytes":text.len(),"functions":rows,
         "settings":{"arch":std::env::consts::ARCH,"os":std::env::consts::OS,"jit_opt":std::env::var("JIT_OPT").unwrap_or("none".into()),"old_jit_verifier":std::env::var("JIT_VERIFY").is_ok(),"graph_jit_verifier":true},
-        "median_microseconds":{"graph_decode_verify":median(load_cfg),"graph_prune":median(prune),"old_image_load_verify":median(load_image),"graph_to_vm_verify":median(adapt),"graph_to_native":median(compile_cfg.clone()),"old_to_native_frame":median(compile_image.clone())},
-        "graph_compile_samples_us":compile_cfg,"old_compile_samples_us":compile_image,
+        "median_microseconds":{"graph_decode_verify":median(load_cfg),"graph_prune":median(prune),"old_image_load_verify":median(load_image),"graph_to_vm_verify":median(adapt),"graph_to_native":median(compile_cfg.clone()),"old_to_native_frame":median(compile_image.clone()),"adapter_to_native_frame":median(compile_adapter.clone())},
+        "graph_compile_samples_us":compile_cfg,"old_compile_samples_us":compile_image,"adapter_frame_samples_us":compile_adapter,
         "limits":"Closed scalar subset; native resume ABI uses rooted host strings and has no production GC, deopt, patching, errors or scheduler integration. Compile times compare different runtime obligations, not equivalent production backends. All outputs and yield traces checked against original CST lowering; graph execution uses a private resume ABI and the Park adapter."});
     std::fs::write(
         out.join("results.json"),
