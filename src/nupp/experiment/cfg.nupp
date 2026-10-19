@@ -1,0 +1,415 @@
+module nupp.experiment.cfg
+
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local trivia = require("nupp.compiler.syntax.triviaarena")
+local provider = require("nupp.compiler.syntax.triviaarena.table")
+local cst = require("nupp.compiler.syntax.cst")
+local lower = require("nupp.compiler.vm.lower")
+
+-- Experimental closed subset. Blocks explicitly pass every lexical binding;
+-- dead parameters are pruned on the graph before either backend consumes it.
+-- IDs are zero-based on disk. The builder uses table columns, not one table
+-- per instruction; the frozen graph uses four-byte words.
+local F64: integer = 1
+local BOOL: integer = 2
+local TEXT: integer = 3
+local ops = {["+"] = 1, ["-"] = 2, ["*"] = 3, ["<"] = 4, ["<="] = 5, ["=="] = 6}
+
+local function copy(t: any): any
+    local out = {}
+    for k, v in pairs(t) do
+        out[k] = v
+    end
+
+    return out
+end
+
+local function value(g: any, ty: integer): integer
+    g.types[#g.types + 1] = ty
+    return #g.types - 1
+end
+
+local function newBlock(g: any, names: any, env: any): any
+    local b = {id = #g.blocks, names = copy(names), env = {}, params = {}, op = {}, dst = {}, a = {}, b = {}}
+    for _, name in ipairs(names) do
+        local v = value(g, g.types[env[name] + 1])
+        b.params[#b.params + 1] = v
+        b.env[name] = v
+    end
+    g.blocks[#g.blocks + 1] = b
+
+    return b
+end
+
+local function ins(g: any, b: any, op: integer, ty: integer, a: integer, rhs: integer): integer
+    local v = value(g, ty)
+    local n = #b.op + 1
+    b.op[n], b.dst[n], b.a[n], b.b[n] = op, v, a, rhs
+    return v
+end
+
+local function edge(b: any, target: any): any
+    local args = {}
+    for _, name in ipairs(target.names) do
+        args[#args + 1] = assert(b.env[name], "missing edge binding")
+    end
+
+    return {target = target.id, args = args}
+end
+
+local function qualified(n: any, base: string, member: string): boolean
+    return n.kind == "dotIndex" and n.obj.kind == "name" and n.obj.token.text == base and n.name.text == member
+end
+
+local function expr(g: any, b: any, n: any): integer
+    if n.kind == "number" then
+        local k = assert(tonumber(n.token.text), "unsupported numeric literal")
+        g.constants[#g.constants + 1] = k
+        return ins(g, b, 0, F64, #g.constants - 1, 0)
+    elseif n.kind == "name" then
+        return assert(b.env[n.token.text], "unsupported free variable: " .. n.token.text)
+    elseif n.kind == "paren" then
+        return expr(g, b, n.expr)
+    elseif n.kind == "unop" and n.op.text == "#" then
+        local a = expr(g, b, n.operand)
+        assert(g.types[a + 1] == TEXT, "only string length admitted")
+        return ins(g, b, 7, F64, a, 0)
+    elseif n.kind == "binop" then
+        -- This one normalized optional read keeps the subset scalar. It
+        -- retains string.byte's one-based, negative and truncated indexes.
+        local lhs = n.lhs
+        if n.op.text == "or" and lhs.kind == "call" and qualified(lhs.obj, "string", "byte") then
+            assert(n.rhs.kind == "number" and tonumber(n.rhs.token.text) == 0, "byte fallback must be zero")
+            assert(#lhs.args.exprs == 2, "byte takes exactly two arguments")
+            local a = expr(g, b, lhs.args.exprs[1])
+            local i = expr(g, b, lhs.args.exprs[2])
+            assert(g.types[a + 1] == TEXT and g.types[i + 1] == F64, "byte argument types")
+            return ins(g, b, 8, F64, a, i)
+        end
+        local op = assert(ops[n.op.text], "unsupported binary operator: " .. n.op.text)
+        assert(not n.fixedArithmetic, "fixed-width arithmetic is outside this experiment")
+        local a, rhs = expr(g, b, n.lhs), expr(g, b, n.rhs)
+        assert(g.types[a + 1] == F64 and g.types[rhs + 1] == F64, "numeric operands required")
+        return ins(g, b, op, op >= 4 and BOOL or F64, a, rhs)
+    end
+    error("unsupported expression: " .. tostring(n.kind))
+end
+
+local function reserved(name: string): nil
+    assert(name ~= "string" and name ~= "coroutine", "intrinsic namespace shadowing is outside this experiment")
+end
+
+local statements: any
+statements = function(g: any, b: any, body: any): any
+    for _, s in ipairs(body.stats) do
+        assert(b, "unreachable statements are outside this experiment")
+        if s.kind == "localStmt" then
+            assert(not s.pattern and s.exprs and #s.exprs == #s.names, "one initializer per local required")
+            local values = {}
+            for i, e in ipairs(s.exprs) do
+                values[i] = expr(g, b, e)
+            end
+            for i, name in ipairs(s.names) do
+                reserved(name.text)
+                assert(b.env[name.text] == nil, "shadowing is outside this experiment")
+                b.names[#b.names + 1] = name.text
+                b.env[name.text] = values[i]
+            end
+        elseif s.kind == "assignStmt" then
+            assert(#s.targets == #s.exprs, "parallel assignment arity")
+            local values = {}
+            for i, e in ipairs(s.exprs) do
+                values[i] = expr(g, b, e)
+            end
+            for i, target in ipairs(s.targets) do
+                assert(target.kind == "name" and b.env[target.token.text] ~= nil, "only local assignments admitted")
+                assert(g.types[b.env[target.token.text] + 1] == g.types[values[i] + 1], "changing local representation")
+                b.env[target.token.text] = values[i]
+            end
+        elseif s.kind == "whileStmt" then
+            local names = copy(b.names)
+            local header = newBlock(g, names, b.env)
+            b.term = {kind = 1, e0 = edge(b, header)}
+            local cond = expr(g, header, s.cond)
+            assert(g.types[cond + 1] == BOOL, "boolean loop condition required")
+            local loop = newBlock(g, names, header.env)
+            local after = newBlock(g, names, header.env)
+            header.term = {kind = 2, value = cond, e0 = edge(header, loop), e1 = edge(header, after)}
+            loop = statements(g, loop, s.body)
+            if loop then
+                loop.term = {kind = 1, e0 = edge(loop, header)}
+            end
+            b = after
+        elseif s.kind == "ifStmt" then
+            assert(#s.clauses == 1 and not s.clauses[1].binding, "only one plain if clause admitted")
+            local cond = expr(g, b, s.clauses[1].cond)
+            assert(g.types[cond + 1] == BOOL, "boolean branch condition required")
+            local names = copy(b.names)
+            local yes, no = newBlock(g, names, b.env), newBlock(g, names, b.env)
+            b.term = {kind = 2, value = cond, e0 = edge(b, yes), e1 = edge(b, no)}
+            yes = statements(g, yes, s.clauses[1].body)
+            if s.elseClause then
+                no = statements(g, no, s.elseClause.body)
+            end
+            if yes or no then
+                local join = newBlock(g, names, b.env)
+                if yes then
+                    yes.term = {kind = 1, e0 = edge(yes, join)}
+                end
+                if no then
+                    no.term = {kind = 1, e0 = edge(no, join)}
+                end
+                b = join
+            else
+                b = nil
+            end
+        elseif s.kind == "returnStmt" then
+            assert(#s.exprs == 1, "one result required")
+            local v = expr(g, b, s.exprs[1])
+            assert(g.types[v + 1] == F64, "numeric result required")
+            b.term = {kind = 0, value = v}
+            b = nil
+        elseif s.kind == "callStmt" and s.expr.kind == "call" and qualified(s.expr.obj, "coroutine", "yield") then
+            assert(#s.expr.args.exprs == 1, "one yielded value required")
+            local v = expr(g, b, s.expr.args.exprs[1])
+            assert(g.types[v + 1] == F64, "numeric yield required")
+            local resume = newBlock(g, b.names, b.env)
+            b.term = {kind = 3, value = v, e0 = edge(b, resume)}
+            b = resume
+        else
+            error("unsupported statement: " .. tostring(s.kind))
+        end
+    end
+
+    return b
+end
+
+local function graph(s: any): any
+    assert(s.kind == "funcStmt" and not s.name.method, "plain exported function required")
+    assert(#s.name == 3 and s.name.base.text == "m", "only m.name function declarations admitted")
+    local g = {name = s.name[#s.name].text, blocks = {}, types = {}, constants = {}}
+    local body = s.body
+    assert(
+        not body.generics and #body.rets == 1 and cst.textOf(body.rets[1]):match("^%s*number%s*$"),
+        "numeric non-generic result required"
+    )
+    local entry = newBlock(g, {}, {})
+    for _, p in ipairs(body.params) do
+        assert(not p.vararg and not p.modeTok, "plain parameters required")
+        local spelling = cst.textOf(p.type):match("^%s*(.-)%s*$")
+        local ty = spelling == "number" and F64 or spelling == "string" and TEXT or nil
+        assert(ty, "only number/string parameters admitted")
+        reserved(p.name.text)
+        local v = value(g, ty)
+        entry.names[#entry.names + 1] = p.name.text
+        entry.params[#entry.params + 1] = v
+        entry.env[p.name.text] = v
+    end
+    assert(not statements(g, entry, body.body), "function must return")
+
+    return g
+end
+
+local function encodeGraphs(graphs: any): string
+    local parts: {string} = {"NCFG0001"}
+
+    local function word(n: integer): nil
+        assert(n >= 0 and n < 4294967296, "graph index overflow")
+        parts[
+            #parts + 1
+        ] = string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216))
+    end
+
+    local function str(s: string): nil
+        word(#s)
+        parts[#parts + 1] = s
+    end
+
+    word(#graphs)
+    for _, g in ipairs(graphs) do
+        str(g.name)
+        word(#g.types)
+        for _, ty in ipairs(g.types) do
+            word(ty)
+        end
+        word(#g.constants)
+        for _, k in ipairs(g.constants) do
+            str(string.format("%.17g", k))
+        end
+        word(#g.blocks)
+        for _, b in ipairs(g.blocks) do
+            word(#b.params)
+            for _, v in ipairs(b.params) do
+                word(v)
+            end
+            word(#b.op)
+            for i, op in ipairs(b.op) do
+                word(op)
+                word(b.dst[i])
+                word(b.a[i])
+                word(b.b[i])
+            end
+            local t = assert(b.term, "unterminated block")
+            word(t.kind)
+            word(t.value or 0)
+            for _, e in ipairs({t.e0, t.e1}) do
+                word(e.target)
+                word(#e.args)
+                for _, v in ipairs(e.args) do
+                    word(v)
+                end
+            end
+        end
+    end
+
+    return table.concat(parts)
+end
+
+local function graphsFrom(root: any): any
+    local graphs = {}
+    assert(#root.blocks == 1, "one syntax recovery region required")
+    local stats = root.blocks[1].stats
+    assert(#stats >= 3, "closed fixture module required")
+    for i, s in ipairs(stats) do
+        if i == 1 then
+            assert(
+                s.kind == "localStmt"
+                and #s.names == 1
+                and s.names[1].text == "m"
+                and s.exprs
+                and #s.exprs == 1
+                and s.exprs[1].kind == "tableExpr"
+                and #s.exprs[1].fields == 0,
+                "module must start with local m = {}"
+            )
+        elseif i == #stats then
+            assert(
+                s.kind == "returnStmt" and #s.exprs == 1 and s.exprs[1].kind == "name" and s.exprs[1].token.text == "m",
+                "module must end with return m"
+            )
+        else
+            graphs[#graphs + 1] = graph(s)
+        end
+    end
+
+    return graphs
+end
+
+local input, output = assert(arg[1]), assert(arg[2])
+local f = assert(io.open(input, "rb"))
+local source = f:read("*a")
+f:close()
+trivia.installDefault(provider)
+local start = os.clock()
+local parsed = parser.parse(source, input)
+assert(#parsed.errors == 0, "input parse failed")
+local env = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+local diagnostics = checker.check(parsed, input, env as any, {})
+for _, d in ipairs(diagnostics) do
+    assert(d.severity and d.severity ~= "error", tostring(d.code) .. ": " .. tostring(d.msg))
+end
+local checked = os.clock()
+-- Admission tests run after the measured checker phase. Unsupported syntax
+-- must fail explicitly instead of silently falling back to old lowering.
+local rejected = {
+    'local m = {} function m.bad(x: number): number return x .. "wrong" end return m',
+    'local m = {} function m.bad(x: number): number return math.sqrt(x) end return m',
+    'local m = {} function m.bad(string: number): number return string end return m',
+    'local m = {} function m.bad(x: number): number if x < 0 then local x = 1 return x end return x end return m',
+}
+for _, bad in ipairs(rejected) do
+    local tree = parser.parse(bad, "cfg-rejected.nupp")
+    assert(#tree.errors == 0)
+    local badEnv = envMod.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
+    local diags = checker.check(tree, "cfg-rejected.nupp", badEnv as any, {})
+    local failed = false
+    for _, d in ipairs(diags) do
+        failed = failed or not d.severity or d.severity == "error"
+    end
+    if not failed then
+        local ok = pcall(graphsFrom, tree.root)
+        assert(not ok, "unsupported source was admitted")
+    end
+end
+
+local function old(): string
+    return lower.emit(
+        "cfg.fixture",
+        {},
+        function(name: string): string?
+            return name == "cfg.fixture" and input or nil
+        end,
+        function(name: string, path: string): table
+            assert(name == "cfg.fixture" and path == input)
+            return parsed.root
+        end
+    )
+end
+
+local graphSamples, encodeSamples, oldSamples = {}, {}, {}
+local binary, image = "", ""
+for round = 1, 13 do
+    local gTime, eTime, oTime = 0, 0, 0
+
+    local function current(): nil
+        local before = os.clock()
+        local graphs = graphsFrom(parsed.root)
+        local after = os.clock()
+        local encoded = encodeGraphs(graphs)
+        local done = os.clock()
+        assert(binary == "" or binary == encoded, "graph changed across identical lowerings")
+        binary = encoded
+        gTime, eTime = (after - before) * 1000, (done - after) * 1000
+    end
+
+    local function baseline(): nil
+        local before = os.clock()
+        local encoded = old()
+        oTime = (os.clock() - before) * 1000
+        assert(image == "" or image == encoded, "baseline image changed across identical lowerings")
+        image = encoded
+    end
+
+    if round % 2 == 0 then
+        current()
+        baseline()
+    else
+        baseline()
+        current()
+    end
+    if round > 2 then
+        graphSamples[#graphSamples + 1] = gTime
+        encodeSamples[#encodeSamples + 1] = eTime
+        oldSamples[#oldSamples + 1] = oTime
+    end
+end
+
+local function write(suffix: string, content: string): nil
+    local file = assert(io.open(output .. suffix, "wb"))
+    file:write(content)
+    file:close()
+end
+
+write(".cfg", binary)
+write(".image", image)
+
+local function numbers(values: any): string
+    local text = {}
+    for _, v in ipairs(values) do
+        text[#text + 1] = string.format("%.6f", v)
+    end
+
+    return "[" .. table.concat(text, ",") .. "]"
+end
+
+local report = string.format(
+    '{"check_ms":%.6f,"graph_lower_ms":%s,"graph_encode_ms":%s,"existing_lower_and_text_ms":%s}',
+    (checked - start) * 1000,
+    numbers(graphSamples),
+    numbers(encodeSamples),
+    numbers(oldSamples)
+)
+write(".frontend.json", report)
+print(report)

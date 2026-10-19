@@ -1,0 +1,235 @@
+{
+  "cases": 255,
+  "functions": [
+    {
+      "adapter_instructions": 16,
+      "blocks": 4,
+      "function": "diamond",
+      "graph_nodes": 8,
+      "graph_payload_bytes": 423,
+      "native_code_bytes": 92,
+      "old_instructions": 12,
+      "resume_parameters": [],
+      "ssa_values_after": 12,
+      "ssa_values_before": 15
+    },
+    {
+      "adapter_instructions": 24,
+      "blocks": 7,
+      "function": "loop",
+      "graph_nodes": 9,
+      "graph_payload_bytes": 760,
+      "native_code_bytes": 104,
+      "old_instructions": 16,
+      "resume_parameters": [],
+      "ssa_values_after": 26,
+      "ssa_values_before": 28
+    },
+    {
+      "adapter_instructions": 21,
+      "blocks": 4,
+      "function": "swap",
+      "graph_nodes": 9,
+      "graph_payload_bytes": 544,
+      "native_code_bytes": 108,
+      "old_instructions": 19,
+      "resume_parameters": [],
+      "ssa_values_after": 20,
+      "ssa_values_before": 22
+    },
+    {
+      "adapter_instructions": 23,
+      "blocks": 4,
+      "function": "bytes",
+      "graph_nodes": 8,
+      "graph_payload_bytes": 469,
+      "native_code_bytes": 228,
+      "old_instructions": 19,
+      "resume_parameters": [],
+      "ssa_values_after": 16,
+      "ssa_values_before": 18
+    },
+    {
+      "adapter_instructions": 8,
+      "blocks": 1,
+      "function": "byte",
+      "graph_nodes": 1,
+      "graph_payload_bytes": 72,
+      "native_code_bytes": 100,
+      "old_instructions": 8,
+      "resume_parameters": [],
+      "ssa_values_after": 3,
+      "ssa_values_before": 3
+    },
+    {
+      "adapter_instructions": 18,
+      "blocks": 5,
+      "function": "suspend",
+      "graph_nodes": 6,
+      "graph_payload_bytes": 511,
+      "native_code_bytes": 140,
+      "old_instructions": 18,
+      "resume_parameters": [
+        3
+      ],
+      "ssa_values_after": 17,
+      "ssa_values_before": 19
+    },
+    {
+      "adapter_instructions": 14,
+      "blocks": 4,
+      "function": "early",
+      "graph_nodes": 7,
+      "graph_payload_bytes": 373,
+      "native_code_bytes": 100,
+      "old_instructions": 14,
+      "resume_parameters": [],
+      "ssa_values_after": 10,
+      "ssa_values_before": 11
+    },
+    {
+      "adapter_instructions": 25,
+      "blocks": 7,
+      "function": "nested",
+      "graph_nodes": 10,
+      "graph_payload_bytes": 818,
+      "native_code_bytes": 108,
+      "old_instructions": 17,
+      "resume_parameters": [],
+      "ssa_values_after": 29,
+      "ssa_values_before": 32
+    },
+    {
+      "adapter_instructions": 27,
+      "blocks": 4,
+      "function": "rotate",
+      "graph_nodes": 13,
+      "graph_payload_bytes": 682,
+      "native_code_bytes": 132,
+      "old_instructions": 26,
+      "resume_parameters": [],
+      "ssa_values_after": 27,
+      "ssa_values_before": 29
+    },
+    {
+      "adapter_instructions": 26,
+      "blocks": 5,
+      "function": "suspendBytes",
+      "graph_nodes": 8,
+      "graph_payload_bytes": 556,
+      "native_code_bytes": 292,
+      "old_instructions": 26,
+      "resume_parameters": [
+        3
+      ],
+      "ssa_values_after": 19,
+      "ssa_values_before": 21
+    }
+  ],
+  "graph_compile_samples_us": [
+    460.666,
+    509.79200000000003,
+    434.66700000000003,
+    490.08299999999997,
+    418.75,
+    450.583,
+    388.70799999999997,
+    428.375,
+    379.291,
+    418.20799999999997,
+    359.041
+  ],
+  "limits": "Closed scalar subset; native resume ABI uses rooted host strings and has no production GC, deopt, patching, errors or scheduler integration. Compile times compare different runtime obligations, not equivalent production backends. All outputs and yield traces checked against original CST lowering; graph execution uses a private resume ABI and the Park adapter.",
+  "median_microseconds": {
+    "graph_decode_verify": 10.125,
+    "graph_prune": 13.292000000000002,
+    "graph_to_native": 428.375,
+    "graph_to_vm_verify": 11.417,
+    "old_image_load_verify": 45.5,
+    "old_to_native_frame": 3672.125
+  },
+  "old_compile_samples_us": [
+    4522.125,
+    3987.5420000000004,
+    4335.209,
+    3954.9579999999996,
+    3817.083,
+    3497.0,
+    3654.375,
+    3672.125,
+    3659.583,
+    3631.125,
+    3551.917
+  ],
+  "old_text_image_bytes": 4393,
+  "pruned_graph_bytes": 4370,
+  "raw_graph_bytes": 4602,
+  "settings": {
+    "arch": "aarch64",
+    "graph_jit_verifier": true,
+    "jit_opt": "none",
+    "old_jit_verifier": true,
+    "os": "macos"
+  },
+  "gc_stress_cases": 255,
+  "frontend": {
+    "check_ms": 153.625011,
+    "graph_lower_ms": [
+      0.569105,
+      0.539064,
+      0.57292,
+      0.538111,
+      0.586033,
+      0.546932,
+      0.566006,
+      0.555992,
+      0.542879,
+      0.524998,
+      0.600815
+    ],
+    "graph_encode_ms": [
+      0.971079,
+      0.962973,
+      0.981092,
+      1.045942,
+      0.987053,
+      1.026154,
+      0.986099,
+      0.966072,
+      0.969172,
+      0.981092,
+      0.99206
+    ],
+    "existing_lower_and_text_ms": [
+      4.193068,
+      4.342079,
+      4.272938,
+      4.490137,
+      4.544973,
+      4.67205,
+      4.560947,
+      4.426956,
+      4.281044,
+      4.456043,
+      4.415989
+    ]
+  },
+  "frontend_median_ms": {
+    "graph_lower_ms": 0.555992,
+    "graph_encode_ms": 0.981092,
+    "existing_lower_and_text_ms": 4.426956
+  },
+  "source_sha256": {
+    "src/nupp/experiment/cfg.nupp": "5f90619b8d349ea8207d3460eb5b589dbe0b7844746096ee261d7a72a196e64c",
+    "native/crates/vm/examples/cfg_experiment/adapter.rs": "d5d26a9d0da4ace478ad11f16c6e04b81eca47ce5e75bb9b5a25ff08d144a93e",
+    "native/crates/vm/examples/cfg_experiment/graph.rs": "5a714ea23eac55b4e1b32657d22e752bce9f61540c12d11612748175ca0c2dc1",
+    "native/crates/vm/examples/cfg_experiment/main.rs": "212b7429a8ed7fccc3c095955376a430cfe0fe441781563164760de87091dc1a",
+    "native/crates/vm/examples/cfg_experiment/native.rs": "911df09415fad2a7c8c832ebebef267b5f0b9d39a36f63a30a036cc5de9c3fd3",
+    "native/crates/vm/examples/cfg_experiment/reference.rs": "7fc931d85d0ba4fdaf5025eba2017c8567e097f2473521a96c0372cdc0bc8c9e",
+    "native/crates/vm/experiments/cfg/fixture.nupp": "d91ddd7307deb76a0172876df1fe2a54a514c2f3b0915db6dedcc67dedb58f3a",
+    "native/crates/vm/experiments/cfg/run.py": "830c2f51aa5a0ffba04d19b716ec1eed87ca85fb96c522834969b93c8400c70d"
+  },
+  "baseline_revision": "a6a5d00a23bb534c6e65d2b5009db47fc93a264f",
+  "host": "macOS-26.6-arm64-arm-64bit",
+  "bootstrap_generation": "2082223063618308d546c8e873541f59aba4d5aef82f8e09a33d43e12f1baecf"
+}
