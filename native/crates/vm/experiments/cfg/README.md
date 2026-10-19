@@ -10,7 +10,7 @@ python3 native/crates/vm/experiments/cfg/run.py
 
 The runner writes graphs, CLIF listings, logs, timing samples and source hashes to `build/cfg-experiment`. It uses the installed compiler to compile the experimental frontend, with automatic compiler rebuilding disabled. Cargo needs the branch's cached dependencies for its offline build.
 
-The experiment starts at `codegen-experiment` revision `a6a5d00a23bb534c6e65d2b5009db47fc93a264f`. It is isolated on `codex/cfg-ssa-prototype`; no existing lowering or runtime implementation was changed.
+The first slice starts at `codegen-experiment` revision `a6a5d00a23bb534c6e65d2b5009db47fc93a264f` and added no production-path changes. The isolated follow-up now tests the production typed frame backend; see [Typed frame experiment](TYPED.md) for its contracts, measurements and remaining frontend work. Both slices remain on `codex/cfg-ssa-prototype`.
 
 ```text
 parser + checker

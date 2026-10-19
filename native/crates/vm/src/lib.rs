@@ -11,6 +11,7 @@ mod storage;
 mod foreign;
 pub mod simd;
 mod native_simd;
+mod dominance;
 #[cfg(feature = "jit")]
 mod typed_cfg;
 mod simd_reduce;
