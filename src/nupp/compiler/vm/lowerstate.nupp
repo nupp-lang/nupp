@@ -2,6 +2,7 @@ module nupp.compiler.vm.lowerstate
 
 const {type Node} = require("nupp.compiler.syntax.cst")
 const {type Cleanup} = require("nupp.compiler.types")
+local opcodes = require("nupp.compiler.vm.opcodes")
 
 --- The state `nupp.compiler.vm.lower` keeps for each function it lowers, as
 --- records rather than open tables: the lowering reads and writes these on
@@ -198,8 +199,10 @@ export record Fn
         return #self.consts - 1
     end
 
+    --- Appends an instruction, which the opcode table must describe.
     function op(self, ...: Operand): integer
         local op = {...} as Instruction
+        opcodes.check(op as {any})
         op.line = self.curLine
         self.code[#self.code + 1] = op
 
@@ -209,6 +212,7 @@ export record Fn
     function patch(self, at: integer, ...: Operand): nil
         local line = self.code[at].line
         local op = {...} as Instruction
+        opcodes.check(op as {any})
         op.line = line
         self.code[at] = op
     end

@@ -7,6 +7,8 @@
 //! surface).
 pub mod value;
 pub mod numeric;
+#[macro_use]
+pub mod opcodes;
 mod storage;
 mod foreign;
 pub mod simd;

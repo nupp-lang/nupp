@@ -1,0 +1,168 @@
+opcode K next v:def k
+opcode Move next v:def v
+opcode Nil next v:def
+opcode Add next v:def v v
+opcode Sub next v:def v v
+opcode Mul next v:def v v
+opcode Lt next v:def v v
+opcode Le next v:def v v
+opcode Eq next v:def v v
+opcode Jmp jump j
+opcode JmpIf branch v j
+opcode JmpIfNot branch v j
+opcode Switch table i t
+opcode GetIdxI next v:def v i
+opcode SetIdxI next v i v
+opcode IUnbox next i:def v
+opcode UUnbox next i:def v
+opcode ICmpSLt next i:def i i
+opcode ICmpSLe next i:def i i
+opcode IShl next i:def i i
+opcode IShrU next i:def i i
+opcode IOr next i:def i i
+opcode IBswap32 next i:def i
+opcode ICmpEq next i:def i i
+opcode BytesLen next i:def v
+opcode LoadU8 next i:def v i
+opcode LoadU8K next i:def v i
+opcode LoadU32W next i:def v i
+opcode StoreU8 next v i i
+opcode StoreU32 next v i i
+opcode NewBytes next v:def i
+opcode BytesToStr next v:def v i
+opcode Mod next v:def v v
+opcode Div next v:def v v
+opcode FMod next f:def f f
+opcode RetN stop v:check n ; v:uses@1+0:2:retn
+opcode Require next v:def k
+opcode SetMethod next s k v
+opcode RequireV next v:def v
+opcode NewTableN next v:def n n
+opcode ICmpNe next i:def i i
+opcode Truthy next i:def v
+opcode NewBuffer next v:def
+opcode BufAppend next v:both v
+opcode BufAppendSub next v v i i
+opcode Substring next v:def v i i
+opcode BufFinish next v:def v
+opcode Call next fn v:def n ; v:uses@2+1:3:callargs
+opcode CallT next fn v:both n n ; frame
+opcode CallDyn next v v:def n ; v:check@2+1:3:fixed v:uses@2+1:3:callargs
+opcode CallK next fn v v:def n n ; v:check@3+1:4:fixedmax1 v:check@3+1:5:minus1 v:uses@3+1:4:callargs
+opcode StrByte next v:def v i
+opcode Pow next v:def v v
+opcode IDiv next v:def v v
+opcode IXor next i:def i i
+opcode INot next i:def i
+opcode Ret stop v
+opcode RetNil stop
+opcode NewTable next v:def
+opcode GetIdx next v:def v v
+opcode SetIdx next v v v
+opcode GetField next v:def v k
+opcode GetPhys next v:def v k k n n n
+opcode GetPhysF next f:def v k k n n n
+opcode GetPhysI next i:def v k k n n n
+opcode GetPhysU next i:def v k k n n n
+opcode SetPhys next v k k n n n v
+opcode SetPhysF next v k k n n n f
+opcode SetPhysI next v k k n n n i
+opcode SetField next v k v
+opcode NewRecord next v:def s
+opcode GetSlot next v:def v n s
+opcode SetSlot next v n v s
+opcode Defer next v v
+opcode DeferMethod next v k
+opcode Disarm next v
+opcode DisarmAt next n
+opcode RearmAt next n v v
+opcode CleanupLive next v:def n
+opcode AffineMark next v:both v
+opcode AffineEnter next
+opcode Unwind next n
+opcode Park next v
+opcode Checkpoint next
+opcode Ne next v:def v v
+opcode Concat next v:def v v
+opcode Not next v:def v
+opcode Neg next v:def v
+opcode Len next v:def v
+opcode CallMethod next k v:def n ; v:uses@2+1:3:callargs
+opcode PCall next v:def n ; v:uses@1+1:2:callargs1
+opcode TagCheckRec next v:def v s
+opcode TagCheckNum next v:def v
+opcode TagCheckInt next v:def v n
+opcode TagCheckStr next v:def v
+opcode IsRec next v:def v s
+opcode PadResults next v:none n ; v:use@1+0:2:n
+opcode Scalar next n v:def v v
+opcode VarargN next v:none n ; v:def@1+0:2:n
+opcode VarargTable next v:def
+opcode NewClosure next v:def fn v:check n ; v:uses@3+1:4:n
+opcode NewCell next v:def v
+opcode GetCell next v:def v
+opcode SetCell next v v
+opcode GetUpval next v:def n
+opcode FBox next v:def f
+opcode IBox next v:def i
+opcode UBox next v:def i
+opcode GetSlotF next f:def v n s
+opcode SetSlotF next v n f s
+opcode FDiv next f:def f f
+opcode FNeg next f:def f
+opcode LenF next f:def v
+opcode GetIdxF next v:def v f
+opcode SetIdxF next v f v
+opcode FCmpEq next i:def f f
+opcode FCmpNe next i:def f f
+opcode BoolFromI next v:def i
+opcode IK next i:def n
+opcode IAdd next i:def i i
+opcode IAddK next i:def i n
+opcode IJmpIfUle branch i i j
+opcode IJmpIfUlt branch i i j
+opcode FK next f:def n
+opcode FUnbox next f:def v
+opcode ISub next i:def i i
+opcode IMaskU32 next i:def i
+opcode IToF next f:def i
+opcode FToI next i:def f
+opcode FSub next f:def f f
+opcode FMul next f:def f f
+opcode ICmpLe next i:def i i
+opcode ICmpLt next i:def i i
+opcode FCmpLe next i:def f f
+opcode FCmpLt next i:def f f
+opcode IAnd next i:def i i
+opcode JmpIfIZero branch i j
+opcode VAdd next x:def x x
+opcode Simd next name name v:none n name? ; v:check@3+0:4:simdspan v:defs@3+0:4:simdresults v:uses@3+1:4:n
+opcode SpanLen next i:def v n
+opcode SpanBounds next v i i n n
+opcode SpanLoad next x:def v i i n n n
+opcode SpanStore next v i x i n n n
+opcode VOp next name n x:def x x x
+opcode VSplatN next x:def sk3 n
+opcode VExtractN next sk3:def x n n
+opcode VAny next i:def x
+opcode VPrefix next x:def i n n n
+opcode Raise stop k
+opcode VMul next x:def x x
+opcode VLoadM next x:def v i n i
+opcode VStoreM next v i x n i
+opcode LoopFact next i:none n i:none
+opcode GuardLenLe next i i
+opcode IMov next i:def i
+opcode FMov next f:def f
+opcode VMov next x:def x
+opcode FAdd next f:def f f
+opcode FFma next f:def f f f
+opcode StorageLen next i:def v
+opcode FLoad next f:def v i
+opcode FStore next v i f
+opcode VSplat next x:def f
+opcode VLoad next x:def v i n
+opcode VStore next v i x n
+opcode VFma next x:def x x x
+opcode VLane next f:def x n
+opcode FRet stop f

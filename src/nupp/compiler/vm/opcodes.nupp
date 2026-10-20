@@ -1,0 +1,435 @@
+module nupp.compiler.vm.opcodes
+
+--[[
+The VM's opcodes, defined once: every opcode the lowering may emit, with the
+class of each operand, which register operands an instruction defines and
+which it reads, and how control leaves it. The lowering checks every emission
+against this table, so a misspelled opcode or a wrong operand count is a
+compiler error rather than a load error, and the image carries the table in
+its header, where the runtime reads it to drive its structural checks and its
+liveness pass instead of keeping a second account of each opcode in Rust.
+
+An operand is spelled `CLASS[:MODE][?]`:
+
+  v i f x   a register of the value, integer, float or vector class
+  sk<N>     a scalar register whose class operand N decides: a float
+            register when that kind is 8 or above, an integer one below
+  k         an index into the function's constant pool
+  j         a jump offset, relative to the instruction after this one
+  n         an immediate the verifier does not interpret
+  s         a shape index, relocated by the loader
+  fn        a function id, relocated by the loader
+  t         a jump table index
+  name      a symbolic immediate (a SIMD operation or element kind)
+  ?         the operand may be absent
+
+A register's mode says how the instruction treats it: `def` written, `use`
+read (the default), `both` read and written, `check` named for the class
+check but neither read nor written as far as liveness is concerned, and
+`none` not named at all, because a window names it instead.
+
+A window is a run of registers an operand count decides, spelled
+`CLASS:MODE@BASE+OFFSET:COUNT:FORMULA`: registers `BASE + OFFSET ..` for as
+many as the formula makes of operand COUNT, where BASE and COUNT are operand
+positions. Its mode is `check` (class check only), `def` or `use` (class check
+and liveness), or `defs` or `uses` (liveness only). The formulas:
+
+  n           the count as written
+  minus1      the count less one
+  fixed       the fixed arguments a flagged count names: 128 appends the
+              frame's varargs, 64 appends the last call's results
+  fixedmax1   `fixed`, at least one
+  callargs    `fixed`, plus the eight result registers a 64 flag appends
+  callargs1   `callargs` plus one
+  retn        the values a return names: a 128 flag adds eight; at least one
+  simdspan    the registers a SIMD descriptor covers: its arguments and results
+  simdresults the results a SIMD descriptor produces
+
+Flow is `next` (falls through), `branch` (may take its jump operand, else
+falls through), `jump` (always takes it), `table` (goes to one of its jump
+table's targets) or `stop` (leaves the function). `frame` after the windows
+marks an instruction whose reads the verifier cannot see from the operands:
+liveness treats every register as read.
+]]
+
+local opcodes = {}
+
+--- One operand of an opcode as the table spells it.
+record opcodes.Operand
+    class: string
+    mode: string
+
+    --- For `sk`: the position of the operand whose kind decides the class.
+    kind: integer?
+
+    optional: boolean
+end
+
+--- One opcode.
+record opcodes.Opcode
+    name: string
+    flow: string
+    operands: {opcodes.Operand}
+
+    --- The window specifications, as the table spells them.
+    windows: {string}
+
+    frame: boolean
+
+    --- The fewest and most operands an emission may carry.
+    min: integer
+
+    max: integer
+end
+
+-- name, flow, operands, windows and flags
+local ROWS: {{string}} = {
+    -- The untyped tier.
+    {"K", "next", "v:def k"},
+    {"Move", "next", "v:def v"},
+    {"Nil", "next", "v:def"},
+    {"Add", "next", "v:def v v"},
+    {"Sub", "next", "v:def v v"},
+    {"Mul", "next", "v:def v v"},
+    {"Lt", "next", "v:def v v"},
+    {"Le", "next", "v:def v v"},
+    {"Eq", "next", "v:def v v"},
+    {"Jmp", "jump", "j"},
+    {"JmpIf", "branch", "v j"},
+    {"JmpIfNot", "branch", "v j"},
+    {"Switch", "table", "i t"},
+    {"GetIdxI", "next", "v:def v i"},
+    {"SetIdxI", "next", "v i v"},
+    {"IUnbox", "next", "i:def v"},
+    {"UUnbox", "next", "i:def v"},
+    {"ICmpSLt", "next", "i:def i i"},
+    {"ICmpSLe", "next", "i:def i i"},
+    {"IShl", "next", "i:def i i"},
+    {"IShrU", "next", "i:def i i"},
+    {"IOr", "next", "i:def i i"},
+    {"IBswap32", "next", "i:def i"},
+    {"ICmpEq", "next", "i:def i i"},
+    {"BytesLen", "next", "i:def v"},
+    {"LoadU8", "next", "i:def v i"},
+    {"LoadU8K", "next", "i:def v i"},
+    {"LoadU32W", "next", "i:def v i"},
+    {"StoreU8", "next", "v i i"},
+    {"StoreU32", "next", "v i i"},
+    {"NewBytes", "next", "v:def i"},
+    {"BytesToStr", "next", "v:def v i"},
+    {"Mod", "next", "v:def v v"},
+    {"Div", "next", "v:def v v"},
+    {"FMod", "next", "f:def f f"},
+    {"RetN", "stop", "v:check n", "v:uses@1+0:2:retn"},
+    {"Require", "next", "v:def k"},
+    {"SetMethod", "next", "s k v"},
+    {"RequireV", "next", "v:def v"},
+    {"NewTableN", "next", "v:def n n"},
+    {"ICmpNe", "next", "i:def i i"},
+    {"Truthy", "next", "i:def v"},
+    {"NewBuffer", "next", "v:def"},
+    {"BufAppend", "next", "v:both v"},
+    {"BufAppendSub", "next", "v v i i"},
+    {"Substring", "next", "v:def v i i"},
+    {"BufFinish", "next", "v:def v"},
+    {"Call", "next", "fn v:def n", "v:uses@2+1:3:callargs"},
+    -- The float window base and its registers are the callee's signature's;
+    -- this local view reads the whole frame instead.
+    {"CallT", "next", "fn v:both n n", "frame"},
+    {"CallDyn", "next", "v v:def n", "v:check@2+1:3:fixed v:uses@2+1:3:callargs"},
+    {"CallK", "next", "fn v v:def n n", "v:check@3+1:4:fixedmax1 v:check@3+1:5:minus1 v:uses@3+1:4:callargs",},
+    {"StrByte", "next", "v:def v i"},
+    {"Pow", "next", "v:def v v"},
+    {"IDiv", "next", "v:def v v"},
+    {"IXor", "next", "i:def i i"},
+    {"INot", "next", "i:def i"},
+    {"Ret", "stop", "v"},
+    {"RetNil", "stop", ""},
+    {"NewTable", "next", "v:def"},
+    {"GetIdx", "next", "v:def v v"},
+    {"SetIdx", "next", "v v v"},
+    {"GetField", "next", "v:def v k"},
+    -- A physical field plan: identity and name constants, ordinal, offset, kind.
+    {"GetPhys", "next", "v:def v k k n n n"},
+    {"GetPhysF", "next", "f:def v k k n n n"},
+    {"GetPhysI", "next", "i:def v k k n n n"},
+    {"GetPhysU", "next", "i:def v k k n n n"},
+    {"SetPhys", "next", "v k k n n n v"},
+    {"SetPhysF", "next", "v k k n n n f"},
+    {"SetPhysI", "next", "v k k n n n i"},
+    {"SetField", "next", "v k v"},
+    {"NewRecord", "next", "v:def s"},
+    {"GetSlot", "next", "v:def v n s"},
+    {"SetSlot", "next", "v n v s"},
+    {"Defer", "next", "v v"},
+    {"DeferMethod", "next", "v k"},
+    {"Disarm", "next", "v"},
+    {"DisarmAt", "next", "n"},
+    {"RearmAt", "next", "n v v"},
+    {"CleanupLive", "next", "v:def n"},
+    {"AffineMark", "next", "v:both v"},
+    {"AffineEnter", "next", ""},
+    {"Unwind", "next", "n"},
+    {"Park", "next", "v"},
+    {"Checkpoint", "next", ""},
+    {"Ne", "next", "v:def v v"},
+    {"Concat", "next", "v:def v v"},
+    {"Not", "next", "v:def v"},
+    {"Neg", "next", "v:def v"},
+    {"Len", "next", "v:def v"},
+    {"CallMethod", "next", "k v:def n", "v:uses@2+1:3:callargs"},
+    {"PCall", "next", "v:def n", "v:uses@1+1:2:callargs1"},
+    {"TagCheckRec", "next", "v:def v s"},
+    {"TagCheckNum", "next", "v:def v"},
+    {"TagCheckInt", "next", "v:def v n"},
+    {"TagCheckStr", "next", "v:def v"},
+    {"IsRec", "next", "v:def v s"},
+    -- Only the results a call did not produce are written, so every register
+    -- of the window counts as read and none as defined.
+    {"PadResults", "next", "v:none n", "v:use@1+0:2:n"},
+    {"Scalar", "next", "n v:def v v"},
+    {"VarargN", "next", "v:none n", "v:def@1+0:2:n"},
+    {"VarargTable", "next", "v:def"},
+    {"NewClosure", "next", "v:def fn v:check n", "v:uses@3+1:4:n"},
+    {"NewCell", "next", "v:def v"},
+    {"GetCell", "next", "v:def v"},
+    {"SetCell", "next", "v v"},
+    {"GetUpval", "next", "v:def n"},
+    {"FBox", "next", "v:def f"},
+    {"IBox", "next", "v:def i"},
+    {"UBox", "next", "v:def i"},
+    {"GetSlotF", "next", "f:def v n s"},
+    {"SetSlotF", "next", "v n f s"},
+    {"FDiv", "next", "f:def f f"},
+    {"FNeg", "next", "f:def f"},
+    {"LenF", "next", "f:def v"},
+    {"GetIdxF", "next", "v:def v f"},
+    {"SetIdxF", "next", "v f v"},
+    {"FCmpEq", "next", "i:def f f"},
+    {"FCmpNe", "next", "i:def f f"},
+    {"BoolFromI", "next", "v:def i"},
+    -- The typed tier.
+    {"IK", "next", "i:def n"},
+    {"IAdd", "next", "i:def i i"},
+    {"IAddK", "next", "i:def i n"},
+    {"IJmpIfUle", "branch", "i i j"},
+    {"IJmpIfUlt", "branch", "i i j"},
+    {"FK", "next", "f:def n"},
+    {"FUnbox", "next", "f:def v"},
+    {"ISub", "next", "i:def i i"},
+    {"IMaskU32", "next", "i:def i"},
+    {"IToF", "next", "f:def i"},
+    {"FToI", "next", "i:def f"},
+    {"FSub", "next", "f:def f f"},
+    {"FMul", "next", "f:def f f"},
+    {"ICmpLe", "next", "i:def i i"},
+    {"ICmpLt", "next", "i:def i i"},
+    {"FCmpLe", "next", "i:def f f"},
+    {"FCmpLt", "next", "i:def f f"},
+    {"IAnd", "next", "i:def i i"},
+    {"JmpIfIZero", "branch", "i j"},
+    {"VAdd", "next", "x:def x x"},
+    -- Operation, element kind, window base, arity, and the source element
+    -- kind when it differs. The window's extent is the operation's.
+    {"Simd", "next", "name name v:none n name?", "v:check@3+0:4:simdspan v:defs@3+0:4:simdresults v:uses@3+1:4:n",},
+    -- The typed native IR.
+    {"SpanLen", "next", "i:def v n"},
+    {"SpanBounds", "next", "v i i n n"},
+    {"SpanLoad", "next", "x:def v i i n n n"},
+    {"SpanStore", "next", "v i x i n n n"},
+    {"VOp", "next", "name n x:def x x x"},
+    {"VSplatN", "next", "x:def sk3 n"},
+    {"VExtractN", "next", "sk3:def x n n"},
+    {"VAny", "next", "i:def x"},
+    {"VPrefix", "next", "x:def i n n n"},
+    {"Raise", "stop", "k"},
+    {"VMul", "next", "x:def x x"},
+    {"VLoadM", "next", "x:def v i n i"},
+    {"VStoreM", "next", "v i x n i"},
+    -- A cited fact names its cursor and length registers without reading
+    -- them: the verifier re-derives it and the interpreter ignores it.
+    {"LoopFact", "next", "i:none n i:none"},
+    {"GuardLenLe", "next", "i i"},
+    {"IMov", "next", "i:def i"},
+    {"FMov", "next", "f:def f"},
+    {"VMov", "next", "x:def x"},
+    {"FAdd", "next", "f:def f f"},
+    {"FFma", "next", "f:def f f f"},
+    {"StorageLen", "next", "i:def v"},
+    {"FLoad", "next", "f:def v i"},
+    {"FStore", "next", "v i f"},
+    {"VSplat", "next", "x:def f"},
+    {"VLoad", "next", "x:def v i n"},
+    {"VStore", "next", "v i x n"},
+    {"VFma", "next", "x:def x x x"},
+    {"VLane", "next", "f:def x n"},
+    {"FRet", "stop", "f"},
+}
+
+local REGISTER_CLASSES: {[string]: boolean} = {v = true, i = true, f = true, x = true}
+local OTHER_CLASSES: {[string]: boolean} = {k = true, j = true, n = true, s = true, fn = true, t = true, name = true}
+local MODES: {[string]: boolean} = {def = true, use = true, both = true, check = true, none = true}
+local FLOWS: {[string]: boolean} = {next = true, branch = true, jump = true, table = true, stop = true}
+
+local function parseOperand(name: string, text: string): opcodes.Operand
+    local optional = text:sub(-1) == "?"
+    if optional then
+        text = text:sub(1, -2)
+    end
+    local class, mode = text:match("^([^:]+):(.+)$")
+    class = class or text
+    local kind: integer? = nil
+    local decider = class:match("^sk(%d+)$")
+    if decider then
+        kind = tonumber(decider) as integer
+        class = "sk"
+    elseif REGISTER_CLASSES[class] then
+        -- a register class
+    else
+        assert(OTHER_CLASSES[class], "opcode " .. name .. ": unknown operand class " .. class)
+        assert(mode == nil, "opcode " .. name .. ": " .. class .. " operands have no mode")
+    end
+    mode = mode or "use"
+    assert(MODES[mode], "opcode " .. name .. ": unknown operand mode " .. mode)
+    if class ~= "sk" and not REGISTER_CLASSES[class] then
+        mode = "use"
+    end
+
+    return new opcodes.Operand(class = class, mode = mode, kind = kind, optional = optional)
+end
+
+local byName: {[string]: opcodes.Opcode} = {}
+local order: {string} = {}
+
+for _, row in ipairs(ROWS) do
+    local name, flow, operandText, extra = row[1], row[2], row[3], row[4]
+    assert(not byName[name], "opcode " .. name .. " listed twice")
+    assert(FLOWS[flow], "opcode " .. name .. ": unknown flow " .. flow)
+    local operands: {opcodes.Operand} = {}
+    local min: integer, max: integer = 0, 0
+    for word in operandText:gmatch("%S+") do
+        local operand = parseOperand(name, word)
+        operands[#operands + 1] = operand
+        max = max + 1
+        if not operand.optional then
+            assert(min == max - 1, "opcode " .. name .. ": a required operand after an optional one")
+            min = max
+        end
+    end
+    local windows: {string} = {}
+    local frame = false
+    for word in (extra or ""):gmatch("%S+") do
+        if word == "frame" then
+            frame = true
+        else
+            assert(word:match("^[vifx]:[a-z]+@%d+%+%d+:%d+:%w+$"), "opcode " .. name .. ": malformed window " .. word)
+            windows[#windows + 1] = word
+        end
+    end
+    byName[
+        name
+    ] = new opcodes.Opcode(
+        name = name,
+        flow = flow,
+        operands = operands,
+        windows = windows,
+        frame = frame,
+        min = min,
+        max = max
+    )
+    order[#order + 1] = name
+end
+
+--- Every opcode by name.
+opcodes.byName = byName
+
+--- Every opcode's name, in table order.
+opcodes.order = order
+
+--- The 1-based operand position carrying a function id, per opcode that has one.
+opcodes.functionOperand = {} as {[string]: integer}
+
+--- The 1-based operand position carrying a shape index, per opcode that has one.
+opcodes.shapeOperand = {} as {[string]: integer}
+
+for _, name in ipairs(order) do
+    for position, operand in ipairs((byName[name] as opcodes.Opcode).operands) do
+        if operand.class == "fn" then
+            assert(not opcodes.functionOperand[name], "opcode " .. name .. " names two functions")
+            opcodes.functionOperand[name] = position
+        elseif operand.class == "s" then
+            assert(not opcodes.shapeOperand[name], "opcode " .. name .. " names two shapes")
+            opcodes.shapeOperand[name] = position
+        end
+    end
+end
+
+--- Refuses an emission the table does not describe: an unknown opcode, an
+--- operand count outside its range, or an operand of the wrong kind. The
+--- instruction is the opcode name followed by its operands, as the lowering
+--- builds one; the operands end at the first absent one, as the image writes
+--- them.
+--- @raises string when the instruction is not one the table describes.
+function opcodes.check(instruction: {any}): nil
+    local name = instruction[1]
+    if type(name) ~= "string" or not byName[name as string] then
+        error("unknown opcode " .. tostring(name), 2)
+    end
+    local opcode = byName[name as string] as opcodes.Opcode
+    local given: integer = 0
+    while instruction[given + 2] ~= nil do
+        given = given + 1
+    end
+    if given < opcode.min or given > opcode.max then
+        error(
+            (
+                "%s takes %s operands, not %d"
+            ):format(
+                opcode.name,
+                opcode.min == opcode.max and tostring(opcode.min) or (opcode.min .. " to " .. opcode.max),
+                given
+            ),
+            2
+        )
+    end
+    for position = 1, given do
+        local at = position as integer
+        local value = instruction[at + 1]
+        local operand = opcode.operands[at]
+        if operand.class == "name" then
+            if type(value) ~= "string" then
+                error(("%s operand %d must be a name, not %s"):format(opcode.name, position, tostring(value)), 2)
+            end
+        elseif operand.class == "n" then
+            -- An immediate the lowering has already spelled (a wide integer
+            -- `%.17g` would round) is a string of digits.
+            if type(value) ~= "number" and not (type(value) == "string" and (value as string):match("^%-?%d+$")) then
+                error(("%s operand %d must be an immediate, not %s"):format(opcode.name, position, tostring(value)), 2)
+            end
+        elseif type(value) ~= "number" then
+            error(("%s operand %d must be a number, not %s"):format(opcode.name, position, tostring(value)), 2)
+        end
+    end
+end
+
+--- The table as an image's header carries it, one `opcode` line per opcode.
+function opcodes.header(): {string}
+    local lines: {string} = {}
+    for _, row in ipairs(ROWS) do
+        local parts = {"opcode", row[1], row[2]}
+        for word in row[3]:gmatch("%S+") do
+            parts[#parts + 1] = word
+        end
+        if row[4] then
+            parts[#parts + 1] = ";"
+            for word in row[4]:gmatch("%S+") do
+                parts[#parts + 1] = word
+            end
+        end
+        lines[#lines + 1] = table.concat(parts, " ")
+    end
+
+    return lines
+end
+
+export = opcodes

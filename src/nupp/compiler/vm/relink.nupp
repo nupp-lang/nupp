@@ -43,6 +43,7 @@ record of that name for the same declaring module.
 ]]
 
 local lowerstate = require("nupp.compiler.vm.lowerstate")
+local opcodes = require("nupp.compiler.vm.opcodes")
 
 local relink = {}
 
@@ -51,19 +52,10 @@ relink.FORMAT = "vm-relink/1"
 
 --- Operand positions (1-based, after the opcode) that carry a function id, per
 --- opcode, as the VM's image loader relocates them.
-relink.FUNCTION_OPERANDS = {Call = 1, CallT = 1, CallK = 1, NewClosure = 2} as {[string]: integer}
+relink.FUNCTION_OPERANDS = opcodes.functionOperand
 
 --- Operand positions that carry a shape index.
-relink.SHAPE_OPERANDS = {
-    NewRecord = 2,
-    GetSlot = 4,
-    SetSlot = 4,
-    GetSlotF = 4,
-    SetSlotF = 4,
-    TagCheckRec = 3,
-    IsRec = 3,
-    SetMethod = 1,
-} as {[string]: integer}
+relink.SHAPE_OPERANDS = opcodes.shapeOperand
 
 local function int(text: string): integer
     return assert(tonumber(text), "not a number: " .. text) as integer

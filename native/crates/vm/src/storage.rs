@@ -1531,7 +1531,6 @@ pub struct NativeView {
     pub owner: Value,
     pub pointer: *mut u8,
     pub length: usize,
-    pub alignment: usize,
     pub descriptor: Value,
 }
 pub fn native_view(vm: &Interp, value: Value, write: bool) -> NativeView {
@@ -1570,7 +1569,6 @@ pub fn native_view(vm: &Interp, value: Value, write: bool) -> NativeView {
         owner: v.owner,
         pointer,
         length: v.end - v.offset,
-        alignment,
         descriptor: v.ty,
     }
 }

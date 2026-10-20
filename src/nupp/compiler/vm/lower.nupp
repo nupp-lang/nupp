@@ -6,6 +6,7 @@ local lower = {}
 
 const lowerstate = require("nupp.compiler.vm.lowerstate")
 const {type Fn} = require("nupp.compiler.vm.lowerstate")
+const opcodes = require("nupp.compiler.vm.opcodes")
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
 
@@ -5897,6 +5898,10 @@ function lower.emit(
         end) .. '"'
     end
 
+    -- The opcode table first: the runtime reads the code against it.
+    for _, line in ipairs(opcodes.header()) do
+        emit(line)
+    end
     for _, shape in ipairs(shapeOrder) do
         local parts = {"shape", shape.id, shape.name}
         local identity = shape.module and shape.module .. ":" .. shape.name

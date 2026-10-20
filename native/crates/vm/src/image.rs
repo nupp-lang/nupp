@@ -74,11 +74,14 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
     let base = it.funcs.len() as u32;
     let mut cur: Option<Function> = None;
     let mut parts: Vec<&str> = Vec::new();
+    // The opcode table the image was emitted against, when it carries one.
+    let mut opcodes: Vec<crate::opcodes::Opcode> = Vec::new();
     for (ln, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() { continue; }
         split(line, &mut parts);
         match parts[0] {
+            "opcode" if cur.is_none() => { opcodes.push(crate::opcodes::parse_row(&parts[1..]).map_err(|e| format!("line {ln}: {e}"))?); }
             "shape" => {
                 let mut names = Vec::new(); let mut types = Vec::new(); let mut identity = None;
                 for p in &parts[3..] {
@@ -310,6 +313,7 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
             }
         }
     }
+    if !opcodes.is_empty() { crate::opcodes::install(opcodes)?; }
     // A patch is verified once its function references name their targets.
     if patch.is_none() {
         let total = it.funcs.len() + funcs.len();

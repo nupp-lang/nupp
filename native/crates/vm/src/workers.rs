@@ -283,7 +283,7 @@ impl Worker {
         roots.extend_from_slice(args);
         roots.push(context);
         let registry = parent.channel_registry.clone();
-        let mut send = |parent: &mut Interp, roots: &[Value]| {
+        let send = |parent: &mut Interp, roots: &[Value]| {
             crate::sharing::send(parent, args, |parent| {
                 persist::save_graph_with(
                     parent,

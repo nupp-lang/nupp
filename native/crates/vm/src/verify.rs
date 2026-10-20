@@ -147,14 +147,198 @@ fn derives_from_cursor(code: &[Op], at: usize, idx: u8, cursor: u8) -> bool {
 // each index must lie inside the function's count for that class, every
 // branch target inside the code, every constant inside the pool, every callee
 // inside the image. Linear in code size; runs once per function at load.
+// What an opcode's operands are is the opcode table's to say (`opcodes`):
+// nothing here matches on an opcode.
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum C { V, I, F, X }
 
+
+use crate::opcodes::{self, Class, Mode, WindowMode};
+
 /// The register operands of an opcode by class, and its branch offsets.
-/// The fixed arguments a flagged count names: 128 appends the frame's
-/// varargs; 64 appends the last call's results in the argument registers.
-fn fixed_args(nargs: u8) -> u8 { if nargs >= 128 { nargs & 127 } else { nargs & 63 } }
+pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
+    let row = opcodes::table().row(op);
+    let values = op.operands();
+    let mut regs = Vec::new();
+    let mut offs = Vec::new();
+    for (at, (spec, &v)) in row.operands.iter().zip(&values).enumerate() {
+        match spec.class {
+            Class::Jump => offs.push(v as i32),
+            Class::Reg(_) | Class::ScalarByKind(_) if spec.mode != Mode::None => regs.push((row.register_class(at, &values).unwrap(), v as u8)),
+            _ => {}
+        }
+    }
+    for w in row.windows.iter().filter(|w| w.mode.named()) { regs.extend(w.registers(&values).map(|r| (w.class, r))); }
+    (regs, offs)
+}
+
+/// Checks every operand of `f` against its register counts, every branch
+/// against its code, every constant against its pool and every callee
+/// against `nfuncs`.
+pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
+    crate::native_simd::verify(f)?;
+    let table = opcodes::table();
+    let n = f.code.len();
+    for (pc, op) in f.code.iter().enumerate() {
+        let (regs, offs) = operands(op);
+        for (c, i) in regs {
+            let limit = match c { C::V => f.nregs as usize + 1, C::I => f.nireg as usize, C::F => f.nfreg as usize, C::X => f.nvreg as usize };
+            if i as usize >= limit { return Err(format!("pc {pc}: {op:?} names {c:?} register {i}, the function has {limit}")); }
+        }
+        for off in offs {
+            let t = pc as i64 + 1 + off as i64;
+            if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
+        }
+        let row = table.row(op);
+        let values = op.operands();
+        for (spec, &v) in row.operands.iter().zip(&values) {
+            match spec.class {
+                Class::Const if v as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {v} outside the pool of {}", f.consts.len())),
+                Class::Func if v as usize >= nfuncs => return Err(format!("pc {pc}: function {v} outside the image of {nfuncs}")),
+                Class::Table => {
+                    let (def, tbl) = f.jump_tables.get(v as usize).ok_or_else(|| format!("pc {pc}: jump table {v} does not exist"))?;
+                    for off in std::iter::once(def).chain(tbl.iter()) { let tt = pc as i64 + 1 + *off as i64; if tt < 0 || tt > n as i64 { return Err(format!("pc {pc}: switch target {tt} outside the code")); } }
+                }
+                _ => {}
+            }
+        }
+        // The immediates whose values the table does not describe: a physical
+        // field plan and a SIMD descriptor are valid or not on their own terms.
+        match *op {
+            Op::GetPhys(_,_,p)|Op::GetPhysF(_,_,p)|Op::GetPhysI(_,_,p)|Op::GetPhysU(_,_,p)|Op::SetPhys(_,p,_)|Op::SetPhysF(_,p,_)|Op::SetPhysI(_,p,_) => {
+                if p.kind>10 || p.offset.checked_add(crate::storage::physical_width(p.kind).unwrap_or(0) as u32).is_none() { return Err(format!("pc {pc}: invalid physical field plan")); }
+                let carrier=match *op {Op::GetPhysF(..)=>matches!(p.kind,1..=6|9|10),Op::GetPhysI(..)=>p.kind==7,Op::GetPhysU(..)=>p.kind==8,Op::SetPhysF(..)=>matches!(p.kind,9|10),Op::SetPhysI(..)=>matches!(p.kind,7|8),_=>true};
+                if !carrier { return Err(format!("pc {pc}: physical scalar kind does not match register carrier")); }
+            }
+            Op::Simd(op, kind, source, base, argc) => {
+                let last = (argc as usize).max(crate::simd::result_count(op, argc as usize).saturating_sub(1));
+                if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base as usize + last > u8::MAX as usize {
+                    return Err(format!("pc {pc}: invalid SIMD descriptor or argument window"));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// A set of registers of one class, 256 wide.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub struct RegSet(pub [u64; 4]);
+impl RegSet {
+    pub fn insert(&mut self, r: u8) { self.0[(r >> 6) as usize] |= 1 << (r & 63); }
+    pub fn remove(&mut self, r: u8) { self.0[(r >> 6) as usize] &= !(1 << (r & 63)); }
+    pub fn contains(&self, r: u8) -> bool { self.0[(r >> 6) as usize] & (1 << (r & 63)) != 0 }
+    pub fn union(&self, o: &RegSet) -> RegSet { RegSet([self.0[0] | o.0[0], self.0[1] | o.0[1], self.0[2] | o.0[2], self.0[3] | o.0[3]]) }
+    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ { (0..=255u8).filter(move |&r| self.contains(r)) }
+    pub fn len(&self) -> usize { self.0.iter().map(|w| w.count_ones() as usize).sum() }
+}
+
+/// The registers an opcode defines and the registers it reads, by class.
+/// `operands` lists every register an opcode names; this says which way
+/// each is used, which is what liveness needs. A register both read and
+/// written (a buffer append, a typed call's window) appears in both.
+pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
+    let row = opcodes::table().row(op);
+    let values = op.operands();
+    let mut defs = Vec::new();
+    let mut uses = Vec::new();
+    for (at, (spec, &v)) in row.operands.iter().zip(&values).enumerate() {
+        let Some(class) = row.register_class(at, &values) else { continue };
+        let r = (class, v as u8);
+        match spec.mode {
+            Mode::Def => defs.push(r),
+            Mode::Use => uses.push(r),
+            Mode::Both => { defs.push(r); uses.push(r); }
+            Mode::Check | Mode::None => {}
+        }
+    }
+    for w in &row.windows {
+        match w.mode {
+            WindowMode::Def | WindowMode::Defs => defs.extend(w.registers(&values).map(|r| (w.class, r))),
+            WindowMode::Use | WindowMode::Uses => uses.extend(w.registers(&values).map(|r| (w.class, r))),
+            WindowMode::Check => {}
+        }
+    }
+    (defs, uses)
+}
+
+/// The successors of each instruction: its jump targets, its jump table's
+/// targets, and the next instruction when it falls through.
+pub fn successors(f: &Function) -> Vec<Vec<usize>> {
+    let table = opcodes::table();
+    let n = f.code.len();
+    f.code.iter().enumerate().map(|(pc, op)| {
+        let row = table.row(op);
+        let (_, offs) = operands(op);
+        let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
+        let values = op.operands();
+        for (spec, &v) in row.operands.iter().zip(&values) {
+            if spec.class == Class::Table { if let Some((def, tbl)) = f.jump_tables.get(v as usize) { for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } } }
+        }
+        if row.flow.falls() && pc + 1 < n { s.push(pc + 1); }
+        s.retain(|&t| t < n);
+        s
+    }).collect()
+}
+
+/// Live-in and live-out register sets per pc, by class (V, I, F, X): the
+/// backward dataflow over the bytecode's control flow. A frame record
+/// written at a park needs only the registers live after it; a frame-record
+/// entry needs only the registers live at its pc.
+pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
+    let table = opcodes::table();
+    let n = f.code.len();
+    let class_of = |c: C| match c { C::V => 0, C::I => 1, C::F => 2, C::X => 3 };
+    let succs = successors(f);
+    let native_spans = crate::native_simd::spans(f);
+    let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
+        let (d, u) = if table.row(op).frame {
+            // Its reads are not in its operands (a typed call's windows are
+            // its callee signature's), so every register is read.
+            (Vec::new(), (0..=f.nregs as u8).map(|r| (C::V, r))
+                .chain((0..f.nireg).map(|r| (C::I, r)))
+                .chain((0..f.nfreg).map(|r| (C::F, r)))
+                .chain((0..f.nvreg).map(|r| (C::X, r))).collect())
+        } else { defs_uses(op) };
+        let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
+        for (c, r) in d { ds[class_of(c)].insert(r); }
+        for (c, r) in u { us[class_of(c)].insert(r); }
+        for &span in native_spans.keys() { us[0].insert(span); }
+        (ds, us)
+    }).collect();
+    let mut live_in = vec![[RegSet::default(); 4]; n];
+    let mut live_out = vec![[RegSet::default(); 4]; n];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for pc in (0..n).rev() {
+            let mut out = [RegSet::default(); 4];
+            for &s in &succs[pc] { for k in 0..4 { out[k] = out[k].union(&live_in[s][k]); } }
+            let mut inn = [RegSet::default(); 4];
+            for k in 0..4 { let mut t = out[k]; for r in du[pc].0[k].iter() { t.remove(r); } inn[k] = t.union(&du[pc].1[k]); }
+            if out != live_out[pc] || inn != live_in[pc] { live_out[pc] = out; live_in[pc] = inn; changed = true; }
+        }
+    }
+    (live_in, live_out)
+}
+
+/// The table-driven answers against the account each opcode used to have in
+/// Rust, kept here as the reference the table was transcribed from: for every
+/// opcode, over operand values that exercise every count flag, the operand
+/// list, the definitions and uses, and whether the instruction falls through
+/// agree.
+#[cfg(test)]
+mod agreement {
+    use super::*;
+    use crate::opcodes::{Class, Formula};
+
+    #[allow(dead_code)]
+    mod legacy {
+        use super::super::C;
+        use crate::interp::Op;
+        fn fixed_args(nargs: u8) -> u8 { if nargs >= 128 { nargs & 127 } else { nargs & 63 } }
 pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     use Op::*;
     use C::*;
@@ -266,60 +450,6 @@ pub fn operands(op: &Op) -> (Vec<(C, u8)>, Vec<i32>) {
     }
 }
 
-/// Checks every operand of `f` against its register counts, every branch
-/// against its code, every constant against its pool and every callee
-/// against `nfuncs`.
-pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
-    crate::native_simd::verify(f)?;
-    let n = f.code.len();
-    for (pc, op) in f.code.iter().enumerate() {
-        let (regs, offs) = operands(op);
-        for (c, i) in regs {
-            let limit = match c { C::V => f.nregs as usize + 1, C::I => f.nireg as usize, C::F => f.nfreg as usize, C::X => f.nvreg as usize };
-            if i as usize >= limit { return Err(format!("pc {pc}: {op:?} names {c:?} register {i}, the function has {limit}")); }
-        }
-        for off in offs {
-            let t = pc as i64 + 1 + off as i64;
-            if t < 0 || t > n as i64 { return Err(format!("pc {pc}: branch to {t}, outside 0..={n}")); }
-        }
-        match *op {
-            Op::GetPhys(_,_,p)|Op::GetPhysF(_,_,p)|Op::GetPhysI(_,_,p)|Op::GetPhysU(_,_,p)|Op::SetPhys(_,p,_)|Op::SetPhysF(_,p,_)|Op::SetPhysI(_,p,_) => {
-                if p.identity as usize>=f.consts.len() || p.name as usize>=f.consts.len() || p.kind>10 || p.offset.checked_add(crate::storage::physical_width(p.kind).unwrap_or(0) as u32).is_none() { return Err(format!("pc {pc}: invalid physical field plan")); }
-                let carrier=match *op {Op::GetPhysF(..)=>matches!(p.kind,1..=6|9|10),Op::GetPhysI(..)=>p.kind==7,Op::GetPhysU(..)=>p.kind==8,Op::SetPhysF(..)=>matches!(p.kind,9|10),Op::SetPhysI(..)=>matches!(p.kind,7|8),_=>true};
-                if !carrier { return Err(format!("pc {pc}: physical scalar kind does not match register carrier")); }
-            }
-            Op::Simd(op, kind, source, base, argc) => {
-                let last = (argc as usize).max(crate::simd::result_count(op, argc as usize).saturating_sub(1));
-                if !crate::simd::valid_descriptor(op, kind, source, argc as usize) || base as usize + last > u8::MAX as usize {
-                    return Err(format!("pc {pc}: invalid SIMD descriptor or argument window"));
-                }
-            }
-            Op::K(_, k) | Op::DeferMethod(_, k) if k as usize >= f.consts.len() => return Err(format!("pc {pc}: constant {k} outside the pool of {}", f.consts.len())),
-            Op::Switch(_, t) => {
-                let (def, tbl) = f.jump_tables.get(t as usize).ok_or_else(|| format!("pc {pc}: jump table {t} does not exist"))?;
-                for off in std::iter::once(def).chain(tbl.iter()) { let tt = pc as i64 + 1 + *off as i64; if tt < 0 || tt > n as i64 { return Err(format!("pc {pc}: switch target {tt} outside the code")); } }
-            }
-            Op::Call(callee, ..) | Op::CallT(callee, ..) if callee as usize >= nfuncs => return Err(format!("pc {pc}: callee {callee} outside the image of {nfuncs}")),
-            Op::CallK(fid, ..) if fid as usize >= nfuncs => return Err(format!("pc {pc}: known callee {fid} outside the image of {nfuncs}")),
-            Op::NewClosure(_, fid, ..) if fid as usize >= nfuncs => return Err(format!("pc {pc}: closure over function {fid} outside the image")),
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-/// A set of registers of one class, 256 wide.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
-pub struct RegSet(pub [u64; 4]);
-impl RegSet {
-    pub fn insert(&mut self, r: u8) { self.0[(r >> 6) as usize] |= 1 << (r & 63); }
-    pub fn remove(&mut self, r: u8) { self.0[(r >> 6) as usize] &= !(1 << (r & 63)); }
-    pub fn contains(&self, r: u8) -> bool { self.0[(r >> 6) as usize] & (1 << (r & 63)) != 0 }
-    pub fn union(&self, o: &RegSet) -> RegSet { RegSet([self.0[0] | o.0[0], self.0[1] | o.0[1], self.0[2] | o.0[2], self.0[3] | o.0[3]]) }
-    pub fn iter(&self) -> impl Iterator<Item = u8> + '_ { (0..=255u8).filter(move |&r| self.contains(r)) }
-    pub fn len(&self) -> usize { self.0.iter().map(|w| w.count_ones() as usize).sum() }
-}
-
 /// The registers an opcode defines and the registers it reads, by class.
 /// `operands` lists every register an opcode names; this says which way
 /// each is used, which is what liveness needs. A register both read and
@@ -356,50 +486,50 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
     }
 }
 
-/// Live-in and live-out register sets per pc, by class (V, I, F, X): the
-/// backward dataflow over the bytecode's control flow. A frame record
-/// written at a park needs only the registers live after it; a frame-record
-/// entry needs only the registers live at its pc.
-pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
-    let n = f.code.len();
-    let class_of = |c: C| match c { C::V => 0, C::I => 1, C::F => 2, C::X => 3 };
-    let succs: Vec<Vec<usize>> = f.code.iter().enumerate().map(|(pc, op)| {
-        let (_, offs) = operands(op);
-        let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
-        let falls = !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Raise(..) | Op::Switch(..));
-        if let Op::Switch(_, t) = op { let (def, tbl) = &f.jump_tables[*t as usize]; for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } }
-        if falls && pc + 1 < n { s.push(pc + 1); }
-        s.retain(|&t| t < n);
-        s
-    }).collect();
-    let native_spans = crate::native_simd::spans(f);
-    let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
-        let (d, u) = if matches!(op, Op::CallT(..)) {
-            // Its callee signature determines the typed argument windows;
-            // this local pass does not have that signature.
-            (Vec::new(), (0..=f.nregs as u8).map(|r| (C::V, r))
-                .chain((0..f.nireg).map(|r| (C::I, r)))
-                .chain((0..f.nfreg).map(|r| (C::F, r)))
-                .chain((0..f.nvreg).map(|r| (C::X, r))).collect())
-        } else { defs_uses(op) };
-        let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
-        for (c, r) in d { ds[class_of(c)].insert(r); }
-        for (c, r) in u { us[class_of(c)].insert(r); }
-        for &span in native_spans.keys() { us[0].insert(span); }
-        (ds, us)
-    }).collect();
-    let mut live_in = vec![[RegSet::default(); 4]; n];
-    let mut live_out = vec![[RegSet::default(); 4]; n];
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for pc in (0..n).rev() {
-            let mut out = [RegSet::default(); 4];
-            for &s in &succs[pc] { for k in 0..4 { out[k] = out[k].union(&live_in[s][k]); } }
-            let mut inn = [RegSet::default(); 4];
-            for k in 0..4 { let mut t = out[k]; for r in du[pc].0[k].iter() { t.remove(r); } inn[k] = t.union(&du[pc].1[k]); }
-            if out != live_out[pc] || inn != live_in[pc] { live_out[pc] = out; live_in[pc] = inn; changed = true; }
-        }
+        pub fn falls(op: &Op) -> bool { !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Raise(..) | Op::Switch(..)) }
     }
-    (live_in, live_out)
+
+    /// A small deterministic generator.
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 { self.0 ^= self.0 << 13; self.0 ^= self.0 >> 7; self.0 ^= self.0 << 17; self.0 }
+        fn below(&mut self, n: u64) -> i64 { (self.next() % n) as i64 }
+        fn pick(&mut self, from: &[i64]) -> i64 { from[self.below(from.len() as u64) as usize] }
+    }
+
+    const IMMEDIATES: &[i64] = &[0, 1, 2, 3, 7, 8, 9, 63, 64, 65, 100, 127, 128, 129, 191, 192, 200, 255];
+
+    #[test]
+    fn the_table_agrees_with_the_hand_written_account_of_every_opcode() {
+        let table = opcodes::table();
+        let mut rng = Rng(0x9e3779b97f4a7c15);
+        let mut compared = 0usize;
+        for row in table.rows() {
+            for _ in 0..500 {
+                let values: Vec<i64> = row.operands.iter().enumerate().map(|(at, spec)| match spec.class {
+                    Class::Reg(_) | Class::ScalarByKind(_) => rng.below(128),
+                    Class::Const | Class::Shape | Class::Func | Class::Table => rng.below(1000),
+                    Class::Jump => rng.below(2000) - 1000,
+                    Class::Name => rng.below(60),
+                    Class::Imm => {
+                        // A count a plain-add window reads keeps the registers
+                        // in range, as the hand-written account adds without
+                        // checking; a flagged count is still exercised.
+                        let plain = row.windows.iter().any(|w| w.count == at + 1 && matches!(w.formula, Formula::N | Formula::Minus1));
+                        let v = rng.pick(IMMEDIATES);
+                        if plain && v > 127 { v & 127 } else { v }
+                    }
+                }).collect();
+                let op = Op::from_operands(&row.name, &values).unwrap_or_else(|| panic!("{} does not take {values:?}", row.name));
+                // A flag or a float immediate normalizes; the spelled form is stable.
+                let values = op.operands();
+                assert_eq!(Op::from_operands(&row.name, &values).unwrap().operands(), values, "{} round trip", row.name);
+                assert_eq!(legacy::operands(&op), operands(&op), "{} operands of {values:?}", row.name);
+                assert_eq!(legacy::defs_uses(&op), defs_uses(&op), "{} definitions and uses of {values:?}", row.name);
+                assert_eq!(legacy::falls(&op), table.row(&op).flow.falls(), "{} fallthrough", row.name);
+                compared += 1;
+            }
+        }
+        assert_eq!(compared, 500 * Op::NAMES.len());
+    }
 }
