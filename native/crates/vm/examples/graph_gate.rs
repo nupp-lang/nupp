@@ -299,31 +299,36 @@ fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     let mut decode_us = Vec::new();
     let mut derive_us = Vec::new();
     let mut parse_us = Vec::new();
+    let mut load_us = Vec::new();
     let mut graph_functions = 0;
     let mut graph_instructions = 0;
     let mut text_functions = 0;
     let mut text_instructions = 0;
     for round in 0..7 {
         let start = Instant::now();
+        let mut fresh = Interp::new();
+        let (_, shape_ids) = image::load_with_shapes(&mut fresh, std::hint::black_box(&text))?;
+        let c = us(start);
+        text_functions = fresh.funcs.len();
+        text_instructions = fresh.funcs.iter().map(|f| f.code.len()).sum();
+        let start = Instant::now();
         let decoded = graph::decode(std::hint::black_box(&bytes))?;
         let a = us(start);
         let start = Instant::now();
         let mut vm = Interp::new();
-        let derived = graph::derive_all(&mut vm, &decoded, 0, &[])?;
+        let derived = graph::derive_all(&mut vm, &decoded, 0, &shape_ids)?;
         let b = us(start);
         graph_functions = derived.len();
         graph_instructions = derived.iter().map(|f| f.code.len()).sum();
         std::hint::black_box(&derived);
         let start = Instant::now();
-        let mut fresh = Interp::new();
-        image::load(&mut fresh, std::hint::black_box(&text))?;
-        let c = us(start);
-        text_functions = fresh.funcs.len();
-        text_instructions = fresh.funcs.iter().map(|f| f.code.len()).sum();
-        if round > 1 { decode_us.push(a); derive_us.push(b); parse_us.push(c); }
+        let mut whole = Interp::new();
+        graph::load(&mut whole, std::hint::black_box(&bytes))?;
+        let d = us(start);
+        if round > 1 { decode_us.push(a); derive_us.push(b); parse_us.push(c); load_us.push(d); }
     }
     let result = serde_json::json!({
-        "graph": { "path": graph_path, "bytes": bytes.len(), "functions": graph_functions, "instructions": graph_instructions, "decode_verify_us": median(decode_us.clone()), "derive_us": median(derive_us.clone()), "total_us": median(decode_us.iter().zip(&derive_us).map(|(a, b)| a + b).collect()) },
+        "graph": { "path": graph_path, "bytes": bytes.len(), "functions": graph_functions, "instructions": graph_instructions, "decode_verify_us": median(decode_us.clone()), "derive_us": median(derive_us.clone()), "total_us": median(decode_us.iter().zip(&derive_us).map(|(a, b)| a + b).collect()), "load_us": median(load_us) },
         "text": { "path": text_path, "bytes": text.len(), "functions": text_functions, "instructions": text_instructions, "parse_verify_us": median(parse_us) },
     });
     std::fs::write(out, serde_json::to_string_pretty(&result).unwrap()).map_err(|e| e.to_string())?;
@@ -331,9 +336,25 @@ fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `graph_gate loop FILE ROUNDS`: loads an image of either kind ROUNDS
+/// times into fresh VMs, for a sampler to watch.
+fn load_loop(path: &str, rounds: usize) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let start = Instant::now();
+    for _ in 0..rounds {
+        let mut vm = Interp::new();
+        if bytes.starts_with(b"NUPPGRAF") { graph::load(&mut vm, std::hint::black_box(&bytes))?; }
+        else { image::load(&mut vm, std::str::from_utf8(&bytes).map_err(|e| e.to_string())?)?; }
+        std::hint::black_box(&vm);
+    }
+    println!("{} loads in {:.1} ms", rounds, us(start) / 1000.0);
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("loop") => return load_loop(&args[2], args[3].parse().unwrap()),
         Some("scalar") => scalar(args.get(2).ok_or("PREFIX")?, std::path::Path::new(args.get(3).ok_or("OUT")?)),
         Some("typed") => typed(args.get(2).ok_or("PREFIX")?),
         Some("image") => image_gate(args.get(2).ok_or("PREFIX")?),

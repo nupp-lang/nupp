@@ -99,7 +99,7 @@ pub struct Shape { pub name: u32, pub identity: u32, pub slots: Vec<(u32, u32, u
 /// One function's graph: instructions are `[opcode, operands...]` in the
 /// VM's operand order, eight words each; parameter and argument lists are
 /// spans into one pool.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Graph {
     pub name: u32,
     pub module: u32,
@@ -132,6 +132,16 @@ pub struct Graph {
     pub gpu: Option<Box<GpuArtifact>>,
 }
 
+impl Graph {
+    /// Empties the graph for the next function, keeping every vector's
+    /// capacity: a loader decodes thousands of functions into one buffer.
+    fn clear(&mut self) {
+        self.constants.clear(); self.positions.clear(); self.certificates.clear(); self.classes.clear(); self.slots.clear();
+        self.blocks.clear(); self.insts.clear(); self.pos.clear(); self.cert.clear(); self.extras.clear(); self.edges.clear(); self.values.clear();
+        self.regions.clear(); self.block_region.clear(); self.gpu = None;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Image {
     pub strings: Vec<Vec<u8>>,
@@ -150,7 +160,11 @@ impl Image {
 }
 
 /// The parsed signature table: result class and position, operand letters.
-pub struct Signature { pub name: &'static str, pub result: Option<u8>, pub result_at: usize, pub operands: &'static str, pub terminator: bool }
+pub struct Signature { pub name: &'static str, pub result: Option<u8>, pub result_at: usize, pub operands: &'static str, pub terminator: bool, pub hot: u8 }
+
+/// The opcodes that are most of any image, in frequency order: the
+/// derivation dispatches these by index and the rest by name.
+const HOT: &[&str] = &["Move", "K", "SetIdx", "GetField", "GetCell", "PadResults", "CallDyn", "NewTableN", "Nil", "Eq", "GetIdx", "SetSlot", "GetUpval", "CallK", "GetSlot", "Concat", "SetField", "NewCell", "NewClosure", "Len", "Not", "Add", "NewRecord", "Ne", "Require", "CallMethod", "SetCell"];
 pub struct Table { pub entries: Vec<Signature>, result_letters: Vec<Option<u8>> }
 impl Table {
     pub fn new() -> Self {
@@ -158,7 +172,8 @@ impl Table {
         for &(name, sig) in SIGNATURES {
             let result_at = sig.bytes().position(|c| c.is_ascii_uppercase()).unwrap_or(usize::MAX);
             let result = sig.bytes().find(|c| c.is_ascii_uppercase()).and_then(class_of);
-            entries.push(Signature { name, result, result_at, operands: sig, terminator: TERMINATORS.contains(&name) });
+            let hot = HOT.iter().position(|h| *h == name).map(|i| i as u8 + 1).unwrap_or(0);
+            entries.push(Signature { name, result, result_at, operands: sig, terminator: TERMINATORS.contains(&name), hot });
         }
         let result_letters = entries.iter().map(|s| s.result).collect();
         Table { entries, result_letters }
@@ -181,7 +196,14 @@ impl<'a> Reader<'a> {
     }
     /// A word: stored shifted by one so NONE is a single zero byte, seven
     /// bits per byte, low bits first, the high bit marking more.
+    #[inline(always)]
     fn word(&mut self) -> Result<u32, String> {
+        // Nearly every word is one byte.
+        if let Some(&b) = self.data.get(self.at) { if b < 0x80 { self.at += 1; return Ok((b as u32).wrapping_sub(1)); } }
+        self.word_long()
+    }
+    #[inline(never)]
+    fn word_long(&mut self) -> Result<u32, String> {
         let mut value: u32 = 0;
         let mut shift = 0;
         loop {
@@ -219,7 +241,8 @@ pub fn decode(bytes: &[u8]) -> Result<Image, String> {
     with_table(|table| decode_with(table, bytes))
 }
 
-fn decode_with(table: &Table, bytes: &[u8]) -> Result<Image, String> {
+fn decode_header<'a>(table: &Table, bytes: &'a [u8]) -> Result<Header<'a>, String> {
+    let _ = table;
     let mut r = Reader { data: bytes, at: 0 };
     if r.take(8)? != MAGIC { return Err("not a graph image".into()); }
     if r.word()? != VERSION { return Err("unsupported graph image version".into()); }
@@ -256,22 +279,42 @@ fn decode_with(table: &Table, bytes: &[u8]) -> Result<Image, String> {
     for _ in 0..r.count(8)? { extensions.push((r.index(nstrings, "extension name")?, r.index(nstrings, "extension declaration")?)); }
     let entry = r.word()?;
     let nfunctions = r.count(40)?;
-    let mut image = Image { strings, wides, floats, shapes, modules, extensions, entry, functions: Vec::with_capacity(nfunctions) };
-    // Opcode names resolve once per string, not once per instruction.
-    let mut opcode_of: Vec<u32> = vec![NONE; nstrings];
-    for fi in 0..nfunctions {
-        let g = decode_graph(table, &mut r, &image, nfunctions, &mut opcode_of).map_err(|e| format!("graph image function {fi}: {e}"))?;
-        verify(table, &image, &g, nfunctions).map_err(|e| format!("function {}: {e}", image.text(g.name)))?;
-        image.functions.push(g);
-    }
-    if r.at != bytes.len() { return Err("trailing graph image bytes".into()); }
+    let image = Image { strings, wides, floats, shapes, modules, extensions, entry, functions: Vec::new() };
     for s in &image.shapes { for &(_, f) in &s.methods { if f as usize >= nfunctions { return Err("shape method outside the functions".into()); } } }
     for &(_, chunk, _) in &image.modules { if chunk as usize >= nfunctions { return Err("module chunk outside the functions".into()); } }
     if entry != NONE && entry as usize >= nfunctions { return Err("entry outside the functions".into()); }
+    // Opcode names resolve once per string, not once per instruction.
+    let opcode_of: Vec<u32> = vec![NONE; nstrings];
+    Ok(Header { image, nfunctions, opcode_of, reader: r, scratch: Scratch::default() })
+}
+
+/// An image decoded up to its functions, which `next_function` then yields
+/// one at a time, verified, so a loader never holds every graph at once.
+struct Header<'a> { image: Image, nfunctions: usize, opcode_of: Vec<u32>, reader: Reader<'a>, scratch: Scratch }
+
+impl Header<'_> {
+    fn next_function(&mut self, table: &Table, fi: usize, g: &mut Graph) -> Result<(), String> {
+        decode_graph(table, &mut self.reader, &self.image, self.nfunctions, &mut self.opcode_of, g).map_err(|e| format!("graph image function {fi}: {e}"))?;
+        verify_with(table, &self.image, g, self.nfunctions, &mut self.scratch).map_err(|e| format!("function {}: {e}", self.image.text(g.name)))?;
+        Ok(())
+    }
+    fn finish(self) -> Result<Image, String> {
+        if self.reader.at != self.reader.data.len() { return Err("trailing graph image bytes".into()); }
+        Ok(self.image)
+    }
+}
+
+fn decode_with(table: &Table, bytes: &[u8]) -> Result<Image, String> {
+    let mut header = decode_header(table, bytes)?;
+    let mut functions = Vec::with_capacity(header.nfunctions);
+    for fi in 0..header.nfunctions { let mut g = Graph::default(); header.next_function(table, fi, &mut g)?; functions.push(g); }
+    let mut image = header.finish()?;
+    image.functions = functions;
     Ok(image)
 }
 
-fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize, opcode_of: &mut [u32]) -> Result<Graph, String> {
+fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize, opcode_of: &mut [u32], g: &mut Graph) -> Result<(), String> {
+    g.clear();
     let nstrings = image.strings.len();
     let name = r.index(nstrings, "function name")?;
     let module = r.index(nstrings, "module name")?;
@@ -288,7 +331,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     let (map, physical) = (flags & 1 != 0, flags & 2 != 0);
     let registers = [r.word()?, r.word()?, r.word()?];
     if physical && (registers[0] == 0 || registers[0] > 255 || registers[1] > 255 || registers[2] > 255) { return Err("register counts".into()); }
-    let mut constants = Vec::new();
+    let mut constants = std::mem::take(&mut g.constants);
     for _ in 0..r.count(8)? {
         let kind = r.word()?;
         let payload = match kind {
@@ -300,20 +343,22 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         };
         constants.push(Constant { kind, payload });
     }
-    let mut positions = Vec::new();
+    let mut positions = std::mem::take(&mut g.positions);
     for _ in 0..r.count(8)? { positions.push((r.word()?, r.word()?)); }
-    let mut certificates = Vec::new();
+    let mut certificates = std::mem::take(&mut g.certificates);
     let ncerts = r.count(12)?;
     for _ in 0..ncerts { certificates.push([r.word()?, r.word()?, r.word()?]); }
     let nvalues = r.count(8)?;
-    let mut classes = Vec::with_capacity(nvalues);
+    let mut classes = std::mem::take(&mut g.classes);
     for _ in 0..nvalues { let c = r.word()?; if c > 3 { return Err("value class".into()); } classes.push(c as u8); }
-    let mut slots = Vec::with_capacity(nvalues);
+    let mut slots = std::mem::take(&mut g.slots);
     for _ in 0..nvalues { let s = r.word()?; if s >= 256 { return Err("slot hint".into()); } slots.push(s); }
     for c in &mut certificates { for v in c.iter_mut() { if *v as usize >= nvalues { return Err("certificate value".into()); } } }
     let nblocks = r.count(16)?;
     if nblocks == 0 || nblocks > 100_000 { return Err("block count".into()); }
-    let mut g = Graph { name, module, path, nparams, vararg, sig, ret, map, physical, registers, constants, positions, certificates, classes, slots, blocks: Vec::with_capacity(nblocks), insts: Vec::new(), pos: Vec::new(), cert: Vec::new(), extras: Vec::new(), edges: Vec::new(), values: Vec::new(), regions: Vec::new(), block_region: Vec::new(), gpu: None };
+    g.name = name; g.module = module; g.path = path; g.nparams = nparams; g.vararg = vararg; g.sig = sig; g.ret = ret; g.map = map; g.physical = physical; g.registers = registers;
+    g.constants = constants; g.positions = positions; g.certificates = certificates; g.classes = classes; g.slots = slots;
+    g.blocks.reserve(nblocks);
     for _ in 0..nblocks {
         let start = g.values.len() as u32;
         let len = r.count(4)? as u32;
@@ -321,6 +366,10 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         let params = Span { start, len };
         let start = g.insts.len() as u32;
         let len = r.count(12)? as u32;
+        g.insts.reserve(len as usize);
+        g.pos.reserve(len as usize);
+        g.cert.reserve(len as usize);
+        g.extras.reserve(len as usize);
         for _ in 0..len {
             let name = r.index(nstrings, "opcode")?;
             let mut op = opcode_of[name as usize];
@@ -403,7 +452,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         }
         _ => return Err("gpu flag".into()),
     }
-    Ok(g)
+    Ok(())
 }
 
 /// The closed-block verifier: every use is a parameter of its block, an
@@ -412,22 +461,31 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
 /// reachable; the region tree describes the blocks; certificates cite
 /// integer values.
 pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Result<(), String> {
+    verify_with(table, image, g, nfunctions, &mut Scratch::default())
+}
+
+/// The verifier's working vectors, kept across functions by a loader.
+#[derive(Default)]
+pub struct Scratch { owner: Vec<u32>, defined: Vec<bool>, seen: Vec<bool>, queue: VecDeque<usize>, occupied: Vec<u32> }
+
+pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, scratch: &mut Scratch) -> Result<(), String> {
     let nvalues = g.classes.len();
     let nparams = g.nparams as usize;
     if nvalues < nparams { return Err("fewer values than parameters".into()); }
     for p in 0..nparams { if g.classes[p] != V || g.slots[p] != p as u32 + 1 { return Err("function parameters are the first value ids".into()); } }
-    let mut owner = vec![NONE; nvalues];
-    let mut defined = vec![false; nvalues];
+    let Scratch { owner, defined, seen, queue, occupied } = scratch;
+    owner.clear(); owner.resize(nvalues, NONE);
+    defined.clear(); defined.resize(nvalues, false);
     for p in 0..nparams { defined[p] = true; }
     // Reachability over the edges from the entry.
-    let mut seen = vec![false; g.blocks.len()];
-    let mut queue = VecDeque::from([0usize]);
+    seen.clear(); seen.resize(g.blocks.len(), false);
+    queue.clear(); queue.push_back(0usize);
     while let Some(b) = queue.pop_front() {
         if std::mem::replace(&mut seen[b], true) { continue; }
         for e in g.blocks[b].edges.get(&g.edges) { queue.push_back(e.target as usize); }
     }
     if let Some(b) = seen.iter().position(|v| !v) { return Err(format!("block {b} is unreachable")); }
-    let mut occupied: Vec<u32> = Vec::new();
+    let (mut owner, mut defined, mut occupied) = (owner, defined, occupied);
     for (bid, b) in g.blocks.iter().enumerate() {
         let bid = bid as u32;
         occupied.clear();
@@ -435,8 +493,10 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
             if (v as usize) < nparams { return Err("function parameter defined again".into()); }
             if defined[v as usize] { return Err(format!("value {v} defined twice")); }
             let key = (g.classes[v as usize] as u32) << 8 | g.slots[v as usize];
-            if occupied.contains(&key) && !g.physical { return Err(format!("overlapping slot hints in block {bid}")); }
-            occupied.push(key);
+            if !g.physical {
+                if occupied.contains(&key) { return Err(format!("overlapping slot hints in block {bid}")); }
+                occupied.push(key);
+            }
             defined[v as usize] = true;
             owner[v as usize] = bid;
             Ok(())
@@ -607,8 +667,8 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             _ => Value::func(d.base + k.payload),
         });
     }
-    let mut code: Vec<Op> = Vec::new();
-    let mut debug: Vec<(u32, u32)> = Vec::new();
+    let mut code: Vec<Op> = Vec::with_capacity(g.insts.len() + 2 * g.blocks.len());
+    let mut debug: Vec<(u32, u32)> = Vec::with_capacity(g.insts.len() + 2 * g.blocks.len());
     let mut jump_tables: Vec<(i32, Vec<i32>)> = Vec::new();
     let mut starts = vec![0usize; g.blocks.len()];
     // (pc, target block, which offset field: 0 the only one, 1 the second)
@@ -670,7 +730,17 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             let h = |i: usize| -> Result<u16, String> { r16(o[i], sig.name) };
             let flag = |i: usize| -> Result<bool, String> { match o[i] { 0 => Ok(false), 1 => Ok(true), _ => Err(format!("{}: flag operand", sig.name)) } };
             let physical_field = |start: usize| -> Result<crate::storage::PhysicalField, String> { Ok(crate::storage::PhysicalField { identity: h(start)?, name: h(start + 1)?, ordinal: h(start + 2)?, offset: o[start + 3], kind: a(start + 4)? }) };
-            match sig.name {
+            let hot = match sig.hot {
+                1 => Some(Op::Move(a(0)?, a(1)?)), 2 => Some(Op::K(a(0)?, h(1)?)), 3 => Some(Op::SetIdx(a(0)?, a(1)?, a(2)?)), 4 => Some(Op::GetField(a(0)?, a(1)?, h(2)?)),
+                5 => Some(Op::GetCell(a(0)?, a(1)?)), 6 => Some(Op::PadResults(a(0)?, a(1)?)), 7 => Some(Op::CallDyn(a(0)?, a(1)?, a(2)?)), 8 => Some(Op::NewTableN(a(0)?, a(1)?, a(2)?)),
+                9 => Some(Op::Nil(a(0)?)), 10 => Some(Op::Eq(a(0)?, a(1)?, a(2)?)), 11 => Some(Op::GetIdx(a(0)?, a(1)?, a(2)?)), 12 => Some(Op::SetSlot(a(0)?, h(1)?, a(2)?, shape(o[3])?)),
+                13 => Some(Op::GetUpval(a(0)?, a(1)?)), 14 => Some(Op::CallK(r16(d.base + o[0], "known callee")?, a(1)?, a(2)?, a(3)?, a(4)?)), 15 => Some(Op::GetSlot(a(0)?, a(1)?, h(2)?, shape(o[3])?)),
+                16 => Some(Op::Concat(a(0)?, a(1)?, a(2)?)), 17 => Some(Op::SetField(a(0)?, h(1)?, a(2)?)), 18 => Some(Op::NewCell(a(0)?, a(1)?)), 19 => Some(Op::NewClosure(a(0)?, d.base + o[1], a(2)?, a(3)?)),
+                20 => Some(Op::Len(a(0)?, a(1)?)), 21 => Some(Op::Not(a(0)?, a(1)?)), 22 => Some(Op::Add(a(0)?, a(1)?, a(2)?)), 23 => Some(Op::NewRecord(a(0)?, shape(o[1])?)),
+                24 => Some(Op::Ne(a(0)?, a(1)?, a(2)?)), 25 => Some(Op::Require(a(0)?, h(1)?)), 26 => Some(Op::CallMethod(h(0)?, a(1)?, a(2)?)), 27 => Some(Op::SetCell(a(0)?, a(1)?)),
+                _ => None,
+            };
+            if let Some(op) = hot { code.push(op); } else { match sig.name {
                 "U32Add" | "U32Sub" => { code.push(if sig.name == "U32Add" { Op::IAdd(a(0)?, a(1)?, a(2)?) } else { Op::ISub(a(0)?, a(1)?, a(2)?) }); code.push(Op::IMaskU32(a(0)?, a(0)?)); }
                 "U32Load" | "U32Store" => {
                     let store = sig.name == "U32Store";
@@ -735,7 +805,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
                 "FAdd" => code.push(Op::FAdd(a(0)?, a(1)?, a(2)?)), "FFma" => code.push(Op::FFma(a(0)?, a(1)?, a(2)?, a(3)?)), "StorageLen" => code.push(Op::StorageLen(a(0)?, a(1)?)), "FLoad" => code.push(Op::FLoad(a(0)?, a(1)?, a(2)?)), "FStore" => code.push(Op::FStore(a(0)?, a(1)?, a(2)?)),
                 "VSplat" => code.push(Op::VSplat(a(0)?, a(1)?)), "VLoad" => code.push(Op::VLoad(a(0)?, a(1)?, a(2)?, i32_of(o[3])?)), "VStore" => code.push(Op::VStore(a(0)?, a(1)?, a(2)?, i32_of(o[3])?)), "VFma" => code.push(Op::VFma(a(0)?, a(1)?, a(2)?, a(3)?)), "VLane" => code.push(Op::VLane(a(0)?, a(1)?, a(2)?)),
                 other => return Err(format!("opcode {other} has no derivation")),
-            }
+            } }
             let position = if g.pos[at] == NONE { (0, 0) } else { g.positions[g.pos[at] as usize] };
             while debug.len() < code.len() { debug.push(position); }
             let _ = from;
@@ -865,16 +935,17 @@ pub fn derive_all(it: &mut Interp, image: &Image, base: u32, shape_ids: &[u32]) 
 /// declarations, then every function derived and verified, and the image
 /// recorded as a code event for checkpoints. Returns the entry function.
 pub fn load(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> {
-    let image = decode(bytes)?;
     let scope = it.open_scope();
-    let r = install(it, &image);
+    let r = with_table(|table| install(table, it, bytes));
     it.close_scope(scope);
-    if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Graph { bytes: bytes.to_vec(), functions: image.functions.len() as u32 }); }
-    r
+    if let Ok((entry, functions)) = r { it.code_events.push(crate::persist::CodeEvent::Graph { bytes: bytes.to_vec(), functions }); return Ok(entry); }
+    r.map(|(entry, _)| entry)
 }
 
-fn install(it: &mut Interp, image: &Image) -> Result<u32, String> {
+fn install(table: &Table, it: &mut Interp, bytes: &[u8]) -> Result<(u32, u32), String> {
     use crate::heap::SlotTy;
+    let mut header = decode_header(table, bytes)?;
+    let image = &header.image;
     let mut shape_ids: Vec<u32> = Vec::with_capacity(image.shapes.len());
     for s in &image.shapes {
         let mut names = Vec::with_capacity(s.slots.len());
@@ -896,7 +967,17 @@ fn install(it: &mut Interp, image: &Image) -> Result<u32, String> {
         crate::extension::declare(it, image.text(name), &image.strings[declaration as usize])?;
     }
     let base = it.funcs.len() as u32;
-    let mut funcs = derive_all(it, image, base, &shape_ids)?;
+    let nfuncs = base as usize + header.nfunctions;
+    let mut funcs = Vec::with_capacity(header.nfunctions);
+    let mut g = Graph::default();
+    for fi in 0..header.nfunctions {
+        header.next_function(table, fi, &mut g)?;
+        let mut d = Derivation { it, base, shape_ids: &shape_ids };
+        let f = derive(table, &header.image, &g, &mut d).map_err(|e| format!("function {}: {e}", header.image.text(g.name)))?;
+        crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?;
+        funcs.push(f);
+    }
+    let image = &header.image;
     for f in &mut funcs {
         // Named operations use identity keys in every execution tier.
         for op in &f.code {
@@ -930,7 +1011,10 @@ fn install(it: &mut Interp, image: &Image) -> Result<u32, String> {
         for &(name, fid) in &s.methods { let n = it.intern(image.text(name)); it.heap.shapes[shape_ids[i] as usize].methods.insert(n, Value::func(base + fid)); }
     }
     it.heap.proto_epoch += 1;
-    Ok(if image.entry == NONE { 0 } else { base + image.entry })
+    let entry = if image.entry == NONE { 0 } else { base + image.entry };
+    let functions = header.nfunctions as u32;
+    header.finish()?;
+    Ok((entry, functions))
 }
 
 /// Replaces loaded functions with their graph-derived streams, matched by
