@@ -548,7 +548,15 @@ local function translate(program, body, hoist)
             elseif s.op == "assign" then
                 local values = {};
                 for i, a in ipairs(s.values) do
-                    values[i] = expression(a.value)
+                    local value = expression(a.value)
+                    if #s.values > 1 then
+                        -- Every right-hand side precedes every assignment. A
+                        -- name still refers to a mutable physical register.
+                        local captured = alloc(a.value.type)
+                        move(captured, value)
+                        value = captured
+                    end
+                    values[i] = value
                 end
                 for i, a in ipairs(s.values) do
                     move(name(a.target), values[i])
