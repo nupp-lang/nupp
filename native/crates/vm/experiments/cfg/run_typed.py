@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Compare frozen and candidate typed compilers using the same production image."""
+"""Compare frozen and candidate typed compilers using the same production image.
+
+Historical: its scalar control ran the first slice's cfg_experiment example,
+which P1 deleted; run_p1.py is the current harness."""
 import argparse
 import hashlib
 import json

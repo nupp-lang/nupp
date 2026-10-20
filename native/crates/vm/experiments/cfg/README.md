@@ -1,14 +1,32 @@
 # CFG and SSA experiment
 
-The shared graph works for this bounded compiler slice. Checked CST lowers directly to a serializable CFG with block arguments, and the same graph feeds Cranelift and the existing VM interpreter.
+## Status, 2026-10-20
 
-Run from the worktree root:
+The single-IR plan's P1 promoted this experiment: the graph module is
+`src/nupp/compiler/vm/graph.nupp`, its image codec is
+`src/nupp/compiler/vm/graphimage.nupp`, and `native/crates/vm/src/graph.rs`
+decodes, verifies and derives the interpreter stream. The scalar frontend in
+`src/nupp/experiment/cfg.nupp` now emits the production graph on value-class
+operations (constants, call windows, branches on values, park terminators)
+rather than the first slice's private format, and the first slice's Rust
+example (its private-ABI Cranelift path and adapter) is gone with it; the
+numbers below are its recorded evidence. The P1 gate is
 
 ```sh
-python3 native/crates/vm/experiments/cfg/run.py
+python3 native/crates/vm/experiments/cfg/run_p1.py --build-driver
 ```
 
-The runner writes graphs, CLIF listings, logs, timing samples and source hashes to `build/cfg-experiment`. It uses the installed compiler to compile the experimental frontend, with automatic compiler rebuilding disabled. Cargo needs the branch's cached dependencies for its offline build.
+which writes to `build/cfg-p1`: the scalar fixture through both paths and
+`graph_gate scalar` (every input on the interpreter, the threaded core and
+the JIT, with hostile-input checks over the image), the typed fixtures
+through `graph_gate typed` (derived streams held equal to the Nupp lowering),
+the whole native SIMD fixture program run on graph-derived streams
+(`NUPP_GRAPH_IMAGE`), and `graph_gate size` timing decode plus derive of a
+checker-sized image against the text parse of the compiler's own image.
+
+The shared graph works for this bounded compiler slice. Checked CST lowers directly to a serializable CFG with block arguments, and the same graph feeds Cranelift and the existing VM interpreter.
+
+The first slice's runner, `run.py`, and its example are deleted; `run_p1.py` above is the current harness. The runner wrote graphs, CLIF listings, logs, timing samples and source hashes to `build/cfg-experiment`.
 
 The first slice starts at `codegen-experiment` revision `a6a5d00a23bb534c6e65d2b5009db47fc93a264f` and added no production-path changes. Follow-ups test the [production typed frame backend](TYPED.md) and a [direct typed CST frontend](DIRECT.md). All slices remain isolated on `codex/cfg-ssa-prototype`. The architecture and measurements below describe the first scalar slice; the typed frontend currently derives production bytecode and does not persist its graph.
 

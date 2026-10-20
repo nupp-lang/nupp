@@ -87,6 +87,7 @@ mod process;
 mod stdio;
 pub mod verify;
 pub mod image;
+pub mod graph;
 pub mod image_modules;
 pub mod hotpatch;
 pub mod payload;

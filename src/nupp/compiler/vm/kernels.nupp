@@ -640,6 +640,7 @@ function frontend.build(body: any, mapMode: boolean?): any
                 yes.env[key] = scalar("u32", countParam)
                 yes.held[countParam] = true
                 local join = newBlock(no, no.names)
+                from.region = {kind = "clamp", merge = join.id}
                 jump(yes, join);
                 jump(no, join);
                 b = join
@@ -846,20 +847,25 @@ function frontend.build(body: any, mapMode: boolean?): any
                 b = header
                 local condition = expression(s.cond);
                 need(condition.type == "bool", "loop condition")
-                local yes, after = newBlock(b, from.names), newBlock(b, from.names)
+                -- Every loop closes through a continue block, the one block
+                -- the region tree names as its back edge. It is made before
+                -- the exit block so the layout keeps it inside the loop; a map
+                -- makes its own, holding only the induction step.
+                local yes = newBlock(b, from.names)
+                local continuing = not mapMode and newBlock(b, from.names) or nil
+                local after = newBlock(b, from.names)
                 branch(b, condition.ids[1], yes, after)
                 header.region = {kind = "loop", merge = after.id, continuing = 0}
                 local cursor = addFacts(s.cond, yes)
                 b = yes;
                 statements(s.body.stats, cursor)
                 if b and mapMode then
-                    local continuing = newBlock(b, header.names)
-                    jump(b, continuing)
-                    jump(continuing, header)
-                    header.region.continuing = continuing.id
-                elseif b then
-                    jump(b, header)
+                    continuing = newBlock(b, header.names)
                 end
+                need(b ~= nil, "loop body must continue")
+                jump(b, continuing)
+                jump(continuing, header)
+                header.region.continuing = continuing.id
                 if cursor then
                     for key in pairs(after.facts) do
                         if key:sub(1, #cursor + 1) == cursor .. "|" then
@@ -885,6 +891,7 @@ function frontend.build(body: any, mapMode: boolean?): any
                     local text = errorMessage(guardCall);
                     g.constants[#g.constants + 1] = {kind = "str", value = text}
                     yes.term = {kind = "raise", constant = #g.constants - 1, edges = {}}
+                    from.region = {kind = "guard", merge = no.id}
                     local c = unparen(clause.cond)
                     local left, right = c.kind == "binop" and counted(c.lhs), c.kind == "binop" and counted(c.rhs)
                     if c.kind == "binop" and c.op.text == "~=" and left and right then

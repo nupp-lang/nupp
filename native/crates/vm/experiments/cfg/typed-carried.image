@@ -16,8 +16,8 @@ function graphCarried 1 1 12 18 v:v
   FK 4 1
   FAdd 5 2 4
   FMov 2 5
-  VMov 1 5
   VMov 0 4
+  VMov 1 5
   Jmp -13
   FK 6 0
   VExtractN 7 0 9 0

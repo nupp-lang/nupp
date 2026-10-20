@@ -7,6 +7,7 @@ local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
 local frontend = require("nupp.compiler.vm.kernels")
 local graph = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local project = require("nupp.tools.vm.project")
 
 local driver = {}
@@ -165,8 +166,32 @@ end
     end
     local plans, refusals = frontend.plans(parsed.root)
     local file = assert(io.open(output, "wb"))
+    -- The graph image beside the lowered text: the same plans, so the Rust
+    -- loader's derived stream can be held to this one instruction for
+    -- instruction. Functions are written in name order so both agree.
+    local ordered = {}
     for body, name in pairs(names) do
         if plans[body] then
+            ordered[#ordered + 1] = {body = body, name = name}
+        end
+    end
+    table.sort(ordered, function(a: any, b: any): boolean
+        return a.name < b.name
+    end)
+    local graphs = {}
+    for _, entry in ipairs(ordered) do
+        local g = plans[entry.body].graph
+        g.name, g.module, g.sig, g.ret = entry.name, "m", string.rep("v", #entry.body.params), "v"
+        g.gpu = plans[entry.body].gpu
+        graphs[#graphs + 1] = g
+    end
+    local encoded = graphimage.encode({functions = graphs})
+    local graphFile = assert(io.open(output .. ".graph", "wb"))
+    graphFile:write(encoded)
+    graphFile:close()
+    for _, entry in ipairs(ordered) do
+        local body, name = entry.body, entry.name
+        do
             local p = plans[body]
             file:write(
                 "function ",
@@ -194,7 +219,10 @@ end
             end
             file:write("end\n")
             print(name, "direct", #p.graph.blocks, #p.graph.types, #p.code)
-        elseif refusals[body] then
+        end
+    end
+    for body, name in pairs(names) do
+        if refusals[body] then
             print(name, "REFUSED", refusals[body])
         end
     end

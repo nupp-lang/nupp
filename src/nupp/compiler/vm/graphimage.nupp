@@ -1,0 +1,351 @@
+module nupp.compiler.vm.graphimage
+
+--- The graph image: every function's graph with its constants, source
+--- positions, certificates and region tree, beside the image's shapes,
+--- modules, extension declarations and entry. No bytecode: the runtime
+--- derives its instruction stream when it loads the image. The format is
+--- versioned and little-endian; every count is a 32-bit word, every id is
+--- zero-based, and NONE is the all-ones word. `native/crates/vm/src/graph.rs`
+--- is the decoder, and the two must move together.
+local G = require("nupp.compiler.vm.graph")
+
+local image = {}
+
+image.MAGIC = "NUPPGRAF"
+image.VERSION = 1
+
+local NONE = 4294967295
+image.NONE = NONE
+
+local termKinds = {jump = 0, branch = 1, switch = 2, ["return"] = 3, raise = 4, park = 5}
+local regionKinds = {body = 0, loop = 1, ["then"] = 2, ["else"] = 3}
+local constantKinds = {
+    ["nil"] = 0,
+    ["true"] = 1,
+    ["false"] = 2,
+    num = 3,
+    int64 = 4,
+    uint64 = 5,
+    str = 6,
+    builtin = 7,
+    func = 8
+}
+local slotTypes = {num = 0, str = 1, bool = 2, rec = 3, any = 4}
+image.termKinds = termKinds
+image.regionKinds = regionKinds
+image.constantKinds = constantKinds
+image.slotTypes = slotTypes
+
+local two32 = 4294967296
+
+local function wordBytes(n: number): string
+    return string.char(n % 256, math.floor(n / 256) % 256, math.floor(n / 65536) % 256, math.floor(n / 16777216) % 256)
+end
+
+--- The eight little-endian bytes of an integer-valued number in two's
+--- complement; `-1` is eight 0xff bytes.
+--- @raises string when the number is not an exactly representable integer.
+local function wideBytes(n: number): string
+    if not (n % 1 == 0 and n > -9007199254740992 and n < 9007199254740992) then
+        error("wide literal outside the exact integer range", 0)
+    end
+    local lo = n % two32
+    local hi = math.floor(n / two32) % two32
+
+    return wordBytes(lo) .. wordBytes(hi)
+end
+
+--- The eight little-endian bytes of a binary64 number.
+local function floatBytes(x: number): string
+    if x ~= x then
+        return wordBytes(0) .. wordBytes(2146959360)
+    end
+    local sign = 0
+    if x < 0 or (x == 0 and 1 / x < 0) then
+        sign, x = 1, -x
+    end
+    local exponent, mantissa = 0, 0
+    if x == math.huge then
+        exponent = 2047
+    elseif x ~= 0 then
+        local m, e = math.frexp(x)
+        -- x = m * 2^e with m in [0.5, 1): the leading one is at 2^(e - 1).
+        if e - 1 + 1023 <= 0 then
+            mantissa = x / 2 ^ -1074
+        else
+            exponent = e - 1 + 1023
+            mantissa = (m * 2 - 1) * 4503599627370496
+        end
+    end
+    local lo = mantissa % two32
+    local hi = math.floor(mantissa / two32) + exponent * 1048576 + sign * 2147483648
+
+    return wordBytes(lo) .. wordBytes(hi)
+end
+
+image.floatBytes = floatBytes
+image.wideBytes = wideBytes
+
+--- Encodes an image: `functions` is the list of graphs, each carrying its
+--- `name`, `module`, optional `path`, `nparams`, `sig` (one class letter per
+--- parameter), `ret`, `vararg`, `constants` and, when the frontend built
+--- one, `gpu`. `shapes`, `modules`, `extensions` and `entry` are optional.
+--- @raises string when a graph does not verify, a wide literal is not an
+--- exact integer, or a region annotation does not describe its graph.
+function image.encode(img: any): string
+    local parts: {string} = {}
+    local strings, stringIndex, nstrings = {}, {}, 0
+    local wides, wideIndex, nwides = {}, {}, 0
+    local floats, floatIndex, nfloats = {}, {}, 0
+
+    local function str(s: string): integer
+        local at = stringIndex[s]
+        if at == nil then
+            at = nstrings
+            nstrings = nstrings + 1
+            strings[nstrings], stringIndex[s] = s, at
+        end
+
+        return at
+    end
+
+    local function wide(n: number): integer
+        local at = wideIndex[n]
+        if at == nil then
+            at = nwides
+            nwides = nwides + 1
+            wides[nwides], wideIndex[n] = wideBytes(n), at
+        end
+
+        return at
+    end
+
+    local function float(x: number): integer
+        local key = x == x and x or "nan"
+        local at = floatIndex[key]
+        if at == nil then
+            at = nfloats
+            nfloats = nfloats + 1
+            floats[nfloats], floatIndex[key] = floatBytes(x), at
+        end
+
+        return at
+    end
+
+    local body: {string} = {}
+
+    local function word(n: number): nil
+        if not (n >= 0 and n < two32 and n % 1 == 0) then
+            error("image word out of range: " .. tostring(n), 0)
+        end
+        body[#body + 1] = wordBytes(n)
+    end
+
+    local function optional(s: string?): nil
+        word(s == nil and NONE or str(s as string))
+    end
+
+    -- A GPU artifact's buffer lists hold parameter records; their names go.
+    local function names(list: any): nil
+        word(#list)
+        for i = 1, #list do
+            local item = list[i]
+            word(str(type(item) == "table" and item.name or item))
+        end
+    end
+
+    local shapes = img.shapes or {}
+    word(#shapes)
+    for i = 1, #shapes do
+        local s = shapes[i]
+        word(str(s.name))
+        optional(s.identity)
+        local slots = s.slots or {}
+        word(#slots)
+        for j = 1, #slots do
+            local slot = slots[j]
+            word(str(slot.name))
+            word(assert(slotTypes[slot.type or "any"], "unknown slot type"))
+            word(slot.record or NONE)
+        end
+        local methods = s.methods or {}
+        word(#methods)
+        for j = 1, #methods do
+            word(str(methods[j].name))
+            word(methods[j].func)
+        end
+    end
+    local modules = img.modules or {}
+    word(#modules)
+    for i = 1, #modules do
+        local m = modules[i]
+        word(str(m.name))
+        word(m.chunk)
+        optional(m.path)
+    end
+    local extensions = img.extensions or {}
+    word(#extensions)
+    for i = 1, #extensions do
+        word(str(extensions[i].name))
+        word(str(extensions[i].declaration))
+    end
+    word(img.entry or NONE)
+
+    local functions = img.functions
+    word(#functions)
+    for fi = 1, #functions do
+        local g = functions[fi]
+        G.verify(g)
+        local regions = G.regions(g)
+        word(str(g.name))
+        word(str(g.module or ""))
+        optional(g.path)
+        word(g.nparams)
+        word(g.vararg and 1 or 0)
+        word(str(g.sig or string.rep("v", g.nparams)))
+        word(string.byte(g.ret or "v"))
+        word(g.map and 1 or 0)
+        local constants = g.constants
+        word(#constants)
+        for i = 1, #constants do
+            local c = constants[i]
+            local kind = assert(constantKinds[c.kind], "unknown constant kind")
+            word(kind)
+            if kind == 3 then
+                word(float(c.value))
+            elseif kind == 4 or kind == 5 then
+                word(str(tostring(c.value)))
+            elseif kind == 6 or kind == 7 then
+                word(str(c.value))
+            elseif kind == 8 then
+                word(c.value)
+            else
+                word(0)
+            end
+        end
+        local positions = g.positions
+        word(#positions)
+        for i = 1, #positions do
+            word(positions[i].line)
+            word(positions[i].column)
+        end
+        local certificates = g.certificates
+        word(#certificates)
+        for i = 1, #certificates do
+            local c = certificates[i]
+            word(c.guard - 1)
+            word(c.cursor - 1)
+            word(c.span - 1)
+        end
+        local types, slots = g.types, g.slots
+        word(#types)
+        for i = 1, #types do
+            word(G.classes[types[i]])
+        end
+        for i = 1, #types do
+            word(slots[i])
+        end
+        local blocks = g.blocks
+        word(#blocks)
+        for bi = 1, #blocks do
+            local b = blocks[bi]
+            local params = b.params
+            word(#params)
+            for i = 1, #params do
+                word(params[i] - 1)
+            end
+            local ops, dsts, allArgs, poss, certs = b.op, b.dst, b.args, b.pos, b.cert
+            word(#ops)
+            for i = 1, #ops do
+                local op = ops[i]
+                local sig = G.signatures[op]
+                local argClasses, args = sig.args, allArgs[i]
+                word(str(op))
+                local argAt = 0
+                for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
+                    if j == sig.resultAt then
+                        word(dsts[i] - 1)
+                    else
+                        argAt = argAt + 1
+                        local letter, arg = argClasses[argAt], args[argAt]
+                        if G.classes[letter] then
+                            word(arg - 1)
+                        elseif letter == "L" then
+                            word(wide(arg))
+                        elseif letter == "D" then
+                            word(float(arg))
+                        elseif letter == "s" then
+                            word(str(type(arg) == "string" and arg or tostring(arg)))
+                        else
+                            word(arg)
+                        end
+                    end
+                end
+                word(poss[i] == 0 and NONE or poss[i] - 1)
+                word(certs[i] == 0 and NONE or certs[i] - 1)
+            end
+            local t = b.term
+            word(assert(termKinds[t.kind], "unknown terminator"))
+            word(t.value and t.value - 1 or NONE)
+            word(t.constant or NONE)
+            local edges = t.edges
+            word(#edges)
+            for ei = 1, #edges do
+                local e = edges[ei]
+                word(e.target - 1)
+                word(#e.args)
+                for i = 1, #e.args do
+                    word(e.args[i] - 1)
+                end
+            end
+        end
+        word(regions.count)
+        for r = 1, regions.count do
+            word(regionKinds[regions.kinds[r]])
+            word(regions.parents[r] == 0 and NONE or regions.parents[r] - 1)
+            word(regions.heads[r] - 1)
+            word(regions.entries[r] == 0 and NONE or regions.entries[r] - 1)
+            word(regions.continues[r] == 0 and NONE or regions.continues[r] - 1)
+            word(regions.merges[r] == 0 and NONE or regions.merges[r] - 1)
+        end
+        for bi = 1, #blocks do
+            word(regions.blockRegion[bi] - 1)
+        end
+        local gpu = g.gpu
+        if gpu then
+            word(1)
+            word(str(gpu.entrypoint))
+            word(gpu.threads)
+            word(gpu.uniformBytes)
+            word(str(gpu.countSpan))
+            names(gpu.readonly)
+            names(gpu.writable)
+            names(gpu.uniforms)
+            word(str(gpu.wgsl))
+            word(str(gpu.spirv))
+        else
+            word(0)
+        end
+    end
+
+    parts[#parts + 1] = image.MAGIC
+    parts[#parts + 1] = wordBytes(image.VERSION)
+    parts[#parts + 1] = wordBytes(nstrings)
+    for i = 1, nstrings do
+        parts[#parts + 1] = wordBytes(#strings[i])
+        parts[#parts + 1] = strings[i]
+    end
+    parts[#parts + 1] = wordBytes(nwides)
+    for i = 1, nwides do
+        parts[#parts + 1] = wides[i]
+    end
+    parts[#parts + 1] = wordBytes(nfloats)
+    for i = 1, nfloats do
+        parts[#parts + 1] = floats[i]
+    end
+    parts[#parts + 1] = table.concat(body)
+
+    return table.concat(parts)
+end
+
+export = image

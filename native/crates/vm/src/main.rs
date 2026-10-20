@@ -227,6 +227,16 @@ pub(crate) fn main() {
         let text = match program.take() { Some(found) => found.image, None => std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) }) };
         let mut vm = Interp::new();
         image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+        // NUPP_GRAPH_IMAGE=FILE: a graph image beside the text one, whose
+        // functions replace the loaded ones of the same name, so a program
+        // runs on streams derived from the graph (the single-IR plan's P1).
+        if let Ok(paths) = std::env::var("NUPP_GRAPH_IMAGE") {
+            for path in paths.split(':').filter(|p| !p.is_empty()) {
+                let bytes = std::fs::read(path).unwrap_or_else(|e| { eprintln!("graph image {path}: {e}"); std::process::exit(1) });
+                let n = nupp_vm::graph::replace_from_sidecar(&mut vm, &bytes).unwrap_or_else(|e| { eprintln!("graph image {path}: {e}"); std::process::exit(1) });
+                if std::env::var_os("NUPP_GRAPH_TRACE").is_some() { eprintln!("graph: {n} functions derived from {path}"); }
+            }
+        }
         for path in additional_images {
             let text = std::fs::read_to_string(&path).unwrap_or_else(|e| { eprintln!("{path}: {e}"); std::process::exit(1) });
             image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
