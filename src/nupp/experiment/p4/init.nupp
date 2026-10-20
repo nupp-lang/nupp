@@ -18,9 +18,11 @@ local function write(path: string, text: string): nil
     file:close()
 end
 
---- `root entry output`: writes `output.image` and `output.graph`.
+--- `root entry output [extras]`: writes `output.image` and `output.graph`;
+--- `extras` names modules the image carries beside what the entry reaches.
 function driver.main(argv: {string}): integer
     local root, entry, output = assert(argv[1]), assert(argv[2]), assert(argv[3])
+    local extras = argv[4]
     local sink: {any} = {}
     local header: any = {}
     lower.graphSink = function(emitted: string, functions: {any}, given: table): nil
@@ -30,7 +32,7 @@ function driver.main(argv: {string}): integer
         end
     end
     local started = os.clock()
-    local text = project.emit(root, entry)
+    local text = project.emit(root, entry, extras)
     local emitted = os.clock()
     lower.graphSink = nil
     local graphs = {}

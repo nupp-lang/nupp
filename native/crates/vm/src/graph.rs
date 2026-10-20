@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 
 pub const NONE: u32 = u32::MAX;
 const MAGIC: &[u8; 8] = b"NUPPGRAF";
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// No image is this large; a count past it is hostile rather than big.
 const LIMIT: usize = 1 << 30;
 
@@ -122,6 +122,9 @@ pub struct Graph {
     pub insts: Vec<[u32; 8]>,
     pub pos: Vec<u32>,
     pub cert: Vec<u32>,
+    /// Per instruction, the untyped values a register window it writes
+    /// defines beside its result: a span into `values`.
+    pub extras: Vec<Span>,
     pub edges: Vec<Edge>,
     pub values: Vec<u32>,
     pub regions: Vec<Region>,
@@ -176,11 +179,26 @@ impl<'a> Reader<'a> {
         self.at += n;
         Ok(head)
     }
-    fn word(&mut self) -> Result<u32, String> { Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap())) }
-    /// A count of items at least `unit` bytes each: bounded by what remains.
-    fn count(&mut self, unit: usize) -> Result<usize, String> {
+    /// A word: stored shifted by one so NONE is a single zero byte, seven
+    /// bits per byte, low bits first, the high bit marking more.
+    fn word(&mut self) -> Result<u32, String> {
+        let mut value: u32 = 0;
+        let mut shift = 0;
+        loop {
+            let b = *self.data.get(self.at).ok_or("truncated graph image")?;
+            self.at += 1;
+            if shift == 28 && b > 0x0f { return Err("graph image word overflows".into()); }
+            value |= ((b & 0x7f) as u32) << shift;
+            if b < 0x80 { break; }
+            shift += 7;
+            if shift > 28 { return Err("graph image word overflows".into()); }
+        }
+        Ok(value.wrapping_sub(1))
+    }
+    /// A count of items at least one byte each: bounded by what remains.
+    fn count(&mut self, _unit: usize) -> Result<usize, String> {
         let n = self.word()? as usize;
-        if n > (self.data.len() - self.at) / unit.max(1) || n > LIMIT { return Err("graph image count exceeds its remaining bytes".into()); }
+        if n > self.data.len() - self.at || n > LIMIT { return Err("graph image count exceeds its remaining bytes".into()); }
         Ok(n)
     }
     fn index(&mut self, limit: usize, what: &str) -> Result<u32, String> {
@@ -295,7 +313,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     for c in &mut certificates { for v in c.iter_mut() { if *v as usize >= nvalues { return Err("certificate value".into()); } } }
     let nblocks = r.count(16)?;
     if nblocks == 0 || nblocks > 100_000 { return Err("block count".into()); }
-    let mut g = Graph { name, module, path, nparams, vararg, sig, ret, map, physical, registers, constants, positions, certificates, classes, slots, blocks: Vec::with_capacity(nblocks), insts: Vec::new(), pos: Vec::new(), cert: Vec::new(), edges: Vec::new(), values: Vec::new(), regions: Vec::new(), block_region: Vec::new(), gpu: None };
+    let mut g = Graph { name, module, path, nparams, vararg, sig, ret, map, physical, registers, constants, positions, certificates, classes, slots, blocks: Vec::with_capacity(nblocks), insts: Vec::new(), pos: Vec::new(), cert: Vec::new(), extras: Vec::new(), edges: Vec::new(), values: Vec::new(), regions: Vec::new(), block_region: Vec::new(), gpu: None };
     for _ in 0..nblocks {
         let start = g.values.len() as u32;
         let len = r.count(4)? as u32;
@@ -329,6 +347,10 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
             g.insts.push(words);
             g.pos.push(r.optional(g.positions.len(), "position")?);
             g.cert.push(r.optional(ncerts, "certificate")?);
+            let start = g.values.len() as u32;
+            let len = r.count(1)? as u32;
+            for _ in 0..len { g.values.push(r.index(nvalues, "window value")?); }
+            g.extras.push(Span { start, len });
         }
         let insts = Span { start, len };
         let term = r.word()?;
@@ -452,6 +474,10 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
             }
             if let Some(d) = result { define(d, &mut owner, &mut defined, &mut occupied)?; }
             let at = b.insts.start as usize + k;
+            for &v in g.extras[at].get(&g.values) {
+                if g.classes[v as usize] != V { return Err(format!("{}: window values are untyped", sig.name)); }
+                define(v, &mut owner, &mut defined, &mut occupied)?;
+            }
             if g.cert[at] != NONE { if !matches!(sig.name, "SpanLoad" | "SpanStore" | "VLoad" | "VStore" | "FLoad" | "FStore" | "VLoadM" | "VStoreM") { return Err(format!("{}: certificate on an instruction that is not a span access", sig.name)); } }
         }
         let value_class = |v: u32| g.classes[v as usize];
@@ -834,6 +860,79 @@ pub fn derive_all(it: &mut Interp, image: &Image, base: u32, shape_ids: &[u32]) 
     })
 }
 
+/// Loads a graph image into the VM as `image::load` loads a text one: shapes
+/// by identity where the heap already holds the layout, modules, extension
+/// declarations, then every function derived and verified, and the image
+/// recorded as a code event for checkpoints. Returns the entry function.
+pub fn load(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> {
+    let image = decode(bytes)?;
+    let scope = it.open_scope();
+    let r = install(it, &image);
+    it.close_scope(scope);
+    if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Graph { bytes: bytes.to_vec(), functions: image.functions.len() as u32 }); }
+    r
+}
+
+fn install(it: &mut Interp, image: &Image) -> Result<u32, String> {
+    use crate::heap::SlotTy;
+    let mut shape_ids: Vec<u32> = Vec::with_capacity(image.shapes.len());
+    for s in &image.shapes {
+        let mut names = Vec::with_capacity(s.slots.len());
+        let mut types = Vec::with_capacity(s.slots.len());
+        for &(slot, ty, record) in &s.slots {
+            let v = it.intern(image.text(slot)); it.handles.push(v); names.push(v);
+            types.push(match ty { 0 => SlotTy::Num, 1 => SlotTy::Str, 2 => SlotTy::Bool, 3 => match shape_ids.get(record as usize) { Some(&id) => SlotTy::Record(id), None => SlotTy::Any }, _ => SlotTy::Any });
+        }
+        let name = image.text(s.name);
+        let identity = if s.identity == NONE { None } else { Some(image.text(s.identity).to_string()) };
+        // Slot types are hints two images can infer differently; the layout
+        // is the names, in order.
+        let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| it.heap.shapes[id as usize].names == names);
+        let id = existing.unwrap_or_else(|| it.heap.shape(name, &names, &types));
+        if let (None, Some(key)) = (existing, identity) { it.heap.shape_identities.insert(key, id); }
+        shape_ids.push(id);
+    }
+    for &(name, declaration) in &image.extensions {
+        crate::extension::declare(it, image.text(name), &image.strings[declaration as usize])?;
+    }
+    let base = it.funcs.len() as u32;
+    let mut funcs = derive_all(it, image, base, &shape_ids)?;
+    for f in &mut funcs {
+        // Named operations use identity keys in every execution tier.
+        for op in &f.code {
+            let key = match *op {
+                Op::GetField(_, _, k) | Op::SetField(_, k, _) | Op::CallMethod(k, _, _) | Op::SetMethod(_, k, _) | Op::DeferMethod(_, k) => k as usize,
+                _ => continue,
+            };
+            let value = *f.consts.get(key).ok_or_else(|| format!("function {}: field constant outside pool", f.name))?;
+            if !it.is_stringish(value) { return Err(format!("function {}: field name must be a string", f.name)); }
+            let name = it.key_for_store(value);
+            it.handles.push(name);
+            f.consts[key] = name;
+        }
+        for op in &f.code {
+            let p = match *op { Op::GetPhys(_, _, p) | Op::GetPhysF(_, _, p) | Op::GetPhysI(_, _, p) | Op::GetPhysU(_, _, p) | Op::SetPhys(_, p, _) | Op::SetPhysF(_, p, _) | Op::SetPhysI(_, p, _) => p, _ => continue };
+            for key in [p.identity, p.name] {
+                let v = *f.consts.get(key as usize).ok_or_else(|| format!("function {}: physical constant outside pool", f.name))?;
+                if !it.is_stringish(v) { return Err(format!("function {}: physical identity/name must be strings", f.name)); }
+                let v = it.key_for_store(v); it.handles.push(v); f.consts[key as usize] = v;
+            }
+        }
+    }
+    let modules: Vec<(String, u32, Option<String>)> = image.modules.iter().map(|&(name, chunk, path)| (image.text(name).to_string(), chunk, if path == NONE { None } else { Some(image.text(path).to_string()) })).collect();
+    for (name, chunk, path) in &modules {
+        it.modules.insert(name.clone(), base + chunk);
+        if let Some(p) = path { it.module_paths.insert(name.clone(), p.clone()); }
+    }
+    crate::hotpatch::record(it, base, &funcs, &shape_ids, &modules);
+    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
+    for (i, s) in image.shapes.iter().enumerate() {
+        for &(name, fid) in &s.methods { let n = it.intern(image.text(name)); it.heap.shapes[shape_ids[i] as usize].methods.insert(n, Value::func(base + fid)); }
+    }
+    it.heap.proto_epoch += 1;
+    Ok(if image.entry == NONE { 0 } else { base + image.entry })
+}
+
 /// Replaces loaded functions with their graph-derived streams, matched by
 /// module and name: the P1 gate, which runs today's programs on derived
 /// code before the image is the graph.
@@ -865,44 +964,69 @@ pub fn replace_from_sidecar(it: &mut Interp, bytes: &[u8]) -> Result<usize, Stri
 mod tests {
     use super::*;
 
-    fn word(out: &mut Vec<u8>, v: u32) { out.extend(v.to_le_bytes()); }
-    fn text(out: &mut Vec<u8>, s: &[u8]) { word(out, s.len() as u32); out.extend(s); }
+    /// An image as logical items: words, and the raw payloads (string
+    /// bytes, floats) between them. Tests patch words by index.
+    #[derive(Clone)]
+    enum Item { W(u32), Raw(Vec<u8>) }
+    use Item::{Raw, W};
+
+    fn encode(items: &[Item]) -> Vec<u8> {
+        let mut out = MAGIC.to_vec();
+        for item in items {
+            match item {
+                W(v) => {
+                    let mut n = v.wrapping_add(1);
+                    loop {
+                        let b = (n & 0x7f) as u8;
+                        n >>= 7;
+                        if n == 0 { out.push(b); break; }
+                        out.push(b | 0x80);
+                    }
+                }
+                Raw(bytes) => out.extend(bytes),
+            }
+        }
+        out
+    }
+
+    fn text(s: &[u8]) -> [Item; 2] { [W(s.len() as u32), Raw(s.to_vec())] }
 
     /// A one-function image: `function f(x) local y = x + 1 return y end`
     /// as a two-block graph with a jump carrying one parameter.
-    fn tiny() -> Vec<u8> {
-        let mut out = MAGIC.to_vec();
-        word(&mut out, VERSION);
+    fn tiny_items() -> Vec<Item> {
+        let mut items = vec![W(VERSION)];
         let strings: [&[u8]; 6] = [b"f", b"m", b"v", b"K", b"Add", b"Move"];
-        word(&mut out, strings.len() as u32);
-        for s in strings { text(&mut out, s); }
-        word(&mut out, 0); // wides
-        word(&mut out, 1); out.extend(1f64.to_le_bytes()); // floats
-        word(&mut out, 0); word(&mut out, 0); word(&mut out, 0); // shapes, modules, extensions
-        word(&mut out, NONE); // entry
-        word(&mut out, 1); // functions
-        word(&mut out, 0); word(&mut out, 1); word(&mut out, NONE); // name, module, path
-        word(&mut out, 1); word(&mut out, 0); word(&mut out, 2); word(&mut out, b'v' as u32); word(&mut out, 0); // nparams, vararg, sig, ret, flags
-        word(&mut out, 0); word(&mut out, 0); word(&mut out, 0); // registers: the slots decide
-        word(&mut out, 1); word(&mut out, 3); word(&mut out, 0); // one numeric constant
-        word(&mut out, 1); word(&mut out, 7); word(&mut out, 3); // one position
-        word(&mut out, 0); // certificates
+        items.push(W(strings.len() as u32));
+        for s in strings { items.extend(text(s)); }
+        items.push(W(0)); // wides
+        items.push(W(1)); items.push(Raw(1f64.to_le_bytes().to_vec())); // floats
+        items.extend([W(0), W(0), W(0)]); // shapes, modules, extensions
+        items.push(W(NONE)); // entry
+        items.push(W(1)); // functions
+        items.extend([W(0), W(1), W(NONE)]); // name, module, path
+        items.extend([W(1), W(0), W(2), W(b'v' as u32), W(0)]); // nparams, vararg, sig, ret, flags
+        items.extend([W(0), W(0), W(0)]); // registers: the slots decide
+        items.extend([W(1), W(3), W(0)]); // one numeric constant
+        items.extend([W(1), W(7), W(3)]); // one position
+        items.push(W(0)); // certificates
         // values: 0 = x (param), 1 = k, 2 = sum, 3 = block 1's parameter
-        word(&mut out, 4); for c in [V, V, V, V] { word(&mut out, c as u32); } for s in [1, 0, 1, 1] { word(&mut out, s); }
-        word(&mut out, 2); // blocks
-        word(&mut out, 0); // block 0: no params
-        word(&mut out, 2); // two instructions
-        word(&mut out, 3); word(&mut out, 1); word(&mut out, 0); word(&mut out, 0); word(&mut out, NONE); // K v1 k0, at position 0
-        word(&mut out, 4); word(&mut out, 2); word(&mut out, 0); word(&mut out, 1); word(&mut out, NONE); word(&mut out, NONE); // Add v2 v0 v1
-        word(&mut out, JUMP); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, 1); word(&mut out, 1); word(&mut out, 1); word(&mut out, 2); // jump 1(v2)
-        word(&mut out, 1); word(&mut out, 3); // block 1: param v3
-        word(&mut out, 0); // no instructions
-        word(&mut out, RETURN); word(&mut out, 3); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, 0);
-        word(&mut out, 1); word(&mut out, BODY); word(&mut out, NONE); word(&mut out, 0); word(&mut out, 0); word(&mut out, NONE); word(&mut out, NONE); // one region
-        word(&mut out, 0); word(&mut out, 0); // block regions
-        word(&mut out, 0); // no gpu
-        out
+        items.push(W(4)); for c in [V, V, V, V] { items.push(W(c as u32)); } for s in [1, 0, 1, 1] { items.push(W(s)); }
+        items.push(W(2)); // blocks
+        items.push(W(0)); // block 0: no params
+        items.push(W(2)); // two instructions
+        items.extend([W(3), W(1), W(0), W(0), W(NONE), W(0)]); // K v1 k0, at position 0, no window values
+        items.extend([W(4), W(2), W(0), W(1), W(NONE), W(NONE), W(0)]); // Add v2 v0 v1
+        items.extend([W(JUMP), W(NONE), W(NONE), W(NONE), W(1), W(1), W(1), W(2)]); // jump 1(v2)
+        items.extend([W(1), W(3)]); // block 1: param v3
+        items.push(W(0)); // no instructions
+        items.extend([W(RETURN), W(3), W(NONE), W(NONE), W(0)]);
+        items.extend([W(1), W(BODY), W(NONE), W(0), W(0), W(NONE), W(NONE)]); // one region
+        items.extend([W(0), W(0)]); // block regions
+        items.push(W(0)); // no gpu
+        items
     }
+
+    fn tiny() -> Vec<u8> { encode(&tiny_items()) }
 
     #[test]
     fn decodes_and_derives_the_tiny_image() {
@@ -921,6 +1045,17 @@ mod tests {
     }
 
     #[test]
+    fn loads_the_tiny_image_as_a_code_event() {
+        let bytes = tiny();
+        let mut it = Interp::new();
+        assert_eq!(load(&mut it, &bytes).unwrap(), 0);
+        assert_eq!(it.funcs.len(), 1);
+        assert!(matches!(it.code_events.last(), Some(crate::persist::CodeEvent::Graph { functions: 1, .. })));
+        let tid = it.spawn(0, &[Value::num(41.)]);
+        assert!(matches!(it.run_rust(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
+    }
+
+    #[test]
     fn refuses_every_truncated_prefix_and_trailing_bytes() {
         let bytes = tiny();
         for len in 0..bytes.len() { assert!(decode(&bytes[..len]).is_err(), "accepted a prefix of {len} bytes"); }
@@ -931,25 +1066,27 @@ mod tests {
 
     #[test]
     fn refuses_hostile_words() {
-        let bytes = tiny();
-        // Every word overwritten with all ones in turn: no panic, no acceptance
-        // past the verifier that would change a register.
-        for offset in (12..bytes.len() - 4).step_by(4) {
-            let mut bad = bytes.clone();
-            bad[offset..offset + 4].fill(255);
-            let _ = decode(&bad);
+        let items = tiny_items();
+        let patch = |index: usize, value: u32| { let mut bad = items.clone(); bad[index] = W(value); decode(&encode(&bad)) };
+        // Every word overwritten with all ones, then with zero, in turn: no
+        // panic, no acceptance past the verifier that would change a register.
+        for (i, item) in items.iter().enumerate() {
+            if matches!(item, W(_)) { let _ = patch(i, NONE); let _ = patch(i, 0); let _ = patch(i, 1 << 30); }
         }
-        let patch = |offset: usize, value: u32| { let mut bad = bytes.clone(); bad[offset..offset + 4].copy_from_slice(&value.to_le_bytes()); decode(&bad) };
-        let find = |needle: &[u8]| bytes.windows(needle.len()).position(|w| w == needle).unwrap();
+        let find = |needle: &[u32]| (0..items.len()).find(|&i| needle.iter().enumerate().all(|(k, w)| matches!(items.get(i + k), Some(W(v)) if v == w))).unwrap();
         // The Add's second operand becomes its own result: a use before definition.
-        let add = find(&[4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
-        assert!(patch(add + 12, 2).unwrap_err().contains("closed block"));
+        let add = find(&[4, 2, 0, 1]);
+        assert!(patch(add + 3, 2).unwrap_err().contains("closed block"));
         // The jump's argument names block 1's own parameter.
-        let jump = find(&[JUMP as u8, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]);
-        assert!(patch(jump + 28, 3).unwrap_err().contains("closed block"));
+        let jump = find(&[JUMP, NONE, NONE, NONE, 1, 1, 1, 2]);
+        assert!(patch(jump + 7, 3).unwrap_err().contains("closed block"));
         // Edge arity.
-        assert!(patch(jump + 24, 0).unwrap_err().contains("edge argument") || patch(jump + 24, 0).is_err());
+        assert!(patch(jump + 6, 0).is_err());
         // The target becomes the entry block.
-        assert!(patch(jump + 20, 0).unwrap_err().contains("entry"));
+        assert!(patch(jump + 5, 0).unwrap_err().contains("entry"));
+        // A word past 32 bits.
+        let mut overflow = encode(&items[..1]);
+        overflow.extend([0xff, 0xff, 0xff, 0xff, 0x7f]);
+        assert!(decode(&overflow).is_err());
     }
 }

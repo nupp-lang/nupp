@@ -107,6 +107,9 @@ impl Prepared {
                 CodeEvent::Image(text) => {
                     crate::image::load(&mut vm, &text)?;
                 }
+                CodeEvent::Graph { bytes, .. } => {
+                    crate::graph::load(&mut vm, &bytes)?;
+                }
                 CodeEvent::Globals => vm.install_globals(),
                 CodeEvent::Patch {
                     text,

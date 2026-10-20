@@ -918,6 +918,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // moved on since. Images `vm.loadImage` adds later are not part of it.
             let digest = match it.code_events.first() {
                 Some(crate::persist::CodeEvent::Image(text)) => Some(nupp_native_platform::cache_digest(text.as_bytes())),
+                Some(crate::persist::CodeEvent::Graph { bytes, .. }) => Some(nupp_native_platform::cache_digest(bytes)),
                 _ => None,
             };
             return match digest { Some(digest) => outs![it.new_string_bytes(&digest)], None => outs![Value::NIL] };

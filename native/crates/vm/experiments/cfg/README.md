@@ -19,11 +19,21 @@ build/rust/target/release/examples/graph_gate image OUT
 ```
 
 The gate loads `OUT.image`, derives every function of `OUT.graph` and holds
-the streams equal instruction for instruction. The lexer, the parser and
-the checker pass. Numbers for the checker module's image: 2,575 functions,
-398,685 instructions, 63,689 blocks, 1,048,628 block parameters, 41 ms to
-derive, 32.8 MB of graph against 7.45 MB of text (one word per field; the
-compact encoding is the next slice's work).
+the streams equal instruction for instruction. The compiler's own root
+image passes: 6,185 functions, 838,536 instructions, 113,909 blocks,
+1,664,822 block parameters, 86 ms to derive, 25.7 MB of graph against
+19.4 MB of text.
+
+The graph image also loads: `graph::load` installs shapes, modules,
+extensions and derived functions as `image::load` does for text, records
+a `Graph` code event for checkpoints, and `nupp-vm run`, `exec`, `verify`,
+`aot` and `--load` take either kind by its magic. Running the compiler from
+`root.graph` emits the same bytes as running it from `root.image`. Image
+words are shifted varints (NONE is a single zero byte); an instruction
+carries the untyped values a register window it writes defines beside its
+result (varargs, a call's further results), which the verifiers define.
+Loading the root image: text 130 ms at 97 MB peak, graph 175 ms at 211 MB
+peak, so the text loader stays until the decoder streams per function.
 
 ## Status, 2026-10-20: P1
 

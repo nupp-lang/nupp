@@ -30,9 +30,9 @@ const _: () = assert!(aot_link::ABI_VERSION == nupp_vm::compiled::AOT_ABI);
 /// interpreter. A frame object also defines `nupp_aot_table`, which a runtime
 /// linked from the `nupp-vm-program` archive reads.
 fn emit_object(image_path: &str, output_path: &str, frames: bool, vector_only: bool) {
-    let text = std::fs::read_to_string(image_path).unwrap();
+    let bytes = std::fs::read(image_path).unwrap();
     let mut it = Interp::new();
-    image::load(&mut it, &text).unwrap();
+    load_image_bytes(&mut it, &bytes, image_path).unwrap();
     let mut compiler = nupp_vm::jit::Compiler::<cranelift_object::ObjectModule>::new_object();
     compiler.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
     let (mut compiled, mut refused) = (Vec::new(), Vec::new());
@@ -56,7 +56,7 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool, vector_only: b
         for m in &missing { eprintln!("aot: uncompiled {m}"); }
         std::process::exit(1);
     }
-    let hash: [u8; 32] = sha2::Sha256::digest(text.as_bytes()).into();
+    let hash: [u8; 32] = sha2::Sha256::digest(&bytes).into();
     let mut linked = format!("pub const ABI_VERSION: u32 = {};\nunsafe extern \"C\" {{\n", nupp_vm::compiled::AOT_ABI);
     for fid in &compiled {
         linked.push_str(&format!("    fn nupp_aot_{fid}();\n"));
@@ -159,6 +159,22 @@ fn show(it: &Interp, v: Value) -> String {
     match it.kind_of(v) { Some(k) => KIND_NAMES[k as usize].to_string(), None => format!("{:#x}", v.0) }
 }
 
+/// Loads an image file of either kind: a graph image by its magic, else
+/// the text the lowering writes.
+pub(crate) fn load_image_file(vm: &mut Interp, path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("image {path}: {e}"))?;
+    load_image_bytes(vm, &bytes, path)
+}
+
+fn load_image_bytes(vm: &mut Interp, bytes: &[u8], path: &str) -> Result<(), String> {
+    if bytes.starts_with(b"NUPPGRAF") {
+        nupp_vm::graph::load(vm, bytes).map(|_| ())
+    } else {
+        let text = std::str::from_utf8(bytes).map_err(|_| format!("image {path}: not text"))?;
+        image::load(vm, text).map(|_| ())
+    }
+}
+
 pub(crate) fn main() {
     // Raises travel as panics between catch points; the default hook would
     // print each one. The runner reports the one that reaches it.
@@ -193,9 +209,8 @@ pub(crate) fn main() {
         return;
     }
     if args.len() == 3 && args[1] == "verify" {
-        let text = std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) });
         let mut it = Interp::new();
-        image::load(&mut it, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+        load_image_file(&mut it, &args[2]).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
         println!("verified {} functions", it.funcs.len());
         return;
     }
@@ -224,9 +239,11 @@ pub(crate) fn main() {
         let data = std::fs::read(&args[2]).unwrap_or_else(|e| { eprintln!("checkpoint {}: {e}", args[2]); std::process::exit(1) });
         nupp_vm::persist::load_vm(&data, &Default::default(), &mut extension_codecs()).unwrap_or_else(|e| { eprintln!("restore: {e}"); std::process::exit(1) })
     } else {
-        let text = match program.take() { Some(found) => found.image, None => std::fs::read_to_string(&args[2]).unwrap_or_else(|e| { eprintln!("image {}: {e}", args[2]); std::process::exit(1) }) };
         let mut vm = Interp::new();
-        image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });
+        match program.take() {
+            Some(found) => { image::load(&mut vm, &found.image).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }); }
+            None => load_image_file(&mut vm, &args[2]).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }),
+        }
         // NUPP_GRAPH_IMAGE=FILE: a graph image beside the text one, whose
         // functions replace the loaded ones of the same name, so a program
         // runs on streams derived from the graph (the single-IR plan's P1).
@@ -238,8 +255,7 @@ pub(crate) fn main() {
             }
         }
         for path in additional_images {
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|e| { eprintln!("{path}: {e}"); std::process::exit(1) });
-            image::load(&mut vm, &text).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
+            load_image_file(&mut vm, &path).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });
         }
         vm
     };

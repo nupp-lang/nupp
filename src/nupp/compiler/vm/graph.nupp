@@ -186,7 +186,7 @@ function graph.value(g: any, ty: string, slot: integer?): integer
 end
 
 function graph.block(g: any): any
-    local b = {id = #g.blocks + 1, params = {}, op = {}, dst = {}, args = {}, pos = {}, cert = {}}
+    local b = {id = #g.blocks + 1, params = {}, op = {}, dst = {}, args = {}, pos = {}, cert = {}, extra = {}}
     g.blocks[b.id] = b
     return b
 end
@@ -206,12 +206,26 @@ function graph.certificate(g: any, guard: integer, cursor: integer, span: intege
     return #certificates
 end
 
+local NO_EXTRAS: {integer} = {}
+
 --- Appends an instruction; the result, when the opcode has one, is a fresh
 --- value on the next free slot of its class, or on `slot` when given (a call
---- window's base, which the arguments above it were placed by).
+--- window's base, which the arguments above it were placed by). `extras`
+--- are the untyped values a register window the instruction writes defines
+--- beside its result (a vararg window, a call's further results), each on
+--- the slot the window gives it.
 --- @raises string when the opcode is unknown, a terminator, or given the
 --- wrong number of operands.
-function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: integer?, slot: integer?): integer?
+function graph.emit(
+    g: any,
+    b: any,
+    op: string,
+    args: any,
+    pos: integer?,
+    cert: integer?,
+    slot: integer?,
+    extras: {integer}?
+): integer?
     local sig = assert(parsed[op], "unknown graph operation: " .. op)
     if not (#args == sig.n) then
         error("graph operation arity: " .. op, 0)
@@ -223,6 +237,7 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
     local id = class ~= "-" and graph.value(g, lowered[class], slot) or nil
     local at = #b.op + 1
     b.op[at], b.dst[at], b.args[at], b.pos[at], b.cert[at] = op, id or 0, args, pos or 0, cert or 0
+    b.extra[at] = extras or NO_EXTRAS
 
     return id
 end
@@ -276,8 +291,15 @@ function graph.verify(g: any): nil
     local ncerts = #g.certificates
     for index = 1, #blocks do
         local b = blocks[index]
-        local ops, dsts, allArgs, params, certs = b.op, b.dst, b.args, b.params, b.cert
-        if not (b.id == index and #ops == #dsts and #ops == #allArgs and #ops == #b.pos and #ops == #certs) then
+        local ops, dsts, allArgs, params, certs, extras = b.op, b.dst, b.args, b.params, b.cert, b.extra
+        if not (
+            b.id == index
+            and #ops == #dsts
+            and #ops == #allArgs
+            and #ops == #b.pos
+            and #ops == #certs
+            and #ops == #extras
+        ) then
             error("assertion failed", 0)
         end
         localValues, occupied = {}, {}
@@ -341,6 +363,13 @@ function graph.verify(g: any): nil
                 define(dsts[i])
             elseif not (dsts[i] == 0) then
                 error("assertion failed", 0)
+            end
+            local extra = extras[i]
+            for j = 1, #extra do
+                if types[extra[j]] ~= "v" then
+                    error("window values are untyped", 0)
+                end
+                define(extra[j])
             end
         end
         local t = assert(b.term, "unterminated graph block")
@@ -513,6 +542,10 @@ function graph.prune(g: any): nil
             local v = dst[i]
             if v ~= 0 then
                 dst[i] = keep(v)
+            end
+            local extra = b.extra[i]
+            for j = 1, #extra do
+                extra[j] = keep(extra[j])
             end
         end
     end

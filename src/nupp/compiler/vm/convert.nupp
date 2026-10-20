@@ -561,20 +561,27 @@ function convert.graph(f: any): any
                         end
                     end
                 end
-                local id = G.emit(g, block, op, args, position(ins.line), nil, dstSlot)
-                if id ~= nil and dstClass then
-                    current[classIndex[dstClass]][dstSlot as integer] = id
-                end
-                -- Window definitions and read-and-written operands change the
-                -- registers' values without a value id of their own in the
-                -- instruction; the next read sees a fresh value on that slot.
+                -- Window definitions and read-and-written operands change
+                -- registers beside the result; each is a fresh untyped value
+                -- the instruction defines, on the register's slot.
+                local extras = nil
                 local defs = defsUses(ins)
                 for i = 1, #defs do
                     local key = defs[i]
                     local class, reg = math.floor(key / 256), (key % 256) as integer
                     if not (dstClass and class == classIndex[dstClass] and reg == dstSlot) then
-                        current[class][reg] = G.value(g, classNames[class], reg)
+                        if class ~= 1 then
+                            error(f.name .. ": typed register window written by " .. op, 0)
+                        end
+                        local v = G.value(g, "v", reg)
+                        current[class][reg] = v
+                        extras = extras or {}
+                        extras[#extras + 1] = v
                     end
+                end
+                local id = G.emit(g, block, op, args, position(ins.line), nil, dstSlot, extras)
+                if id ~= nil and dstClass then
+                    current[classIndex[dstClass]][dstSlot as integer] = id
                 end
                 if isLast then
                     block.term = {kind = "jump", edges = {edge(following)}}

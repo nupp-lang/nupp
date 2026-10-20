@@ -31,6 +31,9 @@ const ITEMS: usize = 4_000_000;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodeEvent {
     Image(String),
+    /// A graph image (`graph::load`): its bytes and how many functions it
+    /// derived.
+    Graph { bytes: Vec<u8>, functions: u32 },
     Globals,
     /// A committed hot patch (`hotpatch`): its text, the ids whose old bodies
     /// running frames kept (moved to new ids in this order), and how many
@@ -358,6 +361,7 @@ fn unframe(data: &[u8], kind: u8) -> Result<&[u8]> {
 pub fn primary_image_hash(vm: &Interp) -> Result<[u8; 32]> {
     match vm.code_events.first() {
         Some(CodeEvent::Image(text)) => Ok(primary_image_digest(text.as_bytes())),
+        Some(CodeEvent::Graph { bytes, .. }) => Ok(primary_image_digest(bytes)),
         _ => Err("linked code requires an image loaded before runtime globals".into()),
     }
 }
@@ -388,6 +392,11 @@ fn code_digest(vm: &Interp) -> Result<[u8; 32]> {
                 h.update([0]);
                 h.update((s.len() as u64).to_le_bytes());
                 h.update(s);
+            }
+            CodeEvent::Graph { bytes, .. } => {
+                h.update([3]);
+                h.update((bytes.len() as u64).to_le_bytes());
+                h.update(bytes);
             }
             CodeEvent::Globals => h.update([1]),
             CodeEvent::Patch { text, retired, added } => {
@@ -1757,6 +1766,7 @@ pub fn save_vm(
                 .lines()
                 .filter(|l| l.trim_start().starts_with("function "))
                 .count(),
+            CodeEvent::Graph { functions, .. } => *functions as usize,
             CodeEvent::Globals => 2,
             CodeEvent::Patch { retired, added, .. } => *added as usize + retired.len(),
         })
@@ -1772,6 +1782,10 @@ pub fn save_vm(
             CodeEvent::Image(s) => {
                 w.byte(0);
                 w.text(s)?
+            }
+            CodeEvent::Graph { bytes, .. } => {
+                w.byte(3);
+                w.bytes(bytes)?
             }
             CodeEvent::Globals => w.byte(1),
             CodeEvent::Patch { text, retired, added } => {
@@ -2176,6 +2190,11 @@ fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut Resource
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::hotpatch::replay(&mut vm, &text, &retired)))
                     .map_err(|_| "malformed checkpoint code patch")??;
                 vm.code_events.push(CodeEvent::Patch { text, retired, added });
+            }
+            3 => {
+                let bytes = r.bytes()?.to_vec();
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::graph::load(&mut vm, &bytes)))
+                    .map_err(|_| "malformed checkpoint graph image")??;
             }
             _ => return Err("unknown code recipe".into()),
         }
