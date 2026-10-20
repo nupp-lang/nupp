@@ -23,186 +23,79 @@ local graph = {}
 --   j  t      a jump offset or table, only on terminator opcodes
 -- An opcode listed under `terminators` never appears inside a block: the
 -- terminator records produce it. Graph-only macros expand when lowered.
-local signatures = {
-    -- Untyped tier.
-    K = "Vk",
-    Move = "Vv",
-    Nil = "V",
-    Add = "Vvv",
-    Sub = "Vvv",
-    Mul = "Vvv",
-    Lt = "Vvv",
-    Le = "Vvv",
-    Eq = "Vvv",
-    Jmp = "j",
-    JmpIf = "vj",
-    JmpIfNot = "vj",
-    Switch = "it",
-    GetIdxI = "Vvi",
-    SetIdxI = "viv",
-    IUnbox = "Iv",
-    UUnbox = "Iv",
-    ICmpSLt = "Iii",
-    ICmpSLe = "Iii",
-    IShl = "Iii",
-    IShrU = "Iii",
-    IOr = "Iii",
-    IBswap32 = "Ii",
-    ICmpEq = "Iii",
-    BytesLen = "Iv",
-    LoadU8 = "Ivi",
-    LoadU8K = "Ivi",
-    LoadU32W = "Ivi",
-    StoreU8 = "vii",
-    StoreU32 = "vii",
-    NewBytes = "Vi",
-    BytesToStr = "Vvi",
-    Mod = "Vvv",
-    Div = "Vvv",
-    FMod = "Fff",
-    RetN = "w#",
-    Require = "Vk",
-    SetMethod = "hkv",
-    RequireV = "Vv",
-    NewTableN = "V##",
-    ICmpNe = "Iii",
-    Truthy = "Iv",
-    NewBuffer = "V",
-    BufAppend = "vv",
-    BufAppendSub = "vvii",
-    Substring = "Vvii",
-    BufFinish = "Vv",
-    Call = "nV#",
-    CallT = "nV##",
-    CallDyn = "vV#",
-    CallK = "nvV##",
-    StrByte = "Vvi",
-    Pow = "Vvv",
-    IDiv = "Vvv",
-    IXor = "Iii",
-    INot = "Ii",
-    Ret = "v",
-    RetNil = "",
-    NewTable = "V",
-    GetIdx = "Vvv",
-    SetIdx = "vvv",
-    GetField = "Vvk",
-    GetPhys = "Vv#####",
-    GetPhysF = "Fv#####",
-    GetPhysI = "Iv#####",
-    GetPhysU = "Iv#####",
-    SetPhys = "v#####v",
-    SetPhysF = "v#####f",
-    SetPhysI = "v#####i",
-    SetField = "vkv",
-    NewRecord = "Vh",
-    GetSlot = "Vv#h",
-    SetSlot = "v#vh",
-    Defer = "vv",
-    DeferMethod = "vk",
-    Disarm = "v",
-    DisarmAt = "#",
-    RearmAt = "#vv",
-    CleanupLive = "v#",
-    AffineMark = "vv",
-    AffineEnter = "",
-    Unwind = "#",
-    Park = "v",
-    Checkpoint = "",
-    Ne = "Vvv",
-    Concat = "Vvv",
-    Not = "Vv",
-    Neg = "Vv",
-    Len = "Vv",
-    CallMethod = "kV#",
-    PCall = "V#",
-    TagCheckRec = "Vvh",
-    TagCheckNum = "Vv",
-    TagCheckInt = "Vv#",
-    TagCheckStr = "Vv",
-    IsRec = "Vvh",
-    PadResults = "w#",
-    Scalar = "#Vvv",
-    VarargN = "w#",
-    VarargTable = "V",
-    NewClosure = "Vnw#",
-    NewCell = "Vv",
-    GetCell = "Vv",
-    SetCell = "vv",
-    GetUpval = "V#",
-    FBox = "Vf",
-    IBox = "Vi",
-    UBox = "Vi",
-    GetSlotF = "Fv#h",
-    SetSlotF = "v#fh",
-    FDiv = "Fff",
-    FNeg = "Ff",
-    LenF = "Fv",
-    GetIdxF = "Vvf",
-    SetIdxF = "vfv",
-    FCmpEq = "Iff",
-    FCmpNe = "Iff",
-    BoolFromI = "Vi",
-    -- Typed tier.
-    IK = "IL",
-    IAdd = "Iii",
-    IAddK = "IiL",
-    IJmpIfUle = "iij",
-    IJmpIfUlt = "iij",
-    FK = "FD",
-    FUnbox = "Fv",
-    ISub = "Iii",
-    IMaskU32 = "Ii",
-    IToF = "Fi",
-    FToI = "If",
-    FSub = "Fff",
-    FMul = "Fff",
-    ICmpLe = "Iii",
-    ICmpLt = "Iii",
-    FCmpLe = "Iff",
-    FCmpLt = "Iff",
-    IAnd = "Iii",
-    JmpIfIZero = "ij",
-    VAdd = "Xxx",
-    Simd = "sssw#",
-    SpanLen = "Iv#",
-    SpanBounds = "vii##",
-    SpanLoad = "Xvii###",
-    SpanStore = "vixi###",
-    VOp = "s#Xxxx",
-    VSplatN = "Xf#",
-    VExtractN = "Fx##",
-    VAny = "Ix",
-    VPrefix = "Xi###",
-    Raise = "k",
-    VMul = "Xxx",
-    VLoadM = "XviLi",
-    VStoreM = "vixLi",
-    LoopFact = "iLi",
-    GuardLenLe = "ii",
-    IMov = "Ii",
-    FMov = "Ff",
-    VMov = "Xx",
-    FAdd = "Fff",
-    FFma = "Ffff",
-    StorageLen = "Iv",
-    FLoad = "Fvi",
-    FStore = "vif",
-    VSplat = "Xf",
-    VLoad = "XviL",
-    VStore = "vixL",
-    VFma = "Xxxx",
-    VLane = "Fx#",
-    FRet = "f",
-    -- Graph-only macros, expanded by the lowering.
-    U32Load = "Ivi",
-    U32Store = "vii",
-    U32Add = "Iii",
-    U32Sub = "Iii",
-    SpanEqual = "vvk",
-    VSplatI = "Xi#",
-    VExtractI = "Ix##"
+local opcodes = require("nupp.compiler.vm.opcodes")
+
+-- A signature spells one instruction's operands in order, a letter each: a
+-- register of class v, i, f or x, uppercase where the instruction defines
+-- it; `w` a window base register; `k` a constant index, `j` a jump offset,
+-- `n` a function id, `t` a jump table, `h` a shape, `s` a name; `#`, `L` and
+-- `D` immediates, the last two a wide integer and a double, which the image
+-- codec spells differently. Every VM opcode's signature derives from the
+-- opcode table, so the graph keeps no second account of an instruction.
+-- What the table cannot say is pinned here: which immediates are wide or
+-- double, and the class a kind operand decides for the SIMD scalar ops,
+-- since a graph value has one class.
+local payloads = {
+    IK = {[2] = "L"},
+    IAddK = {[3] = "L"},
+    FK = {[2] = "D"},
+    VLoadM = {[4] = "L"},
+    VStoreM = {[4] = "L"},
+    VLoad = {[4] = "L"},
+    VStore = {[4] = "L"},
+    LoopFact = {[2] = "L"}
 }
+local pinned = {VSplatN = "Xf#", VExtractN = "Fx##"}
+local classLetters = {k = "k", j = "j", fn = "n", t = "t", s = "h", name = "s", n = "#"}
+
+local function derive(name: string): string
+    local described = assert(opcodes.describe(name), name)
+    local bases = {}
+    for i = 1, #described.windows do
+        local base = tonumber(described.windows[i]:match("@(%d+)%+"))
+        if base then
+            bases[base] = true
+        end
+    end
+    local letters = {}
+    local operands = described.operands
+    for position = 1, #operands do
+        local operand = operands[position]
+        local class, mode = operand.class, operand.mode
+        local letter: string
+        if class == "v" or class == "i" or class == "f" or class == "x" then
+            if mode == "def" or mode == "both" then
+                letter = class:upper()
+            elseif bases[position] then
+                letter = "w"
+            else
+                letter = class
+            end
+        else
+            letter = classLetters[class] or (class:sub(1, 2) == "sk" and (mode == "def" and "S" or "s")) or "?"
+        end
+        local payload = payloads[name]
+        if payload and payload[position] then
+            letter = payload[position] as string
+        end
+        letters[position] = letter
+    end
+
+    return table.concat(letters)
+end
+
+local signatures: {[string]: string} = {}
+for _, name in ipairs(opcodes.names()) do
+    signatures[name] = pinned[name] or derive(name)
+end
+-- Graph-only macros, expanded by the lowering.
+signatures.U32Load = "Ivi"
+signatures.U32Store = "vii"
+signatures.U32Add = "Iii"
+signatures.U32Sub = "Iii"
+signatures.SpanEqual = "vvk"
+signatures.VSplatI = "Xi#"
+signatures.VExtractI = "Ix##"
 local terminators = {
     Jmp = true,
     JmpIf = true,
@@ -807,7 +700,9 @@ function graph.lower(g: any): any
     end
 
     local function emit(...: any): integer
-        code[#code + 1] = {...}
+        local instruction = {...}
+        opcodes.check(instruction)
+        code[#code + 1] = instruction
         return #code
     end
 

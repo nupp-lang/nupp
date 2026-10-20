@@ -412,6 +412,21 @@ function opcodes.check(instruction: {any}): nil
     end
 end
 
+--- The opcode of that name, or nil for a name the table does not know.
+function opcodes.describe(name: string): opcodes.Opcode?
+    return byName[name]
+end
+
+--- Every opcode name, in table order.
+function opcodes.names(): {string}
+    local names: {string} = {}
+    for i = 1, #ROWS do
+        names[i] = ROWS[i][1]
+    end
+
+    return names
+end
+
 --- The table as an image's header carries it, one `opcode` line per opcode.
 function opcodes.header(): {string}
     local lines: {string} = {}

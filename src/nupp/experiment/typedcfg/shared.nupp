@@ -197,9 +197,9 @@ function shared.main(argv: {string}): integer
         local continuing = g.blocks[g.map.continuing]
         graph.emit(g, continuing, "U32Store", {1, continuing.args[1][1], continuing.args[1][1]})
         reject(g, "observable work in the skipped GPU continue block")
-        continuing.op[
-            #continuing.op
-        ], continuing.dst[#continuing.dst], continuing.args[#continuing.args] = nil, nil, nil
+        local last = #continuing.op
+        continuing.op[last], continuing.dst[last], continuing.args[last] = nil, nil, nil
+        continuing.pos[last], continuing.cert[last] = nil, nil
         maps.verify(g)
         print(name, #g.blocks, #g.types, #result.cpu.code, #result.wgsl)
     end

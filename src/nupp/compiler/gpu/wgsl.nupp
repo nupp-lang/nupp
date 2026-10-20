@@ -22,14 +22,19 @@ function wgsl.emit(g: any, symbol: string, verified: any?): (string, any)
 
     -- Value names are fixed per id, so they are spelled once per process.
     local names = {}
+    -- Parameters are value-class ids the shader reaches as buffers and
+    -- uniform fields; every other value is a uint32 lane value.
     for id = 1, #g.types do
-        assert(g.types[id] == "i", "uint32 map value class")
-        local name = VALUE_NAMES[id]
-        if not name then
-            name = "v" .. id
-            VALUE_NAMES[id] = name
+        if g.types[id] == "i" then
+            local name = VALUE_NAMES[id]
+            if not name then
+                name = "v" .. id
+                VALUE_NAMES[id] = name
+            end
+            names[id] = name
+        elseif g.types[id] ~= "v" then
+            error("uint32 map value class", 0)
         end
-        names[id] = name
     end
     -- A parameter of a block with one incoming edge that is not a loop exit
     -- is its source value under another name: the source is bound in an
