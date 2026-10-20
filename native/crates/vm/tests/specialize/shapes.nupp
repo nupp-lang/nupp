@@ -59,6 +59,7 @@ local function makeShape(i: number, kinds: number): Shape
     elseif k == 1 then
         return new Rect(name = "rect", w = i % 7, h = 2)
     end
+
     return new Square(name = "square", side = i % 3)
 end
 
@@ -67,6 +68,7 @@ local function total(shapes: {Shape}): number
     for i = 1, #shapes do
         sum = sum + shapes[i]:area()
     end
+
     return sum
 end
 
@@ -81,6 +83,7 @@ local function sweep(shapes: {Shape}, rounds: number): number
             end
         end
     end
+
     return sum
 end
 
@@ -91,6 +94,7 @@ local function names(shapes: {Shape}, rounds: number): number
             n = n + #shapes[i].name
         end
     end
+
     return n
 end
 
@@ -99,6 +103,7 @@ local function reduce(values: {number}, f: function(number, number): number, sta
     for i = 1, #values do
         acc = f(acc, values[i])
     end
+
     return acc
 end
 
@@ -109,10 +114,15 @@ local function folds(rounds: number): number
     end
     local sum = 0
     for _ = 1, rounds do
-        sum = sum + reduce(values, function(a: number, b: number): number
-            return a + b
-        end, 0)
+        sum = sum + reduce(
+            values,
+            function(a: number, b: number): number
+                return a + b
+            end,
+            0
+        )
     end
+
     return sum
 end
 
@@ -121,23 +131,36 @@ local function build(n: integer, kinds: number): {Shape}
     for i = 1, n do
         shapes[i] = makeShape(i, kinds)
     end
+
     return shapes
 end
 
 local function phases(scale: number): {{any}}
     return {
-        {"monomorphic", function(): number
-            return sweep(build(32, 1), 2000 * scale)
-        end},
-        {"polymorphic", function(): number
-            return sweep(build(32, 3), 2000 * scale)
-        end},
-        {"fields", function(): number
-            return names(build(32, 3), 2000 * scale)
-        end},
-        {"callbacks", function(): number
-            return folds(4000 * scale)
-        end},
+        {
+            "monomorphic",
+            function(): number
+                return sweep(build(32, 1), 2000 * scale)
+            end
+        },
+        {
+            "polymorphic",
+            function(): number
+                return sweep(build(32, 3), 2000 * scale)
+            end
+        },
+        {
+            "fields",
+            function(): number
+                return names(build(32, 3), 2000 * scale)
+            end
+        },
+        {
+            "callbacks",
+            function(): number
+                return folds(4000 * scale)
+            end
+        },
     }
 end
 
@@ -147,6 +170,7 @@ function M.main(): string
         local run: function(): number = p[2]
         out[#out + 1] = p[1] .. "=" .. tostring(run())
     end
+
     return table.concat(out, " ")
 end
 
@@ -162,6 +186,7 @@ function M.bench(): string
         out[#out + 1] = string.format("%s %.1f ms (%s)", p[1], ms, tostring(r))
     end
     out[#out + 1] = string.format("total %.1f ms", all)
+
     return table.concat(out, "\n")
 end
 

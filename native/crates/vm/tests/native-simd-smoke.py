@@ -40,7 +40,7 @@ if not args.image:
     assert p.returncode == 0, p.stderr[-12000:]
     image.write_text(json.loads(p.stdout))
 text = image.read_text()
-for name in [f"double_{kind}" for kind, _, _ in cases] + ["explicitMap", "explicitRefine", "explicitAlgebraic"]:
+for name in [f"double_{kind}" for kind, _, _ in cases] + ["explicitMap", "explicitRefine", "explicitAlgebraic", "rotatePair", "rotateSix"]:
     function = re.search(rf"^function {name} .*?^end$", text, re.M | re.S)
     assert function and re.search(r"^\s+SpanLoad ", function[0], re.M) and re.search(r"^\s+VOp ", function[0], re.M), f"{name} did not use typed SIMD"
 records = []

@@ -74,11 +74,56 @@ local function checkedKernels(): nil
     local ok, problem = pcall(function(): nil kernels.explicitMap(short, reader, 1.0, 0.0) end)
     assert(not ok and tostring(problem):find("length mismatch", 1, true) ~= nil)
 end
+local function rotatePair(borrows input: span.Span<number>, x: number, y: number): number
+    local species = assert(simd.species(array.number, 4))
+    local accumulator = species:splat(0.0)
+    local a, b = x, y
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        accumulator = accumulator + species:load(input, cursor + 1) * a
+        a, b = b, a
+        cursor = cursor + species.lanes
+    end
+
+    return simd.horizontal.algebraicSum(accumulator) + a * 10 + b
+end
+local function rotateSix(borrows input: span.Span<number>, x: number): number
+    local species = assert(simd.species(array.number, 4))
+    local accumulator = species:splat(0.0)
+    local a, b, c, d, e, f = x, x + 1, x + 2, x + 3, x + 4, x + 5
+    local rounds = 0
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        accumulator = accumulator + species:load(input, cursor + 1) * f
+        if rounds < 3 then
+            a, b, c, d, e, f = b, c, d, e, f, a
+        else
+            a, b, c, d, e, f = f, a, b, c, d, e
+        end
+        rounds = rounds + 1
+        cursor = cursor + species.lanes
+    end
+
+    return simd.horizontal.algebraicSum(accumulator) + a + 10 * b + 100 * c + 1000 * d + 10000 * e + 100000 * f
+end
+local function checkedRotations(): nil
+    -- A parallel assignment reads every right-hand side before it writes any
+    -- target, so the loop-carried scalars rotate rather than collapse.
+    const input = array.scalar(array.number, 29)
+    do
+        const writer = input:write()
+        for i = 1, #writer do writer[i] = i end
+    end
+    const reader = input:read()
+    assert(rotatePair(reader, 2.0, 3.0) == 1018)
+    assert(rotateSix(reader, 1.0) == 544434)
+end
 export function run(): number
 '''
     for kind, _, _ in cases:
         source += f"    check_{kind}()\n"
     source += '''    checkedKernels()
+    checkedRotations()
     return 42
 end
 export function workers(): number
