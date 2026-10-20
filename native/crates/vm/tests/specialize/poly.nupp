@@ -37,6 +37,7 @@ local function chorus(animals: {Animal}): string
     for i = 1, #animals do
         parts[#parts + 1] = animals[i]:speak()
     end
+
     return table.concat(parts, ",")
 end
 
@@ -45,6 +46,7 @@ local function legs(animals: {Animal}): number
     for i = 1, #animals do
         n = n + animals[i].legs
     end
+
     return n
 end
 
@@ -119,6 +121,7 @@ local function run(): string
         cb = cb + f(i)
     end
     out[#out + 1] = "callbacks=" .. tostring(cb)
+
     return table.concat(out, " ")
 end
 

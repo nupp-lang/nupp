@@ -38,15 +38,18 @@ local function weigh(p: Point, state: any, scale: number): number
     local factor = scale * 0.5
     local bag = {p, p}
     local label: any = "ww"
+
     local function bump(): number
         return factor + count
     end
+
     local result = 0
     with owned = lease(state) do
         local x = p.x
         result = x * factor + count + #bag + bump() + #label
         assert(owned.state.closed >= 0)
     end
+
     return result
 end
 
@@ -57,6 +60,7 @@ local function sumx(points: {Point}, k: number): number
     for i = 1, #points do
         total = total + points[i].x * k
     end
+
     return total
 end
 
@@ -94,7 +98,10 @@ function M.run(): string
     for i = 1, 300 do
         moved = moved + shift(new P3(z = 0, x = i, y = 1), 2)
     end
-    return tostring(sum) .. " closed=" .. tostring(state.closed) .. " sums=" .. tostring(sums) .. " moved=" .. tostring(moved)
+
+    return tostring(
+        sum
+    ) .. " closed=" .. tostring(state.closed) .. " sums=" .. tostring(sums) .. " moved=" .. tostring(moved)
 end
 
 function M.main(): string
