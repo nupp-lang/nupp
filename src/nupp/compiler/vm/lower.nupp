@@ -4,8 +4,13 @@ module nupp.compiler.vm.lower
 --- is supplied by the caller, so the same lowering runs on LuaJIT and the VM.
 local lower = {}
 
+--- When set, called once per emission with the entry name, the functions in
+--- image order (each with its code, constants and register counts) and the
+--- header the image carries beside them, for the graph conversion.
 const lowerstate = require("nupp.compiler.vm.lowerstate")
+
 const {type Fn} = require("nupp.compiler.vm.lowerstate")
+lower.graphSink = nil as function(entry: string, functions: {Fn}, header: table)?
 const opcodes = require("nupp.compiler.vm.opcodes")
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
@@ -5921,6 +5926,7 @@ function lower.emit(
         end
         local inspected = nil
         local firstOut = #out + 1
+        f:compact()
         if functionsOut then
             -- What hot reload matches a function by across two lowerings: its
             -- lexical parent and its captured names in upvalue order.
@@ -6050,6 +6056,15 @@ function lower.emit(
         emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))
     end
     emit("entry " .. modules[entryName].id)
+    if lower.graphSink then
+        -- The header the graph image carries beside its functions.
+        local moduleList = {}
+        for i, name in ipairs(moduleOrder) do
+            moduleList[i] = {name = name, chunk = modules[name].id, path = modulePath(name)}
+        end
+        local sink = lower.graphSink as function(entry: string, functions: {Fn}, header: table)
+        sink(entryName, functions, {shapes = shapeOrder, modules = moduleList, entry = modules[entryName].id})
+    end
     if linker then
         linker.keep(functions)
         local reused: any = reuse

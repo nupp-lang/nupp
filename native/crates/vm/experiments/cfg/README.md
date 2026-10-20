@@ -1,6 +1,31 @@
 # CFG and SSA experiment
 
-## Status, 2026-10-20
+## Status, 2026-10-20: every function has a graph (P4, first slice)
+
+`src/nupp/compiler/vm/convert.nupp` builds the closed-block graph of any
+function the lowering finished: blocks at jump targets, the registers live
+at each block's entry as its parameters, every definition a value whose slot
+is its physical register, definitions and uses read from the opcode table.
+Untyped registers the frame initializes to nil enter as the entry block's
+parameters; a typed register read before any write is refused. The
+lowering compacts each function before writing (`Fn:compact`): unreachable
+instructions and jumps to the next instruction are dropped and offsets
+renumbered, because a graph holds neither. `nupp.experiment.p4` emits a
+project's text image as today and the graph image beside it:
+
+```sh
+nupp-vm exec DRIVER.image nupp.experiment.p4 ROOT MODULE OUT
+build/rust/target/release/examples/graph_gate image OUT
+```
+
+The gate loads `OUT.image`, derives every function of `OUT.graph` and holds
+the streams equal instruction for instruction. The lexer, the parser and
+the checker pass. Numbers for the checker module's image: 2,575 functions,
+398,685 instructions, 63,689 blocks, 1,048,628 block parameters, 41 ms to
+derive, 32.8 MB of graph against 7.45 MB of text (one word per field; the
+compact encoding is the next slice's work).
+
+## Status, 2026-10-20: P1
 
 The single-IR plan's P1 promoted this experiment: the graph module is
 `src/nupp/compiler/vm/graph.nupp`, its image codec is

@@ -18,7 +18,7 @@ use std::collections::VecDeque;
 
 pub const NONE: u32 = u32::MAX;
 const MAGIC: &[u8; 8] = b"NUPPGRAF";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// No image is this large; a count past it is hostile rather than big.
 const LIMIT: usize = 1 << 30;
 
@@ -69,6 +69,7 @@ pub const SWITCH: u32 = 2;
 pub const RETURN: u32 = 3;
 pub const RAISE: u32 = 4;
 pub const PARK: u32 = 5;
+pub const RETURNS: u32 = 6;
 /// Region kinds.
 pub const BODY: u32 = 0;
 pub const LOOP: u32 = 1;
@@ -87,7 +88,7 @@ impl Span {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Edge { pub target: u32, pub args: Span }
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Block { pub params: Span, pub insts: Span, pub term: u32, pub value: u32, pub constant: u32, pub edges: Span }
+pub struct Block { pub params: Span, pub insts: Span, pub term: u32, pub value: u32, pub constant: u32, pub count: u32, pub edges: Span }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Region { pub kind: u32, pub parent: u32, pub head: u32, pub entry: u32, pub continuing: u32, pub merge: u32 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -108,6 +109,10 @@ pub struct Graph {
     pub sig: u32,
     pub ret: u32,
     pub map: bool,
+    /// Slots are physical registers, reused once a value is dead; the
+    /// frame's register counts are `registers`, as the text header spells them.
+    pub physical: bool,
+    pub registers: [u32; 3],
     pub constants: Vec<Constant>,
     pub positions: Vec<(u32, u32)>,
     pub certificates: Vec<[u32; 3]>,
@@ -260,7 +265,11 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     if image.strings[sig as usize].len() != nparams as usize || image.strings[sig as usize].iter().any(|c| !matches!(c, b'v' | b'f')) { return Err("signature does not match the parameters".into()); }
     let ret = r.word()?;
     if ret != b'v' as u32 && ret != b'f' as u32 { return Err("return class".into()); }
-    let map = match r.word()? { 0 => false, 1 => true, _ => return Err("map flag".into()) };
+    let flags = r.word()?;
+    if flags > 3 { return Err("function flags".into()); }
+    let (map, physical) = (flags & 1 != 0, flags & 2 != 0);
+    let registers = [r.word()?, r.word()?, r.word()?];
+    if physical && (registers[0] == 0 || registers[0] > 255 || registers[1] > 255 || registers[2] > 255) { return Err("register counts".into()); }
     let mut constants = Vec::new();
     for _ in 0..r.count(8)? {
         let kind = r.word()?;
@@ -286,7 +295,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     for c in &mut certificates { for v in c.iter_mut() { if *v as usize >= nvalues { return Err("certificate value".into()); } } }
     let nblocks = r.count(16)?;
     if nblocks == 0 || nblocks > 100_000 { return Err("block count".into()); }
-    let mut g = Graph { name, module, path, nparams, vararg, sig, ret, map, constants, positions, certificates, classes, slots, blocks: Vec::with_capacity(nblocks), insts: Vec::new(), pos: Vec::new(), cert: Vec::new(), edges: Vec::new(), values: Vec::new(), regions: Vec::new(), block_region: Vec::new(), gpu: None };
+    let mut g = Graph { name, module, path, nparams, vararg, sig, ret, map, physical, registers, constants, positions, certificates, classes, slots, blocks: Vec::with_capacity(nblocks), insts: Vec::new(), pos: Vec::new(), cert: Vec::new(), edges: Vec::new(), values: Vec::new(), regions: Vec::new(), block_region: Vec::new(), gpu: None };
     for _ in 0..nblocks {
         let start = g.values.len() as u32;
         let len = r.count(4)? as u32;
@@ -323,11 +332,13 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         }
         let insts = Span { start, len };
         let term = r.word()?;
-        if term > PARK { return Err("terminator kind".into()); }
+        if term > RETURNS { return Err("terminator kind".into()); }
         let value = r.optional(nvalues, "terminator value")?;
         let constant = r.optional(g.constants.len(), "raise constant")?;
+        let count = r.word()?;
+        if term == RETURNS && (value == NONE || count == NONE || count > 255) { return Err("returns terminator".into()); }
         let nedges = r.count(8)?;
-        let expected = match term { JUMP | PARK => 1, BRANCH => 2, RETURN | RAISE => 0, _ => nedges.max(1) };
+        let expected = match term { JUMP | PARK => 1, BRANCH => 2, RETURN | RAISE | RETURNS => 0, _ => nedges.max(1) };
         if nedges != expected { return Err("edge count".into()); }
         let start = g.edges.len() as u32;
         for _ in 0..nedges {
@@ -338,10 +349,10 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
             for _ in 0..len { g.values.push(r.index(nvalues, "edge argument")?); }
             g.edges.push(Edge { target, args });
         }
-        g.blocks.push(Block { params, insts, term, value, constant, edges: Span { start, len: nedges as u32 } });
+        g.blocks.push(Block { params, insts, term, value, constant, count, edges: Span { start, len: nedges as u32 } });
     }
     let nregions = r.count(24)?;
-    if nregions == 0 { return Err("no region tree".into()); }
+    if nregions == 0 && !physical { return Err("no region tree".into()); }
     for _ in 0..nregions {
         let kind = r.word()?;
         if kind > ELSE { return Err("region kind".into()); }
@@ -352,7 +363,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         let merge = r.optional(nblocks, "region merge")?;
         g.regions.push(Region { kind, parent, head, entry, continuing, merge });
     }
-    for _ in 0..nblocks { g.block_region.push(r.index(nregions, "block region")?); }
+    for _ in 0..nblocks { g.block_region.push(if nregions == 0 { let w = r.word()?; if w != NONE { return Err("block region without a tree".into()); } NONE } else { r.index(nregions, "block region")? }); }
     match r.word()? {
         0 => {}
         1 => {
@@ -402,7 +413,7 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
             if (v as usize) < nparams { return Err("function parameter defined again".into()); }
             if defined[v as usize] { return Err(format!("value {v} defined twice")); }
             let key = (g.classes[v as usize] as u32) << 8 | g.slots[v as usize];
-            if occupied.contains(&key) { return Err(format!("overlapping slot hints in block {bid}")); }
+            if occupied.contains(&key) && !g.physical { return Err(format!("overlapping slot hints in block {bid}")); }
             occupied.push(key);
             defined[v as usize] = true;
             owner[v as usize] = bid;
@@ -414,7 +425,11 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
             if g.classes[v as usize] != class { return Err(format!("block {bid}: value {v} is not of class {class}")); }
             Ok(())
         };
-        if bid == 0 && b.params.len != 0 { return Err("entry parameters come from the frame".into()); }
+        if bid == 0 && b.params.len != 0 {
+            // A converted stream reads untyped registers the frame initialized to nil; the entry takes those as parameters.
+            if !g.physical { return Err("entry parameters come from the frame".into()); }
+            for &p in b.params.get(&g.values) { if g.classes[p as usize] != V || g.slots[p as usize] <= nparams as u32 { return Err("entry parameters are frame registers".into()); } }
+        }
         for &p in b.params.get(&g.values) { define(p, &mut owner, &mut defined, &mut occupied)?; }
         for (k, words) in b.insts.get(&g.insts).iter().enumerate() {
             let sig = &table.entries[words[0] as usize];
@@ -446,6 +461,7 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
             RETURN => { if b.value != NONE && (!usable(b.value, &owner) || !matches!(value_class(b.value), F | V | I)) { return Err(format!("block {bid}: return value")); } }
             PARK => { if b.value == NONE || !usable(b.value, &owner) || !matches!(value_class(b.value), F | V) { return Err(format!("block {bid}: park value")); } }
             RAISE => { if b.constant == NONE { return Err(format!("block {bid}: raise without a constant")); } }
+            RETURNS => { if b.value == NONE || !usable(b.value, &owner) || value_class(b.value) != V { return Err(format!("block {bid}: returns window")); } }
             _ => {}
         }
         for e in b.edges.get(&g.edges) {
@@ -457,6 +473,7 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
     if let Some(v) = defined.iter().position(|d| !d) { return Err(format!("value {v} is never defined")); }
     for c in &g.certificates { if c.iter().any(|&v| g.classes[v as usize] != I) { return Err("certificate cites values outside the integer class".into()); } }
     for &k in &g.constants { if k.kind == 8 && k.payload as usize >= nfunctions { return Err("function constant outside the image".into()); } }
+    if g.physical && g.regions.is_empty() { return Ok(()); }
     verify_regions(g)
 }
 
@@ -535,9 +552,9 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
         for (v, &class) in g.classes.iter().enumerate() { if v >= nparams as usize { counts[class as usize] = counts[class as usize].max(g.slots[v] + 1); } }
         counts
     };
-    let physical = |v: u32| -> u32 { if g.classes[v as usize] == V { if v < nparams { v + 1 } else { value_base + g.slots[v as usize] } } else { g.slots[v as usize] } };
-    let scratch = |class: u8| -> u32 { if class == V { value_base + counts[0] } else { counts[class as usize] } };
-    if counts[1] >= 237 || counts[2] >= 237 || counts[3] >= 249 || value_base + counts[0] >= 241 { return Err("graph register capacity".into()); }
+    let physical = |v: u32| -> u32 { if g.physical { g.slots[v as usize] } else if g.classes[v as usize] == V { if v < nparams { v + 1 } else { value_base + g.slots[v as usize] } } else { g.slots[v as usize] } };
+    let scratch = |class: u8| -> u32 { if g.physical { counts[class as usize] } else if class == V { value_base + counts[0] } else { counts[class as usize] } };
+    if !g.physical && (counts[1] >= 237 || counts[2] >= 237 || counts[3] >= 249 || value_base + counts[0] >= 241) { return Err("graph register capacity".into()); }
     let r8 = |n: u32, what: &str| -> Result<u8, String> { u8::try_from(n).map_err(|_| format!("{what} {n} does not fit a register")) };
     let r16 = |n: u32, what: &str| -> Result<u16, String> { u16::try_from(n).map_err(|_| format!("{what} {n} does not fit sixteen bits")) };
     let wide = |n: u32| image.wides[n as usize];
@@ -621,7 +638,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             // Operands in VM order, registers made physical, window bases offset.
             let mut o = [0u32; 7];
             for (i, letter) in sig.operands.bytes().enumerate() {
-                o[i] = match letter { b'v' | b'i' | b'f' | b'x' | b'V' | b'I' | b'F' | b'X' => physical(words[i + 1]), b'w' => value_base + words[i + 1], _ => words[i + 1] };
+                o[i] = match letter { b'v' | b'i' | b'f' | b'x' | b'V' | b'I' | b'F' | b'X' => physical(words[i + 1]), b'w' => if g.physical { words[i + 1] } else { value_base + words[i + 1] }, _ => words[i + 1] };
             }
             let a = |i: usize| -> Result<u8, String> { r8(o[i], sig.name) };
             let h = |i: usize| -> Result<u16, String> { r16(o[i], sig.name) };
@@ -704,9 +721,13 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             BRANCH => {
                 let cond = r8(physical(b.value), "branch condition")?;
                 let test = |off: i32| if g.classes[b.value as usize] == V { Op::JmpIfNot(cond, off) } else { Op::JmpIfIZero(cond, off) };
-                let no = &g.blocks[edges[1].target as usize];
-                let identity = no.params.get(&g.values).iter().zip(edges[1].args.get(&g.values)).all(|(&p, &a)| physical(p) == physical(a));
-                if identity {
+                let same = |e: &Edge| g.blocks[e.target as usize].params.get(&g.values).iter().zip(e.args.get(&g.values)).all(|(&p, &a)| physical(p) == physical(a));
+                let identity = same(&edges[1]);
+                if g.classes[b.value as usize] == V && edges[0].target != next && edges[1].target == next && identity && same(&edges[0]) {
+                    // The false edge falls through: one jump on the true edge.
+                    patches.push((code.len(), edges[0].target));
+                    code.push(Op::JmpIf(cond, 0)); debug.push((0, 0));
+                } else if identity {
                     patches.push((code.len(), edges[1].target));
                     code.push(test(0)); debug.push((0, 0));
                     copies(&mut code, &mut debug, &mut patches, &edges[0], Some(next))?;
@@ -732,6 +753,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
                 for ei in trampolines { targets[ei] = Err(code.len()); copies(&mut code, &mut debug, &mut patches, &edges[ei], None)?; }
                 table_patches.push((at, jump_tables.len() - 1, targets));
             }
+            RETURNS => { code.push(Op::RetN(r8(physical(b.value), "returns window")?, b.count as u8)); debug.push((0, 0)); }
             RAISE => { code.push(Op::Raise(r16(b.constant, "raise constant")?)); debug.push((0, 0)); }
             PARK => {
                 let mut reg = r8(physical(b.value), "park value")?;
@@ -756,7 +778,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
     }
     for (pc, target) in patches {
         let off = starts[target as usize] as i32 - pc as i32 - 1;
-        code[pc] = match code[pc] { Op::Jmp(_) => Op::Jmp(off), Op::JmpIfNot(c, _) => Op::JmpIfNot(c, off), Op::JmpIfIZero(c, _) => Op::JmpIfIZero(c, off), _ => unreachable!() };
+        code[pc] = match code[pc] { Op::Jmp(_) => Op::Jmp(off), Op::JmpIf(c, _) => Op::JmpIf(c, off), Op::JmpIfNot(c, _) => Op::JmpIfNot(c, off), Op::JmpIfIZero(c, _) => Op::JmpIfIZero(c, off), _ => unreachable!() };
     }
     for (pc, t, targets) in table_patches {
         let offsets: Vec<i32> = targets.iter().map(|t| match *t { Ok(block) => starts[block as usize], Err(at) => at } as i32 - pc as i32 - 1).collect();
@@ -779,10 +801,10 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
         code,
         consts,
         nparams: nparams as u8,
-        nregs: (value_base + if counts[0] > 0 { counts[0] + 1 } else { 0 } + 9) as u8,
-        nireg: nf,
-        nfreg: nf,
-        nvreg: (counts[3] + 1) as u8,
+        nregs: if g.physical { g.registers[0] as u8 } else { (value_base + if counts[0] > 0 { counts[0] + 1 } else { 0 } + 9) as u8 },
+        nireg: if g.physical { g.registers[1] as u8 } else { nf },
+        nfreg: if g.physical { g.registers[1] as u8 } else { nf },
+        nvreg: if g.physical { g.registers[2] as u8 } else { (counts[3] + 1) as u8 },
         jump_tables,
         debug,
         vararg: g.vararg,
@@ -860,7 +882,8 @@ mod tests {
         word(&mut out, NONE); // entry
         word(&mut out, 1); // functions
         word(&mut out, 0); word(&mut out, 1); word(&mut out, NONE); // name, module, path
-        word(&mut out, 1); word(&mut out, 0); word(&mut out, 2); word(&mut out, b'v' as u32); word(&mut out, 0); // nparams, vararg, sig, ret, map
+        word(&mut out, 1); word(&mut out, 0); word(&mut out, 2); word(&mut out, b'v' as u32); word(&mut out, 0); // nparams, vararg, sig, ret, flags
+        word(&mut out, 0); word(&mut out, 0); word(&mut out, 0); // registers: the slots decide
         word(&mut out, 1); word(&mut out, 3); word(&mut out, 0); // one numeric constant
         word(&mut out, 1); word(&mut out, 7); word(&mut out, 3); // one position
         word(&mut out, 0); // certificates
@@ -871,10 +894,10 @@ mod tests {
         word(&mut out, 2); // two instructions
         word(&mut out, 3); word(&mut out, 1); word(&mut out, 0); word(&mut out, 0); word(&mut out, NONE); // K v1 k0, at position 0
         word(&mut out, 4); word(&mut out, 2); word(&mut out, 0); word(&mut out, 1); word(&mut out, NONE); word(&mut out, NONE); // Add v2 v0 v1
-        word(&mut out, JUMP); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, 1); word(&mut out, 1); word(&mut out, 1); word(&mut out, 2); // jump 1(v2)
+        word(&mut out, JUMP); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, 1); word(&mut out, 1); word(&mut out, 1); word(&mut out, 2); // jump 1(v2)
         word(&mut out, 1); word(&mut out, 3); // block 1: param v3
         word(&mut out, 0); // no instructions
-        word(&mut out, RETURN); word(&mut out, 3); word(&mut out, NONE); word(&mut out, 0);
+        word(&mut out, RETURN); word(&mut out, 3); word(&mut out, NONE); word(&mut out, NONE); word(&mut out, 0);
         word(&mut out, 1); word(&mut out, BODY); word(&mut out, NONE); word(&mut out, 0); word(&mut out, 0); word(&mut out, NONE); word(&mut out, NONE); // one region
         word(&mut out, 0); word(&mut out, 0); // block regions
         word(&mut out, 0); // no gpu
@@ -922,11 +945,11 @@ mod tests {
         let add = find(&[4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]);
         assert!(patch(add + 12, 2).unwrap_err().contains("closed block"));
         // The jump's argument names block 1's own parameter.
-        let jump = find(&[JUMP as u8, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]);
-        assert!(patch(jump + 24, 3).unwrap_err().contains("closed block"));
+        let jump = find(&[JUMP as u8, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0]);
+        assert!(patch(jump + 28, 3).unwrap_err().contains("closed block"));
         // Edge arity.
-        assert!(patch(jump + 20, 0).unwrap_err().contains("edge argument") || patch(jump + 20, 0).is_err());
+        assert!(patch(jump + 24, 0).unwrap_err().contains("edge argument") || patch(jump + 24, 0).is_err());
         // The target becomes the entry block.
-        assert!(patch(jump + 16, 0).unwrap_err().contains("entry"));
+        assert!(patch(jump + 20, 0).unwrap_err().contains("entry"));
     }
 }

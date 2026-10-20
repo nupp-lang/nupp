@@ -1,0 +1,590 @@
+module nupp.compiler.vm.convert
+
+--[[
+The closed-block graph of a function the lowering has finished.
+
+The lowering still writes a linear instruction stream over mutable registers.
+This pass reads that stream and builds the graph the image persists: blocks
+at every jump target, each taking the registers live at its entry as
+parameters, every definition a value of its own, and the physical register as
+every value's slot, so the stream the runtime derives from the graph is the
+stream the lowering wrote. Definitions, uses and control flow come from the
+opcode table, so no instruction is described twice. A graph built here carries
+no region tree: regions describe structure a frontend authored, and only the
+kernels the GPU emitters consume have one.
+]]
+
+local G = require("nupp.compiler.vm.graph")
+local opcodes = require("nupp.compiler.vm.opcodes")
+
+local convert = {}
+
+local classIndex = {v = 1, i = 2, f = 3, x = 4}
+local classNames = {"v", "i", "f", "x"}
+
+--- One opcode's operand shape, parsed once: register operands with their
+--- modes, the jump operand, the windows, and how control leaves.
+local shapes: {[string]: any} = {}
+
+local function parseWindow(text: string): any
+    local class, mode, base, offset, count, formula = text:match("^([vifx]):(%a+)@(%d+)%+(%d+):(%d+):(%w+)$")
+    if class == nil then
+        error("window specification: " .. text, 0)
+    end
+
+    return {
+        class = class,
+        mode = mode,
+        base = tonumber(base) as integer,
+        offset = tonumber(offset) as integer,
+        count = tonumber(count) as integer,
+        formula = formula
+    }
+end
+
+local function shape(name: string): any
+    local cached = shapes[name]
+    if cached then
+        return cached
+    end
+    local described = opcodes.describe(name)
+    if described == nil then
+        error("unknown opcode " .. name, 0)
+    end
+    local operands = {}
+    local jump = 0
+    for i = 1, #described.operands do
+        local operand = described.operands[i]
+        operands[i] = {class = operand.class, mode = operand.mode, kind = operand.kind}
+        if operand.class == "j" then
+            jump = i
+        end
+    end
+    local windows = {}
+    for i = 1, #described.windows do
+        windows[i] = parseWindow(described.windows[i])
+    end
+    cached = {
+        operands = operands,
+        windows = windows,
+        jump = jump,
+        flow = described.flow,
+        frame = described.frame == true
+    }
+    shapes[name] = cached
+
+    return cached
+end
+
+local function fixedArgs(n: integer): integer
+    if n >= 128 then
+        return n % 128
+    end
+
+    return n % 64
+end
+
+local function callArgs(n: integer): integer
+    local fixed = fixedArgs(n)
+    if n < 128 and math.floor(n / 64) % 2 == 1 then
+        return fixed + 8
+    end
+
+    return fixed
+end
+
+local function simdResults(op: any, argc: integer): integer
+    if op == "transpose" then
+        return argc
+    elseif op == "interleave" or op == "deinterleave" or op == "loadPairs" then
+        return 2
+    elseif op == "loadTriples" then
+        return 3
+    elseif op == "loadQuads" then
+        return 4
+    end
+
+    return 1
+end
+
+local function windowSize(window: any, ins: any): integer
+    local n = ins[window.count + 1]
+    if type(n) == "string" then
+        n = tonumber(n)
+    end
+    local count = n as integer
+    local formula = window.formula
+    if formula == "n" then
+        return count
+    elseif formula == "minus1" then
+        return math.max(count - 1, 0)
+    elseif formula == "fixed" then
+        return fixedArgs(count)
+    elseif formula == "fixedmax1" then
+        return math.max(fixedArgs(count), 1)
+    elseif formula == "callargs" then
+        return callArgs(count)
+    elseif formula == "callargs1" then
+        return callArgs(count) + 1
+    elseif formula == "retn" then
+        local k = count
+        if count >= 128 then
+            k = count % 128 + 8
+        end
+
+        return math.max(k, 1)
+    elseif formula == "simdresults" then
+        return simdResults(ins[2], count)
+    elseif formula == "simdspan" then
+        return math.max(count + 1, simdResults(ins[2], count))
+    end
+    error("window formula " .. tostring(formula), 0)
+end
+
+--- A register operand's class, which a kind operand may decide.
+local function registerClass(operand: any, ins: any): string?
+    local class = operand.class
+    if class == "v" or class == "i" or class == "f" or class == "x" then
+        return class
+    end
+    if operand.kind then
+        local kind = ins[(operand.kind as integer) + 1]
+        return (tonumber(kind) or 0) >= 8 and "f" or "i"
+    end
+
+    return nil
+end
+
+--- The registers an instruction defines and reads, as `class * 256 + register`
+--- keys, with the register operands that are also results.
+local function defsUses(ins: any, everyRegister: {integer}?): ({integer}, {integer})
+    local s = shape(ins[1])
+    local defs, uses = {}, {}
+    local operands = s.operands
+    for i = 1, #operands do
+        local operand = operands[i]
+        local class = registerClass(operand, ins)
+        if class then
+            local key = classIndex[class] * 256 + (ins[i + 1] as integer)
+            local mode = operand.mode
+            if mode == "def" then
+                defs[#defs + 1] = key
+            elseif mode == "both" then
+                uses[#uses + 1] = key
+                defs[#defs + 1] = key
+            elseif mode == "use" then
+                uses[#uses + 1] = key
+            end
+        end
+    end
+    local windows = s.windows
+    for i = 1, #windows do
+        local window = windows[i]
+        local mode = window.mode
+        if mode ~= "check" then
+            local base = (ins[window.base + 1] as integer) + window.offset
+            local size = windowSize(window, ins)
+            local into = (mode == "def" or mode == "defs") and defs or uses
+            for r = base, base + size - 1 do
+                into[#into + 1] = classIndex[window.class] * 256 + r
+            end
+        end
+    end
+    if s.frame and everyRegister then
+        for i = 1, #everyRegister do
+            uses[#uses + 1] = everyRegister[i]
+        end
+    end
+
+    return defs, uses
+end
+
+convert.defsUses = defsUses
+
+--- The pcs an instruction at `pc` may continue at.
+--- @raises string for a switch, whose table the converter does not follow.
+local function successors(ins: any, pc: integer, n: integer): {integer}
+    local s = shape(ins[1])
+    local flow = s.flow
+    if flow == "stop" then
+        return {}
+    elseif flow == "table" then
+        error("switch tables are not converted", 0)
+    end
+    local out = {}
+    if flow == "next" or flow == "branch" then
+        if pc + 1 <= n then
+            out[#out + 1] = pc + 1
+        end
+    end
+    if flow == "branch" or flow == "jump" then
+        local target = pc + 1 + (ins[s.jump + 1] as integer)
+        if target >= 1 and target <= n + 1 then
+            out[#out + 1] = target
+        end
+    end
+
+    return out
+end
+
+--- The graph of a lowered function: `f` is the lowering's record, with its
+--- finished code, constants and register counts.
+--- @raises string when the stream reads a register no path defined, or holds
+--- an instruction the graph has no terminator for.
+function convert.graph(f: any): any
+    local code = f.code
+    local n = #code
+    local nparams = f.nparams
+    -- Block starts: the entry, every jump target, every instruction after a
+    -- branch, jump or stop.
+    local starts = {[1] = true}
+    for pc = 1, n do
+        local s = shape(code[pc][1])
+        if s.flow ~= "next" then
+            if pc + 1 <= n then
+                starts[pc + 1] = true
+            end
+            if s.jump > 0 then
+                local target = pc + 1 + (code[pc][s.jump + 1] as integer)
+                if target <= n then
+                    starts[target] = true
+                end
+            end
+        end
+    end
+    local blockOf, first, last = {}, {}, {}
+    local nblocks = 0
+    for pc = 1, n do
+        if starts[pc] then
+            nblocks = nblocks + 1
+            first[nblocks] = pc
+            if nblocks > 1 then
+                last[nblocks - 1] = pc - 1
+            end
+        end
+        blockOf[pc] = nblocks
+    end
+    last[nblocks] = n
+    -- Every register any instruction defines, for the frame operations that
+    -- read every register.
+    local everyRegister, everySeen = {}, {}
+    for pc = 1, n do
+        local defs = defsUses(code[pc])
+        for i = 1, #defs do
+            if not everySeen[defs[i]] then
+                everySeen[defs[i]] = true
+                everyRegister[#everyRegister + 1] = defs[i]
+            end
+        end
+    end
+    -- Parameters are defined at entry.
+    for r = 1, nparams do
+        local key = 256 + r
+        if not everySeen[key] then
+            everySeen[key] = true
+            everyRegister[#everyRegister + 1] = key
+        end
+    end
+    -- Per block: its instructions' definitions and uses, and successors.
+    local blockDefs, blockUses, blockSucc = {}, {}, {}
+    for b = 1, nblocks do
+        local defined, upward = {}, {}
+        local order = {}
+        for pc = first[b], last[b] do
+            local defs, uses = defsUses(code[pc], everyRegister)
+            for i = 1, #uses do
+                local key = uses[i]
+                if not defined[key] and not upward[key] then
+                    upward[key] = true
+                    order[#order + 1] = key
+                end
+            end
+            for i = 1, #defs do
+                defined[defs[i]] = true
+            end
+        end
+        blockDefs[b], blockUses[b] = defined, order
+        local succ = {}
+        for _, pc in ipairs(successors(code[last[b]], last[b], n)) do
+            succ[#succ + 1] = blockOf[pc] or (nblocks + 1)
+        end
+        blockSucc[b] = succ
+    end
+    -- Live-in registers per block, by backward iteration to a fixed point.
+    local liveIn = {}
+    for b = 1, nblocks do
+        liveIn[b] = {}
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for b = nblocks, 1, -1 do
+            local live = liveIn[b]
+            local succ = blockSucc[b]
+            for si = 1, #succ do
+                local s = succ[si]
+                if s <= nblocks then
+                    for key in pairs(liveIn[s]) do
+                        if not blockDefs[b][key] and not live[key] then
+                            live[key] = true
+                            changed = true
+                        end
+                    end
+                end
+            end
+            local uses = blockUses[b]
+            for i = 1, #uses do
+                if not live[uses[i]] then
+                    live[uses[i]] = true
+                    changed = true
+                end
+            end
+        end
+    end
+    -- Blocks no path reaches have no place in a graph; the lowering drops
+    -- them before writing, so the stream and the graph agree.
+    local reachable = {}
+    local stack = {1}
+    while #stack > 0 do
+        local b = table.remove(stack)
+        if b <= nblocks and not reachable[b] then
+            reachable[b] = true
+            local succ = blockSucc[b]
+            for si = 1, #succ do
+                stack[#stack + 1] = succ[si]
+            end
+        end
+    end
+    -- The graph: physical slots, parameters as the fixed first value ids.
+    local g = G.new(nparams)
+    g.physical = true
+    g.name, g.module, g.sig, g.ret, g.vararg = f.name, f.module, table.concat(f.sig or {}), f.ret
+        or "v", f.vararg == true
+    g.registers = {math.max(f.maxRegs or 0, f.nregs) + 9, math.max(f.maxFregs or 0, f.nfregs) + 2, f.nvregs or 2}
+    g.counts = {v = g.registers[1] + 1, i = g.registers[2] + 1, f = g.registers[2] + 1, x = g.registers[3] + 1}
+    g.gpu = f.gpu
+    for i = 1, #f.consts do
+        local c = f.consts[i]
+        g.constants[i] = {kind = c.kind, value = c.value}
+    end
+    local positions = {}
+
+    local function position(line: integer?): integer
+        if line == nil or line == 0 then
+            return 0
+        end
+        local at = positions[line]
+        if at == nil then
+            at = G.position(g, line, 0)
+            positions[line] = at
+        end
+
+        return at
+    end
+
+    -- The entry's parameters are already values; the untyped registers above
+    -- them the frame initializes to nil, and the entry block takes those as
+    -- frame values. A typed register read before any write is a lowering bug.
+    local frameKeys = {}
+    for key in pairs(liveIn[1]) do
+        if key > 256 + nparams then
+            if key >= 512 then
+                error(
+                    (
+                        "%s: %s%d is read before any write"
+                    ):format(f.name, classNames[math.floor(key / 256)], (key % 256) as integer),
+                    0
+                )
+            end
+            frameKeys[#frameKeys + 1] = key
+        end
+    end
+    table.sort(frameKeys)
+    -- A loop that starts at the first instruction jumps to the entry, which
+    -- no edge may enter: an empty entry block then jumps to it, which the
+    -- derivation elides.
+    local looped = false
+    for b = 1, nblocks do
+        if reachable[b] then
+            local succ = blockSucc[b]
+            for si = 1, #succ do
+                if succ[si] == 1 then
+                    looped = true
+                end
+            end
+        end
+    end
+    local preamble = nil
+    if looped then
+        preamble = G.block(g)
+    end
+    local blocks = {}
+    for b = 1, nblocks do
+        if reachable[b] then
+            blocks[b] = G.block(g)
+        end
+    end
+    local exit = nil
+    if reachable[nblocks + 1] then
+        -- Reachable only by a jump past the last instruction.
+        exit = G.block(g)
+        exit.term = {kind = "return", edges = {}}
+    end
+
+    local function idOf(b: integer): integer
+        return b <= nblocks and blocks[b].id or exit.id
+    end
+
+    local paramKeys = {}
+    for b = 1, nblocks do
+        if reachable[b] then
+            local keys = {}
+            if b > 1 or looped then
+                for key in pairs(liveIn[b]) do
+                    keys[#keys + 1] = key
+                end
+                table.sort(keys)
+            else
+                keys = frameKeys
+            end
+            paramKeys[b] = keys
+            for i = 1, #keys do
+                local key = keys[i]
+                local class, reg = classNames[math.floor(key / 256)], (key % 256) as integer
+                blocks[b].params[i] = G.value(g, class, reg)
+            end
+        end
+    end
+    paramKeys[nblocks + 1] = {}
+    if preamble then
+        for i = 1, #frameKeys do
+            preamble.params[i] = G.value(g, "v", (frameKeys[i] % 256) as integer)
+        end
+    end
+    for b = 0, nblocks do
+        local block = b == 0 and preamble or blocks[b]
+        if block == nil then
+            goto continue
+        end
+        local current = {{}, {}, {}, {}}
+        for r = 1, nparams do
+            current[1][r] = r
+        end
+        local keys = b == 0 and frameKeys or paramKeys[b]
+        for i = 1, #keys do
+            current[math.floor(keys[i] / 256)][(keys[i] % 256) as integer] = block.params[i]
+        end
+
+        local function read(class: string, reg: integer): integer
+            local v = current[classIndex[class]][reg]
+            if v == nil then
+                error(("%s: block %d reads %s%d before any path defines it"):format(f.name, b, class, reg), 0)
+            end
+
+            return v
+        end
+
+        local function edge(target: integer): any
+            local args = {}
+            local targetKeys = paramKeys[target]
+            for i = 1, #targetKeys do
+                local key = targetKeys[i]
+                args[i] = read(classNames[math.floor(key / 256)], (key % 256) as integer)
+            end
+
+            return {target = idOf(target), args = args}
+        end
+
+        if b == 0 then
+            block.term = {kind = "jump", edges = {edge(1)}}
+            goto continue
+        end
+
+        for pc = first[b], last[b] do
+            local ins = code[pc]
+            local op = ins[1]
+            local s = shape(op)
+            local flow = s.flow
+            local isLast = pc == last[b]
+            local following = blockOf[pc + 1] or (nblocks + 1)
+            if isLast and flow ~= "next" then
+                if op == "Jmp" then
+                    block.term = {kind = "jump", edges = {edge(blockOf[pc + 1 + (ins[2] as integer)])}}
+                elseif op == "JmpIf" or op == "JmpIfNot" or op == "JmpIfIZero" then
+                    local value = read(op == "JmpIfIZero" and "i" or "v", ins[2] as integer)
+                    local target = blockOf[pc + 1 + (ins[3] as integer)]
+                    local taken, fall = edge(target), edge(following)
+                    if op == "JmpIf" then
+                        block.term = {kind = "branch", value = value, edges = {taken, fall}}
+                    else
+                        block.term = {kind = "branch", value = value, edges = {fall, taken}}
+                    end
+                elseif op == "Ret" then
+                    block.term = {kind = "return", value = read("v", ins[2] as integer), edges = {}}
+                elseif op == "FRet" then
+                    block.term = {kind = "return", value = read("f", ins[2] as integer), edges = {}}
+                elseif op == "RetNil" then
+                    block.term = {kind = "return", edges = {}}
+                elseif op == "RetN" then
+                    block.term = {kind = "returns", value = read("v", ins[2] as integer), count = ins[3], edges = {}}
+                elseif op == "Raise" then
+                    block.term = {kind = "raise", constant = ins[2], edges = {}}
+                elseif op == "Park" then
+                    block.term = {kind = "park", value = read("v", ins[2] as integer), edges = {edge(following)}}
+                else
+                    error(f.name .. ": no terminator for " .. op, 0)
+                end
+            else
+                -- Arguments in signature order: every operand but the result.
+                local sig = G.signatures[op]
+                if sig == nil then
+                    error("no graph signature for " .. op, 0)
+                end
+                local args, argAt, dstSlot, dstClass = {}, 0, nil, nil
+                local operands = s.operands
+                for i = 1, #operands do
+                    local operand = operands[i]
+                    local value = ins[i + 1]
+                    if i == sig.resultAt then
+                        dstSlot = value as integer
+                        dstClass = registerClass(operand, ins)
+                    else
+                        argAt = argAt + 1
+                        local class = registerClass(operand, ins)
+                        if class and operand.mode ~= "none" and operand.mode ~= "check" then
+                            args[argAt] = read(class, value as integer)
+                        elseif class then
+                            -- A window base: the slot the stream names.
+                            args[argAt] = value
+                        else
+                            args[argAt] = value
+                        end
+                    end
+                end
+                local id = G.emit(g, block, op, args, position(ins.line), nil, dstSlot)
+                if id ~= nil and dstClass then
+                    current[classIndex[dstClass]][dstSlot as integer] = id
+                end
+                -- Window definitions and read-and-written operands change the
+                -- registers' values without a value id of their own in the
+                -- instruction; the next read sees a fresh value on that slot.
+                local defs = defsUses(ins)
+                for i = 1, #defs do
+                    local key = defs[i]
+                    local class, reg = math.floor(key / 256), (key % 256) as integer
+                    if not (dstClass and class == classIndex[dstClass] and reg == dstSlot) then
+                        current[class][reg] = G.value(g, classNames[class], reg)
+                    end
+                end
+                if isLast then
+                    block.term = {kind = "jump", edges = {edge(following)}}
+                end
+            end
+        end
+        ::continue::
+    end
+
+    return g
+end
+
+export = convert

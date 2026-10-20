@@ -247,6 +247,52 @@ fn typed(prefix: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `graph_gate image PREFIX`: PREFIX.image (the text the lowering wrote) and
+/// PREFIX.graph (the same functions converted to graphs); every derived
+/// function must equal the lowered one instruction for instruction.
+fn image_gate(prefix: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(format!("{prefix}.image")).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(format!("{prefix}.graph")).map_err(|e| e.to_string())?;
+    let decoded = graph::decode(&bytes)?;
+    let mut vm = Interp::new();
+    let (_, shape_ids) = image::load_with_shapes(&mut vm, &text)?;
+    let start = Instant::now();
+    let derived = graph::derive_all(&mut vm, &decoded, 0, &shape_ids)?;
+    let derive_us = us(start);
+    if derived.len() != vm.funcs.len() {
+        let names = |fs: &[Function]| fs.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(" ");
+        return Err(format!("{} graphs against {} lowered functions\ngraphs: {}\nlowered: {}", derived.len(), vm.funcs.len(), names(&derived), names(&vm.funcs)));
+    }
+    let mut instructions = 0;
+    let mut blocks = 0;
+    let mut params = 0;
+    let mut failures = 0;
+    for (i, (d, g)) in derived.iter().zip(&decoded.functions).enumerate() {
+        let old = &vm.funcs[i];
+        if d.name != old.name { return Err(format!("function {i}: graph {} against lowered {}", d.name, old.name)); }
+        let (a, b): (Vec<String>, Vec<String>) = (d.code.iter().map(|o| format!("{o:?}")).collect(), old.code.iter().map(|o| format!("{o:?}")).collect());
+        if a != b {
+            // Every differing function, so one run shows every gap.
+            let at = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+            let window = |s: &[String]| s[at.saturating_sub(3)..(at + 4).min(s.len())].join("; ");
+            eprintln!("{}: derived stream differs at pc {at}: derived {:?} vs lowered {:?}\n  derived: {}\n  lowered: {}", d.name, a.get(at), b.get(at), window(&a), window(&b));
+            failures += 1;
+            continue;
+        }
+        if (d.nregs, d.nireg, d.nfreg, d.nvreg, d.nparams) != (old.nregs, old.nireg, old.nfreg, old.nvreg, old.nparams) {
+            eprintln!("{}: register counts {:?} vs {:?}", d.name, (d.nregs, d.nireg, d.nfreg, d.nvreg), (old.nregs, old.nireg, old.nfreg, old.nvreg));
+            failures += 1;
+            continue;
+        }
+        instructions += d.code.len();
+        blocks += g.blocks.len();
+        params += g.blocks.iter().map(|b| b.params.len as usize).sum::<usize>();
+    }
+    if failures > 0 { return Err(format!("{failures} of {} functions differ", derived.len())); }
+    println!("{}", serde_json::json!({"functions": derived.len(), "instructions": instructions, "blocks": blocks, "parameters": params, "graph_bytes": bytes.len(), "text_bytes": text.len(), "derive_us": derive_us}));
+    Ok(())
+}
+
 fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     let bytes = std::fs::read(graph_path).map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(text_path).map_err(|e| e.to_string())?;
@@ -290,7 +336,8 @@ fn main() -> Result<(), String> {
     match args.get(1).map(String::as_str) {
         Some("scalar") => scalar(args.get(2).ok_or("PREFIX")?, std::path::Path::new(args.get(3).ok_or("OUT")?)),
         Some("typed") => typed(args.get(2).ok_or("PREFIX")?),
+        Some("image") => image_gate(args.get(2).ok_or("PREFIX")?),
         Some("size") => size(args.get(2).ok_or("GRAPH")?, args.get(3).ok_or("TEXT")?, args.get(4).ok_or("OUT")?),
-        _ => Err("usage: graph_gate (scalar PREFIX OUT | typed PREFIX | size GRAPH TEXT OUT)".into()),
+        _ => Err("usage: graph_gate (scalar PREFIX OUT | typed PREFIX | image PREFIX | size GRAPH TEXT OUT)".into()),
     }
 }

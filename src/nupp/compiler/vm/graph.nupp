@@ -227,7 +227,7 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
     return id
 end
 
-local edgeCounts = {jump = 1, branch = 2, ["return"] = 0, raise = 0, park = 1}
+local edgeCounts = {jump = 1, branch = 2, ["return"] = 0, returns = 0, raise = 0, park = 1}
 
 function graph.verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
@@ -253,7 +253,9 @@ function graph.verify(g: any): nil
             error("assertion failed", 0)
         end
         local key = classBase[ty] + slot
-        if not (not occupied[key]) then
+        -- A converted stream names physical registers, which it reuses once
+        -- a value is dead; its slots are facts, not hints.
+        if occupied[key] and not g.physical then
             error("overlapping graph slot hints", 0)
         end
         occupied[key] = true
@@ -285,9 +287,16 @@ function graph.verify(g: any): nil
             end
             define(params[i])
         end
-        if index == 1 then
-            if not (#params == 0) then
+        if index == 1 and #params > 0 then
+            -- A converted stream reads untyped registers the frame
+            -- initialized to nil; the entry takes those as parameters.
+            if not g.physical then
                 error("entry parameters come from the frame", 0)
+            end
+            for i = 1, #params do
+                if not (types[params[i]] == "v" and slots[params[i]] > nparams) then
+                    error("entry parameters are frame registers", 0)
+                end
             end
         end
         for i = 1, #ops do
@@ -359,6 +368,10 @@ function graph.verify(g: any): nil
         elseif kind == "park" then
             if not (usable(t.value) and (types[t.value] == "f" or types[t.value] == "v")) then
                 error("graph park value", 0)
+            end
+        elseif kind == "returns" then
+            if not (t.value and usable(t.value) and types[t.value] == "v" and type(t.count) == "number") then
+                error("graph returns window", 0)
             end
         elseif kind == "raise" then
             if not (t.constant >= 0 and t.constant < #g.constants) then
@@ -688,7 +701,7 @@ function graph.lower(g: any): any
 
     local function physical(v: integer): any
         local ty = types[v]
-        if ty == "v" then
+        if ty == "v" and not g.physical then
             return v <= nparams and v or valueBase + slots[v]
         end
 
@@ -696,6 +709,10 @@ function graph.lower(g: any): any
     end
 
     local function scratch(ty: string): integer
+        if g.physical then
+            return (counts[ty] - 1) as integer
+        end
+
         return ty == "v" and valueBase + counts.v or counts[ty]
     end
 
@@ -806,7 +823,7 @@ function graph.lower(g: any): any
                     if classes[letter] then
                         ins[#ins + 1] = physical(arg)
                     elseif letter == "w" then
-                        ins[#ins + 1] = valueBase + arg
+                        ins[#ins + 1] = g.physical and arg or valueBase + arg
                     else
                         ins[#ins + 1] = arg
                     end
@@ -856,12 +873,30 @@ function graph.lower(g: any): any
             copies(t.edges[1], b.id + 1)
         elseif t.kind == "branch" then
             local test = types[t.value] == "v" and "JmpIfNot" or "JmpIfIZero"
-            local identity = true
-            local noParams = blocks[t.edges[2].target].params
-            for i = 1, #noParams do
-                identity = identity and physical(noParams[i]) == physical(t.edges[2].args[i])
+
+            local function same(e: any): boolean
+                local params = blocks[e.target].params
+                for i = 1, #params do
+                    if physical(params[i]) ~= physical(e.args[i]) then
+                        return false
+                    end
+                end
+
+                return true
             end
-            if identity then
+
+            local identity = same(t.edges[2])
+            if types[t.value] == "v"
+                and t.edges[1].target ~= b.id + 1
+                and t.edges[2].target == b.id + 1
+                and identity
+                and same(t.edges[1])
+            then
+                -- The false edge falls through: one jump on the true edge.
+                patches[
+                    #patches + 1
+                ] = {at = emit("JmpIf", physical(t.value), 0), target = t.edges[1].target, field = 3}
+            elseif identity then
                 patches[#patches + 1] = {at = emit(test, physical(t.value), 0), target = t.edges[2].target, field = 3}
                 copies(t.edges[1], b.id + 1)
             else
@@ -900,6 +935,8 @@ function graph.lower(g: any): any
             end
         elseif t.kind == "raise" then
             emit("Raise", t.constant)
+        elseif t.kind == "returns" then
+            emit("RetN", physical(t.value), t.count)
         elseif t.kind == "park" then
             local v = t.value
             local reg = physical(v)

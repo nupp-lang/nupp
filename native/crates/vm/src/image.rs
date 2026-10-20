@@ -7,6 +7,17 @@ use crate::value::Value;
 
 pub fn load(it: &mut Interp, text: &str) -> Result<u32, String> { load_with(it, text, false) }
 
+/// Loads an image and also returns the heap shape ids its `shape` lines
+/// resolved to, in line order: what a graph image of the same functions
+/// names by index.
+pub fn load_with_shapes(it: &mut Interp, text: &str) -> Result<(u32, Vec<u32>), String> {
+    let scope = it.open_scope();
+    let r = parse(it, text, None).map(|parsed| { let shapes = parsed.shape_ids.clone(); (install(it, parsed), shapes) });
+    it.close_scope(scope);
+    if r.is_ok() { it.code_events.push(crate::persist::CodeEvent::Image(text.to_owned())); }
+    r
+}
+
 /// Loads a dynamic image only when this host can execute its instructions.
 pub fn load_plugin(it: &mut Interp, text: &str) -> Result<u32, String> {
     load_with(it, text, !it.simd_interpret)

@@ -12,12 +12,12 @@ local G = require("nupp.compiler.vm.graph")
 local image = {}
 
 image.MAGIC = "NUPPGRAF"
-image.VERSION = 1
+image.VERSION = 2
 
 local NONE = 4294967295
 image.NONE = NONE
 
-local termKinds = {jump = 0, branch = 1, switch = 2, ["return"] = 3, raise = 4, park = 5}
+local termKinds = {jump = 0, branch = 1, switch = 2, ["return"] = 3, raise = 4, park = 5, returns = 6}
 local regionKinds = {body = 0, loop = 1, ["then"] = 2, ["else"] = 3}
 local constantKinds = {
     ["nil"] = 0,
@@ -109,7 +109,9 @@ function image.encode(img: any): string
         return at
     end
 
-    local function wide(n: number): integer
+    local function wide(given: number | string): integer
+        -- The lowering spells wide immediates as decimal text.
+        local n = type(given) == "string" and (tonumber(given as string) as number) or given as number
         local at = wideIndex[n]
         if at == nil then
             at = nwides
@@ -196,7 +198,9 @@ function image.encode(img: any): string
     for fi = 1, #functions do
         local g = functions[fi]
         G.verify(g)
-        local regions = G.regions(g)
+        -- A converted stream carries no region tree: regions describe
+        -- structure a frontend authored, and only kernels have one.
+        local regions = g.physical and {count = 0, blockRegion = {}} or G.regions(g)
         word(str(g.name))
         word(str(g.module or ""))
         optional(g.path)
@@ -204,7 +208,13 @@ function image.encode(img: any): string
         word(g.vararg and 1 or 0)
         word(str(g.sig or string.rep("v", g.nparams)))
         word(string.byte(g.ret or "v"))
-        word(g.map and 1 or 0)
+        -- Flags: 1 a map kernel, 2 physical slots; then the frame's register
+        -- counts as the text header spells them, zero when the slots decide.
+        word((g.map and 1 or 0) + (g.physical and 2 or 0))
+        local registers = g.registers or {0, 0, 0}
+        word(registers[1])
+        word(registers[2])
+        word(registers[3])
         local constants = g.constants
         word(#constants)
         for i = 1, #constants do
@@ -288,6 +298,7 @@ function image.encode(img: any): string
             word(assert(termKinds[t.kind], "unknown terminator"))
             word(t.value and t.value - 1 or NONE)
             word(t.constant or NONE)
+            word(t.count or NONE)
             local edges = t.edges
             word(#edges)
             for ei = 1, #edges do
@@ -309,7 +320,7 @@ function image.encode(img: any): string
             word(regions.merges[r] == 0 and NONE or regions.merges[r] - 1)
         end
         for bi = 1, #blocks do
-            word(regions.blockRegion[bi] - 1)
+            word(regions.count == 0 and NONE or regions.blockRegion[bi] - 1)
         end
         local gpu = g.gpu
         if gpu then
