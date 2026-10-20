@@ -1,0 +1,172 @@
+module nupp.experiment.typedcfg.wgsl
+
+local maps = require("nupp.experiment.typedcfg.map")
+local regions = require("nupp.experiment.typedcfg.regions")
+local wgsl = {}
+
+-- The graph is consumed directly, with the existing GPU buffer/uniform ABI.
+-- Edges assign block parameters simultaneously; no slot hints are needed here.
+function wgsl.emit(g: any, symbol: string): (string, any)
+    local abi = maps.verify(g)
+    local lines, depth = {}, 0
+
+    local function line(s: string): nil
+        lines[#lines + 1] = string.rep("    ", depth) .. s
+    end
+
+    local function value(id: integer): string
+        return "v" .. id
+    end
+
+    local function buffer(p: integer): string
+        return "buffer_" .. p
+    end
+
+    local function count(p: integer): string
+        return "uniforms.count_" .. p
+    end
+
+    local function offset(p: integer): string
+        return "uniforms.offset_" .. p
+    end
+
+    line("struct Uniforms {")
+    depth = 1
+    line("count: u32,")
+    for _, p in ipairs(abi.spans) do
+        line("count_" .. p .. ": u32,")
+    end
+    for _, p in ipairs(abi.spans) do
+        line("offset_" .. p .. ": u32,")
+    end
+    for _, p in ipairs(abi.uniforms) do
+        line("param_" .. p .. ": u32,")
+    end
+    depth = 0
+    line("}")
+    for i, p in ipairs(abi.spans) do
+        line(
+            "@group(0) @binding(" .. i - 1 .. ") var<storage, " .. (
+                g.parameters[p].write and "read_write" or "read"
+            ) .. "> " .. buffer(p) .. ": array<u32>;"
+        )
+    end
+    line("@group(0) @binding(" .. #abi.spans .. ") var<uniform> uniforms: Uniforms;")
+    line("@compute @workgroup_size(256)")
+    line(
+        "fn "
+        .. symbol
+        .. "(@builtin(global_invocation_id) global_id: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {"
+    )
+    depth = 1
+    line("let row_width = groups.x * 256u;")
+    line(
+        "if (global_id.y > uniforms.count / row_width || (global_id.y == uniforms.count / row_width && global_id.x >= uniforms.count % row_width)) { return; }"
+    )
+    line("let dispatch_index = global_id.y * row_width + global_id.x;")
+    -- Retain the map's count preconditions on the device. The host remains
+    -- responsible for validating storage extents and view offsets.
+    for _, p in ipairs(abi.spans) do
+        line("if (" .. count(p) .. " != uniforms.count) { return; }")
+    end
+    for id = 1, #g.types do
+        assert(g.types[id] == "i", "uint32 map value class")
+        line("var " .. value(id) .. ": u32;")
+    end
+    local edgeSerial = 0
+
+    local function copies(e: any): nil
+        edgeSerial = edgeSerial + 1
+        for i, src in ipairs(e.args) do
+            line("let edge_" .. edgeSerial .. "_" .. i .. " = " .. value(src) .. ";")
+        end
+        for i, dst in ipairs(g.blocks[e.target].params) do
+            line(value(dst) .. " = edge_" .. edgeSerial .. "_" .. i .. ";")
+        end
+    end
+
+    local binary = {U32Add = "+", U32Sub = "-", IAnd = "&", IOr = "|"}
+    local compare = {ICmpEq = "==", ICmpNe = "!=", ICmpLt = "<", ICmpLe = "<="}
+
+    local function instructions(b: any): nil
+        for i, op in ipairs(b.op) do
+            local a, result = b.args[i], nil
+            if op == "IK" then
+                result = tostring(a[1]) .. "u"
+            elseif op == "IUnbox" then
+                result = "uniforms.param_" .. a[1]
+            elseif op == "SpanLen" then
+                result = count(a[1])
+            elseif op == "IMov" then
+                result = value(a[1])
+            elseif op == "IAddK" then
+                result = value(a[1]) .. " + " .. a[2] .. "u"
+            elseif binary[op] then
+                result = value(a[1]) .. " " .. binary[op] .. " " .. value(a[2])
+            elseif compare[op] then
+                result = "select(0u, 1u, " .. value(a[1]) .. " " .. compare[op] .. " " .. value(a[2]) .. ")"
+            elseif op == "U32Load" then
+                result = buffer(a[1]) .. "[" .. offset(a[1]) .. " + " .. value(a[2]) .. "]"
+            elseif op == "U32Store" then
+                line(buffer(a[1]) .. "[" .. offset(a[1]) .. " + " .. value(a[2]) .. "] = " .. value(a[3]) .. ";")
+            elseif op == "SpanEqual" then
+                line("if (" .. count(a[1]) .. " != " .. count(a[2]) .. ") { return; }")
+            else
+                error("unhandled map operation: " .. op)
+            end
+            if result then
+                line(value(b.dst[i]) .. " = " .. result .. ";")
+            end
+        end
+    end
+
+    regions.walk(g, function(event: string, b: any, e: any): nil
+        local outer = b.id == g.map.header
+        if event == "loop" then
+            if outer then
+                line(value(g.map.index) .. " = dispatch_index;")
+            else
+                line("loop {");
+                depth = depth + 1
+            end
+        elseif event == "block" then
+            if b.id ~= g.map.continuing then
+                instructions(b)
+            end
+        elseif event == "exit" then
+            line("if (" .. value(b.term.value) .. " == 0u) {");
+            depth = depth + 1
+            copies(e)
+            line(outer and "return;" or "break;")
+            depth = depth - 1;
+            line("}")
+        elseif event == "edge" then
+            if b.id ~= g.map.continuing then
+                copies(e)
+            end
+        elseif event == "endloop" then
+            if not outer then
+                depth = depth - 1;
+                line("}")
+            end
+        elseif event == "if" then
+            line("if (" .. value(b.term.value) .. " != 0u) {");
+            depth = depth + 1
+        elseif event == "else" then
+            depth = depth - 1;
+            line("} else {");
+            depth = depth + 1
+        elseif event == "endif" then
+            depth = depth - 1;
+            line("}")
+        elseif event == "return" then
+            line("return;")
+        end
+    end)
+    depth = 0;
+    line("}")
+
+    return table.concat(lines, "\n") .. "\n", abi
+end
+
+export = wgsl

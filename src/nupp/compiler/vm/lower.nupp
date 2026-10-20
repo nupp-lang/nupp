@@ -5712,7 +5712,12 @@ function lower.emit(
         currentModule = name
         covered = moduleCoverage
         local capture = linker and not coverage and linker.begin(name, #functions, #pendingModules)
-        local direct = os.getenv("NUPP_CFG_FRONTEND") and require("nupp.experiment.typedcfg.frontend").plans or nil
+        local direct = (os.getenv("NUPP_CFG_FRONTEND") or os.getenv("NUPP_CFG_MAP"))
+            and require("nupp.experiment.typedcfg.frontend").plans
+            or nil
+        if direct and os.getenv("NUPP_CFG_MAP") then
+            direct = direct(rootNode)
+        end
         nativePlans = require("nupp.compiler.vm.native").plans(rootNode, direct)
         for _, s in ipairs(stats) do
             if s.kind == "recordDecl" or s.kind == "cdefStruct" then

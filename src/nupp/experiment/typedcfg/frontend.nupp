@@ -102,7 +102,7 @@ end
 
 -- Types and export identities come from the checker. No AOT program, structured
 -- statement IR, or mutable-register instruction stream is built here.
-function frontend.build(body: any): any
+function frontend.build(body: any, mapMode: boolean?): any
     need(
         not body.generics and not body.varargParam and not body.captureTakes and not body.captureBorrows,
         "plain leaf required"
@@ -115,6 +115,9 @@ function frontend.build(body: any): any
     )
     need(#body.params < 240, "boxed parameter capacity")
     local g = G.new(#body.params)
+    g.parameters = {}
+    local mapName: string? = nil
+    local parameterNames = {}
     local b = G.block(g)
     b.env, b.names, b.facts = {}, {}, {}
     local cursors, equalities = {}, {}
@@ -168,11 +171,14 @@ function frontend.build(body: any): any
         local t = raw(p.type.resolvedType)
         local s = nominal(t, "nupp.mem.span", "Span") or nominal(t, "nupp.mem.span", "WriteSpan")
         local mode = p.modeTok and p.modeTok.text
+        parameterNames[p.name.text] = true
         if s then
             local writable = (s.origin or s).name == "WriteSpan"
             need(mode == (writable and "exclusive" or "borrows"), "span ownership required")
             local kind = elements[need(raw(s.typeArgs[1]), "span element").tag]
             need(kind ~= nil, "physical scalar span required")
+            need(not mapMode or kind == 4, "map spans must be uint32")
+            g.parameters[i] = {name = p.name.text, kind = "span", write = writable, element = kind}
             bind(p.name.text, {
                 class = "span",
                 type = "span",
@@ -184,6 +190,8 @@ function frontend.build(body: any): any
         else
             local ty = t and scalars[t.tag]
             need((ty == "f64" or ty == "u32" or ty == "i32") and not mode, "numeric uniform required")
+            need(not mapMode or ty == "u32", "map uniforms must be uint32")
+            g.parameters[i] = {name = p.name.text, kind = "uniform", type = ty}
             local value = scalar(ty, emit(ty == "f64" and "FUnbox" or "IUnbox", {i}))
             value.class = ty == "f64" and "f" or "i"
             bind(p.name.text, value)
@@ -344,6 +352,9 @@ function frontend.build(body: any): any
             return scalar("bool", emit(op == "and" and "IAnd" or "IOr", {a.ids[1], c.ids[1]}))
         elseif ty == "u32" then
             need(a.class == "i" and c.class == "i" and (op == "+" or op == "-"), "wrapping uint32 operation")
+            if mapMode then
+                return scalar("u32", emit(op == "+" and "U32Add" or "U32Sub", {a.ids[1], c.ids[1]}))
+            end
             local id = emit(op == "+" and "IAdd" or "ISub", {a.ids[1], c.ids[1]})
             return scalar("u32", emit("IMaskU32", {id}))
         else
@@ -429,13 +440,18 @@ function frontend.build(body: any): any
         elseif n.kind == "number" then
             local number = need(tonumber(n.token.text), "numeric literal")
             need(math.abs(number) <= 9007199254740991, "exact literal required")
-            if wanted == "u32" then
+            if wanted == "u32" or mapMode then
                 need(number >= 0 and number < 4294967296 and number % 1 == 0, "uint32 literal");
                 return ik(number)
             end
             local out = scalar("f64", emit("FK", {number}));
             out.class = "f";
             return out
+        elseif mapMode and n.kind == "bracketIndex" then
+            local span = need(b.env[named(n.obj)], "map span binding")
+            need(mapName and named(n.expr) == mapName, "map access must use the dispatch index")
+            need(span.class == "span", "map load requires a span")
+            return scalar("u32", emit("U32Load", {span.param, b.env["$map"].ids[1]}))
         elseif n.kind == "unop" and n.op.text == "#" then
             local s = need(b.env[named(n.operand)], "span length binding")
             need(s.class == "span", "span length required")
@@ -637,7 +653,7 @@ function frontend.build(body: any): any
                         "local annotation outside the admitted representations"
                     )
                     values[i] = expression(e, ty and scalars[ty.tag])
-                    if ty and ty.tag == "uint32" then
+                    if not mapMode and ty and ty.tag == "uint32" then
                         need(literal(e) == 0, "cursor starts at zero")
                         cursors[s.names[i].text] = true
                     end
@@ -652,7 +668,18 @@ function frontend.build(body: any): any
                     values[i] = unalias(expression(e))
                 end
                 for i, target in ipairs(s.targets) do
+                    if mapMode and target.kind == "bracketIndex" then
+                        local span = need(b.env[named(target.obj)], "map store span")
+                        need(mapName and named(target.expr) == mapName, "map store must use the dispatch index")
+                        need(span.class == "span" and span.write and values[i].type == "u32", "uint32 map store")
+                        emit("U32Store", {span.param, b.env["$map"].ids[1], values[i].ids[1]})
+                        continue
+                    end
                     local name = need(named(target), "local assignment")
+                    need(
+                        not mapMode or not parameterNames[name] and name ~= mapName,
+                        "immutable map parameter or index"
+                    )
                     local old = need(b.env[name], "local assignment target")
                     need(
                         old.type == values[i].type
@@ -684,6 +711,43 @@ function frontend.build(body: any): any
                     end
                     b.env[name] = values[i]
                 end
+            elseif mapMode and s.kind == "fornumStmt" then
+                need(not g.map and b.id == 1 and not s.step and literal(s.start) == 1, "one complete-span map")
+                local span = need(b.env[counted(s.stop)], "map count span")
+                need(span.class == "span", "map count requires a span")
+                bind("$map", ik(0))
+                local from = b
+                local header = newBlock(from, from.names)
+                jump(from, header)
+                b = header
+                local index = b.env["$map"].ids[1]
+                local count = b.env[counted(s.stop)].ids[1]
+                local condition = emit("ICmpLt", {index, count})
+                local yes, after = newBlock(b, from.names), newBlock(b, from.names)
+                branch(b, condition, yes, after)
+                g.map = {
+                    header = header.id,
+                    body = yes.id,
+                    merge = after.id,
+                    index = index,
+                    count = count,
+                    span = span.param
+                }
+                header.region = {kind = "loop", merge = after.id, continuing = 0}
+                b = yes
+                mapName = s.var.text
+                bind(mapName as string, scalar("index", emit("IAddK", {b.env["$map"].ids[1], 1})))
+                statements(s.body.stats, nil)
+                need(b ~= nil, "map body must fall through")
+                local continuing = newBlock(b, header.names)
+                jump(b, continuing)
+                b = continuing
+                b.env["$map"] = scalar("u32", emit("IAddK", {b.env["$map"].ids[1], 1}))
+                jump(b, header)
+                header.region.continuing = continuing.id
+                g.map.continuing = continuing.id
+                mapName = nil
+                b = after
             elseif s.kind == "whileStmt" then
                 local from = b;
                 local header = newBlock(from, from.names);
@@ -693,10 +757,16 @@ function frontend.build(body: any): any
                 need(condition.type == "bool", "loop condition")
                 local yes, after = newBlock(b, from.names), newBlock(b, from.names)
                 branch(b, condition.ids[1], yes, after)
+                header.region = {kind = "loop", merge = after.id, continuing = 0}
                 local cursor = addFacts(s.cond, yes)
                 b = yes;
                 statements(s.body.stats, cursor)
-                if b then
+                if b and mapMode then
+                    local continuing = newBlock(b, header.names)
+                    jump(b, continuing)
+                    jump(continuing, header)
+                    header.region.continuing = continuing.id
+                elseif b then
                     jump(b, header)
                 end
                 if cursor then
@@ -742,6 +812,7 @@ function frontend.build(body: any): any
                     no = b
                     if yes or no then
                         local join = newBlock(from, from.names)
+                        from.region = {kind = "selection", merge = join.id}
                         -- A branch may update a cursor, invalidating inherited facts.
                         join.facts = {}
                         for key, room in pairs(from.facts) do
@@ -760,6 +831,17 @@ function frontend.build(body: any): any
                         b = nil
                     end
                 end
+            elseif mapMode and s.kind == "callStmt" and s.expr.aotGuardBuiltin == "assert" then
+                need(b.id == 1 and not g.map, "map length guards precede the map")
+                local args = s.expr.args.exprs
+                local c = unparen(args[1])
+                local left, right = c.kind == "binop" and counted(c.lhs), c.kind == "binop" and counted(c.rhs)
+                need(c.kind == "binop" and c.op.text == "==" and left and right, "map length equality guard")
+                need(#args == 2 and args[2].kind == "string", "literal map guard message")
+                local a, d = b.env[left], b.env[right]
+                need(a and d and a.class == "span" and d.class == "span", "guarded spans")
+                g.constants[#g.constants + 1] = {kind = "str", value = (loadstring("return " .. args[2].token.text))()}
+                emit("SpanEqual", {a.param, d.param, #g.constants - 1})
             elseif s.kind == "callStmt" then
                 local r = expression(s.expr);
                 need(
@@ -780,15 +862,15 @@ function frontend.build(body: any): any
     if b then
         b.term = {kind = "return", edges = {}}
     end
-    need(seenVector, "no explicit SIMD")
+    need(seenVector or mapMode and g.map, "no explicit SIMD or complete map")
     G.prune(g)
     need(g.counts.i < 239 and g.counts.f < 239 and g.counts.x < 249, "typed register capacity")
 
     return g
 end
 
-function frontend.tryBuild(body: any): (any, string?)
-    local ok, result = pcall(frontend.build, body)
+function frontend.tryBuild(body: any, mapMode: boolean?): (any, string?)
+    local ok, result = pcall(frontend.build, body, mapMode)
     if ok then
         return result, nil
     end
@@ -821,6 +903,13 @@ function frontend.plans(root: any): (any, any)
 
     local function walk(n: any): nil
         if n.kind == "localFunc" or n.kind == "funcStmt" or n.kind == "localFuncStmt" then
+            if os.getenv("NUPP_CFG_MAP") then
+                local g = frontend.tryBuild(n.body, true)
+                if g and pcall(require("nupp.experiment.typedcfg.map").verify, g) then
+                    plans[n.body] = G.lower(g)
+                    return
+                end
+            end
             if not candidate(n.body, n.body) then
                 refusals[n.body] = "no explicit SIMD";
                 return

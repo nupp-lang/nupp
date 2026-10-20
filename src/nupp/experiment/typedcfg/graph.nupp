@@ -4,6 +4,11 @@ module nupp.experiment.typedcfg.graph
 -- executable stream is a derived cache; edges remain explicit until layout.
 local graph = {}
 local signatures = {
+    U32Load = "I#i",
+    U32Store = "-#ii",
+    U32Add = "Iii",
+    U32Sub = "Iii",
+    SpanEqual = "-###",
     IK = "I#",
     FK = "F#",
     IUnbox = "I#",
@@ -237,12 +242,22 @@ function graph.prune(g: any): nil
             end
         end
     end
+    if g.map then
+        g.map.index = assert(remap[g.map.index])
+        g.map.count = assert(remap[g.map.count])
+    end
     g.types, g.slots = types, slots
 end
 
 function graph.lower(g: any): any
     graph.verify(g)
     local code, starts, patches = {}, {}, {}
+    local lengthSlots = {}
+    for i, op in ipairs(g.blocks[1].op) do
+        if op == "SpanLen" then
+            lengthSlots[g.blocks[1].args[i][1]] = g.slots[g.blocks[1].dst[i]]
+        end
+    end
 
     local function emit(...: any): integer
         code[#code + 1] = {...}
@@ -307,7 +322,30 @@ function graph.lower(g: any): any
             if op == "VOp" then
                 ins[2], ins[3], ins[4] = ins[3], ins[4], ins[2]
             end
-            code[#code + 1] = ins
+            if op == "U32Add" or op == "U32Sub" then
+                emit(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
+                emit("IMaskU32", ins[2], ins[2])
+            elseif op == "U32Load" or op == "U32Store" then
+                local store = op == "U32Store"
+                local param, index = ins[store and 2 or 3], ins[store and 3 or 4]
+                local scratch, vector = g.counts.i, g.counts.x
+                emit("IK", scratch, 1)
+                emit("SpanBounds", param, index, scratch, 4, store and 1 or 0)
+                if store then
+                    emit("VSplatN", vector, ins[4], 4)
+                    emit("SpanStore", param, index, vector, scratch, 4, 0, 1)
+                else
+                    emit("SpanLoad", vector, param, index, scratch, 4, 0, 1)
+                    emit("VExtractN", ins[2], vector, 4, 0)
+                end
+            elseif op == "SpanEqual" then
+                local scratch = g.counts.i
+                emit("ICmpNe", scratch, assert(lengthSlots[ins[2]]), assert(lengthSlots[ins[3]]))
+                emit("JmpIfIZero", scratch, 1)
+                emit("Raise", ins[4])
+            else
+                code[#code + 1] = ins
+            end
         end
         local t = b.term
         if t.kind == "jump" then
@@ -346,7 +384,7 @@ function graph.lower(g: any): any
         code = code,
         consts = g.constants,
         nregs = g.nparams + 2,
-        nfregs = math.max(g.counts.i, g.counts.f) + 1,
+        nfregs = math.max(g.counts.i, g.counts.f) + (g.map and 2 or 1),
         nvregs = g.counts.x + 1,
         graph = g
     }
