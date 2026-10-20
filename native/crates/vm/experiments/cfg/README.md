@@ -29,7 +29,7 @@ CFG / block-argument SSA ---> binary graph image
       |
       +-- direct Cranelift SSA --> native code
       |
-      +-- slot assignment + parallel edge copies --> existing Op interpreter
+      +-- slot hints + parallel edge copies --> existing Op interpreter
 ```
 
 ## What the graph replaces
@@ -40,13 +40,15 @@ One worklist follows value dependencies and incoming block arguments to remove d
 
 The VM adapter assigns register slots and resolves parallel copies. It removes identity copies and handles cycles with a scratch register. Those are backend decisions that still have to happen. Existing VM machinery continues to own its production verification, GC maps and PC-based runtime contracts; the experiment does not replace those with graph metadata.
 
+Closed blocks make every edge a parallel copy, and a positional register window turned most of those copies into real moves. The frontend therefore gives each lexical name a stable slot index and emits it on every block parameter as a preferred-register hint. The adapter keeps a parameter in the register its hint names, and places a node result that feeds such a parameter in that register when nothing still live occupies it; the copy on the edge then becomes an identity and disappears. The hint is advice, not an allocation: a value feeding two different slots, a swap cycle, or an overwritten value that stays live still produces moves, and the entry parameters must keep positional slots for the call ABI, which the adapter checks.
+
 ## Storage and persistence
 
 The Nupp builder uses table columns for opcodes, results and operands. It allocates no table per instruction, but its columns are ordinary runtime tables, not four-byte arrays.
 
 The Rust graph stores instructions in a dense `Vec<[u32; 4]>`, blocks and edges as fixed records, and parameter/argument lists in one `Vec<u32>` addressed by offset and length. Value types and constant pools are separate. IDs are unsigned 32-bit indices. There is no heap object per instruction or edge. A chunked builder could preserve this indexing contract without requiring contiguous growth.
 
-The binary image persists the graph itself, including block parameters, edges and yield continuations. It has a version header, little-endian 32-bit fields, names and a numeric constant pool. Constants use round-trip decimal strings in this experimental format. The reader bounds counts, validates types, definitions, local use order, targets, edge arity and reachability before compilation. Decoding currently copies into the dense arrays.
+The binary image persists the graph itself, including block parameters, their slot hints, edges and yield continuations. It has a version header (`NCFG0002`), little-endian 32-bit fields, names, a numeric constant pool and a per-function slot count. Constants use round-trip decimal strings in this experimental format. The reader bounds counts, validates types, definitions, local use order, targets, edge arity and reachability before compilation, and requires every hint to name a slot below the count with no two parameters of one block sharing a slot. Pruning renumbers surviving slots densely, entry parameters first. Decoding currently copies into the dense arrays.
 
 This demonstrates replacing bytecode as the canonical persisted compiler artifact. The VM can still cache an executable instruction layout derived from it. Whether to ship that cache alongside the graph depends on measured startup and image-size costs.
 
@@ -58,17 +60,34 @@ Every result agrees between direct Cranelift at `none` and `speed`, graph-derive
 
 All 255 cases also pass with GC interleaving, the collector oracle and quarantine enabled. The repository compiler's three-stage fixpoint passes byte-identically. The compiler does not yet self-host through this experimental graph path.
 
-Additional checks reject unsupported source, malformed graph definitions, bad types/edges/arity, unsupported opcodes, oversized VM constant pools and every truncated prefix of the fixture graph. Optimized graphs survive serialization and deserialization unchanged. Repeated frontend runs emit identical graphs and original VM images.
+Additional checks reject unsupported source, malformed graph definitions, bad types/edges/arity, unsupported opcodes, oversized VM constant pools, a hint outside the slot count, two parameters of one block with the same hint, a slot count larger than the function's values, and every truncated prefix of the fixture graph. Optimized graphs survive serialization and deserialization unchanged. Repeated frontend runs emit identical graphs and original VM images. Every case runs through the adapter with and without hints, threaded and unthreaded.
 
-The fixtures contain 45 blocks and 79 graph instructions after pruning. The worklist reduces 198 value IDs to 179. Their serialized graph is 4,370 bytes; the existing text image is 4,393 bytes, including its module initializer and source metadata. This does not establish an image-size win. Peak compiler memory has not been measured.
+The fixtures contain 45 blocks and 79 graph instructions after pruning. The worklist reduces 198 value IDs to 179. Their serialized graph is 4,810 bytes with hints (one word per surviving parameter and one per function); the existing text image is 4,393 bytes, including its module initializer and source metadata. This does not establish an image-size win. Peak compiler memory has not been measured.
 
 The saved `results.json` contains eleven warm samples after two warmups. Frontend lowerings and native compilation alternate order. Frontend checking is measured separately. The current compiler's native timer is wrapped externally so its prerequisite analyses are included. Both native paths have Cranelift verification enabled and optimization set to `none` for timing.
 
-The [recorded run](sample-results.json) on an Apple M5 Pro measured approximately 1.54 ms for graph construction plus serialization, versus 4.43 ms for the existing lowering plus text emission, over all ten small functions. Graph decoding and verification took about 10 microseconds. These are small fixtures, with a smaller admitted language and less metadata in the graph; they establish feasibility rather than whole-compiler performance.
+The [recorded run](sample-results.json) on an Apple M5 Pro, taken while other builds shared the machine, measured approximately 1.00 ms for graph construction plus serialization, versus 8.48 ms for the existing lowering plus text emission, over all ten small functions. Graph decoding and verification took about 16 microseconds. These are small fixtures, with a smaller admitted language and less metadata in the graph; they establish feasibility rather than whole-compiler performance.
 
-The direct native compilation measurement is recorded for investigation, but it cannot establish a production speedup. Its private ABI omits production GC, deoptimization, body patching, cleanup, exception and scheduler obligations. The old image also contains a module initializer and source metadata that the graph image does not yet carry.
+The direct native compilation measurement (`graph_to_native`, about 0.53 ms) is recorded for investigation, but it cannot establish a production speedup. Its private ABI omits production GC, deoptimization, body patching, cleanup, exception and scheduler obligations, so it does not compare with the frame rows below. The old image also contains a module initializer and source metadata that the graph image does not yet carry.
 
-The simple VM adapter still emits more instructions for some functions: the nested loop uses 25 versus the existing lowering's 17. SSA does not automatically produce a better interpreter stream. Register coalescing and block layout deserve measurement before replacing that backend.
+Two rows isolate the representation from the backend. `old_to_native_frame` feeds the original lowering's instruction stream through the production `Jit::compile_frame`; `adapter_to_native_frame` feeds the hinted graph adapter's stream through the same call, with the same verifier, optimization level and runtime obligations. The two alternate order every round. The recorded medians are 4.08 ms and 3.64 ms, a ratio of 0.89, consistent with the 0.891 paired ratio measured separately in [TYPED.md](TYPED.md). Agreement between the rows would mean the graph-derived stream costs the production backend the same as the old one, so any compile-time difference lives in the frontends; a lower adapter row means the stream it produces is cheaper for this backend to analyze, not that the graph compiles faster, because the frontends that produced the two streams are timed elsewhere; a higher one would mean the adapter's stream shape, not the graph, is the problem. Absolute values in this run are above the earlier quiet-machine samples; only the paired ratio is comparable across runs.
+
+Slot hints bring the adapter's instruction total from 202 to 175, the same as the existing lowering, and leave no data moves except the genuine swap and rotate cycles, the `string.byte` call sequence and the parked value. Per function:
+
+| Function | Existing lowering | Adapter, positional | Adapter, hinted |
+| --- | ---: | ---: | ---: |
+| diamond | 12 | 16 | 14 |
+| loop | 16 | 24 | 20 |
+| swap | 19 | 21 | 18 |
+| bytes | 19 | 23 | 20 |
+| byte | 8 | 8 | 8 |
+| suspend | 18 | 18 | 15 |
+| early | 14 | 14 | 13 |
+| nested | 17 | 25 | 21 |
+| rotate | 26 | 27 | 23 |
+| suspendBytes | 26 | 26 | 23 |
+
+The remaining excess on `loop` and `nested` is control flow, not data movement: the adapter emits an unconditional jump to the block laid out next and a `JmpIf` plus `Jmp` pair where the existing lowering uses `JmpIfNot`. The runner writes both streams beside each function as `NAME.old.ops` and `NAME.adapter.ops`. Block layout and conditional-branch selection deserve the same treatment before replacing that backend; SSA alone does not produce a better interpreter stream.
 
 ## Scope and decision
 
