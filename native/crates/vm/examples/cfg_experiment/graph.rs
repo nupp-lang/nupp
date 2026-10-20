@@ -32,6 +32,8 @@ pub struct Edge {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
     pub params: Span,
+    /// One preferred lexical slot per parameter, indexing `Graph::hints`.
+    pub hints: Span,
     pub nodes: Span,
     pub term: u32,
     pub value: u32,
@@ -42,14 +44,20 @@ pub struct Graph {
     pub name: String,
     pub types: Vec<u32>,
     pub constants: Vec<f64>,
+    /// Lexical slots named by parameter hints: every hint is below this.
+    pub slot_count: u32,
     pub blocks: Vec<Block>,
     pub nodes: Vec<[u32; 4]>,
     pub edges: Vec<Edge>,
     pub values: Vec<u32>,
+    pub hints: Vec<u32>,
 }
 impl Graph {
     pub fn params(&self, b: &Block) -> &[u32] {
         b.params.get(&self.values)
+    }
+    pub fn hints(&self, b: &Block) -> &[u32] {
+        b.hints.get(&self.hints)
     }
     pub fn args(&self, e: &Edge) -> &[u32] {
         e.args.get(&self.values)
@@ -64,6 +72,8 @@ impl Graph {
             + self.nodes.len() * 16
             + self.edges.len() * 12
             + self.values.len() * 4
+            + self.hints.len() * 4
+            + 4
             + self.name.len()
     }
     // This closed, block-argument form needs no dominator reconstruction:
@@ -72,6 +82,11 @@ impl Graph {
         let fail = || format!("{}: invalid graph", self.name);
         if self.blocks.is_empty() || self.types.iter().any(|t| !matches!(*t, F64 | BOOL | TEXT)) {
             return Err(fail());
+        }
+        // A slot names at least one value, so the count is bounded by the
+        // values and the per-block distinctness check allocates no more.
+        if self.slot_count as usize > self.types.len() {
+            return Err(format!("{}: slot count exceeds values", self.name));
         }
         let mut owner = vec![NONE; self.types.len()];
         let mut defined = vec![false; self.types.len()];
@@ -111,6 +126,18 @@ impl Graph {
                 }
                 Ok(())
             };
+            if b.hints.len != b.params.len {
+                return Err(fail());
+            }
+            let mut taken = vec![false; self.slot_count as usize];
+            for &hint in self.hints(b) {
+                let slot = taken
+                    .get_mut(hint as usize)
+                    .ok_or_else(|| format!("{}: hint outside slots", self.name))?;
+                if std::mem::replace(slot, true) {
+                    return Err(format!("{}: duplicate hint in block", self.name));
+                }
+            }
             for &v in self.params(b) {
                 define(v, &mut owner, &mut defined)?;
             }
@@ -222,14 +249,17 @@ impl Graph {
             roots.extend_from_slice(&dependencies[v as usize]);
         }
         let mut remap = vec![NONE; live.len()];
+        let mut slots = vec![NONE; self.slot_count as usize];
         let mut g = Self {
             name: self.name.clone(),
             types: vec![],
             constants: self.constants.clone(),
+            slot_count: 0,
             blocks: vec![],
             nodes: vec![],
             edges: vec![],
             values: vec![],
+            hints: vec![],
         };
         for (v, &used) in live.iter().enumerate() {
             if used {
@@ -244,6 +274,23 @@ impl Graph {
                     .iter()
                     .filter(|&&v| live[v as usize])
                     .map(|&v| remap[v as usize]),
+            );
+            // Slots are renumbered by first surviving appearance, entry
+            // parameters first, so the count stays dense and positional.
+            let hints = append(
+                &mut g.hints,
+                self.params(b)
+                    .iter()
+                    .zip(self.hints(b))
+                    .filter(|(v, _)| live[**v as usize])
+                    .map(|(_, &hint)| {
+                        let slot = &mut slots[hint as usize];
+                        if *slot == NONE {
+                            *slot = g.slot_count;
+                            g.slot_count += 1;
+                        }
+                        *slot
+                    }),
             );
             let nodes = append(
                 &mut g.nodes,
@@ -281,6 +328,7 @@ impl Graph {
             }
             g.blocks.push(Block {
                 params,
+                hints,
                 nodes,
                 term: b.term,
                 value: if b.term == 1 {
@@ -330,7 +378,7 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Graph>, String> {
         return Err("graph image exceeds experiment limit".into());
     }
     let mut r = Reader { data: bytes };
-    if r.take(8)? != b"NCFG0001" {
+    if r.take(8)? != b"NCFG0002" {
         return Err("unsupported graph version".into());
     }
     let count = r.count()?;
@@ -340,10 +388,12 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Graph>, String> {
             name: r.string()?,
             types: vec![],
             constants: vec![],
+            slot_count: 0,
             blocks: vec![],
             nodes: vec![],
             edges: vec![],
             values: vec![],
+            hints: vec![],
         };
         for _ in 0..r.count()? {
             g.types.push(r.word()?);
@@ -355,13 +405,20 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Graph>, String> {
             }
             g.constants.push(k);
         }
+        g.slot_count = r.word()?;
         for _ in 0..r.count()? {
             let start = g.values.len() as u32;
+            let hint_start = g.hints.len() as u32;
             let len = r.count()? as u32;
             for _ in 0..len {
                 g.values.push(r.word()?);
+                g.hints.push(r.word()?);
             }
             let params = Span { start, len };
+            let hints = Span {
+                start: hint_start,
+                len,
+            };
             let start = g.nodes.len() as u32;
             let len = r.count()? as u32;
             for _ in 0..len {
@@ -394,6 +451,7 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Graph>, String> {
             }
             g.blocks.push(Block {
                 params,
+                hints,
                 nodes,
                 term,
                 value,
@@ -416,7 +474,7 @@ pub fn encode(graphs: &[Graph]) -> Vec<u8> {
         word(out, v.len() as u32);
         out.extend(v.as_bytes());
     }
-    let mut out = b"NCFG0001".to_vec();
+    let mut out = b"NCFG0002".to_vec();
     word(&mut out, graphs.len() as u32);
     for g in graphs {
         string(&mut out, &g.name);
@@ -428,11 +486,13 @@ pub fn encode(graphs: &[Graph]) -> Vec<u8> {
         for k in &g.constants {
             string(&mut out, &k.to_string());
         }
+        word(&mut out, g.slot_count);
         word(&mut out, g.blocks.len() as u32);
         for b in &g.blocks {
             word(&mut out, b.params.len);
-            for &v in g.params(b) {
+            for (&v, &hint) in g.params(b).iter().zip(g.hints(b)) {
                 word(&mut out, v);
+                word(&mut out, hint);
             }
             word(&mut out, b.nodes.len);
             for n in b.nodes.get(&g.nodes) {

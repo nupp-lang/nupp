@@ -50,12 +50,33 @@ fn malformed_tests(bytes: &[u8], graphs: &[graph::Graph]) {
     assert!(graph::decode(&graph::encode(&bad)).is_err());
     let mut large_pool = graphs[0].clone();
     large_pool.constants.resize(u16::MAX as usize, 0.);
-    assert!(adapter::lower(&large_pool).is_err());
+    assert!(adapter::lower(&large_pool, true).is_err());
     let mut bad = graphs.to_vec();
     bad[0].types[0] = graph::TEXT;
     assert!(graph::decode(&graph::encode(&bad)).is_err());
     let mut bad = graphs.to_vec();
     bad[0].nodes[1][1] = bad[0].nodes[0][1];
+    assert!(graph::decode(&graph::encode(&bad)).is_err());
+    // Hints: a slot outside the count, two parameters sharing a slot, and a
+    // count larger than the values it names are all refused.
+    let (block, second) = graphs
+        .iter()
+        .enumerate()
+        .find_map(|(i, g)| {
+            g.blocks
+                .iter()
+                .find(|b| b.params.len >= 2)
+                .map(|b| (i, b.hints.start as usize))
+        })
+        .expect("a block with two parameters");
+    let mut bad = graphs.to_vec();
+    bad[block].hints[second] = bad[block].slot_count;
+    assert!(graph::decode(&graph::encode(&bad)).is_err());
+    let mut bad = graphs.to_vec();
+    bad[block].hints[second + 1] = bad[block].hints[second];
+    assert!(graph::decode(&graph::encode(&bad)).is_err());
+    let mut bad = graphs.to_vec();
+    bad[0].slot_count = bad[0].types.len() as u32 + 1;
     assert!(graph::decode(&graph::encode(&bad)).is_err());
     // Decode hostile words without indexing or allocating from unchecked counts.
     for offset in (8..bytes.len().saturating_sub(4)).step_by(13) {
@@ -161,8 +182,10 @@ fn main() -> Result<(), String> {
         for args in inputs {
             let direct = native.run(i, g, &args);
             equal(&direct, &optimized.run(i, g, &args));
-            equal(&direct, &adapter::run(g, &args, false));
-            equal(&direct, &adapter::run(g, &args, true));
+            for hinted in [false, true] {
+                equal(&direct, &adapter::run(g, &args, false, hinted));
+                equal(&direct, &adapter::run(g, &args, true, hinted));
+            }
             if g.name == "suspend" {
                 let Number(n) = args[0] else { unreachable!() };
                 let mut trace = vec![];
@@ -193,6 +216,25 @@ fn main() -> Result<(), String> {
             &native.functions[i].clif,
         )
         .map_err(|e| e.to_string())?;
+        let listing = |f: &nupp_vm::interp::Function| {
+            f.code
+                .iter()
+                .enumerate()
+                .map(|(pc, op)| format!("{pc:3} {op:?}\n"))
+                .collect::<String>()
+        };
+        let old = vm
+            .funcs
+            .iter()
+            .find(|f| f.name == format!("m.{}", g.name))
+            .unwrap();
+        std::fs::write(out.join(format!("{}.old.ops", g.name)), listing(old))
+            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            out.join(format!("{}.adapter.ops", g.name)),
+            listing(&adapter::lower(g, true)?),
+        )
+        .map_err(|e| e.to_string())?;
     }
     let old_functions: Vec<_> = graphs
         .iter()
@@ -213,7 +255,7 @@ fn main() -> Result<(), String> {
     let mut compile_adapter = vec![];
     let adapted = graphs
         .iter()
-        .map(adapter::lower)
+        .map(|g| adapter::lower(g, true))
         .collect::<Result<Vec<_>, _>>()?;
     for round in 0..13 {
         let start = Instant::now();
@@ -229,7 +271,7 @@ fn main() -> Result<(), String> {
         let start = Instant::now();
         let _ = graphs
             .iter()
-            .map(adapter::lower)
+            .map(|g| adapter::lower(g, true))
             .collect::<Result<Vec<_>, _>>()?;
         let d = us(start);
         let graph_compile = || -> Result<f64, String> {
@@ -273,14 +315,14 @@ fn main() -> Result<(), String> {
     }
     let rows:Vec<_>=graphs.iter().zip(&raw).zip(&native.functions).zip(&old_functions).map(|(((g,r),c),f)|serde_json::json!({
         "function":g.name,"blocks":g.blocks.len(),"ssa_values_before":r.types.len(),"ssa_values_after":g.types.len(),
-        "graph_payload_bytes":g.size(),"graph_nodes":g.nodes.len(),"old_instructions":f.code.len(),"adapter_instructions":adapter::lower(g).unwrap().code.len(),
+        "graph_payload_bytes":g.size(),"graph_nodes":g.nodes.len(),"old_instructions":f.code.len(),"adapter_instructions":adapter::lower(g,true).unwrap().code.len(),"adapter_instructions_unhinted":adapter::lower(g,false).unwrap().code.len(),"slots":g.slot_count,
         "resume_parameters":g.blocks.iter().filter(|b|b.term==3).map(|b|g.successors(b)[0].args.len).collect::<Vec<_>>(),"native_code_bytes":c.code_bytes
     })).collect();
     let result = serde_json::json!({"cases":cases,"raw_graph_bytes":bytes.len(),"pruned_graph_bytes":packed.len(),"old_text_image_bytes":text.len(),"functions":rows,
         "settings":{"arch":std::env::consts::ARCH,"os":std::env::consts::OS,"jit_opt":std::env::var("JIT_OPT").unwrap_or("none".into()),"old_jit_verifier":std::env::var("JIT_VERIFY").is_ok(),"graph_jit_verifier":true},
         "median_microseconds":{"graph_decode_verify":median(load_cfg),"graph_prune":median(prune),"old_image_load_verify":median(load_image),"graph_to_vm_verify":median(adapt),"graph_to_native":median(compile_cfg.clone()),"old_to_native_frame":median(compile_image.clone()),"adapter_to_native_frame":median(compile_adapter.clone())},
         "graph_compile_samples_us":compile_cfg,"old_compile_samples_us":compile_image,"adapter_frame_samples_us":compile_adapter,
-        "limits":"Closed scalar subset; native resume ABI uses rooted host strings and has no production GC, deopt, patching, errors or scheduler integration. Compile times compare different runtime obligations, not equivalent production backends. All outputs and yield traces checked against original CST lowering; graph execution uses a private resume ABI and the Park adapter."});
+        "limits":"Closed scalar subset; native resume ABI uses rooted host strings and has no production GC, deopt, patching, errors or scheduler integration. graph_to_native times that private ABI, so it does not compare with the frame rows. old_to_native_frame and adapter_to_native_frame both run Jit::compile_frame with every production obligation, alternating order each round, on the original lowering's stream and on the hinted graph adapter's stream. All outputs and yield traces checked against original CST lowering; graph execution uses a private resume ABI and the Park adapter."});
     std::fs::write(
         out.join("results.json"),
         serde_json::to_string_pretty(&result).unwrap(),

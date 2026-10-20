@@ -12,6 +12,11 @@ local lower = require("nupp.compiler.vm.lower")
 -- dead parameters are pruned on the graph before either backend consumes it.
 -- IDs are zero-based on disk. The builder uses table columns, not one table
 -- per instruction; the frozen graph uses four-byte words.
+--
+-- Every lexical name owns a stable slot index for the function, assigned in
+-- introduction order. A block parameter carries the slot of its name as a
+-- preferred-register hint, so a backend can keep a name in one register
+-- across edges without reconstructing that correspondence from the graph.
 local F64: integer = 1
 local BOOL: integer = 2
 local TEXT: integer = 3
@@ -31,11 +36,31 @@ local function value(g: any, ty: integer): integer
     return #g.types - 1
 end
 
+local function slot(g: any, name: string): integer
+    if g.slots[name] == nil then
+        g.slots[name] = g.slotCount
+        g.slotCount = g.slotCount + 1
+    end
+
+    return g.slots[name]
+end
+
 local function newBlock(g: any, names: any, env: any): any
-    local b = {id = #g.blocks, names = copy(names), env = {}, params = {}, op = {}, dst = {}, a = {}, b = {}}
+    local b = {
+        id = #g.blocks,
+        names = copy(names),
+        env = {},
+        params = {},
+        hints = {},
+        op = {},
+        dst = {},
+        a = {},
+        b = {},
+    }
     for _, name in ipairs(names) do
         local v = value(g, g.types[env[name] + 1])
         b.params[#b.params + 1] = v
+        b.hints[#b.hints + 1] = assert(g.slots[name], "parameter without a slot")
         b.env[name] = v
     end
     g.blocks[#g.blocks + 1] = b
@@ -114,6 +139,7 @@ statements = function(g: any, b: any, body: any): any
             for i, name in ipairs(s.names) do
                 reserved(name.text)
                 assert(b.env[name.text] == nil, "shadowing is outside this experiment")
+                slot(g, name.text)
                 b.names[#b.names + 1] = name.text
                 b.env[name.text] = values[i]
             end
@@ -189,7 +215,7 @@ end
 local function graph(s: any): any
     assert(s.kind == "funcStmt" and not s.name.method, "plain exported function required")
     assert(#s.name == 3 and s.name.base.text == "m", "only m.name function declarations admitted")
-    local g = {name = s.name[#s.name].text, blocks = {}, types = {}, constants = {}}
+    local g = {name = s.name[#s.name].text, blocks = {}, types = {}, constants = {}, slots = {}, slotCount = 0}
     local body = s.body
     assert(
         not body.generics and #body.rets == 1 and cst.textOf(body.rets[1]):match("^%s*number%s*$"),
@@ -205,6 +231,7 @@ local function graph(s: any): any
         local v = value(g, ty)
         entry.names[#entry.names + 1] = p.name.text
         entry.params[#entry.params + 1] = v
+        entry.hints[#entry.hints + 1] = slot(g, p.name.text)
         entry.env[p.name.text] = v
     end
     assert(not statements(g, entry, body.body), "function must return")
@@ -213,7 +240,7 @@ local function graph(s: any): any
 end
 
 local function encodeGraphs(graphs: any): string
-    local parts: {string} = {"NCFG0001"}
+    local parts: {string} = {"NCFG0002"}
 
     local function word(n: integer): nil
         assert(n >= 0 and n < 4294967296, "graph index overflow")
@@ -238,11 +265,13 @@ local function encodeGraphs(graphs: any): string
         for _, k in ipairs(g.constants) do
             str(string.format("%.17g", k))
         end
+        word(g.slotCount)
         word(#g.blocks)
         for _, b in ipairs(g.blocks) do
             word(#b.params)
-            for _, v in ipairs(b.params) do
+            for i, v in ipairs(b.params) do
                 word(v)
+                word(b.hints[i])
             end
             word(#b.op)
             for i, op in ipairs(b.op) do
