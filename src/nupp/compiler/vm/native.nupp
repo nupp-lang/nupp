@@ -548,7 +548,15 @@ local function translate(program, body, hoist)
             elseif s.op == "assign" then
                 local values = {};
                 for i, a in ipairs(s.values) do
-                    values[i] = expression(a.value)
+                    local value = expression(a.value)
+                    if #s.values > 1 then
+                        -- Every right-hand side precedes every assignment. A
+                        -- name still refers to a mutable physical register.
+                        local captured = alloc(a.value.type)
+                        move(captured, value)
+                        value = captured
+                    end
+                    values[i] = value
                 end
                 for i, a in ipairs(s.values) do
                     move(name(a.target), values[i])
@@ -626,16 +634,16 @@ local function translate(program, body, hoist)
     }
 end
 
-function native.plans(root: any): any
+function native.plans(root: any, direct: any?): any
     local declarations = lowering.scan(root, true)
     local hasSimd = false
     for _, moduleName in pairs(declarations.modules) do
         hasSimd = hasSimd or moduleName == "nupp.simd"
     end
     if not hasSimd then
-        return {}
+        return type(direct) == "table" and direct or {}
     end
-    local plans = {}
+    local plans = type(direct) == "function" and direct(root) or direct or {}
     local applications = {}
     for _, application in ipairs(declarations.applications) do
         applications[#applications + 1] = application
@@ -644,20 +652,22 @@ function native.plans(root: any): any
         applications[#applications + 1] = {tail = declaration, chain = {}}
     end
     for _, application in ipairs(applications) do
-        local context = new lowering.Context(checked = true, vectors = true, nativeCpu = true, reject = refuse)
-        local ok, result = pcall(function()
-            local program = verify.program(lowering.program(declarations, application, true, context))
-            local first = translate(program, application.tail.body)
-            if next(first.hoistable) ~= nil then
-                return translate(program, application.tail.body, first.hoistable)
-            end
+        if plans[application.tail.body] == nil then
+            local context = new lowering.Context(checked = true, vectors = true, nativeCpu = true, reject = refuse)
+            local ok, result = pcall(function()
+                local program = verify.program(lowering.program(declarations, application, true, context))
+                local first = translate(program, application.tail.body)
+                if next(first.hoistable) ~= nil then
+                    return translate(program, application.tail.body, first.hoistable)
+                end
 
-            return first
-        end)
-        if ok then
-            plans[application.tail.body] = result
-        elseif result ~= REFUSED then
-            error(result, 0)
+                return first
+            end)
+            if ok then
+                plans[application.tail.body] = result
+            elseif result ~= REFUSED then
+                error(result, 0)
+            end
         end
     end
 

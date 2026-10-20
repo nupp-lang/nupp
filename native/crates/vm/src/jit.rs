@@ -1004,6 +1004,15 @@ impl<M: Module> Compiler<M> {
                             }
                             _ => { let c = hcall!(helper, &[pcv]); b.inst_results(c)[0] }
                         };
+                        if typed_cfg_mode && matches!(op, Op::Ret(..) | Op::RetNil | Op::RetN(..)) {
+                            // Return helpers leave this activation, including when a
+                            // budget or cleanup defers the return. There is no edge
+                            // to the next bytecode block and no live state to pass it.
+                            let done = b.ins().iconst(types::I64, -1);
+                            b.ins().return_(&[done]);
+                            terminated = true;
+                            continue;
+                        }
                         // 1 leaves for the driver; anything else is the frame's address.
                         let transfer = b.ins().icmp_imm(IntCC::Equal, answer, 1);
                         let leave = b.create_block(); let resume = b.create_block();

@@ -1,0 +1,280 @@
+module nupp.experiment.typedcfg
+
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local trivia = require("nupp.compiler.syntax.triviaarena")
+local provider = require("nupp.compiler.syntax.triviaarena.table")
+local frontend = require("nupp.experiment.typedcfg.frontend")
+local graph = require("nupp.experiment.typedcfg.graph")
+local old = require("nupp.compiler.vm.native")
+local project = require("nupp.tools.vm.project")
+
+local driver = {}
+function driver.main(argv: {string}): integer
+    local path, output = assert(argv[1]), assert(argv[2])
+    if argv[3] == "emit" then
+        local start = os.clock()
+        local image = project.emit(path, "nupp.tests.vmnativesimd")
+        local elapsed = (os.clock() - start) * 1000000
+        local out = assert(io.open(output, "wb"));
+        out:write(image);
+        out:close()
+        local metrics = assert(io.open(output .. ".json", "wb"));
+        metrics:write('{"compile_us":', elapsed, ',"image_bytes":', #image, '}\n');
+        metrics:close()
+        return 0
+    end
+    local input = assert(io.open(path, "rb"));
+    local source = input:read("*a");
+    input:close()
+    trivia.installDefault(provider)
+    local root = assert(envMod.compilerRoot())
+    if path:sub(1, 1) ~= "/" then
+        path = root .. "/" .. path
+    end
+    local projectRoot = path:match("^(.*)/lib/") or root
+    local env = envMod.new(projectRoot, {cache = false, nativeCompilerServices = false, config = {include = {"lib"}}})
+    envMod.ensureProjectIndex(env)
+    table.insert(assert(env.roots), 1, root .. "/native/crates/vm/lib")
+    table.insert(assert(env.roots), 1, root .. "/native/crates/vm/decls")
+    local parsed = parser.parse(source, path)
+    assert(#parsed.errors == 0)
+    local diagnostics = checker.check(parsed, path, env as any, {})
+    for _, d in ipairs(diagnostics) do
+        assert(d.severity and d.severity ~= "error", tostring(d.code) .. ": " .. tostring(d.msg))
+    end
+    local names = {}
+
+    local function walk(n: any): nil
+        if n.kind == "localFuncStmt" then
+            names[n.body] = n.name.text;
+            return
+        end
+        if n.kind == "funcbody" then
+            return
+        end
+        if not n.text then
+            for _, child in ipairs(n) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(parsed.root)
+    if argv[3] == "admission" then
+        local valid = [[
+local span = require("nupp.mem.span")
+local simd = require("nupp.simd")
+local array = require("nupp.mem.array")
+local function kernel(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    local species = assert(simd.species(array.number, 4))
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        local value = species:load(input, cursor + 1)
+        species:store(output, cursor + 1, value)
+        cursor = cursor + species.lanes
+    end
+    if cursor < #input then
+        local active = species:tail(#input - cursor)
+        local value = species:load(input, cursor + 1, active)
+        species:store(output, cursor + 1, value, active)
+    end
+end
+]]
+
+        local function built(text: string, index: integer): any
+            local tree = parser.parse(text, root .. "/build/cfg-experiment/admission" .. index .. ".nupp")
+            assert(#tree.errors == 0)
+            local ds = checker.check(
+                tree,
+                root .. "/build/cfg-experiment/admission" .. index .. ".nupp",
+                env as any,
+                {}
+            )
+            for _, d in ipairs(ds) do
+                assert(d.severity and d.severity ~= "error", tostring(d.code) .. ": " .. tostring(d.msg))
+            end
+
+            local function find(n: any): any
+                if n.kind == "localFuncStmt" then
+                    return n.body
+                end
+                if not n.text then
+                    for _, c in ipairs(n) do
+                        local found = find(c);
+                        if found then
+                            return found
+                        end
+                    end
+                end
+
+                return nil
+            end
+
+            local g = frontend.tryBuild(assert(find(tree.root)))
+
+            return g
+        end
+
+        assert(built(valid, 0))
+        local rejected = {
+            (valid:gsub('if #output ~= #input then error%("length mismatch", 2%) end', '')),
+            (valid:gsub('if cursor < #input then', 'if cursor >= #input then')),
+            (
+                valid:gsub(
+                    'species:store%(output, cursor %+ 1, value%)',
+                    'cursor = cursor + species.lanes; species:store(output, cursor + 1, value)'
+                )
+            ),
+            (valid:gsub('cursor %+ species.lanes <= #input', 'cursor <= #input')),
+            (valid:gsub('local cursor: uint32 = 0', 'local cursor: uint32 = 1')),
+            (valid:gsub('local cursor: uint32 = 0', 'local narrowed: float = 0.5; local cursor: uint32 = 0')),
+            (
+                (
+                    valid:gsub('borrows input: span.Span<number>%)', 'borrows input: span.Span<number>, factor: int32)')
+                ):gsub('local cursor: uint32 = 0', 'local narrowed = factor + factor; local cursor: uint32 = 0')
+            ),
+        }
+        local large = {}
+        for i = 1, 250 do
+            large[#large + 1] = "local unused" .. i .. " = " .. i
+        end
+        rejected[
+            #rejected + 1
+        ] = (valid:gsub("local cursor: uint32 = 0", table.concat(large, "\n") .. "\nlocal cursor: uint32 = 0"))
+        for i, text in ipairs(rejected) do
+            assert(not built(text, i), "source outside admission rules accepted: " .. i)
+        end
+        for kind = 1, 4 do
+            local g = assert(built(valid, 10 + kind))
+            graph.verify(g)
+            if kind == 1 then
+                local target = g.blocks[1].term.edges[1]
+                target.args[#target.args + 1] = 1
+            elseif kind == 2 then
+                g.blocks[2].term = nil
+            elseif kind == 3 then
+                g.types[1] = "x"
+            else
+                g.slots[2] = g.slots[1]
+            end
+            assert(not pcall(graph.verify, g), "malformed graph admitted: " .. kind)
+        end
+        print("admission: 8 rejected sources; 4 rejected graphs")
+    end
+    local plans, refusals = frontend.plans(parsed.root)
+    local original = old.plans(parsed.root)
+    local file = assert(io.open(output, "wb"))
+    for body, name in pairs(names) do
+        if plans[body] then
+            local p = plans[body]
+            file:write(
+                "function ",
+                name,
+                " 0 ",
+                #body.params,
+                " ",
+                p.nregs + 9,
+                " ",
+                p.nfregs + 2,
+                " ",
+                string.rep("v", #body.params),
+                ":v\n"
+            )
+            file:write("  vectors ", p.nvregs, "\n")
+            for i, c in ipairs(p.consts) do
+                file:write(string.format("  const %d str %q\n", i - 1, c.value))
+            end
+            for _, ins in ipairs(p.code) do
+                local text = {};
+                for i, v in ipairs(ins) do
+                    text[i] = type(v) == "number" and string.format("%.17g", v) or v
+                end
+                file:write("  ", table.concat(text, " "), "\n")
+            end
+            file:write("end\n")
+            print(
+                name,
+                "direct",
+                #p.graph.blocks,
+                #p.graph.types,
+                #p.code,
+                original[body] and #original[body].code or "new"
+            )
+        elseif original[body] then
+            print(name, "REFUSED", refusals[body])
+        end
+    end
+    file:close()
+
+    -- Timing and allocation accounting are separate. The latter is the VM heap's
+    -- charge with collection stopped, not a measurement of total process memory.
+    local samples, allocations = {old = {}, direct = {}}, {}
+
+    local function measure(kind: string, collect: boolean): any
+        collectgarbage("collect")
+        if collect then
+            collectgarbage("stop")
+        end
+        local beforeBytes = collectgarbage("count") * 1024
+        local started = os.clock()
+        -- Include candidate discovery and retained fallback, as the production
+        -- hook does. Both modes perform the whole native planning operation.
+        local result = kind == "old" and old.plans(parsed.root) or old.plans(parsed.root, frontend.plans)
+        local elapsed = (os.clock() - started) * 1000000
+        local allocated = collectgarbage("count") * 1024 - beforeBytes
+        collectgarbage("restart")
+        local count = 0;
+        for _ in pairs(result) do
+            count = count + 1
+        end
+
+        return {us = elapsed, bytes = allocated, functions = count}
+    end
+
+    for round = 1, 7 do
+        for _, kind in ipairs(round % 2 == 0 and {"direct", "old"} or {"old", "direct"}) do
+            local row = measure(kind, false)
+            if round > 2 then
+                samples[kind][#samples[kind] + 1] = row.us
+            end
+        end
+    end
+    allocations.old, allocations.direct = measure("old", true), measure("direct", true)
+    local metrics = assert(io.open(output .. ".json", "wb"))
+    metrics:write(
+        '{"old_us":[',
+        table.concat(samples.old, ","),
+        '],"direct_us":[',
+        table.concat(samples.direct, ","),
+        '],"old_heap_charge":',
+        allocations.old.bytes,
+        ',"direct_heap_charge":',
+        allocations.direct.bytes,
+        ',"old_functions":',
+        allocations.old.functions,
+        ',"direct_functions":',
+        allocations.direct.functions,
+        '}\n'
+    )
+    metrics:close()
+    -- Seeded plans must bypass the structured lowering even when fallback remains
+    -- necessary for other declarations in the same module.
+    local aot = require("nupp.compiler.aot.lower")
+    local saved = aot.program
+    local calls = 0
+    aot.program = function(declarations: any, application: any, checked: any, context: any, specialization: any): any
+        assert(plans[application.tail.body] == nil, "direct body entered the old lowering")
+        calls = calls + 1
+        return saved(declarations, application, checked, context, specialization)
+    end
+    old.plans(parsed.root, plans)
+    aot.program = saved
+    print("fallback attempts", calls)
+
+    return 0
+end
+
+export = driver

@@ -1,0 +1,851 @@
+module nupp.experiment.typedcfg.frontend
+
+local G = require("nupp.experiment.typedcfg.graph")
+local T = require("nupp.compiler.types")
+local frontend = {}
+local REFUSED = {}
+local elements = {
+    uint8 = 0,
+    int8 = 1,
+    uint16 = 2,
+    int16 = 3,
+    uint32 = 4,
+    int32 = 5,
+    uint64 = 6,
+    int64 = 7,
+    float = 8,
+    number = 9
+}
+local widths = {[0] = 1, [1] = 1, [2] = 2, [3] = 2, [4] = 4, [5] = 4, [6] = 8, [7] = 8, [8] = 4, [9] = 8}
+local scalars = {uint32 = "u32", int32 = "i32", number = "f64", integer = "f64", float = "f32", boolean = "bool"}
+
+local function refuse(reason: string): nil
+    REFUSED.reason = reason
+    error(REFUSED, 0)
+end
+
+local function need(value: any, reason: string): any
+    if not value then
+        refuse(reason)
+    end
+    return value
+end
+
+local function copy(t: any): any
+    local r = {};
+    for k, v in pairs(t) do
+        r[k] = v
+    end;
+
+    return r
+end
+
+local function raw(t: any): any
+    t = t and T.unwrapOwnership(t)
+    while t and (t.tag == "genericAlias" and #(t.paramKinds or {}) == 0 or t.tag == "literal") do
+        t = T.unwrapOwnership(t.tag == "literal" and t.base or t.body)
+    end
+
+    return t
+end
+
+local function nominal(t: any, moduleName: string, name: string): any
+    t = raw(t)
+    local origin = t and (t.origin or t)
+    return t and t.tag == "nominal" and origin.moduleName == moduleName and origin.name == name and t or nil
+end
+
+local function identity(n: any): any
+    if not n then
+        return nil
+    end
+    local exact = n.exactCallExport
+    if exact then
+        return exact.identity
+    end
+    if n.kind == "name" then
+        local d = n.token.definition
+        return d and d.exactCallExport and d.exactCallExport.identity
+    elseif n.kind == "dotIndex" and n.obj.kind == "name" then
+        local d = n.obj.token.definition
+        return d and d.requiredModule and d.requiredModule .. "." .. n.name.text
+    end
+
+    return nil
+end
+
+local function unparen(n: any): any
+    while n and n.kind == "paren" do
+        n = n.expr
+    end
+    return n
+end
+
+local function named(n: any): any
+    n = unparen(n)
+    return n and n.kind == "name" and n.token.text or nil
+end
+
+local function counted(n: any): any
+    n = unparen(n)
+    return n and n.kind == "unop" and n.op.text == "#" and named(n.operand) or nil
+end
+
+local function literal(n: any): any
+    n = unparen(n)
+    return n and n.kind == "number" and tonumber(n.token.text) or nil
+end
+
+local function scalar(ty: string, id: integer): any
+    return {type = ty, class = (ty == "f64" or ty == "f32") and "f" or "i", ids = {id}}
+end
+
+-- Types and export identities come from the checker. No AOT program, structured
+-- statement IR, or mutable-register instruction stream is built here.
+function frontend.build(body: any): any
+    need(
+        not body.generics and not body.varargParam and not body.captureTakes and not body.captureBorrows,
+        "plain leaf required"
+    )
+    need(#(body.rets or {}) <= 1, "one result required")
+    local resultType = body.signatureType and raw(body.signatureType.rets[1])
+    need(
+        resultType and (resultType.tag == "nil" or resultType.tag == "number" or resultType.tag == "integer"),
+        "boxed numeric or nil result"
+    )
+    need(#body.params < 240, "boxed parameter capacity")
+    local g = G.new(#body.params)
+    local b = G.block(g)
+    b.env, b.names, b.facts = {}, {}, {}
+    local cursors, equalities = {}, {}
+    local seenVector = false
+
+    local function emit(op: string, args: any): integer
+        return G.emit(g, b, op, args) or 0
+    end
+
+    local function unalias(r: any): any
+        if #r.ids == 0 then
+            return r
+        end
+        local held = {}
+        for _, existing in pairs(b.env) do
+            for _, id in ipairs(existing.ids) do
+                held[id] = true
+            end
+            if existing.active then
+                held[existing.active] = true
+            end
+        end
+        local overlap = r.active and held[r.active]
+        for _, id in ipairs(r.ids) do
+            overlap = overlap or held[id]
+        end
+        if not overlap then
+            return r
+        end
+        need(r.class ~= "span", "span aliases are outside this slice")
+        local out = copy(r);
+        out.ids = {}
+        for i, id in ipairs(r.ids) do
+            local ty = g.types[id]
+            out.ids[i] = emit(ty == "i" and "IMov" or ty == "f" and "FMov" or "VMov", {id})
+        end
+        if r.active then
+            out.active = emit("IMov", {r.active})
+        end
+
+        return out
+    end
+
+    local function bind(name: string, r: any): nil
+        need(not b.env[name], "shadowing is outside this slice")
+        b.names[#b.names + 1], b.env[name] = name, unalias(r)
+    end
+
+    for i, p in ipairs(body.params) do
+        need(p.name and p.type and not p.vararg and not p.constTok, "annotated runtime parameter required")
+        local t = raw(p.type.resolvedType)
+        local s = nominal(t, "nupp.mem.span", "Span") or nominal(t, "nupp.mem.span", "WriteSpan")
+        local mode = p.modeTok and p.modeTok.text
+        if s then
+            local writable = (s.origin or s).name == "WriteSpan"
+            need(mode == (writable and "exclusive" or "borrows"), "span ownership required")
+            local kind = elements[need(raw(s.typeArgs[1]), "span element").tag]
+            need(kind ~= nil, "physical scalar span required")
+            bind(p.name.text, {
+                class = "span",
+                type = "span",
+                param = i,
+                element = kind,
+                write = writable,
+                ids = {emit("SpanLen", {i, kind})}
+            })
+        else
+            local ty = t and scalars[t.tag]
+            need((ty == "f64" or ty == "u32" or ty == "i32") and not mode, "numeric uniform required")
+            local value = scalar(ty, emit(ty == "f64" and "FUnbox" or "IUnbox", {i}))
+            value.class = ty == "f64" and "f" or "i"
+            bind(p.name.text, value)
+        end
+    end
+
+    local function newBlock(from: any, names: any): any
+        local out = G.block(g)
+        out.env, out.names, out.facts = {}, copy(names), copy(from.facts)
+        for _, name in ipairs(names) do
+            local source = from.env[name]
+            local r = copy(source);
+            r.ids = {}
+            for i, v in ipairs(source.ids) do
+                local id = G.value(g, g.types[v], g.slots[v])
+                r.ids[i] = id;
+                out.params[#out.params + 1] = id
+                out.keys[#out.keys + 1] = {name, i}
+            end
+            if source.active then
+                r.active = G.value(g, "i", g.slots[source.active])
+                out.params[#out.params + 1] = r.active;
+                out.keys[#out.keys + 1] = {name, 0}
+            end
+            out.env[name] = r
+        end
+
+        return out
+    end
+
+    local function edge(from: any, to: any): any
+        local args = {}
+        for _, key in ipairs(to.keys) do
+            local r = need(from.env[key[1]], "missing lexical edge value")
+            args[#args + 1] = key[2] == 0 and need(r.active, "missing tail count")
+                or need(r.ids[key[2]], "edge shape changed")
+        end
+
+        return {target = to.id, args = args}
+    end
+
+    local function jump(from: any, to: any): nil
+        from.term = {kind = "jump", edges = {edge(from, to)}}
+    end
+
+    local function branch(from: any, cond: integer, yes: any, no: any): nil
+        from.term = {kind = "branch", value = cond, edges = {edge(from, yes), edge(from, no)}}
+    end
+
+    local function ik(n: number, ty: string?): any
+        return scalar(ty or "u32", emit("IK", {n}))
+    end
+
+    local function floating(r: any): any
+        if r.class == "f" then
+            return r
+        end
+        need(
+            r.class == "i" and (r.type == "u32" or r.type == "i32" or r.type == "count"),
+            "exact integer conversion required"
+        )
+        local out = scalar("f64", emit("IToF", {r.ids[1]}));
+        out.class = "f";
+
+        return out
+    end
+
+    local function shape(family: string, kind: integer, lanes: integer): any
+        return {class = family, type = family .. "/" .. kind .. "/" .. lanes, element = kind, lanes = lanes, ids = {}}
+    end
+
+    local function splat(r: any, s: any): any
+        local out = shape("vector", s.element, s.lanes)
+        if s.element >= 8 then
+            r = floating(r)
+        else
+            need(r.class == "i", "integer splat required")
+        end
+        for _ = 1, math.ceil(s.lanes * widths[s.element] / 16) do
+            out.ids[#out.ids + 1] = emit(s.element >= 8 and "VSplatN" or "VSplatI", {r.ids[1], s.element})
+        end
+
+        return out
+    end
+
+    local comparisons = {["=="] = "Eq", ["~="] = "Ne", ["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
+    local vectorOps = {
+        ["+"] = "add",
+        ["-"] = "sub",
+        ["*"] = "mul",
+        ["/"] = "div",
+        ["&"] = "and",
+        ["|"] = "or",
+        ["~"] = "xor",
+        ["=="] = "eq",
+        ["~="] = "ne",
+        ["<"] = "lt",
+        ["<="] = "le",
+        [">"] = "gt",
+        [">="] = "ge"
+    }
+    local expression
+
+    local function vector(op: string, a: any, c: any, d: any?): any
+        if a.class ~= "vector" and a.class ~= "mask" then
+            a = splat(a, c)
+        end
+        if c.class ~= "vector" and c.class ~= "mask" then
+            c = splat(c, a)
+        end
+        need(a.element == c.element and a.lanes == c.lanes, "vector shape mismatch")
+        local out = shape(comparisons[op] and "mask" or a.class, a.element, a.lanes)
+        local operation = need(vectorOps[op] or op == "select" and "select", "vector operation")
+        if a.class == "mask" and (operation == "eq" or operation == "ne") then
+            operation = operation == "eq" and "maskEq" or "maskNe"
+        end
+        if d then
+            need(a.class == "mask", "select mask")
+            if d.class ~= "vector" then
+                d = splat(d, a)
+            end
+            need(d.element == a.element and d.lanes == a.lanes, "select shape")
+            out.class, out.type = "vector", c.type
+        end
+        for i, v in ipairs(a.ids) do
+            out.ids[i] = emit("VOp", {operation, out.element, v, c.ids[i], d and d.ids[i] or v})
+        end
+
+        return out
+    end
+
+    local function binary(op: string, a: any, c: any, ty: string?): any
+        if a.class == "vector" or a.class == "mask" or c.class == "vector" or c.class == "mask" then
+            return vector(op, a, c)
+        end
+        if comparisons[op] then
+            if op == ">" or op == ">=" then
+                a, c = c, a
+            end
+            local float = a.class == "f" or c.class == "f"
+            if float then
+                a, c = floating(a), floating(c)
+            end
+            need(a.class == "i" and c.class == "i" or float, "scalar comparison")
+            if not float then
+                need(
+                    a.type == c.type or a.type == "count" and c.type == "u32" or a.type == "u32" and c.type == "count",
+                    "matching integer comparison domains"
+                )
+            end
+            local prefix = float and "FCmp" or (a.type == "i32" and "ICmpS" or "ICmp")
+            if comparisons[op] == "Eq" or comparisons[op] == "Ne" then
+                prefix = float and "FCmp" or "ICmp"
+            end
+            return scalar("bool", emit(prefix .. comparisons[op], {a.ids[1], c.ids[1]}))
+        elseif op == "and" or op == "or" then
+            need(a.type == "bool" and c.type == "bool", "boolean operands required")
+            return scalar("bool", emit(op == "and" and "IAnd" or "IOr", {a.ids[1], c.ids[1]}))
+        elseif ty == "u32" then
+            need(a.class == "i" and c.class == "i" and (op == "+" or op == "-"), "wrapping uint32 operation")
+            local id = emit(op == "+" and "IAdd" or "ISub", {a.ids[1], c.ids[1]})
+            return scalar("u32", emit("IMaskU32", {id}))
+        else
+            a, c = floating(a), floating(c)
+            local operation = need(
+                ({["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv"})[op],
+                "scalar arithmetic"
+            )
+            local out = scalar("f64", emit(operation, {a.ids[1], c.ids[1]}));
+            out.class = "f";
+            return out
+        end
+    end
+
+    local function sameSpan(a: string, c: string): boolean
+        return a == c or equalities[a .. "|" .. c] == true
+    end
+
+    local function covered(cursor: string, span: string, lanes: integer): boolean
+        for name, r in pairs(b.env) do
+            if r.class == "span" and sameSpan(name, span) and (b.facts[cursor .. "|" .. name] or -1) >= lanes then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function addFacts(n: any, target: any): any
+        n = unparen(n)
+        if n.kind ~= "binop" then
+            return nil
+        end
+        if n.op.text == "and" then
+            local a, c = addFacts(n.lhs, target), addFacts(n.rhs, target)
+            need(not a or not c or a == c, "one induction cursor per loop")
+            return a or c
+        end
+        local span, lhs = counted(n.rhs), unparen(n.lhs)
+        local cursor, room = named(lhs), 0
+        if lhs.kind == "binop" and lhs.op.text == "+" then
+            cursor = named(lhs.lhs)
+            local dot = unparen(lhs.rhs)
+            local species = dot.kind == "dotIndex" and dot.name.text == "lanes" and target.env[named(dot.obj)]
+            room = species and species.class == "species" and species.lanes or -1
+        end
+        if span
+            and cursor
+            and cursors[cursor]
+            and target.env[span]
+            and target.env[span].class == "span"
+            and (n.op.text == "<" and room == 0 or n.op.text == "<=" and room > 0)
+        then
+            target.facts[cursor .. "|" .. span] = room
+            return cursor
+        end
+
+        return nil
+    end
+
+    local function inert(n: any): boolean
+        n = unparen(n)
+        if n.kind == "name" or n.kind == "number" then
+            return true
+        end
+        if n.kind == "unop" then
+            return n.op.text == "#" and named(n.operand) ~= nil
+        end
+        if n.kind == "dotIndex" then
+            return n.name.text == "lanes" and named(n.obj) ~= nil
+        end
+        if n.kind == "binop" then
+            return inert(n.lhs) and inert(n.rhs)
+        end
+
+        return n.kind == "methodCall" and n.name.text == "any" and named(n.obj) ~= nil and #(n.args.exprs or {}) == 0
+    end
+
+    expression = function(node, wanted)
+        local n = unparen(node)
+        if n.kind == "name" then
+            return need(b.env[n.token.text], "free binding: " .. n.token.text)
+        elseif n.kind == "number" then
+            local number = need(tonumber(n.token.text), "numeric literal")
+            need(math.abs(number) <= 9007199254740991, "exact literal required")
+            if wanted == "u32" then
+                need(number >= 0 and number < 4294967296 and number % 1 == 0, "uint32 literal");
+                return ik(number)
+            end
+            local out = scalar("f64", emit("FK", {number}));
+            out.class = "f";
+            return out
+        elseif n.kind == "unop" and n.op.text == "#" then
+            local s = need(b.env[named(n.operand)], "span length binding")
+            need(s.class == "span", "span length required")
+            return scalar("count", s.ids[1])
+        elseif n.kind == "dotIndex" and n.name.text == "lanes" then
+            local s = expression(n.obj)
+            need(s.class == "species", "species lanes")
+            return ik(s.lanes)
+        elseif n.kind == "binop" then
+            -- Boolean operands are restricted to inert scalar comparisons or
+            -- mask tests, so eager evaluation cannot expose a discarded read.
+            if n.op.text == "and" or n.op.text == "or" then
+                need(inert(n), "inert boolean operands required")
+            end
+            local ty = raw(n.inferredType)
+            local arithmeticType = ty and scalars[ty.tag]
+            need(arithmeticType ~= "i32" and arithmeticType ~= "f32", "narrow scalar arithmetic")
+            local a = expression(n.lhs, arithmeticType == "u32" and "u32" or nil)
+            local c = expression(n.rhs, arithmeticType == "u32" and "u32" or nil)
+            return binary(n.op.text, a, c, arithmeticType)
+        elseif n.kind == "call" then
+            local args = n.args.exprs or {}
+            local id = identity(n.obj)
+            if n.aotGuardBuiltin == "assert" then
+                need(#args == 1 or #args == 2 and args[2].kind == "string", "inert species assertion")
+                local r = expression(args[1]);
+                need(r.class == "species", "only species assertion as value");
+                return r
+            elseif id == "nupp.simd.species" then
+                need(#args == 1 or #args == 2 and literal(args[2]), "static species")
+                local resolved = raw(n.inferredType)
+                if resolved and resolved.tag == "union" then
+                    for _, m in ipairs(resolved.members) do
+                        if nominal(m, "nupp.simd", "Species") then
+                            resolved = raw(m);
+                            break
+                        end
+                    end
+                end
+                local s = need(nominal(resolved, "nupp.simd", "Species"), "checked species identity")
+                local kind = elements[need(raw(s.typeArgs[1]), "species element").tag]
+                need(kind ~= nil, "species kind")
+                local lanes = literal(args[2]) or 16 / widths[kind]
+                need(lanes >= 2 and lanes <= 64 and lanes % 1 == 0, "species width")
+                local witness = identity(args[1])
+                need(witness and witness:sub(1, 15) == "nupp.mem.array.", "checked storage witness")
+                need(elements[witness:sub(16)] == kind, "matching storage witness")
+                seenVector = true
+                return shape("species", kind, lanes)
+            elseif id == "nupp.simd.horizontal.algebraicSum" then
+                need(#args == 1, "horizontal arity")
+                local r = expression(args[1]);
+                need(r.class == "vector" and r.element == 9, "f64 reduction")
+                local out = scalar("f64", emit("FK", {0}));
+                out.class = "f"
+                for lane = 0, r.lanes - 1 do
+                    local v = emit("VExtractN", {r.ids[math.floor(lane / 2) + 1], 9, lane % 2})
+                    out.ids[1] = emit("FAdd", {out.ids[1], v})
+                end
+                return out
+            end
+            refuse("call outside typed leaf: " .. tostring(id))
+        elseif n.kind == "methodCall" then
+            local r, args, method = expression(n.obj), n.args.exprs or {}, n.name.text
+            if r.class == "species" and method == "splat" then
+                need(#args == 1, "splat arity");
+                return splat(expression(args[1]), r)
+            elseif r.class == "mask" and method == "any" then
+                need(#args == 0 and r.lanes * widths[r.element] % 16 == 0, "whole-register any")
+                local id = emit("IK", {0})
+                for _, v in ipairs(r.ids) do
+                    id = emit("IOr", {id, emit("VAny", {v})})
+                end
+                return scalar("bool", id)
+            elseif r.class == "mask" and method == "select" then
+                need(#args == 2, "select arity");
+                return vector("select", r, expression(args[1]), expression(args[2]))
+            elseif r.class == "species" and method == "tail" then
+                local arg = unparen(need(#args == 1 and args[1], "tail arity"))
+                local span, cursor = arg.kind == "binop" and arg.op.text == "-" and counted(arg.lhs), named(arg.rhs)
+                need(span and cursor and covered(cursor, span, 0), "tail needs its cursor bound")
+                local count = binary("-", expression(arg.lhs), expression(arg.rhs), "u32")
+                local max = ik(r.lanes)
+                local condition = binary("<=", count, max)
+                -- A lexical temporary gives the clamp a normal join parameter.
+                local key = "$tail" .. #g.types
+                bind(key, max)
+                local from = b
+                local yes, no = newBlock(from, from.names), newBlock(from, from.names)
+                branch(from, condition.ids[1], yes, no)
+                b = yes
+                -- Transport count explicitly; it is not a lexical binding.
+                local countParam = G.value(g, "i", g.slots[count.ids[1]])
+                yes.params[#yes.params + 1] = countParam
+                from.term.edges[1].args[#from.term.edges[1].args + 1] = count.ids[1]
+                yes.env[key] = scalar("u32", countParam)
+                local join = newBlock(no, no.names)
+                jump(yes, join);
+                jump(no, join);
+                b = join
+                local out = shape("mask", r.element, r.lanes)
+                out.active, out.cursor, out.span = b.env[key].ids[1], cursor, span
+                local per = 16 / widths[r.element]
+                for offset = 0, r.lanes - 1, per do
+                    out.ids[#out.ids + 1] = emit("VPrefix", {
+                        out.active,
+                        r.element,
+                        offset,
+                        math.min(per, r.lanes - offset)
+                    })
+                end
+                return out
+            elseif r.class == "species" and (method == "load" or method == "store") then
+                local store = method == "store"
+                need(#args == (store and 3 or 2) or #args == (store and 4 or 3), "span operation arity")
+                local span = named(args[1]);
+                local s = span and b.env[span]
+                need(
+                    s and s.class == "span" and s.element == r.element and (not store or s.write),
+                    "matching owned span"
+                )
+                local index = unparen(args[2])
+                local cursor = index.kind == "binop"
+                    and index.op.text == "+"
+                    and literal(index.rhs) == 1
+                    and named(index.lhs)
+                need(cursor and cursors[cursor], "induction index required")
+                local mask = args[store and 4 or 3] and expression(args[store and 4 or 3])
+                need(covered(cursor, span, mask and 0 or r.lanes), "span use has no covering source bound")
+                if mask then
+                    need(
+                        mask.active and mask.cursor == cursor and sameSpan(mask.span, span) and mask.lanes == r.lanes,
+                        "matching tail mask"
+                    )
+                end
+                local at = expression(index, "u32")
+                need(at.type == "u32", "one-based uint32 index")
+                local zero = emit("IAddK", {at.ids[1], -1})
+                local active = mask and mask.active or ik(r.lanes).ids[1]
+                local out = store and expression(args[3]) or shape("vector", r.element, r.lanes)
+                need(out.class == "vector" and out.element == r.element and out.lanes == r.lanes, "stored vector shape")
+                emit("SpanBounds", {s.param, zero, active, s.element, store and 1 or 0})
+                local per = 16 / widths[r.element]
+                for offset = 0, r.lanes - 1, per do
+                    local lane = math.floor(offset / per) + 1
+                    if store then
+                        emit("SpanStore", {
+                            s.param,
+                            zero,
+                            out.ids[lane],
+                            active,
+                            s.element,
+                            offset,
+                            math.min(per, r.lanes - offset)
+                        })
+                    else
+                        out.ids[lane] = emit("SpanLoad", {
+                            s.param,
+                            zero,
+                            active,
+                            s.element,
+                            offset,
+                            math.min(per, r.lanes - offset)
+                        })
+                    end
+                end
+                return out
+            end
+            refuse("method outside typed leaf: " .. method)
+        end
+        refuse("expression outside typed leaf: " .. tostring(n.kind))
+    end
+
+    local function errorMessage(call: any): any
+        need(call and call.kind == "call" and call.aotGuardBuiltin == "error", "authored guard error")
+        local args = call.args.exprs or {}
+        need(
+            #args >= 1 and #args <= 2 and args[1].kind == "string" and (not args[2] or literal(args[2])),
+            "inert error arguments"
+        )
+
+        return (loadstring("return " .. args[1].token.text))()
+    end
+
+    local statements
+    statements = function(stats, loopCursor)
+        for _, s in ipairs(stats) do
+            need(b ~= nil, "unreachable statements")
+            if s.kind == "localStmt" then
+                need(#s.names == #(s.exprs or {}), "local arity")
+                local values = {}
+                for i, e in ipairs(s.exprs) do
+                    local annotation = s.types and s.types[i]
+                    local ty = annotation and raw(annotation.resolvedType)
+                    need(
+                        not annotation
+                        or ty
+                        and (ty.tag == "number" or ty.tag == "integer" or ty.tag == "uint32" or ty.tag == "boolean"),
+                        "local annotation outside the admitted representations"
+                    )
+                    values[i] = expression(e, ty and scalars[ty.tag])
+                    if ty and ty.tag == "uint32" then
+                        need(literal(e) == 0, "cursor starts at zero")
+                        cursors[s.names[i].text] = true
+                    end
+                end
+                for i, name in ipairs(s.names) do
+                    bind(name.text, values[i])
+                end
+            elseif s.kind == "assignStmt" then
+                need(#s.targets == #s.exprs, "assignment arity")
+                local values = {}
+                for i, e in ipairs(s.exprs) do
+                    values[i] = unalias(expression(e))
+                end
+                for i, target in ipairs(s.targets) do
+                    local name = need(named(target), "local assignment")
+                    local old = need(b.env[name], "local assignment target")
+                    need(
+                        old.type == values[i].type
+                        and old.class ~= "span"
+                        and old.class ~= "species"
+                        and not old.active,
+                        "stable assignable representation"
+                    )
+                    if cursors[name] then
+                        local e = unparen(s.exprs[i]);
+                        local rhs = e.kind == "binop" and unparen(e.rhs)
+                        local species = rhs
+                            and rhs.kind == "dotIndex"
+                            and rhs.name.text == "lanes"
+                            and b.env[named(rhs.obj)]
+                        need(
+                            loopCursor == name
+                            and e.op.text == "+"
+                            and named(e.lhs) == name
+                            and species
+                            and species.class == "species",
+                            "induction step"
+                        )
+                        for key in pairs(b.facts) do
+                            if key:sub(1, #name + 1) == name .. "|" then
+                                b.facts[key] = nil
+                            end
+                        end
+                    end
+                    b.env[name] = values[i]
+                end
+            elseif s.kind == "whileStmt" then
+                local from = b;
+                local header = newBlock(from, from.names);
+                jump(from, header);
+                b = header
+                local condition = expression(s.cond);
+                need(condition.type == "bool", "loop condition")
+                local yes, after = newBlock(b, from.names), newBlock(b, from.names)
+                branch(b, condition.ids[1], yes, after)
+                local cursor = addFacts(s.cond, yes)
+                b = yes;
+                statements(s.body.stats, cursor)
+                if b then
+                    jump(b, header)
+                end
+                if cursor then
+                    for key in pairs(after.facts) do
+                        if key:sub(1, #cursor + 1) == cursor .. "|" then
+                            after.facts[key] = nil
+                        end
+                    end
+                end
+                b = after
+            elseif s.kind == "ifStmt" then
+                need(#s.clauses == 1 and not s.clauses[1].binding, "plain if required")
+                local clause = s.clauses[1]
+                local from = b;
+                local condition = expression(clause.cond);
+                need(condition.type == "bool", "if condition")
+                from = b
+                local yes, no = newBlock(from, from.names), newBlock(from, from.names)
+                branch(from, condition.ids[1], yes, no);
+                addFacts(clause.cond, yes)
+                local guardCall = #clause.body.stats == 1
+                    and clause.body.stats[1].kind == "callStmt"
+                    and clause.body.stats[1].expr
+                if not s.elseClause and guardCall and guardCall.aotGuardBuiltin == "error" then
+                    local text = errorMessage(guardCall);
+                    g.constants[#g.constants + 1] = {kind = "str", value = text}
+                    yes.term = {kind = "raise", constant = #g.constants - 1, edges = {}}
+                    local c = unparen(clause.cond)
+                    local left, right = c.kind == "binop" and counted(c.lhs), c.kind == "binop" and counted(c.rhs)
+                    if c.kind == "binop" and c.op.text == "~=" and left and right then
+                        need(from.id == 1, "length guard must precede the body")
+                        equalities[left .. "|" .. right], equalities[right .. "|" .. left] = true, true
+                    end
+                    b = no
+                else
+                    b = yes;
+                    statements(clause.body.stats, loopCursor);
+                    yes = b
+                    b = no;
+                    if s.elseClause then
+                        statements(s.elseClause.body.stats, loopCursor)
+                    end;
+                    no = b
+                    if yes or no then
+                        local join = newBlock(from, from.names)
+                        -- A branch may update a cursor, invalidating inherited facts.
+                        join.facts = {}
+                        for key, room in pairs(from.facts) do
+                            if (not yes or yes.facts[key] == room) and (not no or no.facts[key] == room) then
+                                join.facts[key] = room
+                            end
+                        end
+                        if yes then
+                            jump(yes, join)
+                        end;
+                        if no then
+                            jump(no, join)
+                        end;
+                        b = join
+                    else
+                        b = nil
+                    end
+                end
+            elseif s.kind == "callStmt" then
+                local r = expression(s.expr);
+                need(
+                    r.class == "vector" and s.expr.kind == "methodCall" and s.expr.name.text == "store",
+                    "only store statement"
+                )
+            elseif s.kind == "returnStmt" then
+                need(#s.exprs <= 1, "return arity")
+                local r = s.exprs[1] and floating(expression(s.exprs[1]))
+                b.term = {kind = "return", value = r and r.ids[1], edges = {}};
+                b = nil
+            elseif s.kind ~= "emptyStmt" then
+                refuse("statement outside typed leaf: " .. tostring(s.kind))
+            end
+        end
+    end
+    statements(body.body.stats, nil)
+    if b then
+        b.term = {kind = "return", edges = {}}
+    end
+    need(seenVector, "no explicit SIMD")
+    G.prune(g)
+    need(g.counts.i < 239 and g.counts.f < 239 and g.counts.x < 249, "typed register capacity")
+
+    return g
+end
+
+function frontend.tryBuild(body: any): (any, string?)
+    local ok, result = pcall(frontend.build, body)
+    if ok then
+        return result, nil
+    end
+    if result == REFUSED then
+        return nil, REFUSED.reason
+    end
+    error(result, 0)
+end
+
+function frontend.plans(root: any): (any, any)
+    local plans, refusals = {}, {}
+
+    local function candidate(n: any, body: any): boolean
+        if n.kind == "funcbody" and n ~= body then
+            return false
+        end
+        if n.kind == "call" and identity(n.obj) == "nupp.simd.species" then
+            return true
+        end
+        if not n.text then
+            for _, child in ipairs(n) do
+                if candidate(child, body) then
+                    return true
+                end
+            end
+        end
+
+        return false
+    end
+
+    local function walk(n: any): nil
+        if n.kind == "localFunc" or n.kind == "funcStmt" or n.kind == "localFuncStmt" then
+            if not candidate(n.body, n.body) then
+                refusals[n.body] = "no explicit SIMD";
+                return
+            end
+            local g, reason = frontend.tryBuild(n.body)
+            if g then
+                plans[n.body] = G.lower(g)
+            else
+                refusals[n.body] = reason
+            end
+            return
+        end
+        if n.kind == "funcbody" then
+            return
+        end
+        if not n.text then
+            for _, child in ipairs(n) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(root)
+
+    return plans, refusals
+end
+
+export = frontend

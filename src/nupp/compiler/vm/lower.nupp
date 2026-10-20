@@ -5712,7 +5712,8 @@ function lower.emit(
         currentModule = name
         covered = moduleCoverage
         local capture = linker and not coverage and linker.begin(name, #functions, #pendingModules)
-        nativePlans = require("nupp.compiler.vm.native").plans(rootNode)
+        local direct = os.getenv("NUPP_CFG_FRONTEND") and require("nupp.experiment.typedcfg.frontend").plans or nil
+        nativePlans = require("nupp.compiler.vm.native").plans(rootNode, direct)
         for _, s in ipairs(stats) do
             if s.kind == "recordDecl" or s.kind == "cdefStruct" then
                 declareShape(s)

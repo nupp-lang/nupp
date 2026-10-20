@@ -96,44 +96,83 @@ mod tests {
     }
 
     #[test]
-    fn typed_budget_resume_keeps_the_old_body_after_patch_and_checkpoint() {
+    fn typed_return_does_not_fall_through_to_a_later_block() {
         let mut vm = Box::new(Interp::new());
-        image::load(&mut vm, &image(1)).unwrap();
+        image::load(&mut vm, "function module:m 0 0 3 1 :v\nsource m\nconst 0 func 1\nK 1 0\nRet 1\nend\nfunction branch 1 1 3 3 v:v\nsource m\nvectors 1\nFK 0 42\nVSplatN 0 0 9\nIUnbox 0 1\nJmpIfIZero 0 3\nFK 1 17\nFBox 2 1\nRet 2\nFBox 2 0\nRet 2\nend\nmodule m 0\nentry 0\n").unwrap();
         vm.install_globals();
         let function = vm.require("m");
         vm.register(function);
         vm.enable_scheduler().unwrap();
         vm.jit = Some(Box::new(Jit::new()));
-        // Compile explicitly so a refusal cannot silently pass on the interpreter.
         vm.jit
             .as_mut()
             .unwrap()
             .compile_frame(&vm.funcs[1], 1)
             .unwrap();
-        let task = vm.schedule(function, &[Value::num(3.)], None).unwrap();
-        vm.instruction_budget = Some(1);
-        assert!(matches!(vm.run(task.index), Outcome::Parked(0)));
-        assert_eq!(vm.tasks[task.index].stack[0] >> 32, 11);
-        vm.instruction_budget = None;
-        let report =
-            hotpatch::apply(&mut vm, &format!("patch m\nmap 0 1\n{}", image(10)), true).unwrap();
-        assert_eq!((report.changed, report.retained), (1, 1));
-        let data =
-            persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
-        let mut restored = Box::new(
-            persist::load_vm(&data, &Policies::default(), &mut ResourceCodecs::new()).unwrap(),
-        );
-        restored.jit = Some(Box::new(Jit::new()));
-        for vm in [&mut vm, &mut restored] {
-            vm.heap.stress_steps = true;
-            vm.heap.oracle = true;
-            vm.heap.quarantine = true;
-            vm.full_cycle();
+        for (input, expected) in [(0., 42.), (1., 17.)] {
+            let task = vm.schedule(function, &[Value::num(input)], None).unwrap();
             vm.run_ready(1).unwrap();
-            assert_eq!(vm.tasks[task.index].result, Value::num(4.));
-            let fresh = vm.schedule(function, &[Value::num(3.)], None).unwrap();
-            vm.run_ready(1).unwrap();
-            assert_eq!(vm.tasks[fresh.index].result, Value::num(13.));
+            assert_eq!(vm.tasks[task.index].result, Value::num(expected));
+        }
+    }
+
+    #[test]
+    fn typed_budget_resume_keeps_the_old_body_after_patch_and_checkpoint() {
+        let generated = include_str!("../experiments/cfg/typed-carried.image");
+        let wrap = |body: &str| {
+            format!(
+                "function module:m 0 0 3 1 :v\nsource m\nconst 0 func 1\nK 1 0\nRet 1\nend\n{body}module m 0\nentry 0\n"
+            )
+        };
+        let changed = generated.replacen("FK 1 1\n", "FK 1 10\n", 1);
+        assert_ne!(generated, changed);
+        for (before, after, old_result, new_result) in [
+            (image(1), image(10), 4., 13.),
+            (wrap(generated), wrap(&changed), 16., 52.),
+        ] {
+            let mut vm = Box::new(Interp::new());
+            image::load(&mut vm, &before).unwrap();
+            vm.install_globals();
+            let function = vm.require("m");
+            vm.register(function);
+            vm.enable_scheduler().unwrap();
+            vm.jit = Some(Box::new(Jit::new()));
+            // Compile explicitly so a refusal cannot silently pass on the interpreter.
+            vm.jit
+                .as_mut()
+                .unwrap()
+                .compile_frame(&vm.funcs[1], 1)
+                .unwrap();
+            let task = vm.schedule(function, &[Value::num(3.)], None).unwrap();
+            vm.instruction_budget = Some(1);
+            assert!(matches!(vm.run(task.index), Outcome::Parked(0)));
+            let backedge = vm.funcs[1]
+                .code
+                .iter()
+                .position(|op| matches!(op, crate::interp::Op::Jmp(n) if *n < 0))
+                .unwrap();
+            assert_eq!(vm.tasks[task.index].stack[0] >> 32, backedge as u64);
+            vm.instruction_budget = None;
+            let report =
+                hotpatch::apply(&mut vm, &format!("patch m\nmap 0 1\n{after}"), true).unwrap();
+            assert_eq!((report.changed, report.retained), (1, 1));
+            let data = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new())
+                .unwrap();
+            let mut restored = Box::new(
+                persist::load_vm(&data, &Policies::default(), &mut ResourceCodecs::new()).unwrap(),
+            );
+            restored.jit = Some(Box::new(Jit::new()));
+            for vm in [&mut vm, &mut restored] {
+                vm.heap.stress_steps = true;
+                vm.heap.oracle = true;
+                vm.heap.quarantine = true;
+                vm.full_cycle();
+                vm.run_ready(1).unwrap();
+                assert_eq!(vm.tasks[task.index].result, Value::num(old_result));
+                let fresh = vm.schedule(function, &[Value::num(3.)], None).unwrap();
+                vm.run_ready(1).unwrap();
+                assert_eq!(vm.tasks[fresh.index].result, Value::num(new_result));
+            }
         }
     }
 }

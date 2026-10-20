@@ -4,6 +4,8 @@ Explicit typed block arguments work with the production frame ABI. The measured 
 
 The experiment remains on `codex/cfg-ssa-prototype`. Enable the frame port with `NUPP_CFG_TYPED=1`; `NUPP_CFG_TRACE=1` identifies functions actually admitted. Neither `main` nor the active `codegen-experiment` branch was changed.
 
+The subsequent [direct typed frontend slice](DIRECT.md) bypasses the structured AOT path for covered functions, widens the flow fixtures and corrects the port's return-edge handling. The measurements below belong to the earlier backend-only slice.
+
 ## Result
 
 [Recorded evidence](typed-results.json) covers 13 existing typed kernels, 1,050 instructions, all ten SIMD element kinds, tails, nested loops and reductions. Sixteen paired processes balance all four mode positions and reverse alternate cycles. Each process measures four compilations after a warmup. Intervals resample paired process medians; the practical margin is 5%.
@@ -47,7 +49,7 @@ No `.nupp` compiler source changed in this slice. The earlier compiler fixpoint 
 
 ## What was removed
 
-The typed frame compile now computes liveness once and supplies it to both frame handling and deferred NaN handling. The two quadratic per-instruction dominance sets are replaced by immediate-dominator trees and interval queries. Storage is linear in nodes and edges; fixed-point construction is not claimed to have linear worst-case running time. A differential test checks 1,380 generated graphs against the old set-intersection algorithm, including multiple entries, cycles and unreachable components.
+The typed frame compile now computes liveness once and supplies it to both frame handling and deferred NaN handling. The two quadratic per-instruction dominance sets are replaced by immediate-dominator trees and interval queries. Storage is linear in nodes and edges; fixed-point construction is not claimed to have linear worst-case running time. A differential test checks reachable-node queries in 1,380 generated graphs against the old set-intersection algorithm, including multiple entries and cycles. Unreachable components separately check the new conservative rule that only a node itself dominates it.
 
 The block-argument port still imports the existing typed bytecode. Its parameter columns and spans are compact, but its producer is not yet the direct CST graph frontend. Production still has `aot/lower`, `aot/verify`, `vm/native` and `vm/lower`; typed images still persist bytecode. Deleting `vm/native` here would remove supported behavior. Moving its translation into a graph module would change its location without removing a lowering.
 
