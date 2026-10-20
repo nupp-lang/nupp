@@ -395,44 +395,13 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
     // A restored activation may enter at a budget boundary. Facts that were
     // proved before that boundary do not dominate its resumed successors.
     let entries = resumes(f);
-    fn dominance(
-        n: usize,
-        preds: &[Vec<usize>],
-        entries: &BTreeSet<usize>,
-    ) -> Vec<BTreeSet<usize>> {
-        let all: BTreeSet<usize> = (0..n).collect();
-        let mut dom = vec![all; n];
-        loop {
-            let mut changed = false;
-            for pc in 0..n {
-                let mut next = if entries.contains(&pc) || preds[pc].is_empty() {
-                    BTreeSet::new()
-                } else {
-                    let mut d = dom[preds[pc][0]].clone();
-                    for &p in &preds[pc][1..] {
-                        d = d.intersection(&dom[p]).copied().collect();
-                    }
-                    d
-                };
-                next.insert(pc);
-                if next != dom[pc] {
-                    dom[pc] = next;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-        dom
-    }
-    let dom = dominance(n, &preds, &entries);
-    let ordinary_dom = dominance(n, &preds, &BTreeSet::from([0]));
+    let dom = crate::dominance::Dominators::new(&preds, &entries);
+    let ordinary_dom = crate::dominance::Dominators::new(&preds, &BTreeSet::from([0]));
     fn symbols(
         f: &Function,
         start: usize,
         end: usize,
-        dom: &[BTreeSet<usize>],
+        dom: &crate::dominance::Dominators,
         lengths: &BTreeMap<u8, u8>,
     ) -> Vec<Sym> {
         let mut env: Vec<Sym> = (0..f.nireg)
@@ -489,7 +458,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
             };
             for (c, r) in crate::verify::defs_uses(&op).0 {
                 if matches!(c, C::I) {
-                    env[r as usize] = if dom[end].contains(&pc) {
+                    env[r as usize] = if dom.dominates(pc, end) {
                         value.clone()
                     } else {
                         Sym::Unknown
@@ -520,7 +489,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
         if entries
             .iter()
             .filter(|&&pc| pc != 0)
-            .all(|&pc| ordinary_dom[pc].contains(edge))
+            .all(|&pc| ordinary_dom.dominates(*edge, pc))
             && f.code
                 .iter()
                 .enumerate()
@@ -530,7 +499,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
                         Op::SpanBounds(..) | Op::SpanLoad(..) | Op::SpanStore(..)
                     )
                 })
-                .all(|(pc, _)| ordinary_dom[pc].contains(edge))
+                .all(|(pc, _)| ordinary_dom.dominates(*edge, pc))
         {
             for fact in facts {
                 if let Sym::Eq(a, b) = fact {
@@ -562,7 +531,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
                 }
             }
             for (edge, _, facts) in &edges {
-                if dom[pc].contains(edge) {
+                if dom.dominates(*edge, pc) {
                     for fact in facts {
                         if let Sym::Eq(a, b) = fact {
                             if let (Sym::Length(a), Sym::Length(b)) = (&**a, &**b) {
@@ -582,7 +551,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
             }
         }
         for (edge, start, facts) in &edges {
-            if !dom[pc].contains(edge) {
+            if !dom.dominates(*edge, pc) {
                 continue;
             }
             let env = symbols(f, *start, pc, &dom, &result.lengths);
@@ -630,7 +599,7 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
             continue;
         };
         for (edge, start, facts) in &edges {
-            if !dom[pc].contains(edge) {
+            if !dom.dominates(*edge, pc) {
                 continue;
             }
             let env = symbols(f, *start, pc, &dom, &result.lengths);
@@ -673,8 +642,12 @@ pub(crate) fn proofs(f: &Function) -> Proofs {
 // this block cannot expose a NaN payload. Keep normalization at every other
 // use, including bitwise operations, stores, extraction, and frame spills.
 pub(crate) fn deferred_nan(f: &Function) -> Vec<bool> {
-    use crate::verify::{C, defs_uses};
     let (_, live_out) = crate::verify::liveness(f);
+    deferred_nan_with_liveness(f, &live_out)
+}
+
+pub(crate) fn deferred_nan_with_liveness(f: &Function, live_out: &[[crate::verify::RegSet; 4]]) -> Vec<bool> {
+    use crate::verify::{C, defs_uses};
     let mut starts = std::collections::BTreeSet::from([0]);
     for (pc, op) in f.code.iter().enumerate() {
         for off in crate::verify::operands(op).1 {

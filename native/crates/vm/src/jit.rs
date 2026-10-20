@@ -594,10 +594,13 @@ impl<M: Module> Compiler<M> {
         }
         let typed_native = f.code.iter().any(|o| crate::native_simd::required(o) && !matches!(o,Op::Simd(..)));
         let native_proofs = crate::native_simd::proofs(f);
-        let deferred_nan = if typed_native { crate::native_simd::deferred_nan(f) } else { vec![false;f.code.len()] };
+        let frame_live = frame.then(|| crate::verify::liveness(f));
+        let deferred_nan = if typed_native {
+            if let Some((_, out)) = &frame_live { crate::native_simd::deferred_nan_with_liveness(f, out) }
+            else { crate::native_simd::deferred_nan(f) }
+        } else { vec![false;f.code.len()] };
         let native_dump = std::env::var("NUPP_NATIVE_DUMP").ok();
         self.ctx.want_disasm = native_dump.is_some();
-        let frame_live = frame.then(|| crate::verify::liveness(f));
         let native_calls = frame && NATIVE_FRAME_CALLS;
         let (simd_local_results, simd_local_inputs) = crate::simd_jit::local_values(f);
         // Packets of non-elided operations die at `j_simd_finish`, so one slot
