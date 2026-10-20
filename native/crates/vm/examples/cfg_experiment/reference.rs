@@ -65,7 +65,7 @@ pub fn install(vm: &mut Interp) -> u32 {
         jump_tables: vec![],
         debug: vec![],
         vararg: false,
-        ins: vec![],
+        gpu: None, ins: vec![],
     };
     let id = vm.funcs.len() as u32;
     nupp_vm::verify::verify_classes(&f, id as usize + 1).unwrap();

@@ -112,7 +112,7 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
                 let (sig, ret) = parts.get(6).and_then(|s| s.split_once(':')).map(|(a, b)| (a.bytes().collect::<Vec<u8>>(), b.as_bytes()[0])).unwrap_or((Vec::new(), b'v'));
                 let nfp = sig.iter().filter(|&&c| c == b'f').count() as u8;
                 let nvp = sig.len() as u8 - nfp;
-                cur = Some(Function { name, module: String::new(), path: None, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), ins: Vec::new() });
+                cur = Some(Function { name, module: String::new(), path: None, code: Vec::new(), consts: Vec::new(), nparams: parts[3].parse().unwrap(), nregs: parts[4].parse().unwrap(), nireg: nf, nfreg: nf, nvreg: 2, sig, ret, nv_params: nvp, nf_params: nfp, jump_tables: Vec::new(), debug: Vec::new(), vararg: parts.get(7) == Some(&"vararg"), gpu: None, ins: Vec::new() });
             }
             "vectors" => { if parts.len()!=2 { return Err(format!("line {ln}: vector count")); } cur.as_mut().ok_or("vectors outside function")?.nvreg = parts.get(1).ok_or("missing vector count")?.parse().map_err(|_| "invalid vector count")?; }
             "lines" => {
@@ -191,6 +191,25 @@ pub(crate) fn parse(it: &mut Interp, text: &str, patch: Option<&[u32]>) -> Resul
                 modules.push((parts[1].to_string(), chunk, parts.get(3).map(|p| p.to_string())));
             }
             "source" => { let f = cur.as_mut().ok_or_else(|| format!("line {ln}: source outside a function"))?; f.module = parts[1].to_string(); }
+            // gpu ENTRY THREADS UNIFORM_BYTES COUNT_SPAN READONLY WRITABLE UNIFORMS "WGSL" "SPIRV":
+            // the name lists are comma-separated, `-` when empty; both shaders are quoted.
+            "gpu" => {
+                let f = cur.as_mut().ok_or_else(|| format!("line {ln}: gpu outside a function"))?;
+                if parts.len() != 10 || !parts[8].starts_with('"') || !parts[9].starts_with('"') { return Err(format!("line {ln}: gpu line shape")); }
+                let names = |s: &str| if s == "-" { Vec::new() } else { s.split(',').map(str::to_string).collect::<Vec<_>>() };
+                let number = |s: &str| s.parse::<u32>().map_err(|_| format!("line {ln}: gpu number"));
+                f.gpu = Some(Box::new(crate::interp::GpuArtifact {
+                    entrypoint: parts[1].to_string(),
+                    threads: number(parts[2])?,
+                    uniform_bytes: number(parts[3])?,
+                    count_span: parts[4].to_string(),
+                    readonly: names(parts[5]),
+                    writable: names(parts[6]),
+                    uniforms: names(parts[7]),
+                    wgsl: String::from_utf8(unquote(parts[8])).map_err(|_| format!("line {ln}: gpu wgsl"))?,
+                    spirv: unquote(parts[9]),
+                }));
+            }
             // The declaration of a module a native extension provides.
             "extension" if cur.is_none() => {
                 if parts.len() != 3 || !parts[2].starts_with('"') { return Err(format!("line {ln}: extension NAME \"DECLARATION\"")); }
@@ -318,6 +337,25 @@ fn unquote(s: &str) -> Vec<u8> {
     let mut i = 0;
     while i < b.len() { if b[i] == b'\\' && i + 3 < b.len() + 1 { let code: u8 = std::str::from_utf8(&b[i + 1..i + 4]).unwrap().parse().unwrap(); out.push(code); i += 4; } else { out.push(b[i]); i += 1; } }
     out
+}
+
+#[cfg(test)]
+mod gpu_line_tests {
+    #[test]
+    fn a_gpu_line_lands_on_its_function() {
+        let mut vm = crate::interp::Interp::new();
+        let image = "function module:m 0 0 3 1 :v\nsource m\nconst 0 func 1\nK 1 0\nRet 1\nend\nfunction kernel 2 2 3 1 vv:v\nsource m\ngpu kernel_gpu 256 24 input - output - \"fn k() {}\" \"\\003\\002\\035\\007\\000\"\nRetNil\nend\nmodule m 0\nentry 0\n";
+        super::load(&mut vm, image).unwrap();
+        let gpu = vm.funcs[1].gpu.as_ref().expect("the kernel carries its artifacts");
+        assert_eq!(gpu.entrypoint, "kernel_gpu");
+        assert_eq!((gpu.threads, gpu.uniform_bytes), (256, 24));
+        assert_eq!(gpu.count_span, "input");
+        assert_eq!(gpu.readonly, Vec::<String>::new());
+        assert_eq!(gpu.writable, vec!["output".to_string()]);
+        assert_eq!(gpu.wgsl, "fn k() {}");
+        assert_eq!(gpu.spirv, vec![3, 2, 35, 7, 0]);
+        assert!(vm.funcs[0].gpu.is_none());
+    }
 }
 
 #[cfg(test)]

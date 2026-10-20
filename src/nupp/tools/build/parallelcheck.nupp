@@ -18,7 +18,6 @@ wrong is caught there or rechecked serially, and any failure here returns the wh
 check to the serial checker before a partial record is published.
 ]]
 
-local aotcheck = require("nupp.tools.build.aotcheck")
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
@@ -83,9 +82,6 @@ function parallelcheck.run(input: any): (any?, string?)
         return nil, reason
     end
 
-    if aotcheck.applies(target.aot) then
-        return declined("the target applies an ahead-of-time policy")
-    end
     if not protocol.available then
         return declined("this host has no plain-data encoding for worker payloads")
     end

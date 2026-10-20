@@ -5443,6 +5443,7 @@ function lower.emit(
         if native and not f.implicitSelf then
             f.code, f.consts = native.code, native.consts
             f.nregs, f.nfregs, f.nvregs = native.nregs, native.nfregs, native.nvregs
+            f.gpu = native.gpu
             return
         end
         f.constructorSelf = funcbody.vmConstructorSelf
@@ -5949,6 +5950,36 @@ function lower.emit(
         end
         if f.module then
             emit("  source " .. f.module)
+        end
+        if f.gpu then
+            -- gpu ENTRY THREADS UNIFORM_BYTES COUNT_SPAN READONLY WRITABLE UNIFORMS
+            -- WGSL SPIRV
+            local gpu = f.gpu as any
+
+            local function names(list: any): string
+                local out = {}
+                for i, param in ipairs(list) do
+                    out[i] = param.name
+                end
+
+                return #out > 0 and table.concat(out, ",") or "-"
+            end
+
+            emit(
+                (
+                    "  gpu %s %d %d %s %s %s %s %s %s"
+                ):format(
+                    gpu.entrypoint,
+                    gpu.threads,
+                    gpu.uniformBytes,
+                    gpu.countSpan,
+                    names(gpu.readonly),
+                    names(gpu.writable),
+                    names(gpu.uniforms),
+                    q(gpu.wgsl),
+                    q(gpu.spirv)
+                )
+            )
         end
         for i, c in ipairs(f.consts) do
             if c.kind == "str" then

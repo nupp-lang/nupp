@@ -17,7 +17,6 @@ that defines it.
 local text = require("nupp.tools.lsp.text")
 local wire = require("nupp.tools.lsp.wire")
 
-local fs = require("nupp.compiler.fs")
 local isFatal = require("nupp.compiler.diagnostics").isFatal
 
 local uriToPath, pathToUri = text.uriToPath, text.pathToUri
@@ -148,34 +147,6 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
         local fatal = false
         for _, e in ipairs(r.diags or {}) do
             fatal = fatal or isFatal(e)
-        end
-        if r.result ~= nil and not r.syntax and not fatal and text ~= nil and text:find("@aot", 1, true) ~= nil then
-            local aotcheck = require("nupp.tools.build.aotcheck")
-            local config: any = s.inc.env.config or {}
-            local target: any = config._target or (require("nupp.tools.build.tasks") as any).targetConfig(config)
-            if target ~= nil
-                and aotcheck.applies(target.aot)
-                and aotcheck.projectSource(root, config.include, target.outDir or "build", path)
-            then
-                -- The build lowers what its deliverable reaches, so a module outside
-                -- the target's closure is not refused there and is not refused here.
-                local scope = (require("nupp.tools.build.modules") as any).targetScope(root, target, {
-                    inc = s.inc,
-                    stageBundled = function(_: string): string?
-                        return nil
-                    end,
-                })
-                local reached = scope == nil
-                if not reached then
-                    local canonical = fs.canonical(path)
-                    for member in pairs(scope) do
-                        reached = reached or fs.canonical(member) == canonical
-                    end
-                end
-                if reached then
-                    found = aotcheck.refusals(text, path, r.result, target)
-                end
-            end
         end
         doc.aotFor = r
         doc.aotRefusals = found

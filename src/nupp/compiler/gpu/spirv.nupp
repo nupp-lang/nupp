@@ -1,0 +1,702 @@
+module nupp.compiler.gpu.spirv
+
+--[[
+Binary SPIR-V from the typed graph of a uint32 map kernel.
+
+The module layout, binding sets and dispatch prologue are the ones the
+native GPU crate expects: read-only storage buffers in descriptor set 0,
+writable ones in set 1, the uniform block in set 2, the entry point named
+after the kernel with `_gpu`, and a folded dispatch recovered from the
+invocation's row and column. Graph values become SPIR-V ids directly. A
+block parameter with one incoming edge is its source value under another
+id, since the source dominates the target. Loop headers and joins keep
+function variables that edges store into and the block loads on entry.
+The translators behind WGPU read a load where it is used rather than where
+it was written, and assign phis one after another, so an edge that swaps
+two parameters is resolved here as an ordered parallel copy through a
+scratch variable: every store reads only variables no earlier store of the
+same edge has changed.
+]]
+
+local maps = require("nupp.compiler.vm.maps")
+local regions = require("nupp.compiler.vm.regions")
+
+local spirv = {}
+
+const OP = {
+    Name = 5,
+    MemberName = 6,
+    ExtInstImport = 11,
+    MemoryModel = 14,
+    EntryPoint = 15,
+    ExecutionMode = 16,
+    Capability = 17,
+    TypeVoid = 19,
+    TypeBool = 20,
+    TypeInt = 21,
+    TypeVector = 23,
+    TypeRuntimeArray = 29,
+    TypeStruct = 30,
+    TypePointer = 32,
+    TypeFunction = 33,
+    Constant = 43,
+    Function = 54,
+    FunctionEnd = 56,
+    Variable = 59,
+    Load = 61,
+    Store = 62,
+    AccessChain = 65,
+    Decorate = 71,
+    MemberDecorate = 72,
+    CompositeExtract = 81,
+    IAdd = 128,
+    ISub = 130,
+    IMul = 132,
+    UDiv = 134,
+    UMod = 137,
+    LogicalOr = 166,
+    LogicalAnd = 167,
+    Select = 169,
+    IEqual = 170,
+    INotEqual = 171,
+    ULessThan = 176,
+    ULessThanEqual = 178,
+    BitwiseOr = 197,
+    BitwiseAnd = 199,
+    SelectionMerge = 247,
+    LoopMerge = 246,
+    Label = 248,
+    Branch = 249,
+    BranchConditional = 250,
+    Return = 253,
+}
+
+const STORAGE = {Input = 1, Uniform = 2, Function = 7, StorageBuffer = 12}
+const DECORATION = {
+    Block = 2,
+    ArrayStride = 6,
+    BuiltIn = 11,
+    NonWritable = 24,
+    Binding = 33,
+    DescriptorSet = 34,
+    Offset = 35
+}
+
+local function push(into: {integer}, values: {integer}): nil
+    for i = 1, #values do
+        into[#into + 1] = values[i]
+    end
+end
+
+local function instruction(into: {integer}, opcode: integer, operands: {integer}): nil
+    into[#into + 1] = opcode + (#operands + 1) * 65536
+    push(into, operands)
+end
+
+local function stringWords(value: string): {integer}
+    local bytes = value .. "\0"
+    local out: {integer} = {}
+    local at = 1
+    while at <= #bytes do
+        local word: integer = 0
+        local scale: integer = 1
+        for offset = 0, 3 do
+            local byte: integer = bytes:byte(at + offset) or 0
+            word = word + byte * scale
+            scale = scale * 256
+        end
+        out[#out + 1] = word
+        at = at + 4
+    end
+
+    return out
+end
+
+local function namedOperands(prefix: {integer}, name: string, suffix: {integer}?): {integer}
+    local out: {integer} = {}
+    push(out, prefix)
+    push(out, stringWords(name))
+    push(out, suffix or {})
+
+    return out
+end
+
+local function wordBytes(word: integer): string
+    local b0 = word % 256
+    local b1 = math.floor(word / 256) % 256
+    local b2 = math.floor(word / 65536) % 256
+    local b3 = math.floor(word / 16777216) % 256
+
+    return string.char(b0, b1, b2, b3)
+end
+
+local compares = {ICmpEq = OP.IEqual, ICmpNe = OP.INotEqual, ICmpLt = OP.ULessThan, ICmpLe = OP.ULessThanEqual}
+local binaries = {U32Add = OP.IAdd, U32Sub = OP.ISub, IAnd = OP.BitwiseAnd, IOr = OP.BitwiseOr}
+
+--- Emits a canonical SPIR-V compute module for a verified map graph.
+--- @raises string when the graph holds an operation outside the map subset.
+function spirv.emit(g: any, symbol: string, verified: any?): (string, any)
+    local abi = verified or maps.verify(g)
+    local events = abi.events or regions.events(g)
+    local blocks = g.blocks
+    local threads: integer = 256
+
+    local capabilities: {integer} = {}
+    local entry: {integer} = {}
+    local debug: {integer} = {}
+    local annotations: {integer} = {}
+    local declarations: {integer} = {}
+    local functions: {integer} = {}
+    local nextId: integer = 1
+
+    local function id(): integer
+        local answer: integer = nextId
+        nextId = nextId + 1
+        return answer
+    end
+
+    local function name(target: integer, value: string): nil
+        instruction(debug, OP.Name, namedOperands({target}, value))
+    end
+
+    local function decorate(target: integer, decoration: integer, values: {integer}?): nil
+        local operands = {target, decoration}
+        push(operands, values or {})
+        instruction(annotations, OP.Decorate, operands)
+    end
+
+    instruction(capabilities, OP.Capability, {1}) -- Shader
+    local ext = id()
+    instruction(capabilities, OP.ExtInstImport, namedOperands({ext}, "GLSL.std.450"))
+    instruction(capabilities, OP.MemoryModel, {0, 1}) -- Logical, GLSL450
+
+    local voidType, boolType, u32Type, vec3uType = id(), id(), id(), id()
+    instruction(declarations, OP.TypeVoid, {voidType})
+    instruction(declarations, OP.TypeBool, {boolType})
+    instruction(declarations, OP.TypeInt, {u32Type, 32, 0})
+    instruction(declarations, OP.TypeVector, {vec3uType, u32Type, 3})
+
+    local pointers: {[integer]: integer} = {}
+
+    local function pointerType(storage: integer, pointee: integer): integer
+        local key = storage * 1048576 + pointee
+        local cached = pointers[key]
+        if cached then
+            return cached
+        end
+        local answer = id()
+        pointers[key] = answer
+        instruction(declarations, OP.TypePointer, {answer, storage, pointee})
+
+        return answer
+    end
+
+    local constants: {[integer]: integer} = {}
+
+    local function constant(word: integer): integer
+        local cached = constants[word]
+        if cached then
+            return cached
+        end
+        local answer = id()
+        constants[word] = answer
+        instruction(declarations, OP.Constant, {u32Type, answer, word})
+
+        return answer
+    end
+
+    local zeroU, oneU = constant(0), constant(1)
+
+    -- The uniform block: the dispatch count, every span's count, every
+    -- span's offset, then the scalar uniforms, four bytes each.
+    local members: {integer} = {u32Type}
+    local uniformIndex: {[string]: integer} = {["\0count"] = 0}
+    local spans = abi.spans
+    for i = 1, #spans do
+        uniformIndex["count:" .. spans[i]] = #members
+        members[#members + 1] = u32Type
+    end
+    for i = 1, #spans do
+        uniformIndex["offset:" .. spans[i]] = #members
+        members[#members + 1] = u32Type
+    end
+    for i = 1, #abi.uniforms do
+        uniformIndex["param:" .. abi.uniforms[i]] = #members
+        members[#members + 1] = u32Type
+    end
+    local uniformStruct = id()
+    local uniformOperands = {uniformStruct}
+    push(uniformOperands, members)
+    instruction(declarations, OP.TypeStruct, uniformOperands)
+    name(uniformStruct, "NuppUniforms")
+    decorate(uniformStruct, DECORATION.Block)
+    for index = 0, #members - 1 do
+        instruction(annotations, OP.MemberDecorate, {uniformStruct, index, DECORATION.Offset, index * 4})
+    end
+    local uniformsVar = id()
+    instruction(declarations, OP.Variable, {pointerType(STORAGE.Uniform, uniformStruct), uniformsVar, STORAGE.Uniform})
+    name(uniformsVar, "uniforms")
+    decorate(uniformsVar, DECORATION.DescriptorSet, {2})
+    decorate(uniformsVar, DECORATION.Binding, {0})
+
+    local bufferVars: {[integer]: integer} = {}
+
+    local function declareBuffer(param: integer, set: integer, binding: integer, readonlyBuffer: boolean): nil
+        local arrayType = id()
+        instruction(declarations, OP.TypeRuntimeArray, {arrayType, u32Type})
+        decorate(arrayType, DECORATION.ArrayStride, {4})
+        local blockType = id()
+        instruction(declarations, OP.TypeStruct, {blockType, arrayType})
+        decorate(blockType, DECORATION.Block)
+        instruction(annotations, OP.MemberDecorate, {blockType, 0, DECORATION.Offset, 0})
+        if readonlyBuffer then
+            instruction(annotations, OP.MemberDecorate, {blockType, 0, DECORATION.NonWritable})
+        end
+        local variable = id()
+        instruction(declarations, OP.Variable, {
+            pointerType(STORAGE.StorageBuffer, blockType),
+            variable,
+            STORAGE.StorageBuffer
+        })
+        name(variable, g.parameters[param].name)
+        decorate(variable, DECORATION.DescriptorSet, {set})
+        decorate(variable, DECORATION.Binding, {binding})
+        if readonlyBuffer then
+            decorate(variable, DECORATION.NonWritable)
+        end
+        bufferVars[param] = variable
+    end
+
+    for i = 1, #abi.readonly do
+        declareBuffer(abi.readonly[i], 0, i - 1, true)
+    end
+    for i = 1, #abi.writable do
+        declareBuffer(abi.writable[i], 1, i - 1, false)
+    end
+
+    local globalPointer = pointerType(STORAGE.Input, vec3uType)
+    local globalId = id()
+    instruction(declarations, OP.Variable, {globalPointer, globalId, STORAGE.Input})
+    name(globalId, "global_invocation_id")
+    decorate(globalId, DECORATION.BuiltIn, {28})
+    local workgroupCountId = id()
+    instruction(declarations, OP.Variable, {globalPointer, workgroupCountId, STORAGE.Input})
+    name(workgroupCountId, "num_workgroups")
+    decorate(workgroupCountId, DECORATION.BuiltIn, {24})
+
+    local fnVoid = id()
+    instruction(declarations, OP.TypeFunction, {fnVoid, voidType})
+
+    local main = id()
+    local entryOperands = {5, main}
+    push(entryOperands, stringWords(symbol))
+    entryOperands[#entryOperands + 1] = globalId
+    entryOperands[#entryOperands + 1] = workgroupCountId
+    instruction(entry, OP.EntryPoint, entryOperands)
+    instruction(entry, OP.ExecutionMode, {main, 17, threads, 1, 1})
+    name(main, symbol)
+
+    instruction(functions, OP.Function, {voidType, main, 0, fnVoid})
+    local mainLabel = id()
+    instruction(functions, OP.Label, {mainLabel})
+
+    -- Blocks with several incoming edges keep each parameter in a function
+    -- variable, declared here in the entry block as SPIR-V requires, with
+    -- one scratch variable for copies that form a cycle. The map header is
+    -- not among them: on the device it runs once per invocation.
+    local incoming: {[integer]: integer} = {}
+    for i = 1, #blocks do
+        local edges = blocks[i].term.edges
+        for j = 1, #edges do
+            local t = edges[j].target
+            incoming[t] = (incoming[t] or 0) + 1
+        end
+    end
+    local header, continuing = g.map.header, g.map.continuing
+    local variables: {[integer]: integer} = {}
+    local functionU32 = pointerType(STORAGE.Function, u32Type)
+    local scratch: integer = 0
+    for i = 1, #blocks do
+        if (incoming[i] or 0) > 1 and i ~= header then
+            if scratch == 0 then
+                scratch = id()
+                instruction(functions, OP.Variable, {functionU32, scratch, STORAGE.Function})
+                name(scratch, "edge_scratch")
+            end
+            local params = blocks[i].params
+            for j = 1, #params do
+                local variable = id()
+                variables[params[j]] = variable
+                instruction(functions, OP.Variable, {functionU32, variable, STORAGE.Function})
+            end
+        end
+    end
+    -- Which variable a value id was loaded from, for ordering edge stores.
+    local loadedFrom: {[integer]: integer} = {}
+
+    local loadedGlobal = id()
+    instruction(functions, OP.Load, {vec3uType, loadedGlobal, globalId})
+    local globalColumn, globalRow = id(), id()
+    instruction(functions, OP.CompositeExtract, {u32Type, globalColumn, loadedGlobal, 0})
+    instruction(functions, OP.CompositeExtract, {u32Type, globalRow, loadedGlobal, 1})
+    local loadedWorkgroupCount = id()
+    instruction(functions, OP.Load, {vec3uType, loadedWorkgroupCount, workgroupCountId})
+    local rowGroups = id()
+    instruction(functions, OP.CompositeExtract, {u32Type, rowGroups, loadedWorkgroupCount, 0})
+    local rowWidth = id()
+    instruction(functions, OP.IMul, {u32Type, rowWidth, rowGroups, constant(threads)})
+    local rowStart = id()
+    instruction(functions, OP.IMul, {u32Type, rowStart, globalRow, rowWidth})
+    local dispatch = id()
+    instruction(functions, OP.IAdd, {u32Type, dispatch, rowStart, globalColumn})
+
+    local uniformPointer = pointerType(STORAGE.Uniform, u32Type)
+    local uniformValues: {[string]: integer} = {}
+
+    local function uniform(key: string): integer
+        local existing = uniformValues[key]
+        if existing then
+            return existing
+        end
+        local pointer = id()
+        instruction(functions, OP.AccessChain, {
+            uniformPointer,
+            pointer,
+            uniformsVar,
+            constant(uniformIndex[key] as integer)
+        })
+        local loaded = id()
+        instruction(functions, OP.Load, {u32Type, loaded, pointer})
+        uniformValues[key] = loaded
+
+        return loaded
+    end
+
+    -- Read the dispatch packet once in the entry block, as the frame of every
+    -- later value, then retire the invocations past the work.
+    local count = uniform("\0count")
+    for i = 1, #spans do
+        uniform("count:" .. spans[i])
+    end
+    for i = 1, #spans do
+        uniform("offset:" .. spans[i])
+    end
+    for i = 1, #abi.uniforms do
+        uniform("param:" .. abi.uniforms[i])
+    end
+    local countRow, countColumn = id(), id()
+    instruction(functions, OP.UDiv, {u32Type, countRow, count, rowWidth})
+    instruction(functions, OP.UMod, {u32Type, countColumn, count, rowWidth})
+    local earlierRow, sameRow, earlierColumn, tail, inRange = id(), id(), id(), id(), id()
+    instruction(functions, OP.ULessThan, {boolType, earlierRow, globalRow, countRow})
+    instruction(functions, OP.IEqual, {boolType, sameRow, globalRow, countRow})
+    instruction(functions, OP.ULessThan, {boolType, earlierColumn, globalColumn, countColumn})
+    instruction(functions, OP.LogicalAnd, {boolType, tail, sameRow, earlierColumn})
+    instruction(functions, OP.LogicalOr, {boolType, inRange, earlierRow, tail})
+    local bodyLabel, returnLabel, entryMerge = id(), id(), id()
+    instruction(functions, OP.SelectionMerge, {entryMerge, 0})
+    instruction(functions, OP.BranchConditional, {inRange, bodyLabel, returnLabel})
+    instruction(functions, OP.Label, {returnLabel})
+    instruction(functions, OP.Return, {})
+    instruction(functions, OP.Label, {bodyLabel})
+    -- Every span's count equals the dispatch count on the device too.
+    for i = 1, #spans do
+        local differs, next, bail = id(), id(), id()
+        instruction(functions, OP.INotEqual, {boolType, differs, uniform("count:" .. spans[i]), count})
+        instruction(functions, OP.SelectionMerge, {next, 0})
+        instruction(functions, OP.BranchConditional, {differs, bail, next})
+        instruction(functions, OP.Label, {bail})
+        instruction(functions, OP.Return, {})
+        instruction(functions, OP.Label, {next})
+    end
+
+    -- The entry graph block continues in the body label; every other block
+    -- has a label of its own.
+    local labels: {[integer]: integer} = {[1] = bodyLabel}
+    for i = 2, #blocks do
+        labels[i] = id()
+    end
+
+    local function label(block: integer): integer
+        local answer = labels[block]
+        if answer == nil then
+            error("graph block without a label", 0)
+        end
+
+        return answer
+    end
+
+    local ids: {[integer]: integer} = {}
+    local storagePointer = pointerType(STORAGE.StorageBuffer, u32Type)
+    local terminated = false
+
+    local function value(v: integer): integer
+        local answer = ids[v]
+        if answer == nil then
+            error("graph value used before it was given an id", 0)
+        end
+
+        return answer
+    end
+
+    local function bufferPointer(param: integer, index: integer): integer
+        local physical = id()
+        instruction(functions, OP.IAdd, {u32Type, physical, uniform("offset:" .. param), value(index)})
+        local pointer = id()
+        instruction(functions, OP.AccessChain, {storagePointer, pointer, assert(bufferVars[param]), zeroU, physical})
+
+        return pointer
+    end
+
+    local function instructions(b: any): nil
+        local ops, dsts, allArgs = b.op, b.dst, b.args
+        for i = 1, #ops do
+            local op, a, d = ops[i], allArgs[i], dsts[i]
+            if op == "IK" then
+                ids[d] = constant(a[1])
+            elseif op == "IUnbox" then
+                ids[d] = uniform("param:" .. a[1])
+            elseif op == "SpanLen" then
+                ids[d] = uniform("count:" .. a[1])
+            elseif op == "IMov" then
+                ids[d] = value(a[1])
+            elseif op == "IAddK" then
+                local k = a[2]
+                if k < 0 then
+                    k = k + 4294967296
+                end
+                local result = id()
+                instruction(functions, OP.IAdd, {u32Type, result, value(a[1]), constant(k)})
+                ids[d] = result
+            elseif binaries[op] then
+                local result = id()
+                instruction(functions, binaries[op], {u32Type, result, value(a[1]), value(a[2])})
+                ids[d] = result
+            elseif compares[op] then
+                local flag, result = id(), id()
+                instruction(functions, compares[op], {boolType, flag, value(a[1]), value(a[2])})
+                instruction(functions, OP.Select, {u32Type, result, flag, oneU, zeroU})
+                ids[d] = result
+            elseif op == "U32Load" then
+                local loaded = id()
+                instruction(functions, OP.Load, {u32Type, loaded, bufferPointer(a[1], a[2])})
+                ids[d] = loaded
+            elseif op == "U32Store" then
+                instruction(functions, OP.Store, {bufferPointer(a[1], a[2]), value(a[3])})
+            elseif op == "SpanEqual" then
+                local differs, next, bail = id(), id(), id()
+                instruction(functions, OP.INotEqual, {
+                    boolType,
+                    differs,
+                    uniform("count:" .. a[1]),
+                    uniform("count:" .. a[2])
+                })
+                instruction(functions, OP.SelectionMerge, {next, 0})
+                instruction(functions, OP.BranchConditional, {differs, bail, next})
+                instruction(functions, OP.Label, {bail})
+                instruction(functions, OP.Return, {})
+                instruction(functions, OP.Label, {next})
+            else
+                error("SPIR-V map subset does not emit " .. op, 0)
+            end
+        end
+    end
+
+    local function condition(b: any): integer
+        local flag = id()
+        instruction(functions, OP.INotEqual, {boolType, flag, value(b.term.value), zeroU})
+
+        return flag
+    end
+
+    -- An edge gives the target's parameters their values: an alias when the
+    -- target has one incoming edge, ordered stores into its variables
+    -- otherwise. A store may run once no pending source is a load of its
+    -- target; a cycle is broken by parking one source in the scratch variable.
+    local function transport(e: any): nil
+        local params, args = blocks[e.target].params, e.args
+        if #params == 0 or variables[params[1]] == nil then
+            for i = 1, #params do
+                ids[params[i]] = value(args[i])
+            end
+            return
+        end
+        local targets, sources, n = {}, {}, 0
+        for i = 1, #params do
+            local variable, source = assert(variables[params[i]]), value(args[i])
+            if loadedFrom[source] ~= variable then
+                n = n + 1
+                targets[n], sources[n] = variable, source
+            end
+        end
+        local remaining = n
+        while remaining > 0 do
+            local progressed = false
+            for i = 1, n do
+                local target = targets[i]
+                if target ~= 0 then
+                    local blocked = false
+                    for j = 1, n do
+                        if targets[j] ~= 0 and j ~= i and loadedFrom[sources[j]] == target then
+                            blocked = true
+                            break
+                        end
+                    end
+                    if not blocked then
+                        instruction(functions, OP.Store, {target, sources[i]})
+                        targets[i] = 0
+                        remaining = remaining - 1
+                        progressed = true
+                    end
+                end
+            end
+            if not progressed then
+                local first = 0
+                for i = 1, n do
+                    if targets[i] ~= 0 then
+                        first = i
+                        break
+                    end
+                end
+                local parked = loadedFrom[sources[first]]
+                instruction(functions, OP.Store, {scratch, sources[first]})
+                local fromScratch = id()
+                instruction(functions, OP.Load, {u32Type, fromScratch, scratch})
+                for j = 1, n do
+                    if targets[j] ~= 0 and loadedFrom[sources[j]] == parked then
+                        sources[j] = fromScratch
+                    end
+                end
+            end
+        end
+    end
+
+    local function enter(b: any): nil
+        instruction(functions, OP.Label, {label(b.id)})
+        terminated = false
+        local params = b.params
+        for i = 1, #params do
+            local variable = variables[params[i]]
+            if variable then
+                local loaded = id()
+                instruction(functions, OP.Load, {u32Type, loaded, variable})
+                ids[params[i]] = loaded
+                loadedFrom[loaded] = variable
+            end
+        end
+    end
+
+    local kinds, eventBlocks, eventEdges = events.kinds, events.blocks, events.edges
+    for i = 1, events.count do
+        local event, b = kinds[i], eventBlocks[i]
+        if event == "block" then
+            if b.id == continuing then
+                -- The map's increment never runs on the device.
+            else
+                if b.id ~= 1 then
+                    enter(b)
+                end
+                if b.id == header then
+                    ids[g.map.index] = dispatch
+                end
+                instructions(b)
+            end
+        elseif event == "edge" then
+            local e = eventEdges[i]
+            if b.id == continuing then
+                -- The back edge of the map is not taken on the device.
+            elseif b.id == header then
+                -- The map header's taken edge: its targets alias the header's
+                -- values, and the branch was emitted at the exit event.
+                transport(e)
+            elseif e.target == continuing then
+                -- The body's last block ends the invocation's work.
+                transport(e)
+                if not terminated then
+                    instruction(functions, OP.Branch, {label(g.map.merge)})
+                    terminated = true
+                end
+            else
+                transport(e)
+                if b.term.kind == "jump" then
+                    if not terminated then
+                        instruction(functions, OP.Branch, {label(e.target)})
+                        terminated = true
+                    end
+                end
+            end
+        elseif event == "loop" then
+            if b.id == header then
+                -- The dispatch index replaces the map's cursor; the entry
+                -- edge gave the other parameters their values already.
+            end
+        elseif event == "exit" then
+            local e = eventEdges[i]
+            local r = b.region
+            local flag = condition(b)
+            transport(e)
+            if b.id == header then
+                instruction(functions, OP.SelectionMerge, {label(r.merge), 0})
+            else
+                instruction(functions, OP.LoopMerge, {label(r.merge), label(r.continuing), 0})
+            end
+            instruction(functions, OP.BranchConditional, {flag, label(b.term.edges[1].target), label(r.merge)})
+            terminated = true
+        elseif event == "endloop" then
+            -- Nothing: the continuing block branched back to the header.
+        elseif event == "if" then
+            local flag = condition(b)
+            transport(b.term.edges[1])
+            transport(b.term.edges[2])
+            instruction(functions, OP.SelectionMerge, {label(b.region.merge), 0})
+            instruction(functions, OP.BranchConditional, {
+                flag,
+                label(b.term.edges[1].target),
+                label(b.term.edges[2].target)
+            })
+            terminated = true
+        elseif event == "else" or event == "endif" then
+            -- Nothing: the arms branched to the merge block themselves.
+        elseif event == "return" then
+            if not terminated then
+                instruction(functions, OP.Branch, {entryMerge})
+                terminated = true
+            end
+        end
+    end
+    if not terminated then
+        instruction(functions, OP.Branch, {entryMerge})
+    end
+    instruction(functions, OP.Label, {entryMerge})
+    instruction(functions, OP.Return, {})
+    instruction(functions, OP.FunctionEnd, {})
+    local words: {integer} = {119734787, 66304, 0, nextId, 0} -- magic, SPIR-V 1.3, generator, bound, schema
+    push(words, capabilities)
+    push(words, entry)
+    push(words, debug)
+    push(words, annotations)
+    push(words, declarations)
+    push(words, functions)
+    local bytes: {string} = {}
+    for i = 1, #words do
+        local word = words[i]
+        if type(word) ~= "number" then
+            error(
+                string.format(
+                    "SPIR-V word %d of %d is %s (after %s %s)",
+                    i,
+                    #words,
+                    tostring(word),
+                    tostring(words[i - 2]),
+                    tostring(words[i - 1])
+                ),
+                0
+            )
+        end
+        bytes[i] = wordBytes(word)
+    end
+
+    return table.concat(bytes), abi
+end
+
+export = spirv

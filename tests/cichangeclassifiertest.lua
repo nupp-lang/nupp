@@ -68,7 +68,7 @@ function M.toolChangeSelectsWhatACompilerChangeDoes()
 end
 
 function M.aotChangeSelectsAotAndFixpoint()
-    selects("src/nupp/compiler/aot/lower.nupp", {"fast-checks", "linux-integration", "fixpoint"})
+    selects("src/nupp/compiler/aot/reducers.nupp", {"fast-checks", "linux-integration", "fixpoint"})
 end
 
 function M.runtimeChangeSelectsBrowserAndNativeCoverage()

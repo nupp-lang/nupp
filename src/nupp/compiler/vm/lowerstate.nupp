@@ -143,6 +143,10 @@ export record Fn
     nregs: integer = 1
     nfregs: integer = 0
     nvregs: integer?
+
+    --- The GPU artifacts a kernel plan carries into the image, when it has them.
+    gpu: any?
+
     maxRegs: integer?
     maxFregs: integer?
 

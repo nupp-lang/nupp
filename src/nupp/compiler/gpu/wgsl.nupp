@@ -1,4 +1,4 @@
-module nupp.experiment.typedcfg.wgsl
+module nupp.compiler.gpu.wgsl
 
 local maps = require("nupp.compiler.vm.maps")
 local regions = require("nupp.compiler.vm.regions")

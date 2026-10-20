@@ -8,6 +8,7 @@ module nupp.compiler.vm.kernels
 local G = require("nupp.compiler.vm.graph")
 
 local maps = require("nupp.compiler.vm.maps")
+local artifact = require("nupp.compiler.gpu.artifact")
 local T = require("nupp.compiler.types")
 local frontend = {}
 local REFUSED = {}
@@ -970,6 +971,20 @@ function frontend.tryBuild(body: any, mapMode: boolean?): (any, string?)
     error(result, 0)
 end
 
+--- The name a kernel's GPU entrypoint derives from.
+local function kernelName(n: any): string
+    local name = n.name
+    if name == nil then
+        return "kernel"
+    end
+    if name.text then
+        return name.text
+    end
+    local last = name[#name]
+
+    return last and last.text or "kernel"
+end
+
 function frontend.plans(root: any): (any, any)
     local plans, refusals = {}, {}
 
@@ -995,7 +1010,11 @@ function frontend.plans(root: any): (any, any)
         if n.kind == "localFunc" or n.kind == "funcStmt" or n.kind == "localFuncStmt" then
             local g = frontend.tryBuild(n.body, true)
             if g and pcall(maps.verify, g) then
-                plans[n.body] = G.lower(g)
+                local plan = G.lower(g)
+                -- The kernel's GPU artifacts travel with its plan into the
+                -- image, so a dispatch needs nothing the compiler had.
+                plan.gpu = artifact.build(g, kernelName(n))
+                plans[n.body] = plan
                 return
             end
             if not candidate(n.body, n.body) then

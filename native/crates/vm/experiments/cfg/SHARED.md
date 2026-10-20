@@ -1,5 +1,55 @@
 # Shared CPU and GPU graph
 
+## Status, 2026-10-20: GPU emission from the graph, structured IR deleted
+
+The graph is now the only kernel representation on both sides of the
+compiler. `src/nupp/compiler/gpu/` holds the emitters: `wgsl.nupp` (moved
+from this experiment), `spirv.nupp` (new, from the graph's event list and
+blocks) and `artifact.nupp`, which builds the backend-neutral record a
+dispatch needs: entrypoint, buffer order, uniform layout, dispatch shape,
+both shaders. The SPIR-V keeps the native crate's conventions, read-only
+storage in descriptor set 0, writable in set 1, the uniform block in set 2,
+the same folded-dispatch prologue, so the native GPU crate loads it
+unchanged. Single-entry block parameters are their source values; loop
+headers and joins keep function variables. Edge copies into those are
+ordered stores through one scratch variable, because WGPU's translator
+reads a load where it is used rather than where it was written and assigns
+phis one after another, which turned the rotate kernel's swap into a copy
+under both encodings before the ordering was made explicit.
+
+The kernel's plan carries the artifact into the image: each map kernel's
+function gets a `gpu` line (entrypoint, threads, uniform bytes, count span,
+buffer order, WGSL, SPIR-V) that the loader parses into `Function.gpu`.
+Nothing dispatches from it yet; that is the dispatch site the runtime
+plan's G06 defines.
+
+Deleted: `src/nupp/compiler/aot/` except `reducers.nupp` (the checker's
+reducer contracts) and `target.nupp` (the CPU tier table the manifest
+names); `tools/build/aot.nupp` and `aotcheck.nupp`; the policy layer in
+`tools/build/project`, `modules`, `parallelcheck` and `lsp/diagnostics`
+that lowered `@aot` bodies for a target under `aot = "require"` and
+published refusals; the eight `aot*` suites, `aot-soa` and
+`simdprimitivedifferentialtest`. Kept: the `@aot` syntax and its structural
+check, the manifest keys, and the runtime GPU API and providers. On this
+branch the `nupp aot` command did not exist and the structured pipeline
+only ran under the LuaJIT engine, so no VM user loses a path.
+
+What the graph does not yet cover of the old GPU language: counted loops
+with arbitrary bounds, structs with element references and field loads,
+shared memory, workgroups and phases, f32 math, f16 and bf16 storage, and
+the `repeat`, `break` and `continue` forms. Their corpus is
+`bench/wgpu-spike/typed` and the ahead-of-time pages under `docs/learn`;
+those stop compiling until the graph frontend grows that profile, which
+G06 names as the kernel subset proved at the dispatch site.
+
+Checks: the GPU harness runs the graph's WGSL and SPIR-V through WGPU on
+Metal (168 cases), the CPU image passes every execution mode under
+collector stress, the direct-frontend harness and native SIMD smoke test
+pass on a driver built from these sources, the edited tool suites and the
+runtime GPU suite pass through the test runner, and the three-stage
+fixpoint emits byte-identically. The harness no longer has an old producer
+to pair against; `run_shared.py` records the graph path's own medians.
+
 ## Status, 2026-10-19
 
 The shared producer is now the only typed-kernel path in the VM lowering,

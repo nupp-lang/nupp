@@ -155,12 +155,10 @@ local toolFingerprint = fingerprint.toolFingerprint
 local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
-local aotcheck = require("nupp.tools.build.aotcheck")
 -- Optional build tools are loaded only by a target that requests them. Keep
 -- their dependencies visible to module fingerprinting.
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = [[
-@requires-dynamically nupp.tools.build.aot
 @requires-dynamically nupp.tools.hotsession
 @requires-dynamically nupp.tools.doc
 @requires-dynamically nupp.tools.build.package
@@ -169,7 +167,9 @@ local loadBuildTool: function(string): any = require
 
 local function mentionsGpuTarget(path: string): boolean
     local source = fs.readFile(path)
-    return source ~= nil and aotcheck.mentionsGpuTarget(source as string)
+    return source ~= nil
+        and (source as string):find("@aot", 1, true) ~= nil
+        and (source as string):match("target%s*=%s*[\"']gpu[\"']") ~= nil
 end
 
 --- A check does not enter the AOT phase that normally stages this runtime before
@@ -198,57 +198,6 @@ end
 --- explicit `build.sources` selection may live elsewhere in the project; even
 --- when it emits no unit itself, changing its imports changes which include-
 --- root units `targetScope` admits. Hash those selectors without paying for the
---- checked graph the replay is meant to avoid.
-local function aotInputSources(root: string, outDir: string, config: any, target: any, environment: any): {string}
-    local sources = envMod.listSourceFilesFor(environment, root, config.include or {}, join(root, outDir), true)
-    local sourceRoots: {string} = {}
-    for _, directory in ipairs(config.include or {}) do
-        local normalized = normalize(directory)
-        sourceRoots[#sourceRoots + 1] = (normalized:sub(1, 1) == "/" or normalized:match("^[A-Za-z]:/") ~= nil)
-            and normalized
-            or join(root, normalized)
-    end
-    if #sourceRoots == 0 then
-        sourceRoots[1] = root
-    end
-    local outputRoot = normalize(join(root, outDir))
-
-    local function skipsBookkeeping(name: string): boolean
-        return name:sub(1, 1) == "."
-    end
-
-    for _, sourceRoot in ipairs(sourceRoots) do
-        for _, path in ipairs(listFiles(sourceRoot, skipsBookkeeping)) do
-            local normalized = normalize(path)
-            if normalized:match("%.lua$")
-                and normalized ~= outputRoot
-                and normalized:sub(1, #outputRoot + 1) ~= outputRoot .. "/"
-            then
-                sources[#sources + 1] = normalized
-            end
-        end
-    end
-    for _, entry in ipairs(target.entries or {}) do
-        if entry:match("%.nupp$") or entry:match("%.lua$") or entry:find("[/\\]") then
-            sources[#sources + 1] = join(root, entry)
-        end
-    end
-    for _, selected in ipairs(target.sources or {}) do
-        for _, matched in ipairs(deps.expandGlob(root, normalize(selected))) do
-            local files = listFiles(matched)
-            if #files == 0 then
-                sources[#sources + 1] = matched
-            else
-                for _, path in ipairs(files) do
-                    sources[#sources + 1] = path
-                end
-            end
-        end
-    end
-
-    return sources
-end
-
 --- Reads and validates a project's manifest. See nupp.tools.build.manifest.
 project.loadManifest = manifest.load
 
@@ -566,156 +515,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- project need the code generator that only building it requires. What it
     -- does ask is the question the policy's first step answers: the module build
     -- lowers each checked `@aot` source it reaches for this target's tiers and
-    -- reports what lowering refuses, through `nupp.tools.build.aotcheck`, cached
-    -- with the rest of that module's record.
-    local aotOverlays: {[string]: string}? = nil
-    local aotAuthoredUnused: {[string]: {any}}? = nil
-    local aotGpu = false
-    local aotRemarks: {any} = {}
-    if not opts.checkOnly and aotcheck.applies(target.aot) then
-        local aotPolicy = loadBuildTool("nupp.tools.build.aot")
-        report:at("aot")
-        report:step("compiling ahead-of-time code")
-
-        -- This key is intentionally available before target-scope discovery,
-        -- because discovering that scope checks the graph. The complete config
-        -- owns policy, target, features, flags and linkage; the other digests
-        -- cover generated inputs, installed declarations and the compiler that
-        -- will interpret them. `inputFingerprint` adds all authored source
-        -- bytes that can affect emission or target-scope discovery.
-        report:at("aot:lookup")
-        local aotToolchainPolicy = aotPolicy.toolchainPolicy(target.aot as string, target.aotTarget as string?)
-        local aotInput = aotPolicy.inputFingerprint(
-            -- Declarations do not emit units, but they do participate in
-            -- checking the sources that do. A changed local `.d.nupp` file
-            -- must therefore invalidate a replay just like an implementation.
-            aotInputSources(root, outDir, config, target, session.inc.env),
-            {
-                compiler = newState.compilerHash,
-                compilerResources = aotPolicy.compilerResourceFingerprint(contentDigest),
-                moduleCompiler = newState.moduleCompilerHash,
-                config = newState.configHash,
-                dependencies = contentDigest(stable(newState.dependencies)),
-                generators = contentDigest(stable(newState.generators)),
-                spi = contentDigest(stable(spiEntries)),
-                target = targetKey,
-                platform = selectedPlatform,
-                toolchainPolicy = aotToolchainPolicy,
-            },
-            contentDigest
-        )
-        newState.aotInput = aotInput
-        local outputsIntact = true
-        for output in pairs(oldState.outputs or {}) do
-            if not fs.exists(output) then
-                outputsIntact = false
-                break
-            end
-        end
-        if outputsIntact then
-            for _, record in pairs(oldState.modules or {}) do
-                if record.output ~= nil
-                    and (record.artifactHash == nil or hashFile(record.output as string) ~= record.artifactHash)
-                then
-                    outputsIntact = false
-                    break
-                end
-            end
-        end
-        local produced = nil
-        if outputsIntact and oldState.aotInput == aotInput then
-            produced = aotPolicy.replay(oldState.aotReplay)
-        end
-
-        -- Bounded by what this target bundles rather than by the include roots.
-        -- The roots are where `@aot` code is found; the deliverable decides
-        -- which of it is this target's to compile. A project whose targets sit
-        -- at different feature tiers otherwise fails one build over a module
-        -- it never bundles.
-        -- Walking dependencies checks their interfaces through the shared graph.
-        local aotErr: string? = nil
-        local aotDiagnostic = nil
-        if produced == nil then
-            local resumeChecking = report:charging("aot:check")
-            report:at("aot:check")
-            local aotScope, scopeErr = modules.targetScope(root, target, session)
-            report:charging(resumeChecking)
-            report:at("aot")
-            if scopeErr then
-                say(opts, "NUPP0002", "nupp: " .. tostring(scopeErr) .. "\n")
-
-                return 1
-            end
-            produced, aotErr, aotDiagnostic = aotPolicy.apply(
-                target.aot as string,
-                root,
-                outDir,
-                config.include or {},
-                session,
-                target.aotFeatures,
-                target.aotTarget as string?,
-                report,
-                aotScope
-            )
-        else
-            report:at("aot:reuse")
-        end
-        report:clear()
-        if produced == nil then
-            if aotDiagnostic ~= nil and opts.diagnostics ~= nil then
-                -- Keep the authored location before rendering it into the
-                -- human-readable tier failure. A manifest-level file failure
-                -- has no position and loses this information in build JSON.
-                local source = fs.readFile(aotDiagnostic.file) or ""
-                local offset = 1
-                for _ = 2, aotDiagnostic.line do
-                    offset = (source:find("\n", offset, true) or (#source + 1)) + 1
-                end
-                opts.diagnostics[
-                    #opts.diagnostics + 1
-                ] = {
-                    filename = aotDiagnostic.file,
-                    line = aotDiagnostic.line,
-                    col = aotDiagnostic.column,
-                    offset = offset + aotDiagnostic.column - 1,
-                    length = 1,
-                    code = aotDiagnostic.code,
-                    msg = tostring(aotErr),
-                    help = "Adjust the source to the selected AOT target's supported subset.",
-                }
-                return 1
-            end
-            require(
-                "nupp.tools.cli.report"
-            ).fileFailure(
-                fs.join(root, "nupp.lua"),
-                tostring(aotErr),
-                "Inspect the generated AOT unit and the compiler output above.",
-                opts.diagnostics
-            )
-            return 1
-        end
-        aotRemarks = (produced as any).remarks or {}
-        report:addSpecialized((produced as any).specializedBodies or 0)
-        local internalTarget = target as any
-        internalTarget._constSelection = (produced as any).constSelection
-        local gpuSources: {[string]: boolean} = {}
-        for _, source in ipairs((produced as any).gpuSources or {}) do
-            gpuSources[normalize(source)] = true
-        end
-        internalTarget._aotGpuSources = gpuSources
-        newState.aotReplay = aotPolicy.captureReplay(target.aot as string, produced as any)
-        report:aotCounted((produced as any).facts)
-        aotOverlays = (produced as any).dispatch as {[string]: string}?
-        aotAuthoredUnused = (produced as any).authoredUnused as {[string]: {any}}?
-        aotGpu = (produced as any).gpu == true
-        -- A cold linked GPU policy stages the compiler-carried GPU runtime
-        -- before checking. Replaying the result must preserve that session side
-        -- effect before the ordinary module build resolves the same imports.
-        if aotGpu and target.aot == "require" then
-            session.stageGpuRuntime()
-        end
-    end
     -- A compiler on the VM lowers a VM program's image from source itself, so
     -- the Lua this phase would generate for one is never run, and writing it put
     -- the entry's namespace directory where the binary goes: `app.main` wrote
@@ -748,8 +547,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         checkState,
         opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil,
         report,
-        aotOverlays,
-        aotAuthoredUnused,
+        nil,
+        nil,
         session
     )
     -- Everything from here writes to the same stream the step line is on, so it comes
@@ -763,10 +562,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             say(opts, "NUPP0004", "nupp: " .. tostring(buildErr) .. "\n")
         end
         return 1
-    end
-    if aotGpu then
-        result.effects = result.effects or {}
-        (result.effects as {[string]: any})["runtime.gpu"] = true
     end
     if opts.checkOnly then
         report:finish("checked", targetKey)
@@ -1037,9 +832,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
     end
     newState.targets[targetKey] = mine
-    for _, note in ipairs(aotRemarks) do
-        result.optimizationRemarks[#result.optimizationRemarks + 1] = note
-    end
     if opts.remarks or opts.produced then
         if (config._optLevel or 0) == 0 then
             result.optimizationRemarks[

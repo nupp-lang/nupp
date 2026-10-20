@@ -304,7 +304,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
 
     --- Whether a
     ---
-    --- The same condition `nupp.compiler.aot.lower` puts on them, spelled here
+    --- The same condition the retired structured lowering put on them, spelled here
     --- against the checker's establishment facts rather than against lowered IR.
     --- An exact literal in range carries both integer facts from `markLiteral`,
     --- so it satisfies this without a special case.

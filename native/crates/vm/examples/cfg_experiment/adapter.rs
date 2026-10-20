@@ -51,7 +51,7 @@ pub fn lower(g: &Graph) -> Result<Function, String> {
         jump_tables: vec![],
         debug: vec![],
         vararg: false,
-        ins: vec![],
+        gpu: None, ins: vec![],
     };
     let zero = f.consts.len() as u16;
     f.consts.push(Value::num(0.));

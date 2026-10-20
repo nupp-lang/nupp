@@ -878,7 +878,7 @@ function M.aCommandModuleDoesNotLoadTheCompilerItRuns()
 for _, name in ipairs({"lsp", "bc", "ast"}) do
    require("nupp.tools.cli." .. name)
 end
-for _, heavy in ipairs({"nupp.compiler.aot.compile", "nupp.tools.lsp",
+for _, heavy in ipairs({"nupp.compiler.vm.lower", "nupp.tools.lsp",
       "nupp.compiler.syntax.lexer",
       "nupp.compiler.check", "nupp.compiler.syntax.parser"}) do
    if package.loaded[heavy] then print("loaded " .. heavy) end
@@ -892,12 +892,7 @@ end
 function M.projectLoadingDoesNotLoadCodeGeneration()
     local probe = [[
 require("nupp.tools.build.project")
-local policy = require("nupp.tools.build.aotcheck")
-assert(policy.mentionsGpuTarget('@aot(target = "gpu")'))
-assert(not policy.mentionsGpuTarget('@aot local function plain() end'))
-assert(not policy.mentionsGpuTarget('target = "gpu"'))
-for _, name in ipairs({"nupp.tools.build.aot",
-    "nupp.tools.hotsession", "nupp.tools.doc", "nupp.tools.build.package"}) do
+for _, name in ipairs({"nupp.tools.hotsession", "nupp.tools.doc", "nupp.tools.build.package"}) do
     assert(not package.loaded[name], "loaded " .. name)
 end
 print("done")

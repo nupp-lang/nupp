@@ -268,6 +268,22 @@ pub enum Op {
     FRet(u8),
 }
 
+/// A kernel's compiler-emitted GPU artifacts and dispatch shape, as the image
+/// line `gpu` records them: SPIR-V for native WGPU, WGSL for the browser, the
+/// entrypoint, the buffer order and the uniform block the shaders assume.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GpuArtifact {
+    pub entrypoint: String,
+    pub threads: u32,
+    pub uniform_bytes: u32,
+    pub count_span: String,
+    pub readonly: Vec<String>,
+    pub writable: Vec<String>,
+    pub uniforms: Vec<String>,
+    pub wgsl: String,
+    pub spirv: Vec<u8>,
+}
+
 #[derive(Clone)]
 pub struct Function {
     pub name: String,
@@ -296,6 +312,9 @@ pub struct Function {
     /// Surplus arguments stay in the frame, just below the header (header
     /// word 3 carries their count); a trailing `...` in a call spreads them.
     pub vararg: bool,
+    /// The GPU artifacts a kernel carries when its image recorded them: what a
+    /// dispatch needs besides the function itself. Execution ignores it.
+    pub gpu: Option<Box<GpuArtifact>>,
     /// The code as the threaded core reads it, encoded by `prepare_threaded`.
     pub ins: Vec<crate::threaded::Ins>,
 }
@@ -1272,11 +1291,11 @@ impl Interp {
         crate::foreign::install(self);
         // The stub behind `loadstring`'s closures: `return <upvalue 0>`.
         self.literal_fid = self.funcs.len() as u32;
-        self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), path: None, code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
+        self.funcs.push(Function { name: "loadstring.literal".to_string(), module: String::new(), path: None, code: vec![Op::GetUpval(1, 0), Op::GetCell(2, 1), Op::Ret(2)], consts: Vec::new(), nparams: 0, nregs: 4, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, gpu: None, ins: Vec::new() });
         self.unavailable_fid = self.funcs.len() as u32;
         let msg = self.intern("a chunk loaded from Lua source cannot run: this runtime evaluates no Lua"); self.registered.push(msg);
         let err_id = crate::builtins::id_of("error").unwrap();
-        self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), path: None, code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, ins: Vec::new() });
+        self.funcs.push(Function { name: "loadstring.unavailable".to_string(), module: String::new(), path: None, code: vec![Op::K(1, 0), Op::K(2, 1), Op::CallDyn(1, 1, 1), Op::RetNil], consts: vec![Value::builtin(err_id), msg], nparams: 0, nregs: 12, nireg: 1, nfreg: 1, nvreg: 2, sig: Vec::new(), ret: b'v', nv_params: 0, nf_params: 0, jump_tables: Vec::new(), debug: Vec::new(), vararg: false, gpu: None, ins: Vec::new() });
         let table_of = |it: &mut Interp, entries: &[&str]| { let t = it.new_table(); it.registered.push(t); for name in entries { let full = name.to_string(); let short = full.split('.').nth(1).unwrap_or(&full).to_string(); let k = it.intern(&short); let id = crate::builtins::id_of(&full).unwrap_or_else(|| panic!("no builtin {full}")); it.set_index(t, k, Value::builtin(id)); } t };
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);

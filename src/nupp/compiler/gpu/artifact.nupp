@@ -1,0 +1,89 @@
+module nupp.compiler.gpu.artifact
+
+--[[
+Backend-neutral artifacts for a kernel lowered to the typed graph.
+
+SPIR-V is the native WGPU artifact and WGSL is the browser WebGPU artifact.
+Both come from the same verified graph and share the compiler-owned buffer
+order, uniform layout, entrypoint and dispatch shape recorded here, which is
+what a host binding or an image carrying the kernel needs to dispatch it.
+]]
+
+local maps = require("nupp.compiler.vm.maps")
+local spirv = require("nupp.compiler.gpu.spirv")
+local wgsl = require("nupp.compiler.gpu.wgsl")
+
+local artifact = {}
+
+record artifact.Param
+    name: string
+    kind: 'read_span' | 'write_span' | 'uniform'
+
+    --- The stored scalar: `uint32` for every map span and uniform today.
+    type: string
+end
+
+record artifact.Artifact
+    spirv: string
+    wgsl: string
+    entrypoint: string
+    readonly: {artifact.Param}
+    writable: {artifact.Param}
+    uniforms: {artifact.Param}
+    uniformBytes: integer
+    threads: integer
+
+    --- The span whose length bounds the dispatch.
+    countSpan: string
+
+    --- Spans a length guard holds to the dispatch length. A map's spans all
+    --- are: its verifier requires every span to share the count's length.
+    exactCounts: {[string]: boolean}
+end
+
+local function identifier(value: string): string
+    return (value:gsub("[^%w_]", "_"))
+end
+
+--- The artifacts of a verified map graph, or nil with the reason it has none.
+function artifact.build(g: any, symbol: string): (artifact.Artifact?, string?)
+    local ok, abi = pcall(maps.verify, g)
+    if not ok then
+        return nil, tostring(abi)
+    end
+    local entrypoint = identifier(symbol) .. "_gpu"
+    local readonly: {artifact.Param} = {}
+    local writable: {artifact.Param} = {}
+    local uniforms: {artifact.Param} = {}
+    local exactCounts: {[string]: boolean} = {}
+    for _, p in ipairs(abi.readonly) do
+        local name = g.parameters[p].name
+        readonly[#readonly + 1] = new artifact.Param(name = name, kind = "read_span", type = "uint32")
+        exactCounts[name] = true
+    end
+    for _, p in ipairs(abi.writable) do
+        local name = g.parameters[p].name
+        writable[#writable + 1] = new artifact.Param(name = name, kind = "write_span", type = "uint32")
+        exactCounts[name] = true
+    end
+    for _, p in ipairs(abi.uniforms) do
+        uniforms[#uniforms + 1] = new artifact.Param(name = g.parameters[p].name, kind = "uniform", type = "uint32")
+    end
+    local shader = wgsl.emit(g, entrypoint, abi)
+    local binary = spirv.emit(g, entrypoint, abi)
+
+    return new artifact.Artifact(
+        spirv = binary,
+        wgsl = shader,
+        entrypoint = entrypoint,
+        readonly = readonly,
+        writable = writable,
+        uniforms = uniforms,
+        uniformBytes = 4 * (1 + 2 * #abi.spans + #abi.uniforms),
+        threads = 256,
+        countSpan = g.parameters[abi.countSpan].name,
+        exactCounts = exactCounts
+    ), nil
+end
+
+export = artifact

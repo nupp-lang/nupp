@@ -8,10 +8,8 @@ local provider = require("nupp.compiler.syntax.triviaarena.table")
 local frontend = require("nupp.compiler.vm.kernels")
 local graph = require("nupp.compiler.vm.graph")
 local maps = require("nupp.compiler.vm.maps")
-local wgsl = require("nupp.experiment.typedcfg.wgsl")
-local compile = require("nupp.compiler.aot.compile")
-local artifact = require("nupp.compiler.aot.gpuartifact")
-local oldWgsl = require("nupp.compiler.aot.wgslemit")
+local wgsl = require("nupp.compiler.gpu.wgsl")
+local spirv = require("nupp.compiler.gpu.spirv")
 local project = require("nupp.tools.vm.project")
 local shared = {}
 
@@ -68,28 +66,6 @@ function shared.main(argv: {string}): integer
         phases[name] = (phases[name] or 0) + (os.clock() - started) * 1000000
     end
 
-    local function old(): any
-        local started = os.clock()
-        local programs, errors = compile.lower(source, path, parsed)
-        phase("old_lower", started)
-        assert(#programs == #bodies, errors[1] and errors[1].message or "old coverage")
-        local results = {}
-        started = os.clock()
-        for i, program in ipairs(programs) do
-            local readonly, writable, uniforms = {}, {}, {}
-            for _, p in ipairs(program.params) do
-                local list = p.kind == "read_span" and readonly or p.kind == "write_span" and writable or uniforms
-                list[#list + 1] = p
-            end
-            local text, problem = oldWgsl.program(program, readonly, writable, uniforms, 256)
-            assert(text, problem)
-            results[i] = {wgsl = text, program = program}
-        end
-        phase("old_wgsl", started)
-
-        return results
-    end
-
     local function direct(): any
         local results = {}
         for i, f in ipairs(bodies) do
@@ -103,13 +79,22 @@ function shared.main(argv: {string}): integer
             started = os.clock()
             local shader = wgsl.emit(g, f.name .. "_gpu", abi)
             phase("direct_wgsl", started)
-            results[i] = {graph = g, wgsl = shader, abi = abi}
+            started = os.clock()
+            local okSpirv, binary = xpcall(
+                function(): string
+                    return (spirv.emit(g, f.name .. "_gpu", abi))
+                end,
+                debug.traceback
+            )
+            assert(okSpirv, binary)
+            phase("direct_spirv", started)
+            results[i] = {graph = g, wgsl = shader, spirv = binary, abi = abi}
         end
 
         return results
     end
 
-    local legacy, candidate = old(), direct()
+    local candidate = direct()
     local badSources = {
         source:gsub('assert%(#output == #input, "length mismatch"%)', '', 1),
         source:gsub('input%[i%]', 'input[1]', 1),
@@ -162,9 +147,7 @@ function shared.main(argv: {string}): integer
     for i, result in ipairs(candidate) do
         local name = bodies[i].name
         write(output .. "/" .. name .. ".wgsl", result.wgsl)
-        write(output .. "/" .. name .. ".old.wgsl", assert(legacy[i].wgsl))
-        local gpu = assert(artifact.program(legacy[i].program, true))
-        write(output .. "/" .. name .. ".old.spv", gpu.spirv)
+        write(output .. "/" .. name .. ".spv", result.spirv)
         result.cpu = graph.lower(result.graph)
         local g = result.graph
         local original = g.blocks[g.map.header].region.merge
@@ -220,20 +203,10 @@ function shared.main(argv: {string}): integer
         maps.verify(g)
         print(name, #g.blocks, #g.types, #result.cpu.code, #result.wgsl)
     end
-    -- The common path cannot accidentally retain the old structured producer.
-    local lower, verify = require("nupp.compiler.aot.lower"), require("nupp.compiler.aot.verify")
-    local savedLower, savedVerify = lower.program, verify.program
-    lower.program = function(...: any): any
-        error("shared path entered structured lowering")
-    end
-    verify.program = function(...: any): any
-        error("shared path entered structured verifier")
-    end
-    direct()
-    lower.program, verify.program = savedLower, savedVerify
-    local samples, heap, phaseSamples = {old = {}, direct = {}}, {}, {}
+    local samples, phaseSamples = {}, {}
+    local heap = 0
 
-    local function measure(kind: string, allocations: boolean): any
+    local function measure(allocations: boolean): any
         collectgarbage("collect")
         if allocations then
             collectgarbage("stop")
@@ -241,7 +214,7 @@ function shared.main(argv: {string}): integer
         local before = collectgarbage("count") * 1024
         phases = {}
         local start = os.clock()
-        local results = kind == "old" and old() or direct()
+        local results = direct()
         local us = (os.clock() - start) * 1000000
         local bytes = collectgarbage("count") * 1024 - before
         collectgarbage("restart")
@@ -251,16 +224,13 @@ function shared.main(argv: {string}): integer
     end
 
     for round = 1, 7 do
-        for _, mode in ipairs(round % 2 == 0 and {"direct", "old"} or {"old", "direct"}) do
-            local row = measure(mode, false)
-            if round > 2 then
-                local list = samples[mode];
-                list[#list + 1] = row.us
-                for name, us in pairs(row.phases) do
-                    phaseSamples[name] = phaseSamples[name] or {}
-                    local l = phaseSamples[name];
-                    l[#l + 1] = us
-                end
+        local row = measure(false)
+        if round > 2 then
+            samples[#samples + 1] = row.us
+            for name, us in pairs(row.phases) do
+                phaseSamples[name] = phaseSamples[name] or {}
+                local l = phaseSamples[name];
+                l[#l + 1] = us
             end
         end
     end
@@ -270,21 +240,13 @@ function shared.main(argv: {string}): integer
         phaseText[#phaseText + 1] = string.format('%q:%.1f', name, list[math.floor((#list + 1) / 2)])
     end
     table.sort(phaseText)
-    for _, mode in ipairs({"old", "direct"}) do
-        heap[mode] = measure(mode, true).bytes
-    end
+    heap = measure(true).bytes
     write(
         output .. "/metrics.json",
-        '{"old_us":[' .. table.concat(
-            samples.old,
+        '{"direct_us":[' .. table.concat(
+            samples,
             ","
-        ) .. '],"direct_us":[' .. table.concat(
-            samples.direct,
-            ","
-        ) .. '],"old_heap":' .. heap.old .. ',"direct_heap":' .. heap.direct .. ',"phase_median_us":{' .. table.concat(
-            phaseText,
-            ","
-        ) .. '}}\n'
+        ) .. '],"direct_heap":' .. heap .. ',"phase_median_us":{' .. table.concat(phaseText, ",") .. '}}\n'
     )
 
     return 0

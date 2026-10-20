@@ -144,10 +144,6 @@ local function marked(block, marker)
    return block.options:find(":" .. marker, 1, true) ~= nil
 end
 
--- The target an `@aot` example is lowered for, pinned to aarch64 so a feature tier
--- has the same lanes on every machine that runs the suite.
-local AOT_TARGET = {name = "examples", aot = "require", aotTarget = "aarch64-apple-darwin"}
-
 local function errorsOf(env, name, text)
    local result = parser.parse(text, name)
    local diagnostics = #result.errors > 0 and result.errors or check.check(result, name, env, {lints = LINTS})
@@ -156,9 +152,6 @@ local function errorsOf(env, name, text)
       if (diagnostic.severity or "error") == "error" then
          errors[#errors + 1] = diagnostic
       end
-   end
-   if #errors == 0 and #result.errors == 0 and text:find("@aot", 1, true) then
-      errors = require("nupp.tools.build.aotcheck").refusals(text, name, result, AOT_TARGET)
    end
    return errors
 end

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check one graph through CPU and GPU, then measure equal-scope WGSL production."""
+"""Check one graph through CPU and GPU, then time its WGSL and SPIR-V production."""
 import argparse
 import hashlib
 import json
@@ -9,7 +9,7 @@ import shutil
 import statistics
 import subprocess
 
-from run_direct import environment, paired
+from run_direct import environment
 
 ROOT = Path(__file__).resolve().parents[5]
 HERE = Path(__file__).resolve().parent
@@ -128,15 +128,16 @@ def main():
         run(f'{args.host}-fork-{fork}', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', source, path], **({'NO_JIT': '1'} if args.host == 'interpreter' else {'JIT_THRESHOLD': '1'}))
         samples.append(json.loads((path / 'metrics.json').read_text()))
         print(f'paired fork {fork + 1}/{args.forks}', flush=True)
-    results = dict(host=args.host, samples=samples, comparison=paired([statistics.median(s['old_us']) for s in samples], [statistics.median(s['direct_us']) for s in samples]),
-                   scope='checked CST through verified WGSL; parsing/checking outside timer; same compiler host in each pair; old SPIR-V and direct CPU cache excluded',
-                   heap={k: statistics.median(s[k] for s in samples) for k in ['old_heap', 'direct_heap']})
+    results = dict(host=args.host, samples=samples, median_us=statistics.median(statistics.median(s['direct_us']) for s in samples),
+                   phase_median_us={k: statistics.median(s['phase_median_us'][k] for s in samples) for k in samples[0]['phase_median_us']},
+                   scope='checked CST through verified WGSL and SPIR-V; parsing/checking outside timer; CPU image emission excluded',
+                   heap=statistics.median(s['direct_heap'] for s in samples))
     paths = [*sorted((ROOT / 'src/nupp/experiment/typedcfg').glob('*.nupp')), *(ROOT / 'src/nupp/compiler/vm' / n for n in ['graph.nupp', 'kernels.nupp', 'maps.nupp', 'regions.nupp', 'lower.nupp']), source, Path(__file__), ROOT / 'native/crates/gpu/examples/shared_cfg.rs']
     results['source_sha256'] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     results['driver_sha256'] = hashlib.sha256(DRIVER.read_bytes()).hexdigest()
     results['runtime_sha256'] = hashlib.sha256(RUNTIME.read_bytes()).hexdigest()
     (OUT / ('results-' + args.host + '.json')).write_text(json.dumps(results, indent=2) + '\n')
-    print(json.dumps(results['comparison']))
+    print(json.dumps({k: results[k] for k in ['median_us', 'phase_median_us', 'heap']}))
 
 
 if __name__ == '__main__':

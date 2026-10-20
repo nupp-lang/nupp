@@ -1,4 +1,4 @@
-// Execute old and graph-produced WGSL through the same device and ABI.
+// Execute the graph-produced WGSL and SPIR-V through the same device and ABI.
 use std::{borrow::Cow, sync::mpsc};
 fn main() {
     let root = std::env::args()
@@ -11,11 +11,22 @@ fn main() {
     let (device, queue) = pollster::block_on(adapter.request_device(&Default::default())).unwrap();
     let mut cases = 0;
     for name in ["mapAdd", "mapDiamond", "mapRotate"] {
-        for suffix in ["old.wgsl", "wgsl"] {
-            let source = std::fs::read_to_string(format!("{root}/{name}.{suffix}")).unwrap();
+        for suffix in ["wgsl", "spv"] {
+            let path = format!("{root}/{name}.{suffix}");
+            let binary = suffix.ends_with("spv");
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(name),
-                source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
+                source: if binary {
+                    let bytes = std::fs::read(&path).unwrap();
+                    wgpu::ShaderSource::SpirV(Cow::Owned(
+                        bytes
+                            .chunks_exact(4)
+                            .map(|w| u32::from_le_bytes(w.try_into().unwrap()))
+                            .collect(),
+                    ))
+                } else {
+                    wgpu::ShaderSource::Wgsl(Cow::Owned(std::fs::read_to_string(&path).unwrap()))
+                },
             });
             let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(name),
@@ -75,29 +86,39 @@ fn main() {
                             .flat_map(u32::to_le_bytes)
                             .collect::<Vec<_>>(),
                     );
-                    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout: &pipeline.get_bind_group_layout(0),
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: input.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: output.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: uniform.as_entire_binding(),
-                            },
-                        ],
-                    });
+                    // WGSL binds everything in group 0; SPIR-V keeps the native
+                    // crate's sets: read-only buffers, writable buffers, uniforms.
+                    fn entry(binding: u32, resource: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
+                        wgpu::BindGroupEntry {
+                            binding,
+                            resource: resource.as_entire_binding(),
+                        }
+                    }
+                    let groups: Vec<wgpu::BindGroup> = if binary {
+                        [(0, &input), (1, &output), (2, &uniform)]
+                            .iter()
+                            .map(|(set, buffer)| {
+                                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: None,
+                                    layout: &pipeline.get_bind_group_layout(*set),
+                                    entries: &[entry(0, buffer)],
+                                })
+                            })
+                            .collect()
+                    } else {
+                        vec![device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: None,
+                            layout: &pipeline.get_bind_group_layout(0),
+                            entries: &[entry(0, &input), entry(1, &output), entry(2, &uniform)],
+                        })]
+                    };
                     let mut encoder = device.create_command_encoder(&Default::default());
                     {
                         let mut pass = encoder.begin_compute_pass(&Default::default());
                         pass.set_pipeline(&pipeline);
-                        pass.set_bind_group(0, &group, &[]);
+                        for (set, group) in groups.iter().enumerate() {
+                            pass.set_bind_group(set as u32, group, &[]);
+                        }
                         let groups = count.div_ceil(256).max(1);
                         let x = groups.min(2);
                         pass.dispatch_workgroups(x, groups.div_ceil(x), 1);

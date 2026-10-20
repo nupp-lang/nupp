@@ -21,7 +21,6 @@ const {type Reporter} = require("nupp.tools.build.progress")
 const {type Observer} = require("nupp.compiler.project.incremental")
 const {type Value} = require("nupp.compiler.project.store")
 
-local aotcheck = require("nupp.tools.build.aotcheck")
 local envMod = require("nupp.compiler.project.env")
 local gen = require("nupp.compiler.lua.gen")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -1793,54 +1792,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- A note or a warning is said and stepped over. Only an error stops the build, and
     -- only an error withholds the file's generated Lua: advice about a program is not a
     -- reason to refuse to compile it.
-    local function isFatalIn(diags)
-        for _, diag in ipairs(diags or {}) do
-            if isFatal(diag) then
-                return true
-            end
-        end
-
-        return false
+    -- Ahead-of-time refusals were asked of a target under an `aot` policy;
+    -- kernels now lower through the typed graph with the rest of the module,
+    -- so a check has nothing separate to refuse.
+    local function aotRefusals(name: string, path: string, checked: any): ({any}, boolean)
+        return {}, false
     end
-
-    local aotApplies = checkOnly and aotcheck.applies(target.aot)
-
-    -- The code that lowered a verdict, asked once a run and only when one is made
-    -- or reused. The module-compiler digest above does not cover the AOT backend,
-    -- so that an edit to lowering discards only the records of modules it lowered.
-    local aotBackendKey: string? = nil
 
     local function currentAotKey(): string
-        if aotBackendKey == nil then
-            aotBackendKey = aotcheck.backendKey(
-                fingerprint.sharedCacheDir(join(root, join(outDir, "cache"))),
-                contentDigest
-            )
-        end
-
-        return aotBackendKey as string
-    end
-
-    --- What a build of this target would refuse about a checked module's `@aot`
-    --- functions, and whether it was lowered to find out. Asked only by a check, and
-    --- only of a module it checked this run: a reused record carries the answer it
-    --- was given, keyed like the rest of the record on the source, its dependencies'
-    --- interfaces and the manifest, and on the backend that lowered it.
-    local function aotRefusals(name: string, path: string, checked: any): ({any}, boolean)
-        if not aotApplies
-            or checked == nil
-            or linkedModules[name]
-            or packagedRuntimeModules[name]
-            or not aotcheck.projectSource(root, config.include, outDir, path)
-        then
-            return {}, false
-        end
-        local text = substituted[normalize(path)] or inc.fileText(path)
-        if text == nil or (text as string):find("@aot", 1, true) == nil then
-            return {}, false
-        end
-
-        return aotcheck.refusals(text as string, path, checked, target as any), true
+        return ""
     end
 
     -- Links what one compiled module requires, from its record.
@@ -2068,58 +2028,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     --- A module with no record at all -- a narrow check of a project never checked
     --- whole -- leaves the closure unknown, and every refusal is reported rather
     --- than one being missed.
-    local function refusalScope(): {[string]: boolean}?
-        local pending: {string} = {}
-        local seeds = false
-        for _, entry in ipairs(target.entries or {}) do
-            seeds = true
-            local name: string? = entry
-            if entry:match("%.nupp$") or entry:find("[/\\]") then
-                name = envMod.moduleNameForPath(inc.env, join(root, entry))
-            end
-            if name == nil then
-                return nil
-            end
-            pending[#pending + 1] = name as string
-        end
-        if target.sources ~= nil then
-            seeds = true
-            for _, path in ipairs(selectedSourceFiles(root, target) or {}) do
-                local name = envMod.moduleNameForPath(inc.env, path)
-                if name == nil then
-                    return nil
-                end
-                pending[#pending + 1] = name as string
-            end
-        end
-        if not seeds then
-            return nil
-        end
-        for _, provider in ipairs(config._spiEntries or {}) do
-            pending[#pending + 1] = provider.implementation
-        end
-        local reached: {[string]: boolean} = {}
-        while #pending > 0 do
-            local name = table.remove(pending) as string
-            if not reached[name] then
-                reached[name] = true
-                local record = records[name] or oldState.modules[name]
-                if record == nil then
-                    if inc.modulePath(name) ~= nil then
-                        return nil
-                    end
-                else
-                    for _, dependency in ipairs(record.dependencies or {}) do
-                        pending[#pending + 1] = dependency
-                    end
-                end
-            end
-        end
-
-        return reached
-    end
-
     processQueue()
+
     local invalidated = true
     while invalidated do
         invalidated = false
@@ -2183,90 +2093,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- depends on the family's, directly or not, and mentions one of its names. The
     -- verdict is kept under those callers' sources, so an unchanged project lowers
     -- nothing again, and only an edit among them checks the rest to collect calls.
-    if aotApplies then
-        local dependents: {[string]: {string}} = {}
-        for _, name in ipairs(order) do
-            local record = records[name]
-            if record and not carriedRuntime[name] then
-                for _, dependency in ipairs(record.dependencies or {}) do
-                    local list = dependents[dependency] or {}
-                    list[#list + 1] = name
-                    dependents[dependency] = list
-                end
-            end
-        end
-        for _, name in ipairs(order) do
-            local record = records[name]
-            local families = record and record.aotFamilies or nil
-            if record and families and #families > 0 and not carriedRuntime[name] then
-                local callers: {string} = {}
-                local seen: {[string]: boolean} = {[name] = true}
-                local pending: {string} = {name}
-                while #pending > 0 do
-                    for _, dependent in ipairs(dependents[table.remove(pending) as string] or {}) do
-                        if not seen[dependent] then
-                            seen[dependent] = true
-                            pending[#pending + 1] = dependent
-                            local path = paths[dependent]
-                            local text = path and (substituted[normalize(path)] or inc.fileText(path)) or nil
-                            local mentions = false
-                            for _, family in ipairs(families) do
-                                mentions = mentions or (text ~= nil and (text as string):find(family, 1, true) ~= nil)
-                            end
-                            if mentions
-                                and not linkedModules[dependent]
-                                and aotcheck.projectSource(root, config.include, outDir, path as string)
-                            then
-                                callers[#callers + 1] = dependent
-                            end
-                        end
-                    end
-                end
-                table.sort(callers)
-                if #callers == 0 then
-                    -- A check of named files reaches what they require, not what
-                    -- requires them, so it keeps what the last whole check said.
-                    if not asked then
-                        record.aotGraphRefusals, record.aotGraphKey = nil, nil
-                    end
-                else
-                    local keyed: {string} = {currentAotKey(), name, record.sourceHash or ""}
-                    for _, caller in ipairs(callers) do
-                        keyed[#keyed + 1] = caller .. "=" .. tostring(records[caller].sourceHash)
-                    end
-                    local key = hash.digest(table.concat(keyed, "\0"))
-                    if record.aotGraphKey ~= key or type(record.aotGraphRefusals) ~= "table" then
-                        local path = paths[name]
-                        local text = substituted[normalize(path)] or inc.fileText(path)
-                        local own = inc.checkFile(path)
-                        local graph: {any} = {{filename = path, module = name, result = own.result}}
-                        local complete = own.result ~= nil and not isFatalIn(own.diags) and text ~= nil
-                        for _, caller in ipairs(callers) do
-                            local checked = inc.checkFile(paths[caller])
-                            complete = complete and checked.result ~= nil and not isFatalIn(checked.diags)
-                            graph[#graph + 1] = {filename = paths[caller], module = caller, result = checked.result}
-                        end
-                        -- A caller that does not check is refused for that, and the
-                        -- build it would fail stops there too, so the module's own
-                        -- verdict is what is left to say.
-                        if complete then
-                            local found = jsonArray({} as {any})
-                            local plans = constspecialize.collectGraph(graph)
-                            for _, diag in ipairs(
-                                aotcheck.refusals(text as string, path, own.result, target as any, plans)
-                            ) do
-                                found[#found + 1] = diag
-                            end
-                            record.aotGraphRefusals, record.aotGraphKey = found, key
-                        else
-                            record.aotGraphRefusals, record.aotGraphKey = nil, nil
-                        end
-                    end
-                end
-            end
-        end
-    end
-
     -- Counted here rather than where reuse is decided, because a module reused early
     -- can be invalidated by a dependency later and recompiled; only once the loop above
     -- settles is `reused` the answer. A check counts the same way a build does, which
@@ -2375,18 +2201,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- question nobody asked -- name one file, hear about thirty. Whether the project as
     -- a whole is well typed is what `nupp check` with no files means.
     local errors: {any} = {}
-    local aotScope = aotApplies and refusalScope() or nil
     for _, name in ipairs(order) do
         if not asked or asked[name] then
             for _, diag in ipairs(said[name] or {}) do
                 errors[#errors + 1] = diag
-            end
-            if aotScope == nil or aotScope[name] then
-                local record = records[name]
-                local refused = record and (record.aotGraphRefusals or record.aotRefusals) or nil
-                for _, diag in ipairs(refused or {}) do
-                    errors[#errors + 1] = diag
-                end
             end
         end
     end

@@ -24,7 +24,6 @@ local rules = {
     {"^scripts/rust%-dependency%-notices", {"docs", "packaging"}},
 
     {"^src/nupp/compiler/aot/", {"compiler", "aot", "browser"}},
-    {"^src/nupp/tools/build/aot%.nupp$", {"compiler", "aot", "browser"}},
     {"^src/nupp/compiler/compilerpacks%.nupp$", {"compiler"}},
     {"^src/nupp/tools/build/project%.nupp$", {"compiler"}},
     {"^src/nupp/compiler/check/aot%.nupp$", {"compiler", "aot"}},

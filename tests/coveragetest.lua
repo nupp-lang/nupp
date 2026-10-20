@@ -390,13 +390,13 @@ end
 -- Those once reused the register the counts were loaded into, and every count of
 -- the module's top level went into the witness table instead.
 local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
-    local path = ROOT .. "/src/nupp/compiler/aot/scalar.nupp"
-    local realName = "nupp.compiler.aot.scalar"
+    local path = ROOT .. "/src/nupp/compiler/types/generics.nupp"
+    local realName = "nupp.compiler.types.generics"
     local real = require(realName)
-    local identifier, sourceType = real.identifier, real.Source
+    local identifier, sourceType = real.normalize, real.Normalized
     local outer = rawget(_G, "__nuppCoverage")
     moduleFixtures = moduleFixtures + 1
-    local name = "nupp.compiler.coveragefixture.scalar" .. moduleFixtures
+    local name = "nupp.compiler.coveragefixture.generics" .. moduleFixtures
     local source = read(path)
     local declaration = "module " .. realName
     assert(source:sub(1, #declaration + 1) == declaration .. "\n", "the real module begins with its declared header")
@@ -407,9 +407,8 @@ local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
     local function compilerUnchanged()
         test.equal(package.loaded[realName], real, "coverage did not replace the real loaded compiler module")
         test.equal(require(realName), real)
-        test.equal(real.identifier, identifier, "the real function identity survives")
-        test.equal(real.Source, sourceType, "the real nominal declaration survives")
-        test.equal(real.identifier("coveragefixture", "one-two"), "coveragefixture_one_two")
+        test.equal(real.normalize, identifier, "the real function identity survives")
+        test.equal(real.Normalized, sourceType, "the real nominal declaration survives")
         test.equal(rawget(_G, "__nuppCoverage"), outer, "the outer counters are restored")
     end
 
