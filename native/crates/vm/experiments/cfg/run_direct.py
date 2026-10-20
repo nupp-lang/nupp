@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Check and measure the isolated direct typed CST producer with a source-built host."""
+"""Check the typed graph producer end to end with a source-built host: admission, every
+execution mode under collector stress, and the recovery fixture."""
 import argparse
 import hashlib
 import json
@@ -66,6 +67,8 @@ def prepare():
     for i = 1, 64 do assert(writer[i] == i * 2) end
     flow.graphDiamond(writer, reader, -3)
     for i = 1, 64 do assert(writer[i] == i + 3) end
+    flow.graphMath(writer, reader, 10)
+    for i = 1, 64 do assert(writer[i] == (i < 10 and i or math.floor(math.sqrt(3 * i * i + i)))) end
     kernels.explicitMap(writer, reader, 1.25, 2.0)''')
     project = OUT / 'project'
     (project / 'lib/nupp/tests').mkdir(parents=True, exist_ok=True)
@@ -78,9 +81,7 @@ def prepare():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--forks', type=int, default=12)
     parser.add_argument('--build-driver', action='store_true')
-    parser.add_argument('--check-only', action='store_true')
     args = parser.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     project = prepare()
@@ -93,56 +94,18 @@ def main():
     fields = lines[0].split(); fields[2] = '1'; lines[0] = ' '.join(fields)
     lines.insert(1, '  source m')
     assert '\n'.join(lines) + '\n' == (HERE / 'typed-carried.image').read_text(), 'runtime recovery fixture differs from the current frontend'
-    images = {}
-    for mode in ['old', 'direct']:
-        images[mode] = OUT / (mode + '.image')
-        run('emit-' + mode, [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', project, images[mode], 'emit'], environment(NO_JIT='1', **({'NUPP_CFG_FRONTEND': '1'} if mode == 'direct' else {})))
-        for case, command, flags in [
-            ('jit', ['run'], {}), ('graph', ['run'], {'NUPP_CFG_TYPED': '1', 'NUPP_CFG_TRACE': '1'}),
-            ('interpreter', ['run'], {'NO_JIT': '1'}), ('tasks', ['run', '--tasks'], {'NUPP_CFG_TYPED': '1'}),
-            ('workers', ['workers', '--tasks'], {'NUPP_CFG_TYPED': '1'})]:
-            run(mode + '-' + case, [RUNTIME, 'run', images[mode], 'nupp.tests.vmnativesimd', *command], environment(JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **flags))
-            assert (OUT / f'{mode}-{case}.log').read_text().splitlines().count('42') == 1
-    if args.check_only:
-        print('All direct-frontend checks passed')
-        return
-    frontend = {name: [] for name in ('kinds', 'kernels', 'flow')}
-    backend = {'old': [], 'direct': []}
-    whole = {'old': [], 'direct': []}
-    warm = {'old': [], 'direct': []}
-    memory = {}
-    for mode in ['old', 'direct']:
-        p = subprocess.run([str(OUT / 'bench-meter'), str(images[mode]), 'memory'], cwd=ROOT, env=environment(JIT_VERIFY='1'), capture_output=True, text=True, check=True)
-        memory[mode] = json.loads(p.stdout)
-    for fork in range(args.forks):
-        for name, path in [('kinds', project / 'lib/nupp/tests/vmnativesimd.nupp'), ('kernels', project / 'lib/kernels.nupp'), ('flow', project / 'lib/graphflow.nupp')]:
-            target = OUT / f'fork-{fork}-{name}.functions'
-            run(f'fork-{fork}-{name}', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', path, target], environment(NO_JIT='1'))
-            frontend[name].append(json.loads(Path(str(target) + '.json').read_text()))
-        for mode in (['old', 'direct'] if fork % 2 == 0 else ['direct', 'old']):
-            bench = OUT / 'bench'
-            p = subprocess.run([str(bench), str(images[mode])], cwd=ROOT, env=environment(JIT_VERIFY='1'), capture_output=True, text=True, check=True)
-            backend[mode].append(json.loads(p.stdout))
-            target = OUT / f'compile-{fork}-{mode}.image'
-            run(f'compile-{fork}-{mode}', ['/usr/bin/time', '-l', RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', project, target, 'emit'], environment(NO_JIT='1', **({'NUPP_CFG_FRONTEND': '1'} if mode == 'direct' else {})))
-            row = json.loads(Path(str(target) + '.json').read_text())
-            log = (OUT / f'compile-{fork}-{mode}.log').read_text()
-            row['peak_rss'] = int(re.search(r'(\d+)\s+maximum resident set size', log)[1])
-            whole[mode].append(row)
-            run(f'warm-{fork}-{mode}', [RUNTIME, 'run', images[mode], 'nupp.tests.vmnativesimd', 'run', '--repeat', '30'], environment(JIT_VERIFY='1'))
-            warm[mode].append(float(re.search(r'median ([\d.]+) ms', (OUT / f'warm-{fork}-{mode}.log').read_text())[1]))
-            assert target.read_bytes() == images[mode].read_bytes(), f'{mode}: nondeterministic image'
-            target.unlink()
-        print(f'paired fork {fork + 1}/{args.forks}', flush=True)
-    comparisons = {name: paired([statistics.median(r['old_us']) for r in rows], [statistics.median(r['direct_us']) for r in rows]) for name, rows in frontend.items()}
-    comparisons['frontend_total'] = paired(*[[sum(statistics.median(frontend[name][i][mode + '_us']) for name in frontend) for i in range(args.forks)] for mode in ['old', 'direct']])
-    comparisons['warm_runtime'] = paired(warm['old'], warm['direct'])
-    comparisons['backend'] = paired(*[[statistics.median(r['us'] for r in row['samples']) for row in backend[mode]] for mode in ['old', 'direct']])
-    comparisons['whole_compile'] = paired(*[[row['compile_us'] for row in whole[mode]] for mode in ['old', 'direct']])
-    paths = [*sorted((ROOT / 'src/nupp/experiment/typedcfg').glob('*.nupp')), ROOT / 'src/nupp/compiler/vm/native.nupp', ROOT / 'src/nupp/compiler/vm/lower.nupp', ROOT / 'native/crates/vm/src/jit.rs', ROOT / 'native/crates/vm/src/typed_cfg.rs', ROOT / 'native/crates/vm/examples/typed_cfg_bench.rs', HERE / 'typed-flow.nupp', HERE / 'typed-carried.image', Path(__file__)]
-    report = dict(frontend=frontend, backend=backend, whole_compile=whole, warm_runtime=warm, backend_memory=memory, comparisons=comparisons, source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}, driver_sha256=hashlib.sha256(DRIVER.read_bytes()).hexdigest(), runtime_sha256=hashlib.sha256(RUNTIME.read_bytes()).hexdigest(), bench_sha256={name: hashlib.sha256((OUT / name).read_bytes()).hexdigest() for name in ['bench', 'bench-meter']}, frontend_execution='same standalone source-built image, interpreter for both producers; native.plans includes candidate discovery and retained fallback in both modes')
-    (OUT / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(json.dumps(comparisons, indent=2))
+    image = OUT / 'direct.image'
+    run('emit', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', project, image, 'emit'], environment(NO_JIT='1'))
+    for case, command, flags in [
+        ('jit', ['run'], {}), ('graph', ['run'], {'NUPP_CFG_TYPED': '1', 'NUPP_CFG_TRACE': '1'}),
+        ('interpreter', ['run'], {'NO_JIT': '1'}), ('tasks', ['run', '--tasks'], {'NUPP_CFG_TYPED': '1'}),
+        ('workers', ['workers', '--tasks'], {'NUPP_CFG_TYPED': '1'})]:
+        run('direct-' + case, [RUNTIME, 'run', image, 'nupp.tests.vmnativesimd', *command], environment(JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **flags))
+        assert (OUT / f'direct-{case}.log').read_text().splitlines().count('42') == 1
+    log = (OUT / 'direct-graph.log').read_text()
+    for name in ['graphAlias', 'graphDiamond', 'graphWide', 'graphCarried', 'graphMath', 'explicitMap', 'explicitRefine', 'explicitAlgebraic']:
+        assert name in log, f'{name} did not compile in explicit graph mode'
+    print('All direct-frontend checks passed')
 
 
 if __name__ == '__main__':

@@ -5,9 +5,9 @@ local checker = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
 local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
-local frontend = require("nupp.experiment.typedcfg.frontend")
-local graph = require("nupp.experiment.typedcfg.graph")
-local maps = require("nupp.experiment.typedcfg.map")
+local frontend = require("nupp.compiler.vm.kernels")
+local graph = require("nupp.compiler.vm.graph")
+local maps = require("nupp.compiler.vm.maps")
 local wgsl = require("nupp.experiment.typedcfg.wgsl")
 local compile = require("nupp.compiler.aot.compile")
 local artifact = require("nupp.compiler.aot.gpuartifact")
@@ -61,11 +61,20 @@ function shared.main(argv: {string}): integer
 
     walk(parsed.root)
     assert(#bodies == 3)
+    -- Per-phase accumulation for the current measured call, in microseconds.
+    local phases: {[string]: number} = {}
+
+    local function phase(name: string, started: number): nil
+        phases[name] = (phases[name] or 0) + (os.clock() - started) * 1000000
+    end
 
     local function old(): any
+        local started = os.clock()
         local programs, errors = compile.lower(source, path, parsed)
+        phase("old_lower", started)
         assert(#programs == #bodies, errors[1] and errors[1].message or "old coverage")
         local results = {}
+        started = os.clock()
         for i, program in ipairs(programs) do
             local readonly, writable, uniforms = {}, {}, {}
             for _, p in ipairs(program.params) do
@@ -76,6 +85,7 @@ function shared.main(argv: {string}): integer
             assert(text, problem)
             results[i] = {wgsl = text, program = program}
         end
+        phase("old_wgsl", started)
 
         return results
     end
@@ -83,9 +93,16 @@ function shared.main(argv: {string}): integer
     local function direct(): any
         local results = {}
         for i, f in ipairs(bodies) do
+            local started = os.clock()
             local g, problem = frontend.tryBuild(f.body, true)
+            phase("direct_build", started)
             assert(g, f.name .. ": " .. tostring(problem))
-            local shader, abi = wgsl.emit(g, f.name .. "_gpu")
+            started = os.clock()
+            local abi = maps.verify(g)
+            phase("direct_verify", started)
+            started = os.clock()
+            local shader = wgsl.emit(g, f.name .. "_gpu", abi)
+            phase("direct_wgsl", started)
             results[i] = {graph = g, wgsl = shader, abi = abi}
         end
 
@@ -214,7 +231,7 @@ function shared.main(argv: {string}): integer
     end
     direct()
     lower.program, verify.program = savedLower, savedVerify
-    local samples, heap = {old = {}, direct = {}}, {}
+    local samples, heap, phaseSamples = {old = {}, direct = {}}, {}, {}
 
     local function measure(kind: string, allocations: boolean): any
         collectgarbage("collect")
@@ -222,6 +239,7 @@ function shared.main(argv: {string}): integer
             collectgarbage("stop")
         end
         local before = collectgarbage("count") * 1024
+        phases = {}
         local start = os.clock()
         local results = kind == "old" and old() or direct()
         local us = (os.clock() - start) * 1000000
@@ -229,7 +247,7 @@ function shared.main(argv: {string}): integer
         collectgarbage("restart")
         assert(#results == 3)
 
-        return {us = us, bytes = bytes}
+        return {us = us, bytes = bytes, phases = phases}
     end
 
     for round = 1, 7 do
@@ -238,9 +256,20 @@ function shared.main(argv: {string}): integer
             if round > 2 then
                 local list = samples[mode];
                 list[#list + 1] = row.us
+                for name, us in pairs(row.phases) do
+                    phaseSamples[name] = phaseSamples[name] or {}
+                    local l = phaseSamples[name];
+                    l[#l + 1] = us
+                end
             end
         end
     end
+    local phaseText = {}
+    for name, list in pairs(phaseSamples) do
+        table.sort(list)
+        phaseText[#phaseText + 1] = string.format('%q:%.1f', name, list[math.floor((#list + 1) / 2)])
+    end
+    table.sort(phaseText)
     for _, mode in ipairs({"old", "direct"}) do
         heap[mode] = measure(mode, true).bytes
     end
@@ -252,7 +281,10 @@ function shared.main(argv: {string}): integer
         ) .. '],"direct_us":[' .. table.concat(
             samples.direct,
             ","
-        ) .. '],"old_heap":' .. heap.old .. ',"direct_heap":' .. heap.direct .. '}\n'
+        ) .. '],"old_heap":' .. heap.old .. ',"direct_heap":' .. heap.direct .. ',"phase_median_us":{' .. table.concat(
+            phaseText,
+            ","
+        ) .. '}}\n'
     )
 
     return 0

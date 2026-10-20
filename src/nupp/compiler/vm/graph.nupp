@@ -1,0 +1,495 @@
+module nupp.compiler.vm.graph
+
+-- Closed blocks, with SSA value IDs distinct from physical slot hints. The
+-- executable stream is a derived cache; edges remain explicit until layout.
+local graph = {}
+local signatures = {
+    U32Load = "I#i",
+    U32Store = "-#ii",
+    U32Add = "Iii",
+    U32Sub = "Iii",
+    SpanEqual = "-###",
+    IK = "I#",
+    FK = "F#",
+    IUnbox = "I#",
+    FUnbox = "F#",
+    SpanLen = "I##",
+    IMov = "Ii",
+    FMov = "Ff",
+    VMov = "Xx",
+    IToF = "Fi",
+    FToI = "If",
+    IMaskU32 = "Ii",
+    IAdd = "Iii",
+    IAddK = "Ii#",
+    ISub = "Iii",
+    IAnd = "Iii",
+    IOr = "Iii",
+    ICmpEq = "Iii",
+    ICmpNe = "Iii",
+    ICmpLt = "Iii",
+    ICmpLe = "Iii",
+    ICmpSLt = "Iii",
+    ICmpSLe = "Iii",
+    FAdd = "Fff",
+    FSub = "Fff",
+    FMul = "Fff",
+    FDiv = "Fff",
+    FNeg = "Ff",
+    FCmpEq = "Iff",
+    FCmpNe = "Iff",
+    FCmpLt = "Iff",
+    FCmpLe = "Iff",
+    VSplatN = "Xf#",
+    VSplatI = "Xi#",
+    VExtractN = "Fx##",
+    VAny = "Ix",
+    VPrefix = "Xi###",
+    VOp = "X##xxx",
+    SpanBounds = "-#ii##",
+    SpanLoad = "X#ii###",
+    SpanStore = "-#ixi###"
+}
+
+-- Each signature parsed once: the result class and one class letter per
+-- operand, so no verifier or lowering pass slices strings per instruction.
+local parsed: {[string]: any} = {}
+for op, sig in pairs(signatures) do
+    local args = {}
+    for j = 2, #sig do
+        args[j - 1] = sig:sub(j, j)
+    end
+    parsed[op] = {result = sig:sub(1, 1), args = args, n = #sig - 1}
+end
+graph.signatures = parsed
+
+function graph.new(nparams: integer): any
+    return {nparams = nparams, blocks = {}, types = {}, slots = {}, counts = {i = 0, f = 0, x = 0}, constants = {}}
+end
+
+function graph.value(g: any, ty: string, slot: integer?): integer
+    local id = #g.types + 1
+    if slot == nil then
+        slot = g.counts[ty]
+        g.counts[ty] = (slot as integer) + 1
+    end
+    g.types[id], g.slots[id] = ty, slot
+
+    return id
+end
+
+function graph.block(g: any): any
+    local b = {id = #g.blocks + 1, params = {}, op = {}, dst = {}, args = {}}
+    g.blocks[b.id] = b
+    return b
+end
+
+local lowered = {I = "i", F = "f", X = "x"}
+
+function graph.emit(g: any, b: any, op: string, args: any): integer?
+    local sig = assert(parsed[op], "unknown graph operation: " .. op)
+    if not (#args == sig.n) then
+        error("graph operation arity: " .. op, 0)
+    end
+    local class = sig.result
+    local id = class ~= "-" and graph.value(g, lowered[class]) or nil
+    local at = #b.op + 1
+    b.op[at], b.dst[at], b.args[at] = op, id or 0, args
+
+    return id
+end
+
+function graph.verify(g: any): nil
+    local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
+    if not (#blocks > 0 and #blocks <= 100000 and #types == #slots) then
+        error("assertion failed", 0)
+    end
+    if not (g.nparams >= 0 and g.nparams < 240) then
+        error("assertion failed", 0)
+    end
+    local defined = {}
+    -- Per block: the values usable here (its parameters and earlier results)
+    -- and the slot hints taken, keyed by class so classes never collide.
+    local localValues, occupied = {}, {}
+    local classBase = {i = 0, f = 1000000, x = 2000000}
+
+    local function define(v: integer): nil
+        local ty, slot = types[v], slots[v]
+        if not (ty and not defined[v]) then
+            error("duplicate graph definition", 0)
+        end
+        if not (counts[ty] and slot >= 0 and slot % 1 == 0 and slot < counts[ty]) then
+            error("assertion failed", 0)
+        end
+        local key = classBase[ty] + slot
+        if not (not occupied[key]) then
+            error("overlapping graph slot hints", 0)
+        end
+        occupied[key] = true
+        defined[v], localValues[v] = true, true
+    end
+
+    for index = 1, #blocks do
+        local b = blocks[index]
+        local ops, dsts, allArgs, params = b.op, b.dst, b.args, b.params
+        if not (b.id == index and #ops == #dsts and #ops == #allArgs) then
+            error("assertion failed", 0)
+        end
+        localValues, occupied = {}, {}
+        for i = 1, #params do
+            define(params[i])
+        end
+        if index == 1 then
+            if not (#params == 0) then
+                error("entry parameters come from the frame", 0)
+            end
+        end
+        for i = 1, #ops do
+            local sig = assert(parsed[ops[i]], "unknown graph operation")
+            local args, classes = allArgs[i], sig.args
+            if not (#args == sig.n) then
+                error("graph operation arity", 0)
+            end
+            for j = 1, #args do
+                local ty = classes[j]
+                if ty ~= "#" then
+                    local v = args[j]
+                    if not (localValues[v]) then
+                        error("graph use outside its closed block", 0)
+                    end
+                    if not (types[v] == ty) then
+                        error("graph value class mismatch", 0)
+                    end
+                end
+            end
+            local result = sig.result
+            if result ~= "-" then
+                if not (types[dsts[i]] == lowered[result]) then
+                    error("assertion failed", 0)
+                end
+                define(dsts[i])
+            elseif not (dsts[i] == 0) then
+                error("assertion failed", 0)
+            end
+        end
+        local t = assert(b.term, "unterminated graph block")
+        local kind = t.kind
+        if not (kind == "jump" or kind == "branch" or kind == "return" or kind == "raise") then
+            error("assertion failed", 0)
+        end
+        if kind == "branch" then
+            if not (localValues[t.value] and types[t.value] == "i") then
+                error("graph branch condition", 0)
+            end
+        elseif kind == "return" and t.value then
+            if not (localValues[t.value] and types[t.value] == "f") then
+                error("graph return value", 0)
+            end
+        end
+        local edges = t.edges
+        if not (#edges == (kind == "branch" and 2 or kind == "jump" and 1 or 0)) then
+            error("assertion failed", 0)
+        end
+        for ei = 1, #edges do
+            local e = edges[ei]
+            local target = assert(blocks[e.target], "bad graph target")
+            local args, targetParams = e.args, target.params
+            if not (e.target ~= 1 and #args == #targetParams) then
+                error("bad graph edge arity", 0)
+            end
+            for i = 1, #args do
+                local v = args[i]
+                if not (localValues[v]) then
+                    error("graph use outside its closed block", 0)
+                end
+                if not (types[v] == types[targetParams[i]]) then
+                    error("graph value class mismatch", 0)
+                end
+            end
+        end
+    end
+    for v = 1, #types do
+        if not (defined[v]) then
+            error("undefined graph value", 0)
+        end
+    end
+end
+
+function graph.prune(g: any): nil
+    local used = {}
+    local blocks = g.blocks
+    -- Instruction operands and terminator values are the roots.
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local ops, allArgs = b.op, b.args
+        for i = 1, #ops do
+            local classes, args = parsed[ops[i]].args, allArgs[i]
+            for j = 1, #args do
+                if classes[j] ~= "#" then
+                    used[args[j]] = true
+                end
+            end
+        end
+        if b.term.value then
+            used[b.term.value] = true
+        end
+    end
+    -- A used parameter makes every argument feeding it used. Edges are few,
+    -- so passes over them until nothing changes beat per-parameter lists.
+    local changed = true
+    while changed do
+        changed = false
+        for bi = 1, #blocks do
+            local edges = blocks[bi].term.edges
+            for ei = 1, #edges do
+                local e = edges[ei]
+                local params, args = blocks[e.target].params, e.args
+                for i = 1, #params do
+                    local v = args[i]
+                    if used[params[i]] and not used[v] then
+                        used[v] = true
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+    -- Surviving values are renumbered densely. Each block records which of
+    -- its parameter positions survived so edge arguments compact to match.
+    local remap, types, slots = {}, {}, {}
+    local count: integer = 0
+    local gTypes, gSlots = g.types, g.slots
+
+    local function keep(v: integer): integer
+        count = count + 1
+        remap[v], types[count], slots[count] = count, gTypes[v], gSlots[v]
+        return count
+    end
+
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local params, n, survived = b.params, 0, {}
+        for i = 1, #params do
+            local v = params[i]
+            local live = used[v] == true
+            survived[i] = live
+            if live then
+                n = n + 1
+                params[n] = keep(v)
+            end
+        end
+        for i = #params, n + 1, -1 do
+            params[i] = nil
+        end
+        b.survived = survived
+        b.keyNames, b.keyIndex = nil, nil
+        b.env, b.names, b.facts, b.held = nil, nil, nil, nil
+        local dst = b.dst
+        for i = 1, #dst do
+            local v = dst[i]
+            if v ~= 0 then
+                dst[i] = keep(v)
+            end
+        end
+    end
+    -- Operands, terminator values and edge arguments renumber in one pass;
+    -- edge arguments also compact to the parameters that survived.
+    for bi = 1, #blocks do
+        local b = blocks[bi]
+        local ops, allArgs = b.op, b.args
+        for i = 1, #ops do
+            local classes, args = parsed[ops[i]].args, allArgs[i]
+            for j = 1, #args do
+                if classes[j] ~= "#" then
+                    args[j] = assert(remap[args[j]])
+                end
+            end
+        end
+        local t = b.term
+        if t.value then
+            t.value = assert(remap[t.value])
+        end
+        local edges = t.edges
+        for ei = 1, #edges do
+            local e = edges[ei]
+            local survived, args, n = blocks[e.target].survived, e.args, 0
+            for i = 1, #survived do
+                if survived[i] then
+                    n = n + 1
+                    args[n] = assert(remap[args[i]])
+                end
+            end
+            for i = #args, n + 1, -1 do
+                args[i] = nil
+            end
+        end
+    end
+    for bi = 1, #blocks do
+        blocks[bi].survived = nil
+    end
+    if g.map then
+        g.map.index = assert(remap[g.map.index])
+        g.map.count = assert(remap[g.map.count])
+    end
+    g.types, g.slots = types, slots
+end
+
+function graph.lower(g: any): any
+    graph.verify(g)
+    local code, starts, patches = {}, {}, {}
+    local lengthSlots = {}
+    local list21 = g.blocks[1].op
+    for i = 1, #list21 do
+        local op = list21[i]
+        if op == "SpanLen" then
+            lengthSlots[g.blocks[1].args[i][1]] = g.slots[g.blocks[1].dst[i]]
+        end
+    end
+
+    local function emit(...: any): integer
+        code[#code + 1] = {...}
+        return #code
+    end
+
+    local function jump(target: integer): nil
+        patches[#patches + 1] = {at = emit("Jmp", 0), target = target}
+    end
+
+    local function copies(e: any, fallthrough: number?): nil
+        local list22 = {"i", "f", "x"}
+        for at22 = 1, #list22 do
+            local ty = list22[at22]
+            local pending = {}
+            local list23 = g.blocks[e.target].params
+            for i = 1, #list23 do
+                local dst = list23[i]
+                local src = e.args[i]
+                if g.types[dst] == ty and g.slots[dst] ~= g.slots[src] then
+                    if not (pending[g.slots[dst]] == nil) then
+                        error("conflicting preferred slots", 0)
+                    end
+                    pending[g.slots[dst]] = g.slots[src]
+                end
+            end
+            local move = ty == "i" and "IMov" or ty == "f" and "FMov" or "VMov"
+            while next(pending) ~= nil do
+                local sources = {}
+                for _, src in pairs(pending) do
+                    sources[src] = true
+                end
+                local progress = false
+                for dst, src in pairs(pending) do
+                    if not sources[dst] then
+                        emit(move, dst, src);
+                        pending[dst] = nil;
+                        progress = true
+                    end
+                end
+                if not progress then
+                    local dst = next(pending)
+                    emit(move, g.counts[ty], dst)
+                    for target, src in pairs(pending) do
+                        if src == dst then
+                            pending[target] = g.counts[ty]
+                        end
+                    end
+                end
+            end
+        end
+        if e.target ~= fallthrough then
+            jump(e.target)
+        end
+    end
+
+    for at24 = 1, #g.blocks do
+        local b = g.blocks[at24]
+        starts[b.id] = #code + 1
+        for i = 1, #b.op do
+            local op = b.op[i]
+            local classes, ins = parsed[op].args, {op == "VSplatI" and "VSplatN" or op}
+            if b.dst[i] ~= 0 then
+                ins[#ins + 1] = g.slots[b.dst[i]]
+            end
+            local list26 = b.args[i]
+            for j = 1, #list26 do
+                local arg = list26[j]
+                ins[#ins + 1] = classes[j] == "#" and arg or g.slots[arg]
+            end
+            -- VOp's VM order puts its opcode and element kind before dst.
+            if op == "VOp" then
+                ins[2], ins[3], ins[4] = ins[3], ins[4], ins[2]
+            end
+            if op == "U32Add" or op == "U32Sub" then
+                emit(op == "U32Add" and "IAdd" or "ISub", ins[2], ins[3], ins[4])
+                emit("IMaskU32", ins[2], ins[2])
+            elseif op == "U32Load" or op == "U32Store" then
+                local store = op == "U32Store"
+                local param, index = ins[store and 2 or 3], ins[store and 3 or 4]
+                local scratch, vector = g.counts.i, g.counts.x
+                emit("IK", scratch, 1)
+                emit("SpanBounds", param, index, scratch, 4, store and 1 or 0)
+                if store then
+                    emit("VSplatN", vector, ins[4], 4)
+                    emit("SpanStore", param, index, vector, scratch, 4, 0, 1)
+                else
+                    emit("SpanLoad", vector, param, index, scratch, 4, 0, 1)
+                    emit("VExtractN", ins[2], vector, 4, 0)
+                end
+            elseif op == "SpanEqual" then
+                local scratch = g.counts.i
+                emit("ICmpNe", scratch, assert(lengthSlots[ins[2]]), assert(lengthSlots[ins[3]]))
+                emit("JmpIfIZero", scratch, 1)
+                emit("Raise", ins[4])
+            else
+                code[#code + 1] = ins
+            end
+        end
+        local t = b.term
+        if t.kind == "jump" then
+            copies(t.edges[1], b.id + 1)
+        elseif t.kind == "branch" then
+            local identity = true
+            local list27 = g.blocks[t.edges[2].target].params
+            for i = 1, #list27 do
+                local dst = list27[i]
+                identity = identity and g.slots[dst] == g.slots[t.edges[2].args[i]]
+            end
+            if identity then
+                patches[
+                    #patches + 1
+                ] = {at = emit("JmpIfIZero", g.slots[t.value], 0), target = t.edges[2].target, field = 3}
+                copies(t.edges[1], b.id + 1)
+            else
+                local branch = emit("JmpIfIZero", g.slots[t.value], 0)
+                copies(t.edges[1])
+                code[branch][3] = #code - branch
+                copies(t.edges[2], b.id + 1)
+            end
+        elseif t.kind == "raise" then
+            emit("Raise", t.constant)
+        elseif t.value then
+            emit("FBox", g.nparams + 1, g.slots[t.value]);
+            emit("Ret", g.nparams + 1)
+        else
+            emit("RetNil")
+        end
+    end
+    for at28 = 1, #patches do
+        local p = patches[at28]
+        code[p.at][p.field or 2] = starts[p.target] - p.at - 1
+    end
+    if not (g.counts.i < 239 and g.counts.f < 239 and g.counts.x < 249) then
+        error("graph register capacity", 0)
+    end
+
+    return {
+        code = code,
+        consts = g.constants,
+        nregs = g.nparams + 2,
+        nfregs = math.max(g.counts.i, g.counts.f) + (g.map and 2 or 1),
+        nvregs = g.counts.x + 1,
+        graph = g
+    }
+end
+
+export = graph

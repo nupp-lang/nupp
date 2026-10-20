@@ -101,27 +101,23 @@ def main():
     source = HERE / 'shared-map.nupp'
     run('artifacts', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', source, OUT], NO_JIT='1')
     run('gpu', [ROOT / 'build/rust/target/release/examples/shared_cfg', OUT])
-    for mode in ['old', 'direct']:
-        flags = {'NUPP_CFG_MAP': '1'} if mode == 'direct' else {}
-        image = OUT / (mode + '.image')
-        run('emit-' + mode, [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', project, image, 'emit'], NO_JIT='1', **flags)
-        for case, command, extra in [
-            ('jit', ['run'], {}), ('graph', ['run'], {'NUPP_CFG_TYPED': '1', 'NUPP_CFG_TRACE': '1'}),
-            ('interpreter', ['run'], {'NO_JIT': '1'}), ('tasks', ['run', '--tasks'], {'NUPP_CFG_TYPED': '1'}),
-            ('workers', ['workers', '--tasks'], {'NUPP_CFG_TYPED': '1'})]:
-            output = run(mode + '-' + case, [RUNTIME, 'run', image, 'nupp.tests.sharedcfg', *command], JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **extra)
-            assert output.splitlines().count('42') == 1
-        if mode == 'direct':
-            log = (OUT / 'direct-graph.log').read_text()
-            for name in ['mapAdd', 'mapDiamond', 'mapRotate']:
-                assert name in log, f'{name} did not compile in explicit graph mode'
-    # One cache must not replay a different frontend's instruction stream.
-    for index, mode in enumerate(['old', 'direct', 'old']):
-        image = OUT / f'cached-{index}.image'
-        flags = {'NUPP_CFG_MAP': '1'} if mode == 'direct' else {}
-        run(f'cached-{index}', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', project, image, 'emit'], NO_JIT='1', NUPP_VM_EMIT_CACHE=str(OUT / 'cache-mode-check'), **flags)
-        assert image.read_bytes() == (OUT / (mode + '.image')).read_bytes(), 'cached frontend selection differs'
-    run('forced-native', [ROOT / 'build/rust/target/release/examples/typed_cfg_bench', OUT / 'direct.image'], JIT_VERIFY='1', NUPP_CFG_TYPED='1')
+    image = OUT / 'cpu.image'
+    run('emit', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', project, image, 'emit'], NO_JIT='1')
+    for case, command, extra in [
+        ('jit', ['run'], {}), ('graph', ['run'], {'NUPP_CFG_TYPED': '1', 'NUPP_CFG_TRACE': '1'}),
+        ('interpreter', ['run'], {'NO_JIT': '1'}), ('tasks', ['run', '--tasks'], {'NUPP_CFG_TYPED': '1'}),
+        ('workers', ['workers', '--tasks'], {'NUPP_CFG_TYPED': '1'})]:
+        output = run('cpu-' + case, [RUNTIME, 'run', image, 'nupp.tests.sharedcfg', *command], JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **extra)
+        assert output.splitlines().count('42') == 1
+    log = (OUT / 'cpu-graph.log').read_text()
+    for name in ['mapAdd', 'mapDiamond', 'mapRotate']:
+        assert name in log, f'{name} did not compile in explicit graph mode'
+    # Emission through one cache must reproduce the uncached image exactly.
+    for index in range(3):
+        cached = OUT / f'cached-{index}.image'
+        run(f'cached-{index}', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg.shared', project, cached, 'emit'], NO_JIT='1', NUPP_VM_EMIT_CACHE=str(OUT / 'cache-check'))
+        assert cached.read_bytes() == image.read_bytes(), 'cached emission differs'
+    run('forced-native', [ROOT / 'build/rust/target/release/examples/typed_cfg_bench', OUT / 'cpu.image'], JIT_VERIFY='1', NUPP_CFG_TYPED='1')
     if args.check_only:
         print('Shared CFG CPU and GPU checks passed')
         return
@@ -135,7 +131,7 @@ def main():
     results = dict(host=args.host, samples=samples, comparison=paired([statistics.median(s['old_us']) for s in samples], [statistics.median(s['direct_us']) for s in samples]),
                    scope='checked CST through verified WGSL; parsing/checking outside timer; same compiler host in each pair; old SPIR-V and direct CPU cache excluded',
                    heap={k: statistics.median(s[k] for s in samples) for k in ['old_heap', 'direct_heap']})
-    paths = [*sorted((ROOT / 'src/nupp/experiment/typedcfg').glob('*.nupp')), source, Path(__file__), ROOT / 'native/crates/gpu/examples/shared_cfg.rs', ROOT / 'src/nupp/compiler/vm/lower.nupp', ROOT / 'src/nupp/tools/vm/emitcache.nupp']
+    paths = [*sorted((ROOT / 'src/nupp/experiment/typedcfg').glob('*.nupp')), *(ROOT / 'src/nupp/compiler/vm' / n for n in ['graph.nupp', 'kernels.nupp', 'maps.nupp', 'regions.nupp', 'lower.nupp']), source, Path(__file__), ROOT / 'native/crates/gpu/examples/shared_cfg.rs']
     results['source_sha256'] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
     results['driver_sha256'] = hashlib.sha256(DRIVER.read_bytes()).hexdigest()
     results['runtime_sha256'] = hashlib.sha256(RUNTIME.read_bytes()).hexdigest()

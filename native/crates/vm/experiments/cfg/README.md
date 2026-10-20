@@ -77,3 +77,7 @@ The admitted slice has `number` and `string` parameters, numeric returns, local 
 The test host supplies binary64 numbers and immutable strings, with the standard `string` and `coroutine` bindings unchanged. Production admission must account for other numeric carriers and establish intrinsic identity or guard it; recognizing a qualified name and a `number` annotation does not establish those facts by itself.
 
 Proceed with the shared graph design. This experiment makes the ideal concrete enough to evaluate directly, without first designing a permanent bytecode side-table format. The next decisive slice should preserve production runtime obligations and retire an existing path, such as the typed native adapter, rather than merely adding another backend. Then measure compiler and application workloads, peak memory, startup and generated-code quality. The prototype adds files; production IRs and lowerings have not yet been deleted.
+
+Later slices: `TYPED.md` (block arguments inside the frame JIT), `DIRECT.md`
+(the checked-CST producer), `SHARED.md` (one graph for CPU and GPU, now the
+only typed-kernel path in the compiler).

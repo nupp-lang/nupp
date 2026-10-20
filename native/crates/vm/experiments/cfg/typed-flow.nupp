@@ -65,4 +65,34 @@ local function graphCarried(count: number): number
     return simd.horizontal.algebraicSum(accumulator)
 end
 
-return {graphAlias = graphAlias, graphDiamond = graphDiamond, graphWide = graphWide, graphCarried = graphCarried}
+local function graphMath(exclusive output: span.WriteSpan<number>, borrows input: span.Span<number>, scale: number): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    local species = assert(simd.species(array.number, 4))
+    local negated = -scale
+    local cursor: uint32 = 0
+    while cursor + species.lanes <= #input do
+        local value = species:load(input, cursor + 1)
+        local tripled = value * species:splat(3.0)
+        local product = tripled:fma(value, value)
+        local root = math.sqrt(product)
+        local floored = math.floor(root)
+        local negative = -floored
+        local positive = math.abs(negative)
+        local magnitude = math.ceil(positive)
+        local small = value < -negated
+        local large = ~small
+        local result = large:select(magnitude, value)
+        species:store(output, cursor + 1, result)
+        cursor = cursor + species.lanes
+    end
+end
+
+return {
+    graphAlias = graphAlias,
+    graphDiamond = graphDiamond,
+    graphWide = graphWide,
+    graphCarried = graphCarried,
+    graphMath = graphMath
+}

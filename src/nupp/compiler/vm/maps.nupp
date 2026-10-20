@@ -1,0 +1,283 @@
+module nupp.compiler.vm.maps
+
+local G = require("nupp.compiler.vm.graph")
+local regions = require("nupp.compiler.vm.regions")
+local map = {}
+
+-- The shared map legality check owns the parallelism and bounds argument.
+-- Frontends emit checked accesses. Backends do not inspect source syntax.
+
+function map.verify(g: any): any
+    G.verify(g)
+    local events = regions.events(g)
+    local m = assert(g.map, "not a map graph")
+    local header, entry, continuing, merge = g.blocks[m.header], g.blocks[1], g.blocks[m.continuing], g.blocks[m.merge]
+    if not (
+        header.region.kind == "loop" and header.region.merge == m.merge and header.region.continuing == m.continuing
+    ) then
+        error("assertion failed", 0)
+    end
+    assert(
+        header.term.edges[1].target == m.body and entry.term.kind == "jump" and entry.term.edges[1].target == header.id
+    )
+    if not (#header.op == 1 and header.op[1] == "ICmpLt" and header.dst[1] == header.term.value) then
+        error("assertion failed", 0)
+    end
+    if not (header.args[1][1] == m.index and header.args[1][2] == m.count) then
+        error("map condition must bound its cursor", 0)
+    end
+    if not (#merge.op == 0 and merge.term.kind == "return" and not merge.term.value) then
+        error("map has observable suffix", 0)
+    end
+    if not (#continuing.op == 1) then
+        error("map continue block must contain only the induction step", 0)
+    end
+    local defs, incoming = {}, {}
+    for at29 = 1, #g.blocks do
+        local b = g.blocks[at29]
+        for i = 1, #b.op do
+            local op = b.op[i]
+            defs[b.dst[i]] = {op = op, args = b.args[i], block = b.id}
+        end
+        for at31 = 1, #b.term.edges do
+            local e = b.term.edges[at31]
+            local list32 = g.blocks[e.target].params
+            for i = 1, #list32 do
+                local p = list32[i]
+                incoming[p] = incoming[p] or {}
+                local list = incoming[p];
+                list[#list + 1] = e.args[i]
+            end
+        end
+    end
+    local headerParams = {}
+    for at33 = 1, #header.params do
+        local p = header.params[at33]
+        headerParams[p] = true
+    end
+    if not (headerParams[m.index] and headerParams[m.count]) then
+        error("map state must be header parameters", 0)
+    end
+
+    -- Copy origins in one pass over the graph: a value is a pure copy of a
+    -- header parameter when it is that parameter, an IMov of a copy, or a
+    -- parameter whose incoming arguments are all copies of the same one. A
+    -- changed value through any join or an unknown definition is no copy.
+    -- NONE marks that; absent means not yet known, and the walk repeats until
+    -- the answers stop changing, which a nested loop needs once more.
+    local NONE = -1
+    local origin = {}
+    for at34 = 1, #header.params do
+        local p = header.params[at34]
+        origin[p] = p
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for at35 = 1, #g.blocks do
+            local b = g.blocks[at35]
+            for at36 = 1, #b.params do
+                local p = b.params[at36]
+                if not headerParams[p] then
+                    local answer = nil
+                    local list37 = incoming[p] or {}
+                    for at37 = 1, #list37 do
+                        local source = list37[at37]
+                        local o = origin[source]
+                        if o == nil then
+                            -- Unknown yet: assume agreement until it resolves.
+                        elseif answer == nil or answer == o then
+                            answer = o
+                        else
+                            answer = NONE
+                        end
+                    end
+                    if answer ~= nil and origin[p] ~= answer then
+                        origin[p] = answer
+                        changed = true
+                    end
+                end
+            end
+            for i = 1, #b.op do
+                local op = b.op[i]
+                local v = b.dst[i]
+                if v ~= 0 then
+                    local answer = NONE
+                    if op == "IMov" then
+                        answer = origin[b.args[i][1]]
+                    end
+                    if answer ~= nil and origin[v] ~= answer then
+                        origin[v] = answer
+                        changed = true
+                    end
+                end
+            end
+        end
+    end
+    for v = 1, #g.types do
+        if origin[v] == nil then
+            origin[v] = NONE
+        end
+    end
+
+    local index = m.index
+    local back = continuing.term.edges[1]
+    local initial = entry.term.edges[1]
+    for i = 1, #header.params do
+        local p = header.params[i]
+        local d = assert(defs[initial.args[i]], "map initial state must be defined in entry")
+        if not (d.block == 1) then
+            error("assertion failed", 0)
+        end
+        if p == m.index then
+            if not (d.op == "IK" and d.args[1] == 0) then
+                error("map cursor must start at zero", 0)
+            end
+            local step = assert(defs[back.args[i]])
+            assert(
+                step.block == continuing.id
+                and step.op == "IAddK"
+                and step.args[2] == 1
+                and origin[step.args[1]] == index,
+                "map cursor must advance by one"
+            )
+        elseif not (origin[back.args[i]] == p) then
+            error("map iterations carry mutable state", 0)
+        end
+        if p == m.count then
+            if not (d.op == "SpanLen" and d.args[1] == m.span and d.args[2] == 4) then
+                error("map count must come from its span", 0)
+            end
+        end
+    end
+    local parent, spans, readonly, writable, uniforms = {}, {}, {}, {}, {}
+    for i = 1, #g.parameters do
+        local p = g.parameters[i]
+        if not (p.kind == "span" or p.kind == "uniform") then
+            error("assertion failed", 0)
+        end
+        if p.kind == "span" then
+            if not (p.element == 4) then
+                error("assertion failed", 0)
+            end
+            parent[i] = i
+            local list = p.write and writable or readonly;
+            list[#list + 1] = i
+        else
+            if not (p.type == "u32") then
+                error("assertion failed", 0)
+            end
+            uniforms[#uniforms + 1] = i
+        end
+    end
+    if not (#g.parameters == g.nparams and #writable > 0 and parent[m.span]) then
+        error("assertion failed", 0)
+    end
+
+    local function find(i: integer): integer
+        if not (parent[i]) then
+            error("not a span parameter", 0)
+        end
+        while parent[i] ~= i do
+            i = parent[i]
+        end
+
+        return i
+    end
+
+    for i = 1, #entry.op do
+        local op = entry.op[i]
+        if op == "SpanEqual" then
+            local a = entry.args[i]
+            if not (g.constants[a[3] + 1] and g.constants[a[3] + 1].kind == "str") then
+                error("assertion failed", 0)
+            end
+            parent[find(a[1])] = find(a[2])
+        else
+            local a = entry.args[i]
+            if not (op == "SpanLen" or op == "IUnbox" or op == "IK") then
+                error("map entry has observable work", 0)
+            end
+            if op == "SpanLen" then
+                if not (parent[a[1]] and a[2] == 4) then
+                    error("invalid map span length", 0)
+                end
+            elseif op == "IUnbox" then
+                if not (g.parameters[a[1]] and g.parameters[a[1]].kind == "uniform") then
+                    error("invalid map uniform", 0)
+                end
+            elseif not (a[1] >= 0 and a[1] < 4294967296 and a[1] % 1 == 0) then
+                error("invalid map constant", 0)
+            end
+        end
+    end
+    for at42 = 1, #readonly do
+        local p = readonly[at42]
+        spans[#spans + 1] = p
+    end
+    for at43 = 1, #writable do
+        local p = writable[at43]
+        spans[#spans + 1] = p
+    end
+    for at44 = 1, #spans do
+        local p = spans[at44]
+        if not (find(p) == find(m.span)) then
+            error("map span lacks a length precondition", 0)
+        end
+    end
+    local allowed = {
+        IK = true,
+        IMov = true,
+        IAddK = true,
+        U32Add = true,
+        U32Sub = true,
+        U32Load = true,
+        U32Store = true,
+        ICmpEq = true,
+        ICmpNe = true,
+        ICmpLt = true,
+        ICmpLe = true,
+        IAnd = true,
+        IOr = true
+    }
+    for at45 = 1, #g.blocks do
+        local b = g.blocks[at45]
+        for i = 1, #b.op do
+            local op = b.op[i]
+            if b.id ~= 1 then
+                if not (allowed[op]) then
+                    error("operation outside shared uint32 map: " .. op, 0)
+                end
+                local a = b.args[i]
+                if op == "U32Load" or op == "U32Store" then
+                    if not (origin[a[2]] == index) then
+                        error("map access differs from the invocation index", 0)
+                    end
+                    assert(
+                        parent[a[1]] and (op ~= "U32Store" or g.parameters[a[1]].write),
+                        "invalid map storage access"
+                    )
+                elseif op == "IAddK" then
+                    if not (origin[a[1]] == index and a[2] == 1) then
+                        error("unbounded map integer arithmetic", 0)
+                    end
+                elseif op == "IK" then
+                    if not (a[1] >= 0 and a[1] < 4294967296 and a[1] % 1 == 0) then
+                        error("invalid uint32 literal", 0)
+                    end
+                end
+            end
+        end
+    end
+
+    return {
+        spans = spans,
+        readonly = readonly,
+        writable = writable,
+        uniforms = uniforms,
+        countSpan = m.span,
+        events = events
+    }
+end
+
+export = map

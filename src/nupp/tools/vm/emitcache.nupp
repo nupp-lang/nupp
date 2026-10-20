@@ -280,8 +280,6 @@ function emitcache.open(dir: string, env: any, config: table, carried: {[string]
         table.concat(
             {
                 FORMAT,
-                tostring(os.getenv("NUPP_CFG_FRONTEND") ~= nil),
-                tostring(os.getenv("NUPP_CFG_MAP") ~= nil),
                 fingerprint.subsystemFingerprint({"nupp.tools.vm.project"}, dir, digest),
                 fingerprint.declarationFingerprint(digest),
                 table.concat(configText),

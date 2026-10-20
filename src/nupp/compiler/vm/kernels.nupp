@@ -1,6 +1,13 @@
-module nupp.experiment.typedcfg.frontend
+module nupp.compiler.vm.kernels
 
-local G = require("nupp.experiment.typedcfg.graph")
+--- Typed kernels: SIMD loops and uint32 maps lowered from the checked tree to
+--- the closed-block graph, which the VM instruction stream and the GPU
+--- emitters derive from. A function outside both profiles is refused and
+--- lowers as ordinary code.
+
+local G = require("nupp.compiler.vm.graph")
+
+local maps = require("nupp.compiler.vm.maps")
 local T = require("nupp.compiler.types")
 local frontend = {}
 local REFUSED = {}
@@ -100,6 +107,34 @@ local function scalar(ty: string, id: integer): any
     return {type = ty, class = (ty == "f64" or ty == "f32") and "f" or "i", ids = {id}}
 end
 
+local comparisons = {["=="] = "Eq", ["~="] = "Ne", ["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
+local vectorOps = {
+    ["+"] = "add",
+    ["-"] = "sub",
+    ["*"] = "mul",
+    ["/"] = "div",
+    ["&"] = "and",
+    ["|"] = "or",
+    ["~"] = "xor",
+    ["=="] = "eq",
+    ["~="] = "ne",
+    ["<"] = "lt",
+    ["<="] = "le",
+    [">"] = "gt",
+    [">="] = "ge"
+}
+local scalarOps = {["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv"}
+local laneMath = {sqrt = true, abs = true, floor = true, ceil = true}
+local unaryOps = {
+    select = "select",
+    neg = "neg",
+    ["not"] = "not",
+    sqrt = "sqrt",
+    abs = "abs",
+    floor = "floor",
+    ceil = "ceil"
+}
+
 -- Types and export identities come from the checker. No AOT program, structured
 -- statement IR, or mutable-register instruction stream is built here.
 function frontend.build(body: any, mapMode: boolean?): any
@@ -119,7 +154,7 @@ function frontend.build(body: any, mapMode: boolean?): any
     local mapName: string? = nil
     local parameterNames = {}
     local b = G.block(g)
-    b.env, b.names, b.facts = {}, {}, {}
+    b.env, b.names, b.facts, b.held, b.keyNames, b.keyIndex = {}, {}, {}, {}, {}, {}
     local cursors, equalities = {}, {}
     local seenVector = false
 
@@ -127,19 +162,25 @@ function frontend.build(body: any, mapMode: boolean?): any
         return G.emit(g, b, op, args) or 0
     end
 
+    -- `b.held` marks every value id some binding in this block owns, kept as
+    -- bindings are made rather than rescanned from the environment per bind.
+    local function hold(r: any): any
+        local held = b.held
+        for _, id in ipairs(r.ids) do
+            held[id] = true
+        end
+        if r.active then
+            held[r.active] = true
+        end
+
+        return r
+    end
+
     local function unalias(r: any): any
         if #r.ids == 0 then
             return r
         end
-        local held = {}
-        for _, existing in pairs(b.env) do
-            for _, id in ipairs(existing.ids) do
-                held[id] = true
-            end
-            if existing.active then
-                held[existing.active] = true
-            end
-        end
+        local held = b.held
         local overlap = r.active and held[r.active]
         for _, id in ipairs(r.ids) do
             overlap = overlap or held[id]
@@ -163,7 +204,7 @@ function frontend.build(body: any, mapMode: boolean?): any
 
     local function bind(name: string, r: any): nil
         need(not b.env[name], "shadowing is outside this slice")
-        b.names[#b.names + 1], b.env[name] = name, unalias(r)
+        b.names[#b.names + 1], b.env[name] = name, hold(unalias(r))
     end
 
     for i, p in ipairs(body.params) do
@@ -198,36 +239,66 @@ function frontend.build(body: any, mapMode: boolean?): any
         end
     end
 
+    -- A block entered from `from` takes every binding in `names` as fresh
+    -- parameters: the same record shape with new value ids on the same slots.
     local function newBlock(from: any, names: any): any
         local out = G.block(g)
-        out.env, out.names, out.facts = {}, copy(names), copy(from.facts)
-        for _, name in ipairs(names) do
-            local source = from.env[name]
-            local r = copy(source);
-            r.ids = {}
-            for i, v in ipairs(source.ids) do
-                local id = G.value(g, g.types[v], g.slots[v])
-                r.ids[i] = id;
-                out.params[#out.params + 1] = id
-                out.keys[#out.keys + 1] = {name, i}
+        local blockNames, facts = {}, {}
+        for i = 1, #names do
+            blockNames[i] = names[i]
+        end
+        if next(from.facts) ~= nil then
+            for k, v in pairs(from.facts) do
+                facts[k] = v
+            end
+        end
+        local env, held, params, keyNames, keyIndex = {}, {}, out.params, {}, {}
+        out.env, out.names, out.facts, out.held, out.keyNames, out.keyIndex = env, blockNames, facts, held, keyNames, keyIndex
+        local types, slots, fromEnv = g.types, g.slots, from.env
+        local count = 0
+        for n = 1, #names do
+            local name = names[n]
+            local source = fromEnv[name]
+            local ids = {}
+            local r = {
+                class = source.class,
+                type = source.type,
+                param = source.param,
+                element = source.element,
+                write = source.write,
+                lanes = source.lanes,
+                cursor = source.cursor,
+                span = source.span,
+                ids = ids
+            }
+            local sourceIds = source.ids
+            for i = 1, #sourceIds do
+                local v = sourceIds[i]
+                local id = G.value(g, types[v], slots[v])
+                ids[i] = id
+                held[id] = true
+                count = count + 1
+                params[count], keyNames[count], keyIndex[count] = id, name, i
             end
             if source.active then
-                r.active = G.value(g, "i", g.slots[source.active])
-                out.params[#out.params + 1] = r.active;
-                out.keys[#out.keys + 1] = {name, 0}
+                local id = G.value(g, "i", slots[source.active])
+                r.active = id
+                held[id] = true
+                count = count + 1
+                params[count], keyNames[count], keyIndex[count] = id, name, 0
             end
-            out.env[name] = r
+            env[name] = r
         end
 
         return out
     end
 
     local function edge(from: any, to: any): any
-        local args = {}
-        for _, key in ipairs(to.keys) do
-            local r = need(from.env[key[1]], "missing lexical edge value")
-            args[#args + 1] = key[2] == 0 and need(r.active, "missing tail count")
-                or need(r.ids[key[2]], "edge shape changed")
+        local args, keyNames, keyIndex, env = {}, to.keyNames, to.keyIndex, from.env
+        for i = 1, #keyNames do
+            local r = need(env[keyNames[i]], "missing lexical edge value")
+            local index = keyIndex[i]
+            args[i] = index == 0 and need(r.active, "missing tail count") or need(r.ids[index], "edge shape changed")
         end
 
         return {target = to.id, args = args}
@@ -277,22 +348,6 @@ function frontend.build(body: any, mapMode: boolean?): any
         return out
     end
 
-    local comparisons = {["=="] = "Eq", ["~="] = "Ne", ["<"] = "Lt", ["<="] = "Le", [">"] = "Lt", [">="] = "Le"}
-    local vectorOps = {
-        ["+"] = "add",
-        ["-"] = "sub",
-        ["*"] = "mul",
-        ["/"] = "div",
-        ["&"] = "and",
-        ["|"] = "or",
-        ["~"] = "xor",
-        ["=="] = "eq",
-        ["~="] = "ne",
-        ["<"] = "lt",
-        ["<="] = "le",
-        [">"] = "gt",
-        [">="] = "ge"
-    }
     local expression
 
     local function vector(op: string, a: any, c: any, d: any?): any
@@ -304,7 +359,7 @@ function frontend.build(body: any, mapMode: boolean?): any
         end
         need(a.element == c.element and a.lanes == c.lanes, "vector shape mismatch")
         local out = shape(comparisons[op] and "mask" or a.class, a.element, a.lanes)
-        local operation = need(vectorOps[op] or op == "select" and "select", "vector operation")
+        local operation = need(vectorOps[op] or unaryOps[op], "vector operation")
         if a.class == "mask" and (operation == "eq" or operation == "ne") then
             operation = operation == "eq" and "maskEq" or "maskNe"
         end
@@ -359,10 +414,7 @@ function frontend.build(body: any, mapMode: boolean?): any
             return scalar("u32", emit("IMaskU32", {id}))
         else
             a, c = floating(a), floating(c)
-            local operation = need(
-                ({["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv"})[op],
-                "scalar arithmetic"
-            )
+            local operation = need(scalarOps[op], "scalar arithmetic")
             local out = scalar("f64", emit(operation, {a.ids[1], c.ids[1]}));
             out.class = "f";
             return out
@@ -456,6 +508,19 @@ function frontend.build(body: any, mapMode: boolean?): any
             local s = need(b.env[named(n.operand)], "span length binding")
             need(s.class == "span", "span length required")
             return scalar("count", s.ids[1])
+        elseif n.kind == "unop" and n.op.text == "-" then
+            local r = expression(n.operand)
+            if r.class == "vector" then
+                return vector("neg", r, r)
+            end
+            need(r.class == "f", "negation of a floating scalar or vector")
+            local out = scalar("f64", emit("FNeg", {r.ids[1]}));
+            out.class = "f";
+            return out
+        elseif n.kind == "unop" and n.op.text == "~" then
+            local r = expression(n.operand)
+            need(r.class == "mask" or r.class == "vector" and r.element < 8, "bitwise not of a mask or integer vector")
+            return vector("not", r, r)
         elseif n.kind == "dotIndex" and n.name.text == "lanes" then
             local s = expression(n.obj)
             need(s.class == "species", "species lanes")
@@ -513,6 +578,13 @@ function frontend.build(body: any, mapMode: boolean?): any
                 end
                 return out
             end
+            local callee = unparen(n.obj)
+            if callee.kind == "dotIndex" and named(callee.obj) == "math" and laneMath[callee.name.text] then
+                need(#args == 1, "lane math takes one vector")
+                local r = expression(args[1])
+                need(r.class == "vector" and r.element >= 8, "lane math takes a floating vector")
+                return vector(callee.name.text, r, r)
+            end
             refuse("call outside typed leaf: " .. tostring(id))
         elseif n.kind == "methodCall" then
             local r, args, method = expression(n.obj), n.args.exprs or {}, n.name.text
@@ -529,6 +601,22 @@ function frontend.build(body: any, mapMode: boolean?): any
             elseif r.class == "mask" and method == "select" then
                 need(#args == 2, "select arity");
                 return vector("select", r, expression(args[1]), expression(args[2]))
+            elseif r.class == "vector" and method == "fma" then
+                need(#args == 2, "fma takes the multiplier and the addend")
+                local m, a = expression(args[1]), expression(args[2])
+                need(
+                    m.class == "vector"
+                    and a.class == "vector"
+                    and r.element >= 8
+                    and m.type == r.type
+                    and a.type == r.type,
+                    "fma over one floating shape"
+                )
+                local out = shape("vector", r.element, r.lanes)
+                for i, v in ipairs(r.ids) do
+                    out.ids[i] = emit("VOp", {"fma", out.element, v, m.ids[i], a.ids[i]})
+                end
+                return out
             elseif r.class == "species" and method == "tail" then
                 local arg = unparen(need(#args == 1 and args[1], "tail arity"))
                 local span, cursor = arg.kind == "binop" and arg.op.text == "-" and counted(arg.lhs), named(arg.rhs)
@@ -546,8 +634,10 @@ function frontend.build(body: any, mapMode: boolean?): any
                 -- Transport count explicitly; it is not a lexical binding.
                 local countParam = G.value(g, "i", g.slots[count.ids[1]])
                 yes.params[#yes.params + 1] = countParam
+                yes.keyNames[#yes.keyNames + 1], yes.keyIndex[#yes.keyIndex + 1] = key, 1
                 from.term.edges[1].args[#from.term.edges[1].args + 1] = count.ids[1]
                 yes.env[key] = scalar("u32", countParam)
+                yes.held[countParam] = true
                 local join = newBlock(no, no.names)
                 jump(yes, join);
                 jump(no, join);
@@ -709,7 +799,7 @@ function frontend.build(body: any, mapMode: boolean?): any
                             end
                         end
                     end
-                    b.env[name] = values[i]
+                    b.env[name] = hold(values[i])
                 end
             elseif mapMode and s.kind == "fornumStmt" then
                 need(not g.map and b.id == 1 and not s.step and literal(s.start) == 1, "one complete-span map")
@@ -903,12 +993,10 @@ function frontend.plans(root: any): (any, any)
 
     local function walk(n: any): nil
         if n.kind == "localFunc" or n.kind == "funcStmt" or n.kind == "localFuncStmt" then
-            if os.getenv("NUPP_CFG_MAP") then
-                local g = frontend.tryBuild(n.body, true)
-                if g and pcall(require("nupp.experiment.typedcfg.map").verify, g) then
-                    plans[n.body] = G.lower(g)
-                    return
-                end
+            local g = frontend.tryBuild(n.body, true)
+            if g and pcall(maps.verify, g) then
+                plans[n.body] = G.lower(g)
+                return
             end
             if not candidate(n.body, n.body) then
                 refusals[n.body] = "no explicit SIMD";

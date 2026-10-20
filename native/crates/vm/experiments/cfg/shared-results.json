@@ -3,274 +3,332 @@
   "samples": [
     {
       "old_us": [
-        916.0041809082,
-        988.00659179688,
-        930.0708770752,
-        1003.9806365967,
-        965.11840820312
-      ],
-      "direct_us": [
-        2011.0607147217,
-        1859.9033355713,
-        1911.8785858154,
-        1799.8218536377,
-        1898.0503082275
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        963.21105957031,
-        982.99980163574,
-        984.90715026855,
-        958.91952514648,
-        977.0393371582
-      ],
-      "direct_us": [
-        1866.1022186279,
-        1835.1078033447,
-        1933.0978393555,
-        1874.9237060547,
-        1930.9520721436
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        955.82008361816,
-        1061.9163513184,
-        972.03254699707,
-        1006.8416595459,
-        952.00538635254
-      ],
-      "direct_us": [
-        1995.0866699219,
-        1823.902130127,
-        2003.1929016113,
-        1873.9700317383,
-        1850.1281738281
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        956.05850219727,
-        1015.9015655518,
-        944.13757324219,
-        1058.81690979,
-        998.02017211914
-      ],
-      "direct_us": [
-        1902.1034240723,
-        1950.0255584717,
-        2034.9025726318,
-        1873.0163574219,
-        2001.0471343994
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        973.93989562988,
-        1019.0010070801,
-        945.8065032959,
-        1060.962677002,
-        1000.8811950684
-      ],
-      "direct_us": [
-        1952.8865814209,
-        1906.8717956543,
-        1925.9452819824,
-        1964.0922546387,
-        2013.9217376709
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        978.94668579102,
-        988.00659179688,
-        949.14436340332,
-        1022.1004486084,
-        946.99859619141
-      ],
-      "direct_us": [
-        2061.128616333,
-        1832.9620361328,
-        1946.9261169434,
-        1918.7927246094,
-        1850.1281738281
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        988.00659179688,
-        998.02017211914,
-        939.13078308105,
-        1023.7693786621,
-        916.0041809082
-      ],
-      "direct_us": [
-        1917.1237945557,
-        1828.9089202881,
-        1992.94090271,
-        1789.0930175781,
-        1939.058303833
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        945.09124755859,
-        995.15914916992,
-        960.11161804199,
-        962.97264099121,
-        923.87199401855
-      ],
-      "direct_us": [
-        1948.1182098389,
-        1841.0682678223,
-        2006.0539245605,
-        1855.8502197266,
-        1868.9632415771
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        969.88677978516,
-        976.0856628418,
-        941.99180603027,
-        997.06649780273,
-        965.11840820312
-      ],
-      "direct_us": [
-        1940.0119781494,
-        1842.9756164551,
-        2076.1489868164,
-        1830.8162689209,
-        1940.0119781494
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        945.8065032959,
-        1008.9874267578,
-        939.84603881836,
-        972.98622131348,
-        1015.9015655518
-      ],
-      "direct_us": [
-        1998.9013671875,
-        1825.0942230225,
-        1940.9656524658,
-        1808.1665039062,
-        2011.0607147217
-      ],
-      "old_heap": 269946,
-      "direct_heap": 676815
-    },
-    {
-      "old_us": [
-        987.05291748047,
-        1005.8879852295,
-        957.01217651367,
+        925.06408691406,
+        964.87998962402,
+        952.00538635254,
         964.16473388672,
+        929.11720275879
+      ],
+      "direct_us": [
+        864.02893066406,
+        847.81646728516,
+        839.9486541748,
+        840.90232849121,
+        797.98698425293
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 440.1,
+        "direct_verify": 210.0,
+        "direct_wgsl": 190.3,
+        "old_lower": 812.1,
+        "old_wgsl": 136.1
+      }
+    },
+    {
+      "old_us": [
+        926.01776123047,
+        958.91952514648,
+        916.95785522461,
+        1012.0868682861,
+        925.06408691406
+      ],
+      "direct_us": [
+        867.84362792969,
+        805.85479736328,
+        838.9949798584,
+        794.88754272461,
+        871.18148803711
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 443.5,
+        "direct_verify": 206.9,
+        "direct_wgsl": 190.0,
+        "old_lower": 798.0,
+        "old_wgsl": 132.1
+      }
+    },
+    {
+      "old_us": [
+        957.01217651367,
+        954.86640930176,
+        957.01217651367,
+        1008.9874267578,
         931.0245513916
       ],
       "direct_us": [
-        1914.0243530273,
-        1842.9756164551,
-        1922.1305847168,
-        1756.1912536621,
-        1949.0718841553
+        850.91590881348,
+        811.10000610352,
+        830.88874816895,
+        783.92028808594,
+        869.9893951416
       ],
-      "old_heap": 269946,
-      "direct_heap": 676815
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 440.1,
+        "direct_verify": 203.1,
+        "direct_wgsl": 187.9,
+        "old_lower": 819.0,
+        "old_wgsl": 134.9
+      }
     },
     {
       "old_us": [
-        979.18510437012,
-        1019.0010070801,
-        917.19627380371,
-        949.85961914062,
-        916.95785522461
+        911.95106506348,
+        1017.0936584473,
+        936.03134155273,
+        972.98622131348,
+        929.11720275879
       ],
       "direct_us": [
-        1965.0459289551,
-        1845.121383667,
-        1964.807510376,
-        1863.0027770996,
-        1857.9959869385
+        859.97581481934,
+        844.95544433594,
+        878.09562683105,
+        781.77452087402,
+        869.9893951416
       ],
-      "old_heap": 269946,
-      "direct_heap": 676815
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 445.8,
+        "direct_verify": 212.0,
+        "direct_wgsl": 193.1,
+        "old_lower": 803.9,
+        "old_wgsl": 131.1
+      }
+    },
+    {
+      "old_us": [
+        965.11840820312,
+        997.06649780273,
+        936.98501586914,
+        1003.9806365967,
+        941.03813171387
+      ],
+      "direct_us": [
+        906.94427490234,
+        835.89553833008,
+        855.92269897461,
+        860.92948913574,
+        832.79609680176
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 452.0,
+        "direct_verify": 210.8,
+        "direct_wgsl": 181.0,
+        "old_lower": 829.9,
+        "old_wgsl": 135.2
+      }
+    },
+    {
+      "old_us": [
+        920.05729675293,
+        997.06649780273,
+        934.83924865723,
+        964.87998962402,
+        921.96464538574
+      ],
+      "direct_us": [
+        872.85041809082,
+        823.02093505859,
+        865.93627929688,
+        839.9486541748,
+        814.91470336914
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 441.8,
+        "direct_verify": 212.0,
+        "direct_wgsl": 177.1,
+        "old_lower": 806.8,
+        "old_wgsl": 129.0
+      }
+    },
+    {
+      "old_us": [
+        931.0245513916,
+        972.03254699707,
+        983.95347595215,
+        972.03254699707,
+        957.96585083008
+      ],
+      "direct_us": [
+        863.07525634766,
+        819.92149353027,
+        894.06967163086,
+        860.92948913574,
+        812.05368041992
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 439.2,
+        "direct_verify": 219.8,
+        "direct_wgsl": 183.8,
+        "old_lower": 833.0,
+        "old_wgsl": 136.1
+      }
+    },
+    {
+      "old_us": [
+        933.17031860352,
+        1013.0405426025,
+        924.82566833496,
+        981.09245300293,
+        952.95906066895
+      ],
+      "direct_us": [
+        935.07766723633,
+        831.84242248535,
+        874.99618530273,
+        804.90112304688,
+        862.83683776855
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 450.1,
+        "direct_verify": 212.7,
+        "direct_wgsl": 193.1,
+        "old_lower": 816.1,
+        "old_wgsl": 135.9
+      }
+    },
+    {
+      "old_us": [
+        916.0041809082,
+        999.92752075195,
+        930.0708770752,
+        988.00659179688,
+        935.07766723633
+      ],
+      "direct_us": [
+        909.09004211426,
+        815.15312194824,
+        863.07525634766,
+        797.03330993652,
+        867.84362792969
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 451.8,
+        "direct_verify": 210.3,
+        "direct_wgsl": 187.9,
+        "old_lower": 805.9,
+        "old_wgsl": 131.1
+      }
+    },
+    {
+      "old_us": [
+        955.10482788086,
+        986.09924316406,
+        982.04612731934,
+        975.8472442627,
+        922.20306396484
+      ],
+      "direct_us": [
+        885.96343994141,
+        833.98818969727,
+        874.04251098633,
+        821.11358642578,
+        882.14874267578
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 455.9,
+        "direct_verify": 214.1,
+        "direct_wgsl": 186.2,
+        "old_lower": 839.0,
+        "old_wgsl": 134.0
+      }
+    },
+    {
+      "old_us": [
+        1037.1208190918,
+        974.17831420898,
+        1001.1196136475,
+        992.0597076416,
+        977.0393371582
+      ],
+      "direct_us": [
+        882.86399841309,
+        838.9949798584,
+        869.0357208252,
+        812.05368041992,
+        904.79850769043
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 453.9,
+        "direct_verify": 212.0,
+        "direct_wgsl": 201.0,
+        "old_lower": 850.0,
+        "old_wgsl": 145.0
+      }
+    },
+    {
+      "old_us": [
+        941.03813171387,
+        1048.0880737305,
+        942.94548034668,
+        973.93989562988,
+        913.85841369629
+      ],
+      "direct_us": [
+        879.04930114746,
+        810.14633178711,
+        890.01655578613,
+        782.96661376953,
+        842.09442138672
+      ],
+      "old_heap": 270084,
+      "direct_heap": 217368,
+      "phase_median_us": {
+        "direct_build": 438.9,
+        "direct_verify": 208.4,
+        "direct_wgsl": 190.0,
+        "old_lower": 810.9,
+        "old_wgsl": 135.9
+      }
     }
   ],
   "comparison": {
-    "ratio": 1.9587917445820957,
+    "ratio": 0.8949017236786784,
     "ci95": [
-      1.9457904615373358,
-      1.9727067980674207
+      0.88621780244385,
+      0.9040046302473975
     ],
-    "verdict": "regressed",
+    "verdict": "improved",
     "practical_margin": 0.05
   },
   "scope": "checked CST through verified WGSL; parsing/checking outside timer; same compiler host in each pair; old SPIR-V and direct CPU cache excluded",
   "heap": {
-    "old_heap": 269946.0,
-    "direct_heap": 676815.0
+    "old_heap": 270084.0,
+    "direct_heap": 217368.0
   },
   "source_sha256": {
-    "src/nupp/experiment/typedcfg/frontend.nupp": "199f706cda0f62550e54bc925c6eaca30877b9d532f3e76cf570b36514c19d51",
-    "src/nupp/experiment/typedcfg/graph.nupp": "5b8497dc1707540f51bdc1c2be45ea7accb170fc16a6bde1f41581e49bc4fd2b",
-    "src/nupp/experiment/typedcfg/init.nupp": "9fa7205a30393f8ae4f8802c3056aaa513cae41696a9fb96af2dbf440f8ebff7",
-    "src/nupp/experiment/typedcfg/map.nupp": "4dc90368243dd3d297ceebe77a66db704742be4d6ac953f8128ab06caf47d307",
-    "src/nupp/experiment/typedcfg/regions.nupp": "eddf4119fe1e2b81f907f95c9c7b56f0a5c099e4dc46fe67bf27a9cbe0022f31",
-    "src/nupp/experiment/typedcfg/shared.nupp": "62a536c65e9f45181bc7d5ea496bb5478dba6476860e7fe98eb0a7518c03be70",
-    "src/nupp/experiment/typedcfg/wgsl.nupp": "181ed5bcd9f03974ca057bf4d4c7226ef54a43c04217c7db4db79d03fe434f57",
+    "src/nupp/experiment/typedcfg/init.nupp": "7e43a08e1f016491d6379b09fdfe1317e102564b32aa9926ec0e831cb405d92f",
+    "src/nupp/experiment/typedcfg/shared.nupp": "33bc149bb8df9b9d25d836eeaccd7dd8b96de0b9c5403809fa2d3bda04180ba3",
+    "src/nupp/experiment/typedcfg/wgsl.nupp": "351922fff4274653788fe118bf3baa5d29a8d57af575acfac7088cb665c9c8b7",
+    "src/nupp/compiler/vm/graph.nupp": "3cb910013282cb3992726fa0b718b8acf10c5c4b1785af8878b598c3d262dc15",
+    "src/nupp/compiler/vm/kernels.nupp": "3a6e4a73ed73f13591aeacfe33795b181e5ac487adddb7fbce04f0c05f049a86",
+    "src/nupp/compiler/vm/maps.nupp": "1f12ded9838b7a28ceeca970df44f67f7f063f28ef7fae0bdb28dcc96f96f999",
+    "src/nupp/compiler/vm/regions.nupp": "4f9111326977239e030033f2e7a39ddffdd4bf4aca5b7e82243bf3340f20578f",
+    "src/nupp/compiler/vm/lower.nupp": "13b60680f4f5ccf4be2aa0966b4b35f0030b9d63f9ff56a8f60ed8cd03c5a632",
     "native/crates/vm/experiments/cfg/shared-map.nupp": "fc9c2b654edd30acb513d67888638f1311e92db057396d4cd0dce4d940780562",
-    "native/crates/vm/experiments/cfg/run_shared.py": "426593911c142bf7c309399f93839c28daba3f8bb683ec50051ed95d20fbf928",
-    "native/crates/gpu/examples/shared_cfg.rs": "0f9d733a7b82d69568f0ff7f49519f11cf57b2769c3867b17fbf36bf251181bb",
-    "src/nupp/compiler/vm/lower.nupp": "3cb7eb76691d2ec1f3e74571919cc24493dd0a76e276e50c2f0bb91bb460b522",
-    "src/nupp/tools/vm/emitcache.nupp": "b0c54d8bde51f1a242132d41635b68f8f44a71f6e7a2017b23450180072d8921"
+    "native/crates/vm/experiments/cfg/run_shared.py": "6d3f6e679163605412b2d705fd0f3d2b856f77f65b2a1985391ec895d0eee8a6",
+    "native/crates/gpu/examples/shared_cfg.rs": "0f9d733a7b82d69568f0ff7f49519f11cf57b2769c3867b17fbf36bf251181bb"
   },
-  "driver_sha256": "72dc96e17bf2f5f1fd5af679fc9549c645d9c2fc665267199c8f2021136310a4",
-  "runtime_sha256": "e6eef3c94156607d3ba3c81295c309bc82396eb721b70edc91e54ef8a154624f",
-  "baseline_revision": "2634d97d3",
-  "gpu_cases": 168,
-  "checked_source_refusals": 5,
-  "malformed_graph_refusals": 21,
-  "functions": [
-    "mapAdd",
-    "mapDiamond",
-    "mapRotate"
-  ],
-  "cpu_execution_modes": [
-    "jit",
-    "explicit-block-arguments",
-    "interpreter",
-    "tasks",
-    "workers"
-  ],
-  "gpu_adapter": "adapter=AdapterInfo { name: \"Apple M5 Pro\", vendor: 0, device: 0, device_type: IntegratedGpu, device_pci_bus_id: \"\", driver: \"\", driver_info: \"\", backend: Metal, subgroup_min_size: 4, subgroup_max_size: 64, transient_saves_memory: Some(true), limit_bucket: None }",
-  "wgsl_bytes": {
-    "old": 5207,
-    "direct": 9378
-  },
-  "image_bytes": {
-    "old": 303763,
-    "direct": 303536
-  }
+  "driver_sha256": "9f00390eb879580cb4585f86eb1f609e82e7aceb6ab661bc17ec65b2c108a90e",
+  "runtime_sha256": "dbc6c04a4fcef99121c648220eeb1c713dd9b05c9554f5785b306aa51463d1e4"
 }

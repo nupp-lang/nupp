@@ -1,5 +1,13 @@
 # Direct typed frontend experiment
 
+## Status, 2026-10-19
+
+This producer is now the only typed-kernel path: `NUPP_CFG_FRONTEND` is
+gone, the adapter in `vm/native.nupp` is deleted, and the modules live in
+`src/nupp/compiler/vm/` (`kernels`, `graph`, `maps`, `regions`). `run_direct.py`
+is now the end-to-end check only; the old-versus-direct measurement below is
+history, since there is no old producer to pair against. See `SHARED.md`.
+
 The checked-CST producer now reaches the production typed VM path without constructing the structured AOT program for the functions it covers. It has not eliminated a production lowering or demonstrated a whole-compiler speed or memory improvement. It remains an opt-in experiment on `codex/cfg-ssa-prototype`.
 
 ```text

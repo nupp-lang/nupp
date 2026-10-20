@@ -1,0 +1,103 @@
+module nupp.compiler.vm.regions
+
+-- Region annotations name existing blocks. Walking them never builds another
+-- statement tree. One traversal validates the annotations and records the
+-- structured event sequence as three parallel arrays, so a backend consumes
+-- it with a numeric loop rather than a callback per event.
+local regions = {}
+
+--- The event kinds, in the order a structured backend sees them: "loop",
+--- "block", "exit", "edge", "endloop", "if", "else", "endif", "return".
+--- @raises string when the region annotations do not describe the graph's blocks
+--- and edges.
+function regions.events(g: any): any
+    local kinds, blocks, edges, n = {}, {}, {}, 0
+
+    local function visit(kind: string, block: any, edge: any): nil
+        n = n + 1
+        kinds[n], blocks[n], edges[n] = kind, block, edge or false
+    end
+
+    local seen = {}
+    local path
+    path = function(id, stop)
+        while id ~= stop do
+            local b = assert(g.blocks[id], "invalid region block")
+            if not (not seen[id]) then
+                error("region crosses another region or has an unmarked cycle", 0)
+            end
+            seen[id] = true
+            local t, r = b.term, b.region
+            if r and r.kind == "loop" then
+                if not (t.kind == "branch" and t.edges[2].target == r.merge) then
+                    error("loop exit differs from its merge", 0)
+                end
+                local continuing = assert(g.blocks[r.continuing], "loop has no continue block")
+                assert(
+                    continuing.term.kind == "jump" and continuing.term.edges[1].target == id,
+                    "invalid loop back edge"
+                )
+                visit("loop", b, nil)
+                visit("block", b, nil)
+                visit("exit", b, t.edges[2])
+                visit("edge", b, t.edges[1])
+                path(t.edges[1].target, continuing.id)
+                if not (not seen[continuing.id]) then
+                    error("continue block has another entry", 0)
+                end
+                seen[continuing.id] = true
+                visit("block", continuing, nil)
+                visit("edge", continuing, continuing.term.edges[1])
+                visit("endloop", b, nil)
+                id = r.merge
+            elseif t.kind == "branch" then
+                if not (r and r.kind == "selection" and g.blocks[r.merge]) then
+                    error("selection has no merge", 0)
+                end
+                visit("block", b, nil)
+                visit("if", b, nil)
+                visit("edge", b, t.edges[1])
+                path(t.edges[1].target, r.merge)
+                visit("else", b, nil)
+                visit("edge", b, t.edges[2])
+                path(t.edges[2].target, r.merge)
+                visit("endif", b, nil)
+                id = r.merge
+            else
+                if not (not r) then
+                    error("region on a non-branch", 0)
+                end
+                visit("block", b, nil)
+                if t.kind == "jump" then
+                    visit("edge", b, t.edges[1])
+                    id = t.edges[1].target
+                else
+                    if not (stop == 0 and t.kind == "return" and not t.value) then
+                        error("unexpected region exit", 0)
+                    end
+                    visit("return", b, nil)
+                    id = stop
+                end
+            end
+        end
+    end
+    path(1, 0)
+    local all = g.blocks
+    for i = 1, #all do
+        if not (seen[all[i].id]) then
+            error("block outside the region tree", 0)
+        end
+    end
+
+    return {kinds = kinds, blocks = blocks, edges = edges, count = n}
+end
+
+function regions.walk(g: any, visit: function(string, any, any): nil): nil
+    local events = regions.events(g)
+    local kinds, blocks, edges = events.kinds, events.blocks, events.edges
+    for i = 1, events.count do
+        visit(kinds[i], blocks[i], edges[i] or nil)
+    end
+end
+
+export = regions

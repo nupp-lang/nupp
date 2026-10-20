@@ -1,5 +1,62 @@
 # Shared CPU and GPU graph
 
+## Status, 2026-10-19
+
+The shared producer is now the only typed-kernel path in the VM lowering,
+and it is faster than the structured path it replaced. The typed native
+adapter (`src/nupp/compiler/vm/native.nupp`) is deleted, so the VM lowering
+no longer imports `aot/lower` or `aot/verify`; the graph modules moved out of
+the experiment namespace into `src/nupp/compiler/vm/` as `graph`, `kernels`
+(the frontend), `maps` and `regions`; the `NUPP_CFG_FRONTEND` and
+`NUPP_CFG_MAP` flags are gone, as is their part of the emission-cache stamp.
+The frontend also covers the adapter's remaining vector language: negation,
+bitwise not, `math.sqrt`, `math.abs`, `math.floor` and `math.ceil` over
+vectors, and `fma`; `typed-flow.nupp`'s `graphMath` exercises each. Left
+refused, which lowers as ordinary code: `numeric_cast` to `uint32` or
+`uint64`, `f32` narrowing and `i32` arithmetic. No `.nupp` kernel in the tree
+used them on the VM path. The old WGSL and SPIR-V emitters remain the
+production GPU path; the graph emitter still covers only uint32 maps.
+
+The regression below was found by timing each phase of the shared path on
+the same harness, then timing inside the phases. Its causes, in the order
+they were removed:
+
+- WGSL emission built every line by concatenation, declared a `var` for every
+  SSA value and emitted two lines per edge argument through a temporary.
+  It now joins one buffer of pieces once, binds instruction results with
+  `let`, assigns edge arguments directly (an edge's sources are never its
+  targets), and gives a parameter with one incoming non-exit edge its
+  source's name, so most edges emit nothing.
+- The map verifier ran one full-graph fixed point per header parameter.
+  It now computes every value's copy origin in one pass.
+- The verifier and the region walk were visited through a callback per
+  event; both now consume one flat event list computed once.
+- Every graph pass iterated with `ipairs` and checked with `assert`, each a
+  builtin call per element on the VM; they use numeric loops and
+  conditionals now.
+- The frontend rescanned the whole environment on every binding to detect
+  aliases, copied records generically per block, and rebuilt constant
+  tables per function.
+
+Twelve paired processes on the same harness as below, interpreted host:
+
+| Metric | Existing | Shared graph |
+| --- | ---: | ---: |
+| Median phase time, three kernels | 0.952 ms | 0.858 ms |
+| VM heap charge with collection stopped | 270,084 B | 217,368 B |
+| WGSL source bytes | 5,207 | 5,138 |
+
+The paired time ratio is **0.895**, 95% interval **[0.886, 0.904]**:
+**improved** at the 5% margin, from 1.959 before. Validation: the GPU
+harness's 168 cases, the CPU image in all five execution modes under
+collector stress, the five source refusals and 21 damaged graphs, the
+cache reproduction check, forced native compilation, the direct-frontend
+harness over all 18 fixture kernels, the native SIMD smoke test with the
+rebuilt compiler as its seed, and the three-stage fixpoint, which emits
+byte-identically (`2f1df9984352aae46b8721a7ed3317be`).
+
+The sections below are the slice as first recorded, before this work.
+
 Three checked uint32 map kernels now feed both the production typed CPU path and a direct WGSL emitter from the same CFG/SSA object. The structured AOT program is not built on that shared path. This establishes the common representation, but it adds code overall and regresses compilation time and allocation in the measured phase. The work remains isolated on `codex/cfg-ssa-prototype`.
 
 ```text
