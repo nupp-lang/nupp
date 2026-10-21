@@ -578,7 +578,20 @@ struct HelperFrame(usize);
 impl Drop for HelperFrame {
     fn drop(&mut self) { HELPER_FP.store(self.0, std::sync::atomic::Ordering::Relaxed); }
 }
-macro_rules! enter_helper { () => {{ let fp: usize; unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) }; HelperFrame(HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed)) }} }
+/// The caller's frame pointer, which the collector's walk of compiled frames
+/// starts from; zero on an architecture compiled code does not run on.
+#[inline(always)]
+pub(crate) fn frame_pointer() -> usize {
+    let fp: usize;
+    #[cfg(target_arch = "aarch64")]
+    unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) };
+    #[cfg(target_arch = "x86_64")]
+    unsafe { std::arch::asm!("mov {}, rbp", out(reg) fp) };
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    { fp = 0; }
+    fp
+}
+macro_rules! enter_helper { () => {{ HelperFrame(HELPER_FP.swap(frame_pointer(), std::sync::atomic::Ordering::Relaxed)) }} }
 macro_rules! leave_helper { ($prev:expr) => { drop($prev) } }
 
 #[unsafe(no_mangle)]

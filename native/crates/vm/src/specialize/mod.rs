@@ -832,14 +832,7 @@ impl Drop for HelperFrame {
 }
 #[inline(always)]
 fn enter_helper() -> HelperFrame {
-    let fp: usize;
-    #[cfg(target_arch = "aarch64")]
-    unsafe { std::arch::asm!("mov {}, x29", out(reg) fp) };
-    #[cfg(target_arch = "x86_64")]
-    unsafe { std::arch::asm!("mov {}, rbp", out(reg) fp) };
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    { fp = 0; }
-    HelperFrame(crate::compiled::HELPER_FP.swap(fp, std::sync::atomic::Ordering::Relaxed))
+    HelperFrame(crate::compiled::HELPER_FP.swap(crate::compiled::frame_pointer(), std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Instrumented baseline code reached its tier-up count.
