@@ -88,16 +88,24 @@ pub(crate) fn record(it: &mut Interp, base: u32, funcs: &[Function], shapes: &[u
     }
 }
 
-struct Header<'a> { module: &'a str, map: Vec<Option<usize>>, image: &'a str }
+/// A patch: `patch MODULE`, `map ...`, then the module's image, text or
+/// graph.
+struct Header<'a> { module: &'a str, map: Vec<Option<usize>>, image: &'a [u8] }
 
-fn header(text: &str) -> Result<Header<'_>, String> {
-    let mut lines = text.splitn(3, '\n');
-    let first = lines.next().unwrap_or("");
+fn header(patch: &[u8]) -> Result<Header<'_>, String> {
+    let mut rest = patch;
+    let mut line = |what: &str| -> Result<&str, String> {
+        let end = rest.iter().position(|&b| b == b'\n').unwrap_or(rest.len());
+        let text = std::str::from_utf8(&rest[..end]).map_err(|_| format!("a patch's {what} line is not UTF-8"))?;
+        rest = if end < rest.len() { &rest[end + 1..] } else { &rest[rest.len()..] };
+        Ok(text)
+    };
+    let first = line("first")?;
     let module = first.trim().strip_prefix("patch ").map(str::trim).filter(|m| !m.is_empty()).ok_or("a patch starts with `patch MODULE`")?;
-    let second = lines.next().unwrap_or("").trim();
+    let second = line("second")?.trim();
     let map = second.strip_prefix("map").ok_or("a patch's second line is `map`")?;
     let map = map.split_whitespace().map(|s| if s == "-" { Ok(None) } else { s.parse::<usize>().map(Some).map_err(|_| format!("invalid map entry {s}")) }).collect::<Result<Vec<_>, _>>()?;
-    Ok(Header { module, map, image: lines.next().unwrap_or("") })
+    Ok(Header { module, map, image: rest })
 }
 
 fn remap(op: &mut Op, to: &dyn Fn(u32) -> Result<u32, String>) -> Result<(), String> {
@@ -146,13 +154,13 @@ fn live_frames(it: &Interp, fids: &std::collections::HashSet<u32>) -> Vec<(usize
 
 /// Validates a patch and, when `commit`, applies it. Nothing changes unless
 /// the whole patch is accepted.
-pub fn apply(it: &mut Interp, text: &str, commit: bool) -> Result<Report, String> {
+pub fn apply(it: &mut Interp, patch: &[u8], commit: bool) -> Result<Report, String> {
     let scope = it.open_scope();
-    let r = apply_in(it, text, commit, None);
+    let r = apply_in(it, patch, commit, None);
     it.close_scope(scope);
     let (report, retired) = r?;
     if commit {
-        it.code_events.push(crate::persist::CodeEvent::Patch { text: text.to_owned(), retired, added: report.added as u32 });
+        it.code_events.push(crate::persist::CodeEvent::Patch { patch: patch.to_vec(), retired, added: report.added as u32 });
     }
     Ok(report)
 }
@@ -160,20 +168,26 @@ pub fn apply(it: &mut Interp, text: &str, commit: bool) -> Result<Report, String
 /// Replays a committed patch while rebuilding a VM's code (a checkpoint
 /// restore, a worker): the old bodies it retired move to the same new ids,
 /// and no frame is walked, since the restored frames already name them.
-pub(crate) fn replay(it: &mut Interp, text: &str, retired: &[u32]) -> Result<(), String> {
+pub(crate) fn replay(it: &mut Interp, patch: &[u8], retired: &[u32]) -> Result<(), String> {
     let scope = it.open_scope();
-    let r = apply_in(it, text, true, Some(retired));
+    let r = apply_in(it, patch, true, Some(retired));
     it.close_scope(scope);
     r.map(|_| ())
 }
 
-fn apply_in(it: &mut Interp, text: &str, commit: bool, replaying: Option<&[u32]>) -> Result<(Report, Vec<u32>), String> {
-    let header = header(text)?;
+fn apply_in(it: &mut Interp, patch: &[u8], commit: bool, replaying: Option<&[u32]>) -> Result<(Report, Vec<u32>), String> {
+    let header = header(patch)?;
     let running = it.hot.modules.get(header.module).cloned().ok_or_else(|| format!("module {} is not loaded", header.module))?;
     if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) {
         return Err("hot reload requires the interpreter or heap-frame entries, as dynamic image loading does".into());
     }
-    let parsed = crate::image::parse(it, header.image, Some(&running.shapes))?;
+    let parsed = if header.image.starts_with(crate::graph::MAGIC) {
+        crate::graph::parse_patch(it, header.image, &running.shapes)?
+    } else {
+        let text = std::str::from_utf8(header.image).map_err(|_| "a text patch is not UTF-8".to_string())?;
+        let p = crate::image::parse(it, text, Some(&running.shapes))?;
+        crate::graph::PatchImage { base: p.base, funcs: p.funcs, shape_ids: p.shape_ids, modules: p.modules }
+    };
     if parsed.modules.len() != 1 || parsed.modules[0].0 != header.module {
         return Err(format!("a patch for {} must hold that module alone", header.module));
     }

@@ -38,7 +38,7 @@ pub(crate) enum CodeEvent {
     /// A committed hot patch (`hotpatch`): its text, the ids whose old bodies
     /// running frames kept (moved to new ids in this order), and how many
     /// functions it added before those.
-    Patch { text: String, retired: Vec<u32>, added: u32 },
+    Patch { patch: Vec<u8>, retired: Vec<u32>, added: u32 },
 }
 pub(crate) struct Execution(Rc<Cell<usize>>);
 impl Execution {
@@ -399,10 +399,10 @@ fn code_digest(vm: &Interp) -> Result<[u8; 32]> {
                 h.update(bytes);
             }
             CodeEvent::Globals => h.update([1]),
-            CodeEvent::Patch { text, retired, added } => {
+            CodeEvent::Patch { patch, retired, added } => {
                 h.update([2]);
-                h.update((text.len() as u64).to_le_bytes());
-                h.update(text);
+                h.update((patch.len() as u64).to_le_bytes());
+                h.update(patch);
                 h.update(added.to_le_bytes());
                 for fid in retired { h.update(fid.to_le_bytes()); }
             }
@@ -1788,9 +1788,9 @@ pub fn save_vm(
                 w.bytes(bytes)?
             }
             CodeEvent::Globals => w.byte(1),
-            CodeEvent::Patch { text, retired, added } => {
+            CodeEvent::Patch { patch, retired, added } => {
                 w.byte(2);
-                w.text(text)?;
+                w.bytes(patch)?;
                 w.u32(*added as usize)?;
                 w.u32(retired.len())?;
                 for &fid in retired { w.u32(fid as usize)?; }
@@ -2182,14 +2182,14 @@ fn load_vm_channels_mode(data: &[u8], policies: &Policies, codecs: &mut Resource
             }
             1 => vm.install_globals(),
             2 => {
-                let text = r.text()?;
+                let patch = r.bytes()?.to_vec();
                 let added = r.u32()? as u32;
                 let n = r.count()?;
                 let mut retired = Vec::with_capacity(n);
                 for _ in 0..n { retired.push(r.u32()? as u32); }
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::hotpatch::replay(&mut vm, &text, &retired)))
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::hotpatch::replay(&mut vm, &patch, &retired)))
                     .map_err(|_| "malformed checkpoint code patch")??;
-                vm.code_events.push(CodeEvent::Patch { text, retired, added });
+                vm.code_events.push(CodeEvent::Patch { patch, retired, added });
             }
             3 => {
                 let bytes = r.bytes()?.to_vec();

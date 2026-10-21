@@ -154,7 +154,7 @@ mod tests {
             assert_eq!(vm.tasks[task.index].stack[0] >> 32, backedge as u64);
             vm.instruction_budget = None;
             let report =
-                hotpatch::apply(&mut vm, &format!("patch m\nmap 0 1\n{after}"), true).unwrap();
+                hotpatch::apply(&mut vm, format!("patch m\nmap 0 1\n{after}").as_bytes(), true).unwrap();
             assert_eq!((report.changed, report.retained), (1, 1));
             let data = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new())
                 .unwrap();

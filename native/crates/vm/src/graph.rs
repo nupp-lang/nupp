@@ -981,10 +981,11 @@ fn load_with(it: &mut Interp, bytes: &[u8], refuse_native: bool) -> Result<u32, 
     r.map(|(entry, _)| entry)
 }
 
-fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) -> Result<(u32, u32), String> {
+/// The heap shapes an image's shape table resolves to, in order. With
+/// `patch`, the shapes the running module was loaded with: a patch may name
+/// only those layouts, by identity or by position, and never adds one.
+fn install_shapes(it: &mut Interp, image: &Image, patch: Option<&[u32]>) -> Result<Vec<u32>, String> {
     use crate::heap::SlotTy;
-    let mut header = decode_header(table, bytes)?;
-    let image = &header.image;
     let mut shape_ids: Vec<u32> = Vec::with_capacity(image.shapes.len());
     for s in &image.shapes {
         let mut names = Vec::with_capacity(s.slots.len());
@@ -998,28 +999,39 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) ->
         // Slot types are hints two images can infer differently; the layout
         // is the names, in order.
         let existing = identity.as_ref().and_then(|key| it.heap.shape_identities.get(key).copied()).filter(|&id| it.heap.shapes[id as usize].names == names);
+        if let Some(old) = patch {
+            let same = |id: u32| it.heap.shapes[id as usize].names == names && it.heap.shapes[id as usize].name == name;
+            let id = existing.or_else(|| old.get(shape_ids.len()).copied().filter(|&id| same(id))).ok_or_else(|| format!("record layout changed or added: {name}"))?;
+            shape_ids.push(id);
+            continue;
+        }
         let id = existing.unwrap_or_else(|| it.heap.shape(name, &names, &types));
         if let (None, Some(key)) = (existing, identity) { it.heap.shape_identities.insert(key, id); }
         shape_ids.push(id);
     }
-    for &(name, declaration) in &image.extensions {
-        crate::extension::declare(it, image.text(name), &image.strings[declaration as usize])?;
-    }
-    let base = it.funcs.len() as u32;
+    Ok(shape_ids)
+}
+
+/// Every function of a decoded header derived in order, each verified
+/// against the table and, when asked, refused for native code.
+fn derive_functions(table: &Table, header: &mut Header, it: &mut Interp, base: u32, shape_ids: &[u32], refuse_native: bool, verify_stream: bool) -> Result<Vec<Function>, String> {
     let nfuncs = base as usize + header.nfunctions;
     let mut funcs = Vec::with_capacity(header.nfunctions);
     let mut g = Graph::default();
     for fi in 0..header.nfunctions {
         header.next_function(table, fi, &mut g)?;
-        let mut d = Derivation { it, base, shape_ids: &shape_ids };
+        let mut d = Derivation { it, base, shape_ids };
         let f = derive(table, &header.image, &g, &mut d).map_err(|e| format!("function {}: {e}", header.image.text(g.name)))?;
-        crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?;
+        if verify_stream { crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?; }
         if refuse_native && crate::image::needs_native(&f) { return Err(crate::image::uncompiled_native_message("image refused", &f.name, &f.module)); }
         funcs.push(f);
     }
-    let image = &header.image;
-    for f in &mut funcs {
-        // Named operations use identity keys in every execution tier.
+    Ok(funcs)
+}
+
+/// Named operations use identity keys in every execution tier.
+fn intern_fields(it: &mut Interp, funcs: &mut [Function]) -> Result<(), String> {
+    for f in funcs.iter_mut() {
         for op in &f.code {
             let key = match *op {
                 Op::GetField(_, _, k) | Op::SetField(_, k, _) | Op::CallMethod(k, _, _) | Op::SetMethod(_, k, _) | Op::DeferMethod(_, k) => k as usize,
@@ -1040,6 +1052,41 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) ->
             }
         }
     }
+    Ok(())
+}
+
+fn module_list(image: &Image) -> Vec<(String, u32, Option<String>)> {
+    image.modules.iter().map(|&(name, chunk, path)| (image.text(name).to_string(), chunk, if path == NONE { None } else { Some(image.text(path).to_string()) })).collect()
+}
+
+/// A graph image read against a running module's shapes but not yet part
+/// of the VM, as `image::parse` reads a text patch: the functions refer to
+/// each other as `base + index`.
+pub(crate) struct PatchImage { pub base: u32, pub funcs: Vec<Function>, pub shape_ids: Vec<u32>, pub modules: Vec<(String, u32, Option<String>)> }
+
+pub(crate) fn parse_patch(it: &mut Interp, bytes: &[u8], running: &[u32]) -> Result<PatchImage, String> {
+    with_table(|table| {
+        let mut header = decode_header(table, bytes)?;
+        let shape_ids = install_shapes(it, &header.image, Some(running))?;
+        let base = it.funcs.len() as u32;
+        let mut funcs = derive_functions(table, &mut header, it, base, &shape_ids, false, false)?;
+        intern_fields(it, &mut funcs)?;
+        let modules = module_list(&header.image);
+        header.finish()?;
+        Ok(PatchImage { base, funcs, shape_ids, modules })
+    })
+}
+
+fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) -> Result<(u32, u32), String> {
+    let mut header = decode_header(table, bytes)?;
+    let shape_ids = install_shapes(it, &header.image, None)?;
+    for &(name, declaration) in &header.image.extensions {
+        crate::extension::declare(it, header.image.text(name), &header.image.strings[declaration as usize])?;
+    }
+    let base = it.funcs.len() as u32;
+    let mut funcs = derive_functions(table, &mut header, it, base, &shape_ids, refuse_native, true)?;
+    intern_fields(it, &mut funcs)?;
+    let image = &header.image;
     let modules: Vec<(String, u32, Option<String>)> = image.modules.iter().map(|&(name, chunk, path)| (image.text(name).to_string(), chunk, if path == NONE { None } else { Some(image.text(path).to_string()) })).collect();
     for (name, chunk, path) in &modules {
         it.modules.insert(name.clone(), base + chunk);

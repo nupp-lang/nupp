@@ -112,13 +112,13 @@ impl Prepared {
                 }
                 CodeEvent::Globals => vm.install_globals(),
                 CodeEvent::Patch {
-                    text,
+                    patch,
                     retired,
                     added,
                 } => {
-                    crate::hotpatch::replay(&mut vm, &text, &retired)?;
+                    crate::hotpatch::replay(&mut vm, &patch, &retired)?;
                     vm.code_events.push(CodeEvent::Patch {
-                        text,
+                        patch,
                         retired,
                         added,
                     });

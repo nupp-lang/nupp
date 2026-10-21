@@ -66,7 +66,7 @@ fn a_patched_body_keeps_the_closure_and_its_cell() {
         let (mut it, bump) = vm(&counter(1.0), threaded);
         assert_eq!(it.call_value(bump, &[]), vec![Value::num(1.0)]);
         assert_eq!(it.call_value(bump, &[]), vec![Value::num(2.0)]);
-        let report = hotpatch::apply(&mut it, &patch(&counter(10.0), "0 1"), true).unwrap();
+        let report = hotpatch::apply(&mut it, patch(&counter(10.0), "0 1").as_bytes(), true).unwrap();
         assert_eq!((report.changed, report.added, report.retained, report.generation), (1, 0, 0, 1));
         // The same closure value, its cell, and the new body.
         assert_eq!(it.call_value(bump, &[]), vec![Value::num(12.0)]);
@@ -78,7 +78,7 @@ fn a_patched_body_keeps_the_closure_and_its_cell() {
 #[test]
 fn validation_alone_changes_nothing() {
     let (mut it, bump) = vm(&counter(1.0), false);
-    let report = hotpatch::apply(&mut it, &patch(&counter(5.0), "0 1"), false).unwrap();
+    let report = hotpatch::apply(&mut it, patch(&counter(5.0), "0 1").as_bytes(), false).unwrap();
     assert_eq!(report.changed, 1);
     assert_eq!(it.call_value(bump, &[]), vec![Value::num(1.0)]);
 }
@@ -86,7 +86,7 @@ fn validation_alone_changes_nothing() {
 #[test]
 fn moved_lines_are_not_a_body_change() {
     let (mut it, bump) = vm(&counter(1.0), false);
-    let report = hotpatch::apply(&mut it, &patch(&counter(1.0).replace("lines 7x6", "lines 9x6"), "0 1"), true).unwrap();
+    let report = hotpatch::apply(&mut it, patch(&counter(1.0).replace("lines 7x6", "lines 9x6"), "0 1").as_bytes(), true).unwrap();
     assert_eq!((report.changed, report.moved), (0, 1));
     assert_eq!(it.call_value(bump, &[]), vec![Value::num(1.0)]);
 }
@@ -108,7 +108,7 @@ fn refusals_name_the_reason_and_leave_the_running_code() {
         ),
     ];
     for (text, reason) in refusals {
-        let error = hotpatch::apply(&mut it, &text, true).unwrap_err();
+        let error = hotpatch::apply(&mut it, text.as_bytes(), true).unwrap_err();
         assert!(error.contains(reason), "{error} does not name {reason}");
     }
     assert_eq!(it.hot.generation, 0);
@@ -124,13 +124,13 @@ fn a_new_anonymous_function_is_appended() {
         "  Ret 4\nend\nmodule",
         "  Call 2 5 0\n  Ret 5\nend\nfunction bump.fn2 2 0 10 1 :v\n  source m\n  const 0 num 99\n  K 1 0\n  Ret 1\nend\nmodule",
     );
-    let report = hotpatch::apply(&mut it, &patch(&body, "0 1 -"), true).unwrap();
+    let report = hotpatch::apply(&mut it, patch(&body, "0 1 -").as_bytes(), true).unwrap();
     assert_eq!((report.changed, report.added), (1, 1));
     assert_eq!(it.funcs.len(), before + 1);
     assert_eq!(it.call_value(bump, &[]), vec![Value::num(99.0)]);
     // The module's list is the patch's now, so the next patch maps against it.
     let again = body.replace("num 99", "num 98");
-    let report = hotpatch::apply(&mut it, &patch(&again, "0 1 2"), true).unwrap();
+    let report = hotpatch::apply(&mut it, patch(&again, "0 1 2").as_bytes(), true).unwrap();
     assert_eq!((report.changed, report.added), (1, 0));
     assert_eq!(it.call_value(bump, &[]), vec![Value::num(98.0)]);
 }
@@ -223,7 +223,7 @@ fn a_parked_task_keeps_its_old_body_across_a_checkpoint() {
         let task = it.spawn(fid, &[]);
         assert!(matches!(it.run(task), Outcome::Parked(_)));
         let next = PARKING.replace("str \"old\"", "str \"new\"").replace("  K 2 0\n  Park 2\n", "");
-        let report = hotpatch::apply(&mut it, &patch(&next, "0 1"), true).unwrap();
+        let report = hotpatch::apply(&mut it, patch(&next, "0 1").as_bytes(), true).unwrap();
         assert_eq!((report.changed, report.retained), (1, 1));
         let data = persist::save_vm(&mut it, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
         let mut restored = persist::load_vm(&data, &Policies::default(), &mut ResourceCodecs::new()).unwrap();

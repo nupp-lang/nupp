@@ -22,6 +22,7 @@ local hash = require("nupp.compiler.hash")
 local cst = require("nupp.compiler.syntax.cst")
 local envMod = require("nupp.compiler.project.env")
 local lower = require("nupp.compiler.vm.lower")
+local opcodes = require("nupp.compiler.vm.opcodes")
 local fs = require("nupp.compiler.fs")
 local cheader = require("nupp.compiler.cinterop.cheader")
 
@@ -157,74 +158,60 @@ local function fatalIn(values)
     return false
 end
 
--- Operands that name a function of the same image, by opcode: the position of
--- the function id among the line's words.
-local functionOperands = {Call = 2, CallT = 2, CallK = 2, NewClosure = 3}
-
---- Each function's text in an image, in the image's order, which is the order
---- the lowering numbered them and the runtime loaded them.
-local function functionBlocks(image: string): {{string}}
-    local blocks: {{string}} = {}
-    local current: {string}? = nil
-    for line in image:gmatch("[^\n]+") do
-        if line:sub(1, 9) == "function " then
-            local block: {string} = {line}
-            blocks[#blocks + 1] = block
-            current = block
-        elseif current then
-            if line == "end" then
-                current = nil
-            else
-                current[#current + 1] = line
-            end
-        end
-    end
-
-    return blocks
-end
-
-local function words(line: string): {string}
-    local out: {string} = {}
-    for word in line:gmatch("%S+") do
-        out[#out + 1] = word
-    end
-
-    return out
-end
-
 --- A body as the runtime would compare it, with every reference to a function
 --- of the same image spelled by identity rather than by id: adding a closure
---- renumbers the functions after it without changing what they do. Source lines
---- are left out; a body that only moved is not a change.
-local function implementation(block: {string}, keys: {string}): string
+--- renumbers the functions after it without changing what they do. Source
+--- lines are left out; a body that only moved is not a change.
+local function implementation(f: any, keys: {string}): string
     local parts: {string} = {}
-    for index = 2, #block do
-        local line = block[index]:gsub("^%s+", "")
-        local op = line:match("^%S+")
-        if op ~= "lines" and op ~= "source" then
-            local position = functionOperands[op]
-            if op == "const" and line:match("^const %d+ func ") then
-                position = 4
-            end
-            if position then
-                local split = words(line)
-                local number = tonumber(split[position])
-                local id = number and math.floor(number) or nil
-                split[position] = id and keys[id + 1] or split[position]
-                line = table.concat(split, " ")
-            end
-            parts[#parts + 1] = line
+    for i, c in ipairs(f.consts) do
+        local value = c.value
+        if c.kind == "func" then
+            value = keys[(value as integer) + 1] or value
         end
+        parts[#parts + 1] = "const " .. tostring(i - 1) .. " " .. tostring(c.kind) .. " " .. tostring(value)
+    end
+    for _, ins in ipairs(f.code) do
+        local position = opcodes.functionOperand[ins[1] as string]
+        local words: {string} = {}
+        for j = 1, #ins do
+            local v = ins[j]
+            if position and j == position + 1 then
+                local id = tonumber(v)
+                v = id and keys[(math.floor(id) as integer) + 1] or v
+            end
+            words[j] = type(v) == "number" and ("%.17g"):format(v as number) or tostring(v)
+        end
+        parts[#parts + 1] = table.concat(words, " ")
     end
 
     return hash.digest(table.concat(parts, "\n"))
 end
 
+--- The record layouts an image carries, spelled as its text header would.
+local function shapeLines(shapes: {any}): string
+    local lines: {string} = {}
+    for i, shape in ipairs(shapes) do
+        local parts = {"shape", tostring(i - 1), tostring(shape.name)}
+        local identity = shape.module and shape.module .. ":" .. shape.name
+        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
+            parts[#parts + 1] = "identity=" .. identity
+        end
+        for _, slot in ipairs(shape.slots) do
+            parts[#parts + 1] = tostring(slot.name) .. ":" .. tostring(slot.ty)
+        end
+        lines[#lines + 1] = table.concat(parts, " ")
+    end
+
+    return table.concat(lines, "\n")
+end
+
 --- The manifest of a module's image: every function by identity, with what a
 --- live replacement has to keep (signature, captures) and what it may change
 --- (implementation), the record layouts it uses, and its top-level chunk.
-local function imageManifest(image: string, functions: {any}, module: string, path: string, abi: any): any
-    local blocks = functionBlocks(image)
+--- `fns` are the lowering's records in image order and `header` what the
+--- image carries beside them; `functions` names each one's parent and captures.
+local function imageManifest(fns: {any}, header: any, functions: {any}, module: string, path: string, abi: any): any
     local keys: {string} = {}
     local seen: {[string]: integer} = {}
     for index, fn in ipairs(functions) do
@@ -236,10 +223,10 @@ local function imageManifest(image: string, functions: {any}, module: string, pa
         seen[prefix] = ordinal
         keys[index] = prefix .. "#" .. ordinal
     end
-    local chunk = tonumber(image:match("\nmodule %S+ (%d+)")) or 0
+    local chunk = (header.entry or 0) as integer
     local entries = {}
     for index, fn in ipairs(functions) do
-        local header = words(blocks[index] and blocks[index][1] or "")
+        local f = fns[index]
         local captures = {}
         for position, name in pairs(fn.captures or {}) do
             captures[position] = name
@@ -252,16 +239,19 @@ local function imageManifest(image: string, functions: {any}, module: string, pa
             -- A function declared by the module's top level, as opposed to one a body
             -- declares: adding or removing one of these changes the module's shape.
             declaration = index - 1 == chunk or fn.parent == nil or fn.parent == chunk,
-            signature = table.concat({header[4] or "", header[7] or "", header[8] or ""}, " "),
+            signature = f
+            and table.concat(
+                {
+                    tostring(f.nparams),
+                    table.concat(f.sig or {}) .. ":" .. tostring(f.ret or "v"),
+                    f.vararg and "vararg" or ""
+                },
+                " "
+            )
+            or "",
             captures = captures,
-            implementation = blocks[index] and implementation(blocks[index], keys) or "",
+            implementation = f and implementation(f, keys) or "",
         }
-    end
-    local shapes = {}
-    for line in image:gmatch("[^\n]+") do
-        if line:sub(1, 6) == "shape " then
-            shapes[#shapes + 1] = line
-        end
     end
 
     return {
@@ -269,7 +259,7 @@ local function imageManifest(image: string, functions: {any}, module: string, pa
         module = module,
         path = path,
         functions = entries,
-        shapes = table.concat(shapes, "\n"),
+        shapes = shapeLines(header.shapes or {}),
         abi = abi,
         unverifiedLibraries = abi.unverifiedLibraries or {},
     }
@@ -964,6 +954,14 @@ function Session:compile(path, module)
     -- What the module publishes decides which records its witnesses link.
     tree.vmModuleExports = checked.result.moduleExports
     local functions = {}
+    -- The lowering's records and the header its image carries, which the
+    -- manifest is built from whatever the image's format.
+    local captured: any = nil
+    lower.graphSink = function(entry: string, fns: {any}, header: table): nil
+        if entry == module then
+            captured = {fns = fns, header = header}
+        end
+    end
     local lowered, image = pcall(
         lower.emit,
         module,
@@ -981,6 +979,7 @@ function Session:compile(path, module)
         nil,
         functions
     )
+    lower.graphSink = nil
     for _, swapped in ipairs(pinned) do
         swapped.node.fromLib = swapped.token
     end
@@ -1005,7 +1004,22 @@ function Session:compile(path, module)
         })
     end
 
-    return {code = image, manifest = imageManifest(image, functions, module, path, abi)}
+    if captured == nil then
+        return nil, diagnosticsFailure({
+            {
+                filename = path,
+                line = 1,
+                col = 1,
+                offset = 0,
+                length = 0,
+                code = "NUPP0001",
+                msg = "cannot lower " .. module .. " for the VM: the lowering reported no functions",
+                help = "this is a compiler defect; the running generation is unchanged",
+            }
+        })
+    end
+
+    return {code = image, manifest = imageManifest(captured.fns, captured.header, functions, module, path, abi)}
 end
 
 function Session:initial(entries)

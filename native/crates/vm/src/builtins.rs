@@ -931,9 +931,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         Special::VmHotpatch => {
             // (patch text, validate only?) -> report table, or nil and why.
             let bytes = bytes_of(it, arg(args, 0));
-            let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("patch is not UTF-8"));
             let commit = !arg(args, 1).truthy();
-            return match crate::hotpatch::apply(it, text, commit) {
+            return match crate::hotpatch::apply(it, &bytes, commit) {
                 Ok(report) => {
                     let t = it.new_table(); let root = it.register(t);
                     for (name, n) in [("changed", report.changed as u64), ("moved", report.moved as u64), ("added", report.added as u64), ("retained", report.retained as u64), ("generation", report.generation)] {

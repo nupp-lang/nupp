@@ -839,9 +839,9 @@ fn scratch_vm(recipe: Vec<CodeEvent>) -> Result<Interp> {
                 crate::graph::load(&mut vm, &bytes)?;
             }
             CodeEvent::Globals => vm.install_globals(),
-            CodeEvent::Patch { text, retired, added } => {
-                crate::hotpatch::replay(&mut vm, &text, &retired)?;
-                vm.code_events.push(CodeEvent::Patch { text, retired, added });
+            CodeEvent::Patch { patch, retired, added } => {
+                crate::hotpatch::replay(&mut vm, &patch, &retired)?;
+                vm.code_events.push(CodeEvent::Patch { patch, retired, added });
             }
         }
     }
