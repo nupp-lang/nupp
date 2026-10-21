@@ -108,6 +108,34 @@ Then run `./bin/nupp fixpoint` before committing the bump. It builds three
 stages starting from the newly pinned compiler, which is the only thing that
 proves the new pin can still build the tree.
 
+## Experimental pre-releases
+
+A branch that needs a pin `main` does not have yet -- a feature its own
+sources want before `main` ships it -- publishes it as a pre-release, so the
+last release from `main` stays the one users and `main` see. Three things keep
+it from becoming the latest release or costing a second CI run:
+
+- **A tag outside `vX.Y.Z`.** The release workflow runs on exactly that pattern
+  and publishes an ordinary release, so a pre-release tag carries a suffix, such
+  as `v0.0.15-vm.1`. The compiler matrix and the measurements skip `v*-*` tags,
+  because the branch push already tested the commit.
+- **`--prerelease --latest=false`**, so the release page and `gh release
+  download` without a tag keep naming the last release from `main`.
+- **A commit already pushed to the branch**, composed locally the way the
+  stage-zero job does:
+
+```bash
+./bin/nupp fixpoint --emit-stage0 build/stage0/nupp-stage0-v0.0.15-vm.1.lua
+gzip -9 -n build/stage0/nupp-stage0-v0.0.15-vm.1.lua
+gh release create v0.0.15-vm.1 build/stage0/nupp-stage0-v0.0.15-vm.1.lua.gz \
+    --target "$(git rev-parse <commit>)" --prerelease --latest=false \
+    --title 'v0.0.15-vm.1 (experimental)' --notes '...'
+```
+
+`--target` needs the full hash; `gh release create` makes the tag. Then move the
+branch's pin to it as above. Never tag `main` or change `version.VERSION` for
+one.
+
 ## The guards, so a failure is recognizable
 
 | Failure | Cause |
