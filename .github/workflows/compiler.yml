@@ -64,6 +64,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The VM compiler a job builds or restores runs interpreted: linking its
+# compiled code costs ten minutes of a runner's cores, in the background beside
+# the suites, for a compiler that answers the same either way.
+env:
+  NUPP_VM_AUTO_LINK: "0"
+
 jobs:
   # Everything a run can decide before it provisions anything. This is the job
   # that must stay cheap: the platform matrices wait on it, so a minute here is
@@ -212,7 +218,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.fast-checks == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -246,6 +252,9 @@ jobs:
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
           restore-keys: |
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the VM compiler
+        uses: ./.github/actions/vm-cli-restore
 
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
@@ -289,6 +298,10 @@ jobs:
           key: >-
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
+
+      - name: Save the VM compiler
+        if: always()
+        uses: ./.github/actions/vm-cli-save
 
   integration:
     name: ${{ matrix.name }} / LuaJIT 2.1 rolling
@@ -394,6 +407,9 @@ jobs:
         run: |
           channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
           rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
+      - name: Restore the VM compiler
+        uses: ./.github/actions/vm-cli-restore
 
       - name: Provision the pinned toolchain
         shell: bash
@@ -690,6 +706,10 @@ jobs:
             nupp-buildcache-${{ runner.os }}-${{ runner.arch }}-${{
             hashFiles('src/**', 'nupp.lua', 'scripts/toolchain.pins') }}
 
+      - name: Save the VM compiler
+        if: always()
+        uses: ./.github/actions/vm-cli-save
+
   # Byte-identical self-hosting, which is about the compiler's own sources and
   # not about a platform. It was the last step of every matrix entry, where it
   # only ever ran if everything before it was green -- so the one check that
@@ -702,7 +722,7 @@ jobs:
       && needs.fast-checks.result == 'success'
       && needs.classify.outputs.fixpoint == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -725,11 +745,18 @@ jobs:
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Restore the VM compiler
+        uses: ./.github/actions/vm-cli-restore
+
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
 
       - name: Verify the self-hosting fixpoint
         run: ./bin/nupp fixpoint
+
+      - name: Save the VM compiler
+        if: always()
+        uses: ./.github/actions/vm-cli-save
 
   # Documentation generation, its links, and the generated assets a site build
   # produces. This is the whole obligation of a documentation-only change: it
@@ -739,7 +766,7 @@ jobs:
     needs: classify
     if: needs.classify.outputs.docs-site == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -761,6 +788,9 @@ jobs:
             hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
             nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore the VM compiler
+        uses: ./.github/actions/vm-cli-restore
 
       - name: Provision the pinned toolchain
         run: ./scripts/toolchain --all
@@ -775,6 +805,10 @@ jobs:
 
       - name: Regenerate and verify the documentation
         run: ./bin/nupp test --group=docs
+
+      - name: Save the VM compiler
+        if: always()
+        uses: ./.github/actions/vm-cli-save
 
   gpu-conformance:
     name: GPU conformance / CI Lavapipe Vulkan

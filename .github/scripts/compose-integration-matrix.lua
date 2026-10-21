@@ -12,7 +12,7 @@
 local platforms = {
     {
         variable = "SELECTED_LINUX",
-        entry = {name = "Linux x64", os = "ubuntu-24.04", timeout = 85, artifact = "linux-x64"},
+        entry = {name = "Linux x64", os = "ubuntu-24.04", timeout = 115, artifact = "linux-x64"},
     },
     {
         variable = "SELECTED_MACOS",

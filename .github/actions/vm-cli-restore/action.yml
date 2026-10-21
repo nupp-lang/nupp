@@ -1,0 +1,20 @@
+name: Restore the VM compiler
+description: >-
+  Restores the installed VM CLI and the per-module emit cache a previous run
+  left. An exact match is current and nothing rebuilds; an older one is rebuilt
+  by bin/nupp from the modules that changed; none at all is built from the
+  pinned stage-zero image, which is the half hour this exists to avoid.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache/restore@v4
+      with:
+        path: |
+          .nupp/vm-cli
+          build/vm-cli/emit-cache
+        key: >-
+          nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
+          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins') }}
+        restore-keys: |
+          nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-

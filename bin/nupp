@@ -31,8 +31,12 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] \
     mkdir -p "$ROOT/.nupp"
     if mkdir "$ROOT/.nupp/vm-cli-bootstrap.lock" 2>/dev/null; then
         echo "nupp: no VM compiler in this checkout; building one from the pinned stage zero" >&2
+        # NUPP_VM_AUTO_LINK=0 skips linking the image's compiled code here too,
+        # as it does for the rebuild below: an interpreter-only runtime.
+        no_aot=
+        [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
         seed=$("$ROOT/scripts/toolchain" stage0-image) \
-            && python3 "$ROOT/scripts/vm-cli" build --seed-image "$seed" >&2
+            && python3 "$ROOT/scripts/vm-cli" build --seed-image "$seed" $no_aot >&2
         bootstrap_status=$?
         rm -rf "$ROOT/.nupp/vm-cli-bootstrap.lock"
         [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"

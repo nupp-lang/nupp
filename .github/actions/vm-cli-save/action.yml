@@ -1,0 +1,25 @@
+name: Save the VM compiler
+description: >-
+  Saves the VM CLI this run selected, and the emit cache, for the next run.
+  Only the selected generation and the one the emit cache was filled by are
+  kept: each holds a runtime, and older ones are dead weight in the cache.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        cd .nupp/vm-cli 2>/dev/null || exit 0
+        keep=" $(cat current 2>/dev/null) $(cat emitter 2>/dev/null) "
+        for entry in */; do
+          entry=${entry%/}
+          case "$keep" in *" $entry "*) ;; *) rm -rf "$entry" ;; esac
+        done
+    - uses: actions/cache/save@v4
+      with:
+        path: |
+          .nupp/vm-cli
+          build/vm-cli/emit-cache
+        key: >-
+          nupp-vmcli-${{ runner.os }}-${{ runner.arch }}-${{
+          hashFiles('src/**', 'native/crates/**/*.rs', 'native/crates/**/Cargo.toml', 'Cargo.lock',
+          'nupp.lua', 'scripts/vm-cli', 'scripts/toolchain.pins') }}
