@@ -109,7 +109,24 @@ local function withProject(callback, separateProvider)
 
             parsed(entry, paths[entry])
             local listing = {}
-            local image = lower.emit(
+            -- The image's record layouts and function count, from the
+            -- header and functions the lowering hands its image.
+            local layout
+            lower.graphSink = function(emitted, functions, header)
+                if emitted == entry then
+                    local shapes = {}
+                    for _, shape in ipairs(header.shapes) do
+                        local slots = {}
+                        for _, slot in ipairs(shape.slots) do
+                            slots[#slots + 1] = slot.name .. ":" .. tostring(slot.ty)
+                        end
+                        shapes[#shapes + 1] = tostring(shape.name) .. " " .. table.concat(slots, " ")
+                    end
+                    layout = {shapes = table.concat(shapes, "\n"), functions = #functions}
+                end
+            end
+            local ok, image = pcall(
+                lower.emit,
                 entry,
                 {},
                 function(name)
@@ -119,11 +136,13 @@ local function withProject(callback, separateProvider)
                 nil,
                 listing
             )
+            lower.graphSink = nil
+            assert(ok, image)
 
-            return image, parses, listing
+            return image, parses, listing, layout
         end
 
-        local providerImage = checkedGraph(names.PROVIDER, {[names.PROVIDER] = true})
+        local providerImage, _, _, providerLayout = checkedGraph(names.PROVIDER, {[names.PROVIDER] = true})
         -- Body patches track layouts for images loaded one module at a time.
         -- Leave the provider outside the consumer image in that fixture so its
         -- standalone registration remains the baseline for the later patch.
@@ -151,10 +170,12 @@ local function withProject(callback, separateProvider)
             paths = paths,
             listing = listing,
             initialProviderImage = providerImage,
+            initialProviderLayout = providerLayout,
             providerSource = expand(PROVIDER),
             rebuildProvider = function(source)
                 write(paths[names.PROVIDER], source)
-                return checkedGraph(names.PROVIDER, {[names.PROVIDER] = true})
+                local image, _, _, layout = checkedGraph(names.PROVIDER, {[names.PROVIDER] = true})
+                return image, layout
             end,
         })
     end)
@@ -221,28 +242,6 @@ function M.qualifiedModuleInitializesExactlyOnce()
     end)
 end
 
-local function shapeLines(image)
-    local shapes = {}
-    for line in image:gmatch("[^\n]+") do
-        if line:match("^shape%s") then
-            shapes[#shapes + 1] = line
-        end
-    end
-
-    return table.concat(shapes, "\n")
-end
-
-local function functionCount(image)
-    local count = 0
-    for line in image:gmatch("[^\n]+") do
-        if line:match("^function%s") then
-            count = count + 1
-        end
-    end
-
-    return count
-end
-
 function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
     if not program.onVm() then
         -- The Lua runner has no in-process VM function-body patch surface.
@@ -255,16 +254,16 @@ function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
             local retainedProvider = assert(package.loaded[state.names.PROVIDER]).present
             local receiver = {tag = false}
             test.equal(retainedCaller(receiver), true)
-            local nextImage = state.rebuildProvider((state.providerSource:gsub("value%.tag", "value.other")))
+            local nextImage, nextLayout = state.rebuildProvider((state.providerSource:gsub("value%.tag", "value.other")))
             test.equal(
-                shapeLines(nextImage),
-                shapeLines(state.initialProviderImage),
+                nextLayout.shapes,
+                state.initialProviderLayout.shapes,
                 "a field-only body edit preserves every provider layout"
             )
-            local count = functionCount(nextImage)
+            local count = nextLayout.functions
             test.equal(
                 count,
-                functionCount(state.initialProviderImage),
+                state.initialProviderLayout.functions,
                 "a field-only body edit preserves function positions"
             )
             local map = {}

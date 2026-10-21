@@ -51,7 +51,7 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local relink = {}
 
 --- Bumped whenever a kept fragment's shape or meaning changes.
-relink.FORMAT = "vm-relink/2"
+relink.FORMAT = "vm-relink/3"
 
 --- Operand positions (1-based, after the opcode) that carry a function id, per
 --- opcode, as the VM's image loader relocates them.
@@ -419,7 +419,7 @@ function relink.new(reuse: any): any
     end
 
     --- Called with each function as the output is written.
-    function self.wrote(f: any, _: {string}, _: integer): nil
+    function self.wrote(f: any): nil
         local owner = owners[f.id]
         if owner then
             owner.fns[f.id - owner.firstFunction + 1] = f
@@ -444,26 +444,42 @@ function relink.new(reuse: any): any
             end
             consts[i] = new lowerstate.Const(kind = c.kind, value = value)
         end
-        local code: {any} = {}
-        local lines = record.lines
-        for i, ins in ipairs(record.code) do
-            local copy: any = {}
-            for j = 1, #ins do
-                copy[j] = ins[j]
+        local blocks: {lowerstate.Block} = {}
+        for i = 1, #record.blocks do
+            blocks[i] = new lowerstate.Block(index = i)
+        end
+        for i, kept in ipairs(record.blocks) do
+            local b = blocks[i]
+            for j, ins in ipairs(kept.code) do
+                local copy: any = {}
+                for k = 1, #ins do
+                    copy[k] = ins[k]
+                end
+                local op = ins[1] as string
+                local functionAt = relink.FUNCTION_OPERANDS[op]
+                if functionAt then
+                    copy[functionAt + 1] = base + (ins[functionAt + 1] as integer)
+                end
+                local shapeAt = relink.SHAPE_OPERANDS[op]
+                if shapeAt then
+                    copy[shapeAt + 1] = shapes[ins[shapeAt + 1] as integer].id
+                end
+                if kept.lines[j] ~= 0 then
+                    copy.line = kept.lines[j]
+                end
+                b.code[j] = copy
             end
-            local op = ins[1] as string
-            local functionAt = relink.FUNCTION_OPERANDS[op]
-            if functionAt then
-                copy[functionAt + 1] = base + (ins[functionAt + 1] as integer)
+            b.ends, b.branchOp, b.branchReg = kept.ends, kept.branchOp, kept.branchReg
+            b.target = kept.target and blocks[kept.target as integer] or nil
+            b.fall = kept.fall and blocks[kept.fall as integer] or nil
+            if kept.ret then
+                local ret: any = {}
+                for k = 1, #kept.ret do
+                    ret[k] = kept.ret[k]
+                end
+                ret.line = kept.retLine
+                b.ret = ret
             end
-            local shapeAt = relink.SHAPE_OPERANDS[op]
-            if shapeAt then
-                copy[shapeAt + 1] = shapes[ins[shapeAt + 1] as integer].id
-            end
-            if lines[i] ~= 0 then
-                copy.line = lines[i]
-            end
-            code[i] = copy
         end
         local f = new lowerstate.Fn(
             id = id,
@@ -471,7 +487,7 @@ function relink.new(reuse: any): any
             module = module,
             environment = record.environment == true,
             consts = consts,
-            code = code,
+            blocks = blocks,
             nregs = record.nregs,
             nfregs = record.nfregs,
             nvregs = record.nvregs,
@@ -482,6 +498,7 @@ function relink.new(reuse: any): any
             ret = record.ret,
             vararg = record.vararg
         )
+        f.current = blocks[#blocks]
         for i, captured in ipairs(record.captures) do
             f.upvalIndex[captured] = i - 1
         end
@@ -490,9 +507,26 @@ function relink.new(reuse: any): any
         return f
     end
 
+    local function sameInstruction(x: any, y: any): boolean
+        if (x == nil) ~= (y == nil) then
+            return false
+        elseif x == nil then
+            return true
+        elseif #x ~= #y or (x.line or 0) ~= (y.line or 0) then
+            return false
+        end
+        for k = 1, #x do
+            if x[k] ~= y[k] then
+                return false
+            end
+        end
+
+        return true
+    end
+
     -- Whether a relocated function is the one it was kept from.
     local function same(a: any, b: any): boolean
-        if a.name ~= b.name or #a.consts ~= #b.consts or #a.code ~= #b.code then
+        if a.name ~= b.name or #a.consts ~= #b.consts or #a.blocks ~= #b.blocks then
             return false
         end
         for i = 1, #a.consts do
@@ -500,13 +534,20 @@ function relink.new(reuse: any): any
                 return false
             end
         end
-        for i = 1, #a.code do
-            local x, y = a.code[i], b.code[i]
-            if #x ~= #y or (x.line or 0) ~= (y.line or 0) then
+        for i = 1, #a.blocks do
+            local x, y = a.blocks[i], b.blocks[i]
+            if #x.code ~= #y.code
+                or x.ends ~= y.ends
+                or x.branchOp ~= y.branchOp
+                or x.branchReg ~= y.branchReg
+                or (x.target and x.target.index) ~= (y.target and y.target.index)
+                or (x.fall and x.fall.index) ~= (y.fall and y.fall.index)
+                or not sameInstruction(x.ret, y.ret)
+            then
                 return false
             end
-            for j = 1, #x do
-                if x[j] ~= y[j] then
+            for k = 1, #x.code do
+                if not sameInstruction(x.code[k], y.code[k]) then
                     return false
                 end
             end
@@ -575,32 +616,61 @@ function relink.new(reuse: any): any
             end
             consts[i] = {kind = c.kind, value = value}
         end
-        local code: {any} = {}
-        local lines: {integer} = {}
-        for i, ins in ipairs(f.code) do
-            local copy: {any} = {}
-            for j = 1, #ins do
-                copy[j] = ins[j]
-            end
-            local op = ins[1] as string
-            local functionAt = relink.FUNCTION_OPERANDS[op]
-            if functionAt then
-                local placed = functionId(ins[functionAt + 1] as integer)
-                if placed == nil then
-                    return nil, "names a function outside the module"
+        if f.graph then
+            return nil, "a kernel's graph is not kept"
+        end
+        local blocks: {any} = {}
+        for i, b in ipairs(f.blocks) do
+            local code: {any} = {}
+            local lines: {integer} = {}
+            for k, ins in ipairs(b.code) do
+                local copy: {any} = {}
+                for m = 1, #ins do
+                    copy[m] = ins[m]
                 end
-                copy[functionAt + 1] = placed
-            end
-            local shapeAt = relink.SHAPE_OPERANDS[op]
-            if shapeAt then
-                local placed = shapeRef(ins[shapeAt + 1] as integer)
-                if placed == nil then
-                    return nil, "names an unknown shape"
+                local op = ins[1] as string
+                local functionAt = relink.FUNCTION_OPERANDS[op]
+                if functionAt then
+                    local placed = functionId(ins[functionAt + 1] as integer)
+                    if placed == nil then
+                        return nil, "names a function outside the module"
+                    end
+                    copy[functionAt + 1] = placed
                 end
-                copy[shapeAt + 1] = placed
+                local shapeAt = relink.SHAPE_OPERANDS[op]
+                if shapeAt then
+                    local placed = shapeRef(ins[shapeAt + 1] as integer)
+                    if placed == nil then
+                        return nil, "names an unknown shape"
+                    end
+                    copy[shapeAt + 1] = placed
+                end
+                code[k] = copy
+                lines[k] = ins.line or 0
             end
-            code[i] = copy
-            lines[i] = ins.line or 0
+            if (b.target and b.target.index == 0) or (b.fall and b.fall.index == 0) then
+                return nil, "a jump names a label never placed"
+            end
+            local ret: {any}? = nil
+            if b.ret then
+                ret = {}
+                for m = 1, #b.ret do
+                    ret[m] = b.ret[m]
+                end
+            end
+            blocks[
+                i
+            ] = {
+                code = code,
+                lines = lines,
+                ends = b.ends,
+                branchOp = b.branchOp,
+                branchReg = b.branchReg,
+                target = b.target and b.target.index,
+                fall = b.fall and b.fall.index,
+                ret = ret,
+                retLine = b.ret and b.ret.line,
+            }
         end
         local parent = nil
         if f.parent then
@@ -627,8 +697,7 @@ function relink.new(reuse: any): any
             maxFregs = f.maxFregs,
             environment = f.environment == true,
             consts = consts,
-            code = code,
-            lines = lines,
+            blocks = blocks,
             parent = parent,
             captures = captures,
             gpu = plain(f.gpu),

@@ -23,6 +23,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local envMod = require("nupp.compiler.project.env")
 local lower = require("nupp.compiler.vm.lower")
 local opcodes = require("nupp.compiler.vm.opcodes")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local fs = require("nupp.compiler.fs")
 local cheader = require("nupp.compiler.cinterop.cheader")
 
@@ -163,6 +164,10 @@ end
 --- renumbers the functions after it without changing what they do. Source
 --- lines are left out; a body that only moved is not a change.
 local function implementation(f: any, keys: {string}): string
+    if f.graph then
+        -- A kernel is the graph its frontend built.
+        return hash.digest(graphimage.encode({functions = {f.graph}}))
+    end
     local parts: {string} = {}
     for i, c in ipairs(f.consts) do
         local value = c.value
@@ -171,7 +176,8 @@ local function implementation(f: any, keys: {string}): string
         end
         parts[#parts + 1] = "const " .. tostring(i - 1) .. " " .. tostring(c.kind) .. " " .. tostring(value)
     end
-    for _, ins in ipairs(f.code) do
+
+    local function spell(ins: any): string
         local position = opcodes.functionOperand[ins[1] as string]
         local words: {string} = {}
         for j = 1, #ins do
@@ -182,7 +188,28 @@ local function implementation(f: any, keys: {string}): string
             end
             words[j] = type(v) == "number" and ("%.17g"):format(v as number) or tostring(v)
         end
-        parts[#parts + 1] = table.concat(words, " ")
+
+        return table.concat(words, " ")
+    end
+
+    for i, b in ipairs(f.blocks) do
+        parts[#parts + 1] = "block " .. tostring(i)
+        for _, ins in ipairs(b.code) do
+            parts[#parts + 1] = spell(ins)
+        end
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {
+                tostring(b.ends),
+                tostring(b.branchOp),
+                tostring(b.branchReg),
+                tostring(b.target and b.target.index),
+                tostring(b.fall and b.fall.index),
+                b.ret and spell(b.ret) or ""
+            },
+            " "
+        )
     end
 
     return hash.digest(table.concat(parts, "\n"))
@@ -958,8 +985,9 @@ function Session:compile(path, module)
     -- manifest is built from whatever the image's format.
     local captured: any = nil
     lower.graphSink = function(entry: string, fns: {any}, header: table): nil
+        -- Read here, before the lowering lets each function's blocks go.
         if entry == module then
-            captured = {fns = fns, header = header}
+            captured = {manifest = imageManifest(fns, header, functions, module, path, abi)}
         end
     end
     local lowered, image = pcall(
@@ -1019,7 +1047,7 @@ function Session:compile(path, module)
         })
     end
 
-    return {code = image, manifest = imageManifest(captured.fns, captured.header, functions, module, path, abi)}
+    return {code = image, manifest = captured.manifest}
 end
 
 function Session:initial(entries)

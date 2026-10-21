@@ -228,11 +228,12 @@ function graph.emit(
     slot: integer?,
     extras: {integer}?
 ): integer?
-    local sig = assert(parsed[op], "unknown graph operation: " .. op)
-    if not (#args == sig.n) then
+    local sig = parsed[op]
+    if sig == nil then
+        error("unknown graph operation: " .. op, 0)
+    elseif #args ~= sig.n then
         error("graph operation arity: " .. op, 0)
-    end
-    if sig.terminator then
+    elseif sig.terminator then
         error("terminator opcode inside a block: " .. op, 0)
     end
     local class = sig.result
@@ -714,8 +715,8 @@ local moves = {v = "Move", i = "IMov", f = "FMov", x = "VMov"}
 --- The executable stream the graph derives: slot layout from the hints,
 --- parallel edge copies through one scratch register per class, blocks laid
 --- out in order with the jump to the next block elided. The Rust loader
---- derives the same stream from the image; this one feeds the text writer
---- until P4 retires it.
+--- derives the same stream from the image; this one is what inspection
+--- shows.
 --- @raises string when the graph does not verify, a float-returning function
 --- returns another class, or the slots exceed the register classes.
 function graph.lower(g: any): any
@@ -1023,6 +1024,17 @@ function graph.lower(g: any): any
             tables[ti] = offsets
         end
         g.tables = nil
+    end
+    if g.physical then
+        return {
+            code = code,
+            consts = g.constants,
+            tables = tables,
+            nregs = g.registers[1],
+            nfregs = g.registers[2],
+            nvregs = g.registers[3],
+            graph = g
+        }
     end
     if not (counts.i < 239 and counts.f < 239 and counts.x < 249 and valueBase + counts.v < 250) then
         error("graph register capacity", 0)

@@ -1,50 +1,45 @@
 # CFG and SSA experiment
 
-## Status, 2026-10-20: every function has a graph (P4, first slice)
+## Status, 2026-10-20: the image is the graph (P4)
 
-`src/nupp/compiler/vm/convert.nupp` builds the closed-block graph of any
-function the lowering finished: blocks at jump targets, the registers live
-at each block's entry as its parameters, every definition a value whose slot
-is its physical register, definitions and uses read from the opcode table.
-Untyped registers the frame initializes to nil enter as the entry block's
-parameters; a typed register read before any write is refused. The
-lowering compacts each function before writing (`Fn:compact`): unreachable
-instructions and jumps to the next instruction are dropped and offsets
-renumbered, because a graph holds neither. `nupp.experiment.p4` emits a
-project's text image as today and the graph image beside it:
+The lowering builds labeled blocks rather than an instruction stream with
+offsets. `nupp.compiler.vm.lowerstate` gives each function `label`,
+`place`, `jump` and `branch`; an instruction that leaves the function ends
+its block, and code after it lands in a block nothing reaches. There are no
+offsets, patches or compaction pass. `nupp.compiler.vm.convert` turns a
+function's blocks into the closed-block graph: the blocks the entry
+reaches, jumps threaded past blocks that hold nothing but a jump, the
+registers live at each block's start as its parameters, every definition a
+value whose slot is its physical register, definitions and uses read from
+the opcode table. Untyped registers the frame initializes to nil enter as
+the entry block's parameters. A kernel hands over the graph its own
+frontend built. `nupp.compiler.vm.graphemit` converts and encodes one
+function at a time, and `lower.emit` returns the graph image: there is no
+text writer and no format switch. Inspection (`nupp bc`, the editor's
+listing) renders the stream the runtime derives from each graph.
 
-```sh
-nupp-vm exec DRIVER.image nupp.experiment.p4 ROOT MODULE OUT
-build/rust/target/release/examples/graph_gate image OUT
-```
+The runtime loads graph images by their magic everywhere it loaded text:
+`nupp-vm run`, `exec`, `verify`, `aot`, `--load`, `vm.loadImage`, a
+program's payload, the embedding API, hot patches, checkpoints and
+workers. `graph::load` streams one function at a time through a reused
+buffer. The text loader stays, because the pinned stage-zero release emits
+text and the Rust tests' fixtures are text.
 
-The gate loads `OUT.image`, derives every function of `OUT.graph` and holds
-the streams equal instruction for instruction. The compiler's own root
-image passes: 6,185 functions, 838,536 instructions, 113,909 blocks,
-1,664,822 block parameters, 86 ms to derive, 25.7 MB of graph against
-19.4 MB of text.
+Image words are shifted varints (NONE is a single zero byte); an
+instruction carries the untyped values a register window it writes defines
+beside its result (varargs, a call's further results). The emit cache
+keeps each module's blocks with relative function ids.
 
-The graph image also loads: `graph::load` installs shapes, modules,
-extensions and derived functions as `image::load` does for text, records
-a `Graph` code event for checkpoints, and `nupp-vm run`, `exec`, `verify`,
-`aot` and `--load` take either kind by its magic. Running the compiler from
-`root.graph` emits the same bytes as running it from `root.image`. Image
-words are shifted varints (NONE is a single zero byte); an instruction
-carries the untyped values a register window it writes defines beside its
-result (varargs, a call's further results), which the verifiers define.
-The loader streams one function at a time through a reused buffer: the
-root image loads in 137 ms at 118 MB peak against 120 ms at 97 MB for the
-text.
+The compiler's own root image, against the previous compiler on the same
+sources:
 
-The production path emits graphs under `NUPP_VM_IMAGE_FORMAT=graph`:
-`lower.emit` returns the graph image (`nupp.compiler.vm.graphemit`), so
-`project.emit`, `nupp run`'s per-module images and their cache, and
-`loadstring` chunks all carry graphs, which `vm.loadImage`, the program
-payload and the embedding API accept by magic. The emit cache keeps the
-lowering's function records with relative ids rather than rendered text,
-so a replayed module has code. The compiler emitted as a graph image runs
-and emits the same bytes as the text one in either format. The default
-stays text until hot patches and the Rust test fixtures move.
+| | previous (text) | blocks (graph) |
+|---|---|---|
+| functions | 6,221 | 6,225 |
+| instructions | 842,119 | 840,693 |
+| image | 19.4 MB | 24.8 MB |
+| load | 120 ms, 97 MB | 138 ms, 118 MB |
+| whole emission | 161 s, 2.3 GB | 168 s, 2.9 GB |
 
 ## Status, 2026-10-20: P1
 

@@ -144,10 +144,15 @@ fn malformed(bytes: &[u8]) {
     }
 }
 
+/// Loads an image of either kind: the lowering emits graphs, a fixture may be text.
+fn load_any(vm: &mut Interp, bytes: &[u8]) -> Result<u32, String> {
+    if bytes.starts_with(graph::MAGIC) { graph::load(vm, bytes) } else { image::load(vm, std::str::from_utf8(bytes).map_err(|e| e.to_string())?) }
+}
+
 fn scalar(prefix: &str, out: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let bytes = std::fs::read(format!("{prefix}.graph")).map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(format!("{prefix}.image")).map_err(|e| e.to_string())?;
+    let lowered = std::fs::read(format!("{prefix}.image")).map_err(|e| e.to_string())?;
     let decoded = graph::decode(&bytes)?;
     malformed(&bytes);
     let mut cases = 0;
@@ -155,7 +160,7 @@ fn scalar(prefix: &str, out: &std::path::Path) -> Result<(), String> {
     let modes = ["rust", "threaded", "jit"];
     for mode in modes {
         let mut vm = Interp::new();
-        image::load(&mut vm, &text)?;
+        load_any(&mut vm, &lowered)?;
         vm.install_globals();
         let module = vm.require("cfg.fixture");
         vm.handles.push(module);
@@ -209,11 +214,11 @@ fn scalar(prefix: &str, out: &std::path::Path) -> Result<(), String> {
         let a = us(start);
         let start = Instant::now();
         let mut fresh = Interp::new();
-        image::load(&mut fresh, std::hint::black_box(&text))?;
+        load_any(&mut fresh, std::hint::black_box(&lowered))?;
         let b = us(start);
         if round > 1 { decode_us.push(a); parse_us.push(b); }
     }
-    let result = serde_json::json!({ "cases": cases, "modes": modes, "graph_bytes": bytes.len(), "text_bytes": text.len(), "functions": rows,
+    let result = serde_json::json!({ "cases": cases, "modes": modes, "graph_bytes": bytes.len(), "text_bytes": lowered.len(), "functions": rows,
         "median_microseconds": { "graph_decode_verify_derive": median(decode_us), "text_parse_verify": median(parse_us) } });
     std::fs::write(out.join("scalar.json"), serde_json::to_string_pretty(&result).unwrap()).map_err(|e| e.to_string())?;
     println!("{}", serde_json::to_string_pretty(&result).unwrap());
@@ -247,55 +252,10 @@ fn typed(prefix: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `graph_gate image PREFIX`: PREFIX.image (the text the lowering wrote) and
-/// PREFIX.graph (the same functions converted to graphs); every derived
-/// function must equal the lowered one instruction for instruction.
-fn image_gate(prefix: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(format!("{prefix}.image")).map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(format!("{prefix}.graph")).map_err(|e| e.to_string())?;
-    let decoded = graph::decode(&bytes)?;
-    let mut vm = Interp::new();
-    let (_, shape_ids) = image::load_with_shapes(&mut vm, &text)?;
-    let start = Instant::now();
-    let derived = graph::derive_all(&mut vm, &decoded, 0, &shape_ids)?;
-    let derive_us = us(start);
-    if derived.len() != vm.funcs.len() {
-        let names = |fs: &[Function]| fs.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(" ");
-        return Err(format!("{} graphs against {} lowered functions\ngraphs: {}\nlowered: {}", derived.len(), vm.funcs.len(), names(&derived), names(&vm.funcs)));
-    }
-    let mut instructions = 0;
-    let mut blocks = 0;
-    let mut params = 0;
-    let mut failures = 0;
-    for (i, (d, g)) in derived.iter().zip(&decoded.functions).enumerate() {
-        let old = &vm.funcs[i];
-        if d.name != old.name { return Err(format!("function {i}: graph {} against lowered {}", d.name, old.name)); }
-        let (a, b): (Vec<String>, Vec<String>) = (d.code.iter().map(|o| format!("{o:?}")).collect(), old.code.iter().map(|o| format!("{o:?}")).collect());
-        if a != b {
-            // Every differing function, so one run shows every gap.
-            let at = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
-            let window = |s: &[String]| s[at.saturating_sub(3)..(at + 4).min(s.len())].join("; ");
-            eprintln!("{}: derived stream differs at pc {at}: derived {:?} vs lowered {:?}\n  derived: {}\n  lowered: {}", d.name, a.get(at), b.get(at), window(&a), window(&b));
-            failures += 1;
-            continue;
-        }
-        if (d.nregs, d.nireg, d.nfreg, d.nvreg, d.nparams) != (old.nregs, old.nireg, old.nfreg, old.nvreg, old.nparams) {
-            eprintln!("{}: register counts {:?} vs {:?}", d.name, (d.nregs, d.nireg, d.nfreg, d.nvreg), (old.nregs, old.nireg, old.nfreg, old.nvreg));
-            failures += 1;
-            continue;
-        }
-        instructions += d.code.len();
-        blocks += g.blocks.len();
-        params += g.blocks.iter().map(|b| b.params.len as usize).sum::<usize>();
-    }
-    if failures > 0 { return Err(format!("{failures} of {} functions differ", derived.len())); }
-    println!("{}", serde_json::json!({"functions": derived.len(), "instructions": instructions, "blocks": blocks, "parameters": params, "graph_bytes": bytes.len(), "text_bytes": text.len(), "derive_us": derive_us}));
-    Ok(())
-}
-
 fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     let bytes = std::fs::read(graph_path).map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(text_path).map_err(|e| e.to_string())?;
+    let other = std::fs::read(text_path).map_err(|e| e.to_string())?;
+    let text = if other.starts_with(graph::MAGIC) { String::new() } else { String::from_utf8(other.clone()).map_err(|_| "the other image is neither a graph nor text".to_string())? };
     let mut decode_us = Vec::new();
     let mut derive_us = Vec::new();
     let mut parse_us = Vec::new();
@@ -307,7 +267,8 @@ fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     for round in 0..7 {
         let start = Instant::now();
         let mut fresh = Interp::new();
-        let (_, shape_ids) = image::load_with_shapes(&mut fresh, std::hint::black_box(&text))?;
+        // The other image may be a graph itself: the compiler emits nothing else.
+        let shape_ids = if other.starts_with(graph::MAGIC) { graph::load(&mut fresh, std::hint::black_box(&other))?; Vec::new() } else { image::load_with_shapes(&mut fresh, std::hint::black_box(&text))?.1 };
         let c = us(start);
         text_functions = fresh.funcs.len();
         text_instructions = fresh.funcs.iter().map(|f| f.code.len()).sum();
@@ -329,7 +290,7 @@ fn size(graph_path: &str, text_path: &str, out: &str) -> Result<(), String> {
     }
     let result = serde_json::json!({
         "graph": { "path": graph_path, "bytes": bytes.len(), "functions": graph_functions, "instructions": graph_instructions, "decode_verify_us": median(decode_us.clone()), "derive_us": median(derive_us.clone()), "total_us": median(decode_us.iter().zip(&derive_us).map(|(a, b)| a + b).collect()), "load_us": median(load_us) },
-        "text": { "path": text_path, "bytes": text.len(), "functions": text_functions, "instructions": text_instructions, "parse_verify_us": median(parse_us) },
+        "text": { "path": text_path, "bytes": other.len(), "functions": text_functions, "instructions": text_instructions, "parse_verify_us": median(parse_us) },
     });
     std::fs::write(out, serde_json::to_string_pretty(&result).unwrap()).map_err(|e| e.to_string())?;
     println!("{}", serde_json::to_string_pretty(&result).unwrap());
@@ -358,7 +319,6 @@ fn main() -> Result<(), String> {
         Some("signatures") => { graph::with_table(|t| for e in &t.entries { println!("{}\t{}", e.name, e.operands); }); return Ok(()); }
         Some("scalar") => scalar(args.get(2).ok_or("PREFIX")?, std::path::Path::new(args.get(3).ok_or("OUT")?)),
         Some("typed") => typed(args.get(2).ok_or("PREFIX")?),
-        Some("image") => image_gate(args.get(2).ok_or("PREFIX")?),
         Some("size") => size(args.get(2).ok_or("GRAPH")?, args.get(3).ok_or("TEXT")?, args.get(4).ok_or("OUT")?),
         _ => Err("usage: graph_gate (scalar PREFIX OUT | typed PREFIX | image PREFIX | size GRAPH TEXT OUT)".into()),
     }

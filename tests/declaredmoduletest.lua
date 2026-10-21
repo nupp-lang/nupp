@@ -321,7 +321,7 @@ end
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
-            assert(not image:find('"model"', 1, true), "a type-only selection emits no require")
+            assert(not program.names(image, "model"), "a type-only selection emits no require")
         end
     )
 end
@@ -353,7 +353,7 @@ end
             local checked = inc.checkFile(dir .. "/src/usequery.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "usequery", dir .. "/src/usequery.nupp")
-            assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
+            assert(not program.names(image, "tecs"), "qualified path is lowered away")
 
             local previousUse = package.loaded.usequery
             local previousQuery = package.loaded["tecs.world.query"]
@@ -409,7 +409,7 @@ end
             local checked = inc.checkFile(dir .. "/src/use.nupp")
             testAssert.equal(#checked.diags, 0, checked.diags[1] and checked.diags[1].msg)
             local image = program.image(checked.result, "use", dir .. "/src/use.nupp")
-            assert(not image:find('"tecs"', 1, true), "qualified path is lowered away")
+            assert(not program.names(image, "tecs"), "qualified path is lowered away")
 
             package.loaded.use = nil
             package.loaded["tecs.world.shape"] = nil

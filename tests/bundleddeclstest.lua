@@ -387,7 +387,7 @@ end
     -- The program never names `close`; the image carries it because the lowering
     -- runs the File terminal at lexical scope exit.
     local image = program.image(parsed, "files-owner")
-    assert(image:find('"close"', 1, true), "the public File terminal runs at lexical scope exit")
+    assert(program.names(image, "close"), "the public File terminal runs at lexical scope exit")
 end
 
 function M.runnerResourceMapsToItsManifestSource()

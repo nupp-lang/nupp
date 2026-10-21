@@ -47,7 +47,7 @@ local envMod = require("nupp.compiler.project.env")
 local imagecache = {}
 
 --- Bumped when an entry's shape or meaning changes.
-const FORMAT = "vm-image/2"
+const FORMAT = "vm-image/3"
 
 --- Where the entries live under a store directory.
 const DIRECTORY = "vm-images"
@@ -155,8 +155,6 @@ local function keyFor(env: any, path: string, name: string?, source: string, dig
     local manifest = fs.readFile(fs.join(rootDir, "nupp.lua"))
     local parts = {
         FORMAT,
-        -- Text and graph images of one module are different entries.
-        os.getenv("NUPP_VM_IMAGE_FORMAT") or "text",
         name or "\0main",
         path,
         fs.absolute(path),

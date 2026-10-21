@@ -81,6 +81,13 @@ function program.load(result, name, path)
     return loadstring(code, "@" .. (path or name or "main"))
 end
 
+--- Whether an image holds the string constant `s`: a graph image keeps each
+--- string once, behind its length, which for a short string is one byte.
+function program.names(image, s)
+    assert(#s < 127, "a short string")
+    return image:find(string.char(#s + 1) .. s, 1, true) ~= nil
+end
+
 --- Loads and runs a checked parse, raising when it does not load.
 function program.run(result, name, path, ...)
     local chunk, problem = program.load(result, name, path)

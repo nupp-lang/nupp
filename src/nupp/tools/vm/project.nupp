@@ -441,10 +441,13 @@ function project.program(
     end
     lower.graphSink = function(_: string, functions: {any}, _: table): nil
         for _, f in ipairs(functions) do
-            for _, ins in ipairs(f.code) do
-                if native[ins[1]] then
-                    reached["vector"] = true
-                    return
+            -- A kernel's graph names its operations; anything else its blocks do.
+            for _, b in ipairs(f.graph and f.graph.blocks or f.blocks) do
+                for _, ins in ipairs(f.graph and b.op or b.code) do
+                    if native[f.graph and ins or ins[1]] then
+                        reached["vector"] = true
+                        return
+                    end
                 end
             end
         end

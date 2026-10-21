@@ -17,7 +17,6 @@ lower.graphSink = nil as function(entry: string, functions: {Fn}, header: table)
 lower.pathMapper = nil as(function(path: string): string?)?
 
 const graphemit = require("nupp.compiler.vm.graphemit")
-const opcodes = require("nupp.compiler.vm.opcodes")
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
 
@@ -91,7 +90,6 @@ function lower.emit(
     reuse: table?,
     functionsOut: table?
 ): string
-    local out = {}
     local assignedNames = {}
     -- Names the module ever assigns a `%` or `//` result, by name: a zero
     -- divisor makes those nan or an infinity whatever the checker says, which
@@ -99,10 +97,6 @@ function lower.emit(
     local remainderNames = {}
     local SURVEY = {}
     local SURVEY_EXAMPLE = {}
-
-    local function emit(s)
-        out[#out + 1] = s
-    end
 
     local function tokText(tok): string
         return tok.value ~= nil and tok.value or tok.text
@@ -515,9 +509,10 @@ function lower.emit(
         local n, one = f:reg(), f:reg()
         local name = f:const("str", key)
         f:op("GetField", n, counts, name)
-        local present = f:op("JmpIf", n, 0)
+        local present = f:label()
+        f:branch("JmpIf", n, present)
         f:op("K", n, f:const("num", 0))
-        f:patch(present, "JmpIf", n, f:offset(present, f:here()))
+        f:place(present)
         f:op("K", one, f:const("num", 1))
         f:op("Add", n, n, one)
         f:op("SetField", counts, name, n)
@@ -530,7 +525,8 @@ function lower.emit(
             return
         end
         local callee, base, path = f:reg(), f:reg(), f:reg()
-        local line = f.code[1] and f.code[1].line
+        local entry = f:entry().code
+        local line = entry[1] and entry[1].line
         local prologue: {
             table
         } = {
@@ -542,7 +538,7 @@ function lower.emit(
         }
         for i = #prologue, 1, -1 do
             prologue[i].line = line
-            table.insert(f.code, 1, prologue[i])
+            table.insert(entry, 1, prologue[i])
         end
     end
 
@@ -558,12 +554,13 @@ function lower.emit(
     local function coverBranch(f: Fn, node, value)
         local id = covered and covered.branches[node]
         if id then
-            local falseJump = f:op("JmpIfNot", value, 0)
+            local falseCase, done = f:label(), f:label()
+            f:branch("JmpIfNot", value, falseCase)
             count(f, id .. ":true")
-            local done = f:op("Jmp", 0)
-            f:patch(falseJump, "JmpIfNot", value, f:offset(falseJump, f:here()))
+            f:jump(done)
+            f:place(falseCase)
             count(f, id .. ":false")
-            f:patch(done, "Jmp", f:offset(done, f:here()))
+            f:place(done)
         end
     end
 
@@ -836,23 +833,24 @@ function lower.emit(
         return coerce(f, reg, class, "v"), "v"
     end
 
-    -- Emits a condition and the branch taken when it is false: a typed
-    -- comparison branches on its integer register, anything else on its value.
-    local function condBranch(f: Fn, node, site)
+    -- Emits a condition and the branch to `otherwise` taken when it is false:
+    -- a typed comparison branches on its integer register, anything else on
+    -- its value.
+    local function condBranch(f: Fn, node, site, otherwise: lowerstate.Block): nil
         if covered and site and covered.branches[site] then
             -- Counted on the value Lua truthiness reads, as the generator's probe
             -- counts it, so a typed comparison is not tested in its register.
             local v = exprAs(f, node, "v")
             coverBranch(f, site, v)
-            return f:op("JmpIfNot", v, 0), "JmpIfNot", v
+            f:branch("JmpIfNot", v, otherwise)
+            return
         end
         local r, c = expr(f, node, nil, "cond")
         if c == "b" then
-            return f:op("JmpIfIZero", r, 0), "JmpIfIZero", r
+            f:branch("JmpIfIZero", r, otherwise)
+            return
         end
-        local v = coerce(f, r, c, "v")
-
-        return f:op("JmpIfNot", v, 0), "JmpIfNot", v
+        f:branch("JmpIfNot", coerce(f, r, c, "v"), otherwise)
     end
 
     -- Whether an expression's natural home is a value register (or a number
@@ -1095,17 +1093,15 @@ function lower.emit(
         elseif t.recordNames then
             -- One of several records: the subject is read once, tested in order.
             local v = exprAs(f, node.expr, "v")
-            local exits = {}
+            local found = f:label()
             for i, rn in ipairs(t.recordNames) do
                 local sh = assert(shapeByBareName(rn), "is-test against unknown record " .. tostring(rn))
                 shapeTest(f, sh, v, dst)
                 if i < #t.recordNames then
-                    exits[#exits + 1] = f:op("JmpIf", dst, 0)
+                    f:branch("JmpIf", dst, found)
                 end
             end
-            for _, at in ipairs(exits) do
-                f:patch(at, "JmpIf", dst, f:offset(at, f:here()))
-            end
+            f:place(found)
         else
             error("is-test against " .. tostring(t.kind) .. " is not in this emitter")
         end
@@ -1435,7 +1431,8 @@ function lower.emit(
         inner:op("IUnbox", at, first)
         inner:op("IUnbox", stop, limit)
         inner:op("ICmpSLe", valid, at, stop)
-        local exit = inner:op("JmpIfIZero", valid, 0)
+        local exit = inner:label()
+        inner:branch("JmpIfIZero", valid, exit)
         local call, selfReg, countReg = inner:reg(), inner:reg(), inner:reg()
         inner:op("Move", selfReg, species)
         inner:op("Simd", "lanes", ty.element, call, 1)
@@ -1450,7 +1447,7 @@ function lower.emit(
         inner:op("IBox", call, at)
         inner:op("SetCell", cursor, call)
         inner:op("RetN", first, 2)
-        inner:patch(exit, "JmpIfIZero", valid, inner:offset(exit, inner:here()))
+        inner:place(exit)
         inner:op("RetNil")
         f:op("NewClosure", dst, inner.id, base, 3)
     end
@@ -1572,12 +1569,12 @@ function lower.emit(
     emitSafeCall = function(f: Fn, node, dst, nres, all)
         local absent = f:reg()
         f:op("Nil", absent)
-        local skips = {}
+        local skipped, done = f:label(), f:label()
 
         local function guard(value)
             local present = f:reg()
             f:op("Ne", present, value, absent)
-            skips[#skips + 1] = {at = f:op("JmpIfNot", present, 0), present = present}
+            f:branch("JmpIfNot", present, skipped)
         end
 
         if node.kind == "safeCall" then
@@ -1613,10 +1610,8 @@ function lower.emit(
             emitCall(f, node, dst, nres, all)
             node.obj, node.safeObj, node.safeMethod = obj, safeObj, safeMethod
         end
-        local done = f:op("Jmp", 0)
-        for _, skip in ipairs(skips) do
-            f:patch(skip.at, "JmpIfNot", skip.present, f:offset(skip.at, f:here()))
-        end
+        f:jump(done)
+        f:place(skipped)
         if all then
             -- The results are counted at run time: `select(1, nil)` is one nil.
             while f.nregs < dst + 3 do
@@ -1632,7 +1627,7 @@ function lower.emit(
                 f:op("Nil", dst + i)
             end
         end
-        f:patch(done, "Jmp", f:offset(done, f:here()))
+        f:place(done)
     end
 
     emitCall = function(f: Fn, node, dst, nres, all)
@@ -2048,7 +2043,8 @@ function lower.emit(
                 local subject = f:declare("__nuppAdmitValue", "v")
                 exprAs(f, supplied, "v", subject)
                 local admitted = exprAs(f, test, "v")
-                local pass = f:op("JmpIf", admitted, 0)
+                local pass = f:label()
+                f:branch("JmpIf", admitted, pass)
                 local message, level = f:reg(), f:reg()
                 f:op(
                     "K",
@@ -2057,7 +2053,7 @@ function lower.emit(
                 )
                 f:op("K", level, f:const("num", 2))
                 builtinRegisters(f, "error", {message, level})
-                f:patch(pass, "JmpIf", admitted, f:offset(pass, f:here()))
+                f:place(pass)
                 f:op("Move", dst, subject)
                 f:pop()
             end
@@ -2639,12 +2635,10 @@ function lower.emit(
             -- A block whose `yield v` statements each end it with a value.
             dst = dst or f:reg()
             f.yields = f.yields or {}
-            f.yields[#f.yields + 1] = {dst = dst, exits = {}, depth = f.cleanupDepth or 0}
+            f.yields[#f.yields + 1] = {dst = dst, done = f:label(), depth = f.cleanupDepth or 0}
             block(f, node.body)
             local y = table.remove(f.yields)
-            for _, at in ipairs(y.exits) do
-                f:patch(at, "Jmp", f:offset(at, f:here()))
-            end
+            f:place(y.done)
             return dst, "v"
         elseif k == "switchExpr" then
             dst = dst or f:reg()
@@ -2656,24 +2650,23 @@ function lower.emit(
             f.scopes[#f.scopes][selectorName] = new lowerstate.Binding(reg = subject, class = "v")
             local selector = {kind = "name", token = {text = selectorName}}
             local mark, fmark = f.nregs, f.nfregs
-            local exits = {}
+            local done = f:label()
             for _, arm in ipairs(node.cases or {}) do
                 local matched = f:reg()
                 if arm.patternKind == "static" then
-                    local matches = {}
+                    local found = f:label()
                     for _, value in ipairs(arm.values or {}) do
                         local candidate = exprAs(f, value, "v")
                         f:op("Eq", matched, subject, candidate)
-                        matches[#matches + 1] = f:op("JmpIf", matched, 0)
+                        f:branch("JmpIf", matched, found)
                     end
-                    for _, at in ipairs(matches) do
-                        f:patch(at, "JmpIf", matched, f:offset(at, f:here()))
-                    end
+                    f:place(found)
                 else
                     emitIs(f, {type = arm.type, expr = selector}, matched)
                 end
                 coverBranch(f, arm, matched)
-                local nextArm = f:op("JmpIfNot", matched, 0)
+                local nextArm = f:label()
+                f:branch("JmpIfNot", matched, nextArm)
                 f:push()
                 coverStatement(f, arm)
 
@@ -2690,17 +2683,13 @@ function lower.emit(
                     f:op("GetField", value, subject, f:const("str", tokText(field.name)))
                     bind(tokText(field.alias or field.name), value)
                 end
-                local guard, guardOp, guardReg
                 if arm.guard and arm.guard.expr then
-                    guard, guardOp, guardReg = condBranch(f, arm.guard.expr)
+                    condBranch(f, arm.guard.expr, nil, nextArm)
                 end
                 exprAs(f, arm.expr or {kind = "doExpr", body = arm.body}, "v", dst)
-                exits[#exits + 1] = f:op("Jmp", 0)
+                f:jump(done)
                 f:pop()
-                f:patch(nextArm, "JmpIfNot", matched, f:offset(nextArm, f:here()))
-                if guard then
-                    f:patch(guard, guardOp, guardReg, f:offset(guard, f:here()))
-                end
+                f:place(nextArm)
                 f.nregs, f.nfregs = mark, fmark
             end
             if node.elseCase then
@@ -2708,9 +2697,7 @@ function lower.emit(
                 coverStatement(f, arm)
                 exprAs(f, arm.expr or {kind = "doExpr", body = arm.body}, "v", dst)
             end
-            for _, at in ipairs(exits) do
-                f:patch(at, "Jmp", f:offset(at, f:here()))
-            end
+            f:place(done)
             f:pop()
             return dst, "v"
         end
@@ -2755,7 +2742,8 @@ function lower.emit(
                     f:op("Nil", base + index - 1)
                 end
             end
-            local proceed = f:op("JmpIf", base, 0)
+            local proceed = f:label()
+            f:branch("JmpIf", base, proceed)
             if node.exitKind == "return" then
                 local values = {}
                 for index = 1, width do
@@ -2765,7 +2753,7 @@ function lower.emit(
             else
                 stmt(f, {kind = node.exitKind == "break" and "breakStmt" or "continueStmt"})
             end
-            f:patch(proceed, "JmpIf", base, f:offset(proceed, f:here()))
+            f:place(proceed)
             f:op("Move", dst, base)
         elseif k == "istring" then
             -- `text ${value} text`: each literal piece as written, each value
@@ -2865,18 +2853,20 @@ function lower.emit(
             local operandMark, operandFloatMark = f.nregs, f.nfregs
             if op == "and" or op == "or" then
                 exprAs(f, node.lhs, "v", dst)
-                local branch = f:op(op == "and" and "JmpIfNot" or "JmpIf", dst, 0)
+                local settled = f:label()
+                f:branch(op == "and" and "JmpIfNot" or "JmpIf", dst, settled)
                 exprAs(f, node.rhs, "v", dst)
-                f:patch(branch, op == "and" and "JmpIfNot" or "JmpIf", dst, f:offset(branch, f:here()))
+                f:place(settled)
             elseif op == "??" then
                 exprAs(f, node.lhs, "v", dst)
                 local n = f:reg();
                 f:op("Nil", n);
                 local c = f:reg();
                 f:op("Ne", c, dst, n)
-                local branch = f:op("JmpIf", c, 0)
+                local settled = f:label()
+                f:branch("JmpIf", c, settled)
                 exprAs(f, node.rhs, "v", dst)
-                f:patch(branch, "JmpIf", c, f:offset(branch, f:here()))
+                f:place(settled)
             elseif op == ".." then
                 -- A chain `a .. b .. c ..` is one accumulator and one operand at a
                 -- time: string concatenation associates, and nesting it right as
@@ -2974,12 +2964,13 @@ function lower.emit(
             end
         elseif k == "ternary" then
             local c = exprAs(f, node.cond, "v")
-            local branch = f:op("JmpIfNot", c, 0)
+            local otherwise, done = f:label(), f:label()
+            f:branch("JmpIfNot", c, otherwise)
             exprAs(f, node.ifTrue, "v", dst)
-            local skip = f:op("Jmp", 0)
-            f:patch(branch, "JmpIfNot", c, f:offset(branch, f:here()))
+            f:jump(done)
+            f:place(otherwise)
             exprAs(f, node.ifFalse, "v", dst)
-            f:patch(skip, "Jmp", f:offset(skip, f:here()))
+            f:place(done)
         elseif k == "dotIndex" then
             local fname = node.overloadMember or tokText(node.name)
             if not environment
@@ -3034,14 +3025,15 @@ function lower.emit(
             f:op("Nil", dst)
             local present = f:reg()
             f:op("Ne", present, o, dst)
-            local skip = f:op("JmpIfNot", present, 0)
+            local skip = f:label()
+            f:branch("JmpIfNot", present, skip)
             if k == "safeIndex" then
                 f:op("GetField", dst, o, f:const("str", node.overloadMember or tokText(node.name)))
             else
                 local key = exprAs(f, node.expr, "v")
                 f:op("GetIdx", dst, o, key)
             end
-            f:patch(skip, "JmpIfNot", present, f:offset(skip, f:here()))
+            f:place(skip)
         elseif k == "newExpr" then
             local call = node.call
             if call.constructorCall then
@@ -3295,16 +3287,16 @@ function lower.emit(
                         local index, one, condition, value = f:reg(), f:reg(), f:reg(), f:reg()
                         f:op("K", index, f:const("num", 1))
                         f:op("K", one, f:const("num", 1))
-                        local top = f:here()
+                        local top, done = f:label(), f:label()
+                        f:place(top)
                         f:op("Le", condition, index, count)
-                        local done = f:op("JmpIfNot", condition, 0)
+                        f:branch("JmpIfNot", condition, done)
                         f:op("GetIdx", value, values, index)
                         f:op("SetIdx", dst, i, value)
                         f:op("Add", index, index, one)
                         f:op("Add", i, i, one)
-                        local back = f:op("Jmp", 0)
-                        f:patch(back, "Jmp", f:offset(back, top))
-                        f:patch(done, "JmpIfNot", condition, f:offset(done, f:here()))
+                        f:jump(top)
+                        f:place(done)
                     else
                         local v = exprAs(f, field.value, "v")
                         f:op("SetIdx", dst, i, v)
@@ -3747,29 +3739,24 @@ function lower.emit(
     end
 
     local function loopBegin(f: Fn)
-        f.breaks[#f.breaks + 1] = new lowerstate.Loop(cleanupDepth = f.cleanupDepth or 0)
+        f.breaks[
+            #f.breaks + 1
+        ] = new lowerstate.Loop(exit = f:label(), next = f:label(), cleanupDepth = f.cleanupDepth or 0)
     end
 
     -- Where `continue` lands: the loop's own next-round step, after the body.
     local function loopContinue(f: Fn)
-        local list = f.breaks[#f.breaks]
-        for _, at in ipairs(list.continues) do
-            f:patch(at, "Jmp", f:offset(at, f:here()))
-        end
-        list.continues = {}
+        f:place(f.breaks[#f.breaks].next)
     end
 
     local function loopEnd(f: Fn)
-        local list = table.remove(f.breaks);
-        for _, at in ipairs(list.breaks) do
-            f:patch(at, "Jmp", f:offset(at, f:here()))
-        end
+        f:place(table.remove(f.breaks).exit)
     end
 
-    local function patchGoto(f: Fn, jump, label)
+    -- A goto's unwind learns the depth of the label it leaves to.
+    local function settleGoto(jump, label)
         assert(label.depth <= jump.depth, "goto enters a cleanup scope")
-        f:patch(jump.unwind, "Unwind", label.depth)
-        f:patch(jump.branch, "Jmp", f:offset(jump.branch, label.pc))
+        jump.unwind[2] = label.depth
     end
 
     -- Cleanup selection comes from the checker's resolved affine terminals.
@@ -3778,10 +3765,11 @@ function lower.emit(
         f:op("Require", globals, f:const("str", "_G"))
         local key = f:const("str", "__nuppCleanupRegistry")
         f:op("GetField", registry, globals, key)
-        local exists = f:op("JmpIf", registry, 0)
+        local exists = f:label()
+        f:branch("JmpIf", registry, exists)
         f:op("NewTableN", registry, 0, 0)
         f:op("SetField", globals, key, registry)
-        f:patch(exists, "JmpIf", registry, f:offset(exists, f:here()))
+        f:place(exists)
 
         return registry
     end
@@ -3812,9 +3800,10 @@ function lower.emit(
         if guard and cleanup.kind ~= "field" then
             local copy = f:reg()
             f:op("Move", copy, value)
-            local branch = f:op("JmpIf", guard, 0)
+            local kept = f:label()
+            f:branch("JmpIf", guard, kept)
             f:op("Nil", copy)
-            f:patch(branch, "JmpIf", guard, f:offset(branch, f:here()))
+            f:place(kept)
             value = copy
         end
         if cleanup.kind == "method" or cleanup.kind == "closure" then
@@ -3844,17 +3833,14 @@ function lower.emit(
             local field = f:reg()
             local absent = f:reg()
             f:op("Nil", field)
-            local skip
+            local skip = f:label()
             if guard then
-                skip = f:op("JmpIfNot", guard, 0)
+                f:branch("JmpIfNot", guard, skip)
             end
             f:op("Eq", absent, value, field)
-            local missing = f:op("JmpIf", absent, 0)
+            f:branch("JmpIf", absent, skip)
             f:op("GetField", field, value, f:const("str", cleanup.field))
-            f:patch(missing, "JmpIf", absent, f:offset(missing, f:here()))
-            if skip then
-                f:patch(skip, "JmpIfNot", guard, f:offset(skip, f:here()))
-            end
+            f:place(skip)
             deferCleanup(f, field, cleanup.cleanup, guard)
             return
         else
@@ -3872,9 +3858,10 @@ function lower.emit(
             f:op("Nil", present)
             f:op("Eq", present, value, present)
             f:op("Move", field, value)
-            local skip = f:op("JmpIf", present, 0)
+            local skip = f:label()
+            f:branch("JmpIf", present, skip)
             f:op("GetField", field, value, f:const("str", cleanup.field))
-            f:patch(skip, "JmpIf", present, f:offset(skip, f:here()))
+            f:place(skip)
             rearmCleanup(f, field, cleanup.cleanup, depth)
             return
         end
@@ -4104,7 +4091,8 @@ function lower.emit(
             local none, present = f:reg(), f:reg()
             f:op("Nil", none)
             f:op("Ne", present, o, none)
-            local skip = f:op("JmpIfNot", present, 0)
+            local skip = f:label()
+            f:branch("JmpIfNot", present, skip)
             local holder = {kind = "vmRegister", reg = o, inferredType = target.obj.inferredType}
             local plain = target.kind == "safeIndex"
                 and {
@@ -4125,7 +4113,7 @@ function lower.emit(
                 rewritten.target = plain
             end
             stmt(f, rewritten)
-            f:patch(skip, "JmpIfNot", present, f:offset(skip, f:here()))
+            f:place(skip)
         elseif k == "assignStmt" then
             local targets, exprs = node.targets, node.exprs
             if #targets == 1 and #exprs == 1 then
@@ -4163,19 +4151,20 @@ function lower.emit(
                 end
             end
             assert(label, "no visible label " .. name)
-            local jump = {unwind = f:op("Unwind", 0), branch = f:op("Jmp", 0), depth = f.cleanupDepth or 0}
-            if label.pc then
-                patchGoto(f, jump, label)
+            local jump = {unwind = f:op("Unwind", 0), depth = f.cleanupDepth or 0}
+            f:jump(label.block)
+            if label.depth then
+                settleGoto(jump, label)
             else
                 label.pending[#label.pending + 1] = jump
             end
         elseif k == "labelStmt" then
             local scope = f.labelScopes[#f.labelScopes]
             local label = assert(scope.labels[tokText(node.name)])
-            label.pc = f:here()
+            f:place(label.block)
             label.depth = label.atEnd and scope.depth or (f.cleanupDepth or 0)
             for _, jump in ipairs(label.pending) do
-                patchGoto(f, jump, label)
+                settleGoto(jump, label)
             end
         elseif k == "yieldStmt" then
             local y = assert(f.yields and f.yields[#f.yields], "yield outside a do expression")
@@ -4183,7 +4172,7 @@ function lower.emit(
             if (f.cleanupDepth or 0) > y.depth then
                 f:op("Unwind", y.depth)
             end
-            y.exits[#y.exits + 1] = f:op("Jmp", 0)
+            f:jump(y.done)
         elseif k == "compoundAssign" then
             -- `x op= e` is `x = x op e`; the target's own subexpressions are
             -- evaluated twice, as they are side-effect free in practice.
@@ -4287,7 +4276,8 @@ function lower.emit(
             local on = f:reg()
             f:op("GetField", on, view, f:const("str", "on"))
             local enabled = exprAs(f, {kind = "bracketIndex", obj = value(on), expr = number(severity)}, "v")
-            local skip = f:op("JmpIfNot", enabled, 0)
+            local skip = f:label()
+            f:branch("JmpIfNot", enabled, skip)
             local message
             if call.logFormatIntrinsic then
                 local plan = call.logFormatIntrinsic
@@ -4323,7 +4313,7 @@ function lower.emit(
                 },
                 "v"
             )
-            f:patch(skip, "JmpIfNot", enabled, f:offset(skip, f:here()))
+            f:place(skip)
         elseif k == "callStmt" then
             expr(f, node.expr, nil, "v")
         elseif k == "returnStmt" then
@@ -4393,7 +4383,7 @@ function lower.emit(
                 end
             end
         elseif k == "ifStmt" then
-            local exits = {}
+            local done = f:label()
             -- A condition's temporaries die at its branch: the body starts from
             -- the registers live before the condition, or its locals would be
             -- declared above every temporary the condition used.
@@ -4407,43 +4397,44 @@ function lower.emit(
                     f:op("Nil", absent)
                     f:op("Ne", present, value, absent)
                     coverBranch(f, clause, present)
-                    local branch = f:op("JmpIfNot", present, 0)
+                    local nextClause = f:label()
+                    f:branch("JmpIfNot", present, nextClause)
                     f:push()
                     local reg, cell = f:declare(tokText(clause.binding), "v")
                     f:op(cell and "NewCell" or "Move", reg, value)
                     block(f, clause.body)
                     f:pop()
                     f.nregs = math.max(mark, f.declTop or 0)
-                    exits[#exits + 1] = f:op("Jmp", 0)
-                    f:patch(branch, "JmpIfNot", present, f:offset(branch, f:here()))
+                    f:jump(done)
+                    f:place(nextClause)
                 else
-                    local branch, bop, c = condBranch(f, clause.cond, clause)
+                    local nextClause = f:label()
+                    condBranch(f, clause.cond, clause, nextClause)
                     f.nregs = math.max(mark, f.declTop or 0)
                     block(f, clause.body)
-                    exits[#exits + 1] = f:op("Jmp", 0)
-                    f:patch(branch, bop, c, f:offset(branch, f:here()))
+                    f:jump(done)
+                    f:place(nextClause)
                 end
             end
             if node.elseClause then
                 block(f, node.elseClause.body or node.elseClause)
             end
-            for _, e in ipairs(exits) do
-                f:patch(e, "Jmp", f:offset(e, f:here()))
-            end
+            f:place(done)
         elseif k == "whileStmt" then
-            local top = f:here()
+            local top, finished = f:label(), f:label()
+            f:place(top)
             local mark = f.nregs
-            local branch, bop, c = condBranch(f, node.cond)
+            condBranch(f, node.cond, nil, finished)
             f.nregs = math.max(mark, f.declTop or 0)
             loopBegin(f)
             block(f, node.body)
             loopContinue(f)
-            local back = f:op("Jmp", 0);
-            f:patch(back, "Jmp", f:offset(back, top))
-            f:patch(branch, bop, c, f:offset(branch, f:here()))
+            f:jump(top)
+            f:place(finished)
             loopEnd(f)
         elseif k == "repeatStmt" then
-            local top = f:here()
+            local top = f:label()
+            f:place(top)
             loopBegin(f)
             f:push()
             local depth = f.cleanupDepth or 0
@@ -4463,8 +4454,7 @@ function lower.emit(
                 f.cleanupDepth = depth
             end
             f:pop()
-            local back = f:op("JmpIfNot", c, 0);
-            f:patch(back, "JmpIfNot", c, f:offset(back, top))
+            f:branch("JmpIfNot", c, top)
             loopEnd(f)
         elseif k == "fornumStmt" then
             f:push()
@@ -4515,7 +4505,8 @@ function lower.emit(
                 down = f:freg();
                 f:op("ISub", down, one, up)
             end
-            local top = f:here()
+            local top, finished = f:label(), f:label()
+            f:place(top)
             local c = f:freg()
             if sign > 0 then
                 f:op("FCmpLe", c, var, limit)
@@ -4530,7 +4521,7 @@ function lower.emit(
                 f:op("IAnd", c2, c2, down)
                 f:op("IOr", c, c1, c2)
             end
-            local branch = f:op("JmpIfIZero", c, 0)
+            f:branch("JmpIfIZero", c, finished)
             loopBegin(f)
             if varCell then
                 f:push();
@@ -4545,9 +4536,8 @@ function lower.emit(
             end
             loopContinue(f)
             f:op("FAdd", var, var, step)
-            local back = f:op("Jmp", 0);
-            f:patch(back, "Jmp", f:offset(back, top))
-            f:patch(branch, "JmpIfIZero", c, f:offset(branch, f:here()))
+            f:jump(top)
+            f:place(finished)
             loopEnd(f)
             f:pop()
         elseif k == "forinStmt" then
@@ -4568,11 +4558,12 @@ function lower.emit(
                 f:op("IUnbox", width, call)
                 f:op("IK", at, 1)
                 f:op("ISub", at, at, width)
-                local top = f:here()
+                local top, finished = f:label(), f:label()
+                f:place(top)
                 f:op("IAdd", at, at, width)
                 local valid = f:freg()
                 f:op("ICmpSLe", valid, at, limit)
-                local exit = f:op("JmpIfIZero", valid, 0)
+                f:branch("JmpIfIZero", valid, finished)
                 local left = f:freg()
                 f:op("ISub", left, limit, at)
                 f:op("IAddK", left, left, 1)
@@ -4594,9 +4585,8 @@ function lower.emit(
                 block(f, node.body)
                 f:pop()
                 loopContinue(f)
-                local back = f:op("Jmp", 0)
-                f:patch(back, "Jmp", f:offset(back, top))
-                f:patch(exit, "JmpIfIZero", valid, f:offset(exit, f:here()))
+                f:jump(top)
+                f:place(finished)
                 loopEnd(f)
                 f:pop()
                 return
@@ -4615,14 +4605,15 @@ function lower.emit(
                 f:reg()
             end
             local ended = f:reg()
-            local top = f:here()
+            local top, finished = f:label(), f:label()
+            f:place(top)
             f:op("Move", call + 1, stateReg);
             f:op("Move", call + 2, ctl)
             f:op("CallDyn", fnReg, call, 2)
             f:op("PadResults", call, #node.names)
             f:op("Nil", ended)
             f:op("Eq", ended, call, ended)
-            local exit = f:op("JmpIf", ended, 0)
+            f:branch("JmpIf", ended, finished)
             f:op("Move", ctl, call)
             loopBegin(f)
             f:push()
@@ -4638,9 +4629,8 @@ function lower.emit(
             block(f, node.body)
             f:pop()
             loopContinue(f)
-            local back = f:op("Jmp", 0);
-            f:patch(back, "Jmp", f:offset(back, top))
-            f:patch(exit, "JmpIf", ended, f:offset(exit, f:here()))
+            f:jump(top)
+            f:place(finished)
             loopEnd(f)
             f:pop()
         elseif k == "continueStmt" then
@@ -4648,13 +4638,13 @@ function lower.emit(
             if (f.cleanupDepth or 0) > loop.cleanupDepth then
                 f:op("Unwind", loop.cleanupDepth)
             end
-            loop.continues[#loop.continues + 1] = f:op("Jmp", 0)
+            f:jump(loop.next)
         elseif k == "breakStmt" then
             if (f.cleanupDepth or 0) > f.breaks[#f.breaks].cleanupDepth then
                 f:op("Unwind", f.breaks[#f.breaks].cleanupDepth)
             end
             local list = assert(f.breaks[#f.breaks], "break outside a loop")
-            list.breaks[#list.breaks + 1] = f:op("Jmp", 0)
+            f:jump(list.exit)
         elseif k == "localFuncStmt" then
             -- `local function f`: f is in scope in its own body, through its cell.
             local name = tokText(node.name)
@@ -4999,9 +4989,9 @@ function lower.emit(
                     if owner.activation then
                         guard = f:reg()
                         f:op("K", guard, f:const("false", ""))
-                        local exits = {}
+                        local activated = f:label()
                         for _, tests in ipairs(owner.activation) do
-                            local failures = {}
+                            local failed = f:label()
                             for _, test in ipairs(tests) do
                                 local sibling = exprAs(
                                     f,
@@ -5024,17 +5014,13 @@ function lower.emit(
                                     f:op("K", constant, f:const(tag, kind == "boolean" and "" or test.constant))
                                 end
                                 f:op("Eq", matches, sibling, constant)
-                                failures[#failures + 1] = {at = f:op("JmpIfNot", matches, 0), value = matches}
+                                f:branch("JmpIfNot", matches, failed)
                             end
                             f:op("K", guard, f:const("true", ""))
-                            exits[#exits + 1] = f:op("Jmp", 0)
-                            for _, failure in ipairs(failures) do
-                                f:patch(failure.at, "JmpIfNot", failure.value, f:offset(failure.at, f:here()))
-                            end
+                            f:jump(activated)
+                            f:place(failed)
                         end
-                        for _, at in ipairs(exits) do
-                            f:patch(at, "Jmp", f:offset(at, f:here()))
-                        end
+                        f:place(activated)
                     end
                     for i = #(owner.cleanups or {}), 1, -1 do
                         local depth = f.cleanupDepth or 0
@@ -5075,7 +5061,7 @@ function lower.emit(
             if st.kind == "labelStmt" then
                 local name = tokText(st.name)
                 assert(not scope.labels[name], "duplicate label " .. name)
-                scope.labels[name] = {atEnd = atEnd, pending = {}}
+                scope.labels[name] = {atEnd = atEnd, block = f:label(), pending = {}}
             elseif st.kind ~= "emptyStmt" then
                 atEnd = false
             end
@@ -5453,9 +5439,7 @@ function lower.emit(
     defineFunction = function(f: Fn, funcbody)
         local native = nativePlans[funcbody]
         if native and not f.implicitSelf then
-            f.code, f.consts = native.code, native.consts
-            f.nregs, f.nfregs, f.nvregs = native.nregs, native.nfregs, native.nvregs
-            f.gpu = native.gpu
+            f.graph, f.gpu = native.graph, native.gpu
             return
         end
         f.constructorSelf = funcbody.vmConstructorSelf
@@ -5553,19 +5537,15 @@ function lower.emit(
                 SURVEY[key] = (SURVEY[key] or 0) + 1
                 SURVEY_EXAMPLE = SURVEY_EXAMPLE or {};
                 SURVEY_EXAMPLE[key] = SURVEY_EXAMPLE[key] or (f.name .. " :: " .. tostring(err):gsub("^.-:%d+: ", ""))
-                f.code = {};
+                f:reset()
                 f.scopes = {{}}
-                f:op("RetNil")
             end
         else
             block(f, statements)
         end
-        local last = f.code[#f.code]
-        if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then
-            f:op("RetNil")
-        end
-        -- Branch offsets are relative to the next instruction, so a prefix moves
-        -- nothing.
+        -- Falling off the end returns nothing; after a return this lands in a
+        -- block nothing reaches.
+        f:op("RetNil")
         local loads = {}
         for ui, r in pairs(f.upvalRegs or {}) do
             loads[#loads + 1] = {"GetUpval", r, ui}
@@ -5573,8 +5553,9 @@ function lower.emit(
         table.sort(loads, function(a, b)
             return a[3] < b[3]
         end)
+        local entry = f:entry().code
         for i = #loads, 1, -1 do
-            table.insert(f.code, 1, loads[i])
+            table.insert(entry, 1, loads[i])
         end
         loadCoverageCounts(f)
     end
@@ -5848,19 +5829,15 @@ function lower.emit(
                 SURVEY_EXAMPLE = SURVEY_EXAMPLE or {};
                 SURVEY_EXAMPLE[key] = SURVEY_EXAMPLE[key]
                     or (chunk.name .. " :: " .. tostring(err):gsub("^.-:%d+: ", ""));
-                chunk.code = {};
-                chunk:op("RetNil")
+                chunk:reset()
             end
         else
             block(chunk, rootNode.blocks[1])
         end
-        local last = chunk.code[#chunk.code]
-        if last == nil or (last[1] ~= "Ret" and last[1] ~= "RetNil" and last[1] ~= "RetN") then
-            if chunk.exportsReg then
-                chunk:op("Ret", chunk.exportsReg)
-            else
-                chunk:op("RetNil")
-            end
+        if chunk.exportsReg then
+            chunk:op("Ret", chunk.exportsReg)
+        else
+            chunk:op("RetNil")
         end
         loadCoverageCounts(chunk)
         modules[name] = chunk
@@ -5901,36 +5878,10 @@ function lower.emit(
     until afterIndex > #after
 
     -- Output -------------------------------------------------------------------
-    -- Every byte outside printable ASCII is escaped, so an image is ASCII text
-    -- whatever bytes its string constants hold.
-    local function q(s)
-        return '"' .. s:gsub('[%c"\\\128-\255]', function(c)
-            return string.format("\\%03d", c:byte())
-        end) .. '"'
-    end
-
-    -- The opcode table first: the runtime reads the code against it.
-    for _, line in ipairs(opcodes.header()) do
-        emit(line)
-    end
-    for _, shape in ipairs(shapeOrder) do
-        local parts = {"shape", shape.id, shape.name}
-        local identity = shape.module and shape.module .. ":" .. shape.name
-        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
-            parts[#parts + 1] = "identity=" .. identity
-        end
-        for _, slot in ipairs(shape.slots) do
-            parts[#parts + 1] = slot.name .. ":" .. slot.ty
-        end
-        emit(table.concat(parts, " "))
-    end
-    for _, f in ipairs(functions) do
-        local inspected = nil
-        local firstOut = #out + 1
-        f:compact()
-        if functionsOut then
-            -- What hot reload matches a function by across two lowerings: its
-            -- lexical parent and its captured names in upvalue order.
+    if functionsOut then
+        -- What hot reload matches a function by across two lowerings: its
+        -- lexical parent and its captured names in upvalue order.
+        for _, f in ipairs(functions) do
             local captures = {}
             for captured, index in pairs(f.upvalIndex) do
                 captures[index + 1] = captured
@@ -5939,113 +5890,6 @@ function lower.emit(
                 #functionsOut + 1
             ] = {id = f.id, name = f.name, parent = f.parent and f.parent.id, captures = captures}
         end
-        if listing and f.module == entryName then
-            inspected = {name = f.name, what = f.parent and "function" or "chunk", instructions = {}}
-            listing[#listing + 1] = inspected
-        end
-        emit(
-            (
-                "function %s %d %d %d %d %s:%s%s"
-            ):format(
-                f.name:gsub("%s", "_"),
-                f.id,
-                f.nparams,
-                math.max(f.maxRegs or 0, f.nregs) + 9,
-                math.max(f.maxFregs or 0, f.nfregs) + 2,
-                table.concat(f.sig or {}),
-                f.ret or "v",
-                f.vararg and " vararg" or ""
-            )
-        )
-        if f.nvregs then
-            emit("  vectors " .. f.nvregs)
-        end
-        if f.module then
-            emit("  source " .. f.module)
-        end
-        if f.gpu then
-            -- gpu ENTRY THREADS UNIFORM_BYTES COUNT_SPAN READONLY WRITABLE UNIFORMS
-            -- WGSL SPIRV
-            local gpu = f.gpu as any
-
-            local function names(list: any): string
-                local out = {}
-                for i, param in ipairs(list) do
-                    out[i] = param.name
-                end
-
-                return #out > 0 and table.concat(out, ",") or "-"
-            end
-
-            emit(
-                (
-                    "  gpu %s %d %d %s %s %s %s %s %s"
-                ):format(
-                    gpu.entrypoint,
-                    gpu.threads,
-                    gpu.uniformBytes,
-                    gpu.countSpan,
-                    names(gpu.readonly),
-                    names(gpu.writable),
-                    names(gpu.uniforms),
-                    q(gpu.wgsl),
-                    q(gpu.spirv)
-                )
-            )
-        end
-        for i, c in ipairs(f.consts) do
-            if c.kind == "str" then
-                emit(("  const %d str %s"):format(i - 1, q(c.value)))
-            elseif c.kind == "num" then
-                emit(("  const %d num %.17g"):format(i - 1, c.value as number))
-            elseif c.kind == "builtin" then
-                emit(("  const %d builtin %s"):format(i - 1, c.value))
-            else
-                emit(("  const %d %s %s"):format(i - 1, c.kind, tostring(c.value)))
-            end
-        end
-        -- The source line of every instruction, run-length encoded: `L` for
-        -- one instruction, `LxN` for N in a row, 0 where none is known.
-        local runs = {}
-        local runLine, runCount = nil, 0
-        for _, op in ipairs(f.code) do
-            local line = op.line or 0
-            if line == runLine then
-                runCount = runCount + 1
-            else
-                if runLine then
-                    runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
-                end
-                runLine, runCount = line, 1
-            end
-        end
-        if runLine and not (#runs == 0 and runLine == 0) then
-            runs[#runs + 1] = runCount > 1 and (runLine .. "x" .. runCount) or tostring(runLine)
-            emit("  lines " .. table.concat(runs, " "))
-        end
-        for pc, op in ipairs(f.code) do
-            local parts = {}
-            for i, value in ipairs(op as {string | number}) do
-                parts[i] = type(value) == "number" and ("%.17g"):format(value as number) or value
-            end
-            local text = table.concat(parts, " ")
-            emit("  " .. text)
-            if inspected then
-                inspected.instructions[
-                    #inspected.instructions + 1
-                ] = {pc = pc - 1, op = op[1], text = ("%04d %s"):format(pc - 1, text), line = op.line,}
-            end
-        end
-        emit("end")
-        if inspected then
-            -- The function's own image text, header to `end`, which is what an
-            -- inspector shows of the image without the rest of the graph.
-            inspected.image = table.concat(out, "\n", firstOut, #out)
-        end
-        if linker then
-            linker.wrote(f, out, firstOut)
-        end
-        ::continue::
     end
     -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
     -- and error positions. A chunk's own name (`=name` or `@path`) is kept.
@@ -6059,9 +5903,7 @@ function lower.emit(
             p = (lower.pathMapper as function(path: string): string?)(p)
         end
         moduleList[i] = {name = name, chunk = modules[name].id, path = p}
-        emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))
     end
-    emit("entry " .. modules[entryName].id)
     -- The header the graph image carries beside its functions.
     local header = {shapes = shapeOrder, modules = moduleList, entry = modules[entryName].id}
     if lower.graphSink then
@@ -6069,11 +5911,23 @@ function lower.emit(
         sink(entryName, functions, header)
     end
     if linker then
+        for _, f in ipairs(functions) do
+            linker.wrote(f)
+        end
         linker.keep(functions)
         local reused: any = reuse
         reused.stats = linker.stats
     end
-    local result = graphemit.wanted() and graphemit.image(functions, header) or table.concat(out, "\n") .. "\n"
+    local result = graphemit.image(
+        functions,
+        header,
+        listing and function(f: Fn, g: any): nil
+            if f.module == entryName then
+                local entries = listing as table
+                entries[#entries + 1] = graphemit.listing(f, g)
+            end
+        end or nil
+    )
     if os.getenv("EMIT_SURVEY") then
         local rows = {};
         for k, n in pairs(SURVEY) do

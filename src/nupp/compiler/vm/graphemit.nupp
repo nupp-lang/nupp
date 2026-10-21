@@ -1,20 +1,21 @@
 module nupp.compiler.vm.graphemit
 
 --[[
-The graph image of a finished lowering: every function the lowering wrote,
-converted to its closed-block graph, encoded beside the header the text
-image carries (shapes, modules, entry). The lowering hands over its
-functions in image order and the header it would have spelled as lines.
+The image of a finished lowering: every function's closed-block graph,
+encoded beside the header the image carries (shapes, modules, entry), and
+the listing inspection shows of a function, which is the stream the runtime
+derives from its graph.
 ]]
 
 local convert = require("nupp.compiler.vm.convert")
+local G = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 
 local graphemit = {}
 
 --- The image's shape table as the graph codec takes it: slot types by
---- name, a record slot naming its shape's index, and the identity the text
---- header would carry.
+--- name, a record slot naming its shape's index, and the identity a shape
+--- of a module's own record carries.
 function graphemit.shapes(order: {any}): {any}
     local shapes = {}
     for i, shape in ipairs(order) do
@@ -35,28 +36,87 @@ function graphemit.shapes(order: {any}): {any}
     return shapes
 end
 
---- The graph image of `functions`, in their order, under `header`
---- (`shapes` in allocation order, `modules` with each one's chunk and path,
---- `entry`).
---- @raises string when a function's stream does not convert or its graph
---- does not verify.
-function graphemit.image(functions: {any}, header: any): string
-    local graphs = {}
+--- The graph image of `functions` under `header` (`shapes` in allocation
+--- order, `modules` with each one's chunk and path, `entry`). Each function
+--- is converted, handed to `seen` with its graph, encoded, and its blocks and
+--- constants let go with the graph: no more than one graph is alive at a
+--- time, and what the lowering built shrinks as the image grows.
+--- @raises string when a function's blocks do not convert or its graph does
+--- not verify.
+function graphemit.image(functions: {any}, header: any, seen: (function(f: any, g: any): nil)?): string
+    local encoder = graphimage.encoder()
     for i = 1, #functions do
-        graphs[i] = convert.graph(functions[i])
+        local f = functions[i]
+        local g = convert.graph(f)
+        if seen then
+            seen(f, g)
+        end
+        encoder.add(g)
+        f.blocks, f.current, f.graph, f.consts, f.constIndex = {}, nil, nil, {}, {}
     end
 
-    return graphimage.encode({
-        functions = graphs,
-        shapes = graphemit.shapes(header.shapes),
-        modules = header.modules,
-        entry = header.entry
-    })
+    return encoder.finish({shapes = graphemit.shapes(header.shapes), modules = header.modules, entry = header.entry})
 end
 
---- Whether the format the environment asks for is the graph.
-function graphemit.wanted(): boolean
-    return os.getenv("NUPP_VM_IMAGE_FORMAT") == "graph"
+-- Every byte outside printable ASCII is escaped, so a listing is ASCII text
+-- whatever bytes a string constant holds.
+local function quote(s: string): string
+    return '"' .. s:gsub('[%c"\\\128-\255]', function(c: string): string
+        return string.format("\\%03d", c:byte())
+    end) .. '"'
+end
+
+--- What inspection shows of function `f` with graph `g`: its instructions as
+--- the runtime derives them, each with its source line, and the function's
+--- text in the image listing format.
+function graphemit.listing(f: any, g: any): any
+    local derived = G.lower(g)
+    local lines: {
+        string
+    } = {
+        (
+            "function %s %d %d %d %d %s:%s%s"
+        ):format(
+            f.name:gsub("%s", "_"),
+            f.id,
+            f.nparams,
+            derived.nregs,
+            derived.nfregs,
+            table.concat(f.sig or {}),
+            f.ret or "v",
+            f.vararg and " vararg" or ""
+        )
+    }
+    if f.module then
+        lines[#lines + 1] = "  source " .. f.module
+    end
+    for i, c in ipairs(derived.consts) do
+        local value = c.value
+        if c.kind == "str" then
+            value = quote(value as string)
+        elseif c.kind == "num" then
+            value = ("%.17g"):format(value as number)
+        end
+        lines[#lines + 1] = ("  const %d %s %s"):format(i - 1, c.kind, tostring(value))
+    end
+    local instructions = {}
+    for pc, ins in ipairs(derived.code) do
+        local parts = {}
+        for i, value in ipairs(ins as {any}) do
+            parts[i] = type(value) == "number" and ("%.17g"):format(value as number) or tostring(value)
+        end
+        local text = table.concat(parts, " ")
+        lines[#lines + 1] = "  " .. text
+        instructions[pc] = {pc = pc - 1, op = ins[1], text = ("%04d %s"):format(pc - 1, text), line = ins.line}
+    end
+    lines[#lines + 1] = "end"
+
+    return {
+        name = f.name,
+        what = f.parent and "function" or "chunk",
+        instructions = instructions,
+        image = table.concat(lines, "\n")
+    }
 end
 
 export = graphemit

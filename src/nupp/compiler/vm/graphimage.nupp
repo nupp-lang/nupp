@@ -45,6 +45,15 @@ end
 --- A word as the image stores it: shifted by one so NONE is a single zero
 --- byte, then seven bits per byte, low bits first, the high bit marking
 --- more. Small values, which is nearly all of them, take one byte.
+--- The one-byte words 0 to 126, by their shifted byte 1 to 127, so the
+--- common word is a table read rather than a builtin call and a fresh string.
+local SHIFTED: {[integer]: string} = {}
+
+for b = 1, 127 do
+    SHIFTED[b] = string.char(b)
+end
+local NONE_BYTE = string.char(0)
+
 local function varint(n: number): string
     local shifted = (n + 1) % two32
     if shifted < 128 then
@@ -104,14 +113,13 @@ end
 image.floatBytes = floatBytes
 image.wideBytes = wideBytes
 
---- Encodes an image: `functions` is the list of graphs, each carrying its
+--- An image encoder: `add` encodes one graph at a time, which carries its
 --- `name`, `module`, optional `path`, `nparams`, `sig` (one class letter per
 --- parameter), `ret`, `vararg`, `constants` and, when the frontend built
---- one, `gpu`. `shapes`, `modules`, `extensions` and `entry` are optional.
---- @raises string when a graph does not verify, a wide literal is not an
---- exact integer, or a region annotation does not describe its graph.
-function image.encode(img: any): string
-    local parts: {string} = {}
+--- one, `gpu`; `finish` writes the header (`shapes`, `modules`, `extensions`
+--- and `entry`, all optional) and returns the image. A graph is not held
+--- once it is added, so a lowering can encode as it converts.
+function image.encoder(): any
     local strings, stringIndex, nstrings = {}, {}, 0
     local wides, wideIndex, nwides = {}, {}, 0
     local floats, floatIndex, nfloats = {}, {}, 0
@@ -152,13 +160,28 @@ function image.encode(img: any): string
         return at
     end
 
+    -- The section being written: one function's words, or the header's.
     local body: {string} = {}
+    local functionParts: {string} = {}
+    local nfunctions: integer = 0
+
+    local nbody: integer = 0
 
     local function word(n: number): nil
-        if not (n >= 0 and n < two32 and n % 1 == 0) then
-            error("image word out of range: " .. tostring(n), 0)
+        -- Nearly every word is a small count, index or slot: one byte, its
+        -- value shifted by one so NONE is zero.
+        local small = SHIFTED[(n + 1) as integer]
+        if small == nil then
+            if n == NONE then
+                small = NONE_BYTE
+            elseif not (n >= 0 and n < two32 and n % 1 == 0) then
+                error("image word out of range: " .. tostring(n), 0)
+            else
+                small = varint(n)
+            end
         end
-        body[#body + 1] = varint(n)
+        nbody = nbody + 1
+        body[nbody] = small
     end
 
     local function optional(s: string?): nil
@@ -174,48 +197,19 @@ function image.encode(img: any): string
         end
     end
 
-    local shapes = img.shapes or {}
-    word(#shapes)
-    for i = 1, #shapes do
-        local s = shapes[i]
-        word(str(s.name))
-        optional(s.identity)
-        local slots = s.slots or {}
-        word(#slots)
-        for j = 1, #slots do
-            local slot = slots[j]
-            word(str(slot.name))
-            word(assert(slotTypes[slot.type or "any"], "unknown slot type"))
-            word(slot.record or NONE)
+    --- Encodes graph `g` as the image's next function.
+    --- @raises string when the graph does not verify, a wide literal is not
+    --- an exact integer, or a region annotation does not describe its graph.
+    local function add(g: any): nil
+        -- One buffer for every function's words: only the first `nbody` are
+        -- this function's, so it is never cleared or grown again.
+        nbody = 0
+        -- A kernel's graph is verified here, against its region tree; a
+        -- lowered function's graph is built from code the runtime verifies
+        -- as it loads, which is the check that matters for both.
+        if not g.physical then
+            G.verify(g)
         end
-        local methods = s.methods or {}
-        word(#methods)
-        for j = 1, #methods do
-            word(str(methods[j].name))
-            word(methods[j].func)
-        end
-    end
-    local modules = img.modules or {}
-    word(#modules)
-    for i = 1, #modules do
-        local m = modules[i]
-        word(str(m.name))
-        word(m.chunk)
-        optional(m.path)
-    end
-    local extensions = img.extensions or {}
-    word(#extensions)
-    for i = 1, #extensions do
-        word(str(extensions[i].name))
-        word(str(extensions[i].declaration))
-    end
-    word(img.entry or NONE)
-
-    local functions = img.functions
-    word(#functions)
-    for fi = 1, #functions do
-        local g = functions[fi]
-        G.verify(g)
         -- A converted stream carries no region tree: regions describe
         -- structure a frontend authored, and only kernels have one.
         local regions = g.physical and {count = 0, blockRegion = {}} or G.regions(g)
@@ -360,26 +354,86 @@ function image.encode(img: any): string
         else
             word(0)
         end
+        nfunctions = nfunctions + 1
+        functionParts[nfunctions] = table.concat(body, "", 1, nbody)
     end
 
-    parts[#parts + 1] = image.MAGIC
-    parts[#parts + 1] = varint(image.VERSION)
-    parts[#parts + 1] = varint(nstrings)
-    for i = 1, nstrings do
-        parts[#parts + 1] = varint(#strings[i])
-        parts[#parts + 1] = strings[i]
-    end
-    parts[#parts + 1] = varint(nwides)
-    for i = 1, nwides do
-        parts[#parts + 1] = wides[i]
-    end
-    parts[#parts + 1] = varint(nfloats)
-    for i = 1, nfloats do
-        parts[#parts + 1] = floats[i]
-    end
-    parts[#parts + 1] = table.concat(body)
+    --- The image: header words, then every function added, in order.
+    local function finish(img: any): string
+        nbody = 0
+        local shapes = img.shapes or {}
+        word(#shapes)
+        for i = 1, #shapes do
+            local s = shapes[i]
+            word(str(s.name))
+            optional(s.identity)
+            local slots = s.slots or {}
+            word(#slots)
+            for j = 1, #slots do
+                local slot = slots[j]
+                word(str(slot.name))
+                word(assert(slotTypes[slot.type or "any"], "unknown slot type"))
+                word(slot.record or NONE)
+            end
+            local methods = s.methods or {}
+            word(#methods)
+            for j = 1, #methods do
+                word(str(methods[j].name))
+                word(methods[j].func)
+            end
+        end
+        local modules = img.modules or {}
+        word(#modules)
+        for i = 1, #modules do
+            local m = modules[i]
+            word(str(m.name))
+            word(m.chunk)
+            optional(m.path)
+        end
+        local extensions = img.extensions or {}
+        word(#extensions)
+        for i = 1, #extensions do
+            word(str(extensions[i].name))
+            word(str(extensions[i].declaration))
+        end
+        word(img.entry or NONE)
+        word(nfunctions)
+        local parts: {string} = {}
+        parts[#parts + 1] = image.MAGIC
+        parts[#parts + 1] = varint(image.VERSION)
+        parts[#parts + 1] = varint(nstrings)
+        for i = 1, nstrings do
+            parts[#parts + 1] = varint(#strings[i])
+            parts[#parts + 1] = strings[i]
+        end
+        parts[#parts + 1] = varint(nwides)
+        for i = 1, nwides do
+            parts[#parts + 1] = wides[i]
+        end
+        parts[#parts + 1] = varint(nfloats)
+        for i = 1, nfloats do
+            parts[#parts + 1] = floats[i]
+        end
+        parts[#parts + 1] = table.concat(body, "", 1, nbody)
+        parts[#parts + 1] = table.concat(functionParts)
 
-    return table.concat(parts)
+        return table.concat(parts)
+    end
+
+    return {add = add, finish = finish}
+end
+
+--- Encodes an image whose graphs are `functions`, beside the optional
+--- `shapes`, `modules`, `extensions` and `entry`.
+--- @raises string when a graph does not verify, a wide literal is not an
+--- exact integer, or a region annotation does not describe its graph.
+function image.encode(img: any): string
+    local encoder = image.encoder()
+    for _, g in ipairs(img.functions) do
+        encoder.add(g)
+    end
+
+    return encoder.finish(img)
 end
 
 export = image
