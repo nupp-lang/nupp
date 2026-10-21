@@ -116,7 +116,7 @@ def main():
             return [*cli, "check", "--json", *(["src/nupp/compiler/syntax/lexer.nupp"] if args.case == "lexer" else [])]
         dest = out / f"{iteration}-{label}.image"
         if label == "luajit":
-            return [*cli, "run", "native/crates/vm/emit/root.lua", str(root), str(dest)]
+            raise SystemExit("the emit case times VM images; the LuaJIT root emitter is gone")
         text = (root / "src/nupp/tools/vm/project.nupp").read_text()
         extras = "".join(re.findall(r'"([^\"]*)"', re.search(r"project.ROOT_EXTRAS = (.*?)\n\n", text, re.S)[1]))
         return [str(runtimes[label]), "run", str(images[label]), "nupp.tools.vm.project", "emit", str(root),

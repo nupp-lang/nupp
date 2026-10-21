@@ -1,9 +1,10 @@
 -- The repository must remain runnable when the ignored build tree is absent.
 --
--- What it starts from then is the stage-zero compiler `scripts/toolchain stage0`
--- fetches and verifies against the digest pinned in `scripts/toolchain.pins`. It
--- is not in the tree, so these cases ask the toolchain for it rather than reading
--- a file, and they say so when a machine has never fetched one.
+-- What it starts from then is the VM compiler: the one installed in the
+-- checkout, or one `bin/nupp` builds from the stage-zero image
+-- `scripts/toolchain stage0-image` fetches and verifies against the digest
+-- pinned in `scripts/toolchain.pins`. The image is not in the tree, so these
+-- cases ask the toolchain for it rather than reading a file.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
     local p = assert(io.popen("pwd"))
@@ -37,98 +38,27 @@ local function capture(command)
     return out, ok
 end
 
--- Cached after the first ask, because every case here wants the same one and the
--- toolchain digests twelve megabytes to answer.
-local stage0Path, stage0Asked
-
-local function stage0()
-    if not stage0Asked then
-        stage0Asked = true
-        local out, ok = capture(("'%s/scripts/toolchain' stage0 2>/dev/null"):format(ROOT))
-        stage0Path = ok and out:match("([^\n]+)%s*$") or nil
-    end
-
-    return stage0Path
-end
-
--- A fresh checkout renders docs with the stage-zero compiler before any source has
--- rebuilt it. Keep both halves of an admonition in that bundle: without the
--- container renderer the markers become prose, and without the CSS the aside is
--- structurally correct but visually plain.
-function M.stage0CarriesAdmonitions()
-    local path = stage0()
-    assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
-    local source = assert(readFile(path), "the fetched stage zero is readable")
-    assert(source:find("ADMONITION_TITLES", 1, true), "the stage zero lacks the admonition container renderer")
-    -- Matched with the brace loose from the selector, because how the bundled
-    -- stylesheet is spelled is not what this is about: the CSS was inlined and
-    -- minified when it lived in Lua source and is an ordinary stylesheet
-    -- resource now that it lives in a .css file.
-    assert(source:find("%.nuppdoc%-admonition%s*{"), "the stage zero lacks admonition styling")
-end
-
--- The digest is what authenticates the bundle, so it is the one thing about the
+-- The digest is what authenticates the image, so it is the one thing about the
 -- bootstrap that is committed. A pin whose digest does not describe the file the
 -- toolchain installed means one of them moved without the other.
-function M.thePinnedDigestDescribesTheFetchedCompiler()
+function M.thePinnedDigestDescribesTheFetchedImage()
     local pins = assert(readFile(ROOT .. "/scripts/toolchain.pins"))
-    local pinned = pins:match("\nSTAGE0_SHA256=(%x+)")
-    assert(pinned and #pinned == 64, "scripts/toolchain.pins carries no stage-zero digest")
-    assert(pins:match("\nSTAGE0_TAG=(%S+)"), "scripts/toolchain.pins names no stage-zero release")
+    local pinned = pins:match("\nSTAGE0_IMAGE_SHA256=(%x+)")
+    assert(pinned and #pinned == 64, "scripts/toolchain.pins carries no stage-zero image digest")
+    assert(pins:match("\nSTAGE0_IMAGE_TAG=(%S+)"), "scripts/toolchain.pins names no stage-zero release")
 
-    local path = stage0()
-    assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
-    local verified = assert(path:match("^(.*)/[^/]+$"), "the stage zero has no runtime directory") .. "/verified.lua"
-    local found = capture(("shasum -a 256 '%s' 2>/dev/null || sha256sum '%s'"):format(verified, verified))
-    assert(found:match("^(%x+)") == pinned, "the installed stage zero does not have the pinned digest: " .. found)
-end
-
--- A tree with the launcher, the scripts it reads, and no compiler at all still
--- answers, because the launcher can go and get one. That is the whole of what a
--- fresh checkout has.
-function M.launcherFallsBackToTheFetchedStageZero()
-    assert(stage0(), "no stage-zero compiler; run scripts/toolchain stage0")
-    local dir = os.tmpname()
-    os.remove(dir)
-    assert(os.execute("mkdir -p '" .. dir .. "/bin'") == 0)
-    assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
-    -- The launcher is `bin/nupp` and the scripts it reads. It selects an
-    -- interpreter before it runs anything, provisions the pinned one where the
-    -- machine has none, and now fetches the compiler through the same script, so a
-    -- tree carrying one without the others is not a tree anybody has.
-    assert(os.execute(("cp -R '%s/scripts' '%s/scripts'"):format(ROOT, dir)) == 0)
-    -- The compiler resolves its path provider before printing help. A fresh
-    -- checkout has the Rust workspace needed to stage that provider, while this
-    -- deliberately small tree has to copy it explicitly. Reuse the checkout's
-    -- content-addressed outputs: the suite itself already runs through the same
-    -- broad development provider, so this remains a cache hit rather than a
-    -- second native build.
-    assert(os.execute(("cp -R '%s/native' '%s/native'"):format(ROOT, dir)) == 0)
-    assert(os.execute(("cp -R '%s/.cargo' '%s/.cargo'"):format(ROOT, dir)) == 0)
-    for _, name in ipairs({"Cargo.toml", "Cargo.lock", "rust-toolchain.toml",}) do
-        assert(os.execute(("cp '%s/%s' '%s/%s'"):format(ROOT, name, dir, name)) == 0)
-    end
-
-    -- This checkout's toolchain cache, named outright because the copied tree has
-    -- no git directory to work it out from. Without it the case reaches the
-    -- network for a bundle that is already on the machine.
-    local cache = capture(("'%s/scripts/toolchain' --prefix"):format(ROOT))
-    cache = assert(cache:match("^%s*(.-)/[^/]+%s*$"), "the toolchain named no prefix")
-
-    local out = capture(
-        (
-            "%s NUPP_TOOLCHAIN_DIR='%s' NUPP_RUST_BUILD_DIR='%s/build/rust' " .. "'%s/bin/nupp' --help 2>&1"
-        ):format(NO_VM_CLI, cache, ROOT, dir)
-    )
-    assert(out:find("Usage:\n  nupp", 1, true), "launcher did not start the stage-zero compiler: " .. out)
-
-    os.execute("rm -rf '" .. dir .. "'")
+    local out, ok = capture(("'%s/scripts/toolchain' stage0-image 2>/dev/null"):format(ROOT))
+    local path = ok and out:match("([^\n]+)%s*$") or nil
+    assert(path, "no stage-zero image; run scripts/toolchain stage0-image")
+    local found = capture(("shasum -a 256 '%s' 2>/dev/null || sha256sum '%s'"):format(path, path))
+    assert(found:match("^(%x+)") == pinned, "the installed stage-zero image does not have the pinned digest: " .. found)
 end
 
 -- A tree carrying the launcher and two compilers that do nothing but say which
--- one they are. What these cases test is the launcher's choice between them and
--- what it waits for on the way, and a real pair would take a build to produce
--- and answer the same question.
+-- one they are: a LuaJIT build, and an installed VM compiler whose runtime is a
+-- script. What these cases test is the launcher's choice between them and what
+-- it waits for on the way, and a real pair would take a build to produce and
+-- answer the same question.
 --
 -- The Rust native provider is planted rather than built for the same reason: the
 -- launcher stages one before every command that reads a source, and this tree
@@ -136,16 +66,21 @@ end
 -- because which one is looked for is decided by `uname` and none of them is
 -- ever opened.
 --
--- The stage zero is planted too, through the toolchain's own source directory: a
--- file with the pinned digest is the one thing that makes `scripts/toolchain
--- stage0` answer offline, and what these cases want is a compiler that prints a
--- word, not the real one.
-local function plantedTree(stage0Body)
+-- `vmBody` is shell run with the command's arguments, in the tree.
+local function plantedTree(vmBody)
     local dir = os.tmpname()
     os.remove(dir)
+    local generation = ("a"):rep(64)
+    local package = dir .. "/.nupp/vm-cli/" .. generation
     assert(
         os.execute(
-            ("mkdir -p '%s/bin' '%s/build/nupp/tools' '%s/build/lib' '%s/toolchain'"):format(dir, dir, dir, dir)
+            ("mkdir -p '%s/bin' '%s/build/nupp/tools' '%s/build/lib' '%s/toolchain' '%s'"):format(
+                dir,
+                dir,
+                dir,
+                dir,
+                package
+            )
         ) == 0
     )
     assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
@@ -158,38 +93,28 @@ local function plantedTree(stage0Body)
     end
 
     plant("build/nupp/tools/main.lua", 'print("BUILT")\n')
-
-    -- One planted stage zero, pinned to its own digest, cached where this tree's
-    -- toolchain will look and nowhere a real checkout can see.
-    local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
-    -- It reports the name the launcher gave it as well as which compiler it is,
-    -- because `theStageZeroIsNamedToWhatItRuns` asks for that and every other case
-    -- here reads only the first line. The provider is named the way the pinned
-    -- release names it, which is what `scripts/stage0-runtime.lua` looks for.
+    plant(".nupp/vm-cli/current", generation .. "\n")
+    plant(".nupp/vm-cli/" .. generation .. "/format", "nupp-vm-cli-1\n")
+    plant(".nupp/vm-cli/" .. generation .. "/compiler.image", "")
+    -- Called as `runtime exec IMAGE nupp.tools.vm.root ARG...`.
     plant(
-        "stage0.lua",
-        'package.preload["nupp.tools.build.native"] = function() error("provider body must not run") end\n' .. (
-            stage0Body or 'print("BOOTSTRAP")\nprint("NUPP_STAGE0=" .. tostring(os.getenv("NUPP_STAGE0")))\n'
-        )
+        ".nupp/vm-cli/" .. generation .. "/runtime",
+        "#!/bin/sh\nshift 3\n" .. (vmBody or 'echo VM\necho "NUPP_ENGINE=${NUPP_ENGINE:-}"\n')
     )
-    local digest = capture(("shasum -a 256 '%s/stage0.lua' 2>/dev/null || sha256sum '%s/stage0.lua'"):format(dir, dir))
-        :match("^(%x+)")
-    local tag = pins:match("\nSTAGE0_TAG=(%S+)")
-    assert(os.execute(("mkdir -p '%s/supplied'"):format(dir)) == 0)
-    assert(os.execute(("gzip -c '%s/stage0.lua' > '%s/supplied/nupp-stage0-%s.lua.gz'"):format(dir, dir, tag)) == 0)
-    plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_SHA256=%x+", "\nSTAGE0_SHA256=" .. digest)))
+    assert(os.execute(("chmod +x '%s/runtime'"):format(package)) == 0)
 
     -- Last, because the launcher stages a provider again whenever anything it is
-    -- keyed on is newer than the library -- and the pins file above is one of
-    -- those. Staged for real, this tree has no `rust-toolchain.toml` to name a
-    -- toolchain with, so the build these cases are watching never starts.
+    -- keyed on is newer than the library -- and the pins file is one of those.
+    -- Staged for real, this tree has no `rust-toolchain.toml` to name a toolchain
+    -- with, so the build these cases are watching never starts.
     for _, name in ipairs({"libnupp_native_dev.dylib", "libnupp_native_dev.so", "nupp_native_dev.dll",}) do
         plant("build/lib/" .. name, "")
     end
 
-    local env = (
-        "%s NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1 NUPP_HOST_SOURCE_DIR='%s/supplied'"
-    ):format(NO_VM_CLI, dir, dir)
+    local env = ("%s NUPP_VM_AUTO_REBUILD=0 NUPP_TOOLCHAIN_DIR='%s/toolchain' NUPP_HOST_OFFLINE=1"):format(
+        NO_VM_CLI,
+        dir
+    )
 
     local prefix = capture(("%s '%s/scripts/toolchain' --prefix"):format(env, dir)):match("([^\n]+)%s*$")
     assert(prefix)
@@ -213,39 +138,34 @@ local function plantedTree(stage0Body)
     return dir, plant, env
 end
 
+-- What the LuaJIT path asks, under NUPP_ENGINE=luajit, which is how a command
+-- reaches it in a tree that has a VM compiler installed.
 local function ran(dir, env, command)
-    local out = capture(("cd '%s' && %s ./bin/nupp %s 2>&1"):format(dir, env, command))
+    local out = capture(("cd '%s' && %s NUPP_ENGINE=luajit ./bin/nupp %s 2>&1"):format(dir, env, command))
     return out
 end
 
-function M.aColdBuildPublishesSelfHostedRuntimeArtifacts()
-    local dir, _, env = plantedTree(
-        [=[
-print("BOOTSTRAP")
-local output = assert(io.open("build/nupp/tools/main.lua", "wb"))
-output:write([[assert(arg[1] == "build")
-assert(not os.getenv("NUPP_COMPILER_ROOT"):find("/stage0/", 1, true))
-print("SELF_HOSTED")
-]])
-output:close()
-]=]
-    )
+-- A tree with no LuaJIT build is built by the VM compiler, asked through the
+-- launcher with the engine choice cleared so it does not come back here.
+function M.aTreeWithNoLuaJITBuildIsBuiltByTheVmCompiler()
+    local dir, _, env = plantedTree([=[
+echo "VM $1 NUPP_ENGINE=${NUPP_ENGINE:-}"
+printf 'print("BUILT")\n' > build/nupp/tools/main.lua
+]=])
     assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
     local output = ran(dir, env, "build")
-    local bootstrap = assert(output:find("BOOTSTRAP", 1, true), output)
-    local selfHosted = assert(output:find("SELF_HOSTED", 1, true), output)
-    assert(bootstrap < selfHosted, output)
+    assert(output:find("VM build NUPP_ENGINE=\n", 1, true), output)
+    assert(readFile(dir .. "/build/nupp/tools/main.lua"), "the VM build wrote no compiler: " .. output)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- Which compiler a command runs is decided on whether one is there, not on
 -- whether the completion stamp says the last build finished. Those two differ
 -- for the length of every build, because a build removes the stamp before it
--- writes anything -- and a command answering "no compiler here" then runs the
--- stage zero instead, which is a different compiler with a different digest.
--- Every content key a build writes carries that digest, so a project whose
--- native library one of them linked relinks under the other with nothing
--- changed.
+-- writes anything -- and a command answering "no compiler here" then runs a
+-- different compiler with a different digest. Every content key a build writes
+-- carries that digest, so a project whose native library one of them linked
+-- relinks under the other with nothing changed.
 function M.aStamplessTreeStillRunsTheCompilerItHas()
     local dir, _, env = plantedTree()
 
@@ -253,7 +173,7 @@ function M.aStamplessTreeStillRunsTheCompilerItHas()
     assert(
         ran(dir, env, "--help"):find("BUILT", 1, true),
         "a build in progress has removed the stamp, and the compiler it is rewriting "
-        .. "is still a better answer than one from whenever stage zero was published"
+        .. "is still a better answer than another one"
     )
 
     local stamp = assert(io.open(dir .. "/build/.nupp-complete", "wb"))
@@ -263,8 +183,8 @@ function M.aStamplessTreeStillRunsTheCompilerItHas()
 
     assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
     assert(
-        ran(dir, env, "--help"):find("BOOTSTRAP", 1, true),
-        "the stage zero is for a tree that has no compiler, not for one mid-build"
+        ran(dir, env, "--help"):find("VM", 1, true),
+        "the VM compiler is for a tree that has no LuaJIT build, not for one mid-build"
     )
 
     os.execute("rm -rf '" .. dir .. "'")
@@ -284,7 +204,7 @@ function M.aBuildWaitsForTheBuildAlreadyRunning()
         [[
       cd '%s' && mkdir -p build/.nupp-build-lock
       sleep 4 & printf '%%s\n' "$!" > build/.nupp-build-lock/pid
-      %s ./bin/nupp build > ran.txt 2>&1 &
+      %s NUPP_ENGINE=luajit ./bin/nupp build > ran.txt 2>&1 &
       sleep 2
       printf 'while held: [%%s]\n' "$(cat ran.txt)"
       wait
@@ -306,109 +226,67 @@ function M.aBuildWaitsForTheBuildAlreadyRunning()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- A built compiler that cannot build falls back to the stage zero, and the module
--- bytecode cache goes with it. An entry that is damaged but still loads fails the
--- built compiler the same way on every run, the self-hosted pass after the
--- bootstrap included, so keeping it left `nupp clean` -- all of build/, the Rust
--- tree with it -- as the only way out.
+-- A built compiler that cannot build falls back to the VM compiler, and the
+-- module bytecode cache goes with it. An entry that is damaged but still loads
+-- fails the built compiler the same way on every run, so keeping it left `nupp
+-- clean` -- all of build/, the Rust tree with it -- as the only way out.
 function M.aFallbackDropsTheBytecodeTheBuiltCompilerLoaded()
     local dir, plant, env = plantedTree(
-        'print("BOOTSTRAP bytecode=" .. (io.open("build/.bytecode/index", "rb") and "present" or "absent"))\n'
+        'if [ -f build/.bytecode/index ]; then echo "VM bytecode=present"; else echo "VM bytecode=absent"; fi\n'
     )
     plant("build/nupp/tools/main.lua", 'if arg[1] == "build" then os.exit(3) end\nprint("BUILT")\n')
     assert(os.execute(("mkdir -p '%s/build/.bytecode'"):format(dir)) == 0)
     plant("build/.bytecode/index", "damaged")
 
     local out = ran(dir, env, "check")
-    assert(out:find("falling back to the stage-zero compiler", 1, true), out)
-    assert(out:find("BOOTSTRAP bytecode=absent", 1, true), "the stage zero ran beside the damaged cache: " .. out)
+    assert(out:find("falling back to the VM compiler", 1, true), out)
+    assert(out:find("VM bytecode=absent", 1, true), "the VM compiler ran beside the damaged cache: " .. out)
 
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- A build the stage zero runs starts comptime workers of its own, and on Windows
--- those are launched as a compiler rather than through this script. The launcher
--- says which compiler it resolved so they can be the same one; a cold checkout has
--- no built compiler for them to fall back to, and without the name every comptime
--- evaluation in the build that produces the first compiler fails for want of a
--- worker.
---
--- Asking for it in a command substitution used to discard the export along with
--- the subshell that made it, and the only run that noticed was a first Windows
--- build. The name is read here on every platform, where the export is the same.
-function M.theStageZeroIsNamedToWhatItRuns()
-    local dir, _, env = plantedTree()
-    assert(os.remove(dir .. "/build/nupp/tools/main.lua"))
+-- The cached image went in verified, and was then believed for being there. A
+-- disk that damaged it afterwards got the damage run as the compiler.
+function M.aDamagedCachedStageZeroImageIsFetchedAgain()
+    local dir, plant, env = plantedTree()
+    local pins = assert(readFile(dir .. "/scripts/toolchain.pins"))
+    local tag = assert(pins:match("\nSTAGE0_IMAGE_TAG=(%S+)"), "no stage-zero image is pinned")
+    plant("planted.image", "a planted stage-zero image\n")
+    local digest = capture(
+        ("shasum -a 256 '%s/planted.image' 2>/dev/null || sha256sum '%s/planted.image'"):format(dir, dir)
+    ):match("^(%x+)")
+    assert(os.execute(("mkdir -p '%s/supplied'"):format(dir)) == 0)
+    assert(
+        os.execute(
+            ("gzip -c '%s/planted.image' > '%s/supplied/nupp-stage0-%s.image.gz'"):format(dir, dir, tag)
+        ) == 0
+    )
+    plant("scripts/toolchain.pins", (pins:gsub("\nSTAGE0_IMAGE_SHA256=%x+", "\nSTAGE0_IMAGE_SHA256=" .. digest)))
 
-    -- `--help` reads no source, so this is the launcher's own environment and
-    -- nothing a build put there.
-    local out = ran(dir, env, "--help")
-    assert(out:find("BOOTSTRAP", 1, true), "the planted stage zero did not run: " .. out)
-    local named = out:match("NUPP_STAGE0=([^\n]+)")
-    assert(named and named ~= "nil", "the launcher ran the stage zero without naming it: " .. out)
-    local compiler = readFile(named)
-    assert(compiler, "NUPP_STAGE0 names nothing readable: " .. named)
-    assert(compiler:find("BOOTSTRAP", 1, true), "NUPP_STAGE0 names some other compiler: " .. named)
-
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- The cached stage zero went in verified, and was then believed for being there. A
--- disk that damaged it afterwards got the damage run as the compiler, or a parse
--- error on every bootstrap out of a file nothing said to delete.
-function M.aDamagedCachedStageZeroIsFetchedAgain()
-    local dir, _, env = plantedTree()
-    local toolchain = ("%s '%s/scripts/toolchain' stage0 2>&1"):format(env, dir)
+    local toolchain = ("%s NUPP_HOST_SOURCE_DIR='%s/supplied' '%s/scripts/toolchain' stage0-image 2>&1"):format(
+        env,
+        dir,
+        dir
+    )
     local out, ok = capture(toolchain)
-    assert(ok, "the planted stage zero did not install: " .. out)
-    local digest = assert(readFile(dir .. "/scripts/toolchain.pins"):match("\nSTAGE0_SHA256=(%x+)"))
-    local cached = dir .. "/toolchain/stage0/" .. digest .. "/nupp.lua"
-    local planted = assert(readFile(dir .. "/stage0.lua"))
-    assert(readFile(cached) == planted, "the stage zero was not cached where this case looks")
+    assert(ok, "the planted stage-zero image did not install: " .. out)
+    local cached = dir .. "/toolchain/stage0-image/" .. digest .. "/compiler.image"
+    local planted = assert(readFile(dir .. "/planted.image"))
+    assert(readFile(cached) == planted, "the stage-zero image was not cached where this case looks")
 
     local damaged = assert(io.open(cached, "wb"))
     damaged:write(planted:sub(1, math.floor(#planted / 2)))
     damaged:close()
     out, ok = capture(toolchain)
-    assert(ok, "a damaged cached stage zero was not replaced: " .. out)
+    assert(ok, "a damaged cached stage-zero image was not replaced: " .. out)
     assert(out:find("fetching it again", 1, true), "the damage was not reported: " .. out)
-    assert(readFile(cached) == planted, "the cached stage zero is still damaged")
+    assert(readFile(cached) == planted, "the cached stage-zero image is still damaged")
 
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- The launcher must supply the worker executable path expected by the pinned
--- compiler on Windows. The artifact itself determines which path it reads.
-function M.theLauncherServesThePinnedReleasesWorkerPath()
-    local path = stage0()
-    assert(path, "no stage-zero compiler; run scripts/toolchain stage0")
-    local bundle = assert(readFile(path), "the fetched stage zero is readable")
-    local launcher = assert(readFile(ROOT .. "/bin/nupp"), "the launcher is readable")
-
-    local wantsFixedWorkerPath = bundle:find("/bootstrap/nupp.lua", 1, true) ~= nil
-    local servesIt = launcher:find("stage0_compat_path", 1, true) ~= nil
-    if wantsFixedWorkerPath then
-        assert(
-            servesIt,
-            "the pinned stage zero starts its Windows workers from bootstrap/nupp.lua "
-            .. "and the launcher no longer puts one there"
-        )
-    else
-        assert(
-            not servesIt,
-            "the pinned stage zero names its own compiler, so bin/nupp should no longer "
-            .. "write bootstrap/nupp.lua and .gitignore should no longer mention it"
-        )
-    end
-end
-
--- The classified `nupp fixpoint` gate begins by asking the pinned stage zero to
--- build the current compiler, and the release workflow repeats that verification
--- while composing the next stage-zero bundle. Repeating the same cold build in the
--- ordinary suite made every local full run wait for the release boundary.
-
--- Every resource the stage-zero bundle carries is embedded verbatim, so a
--- checkout that translates line endings composes a bundle whose bytes cannot
+-- Every resource the compiler carries is embedded verbatim, so a checkout that
+-- translates line endings composes a stage-zero image whose bytes cannot
 -- match the released ones -- and the pinned digest is meant to be reproducible
 -- from the tag by anyone who rebuilds it. Windows is where that happens.
 -- `.gitattributes` has to name every embedded resource, so this asks git the
@@ -440,7 +318,7 @@ function M.embeddedResourcesHaveOneCheckoutSpelling()
             sources[#sources + 1] = pattern
         end
     end
-    assert(#sources > 0, "the stage-zero target embeds nothing")
+    assert(#sources > 0, "the compiler embeds nothing")
 
     local query = ("git -C '%s' check-attr eol --"):format(ROOT)
     for _, path in ipairs(sources) do

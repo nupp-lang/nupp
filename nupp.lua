@@ -549,19 +549,19 @@ return {
 
     selfHost = {
         target = "compiler",
-        bootstrapTarget = "bootstrapCompiler",
-        -- The compiler this tree's first stage is compiled by. It is the previous
-        -- release's, fetched and verified against the digest pinned in
-        -- `scripts/toolchain.pins`, which is also what `bin/nupp` starts from in a
-        -- checkout that has never been built. It is fetched rather than committed,
-        -- and that costs: the sources below may only use a language feature the
-        -- pinned release already understands.
+        -- The compiler image this tree's first stage is lowered by. It is a
+        -- release's root CLI image, fetched and verified against the digest pinned
+        -- in `scripts/toolchain.pins`, which is also what `bin/nupp` builds a VM
+        -- compiler from in a checkout that has none. It is fetched rather than
+        -- committed, and that costs: the sources below may only use a language
+        -- feature the pinned image already understands, and the runtime must load
+        -- its image format.
         --
         -- Run through `sh`, because this is a shell script and the command is
         -- spawned rather than handed to a shell: Windows cannot execute it by name
         -- and reported it as an unrecognized program, which is where `nupp fixpoint`
         -- stopped there. Every host that can run `bin/nupp` at all has `sh`.
-        bootstrap = "sh scripts/toolchain stage0",
+        bootstrap = "sh scripts/toolchain stage0-image",
         -- The target `nupp fixpoint --binary` stamps twice. Naming it here rather
         -- than in the command keeps the compiler from knowing anything about how
         -- this particular project chose to package itself.

@@ -38,7 +38,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks stage0 stage0-image
+Components: luajit luarocks stage0-image
             native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -386,114 +386,15 @@ source_tree() {
 
 # --- the stage-zero compiler ------------------------------------------------
 
-# The compiler that compiles this tree's Nupp before this tree has a compiler.
-#
-# It is the previous release's own compiler, lowered to one Lua file and
-# published as an asset of that release, and it is fetched here the way every
-# other pinned source is. What makes it different from LuaJIT is that it
-# is neither built nor platform-specific: one file of Lua, good on every machine
-# that has a LuaJIT new enough to parse generated Nupp, which the pins above
-# already guarantee. So it is cached by its own digest rather than under the
+# The compiler that compiles this tree's Nupp before this tree has a compiler: a
+# release's root CLI image, which a cold checkout runs on a runtime built from
+# its own sources to lower them into a VM compiler (`scripts/vm-cli build
+# --seed-image`). It is published as an asset of that release and fetched here
+# the way every other pinned source is. Unlike LuaJIT it is neither built nor
+# platform-specific, so it is cached by its own digest rather than under the
 # compiler-pair key, and every worktree of every checkout on this machine that
-# pins the same release shares the one copy.
-#
-# This is fetched rather than committed, and the pin says why the digest is of
+# pins the same release shares the one copy. The pin says why the digest is of
 # the decompressed file.
-stage0_runtime() {
-    stage0_verified_file=$1
-    stage0_runtime_root="$ROOT/build/stage0/$STAGE0_SHA256"
-    stage0_runtime_digest=$(sha256 "$ROOT/scripts/stage0-runtime.lua")
-    stage0_runtime_file="$stage0_runtime_root/nupp-$stage0_runtime_digest.lua"
-    stage0_verified_copy="$stage0_runtime_root/verified.lua"
-    build_luajit
-    mkdir -p "$stage0_runtime_root/scripts" "$stage0_runtime_root/bin"
-    [ -f "$stage0_verified_copy" ] || cp "$stage0_verified_file" "$stage0_verified_copy"
-    stage0_driver=$(printf '%s' "$ROOT/scripts/toolchain" | sed "s/'/'\\\\''/g")
-    printf '#!/bin/sh\nexec '\''%s'\'' "$@"\n' "$stage0_driver" > "$stage0_runtime_root/scripts/toolchain"
-    chmod +x "$stage0_runtime_root/scripts/toolchain"
-    stage0_entry=$(printf '%s' "$stage0_runtime_file" | sed "s/'/'\\\\''/g")
-    printf '#!/bin/sh\nexec luajit '\''%s'\'' "$@"\n' "$stage0_entry" > "$stage0_runtime_root/bin/nupp"
-    chmod +x "$stage0_runtime_root/bin/nupp"
-    stage0_runtime_stamp="$stage0_runtime_root/.runtime-$stage0_runtime_digest.complete"
-    take_lock "stage0-runtime-$STAGE0_SHA256" "$stage0_runtime_stamp" || return 0
-    "$PREFIX/luajit/bin/luajit" \
-        "$(native_path "$ROOT/scripts/stage0-runtime.lua")" \
-        "$(native_path "$stage0_verified_file")" \
-        "$(native_path "$stage0_runtime_file")" \
-        "$(native_path "$stage0_runtime_root")" \
-        "$(native_path "$stage0_runtime_stamp")"
-    release_lock
-}
-
-stage0() {
-    out="$CACHE/stage0/$STAGE0_SHA256"
-    file="$out/nupp.lua"
-    # Checked again rather than believed for being there. It went in whole and
-    # verified, but a disk can still damage it afterwards, and a damaged one was
-    # either run as the compiler or failed every bootstrap with a parse error in
-    # a file nothing said to delete. Fetched again like a missing one instead.
-    if [ -f "$file" ]; then
-        if [ "$(sha256 "$file")" = "$STAGE0_SHA256" ]; then
-            stage0_runtime "$file"
-            native_path "$stage0_runtime_file"
-            return 0
-        fi
-        note "the cached $STAGE0_TAG stage-zero compiler does not have the pinned digest; fetching it again"
-        rm -f "$file"
-    fi
-
-    name="nupp-stage0-$STAGE0_TAG.lua"
-    mkdir -p "$CACHE/stage0"
-    staged="$out.$$"
-    rm -rf "$staged"
-    mkdir -p "$staged"
-    # shellcheck disable=SC2064
-    trap "rm -rf '$staged'" EXIT HUP INT TERM
-
-    # An offline builder supplies either spelling: the asset as published, or
-    # the plain bundle, which is what the digest is of and so the easier one to
-    # check by hand.
-    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
-        cp "$SOURCE_DIR/$name" "$staged/nupp.lua"
-    elif [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name.gz" ]; then
-        cp "$SOURCE_DIR/$name.gz" "$staged/nupp.lua.gz"
-        gunzip "$staged/nupp.lua.gz" || die "$name.gz did not decompress"
-    elif offline; then
-        die "NUPP_HOST_OFFLINE is set and the $STAGE0_TAG stage-zero compiler is not cached; put $name.gz in NUPP_HOST_SOURCE_DIR"
-    else
-        # The pin says where to look and the digest says what is acceptable.
-        url=$(expand_pin "$STAGE0_URL")
-        if [ -n "$SOURCE_BASE_URL" ]; then
-            url="${SOURCE_BASE_URL%/}/$name.gz"
-        fi
-        note "fetching the $STAGE0_TAG stage-zero compiler"
-        download "$url" "$staged/nupp.lua.gz" \
-            || die "cannot download $url"
-        gunzip "$staged/nupp.lua.gz" || die "$name.gz did not decompress"
-    fi
-
-    found=$(sha256 "$staged/nupp.lua")
-    if [ "$found" != "$STAGE0_SHA256" ]; then
-        rm -rf "$staged"
-        trap - EXIT HUP INT TERM
-        die "the $STAGE0_TAG stage-zero compiler has digest $found, expected $STAGE0_SHA256; refusing to cache or run it"
-    fi
-    # Renamed into place whole, so a killed fetch never leaves a truncated
-    # compiler behind for the next command to run, and the digest directory is
-    # created only once its one file has been verified.
-    mkdir -p "$out"
-    mv "$staged/nupp.lua" "$file.$$"
-    mv "$file.$$" "$file"
-    rm -rf "$staged"
-    trap - EXIT HUP INT TERM
-    stage0_runtime "$file"
-    native_path "$stage0_runtime_file"
-}
-
-# The VM stage zero: a verified root CLI image, platform-free text that a cold
-# checkout runs on a runtime built from its own sources (`scripts/vm-cli build
-# --seed-image`). Pinned by STAGE0_IMAGE_TAG, STAGE0_IMAGE_SHA256 and
-# STAGE0_IMAGE_URL beside the Lua stage zero, which stays until this replaces it.
 stage0_image() {
     [ -n "${STAGE0_IMAGE_SHA256:-}" ] || die "no VM stage-zero image is pinned in scripts/toolchain.pins"
     out="$CACHE/stage0-image/$STAGE0_IMAGE_SHA256"
@@ -1772,10 +1673,10 @@ case "$1" in
     --all)
         build_luajit
         build_luarocks
-        # A checkout with no compiler needs this before it can run one, and a
+        # A checkout with no compiler needs this before it can build one, and a
         # warm is the moment to pay for it: an ordinary command in a built tree
         # never asks.
-        stage0 >/dev/null
+        stage0_image >/dev/null
         exit 0
         ;;
     native-rust)
@@ -1829,7 +1730,6 @@ for component in "$@"; do
     case "$component" in
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
-        stage0)   stage0 ;;
         stage0-image) stage0_image ;;
         *) note "unknown component $component"; usage ;;
     esac

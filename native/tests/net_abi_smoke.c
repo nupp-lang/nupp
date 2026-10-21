@@ -441,7 +441,7 @@ static int test_path_stream(void) {
     char path[104];
     NuppNativeNetPathListenOptions listen_options = {0};
     NuppNativeNetPathConnectOptions connect_options = {0};
-    NuppNativeNetAddress address = {{0}, 0, 0};
+    NuppNativeNetEndpoint path_peer = {sizeof(NuppNativeNetEndpoint), 0, 0, 0, 0, {0}};
     uint64_t listener = 0;
     uint64_t connect = 0;
     uint64_t client = 0;
@@ -469,9 +469,9 @@ static int test_path_stream(void) {
     status = nuppNativeNetPathConnectCreate(&connect_options, &connect);
     if (status != NUPP_NATIVE_OK) return failed("path connect", status);
     if (wait_for_pair(listener, connect, &client, &server) != 0) return 1;
-    status = nuppNativeNetStreamPeerAddress(client, &address);
+    status = nuppNativeNetStreamPeerEndpoint(client, &path_peer);
     if (status != NUPP_NATIVE_OK) return failed("path address", status);
-    if (address.family != NUPP_NATIVE_NET_ADDRESS_NONE) {
+    if (path_peer.family != NUPP_NATIVE_NET_ADDRESS_NONE) {
         fprintf(stderr, "path stream invented an internet address\n");
         return 1;
     }
@@ -507,7 +507,7 @@ int main(void) {
     static const uint8_t payload[] = "ping";
     NuppNativeNetListenOptions listen_options = {0};
     NuppNativeNetConnectOptions connect_options = {0};
-    NuppNativeNetAddress address = {{0}, 0, 0};
+    NuppNativeNetEndpoint endpoint = {sizeof(NuppNativeNetEndpoint), 0, 0, 0, 0, {0}};
     uint64_t listener = 0;
     uint64_t connect = 0;
     uint64_t canceled_connect = 0;
@@ -575,21 +575,21 @@ int main(void) {
         }
     }
 
-    status = nuppNativeNetStreamLocalAddress(client, &address);
+    status = nuppNativeNetStreamLocalEndpoint(client, &endpoint);
     if (status != NUPP_NATIVE_OK) return failed("local address", status);
-    if (address.family != 4 || address.port == 0) {
+    if (endpoint.family != 4 || endpoint.port == 0) {
         fprintf(stderr, "loopback local address is invalid\n");
         return 1;
     }
-    status = nuppNativeNetStreamPeerAddress(client, &address);
+    status = nuppNativeNetStreamPeerEndpoint(client, &endpoint);
     if (status != NUPP_NATIVE_OK) return failed("peer address", status);
-    if (address.family != 4 || address.port == 0) {
+    if (endpoint.family != 4 || endpoint.port == 0) {
         fprintf(stderr, "loopback peer address is invalid\n");
         return 1;
     }
     status = nuppNativeNetStreamSetNoDelay(client, 1);
     if (status != NUPP_NATIVE_OK) return failed("set no-delay", status);
-    status = nuppNativeNetStreamSetKeepAlive(client, 1, 30);
+    status = nuppNativeNetStreamSetKeepAliveMs(client, 1, 30000);
     if (status != NUPP_NATIVE_OK) return failed("set keep-alive", status);
     status = nuppNativeNetStreamSetKeepAliveMs(client, 1, 30000);
     if (status != NUPP_NATIVE_OK) return failed("set keep-alive ms", status);

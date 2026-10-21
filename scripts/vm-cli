@@ -273,8 +273,8 @@ def build(args):
     runtime, and install the pair. The image is lowered by the installed VM CLI
     when there is one (`--seed vm`), by the generation the emit cache was filled
     by (`--seed pinned`, what the launcher's automatic rebuild asks for), or by
-    the LuaJIT-built compiler, which the launcher builds from the pinned stage
-    zero when needed (`--seed luajit`)."""
+    a root image (`--seed-image`, else the pinned stage zero `scripts/toolchain
+    stage0-image` fetches), then once more by what that lowered."""
     out = ROOT / "build/vm-cli"
     out.mkdir(parents=True, exist_ok=True)
     target = ROOT / "build/rust/target"
@@ -292,14 +292,23 @@ def build(args):
         Path(stamp).unlink(missing_ok=True)
 
 
+def stage_zero_image():
+    """The pinned stage-zero image, fetched and verified by the toolchain."""
+    found = subprocess.run([str(ROOT / "scripts/toolchain"), "stage0-image"], cwd=ROOT, capture_output=True,
+                           text=True)
+    if found.returncode:
+        raise ValueError("no stage-zero image: " + found.stderr.strip())
+    return Path(found.stdout.strip().splitlines()[-1])
+
+
 def build_from(args, out, target, image):
     # Per-module lowering kept between emits (nupp.tools.vm.emitcache).
     cache = None if args.no_cache else (args.cache or out / "emit-cache")
     cached = {"NUPP_VM_EMIT_CACHE": str(cache)} if cache else {}
     installed = (PACKAGES / "current").exists()
-    seed = args.seed or ("image" if args.seed_image else "vm" if installed else "luajit")
+    seed = args.seed or ("image" if args.seed_image else "vm" if installed else "image")
     if seed == "pinned" and not installed:
-        seed = "luajit"
+        seed = "image"
     env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT), **cached)
     for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY"):
         env.pop(name, None)
@@ -318,8 +327,8 @@ def build_from(args, out, target, image):
             emit_with(emitter, image, env)
         if seed == "vm" or pinned() is None or emitter != pinned():
             pin(emitter)
-    elif seed == "image":
-        seed_image = args.seed_image.resolve(strict=True)
+    else:
+        seed_image = (args.seed_image or stage_zero_image()).resolve(strict=True)
         plain = cargo(None, target)
         shutil.copyfile(plain, out / "plain-runtime.new")
         (out / "plain-runtime.new").chmod(0o755)
@@ -334,14 +343,9 @@ def build_from(args, out, target, image):
         run_step([str(out / "plain-runtime"), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
                   "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "self-hosting root emit")
         first.unlink()
-    else:
-        env = dict(os.environ, NUPP_ENGINE="luajit", **cached)
-        env.pop("NUPP_VM_CLI_IMAGE", None)
-        run_step([str(ROOT / "bin/nupp"), "run", "native/crates/vm/emit/root.lua", str(ROOT), str(image)], env,
-                 "LuaJIT-hosted root emit")
     if not image.is_file():
         raise ValueError("the root emit wrote no image")
-    if seed in ("image", "luajit"):
+    if seed == "image":
         # A compiler from elsewhere filled the cache; the next automatic rebuild
         # pins what this one installs.
         (PACKAGES / "emitter").unlink(missing_ok=True)
@@ -471,7 +475,7 @@ command.add_argument("--linked", action="store_true", help="the runtime has this
 commands.add_parser("status", help="verify installed artifacts and report source changes since installation")
 commands.add_parser("current", help="exit 0 when the selected generation was built from exactly these sources")
 command = commands.add_parser("build", help="emit, link and install a VM CLI from this checkout's sources")
-command.add_argument("--seed", choices=["vm", "pinned", "image", "luajit"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else LuaJIT; pinned: the generation the emit cache was filled by)")
+command.add_argument("--seed", choices=["vm", "pinned", "image"], help="compiler that lowers the image (default: --seed-image if given, else the installed VM CLI, else the pinned stage-zero image; pinned: the generation the emit cache was filled by)")
 command.add_argument("--seed-image", type=Path, help="a root CLI image to lower with, such as a pinned VM stage zero")
 command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
 command.add_argument("--cache", type=Path, help="where emits keep per-module lowering (default: build/vm-cli/emit-cache)")

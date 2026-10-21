@@ -4,10 +4,12 @@ module nupp.tools.vm.fixpoint
 The self-hosting claim for the VM-hosted compiler: the root CLI image, emitted
 from these sources, emits itself byte for byte.
 
-Three stages, as the LuaJIT fixpoint has. Stage one is these sources lowered by
-whichever image is running this command, so it says nothing yet; stage two is
-the first image lowered by the code these sources describe, and stage three is
-stage two doing it again. Two and three must be identical.
+Three stages. Stage one is these sources lowered by the pinned stage zero that
+`selfHost.bootstrap` names, or by the image running this command when the
+project names none, so it says nothing yet; stage two is the first image
+lowered by the code these sources describe, and stage three is stage two doing
+it again. Two and three must be identical. Starting from the pin is what proves
+a cold checkout, which has nothing else, can build these sources.
 
 Each stage runs as its own process on the program runtime, which carries no
 linked compiled code: the CLI's own runtime is linked to the image it was built
@@ -40,17 +42,62 @@ local function failed(reason: string): fixpoint.Result
     return {ok = false, reason = reason}
 end
 
+--- The image `bootstrap` prints the path of on its last line of output: the
+--- pinned stage zero, fetched and verified by whatever the command does.
+---
+--- @param root where the command runs
+--- @param bootstrap the command, split on spaces
+--- @return the image's path, or nil and why there is none
+function fixpoint.stageZero(root: string, bootstrap: string): string?, string?
+    local command: {string} = {}
+    for word in bootstrap:gmatch("%S+") do
+        command[#command + 1] = word
+    end
+    if #command == 0 then
+        return nil, "selfHost.bootstrap names no command to find the stage-zero image with"
+    end
+    local status, output = process.capture(command, {cwd = root})
+    if status ~= 0 then
+        return nil, table.concat(command, " ") .. " failed: " .. tostring(output)
+    end
+    local path: string? = nil
+    for line in tostring(output):gmatch("[^\r\n]+") do
+        path = line
+    end
+    if path == nil or path == "" then
+        return nil, table.concat(command, " ") .. " named no stage-zero image"
+    end
+    if not fs.exists(path as string) then
+        return nil, "the stage-zero image is not at " .. tostring(path)
+    end
+
+    return path, nil
+end
+
 --- Verifies the VM compiler from `root`'s sources, keeping the stages under
 --- `outDir`. `say` reports progress.
 ---
 --- @param root the checkout
 --- @param outDir where the stages are written
 --- @param say receives one line per stage
+--- @param bootstrap the manifest's `selfHost.bootstrap`, which names the seed
 --- @return what the run found
-function fixpoint.run(root: string, outDir: string, say: function(line: string): nil): fixpoint.Result
+function fixpoint.run(
+    root: string,
+    outDir: string,
+    say: function(line: string): nil,
+    bootstrap: string?
+): fixpoint.Result
     local seed = os.getenv("NUPP_VM_CLI_IMAGE")
+    if bootstrap ~= nil then
+        local pinned, problem = fixpoint.stageZero(root, bootstrap as string)
+        if pinned == nil then
+            return failed(tostring(problem))
+        end
+        seed = pinned
+    end
     if seed == nil or seed == "" then
-        return failed("the VM fixpoint starts from the running VM compiler image")
+        return failed("the VM fixpoint starts from a stage-zero image or the running VM compiler image")
     end
     local runtime, problem = require("nupp.tools.build.native").vmRuntime({
         "compression",
@@ -68,7 +115,8 @@ function fixpoint.run(root: string, outDir: string, say: function(line: string):
     for index = 1, 3 do
         local stage = fs.join(outDir, "stage" .. index .. ".image")
         os.remove(stage)
-        say(("stage %d: %s lowers %s"):format(index, fs.basename(previous), root))
+        -- The seed by its whole path, since which image started is the claim.
+        say(("stage %d: %s lowers %s"):format(index, index == 1 and previous or fs.basename(previous), root))
         local status = process.run(
             {
                 runtime as string,

@@ -19,8 +19,11 @@ on:
   schedule:
     - cron: "0 5 * * *"
   push:
+    # Not a pre-release tag (`v0.0.15-vm.1`): one is published to move a
+    # branch's stage-zero pin, and its numbers would sit beside a release's.
     tags:
       - "*"
+      - "!v*-*"
   # The harnesses themselves are source, and source that does not compile is a
   # defect wherever it lives. Only their own inputs bring this workflow into a
   # pull request; nothing else waits on a measurement.

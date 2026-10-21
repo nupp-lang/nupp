@@ -5,10 +5,11 @@
 # one, runs build/nupp/tools and rebuilds it when compiler sources change.
 #
 # What it cannot do is start from nothing. The compiler is written in Nupp, so
-# compiling it needs a Nupp compiler, and the one it starts from is the previous
-# release's, fetched and cached by `scripts/toolchain stage0` against a digest
-# pinned in the tree. Nothing here is committed, and nothing here is fetched
-# until a command finds no compiler to run -- which, in a built tree, is never.
+# compiling it needs a Nupp compiler, and the one it starts from is a release's
+# root CLI image, fetched and cached by `scripts/toolchain stage0-image` against
+# a digest pinned in the tree, which lowers these sources into a VM compiler.
+# Nothing here is committed, and nothing here is fetched until a command finds no
+# VM compiler -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Cargo builds the compiler starts (native providers, VM runtimes) share one
 # content-addressed compiler cache across worktrees when sccache is installed.
@@ -23,8 +24,7 @@ fi
 # A checkout with no VM CLI yet builds one when a VM stage-zero image is pinned:
 # the image lowers these sources on a runtime built from them, once more by
 # themselves, and the result is installed (`scripts/vm-cli build --seed-image`).
-# Concurrent commands wait for the one building. Without an image pin this
-# falls through to the LuaJIT path below, as it always has.
+# Concurrent commands wait for the one building.
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] && [ "${NUPP_ENGINE:-}" != luajit ] \
     && [ ! -e "$ROOT/.nupp/vm-cli/current" ] \
     && grep -q '^STAGE0_IMAGE_SHA256=..*' "$ROOT/scripts/toolchain.pins" 2>/dev/null; then
@@ -253,37 +253,13 @@ NUPP_LAUNCHER_TOOLCHAIN_KEY=$TOOLCHAIN_CACHE_KEY
 NUPP_LAUNCHER_TOOLCHAIN_PREFIX=$TOOLCHAIN_PREFIX
 export NUPP_LAUNCHER_TOOLCHAIN_KEY NUPP_LAUNCHER_TOOLCHAIN_PREFIX
 
-# The stage-zero compiler, fetched and verified on first use.
-#
-# Asked for only where there is nothing else to run: no built compiler, or one
-# that could not rebuild the tree. Every ordinary command in a built tree
-# answers without a network round trip or a digest check, and `help` -- which
-# reads no source and must work in a tree that has never fetched anything --
-# never comes here at all.
-#
-# Memoized within this process, the failure included: both callers below may
-# ask, a cached answer still costs a digest of a twelve-megabyte file, and an
-# unreachable one has already said why it could not be had.
-#
-# Call it as a plain command and read `$STAGE0`, never as `$(stage0_path)`: a
-# command substitution runs it in a subshell, which discards both the memo and
-# the exported `NUPP_STAGE0` the compiler's own comptime workers are found by.
-STAGE0=
-STAGE0_TRIED=no
-stage0_path() {
-    if [ "$STAGE0_TRIED" = no ]; then
-        STAGE0_TRIED=yes
-        STAGE0=$("$ROOT/scripts/toolchain" stage0) || STAGE0=
-        # A build run by stage zero starts comptime workers of its own, and on
-        # Windows those are launched as a compiler rather than through this
-        # script. Say which compiler is running so they can be the same one.
-        if [ -n "$STAGE0" ]; then
-            NUPP_STAGE0=$STAGE0
-            export NUPP_STAGE0
-        fi
-    fi
-    [ -n "$STAGE0" ] || return 1
-    printf '%s\n' "$STAGE0"
+# The VM compiler answers for a tree whose LuaJIT build is missing or cannot
+# rebuild it: one is installed, or the pinned stage-zero image builds one the
+# first time this script runs without NUPP_ENGINE=luajit. It is asked through
+# this script, so it is the same compiler every other command here gets.
+vm_compiler_available() {
+    [ -e "$ROOT/.nupp/vm-cli/current" ] \
+        || grep -q '^STAGE0_IMAGE_SHA256=..*' "$ROOT/scripts/toolchain.pins" 2>/dev/null
 }
 
 # The interpreter this launcher is about to run under is the one an `@aot` entry
@@ -559,29 +535,19 @@ await_build() {
 }
 
 # With the best compiler available: the built one when there is one, since a
-# compiler that has kept up with the sources is likelier to compile them than a
-# bundle from whenever it was last refreshed.
+# compiler that has kept up with the sources is likelier to compile them than
+# one that has not.
 #
 # The built one is chosen on whether it is there, not on whether the stamp says
 # the last build finished. Those differ exactly while a build is running, and
 # answering "there is no compiler here" then sent every concurrent command to
-# the stage-0 bootstrap -- the slowest compiler in the tree -- to build the
-# whole thing from nothing, when a working compiler was sitting right there.
+# the bootstrap to build the whole thing from nothing, when a working compiler
+# was sitting right there.
 #
-# When that one cannot build, the bootstrap gets a turn. A build can succeed and
-# still leave a compiler that does not run — that is an ordinary afternoon when
-# the thing being edited is the compiler — and without the second attempt the
-# only way out is knowing to delete build/ by hand.
-# Publish compiler and runtime modules generated by the compiler being built.
-complete_bootstrap() {
-    [ -f "$BUILT" ] || return 0
-    if [ -n "$BUILD_COLOR_ARG" ]; then
-        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build "$BUILD_COLOR_ARG")
-    else
-        (cd "$ROOT" && NUPP_COMPILER_ROOT="$LUA_ROOT" luajit -e "$LUAPATH" "$LUA_BUILT" build)
-    fi
-}
-
+# When that one cannot build, the VM compiler gets a turn. A build can succeed
+# and still leave a compiler that does not run — that is an ordinary afternoon
+# when the thing being edited is the compiler — and without the second attempt
+# the only way out is knowing to delete build/ by hand.
 build_now() {
     # Announced only by the process that is going to do it.
     #
@@ -605,24 +571,20 @@ build_now() {
             release_build_lock
             return 0
         fi
-        echo "nupp: falling back to the stage-zero compiler" >&2
+        echo "nupp: falling back to the VM compiler" >&2
         # The built compiler loads through build/.bytecode, and an entry that is
         # damaged but still loads fails it the same way every time -- including
         # the self-hosted pass after this one. Nothing else notices, so the
         # cache goes with the compiler that could not build.
         rm -rf "$ROOT/build/.bytecode"
     fi
-    if stage0_path >/dev/null; then
+    if vm_compiler_available; then
         if [ -n "$BUILD_COLOR_ARG" ]; then
-            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build "$BUILD_COLOR_ARG")
+            (cd "$ROOT" && NUPP_ENGINE= "$ROOT/bin/nupp" build "$BUILD_COLOR_ARG")
         else
-            (cd "$ROOT" && NUPP_COMPILER_ROOT="$(dirname "$STAGE0")" luajit "$STAGE0" build)
+            (cd "$ROOT" && NUPP_ENGINE= "$ROOT/bin/nupp" build)
         fi
         build_status=$?
-        if [ "$build_status" -eq 0 ]; then
-            complete_bootstrap
-            build_status=$?
-        fi
     fi
     release_build_lock
 
@@ -748,16 +710,13 @@ fi
 #
 # It is the same choice `build_now` makes when it picks which compiler to build
 # with, and for the same reason: a compiler that has kept up with the sources is
-# a better answer than a bundle from whenever stage zero was last refreshed.
-using_stage0=no
+# a better answer than one that never saw them.
 if [ -f "$BUILT" ]; then
     set -- luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
-elif stage0_path >/dev/null; then
-    using_stage0=yes
-    export NUPP_COMPILER_ROOT="$(dirname "$STAGE0")"
-    set -- luajit "$STAGE0" "$@"
+elif vm_compiler_available; then
+    set -- env NUPP_ENGINE= "$ROOT/bin/nupp" "$@"
 else
-    echo "nupp: no built compiler, and the stage-zero compiler is not available" >&2
+    echo "nupp: no built compiler, and no VM compiler or stage-zero image to build one with" >&2
     exit 1
 fi
 
@@ -766,10 +725,6 @@ fi
 if [ "$BUILD_LOCK_HELD" = yes ]; then
     "$@"
     status=$?
-    if [ "$status" -eq 0 ] && [ "$using_stage0" = yes ]; then
-        complete_bootstrap
-        status=$?
-    fi
     release_build_lock
     exit "$status"
 fi

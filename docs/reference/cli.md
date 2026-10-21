@@ -1625,13 +1625,13 @@ Examples:
 
     nupp fixpoint
     nupp fixpoint --binary
-    nupp fixpoint --emit-stage0 build/stage0/nupp.lua
+    nupp fixpoint --emit-stage0 build/stage0/nupp.image
 
 Usage:
   nupp fixpoint [options]
 
 Options:
-  --emit-stage0 PATH  Write the verified stage-zero bundle here.
+  --emit-stage0 PATH  Write the verified stage-zero image here.
   --binary            Verify the packaged binary instead of the compiler.
   --format FORMAT, --json, --text
                       Select the report representation.
@@ -1641,22 +1641,23 @@ Options:
   --no-color          Never color output
 ```
 
-Every stage is built into its own directory, and the last two are compared file
-by file. The line names the stage zero the run started from, since which one
-that was is the part a reader cannot see:
+Each stage is the compiler's root image, lowered from these sources by the
+image before it, and the last two are compared byte for byte. The line names
+the verified image and its digest:
 
 ```text
-fixpoint ok: /path/to/stage0/nupp.lua rebuilds itself byte-identically
+fixpoint ok: the VM compiler image emits itself byte-identically (build/vm-fixpoint/root.image, 9f2c...)
 ```
 
-Stage one is not compared with anything. Stage zero is a different compiler on
-purpose -- a published release, named by `selfHost.bootstrap` -- so what stage
-one contains is these sources as that release emits them, and the claim starts
-at stage two. A mismatch keeps every stage for inspection and exits 1.
+Stage one is not compared with anything. It is lowered by the stage-zero image
+`selfHost.bootstrap` names -- a published release, a different compiler on
+purpose -- so what it contains is these sources as that release lowers them,
+and the claim starts at stage two. A mismatch keeps the stages for inspection
+and exits 1.
 
-`--emit-stage0` additionally writes the stage-zero bundle the verified compiler
-composes. It is the artifact a release publishes for the next checkout to start
-from, and nothing here reads it back. See
+`--emit-stage0` additionally writes the verified image as the stage zero. It is
+the artifact a release publishes for the next checkout to start from, and
+nothing here reads it back. See
 [build.md](../learn/projects/build.md#self-hosting) for what `selfHost`
 configures.
 

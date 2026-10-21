@@ -10,8 +10,6 @@ in the build cache, not by timestamps.
 ]]
 const {type Stats} = require("nupp.tools.build.modules")
 
-local envMod = require("nupp.compiler.project.env")
-local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local cache = require("nupp.tools.build.cache")
@@ -125,11 +123,6 @@ type project.CleanOptions = {
 
 --- What a fixpoint run was asked for.
 type project.FixpointOptions = {
-    --- Where to write the stage-zero bundle the verified compiler composes. Nothing
-    --- reads it back here: it is the artifact a release publishes for the next
-    --- checkout to start from, and asking for it is asking for that file.
-    emitStage0: string?,
-
     --- What happened, instead of the human line saying so.
     result: {[string]: any}?,
 
@@ -149,7 +142,6 @@ local readFile, writeFile = fs.readFile, fs.writeFile
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 
 local stable = require("nupp.compiler.stable")
-local hashFile = fingerprint.hashFile
 local loadState, saveState = cache.loadState, cache.saveState
 local toolFingerprint = fingerprint.toolFingerprint
 local targetConfig = tasks.targetConfig
@@ -1116,42 +1108,6 @@ function project.runTask(root: string?, name: string, args: {string}?): integer
     return process.run(argv, {cwd = join(root, task.cwd or ""), env = env})
 end
 
--- What the compiler produced, which is what a fixpoint is a claim about.
---
--- A native provider is excluded because it is not the compiler's output: Cargo
--- built it, into a target directory named after the stage, and a shared library
--- records the path it was built in. Two stages therefore hold two different
--- files that say the same thing, and comparing them would test Cargo's
--- reproducibility rather than the compiler's. The generated Lua beside them is
--- still compared byte for byte.
-local function treeDigest(path)
-    local files, parts = listFiles(path), {}
-    for _, file in ipairs(files) do
-        local relative = file:sub(#normalize(path) + 2)
-        local native = relative:match("^native/") or relative:match("^lib/")
-        -- `cache/` holds what a run worked out rather than what it produced. Its
-        -- entries are keyed by their inputs and stamped with the compiler that computed
-        -- them, so two stages that wrote the same program still write different bytes
-        -- there -- the second was written by the first, which is the whole point of the
-        -- exercise.
-        --
-        -- `.bytecode/` is the same kind of thing one step further along: the modules
-        -- this stage wrote, compiled, and named by where this stage put them. Two
-        -- stages that produced identical Lua still disagree there, because they are
-        -- two directories.
-        local derived = relative:match("^cache/") or relative:match("^%.bytecode/")
-        if relative ~= ".nupp-state.json"
-            and not relative:match("^%.nupp%-complete")
-            and not native
-            and not derived
-        then
-            parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
-        end
-    end
-
-    return hash.digest(table.concat(parts, "\0"))
-end
-
 local function removeTree(path)
     if os.remove(path) then
         return 0
@@ -1322,61 +1278,6 @@ function project.clean(root: string?, opts: project.CleanOptions?): integer
     return 0
 end
 
--- `native/` is excluded for the reason `treeDigest` gives -- it is Cargo's target
--- directory rather than the compiler's output -- and for a second one. A copy here goes
--- through `writeFile`, which creates a file the way any other written file is created,
--- and a Cargo target directory holds executables: the build script Cargo compiles for
--- each crate that has one. Copying those over the destination's own left them readable
--- and not executable, and every native build in that tree afterwards failed with
--- "could not execute process ... Permission denied" until the directory was deleted by
--- hand. So a `fixpoint` broke the next `build`, which is a fine way to lose an
--- afternoon. The destination keeps the Cargo cache it already had, which is the one
--- that matches where it is.
-local function copyTree(source, destination)
-    for _, path in ipairs(listFiles(source)) do
-        local relative = path:sub(#normalize(source) + 2)
-        if relative ~= ".nupp-state.json"
-            and not relative:match("^%.nupp%-complete")
-            and not relative:match("^native/")
-        then
-            local ok, err = copyFile(path, join(destination, relative))
-            if not ok then
-                return nil, err
-            end
-        end
-    end
-
-    return true
-end
-
---- The whole compiler as one Lua file: what a checkout with no compiler starts from.
----
---- It is generated rather than committed, and a release publishes it so the next
---- checkout can fetch it against a pinned digest. Nothing in an ordinary build makes
---- one; `nupp fixpoint --emit-stage0` does, from the compiler the same run verified.
-local function stage0Text(root: string, config: manifest.Config): string?, string?
-    local targetName = config.selfHost and (config.selfHost.bootstrapTarget or config.selfHost.target) or nil
-    local target, targetErr = targetConfig(config, targetName)
-    if not target then
-        return nil, targetErr
-    end
-    -- What the build recorded, so the bundle carries the modules it compiled rather
-    -- than everything that has since appeared beside them.
-    local outDir = target.outDir or "build"
-    local state = loadState(join(root, join(outDir, ".nupp-state.json")))
-    local text, bundleErr = loadBuildTool(
-        "nupp.tools.build.package"
-    ).bundleText(
-        root,
-        config,
-        target,
-        "-- Generated stage-zero compiler. Rebuild with: nupp fixpoint --emit-stage0 PATH\n",
-        state and state.modules or nil
-    )
-
-    return text, bundleErr
-end
-
 --- Verifies that a stamped binary stamps out a binary identical to itself.
 ---
 --- The compiler proves it can compile itself on every change; this is the same claim
@@ -1473,191 +1374,6 @@ function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): 
                 "packaging fixpoint ok: %s stamps out a binary identical to " .. "itself (%d bytes)\n"
             ):format(targetName, #first)
         )
-    end
-
-    return 0
-end
-
---- Where the compiler that compiles this project's first stage comes from.
----
---- `selfHost.bootstrap` names a command; its last line of output is the path. The
---- project owns that because a self-hosted compiler cannot compile its own sources
---- until some other compiler has, and what that other one is -- a fetched release, a
---- packaged toolchain, an already-installed compiler -- is the project's business
---- rather than the build system's.
-local function stage0Compiler(root: string, config: manifest.Config): string?, string?
-    local spelled = config.selfHost and config.selfHost.bootstrap or nil
-    local command = {}
-    for word in tostring(spelled or ""):gmatch("%S+") do
-        command[#command + 1] = word
-    end
-    if #command == 0 then
-        return nil, "selfHost.bootstrap names no command to find the stage-zero compiler with"
-    end
-    local status, output = process.capture(command, {cwd = root})
-    if status ~= 0 then
-        return nil, table.concat(command, " ") .. " failed: " .. output
-    end
-    local path: string? = nil
-    for line in tostring(output):gmatch("[^\r\n]+") do
-        path = line
-    end
-    if not path or path == "" then
-        return nil, table.concat(command, " ") .. " named no stage-zero compiler"
-    end
-    if not fs.exists(path) then
-        return nil, "the stage-zero compiler is not at " .. path
-    end
-
-    return path, nil
-end
-
---- Runs a compiler to build this project into `outDir`.
----
---- `packageRoot` is the output tree that compiler's own modules live in, or nil for a
---- stage zero, which is one self-contained file and loads nothing beside it.
-local function buildWithCompiler(
-    root: string,
-    compiler: string,
-    packageRoot: string?,
-    outDir: string,
-    targetName: string?
-): boolean
-    local argv = {"luajit"}
-    if packageRoot then
-        argv[#argv + 1] = "-e"
-        argv[#argv + 1] = "package.path=" .. string.format("%q", packageRoot .. "/?.lua;") .. " .. package.path"
-    end
-    argv[#argv + 1] = compiler
-    argv[#argv + 1] = "build"
-    argv[#argv + 1] = "--output"
-    argv[#argv + 1] = outDir
-    if targetName then
-        argv[#argv + 1] = "--target"
-        argv[#argv + 1] = targetName
-    end
-
-    return process.run(argv, {
-        cwd = root,
-        env = not packageRoot and {NUPP_COMPILER_ROOT = fs.dirname(compiler), NUPP_STAGE0 = compiler} or nil
-    }) == 0
-end
-
---- Where the compiler a stage built lives, so the next stage can be run from it.
-local function stageMain(root: string, config: manifest.Config, target: manifest.Target, outDir: string): string
-    local entry = (target.entries or {})[1] or "nupp.tools.main"
-    local moduleName = entry:match("%.nupp$") and envMod.moduleNameForPath(
-        envMod.new(root, {
-            config = config
-        }),
-        join(root, entry)
-    ) or entry
-    moduleName = moduleName or "nupp.tools.main"
-
-    return join(root, join(outDir, moduleName:gsub("%.", "/") .. ".lua"))
-end
-
---- Verifies that the compiler reproduces itself from the stage zero a checkout starts
---- from.
----
---- Three stages, because the first one is not a claim about anything. Stage zero is a
---- previous release: it compiles the current sources, but with its own generator, so
---- what stage one contains is this project as an older compiler would emit it. Stage
---- one then compiles the sources again, and stage two is the first tree emitted by
---- code the current sources describe. Stage three is stage two doing it once more.
---- Two and three must be identical, and their being so says the compiler is a fixed
---- point of itself rather than of whatever built it.
----
---- What it no longer says anything about is a tracked file. Stage zero is pinned to a
---- release and is meant to differ from the current compiler.
-function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
-    root, opts = root or ".", (opts or {}) as project.FixpointOptions
-    local config, err = project.loadManifest(root)
-    if not config then
-        say(opts, "NUPP0002", tostring(err) .. "\n");
-        return 1
-    end
-    local targetName = config.selfHost and config.selfHost.target or nil
-    local target, targetErr = targetConfig(config, targetName)
-    if not target then
-        say(opts, "NUPP0003", "nupp: " .. tostring(targetErr) .. "\n")
-        return 1
-    end
-    local stage0, stage0Err = stage0Compiler(root, config)
-    if not stage0 then
-        say(opts, "NUPP0004", "nupp: " .. tostring(stage0Err) .. "\n")
-        return 1
-    end
-
-    local stages = {"_stage1", "_stage2", "_stage3"}
-    for _, stage in ipairs(stages) do
-        removeTree(join(root, stage))
-    end
-    -- Stage zero is one file that loads nothing beside it; every stage after it is an
-    -- output tree, and is run with that tree on the module path.
-    local compiler: string = stage0
-    local packageRoot: string? = nil
-    for _, stage in ipairs(stages) do
-        if not buildWithCompiler(root, compiler, packageRoot, stage, targetName) then
-            say(opts, "NUPP0004", ("nupp: %s did not build %s\n"):format(compiler, stage))
-            if opts.result then
-                opts.result.reason = "a stage did not build"
-            end
-            return 1
-        end
-        compiler, packageRoot = stageMain(root, config, target, stage), join(root, stage)
-    end
-
-    local second = treeDigest(join(root, stages[2]))
-    local third = treeDigest(join(root, stages[3]))
-    if second ~= third then
-        say(opts, "NUPP0004", "nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
-        if opts.result then
-            opts.result.reason = "the two stages differ"
-        end
-        return 1
-    end
-
-    local destination = join(root, target.outDir or "build")
-    local copied, copyErr = copyTree(join(root, stages[3]), destination)
-    if not copied then
-        say(opts, "NUPP0001", "nupp: " .. copyErr .. "\n");
-        return 1
-    end
-    writeFile(join(destination, ".nupp-complete"), third .. "\n")
-    for _, stage in ipairs(stages) do
-        removeTree(join(root, stage))
-    end
-
-    -- After the verification and from the compiler it verified, which is the whole
-    -- claim a published stage zero makes: the bytes another checkout will start from
-    -- came out of a tree that reproduces itself.
-    if opts.emitStage0 then
-        local stage0Target = config.selfHost and config.selfHost.bootstrapTarget or nil
-        if stage0Target and project.build(root, {target = stage0Target}) ~= 0 then
-            return 1
-        end
-        local text, textErr = stage0Text(root, config)
-        if not text then
-            say(opts, "NUPP0004", "nupp: " .. tostring(textErr) .. "\n");
-            return 1
-        end
-        local written, writeErr = writeFile(opts.emitStage0, text)
-        if not written then
-            say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n");
-            return 1
-        end
-    end
-
-    if opts.result then
-        opts.result.target = targetName
-        opts.result.stage0 = stage0
-        opts.result.emittedStage0 = opts.emitStage0
-    else
-        io.write(("fixpoint ok: %s rebuilds itself byte-identically\n"):format(stage0))
-        if opts.emitStage0 then
-            io.write(("wrote the stage-zero compiler to %s\n"):format(opts.emitStage0))
-        end
     end
 
     return 0

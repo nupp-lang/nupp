@@ -396,52 +396,12 @@ jobs:
             release/stub-x86_64-pc-windows-msvc.json
           if-no-files-found: error
 
-  stage-zero:
-    name: Stage-zero compiler
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Build pinned host dependencies
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      # The bundle the next checkout starts from, composed by the compiler this
-      # same command just verified. Producing it any other way would publish a
-      # stage zero nothing had proved is a fixed point of itself, which is the
-      # one claim a bootstrap compiler has to make. It is an asset rather than a
-      # file in the tree.
-      #
-      # The digest is of the file inside the archive, not of the archive: two
-      # gzips write different bytes for identical input, and what a checkout
-      # verifies is the source its compiler loads. Printed here so the pin bump
-      # that follows a release is a value read off the job that made it.
-      - name: Verify the fixpoint and compose the stage zero
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          label=${GITHUB_REF_NAME:-untagged}
-          name="nupp-stage0-${label//\//-}.lua"
-          ./bin/nupp fixpoint --emit-stage0 "release/$name"
-          gzip -9 -n "release/$name"
-          printf 'STAGE0_SHA256 for this release: %s\n' \
-            "$(gzip -dc "release/$name.gz" | sha256sum | cut -d' ' -f1)"
-
-      - name: Upload the stage-zero compiler
-        uses: actions/upload-artifact@v4
-        with:
-          name: nupp-stage0
-          path: release/nupp-stage0-*.lua.gz
-          if-no-files-found: error
-
-  # The VM stage zero: the root CLI image the VM fixpoint verified, which a cold
-  # checkout runs on a runtime built from its own sources (`scripts/toolchain
-  # stage0-image`, `scripts/vm-cli build --seed-image`). It is platform-free
-  # text, so one runner composes it. The VM CLI it starts from is seeded by the
-  # LuaJIT stage zero until an image is pinned.
+  # The stage zero: the root CLI image the fixpoint verified, starting from the
+  # pinned one, which a cold checkout runs on a runtime built from its own
+  # sources (`scripts/toolchain stage0-image`, `scripts/vm-cli build
+  # --seed-image`). It is a platform-free graph image, so one runner composes
+  # it. Producing it any other way would publish a stage zero nothing had proved
+  # is a fixed point of itself.
   stage-zero-image:
     name: VM stage-zero image
     runs-on: ubuntu-latest
@@ -633,7 +593,6 @@ jobs:
     needs:
       - build-unix
       - build-windows
-      - stage-zero
       - stage-zero-image
       - catalog
       - verify-cross-unix

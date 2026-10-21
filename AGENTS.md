@@ -28,19 +28,23 @@ conflict does not on its own meet that bar.
 ### The stage-zero compiler
 
 The compiler is written in Nupp, so the first build of a checkout is done by
-another compiler: the release named by `STAGE0_TAG` in
-`scripts/toolchain.pins`, fetched and verified against the digest beside it by
-`scripts/toolchain stage0` and cached once per machine. Nothing about it is
-committed, and `bin/nupp` asks for it only when there is no built compiler.
+another compiler: the root CLI image of the release named by
+`STAGE0_IMAGE_TAG` in `scripts/toolchain.pins`, fetched and verified against the
+digest beside it by `scripts/toolchain stage0-image` and cached once per
+machine. Nothing about it is committed. `bin/nupp` asks for it only when the
+checkout has no VM compiler, and lowers these sources with it into one
+(`scripts/vm-cli build`).
 
-That imposes one rule on `src/`, the standard library and the runtime beneath
-them: **they may only use language features the pinned release already
-understands.** A feature you add today reaches the compiler's own sources a
-release later, once a tag carrying it is published and the pin moves to it.
-`nupp fixpoint` is what catches a violation, because its first stage is built by
-that release.
+That imposes two rules. **`src/`, the standard library and the runtime beneath
+them may only use language features the pinned image already understands**: a
+feature you add today reaches the compiler's own sources a release later, once
+an image carrying it is published and the pin moves to it. And **the runtime
+must keep loading the pinned image's format** until the pin moves past it, so a
+graph image format change keeps the previous decoder. `nupp fixpoint` catches
+the first, because its first stage is lowered by that image, and
+`rustabitest` the second.
 
-The same rule reaches `nupp.lua`: the pinned release reads that manifest, so a
+The same rule reaches `nupp.lua`: the pinned image reads that manifest, so a
 manifest key it does not know about fails every build before anything is
 compiled.
 
@@ -179,8 +183,8 @@ reports it is usually already testing somebody else's commit. `git push
   from the ones the change caused.
 - CSS or styling-only changes do not require the test suite. Verify the
   affected generated site or assets instead.
-- `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically,
-  starting from the pinned stage zero.
+- `./bin/nupp fixpoint` verifies that the compiler image rebuilds itself
+  byte-identically, starting from the pinned stage-zero image.
 - What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
   from the paths it touches, and `required-ci` is the single status that
   summarises the run. A path no rule classifies selects every job, which is the

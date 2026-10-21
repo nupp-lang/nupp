@@ -140,19 +140,22 @@ files, it waits for the one already running and uses what that produces.
 ### Stage-zero compiler
 
 The one thing a checkout cannot do is start from nothing, since compiling Nupp
-needs a Nupp compiler. The one it starts from is the release named by
-`STAGE0_TAG` in `scripts/toolchain.pins`, published as an asset of that release
-and fetched by `scripts/toolchain stage0` the first time a checkout needs it.
-The digest beside the tag is what authenticates it, and it is reproducible from
-the tag: rebuilding the bundle from that source gives the same bytes.
+needs a Nupp compiler. The one it starts from is the root CLI image of the
+release named by `STAGE0_IMAGE_TAG` in `scripts/toolchain.pins`, published as an
+asset of that release and fetched by `scripts/toolchain stage0-image` the first
+time a checkout needs it. `bin/nupp` runs it on a runtime built from the
+checkout's own sources to lower those sources into a VM compiler. The digest
+beside the tag is what authenticates it, and it is reproducible from the tag:
+`nupp fixpoint --emit-stage0` from that source gives the same bytes.
 
 One copy serves every worktree on the machine. An offline builder supplies
-`nupp-stage0-<tag>.lua.gz` through `NUPP_HOST_SOURCE_DIR`, the way it supplies
+`nupp-stage0-<tag>.image.gz` through `NUPP_HOST_SOURCE_DIR`, the way it supplies
 every other pinned archive.
 
-Because the compiler's own sources are compiled by that release, they may only
-use language features it already understands. A feature reaches them a release
-later, once a tag carrying it is published and the pin moves to it.
+Because the compiler's own sources are lowered by that image, they may only use
+language features it already understands, and the runtime must keep loading its
+format. A feature reaches the sources a release later, once an image carrying it
+is published and the pin moves to it.
 
 ## Putting `nupp` on PATH
 

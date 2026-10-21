@@ -873,44 +873,6 @@ fn no_address() -> NetAddress {
     }
 }
 
-unsafe fn write_address(
-    raw: u64,
-    output: *mut NetAddress,
-    get: impl FnOnce(&transport::Stream) -> Result<Option<SocketAddr>, String>,
-) -> i32 {
-    if output.is_null() {
-        return super::failed(Status::InvalidArgument, "network address output is null");
-    }
-    let (_, stream) = match stream(raw) {
-        Ok(value) => value,
-        Err(status) => return status,
-    };
-    let value = match get(&stream) {
-        Ok(Some(value)) => net_address(value),
-        Ok(None) => no_address(),
-        Err(error) => return super::failed(Status::Closed, &error),
-    };
-    // SAFETY: output was checked above.
-    unsafe { output.write(value) };
-    Status::Ok.code()
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeNetStreamLocalAddress(raw: u64, output: *mut NetAddress) -> i32 {
-    boundary(|| {
-        // SAFETY: write_address validates the caller-owned output pointer.
-        unsafe { write_address(raw, output, transport::Stream::local_address) }
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn nuppNativeNetStreamPeerAddress(raw: u64, output: *mut NetAddress) -> i32 {
-    boundary(|| {
-        // SAFETY: write_address validates the caller-owned output pointer.
-        unsafe { write_address(raw, output, transport::Stream::peer_address) }
-    })
-}
-
 #[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeNetStreamSetNoDelay(raw: u64, enabled: i32) -> i32 {
     boundary(|| {
@@ -923,15 +885,6 @@ pub extern "C" fn nuppNativeNetStreamSetNoDelay(raw: u64, enabled: i32) -> i32 {
             |()| Status::Ok.code(),
         )
     })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeNetStreamSetKeepAlive(
-    raw: u64,
-    enabled: i32,
-    delay_seconds: u32,
-) -> i32 {
-    boundary(|| keep_alive(raw, enabled, Duration::from_secs(u64::from(delay_seconds))))
 }
 
 #[unsafe(no_mangle)]

@@ -25,18 +25,20 @@ local REPORT_SCHEMA = {
             .. "itself from stage zero, or the packaged binary stamping another."
         },
         target = {type = "string", description = "The manifest target that was verified."},
-        stage0 = {type = "string", description = "The stage-zero compiler the run started from."},
-        emittedStage0 = {type = "string", description = "Where the stage-zero bundle was written, if anywhere."},
+        emittedStage0 = {type = "string", description = "Where the stage-zero image was written, if anywhere."},
         bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
         reason = {type = "string", description = "Why it failed, in one phrase. Absent when ok is true."},
     },
     required = {"ok", "kind", "diagnostics"},
 }
 
--- Whether this checkout is one the VM compiler image is emitted from.
-local function selfHosting(): boolean
-    local config = require("nupp.tools.build.project").loadManifest(".")
-    return config ~= nil and (config as any).selfHost ~= nil
+-- Says why the run stopped, on stderr unless the report carries it.
+local function report(asJson: boolean, code: string, message: string): any
+    if not asJson then
+        io.stderr:write(message, "\n")
+    end
+
+    return require("nupp.tools.cli.report").runDiagnostic(code, message)
 end
 
 local function run(options: any): integer
@@ -56,13 +58,24 @@ local function run(options: any): integer
     local diagnostics: {any} = {}
     local collected = asJson and diagnostics or nil
     local code: integer
+    local config: any, manifestErr: string? = nil, nil
+    if not values.binary then
+        config, manifestErr = project.loadManifest(".")
+    end
     if values.binary then
         code = project.binaryFixpoint(".", {result = asJson and result or nil, diagnostics = collected})
-    elseif rawget(_G, "__nupp_load_image") and selfHosting() then
-        -- A VM-hosted compiler's claim is about its root image, which it emits
-        -- itself; the LuaJIT one starts from the pinned stage zero below. Anything
-        -- else, a project that is not a compiler included, takes the path below
-        -- and the diagnostics it reports.
+    elseif config == nil then
+        diagnostics[#diagnostics + 1] = report(asJson, "NUPP0002", tostring(manifestErr))
+        code = 1
+    elseif config.selfHost == nil then
+        diagnostics[#diagnostics + 1] = report(asJson, "NUPP0003", "nupp: this project declares no selfHost compiler")
+        code = 1
+    elseif not rawget(_G, "__nupp_load_image") then
+        diagnostics[#diagnostics + 1] = report(asJson, "NUPP0004", "nupp: the fixpoint runs on the VM compiler")
+        code = 1
+    else
+        -- The claim is about the root image, which the compiler emits itself,
+        -- starting from the stage zero `selfHost.bootstrap` names.
         local found = require("nupp.tools.vm.fixpoint").run(
             require("nupp.compiler.fs").absolute("."),
             "build/vm-fixpoint",
@@ -70,11 +83,12 @@ local function run(options: any): integer
                 if not asJson then
                     io.stderr:write(line, "\n")
                 end
-            end
+            end,
+            config.selfHost.bootstrap
         )
         code = found.ok and 0 or 1
-        -- A VM stage zero is the verified root image itself: platform-free
-        -- text a cold checkout runs on a runtime built from its own sources.
+        -- A stage zero is the verified root image itself: a platform-free
+        -- graph image a cold checkout runs on a runtime built from its sources.
         if found.ok and values.emitStage0 then
             local fs = require("nupp.compiler.fs")
             local written, writeErr = fs.writeFile(values.emitStage0, assert(fs.readFile(found.image as string)))
@@ -105,12 +119,6 @@ local function run(options: any): integer
                 "nupp.tools.cli.report"
             ).runDiagnostic("NUPP0004", "nupp: VM fixpoint failed: " .. tostring(found.reason))
         end
-    else
-        code = project.fixpoint(".", {
-            emitStage0 = values.emitStage0,
-            result = asJson and result or nil,
-            diagnostics = collected
-        })
     end
     if asJson then
         local report = require("nupp.tools.cli.report")
@@ -129,11 +137,11 @@ end
 ---
 ---     nupp fixpoint
 ---     nupp fixpoint --binary
----     nupp fixpoint --emit-stage0 build/stage0/nupp.lua
+---     nupp fixpoint --emit-stage0 build/stage0/nupp.image
 @cli("fixpoint")
 @derive(cliModule.Command)
 local record Fixpoint
-    --- Write the verified stage-zero bundle here.
+    --- Write the verified stage-zero image here.
     @cli(value = "PATH")
     emitStage0: string?
 

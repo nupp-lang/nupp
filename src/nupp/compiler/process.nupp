@@ -117,20 +117,15 @@ end
 -- worker leaves its LuaJIT child alive with the capture pipe open. The launcher
 -- normally has this entry built before the compiler can reach here, so start it
 -- directly and let the handle being timed out or cancelled be the worker itself.
---
--- The first build of a clean checkout is the exception: nothing has built that entry
--- yet, and `bin/nupp` would fall back to the stage-zero compiler rather than run a
--- file that is not there. Fall back the same way, or every comptime evaluation in
--- the build that produces the compiler fails for want of a worker. `NUPP_STAGE0` is
--- what the launcher exports when it resolved one, which is the only case in which
--- there is a stage zero on this machine to name.
+-- A tree with no such entry has its workers started through the launcher, which
+-- hands them to the VM compiler the way it hands every other command.
 local function isolatedArgs(argv: {string}): {string}
     if windows then
         local executable = tostring(argv[1]):gsub("\\", "/")
         local root = executable:match("^(.*)/bin/nupp$")
         if root then
             local built = root .. "/build/nupp/tools/main.lua"
-            local compiler = exists(built) and built or os.getenv("NUPP_STAGE0")
+            local compiler = exists(built) and built or nil
             if compiler then
                 local path = ("package.path=%q .. package.path"):format(root .. "/build/?.lua;")
                 local launched = {"luajit", "-e", path, compiler}

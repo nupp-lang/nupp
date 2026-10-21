@@ -15,8 +15,11 @@ on:
   push:
     branches:
       - "**"
+    # A pre-release tag (`v0.0.15-vm.1`) names a commit its branch push already
+    # tested; running the matrix again over the same commit buys nothing.
     tags:
       - "*"
+      - "!v*-*"
   # Retained for a contribution from a fork, where no push to this repository
   # happens and this is the only event there is. A pull request from a branch of
   # this repository would be tested twice, which is a case this repository's

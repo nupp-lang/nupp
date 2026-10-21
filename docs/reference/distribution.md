@@ -442,7 +442,7 @@ and failure behavior](../learn/projects/build.md#cache-and-failure-behavior).
 
 A distributed binary is deliberately none of these things.
 
-- **It does not replace the stage-zero compiler.** The `nupp-stage0-<tag>.lua.gz`
+- **It does not replace the stage-zero compiler.** The `nupp-stage0-<tag>.image.gz`
   asset beside it exists so a source checkout can build a compiler; a
   distributed binary is what comes out the other end. Different problems that
   are easy to conflate.

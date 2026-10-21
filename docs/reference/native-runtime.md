@@ -76,14 +76,14 @@ as the provider. So the version stays at 2, and the ABI grows by addition:
   smaller than the struct's first version and touches only the fields it knows,
   so the struct can grow at its tail.
 - A symbol can be deleted once no provider module uses it and the pinned
-  stage-zero bundle does not name it. `rustabitest` checks that every
-  `nuppNative*` name in the pinned bundle is still declared in
-  `native/include/nupp_native.h`, and that the header's version is the one the
-  bundle requires.
+  stage-zero image does not name it. `rustabitest` checks that every
+  `nuppNative*` name in the pinned image is still declared in
+  `native/include/nupp_native.h`; the fixpoint, whose first stage runs that
+  image against this checkout's provider, checks the rest.
 - Status codes and their meanings are part of the ABI. `nuppNativeBytesCopy`
   still returns `CAPACITY` for a short output, where every other call returns
-  `BUFFER_TOO_SMALL`, because the pinned bundle reads that code as the answer
-  to its size probe.
+  `BUFFER_TOO_SMALL`, because the pinned stage zero reads that code as the
+  answer to its size probe.
 - A major bump takes two releases. The first ships a loader that accepts both
   versions, the stage-zero pin moves to it, and only then does the provider
   bump.

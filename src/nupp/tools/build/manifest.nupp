@@ -137,10 +137,7 @@ type manifest.Test = {
 type manifest.SelfHost = {
     target: string?,
 
-    --- A separately composed target used only to compose the stage-zero bundle.
-    bootstrapTarget: string?,
-
-    --- The command that returns the path of the stage-zero compiler, run from
+    --- The command that returns the path of the stage-zero compiler image, run from
     --- the project root and split on whitespace. A self-hosted compiler cannot
     --- compile its own sources until some other compiler has, and where that
     --- one comes from -- fetched, installed, packaged -- is the project's
@@ -437,7 +434,7 @@ for _, key in ipairs(TARGET_KEYS) do
 end
 
 local TEST_KEYS = {"argv", "build", "env"}
-local SELF_HOST_KEYS = {"target", "bootstrapTarget", "bootstrap", "binary"}
+local SELF_HOST_KEYS = {"target", "bootstrap", "binary"}
 
 -- A dependency's keys are its provider's, and the providers have almost nothing in
 -- common: what a C build takes and what a rock takes overlap in `path` and nothing
@@ -1523,12 +1520,6 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         end
         if config.selfHost.target ~= nil then
             valid, err = validateTargetReference(build, config.selfHost.target, "selfHost.target")
-            if not valid then
-                return nil, err
-            end
-        end
-        if config.selfHost.bootstrapTarget ~= nil then
-            valid, err = validateTargetReference(build, config.selfHost.bootstrapTarget, "selfHost.bootstrapTarget")
             if not valid then
                 return nil, err
             end

@@ -48,7 +48,7 @@ end
 -- checking for one.
 local LAUNCHER_NOTICES = {
     "nupp: sources changed, building the compiler\n",
-    "nupp: falling back to the stage-zero compiler\n",
+    "nupp: falling back to the VM compiler\n",
     "nupp: the compiler did not build; running the last one that did\n",
 }
 

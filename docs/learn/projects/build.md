@@ -647,7 +647,7 @@ before the command it was asked for.
 It is not how the compiler to run is chosen. A build removes the marker before
 it writes anything, so for as long as a build takes there is a working compiler
 in `build/` and no marker beside it; `bin/nupp` runs the compiler that is there,
-and fetches the stage zero only when there is none. One build at a time writes a
+and hands the command to the VM compiler only when there is none. One build at a time writes a
 tree -- a build takes a lock for as long as it runs, and a command that has to
 read the compiler waits for it.
 
@@ -1071,32 +1071,31 @@ stub links the three its commands cannot run without; see
 A self-hosted compiler cannot compile its own sources until some other compiler
 has, so `selfHost` says where that other one comes from. `selfHost.bootstrap`
 names a command, run from the project root, whose last line of output is the
-path of the stage-zero compiler; `selfHost.target` is the target that rebuilds
-the compiler, and `selfHost.bootstrapTarget` composes the bundle a new stage
-zero is published from.
+path of the stage-zero compiler image; `selfHost.target` is the target that
+rebuilds the compiler.
 
-`nupp fixpoint` runs the command, then builds three times: stage zero builds
-stage one, stage one builds stage two, and stage two builds stage three. Stages
-two and three must be byte identical.
+`nupp fixpoint` runs the command, then lowers the compiler's root image three
+times: the stage-zero image lowers stage one, stage one lowers stage two, and
+stage two lowers stage three. Stages two and three must be byte identical.
 
 Three stages rather than two, because the first one is not a claim about
 anything. Stage zero is a different compiler -- an earlier release, on purpose
--- so stage one is these sources as that compiler emits them. Stage two is the
-first tree emitted by code the current sources describe, and stage three is
+-- so stage one is these sources as that compiler lowers them. Stage two is the
+first image lowered by code the current sources describe, and stage three is
 stage two doing it again. Their being identical says the compiler is a fixed
-point of itself rather than of whatever happened to build it. The working
-compiler is updated only after they match.
+point of itself rather than of whatever happened to build it.
 
-`nupp fixpoint --emit-stage0 PATH` also writes the stage-zero bundle the
-verified compiler composes, which is the artifact a release publishes for the
-next checkout to start from. Nothing reads it back: a stage zero is meant to
-differ from the compiler in the tree, and nothing compares the two.
+`nupp fixpoint --emit-stage0 PATH` also writes the verified image, which is the
+artifact a release publishes for the next checkout to start from. Nothing reads
+it back: a stage zero is meant to differ from the compiler in the tree, and
+nothing compares the two.
 
-This repository's `selfHost.bootstrap` is `scripts/toolchain stage0`, which
-fetches the release pinned in `scripts/toolchain.pins` and verifies it against
-the digest committed beside it. The cost of that is a rule on these sources:
-they may only use language features the pinned release already understands, and
-a feature reaches them a release later.
+This repository's `selfHost.bootstrap` is `scripts/toolchain stage0-image`,
+which fetches the image of the release pinned in `scripts/toolchain.pins` and
+verifies it against the digest committed beside it. The cost of that is two
+rules on these sources: they may only use language features the pinned image
+already understands, and the runtime must keep loading its format. A feature
+reaches them a release later.
 
 The build system's own implementation lives under the internal
 `nupp.tools.build.*` namespace in `src/nupp/tools/build/`, with `project`
