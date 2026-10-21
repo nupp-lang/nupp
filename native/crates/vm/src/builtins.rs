@@ -513,6 +513,20 @@ pub fn c_format(spec: &str, conv: u8, value: CArg) -> Vec<u8> {
         buffer.resize(written as usize + 1, 0);
     }
 }
+/// `math.frexp`: `x = m * 2^e` with `0.5 <= |m| < 1`, read from the bits so the
+/// largest doubles, whose `2^e` overflows, and values beside a power of two,
+/// where a rounded logarithm is off by one, split exactly.
+pub(crate) fn frexp(x: f64) -> (f64, i32) {
+    if x == 0.0 || !x.is_finite() { return (x, 0); }
+    let bits = x.to_bits();
+    let exponent = ((bits >> 52) & 0x7ff) as i32;
+    if exponent == 0 {
+        let (m, e) = frexp(x * (2f64).powi(54));
+        return (m, e - 54);
+    }
+    (f64::from_bits((bits & !(0x7ffu64 << 52)) | (1022u64 << 52)), exponent - 1022)
+}
+
 // `%g` selects fixed or scientific notation from the rounded exponent.
 // Explicit precision is also the portable image writer's round-trip format.
 fn str_of(it: &mut Interp, b: &[u8]) -> Value { it.string_of(b) }
@@ -1542,7 +1556,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         61 => { let x = arg(args, 0).as_num(); if args.len() > 1 { outs![Value::num(x.ln() / arg(args, 1).as_num().ln())] } else { outs![Value::num(x.ln())] } }
         62 => outs![Value::num(arg(args, 0).as_num() % arg(args, 1).as_num())],
         63 => { let x = arg(args, 0).as_num(); let i = x.trunc(); outs![Value::num(i), Value::num(x - i)] }
-        64 => { let x = arg(args, 0).as_num(); if x == 0.0 || !x.is_finite() { outs![Value::num(x), Value::num(0.0)] } else { let e = x.abs().log2().floor() as i32 + 1; let m = x / (2f64).powi(e); outs![Value::num(m), Value::num(e as f64)] } }
+        64 => { let (m, e) = frexp(arg(args, 0).as_num()); outs![Value::num(m), Value::num(e as f64)] }
         // io.open for reading: the whole file now, as a string behind a file
         // object whose `read`, `lines` and `close` are fields (a method call
         // falls back to them). Writable modes hold a native file resource.
@@ -1858,5 +1872,22 @@ pub mod pattern {
             if anchored || si >= s.len() { return None; }
             si += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod frexp_tests {
+    use super::frexp;
+
+    #[test]
+    fn splits_every_magnitude_exactly() {
+        for &x in &[1.0, 0.5, 3.0, -6.0, 1e308, f64::MAX, f64::MIN_POSITIVE, 5e-324, 2f64.powi(52) - 1.0, 0.1] {
+            let (m, e) = frexp(x);
+            assert!((0.5..1.0).contains(&m.abs()), "{x}: mantissa {m}");
+            // In two halves, so neither the largest nor the smallest overflows.
+            assert_eq!(m * (2f64).powi(e / 2) * (2f64).powi(e - e / 2), x, "{x}: {m} * 2^{e}");
+        }
+        assert_eq!(frexp(f64::MAX), (0.9999999999999999, 1024));
+        assert_eq!(frexp(0.0), (0.0, 0));
     }
 }
