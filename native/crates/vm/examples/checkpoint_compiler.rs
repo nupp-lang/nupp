@@ -27,7 +27,12 @@ fn main() {
     let _allocation_report = executable_allocator::ReportOnDrop;
     let path = std::env::args().nth(1).expect("compiler image");
     let mut vm = Interp::new();
-    image::load(&mut vm, &std::fs::read_to_string(path).unwrap()).unwrap();
+    let bytes = std::fs::read(path).unwrap();
+    if bytes.starts_with(nupp_vm::graph::MAGIC) {
+        nupp_vm::graph::load_owned(&mut vm, bytes).unwrap();
+    } else {
+        image::load(&mut vm, std::str::from_utf8(&bytes).unwrap()).unwrap();
+    }
     vm.install_globals();
     vm.entries.resize(vm.funcs.len(), 0);
     vm.prepare_threaded();

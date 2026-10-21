@@ -1,7 +1,7 @@
 //! Same functions, production ABI, proof passes and code emitter; alternate
 //! mutable-variable SSA construction with explicit typed block arguments.
 use nupp_vm::{
-    image,
+    graph, image,
     interp::{Interp, Op},
     jit::Jit,
 };
@@ -59,14 +59,17 @@ static ALLOC: Meter = Meter;
 
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
-    let source =
-        std::fs::read_to_string(args.get(1).ok_or("IMAGE [memory]")?).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(args.get(1).ok_or("IMAGE [memory]")?).map_err(|e| e.to_string())?;
     let memory = args.get(2).is_some_and(|x| x == "memory");
     if memory && !cfg!(feature = "allocation-metrics") {
         return Err("memory mode requires --features allocation-metrics".into());
     }
     let mut input = Interp::new();
-    image::load(&mut input, &source)?;
+    if bytes.starts_with(graph::MAGIC) {
+        graph::load_owned(&mut input, bytes)?;
+    } else {
+        image::load(&mut input, std::str::from_utf8(&bytes).map_err(|e| e.to_string())?)?;
+    }
     let functions: Vec<_> = input
         .funcs
         .iter()
