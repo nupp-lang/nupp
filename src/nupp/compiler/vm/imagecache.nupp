@@ -155,6 +155,8 @@ local function keyFor(env: any, path: string, name: string?, source: string, dig
     local manifest = fs.readFile(fs.join(rootDir, "nupp.lua"))
     local parts = {
         FORMAT,
+        -- Text and graph images of one module are different entries.
+        os.getenv("NUPP_VM_IMAGE_FORMAT") or "text",
         name or "\0main",
         path,
         fs.absolute(path),

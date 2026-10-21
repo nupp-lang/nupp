@@ -11,6 +11,12 @@ const lowerstate = require("nupp.compiler.vm.lowerstate")
 
 const {type Fn} = require("nupp.compiler.vm.lowerstate")
 lower.graphSink = nil as function(entry: string, functions: {Fn}, header: table)?
+
+--- When set, maps each module's source path before the image records it: a
+--- program image names paths relative to the project or the compiler.
+lower.pathMapper = nil as(function(path: string): string?)?
+
+const graphemit = require("nupp.compiler.vm.graphemit")
 const opcodes = require("nupp.compiler.vm.opcodes")
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
@@ -6043,29 +6049,31 @@ function lower.emit(
     end
     -- Each module's source path, absolute, for `debug.getinfo(1, "S").source`
     -- and error positions. A chunk's own name (`=name` or `@path`) is kept.
-    for _, name in ipairs(moduleOrder) do
+    local moduleList = {}
+    for i, name in ipairs(moduleOrder) do
         local p = coverage and name == COVERAGE_RUNTIME and "=(coverage)" or modulePath(name)
         if p and p:sub(1, 1) ~= "/" and p:sub(1, 1) ~= "=" and p:sub(1, 1) ~= "@" then
             p = (os.getenv("PWD") or ".") .. "/" .. p
         end
+        if p and lower.pathMapper then
+            p = (lower.pathMapper as function(path: string): string?)(p)
+        end
+        moduleList[i] = {name = name, chunk = modules[name].id, path = p}
         emit("module " .. name .. " " .. modules[name].id .. (p and (" " .. p) or ""))
     end
     emit("entry " .. modules[entryName].id)
+    -- The header the graph image carries beside its functions.
+    local header = {shapes = shapeOrder, modules = moduleList, entry = modules[entryName].id}
     if lower.graphSink then
-        -- The header the graph image carries beside its functions.
-        local moduleList = {}
-        for i, name in ipairs(moduleOrder) do
-            moduleList[i] = {name = name, chunk = modules[name].id, path = modulePath(name)}
-        end
         local sink = lower.graphSink as function(entry: string, functions: {Fn}, header: table)
-        sink(entryName, functions, {shapes = shapeOrder, modules = moduleList, entry = modules[entryName].id})
+        sink(entryName, functions, header)
     end
     if linker then
         linker.keep(functions)
         local reused: any = reuse
         reused.stats = linker.stats
     end
-    local result = table.concat(out, "\n") .. "\n"
+    local result = graphemit.wanted() and graphemit.image(functions, header) or table.concat(out, "\n") .. "\n"
     if os.getenv("EMIT_SURVEY") then
         local rows = {};
         for k, n in pairs(SURVEY) do

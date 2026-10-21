@@ -1082,9 +1082,13 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         Special::VmLoadimage => {
             if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
             let bytes = bytes_of(it, arg(args, 0));
-            let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
             let first = it.funcs.len() as u32;
-            let entry = crate::image::load_plugin(it, text).unwrap_or_else(|e| it.err(&e));
+            let entry = if bytes.starts_with(crate::graph::MAGIC) {
+                crate::graph::load_plugin(it, &bytes).unwrap_or_else(|e| it.err(&e))
+            } else {
+                let text = std::str::from_utf8(&bytes).unwrap_or_else(|_| it.err("image is not UTF-8"));
+                crate::image::load_plugin(it, text).unwrap_or_else(|e| it.err(&e))
+            };
             // What this image declares is current for those names again.
             let declared: Vec<String> = it.modules.iter().filter(|&(_, &fid)| fid >= first).map(|(name, _)| name.clone()).collect();
             for name in declared { it.spent_modules.remove(&name); it.dynamic_modules.insert(name); }

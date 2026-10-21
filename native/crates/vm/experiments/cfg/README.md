@@ -32,8 +32,19 @@ a `Graph` code event for checkpoints, and `nupp-vm run`, `exec`, `verify`,
 words are shifted varints (NONE is a single zero byte); an instruction
 carries the untyped values a register window it writes defines beside its
 result (varargs, a call's further results), which the verifiers define.
-Loading the root image: text 130 ms at 97 MB peak, graph 175 ms at 211 MB
-peak, so the text loader stays until the decoder streams per function.
+The loader streams one function at a time through a reused buffer: the
+root image loads in 137 ms at 118 MB peak against 120 ms at 97 MB for the
+text.
+
+The production path emits graphs under `NUPP_VM_IMAGE_FORMAT=graph`:
+`lower.emit` returns the graph image (`nupp.compiler.vm.graphemit`), so
+`project.emit`, `nupp run`'s per-module images and their cache, and
+`loadstring` chunks all carry graphs, which `vm.loadImage`, the program
+payload and the embedding API accept by magic. The emit cache keeps the
+lowering's function records with relative ids rather than rendered text,
+so a replayed module has code. The compiler emitted as a graph image runs
+and emits the same bytes as the text one in either format. The default
+stays text until hot patches and the Rust test fixtures move.
 
 ## Status, 2026-10-20: P1
 

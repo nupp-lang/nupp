@@ -14,10 +14,11 @@
 
 use crate::interp::{Function, GpuArtifact, Interp, Op};
 use crate::value::Value;
+use crate::verify::C;
 use std::collections::VecDeque;
 
 pub const NONE: u32 = u32::MAX;
-const MAGIC: &[u8; 8] = b"NUPPGRAF";
+pub const MAGIC: &[u8; 8] = b"NUPPGRAF";
 pub const VERSION: u32 = 3;
 /// No image is this large; a count past it is hostile rather than big.
 const LIMIT: usize = 1 << 30;
@@ -36,30 +37,46 @@ pub const X: u8 = 3;
 /// wide integer or float literal; `j` and `t` jump offsets and tables, only
 /// on the terminator opcodes, which never appear inside a block. The last
 /// seven are graph-only macros the derivation expands.
-pub const SIGNATURES: &[(&str, &str)] = &[
-    ("K", "Vk"), ("Move", "Vv"), ("Nil", "V"), ("Add", "Vvv"), ("Sub", "Vvv"), ("Mul", "Vvv"), ("Lt", "Vvv"), ("Le", "Vvv"), ("Eq", "Vvv"),
-    ("Jmp", "j"), ("JmpIf", "vj"), ("JmpIfNot", "vj"), ("Switch", "it"), ("GetIdxI", "Vvi"), ("SetIdxI", "viv"), ("IUnbox", "Iv"), ("UUnbox", "Iv"),
-    ("ICmpSLt", "Iii"), ("ICmpSLe", "Iii"), ("IShl", "Iii"), ("IShrU", "Iii"), ("IOr", "Iii"), ("IBswap32", "Ii"), ("ICmpEq", "Iii"), ("BytesLen", "Iv"),
-    ("LoadU8", "Ivi"), ("LoadU8K", "Ivi"), ("LoadU32W", "Ivi"), ("StoreU8", "vii"), ("StoreU32", "vii"), ("NewBytes", "Vi"), ("BytesToStr", "Vvi"),
-    ("Mod", "Vvv"), ("Div", "Vvv"), ("FMod", "Fff"), ("RetN", "w#"), ("Require", "Vk"), ("SetMethod", "hkv"), ("RequireV", "Vv"), ("NewTableN", "V##"),
-    ("ICmpNe", "Iii"), ("Truthy", "Iv"), ("NewBuffer", "V"), ("BufAppend", "vv"), ("BufAppendSub", "vvii"), ("Substring", "Vvii"), ("BufFinish", "Vv"),
-    ("Call", "nV#"), ("CallT", "nV##"), ("CallDyn", "vV#"), ("CallK", "nvV##"), ("StrByte", "Vvi"), ("Pow", "Vvv"), ("IDiv", "Vvv"), ("IXor", "Iii"), ("INot", "Ii"),
-    ("Ret", "v"), ("RetNil", ""), ("NewTable", "V"), ("GetIdx", "Vvv"), ("SetIdx", "vvv"), ("GetField", "Vvk"),
-    ("GetPhys", "Vv#####"), ("GetPhysF", "Fv#####"), ("GetPhysI", "Iv#####"), ("GetPhysU", "Iv#####"), ("SetPhys", "v#####v"), ("SetPhysF", "v#####f"), ("SetPhysI", "v#####i"),
-    ("SetField", "vkv"), ("NewRecord", "Vh"), ("GetSlot", "Vv#h"), ("SetSlot", "v#vh"), ("Defer", "vv"), ("DeferMethod", "vk"), ("Disarm", "v"), ("DisarmAt", "#"),
-    ("RearmAt", "#vv"), ("CleanupLive", "v#"), ("AffineMark", "vv"), ("AffineEnter", ""), ("Unwind", "#"), ("Park", "v"), ("Checkpoint", ""), ("Ne", "Vvv"), ("Concat", "Vvv"),
-    ("Not", "Vv"), ("Neg", "Vv"), ("Len", "Vv"), ("CallMethod", "kV#"), ("PCall", "V#"), ("TagCheckRec", "Vvh"), ("TagCheckNum", "Vv"), ("TagCheckInt", "Vv#"), ("TagCheckStr", "Vv"),
-    ("IsRec", "Vvh"), ("PadResults", "w#"), ("Scalar", "#Vvv"), ("VarargN", "w#"), ("VarargTable", "V"), ("NewClosure", "Vnw#"), ("NewCell", "Vv"), ("GetCell", "Vv"), ("SetCell", "vv"),
-    ("GetUpval", "V#"), ("FBox", "Vf"), ("IBox", "Vi"), ("UBox", "Vi"), ("GetSlotF", "Fv#h"), ("SetSlotF", "v#fh"), ("FDiv", "Fff"), ("FNeg", "Ff"), ("LenF", "Fv"), ("GetIdxF", "Vvf"),
-    ("SetIdxF", "vfv"), ("FCmpEq", "Iff"), ("FCmpNe", "Iff"), ("BoolFromI", "Vi"),
-    ("IK", "IL"), ("IAdd", "Iii"), ("IAddK", "IiL"), ("IJmpIfUle", "iij"), ("IJmpIfUlt", "iij"), ("FK", "FD"), ("FUnbox", "Fv"), ("ISub", "Iii"), ("IMaskU32", "Ii"), ("IToF", "Fi"),
-    ("FToI", "If"), ("FSub", "Fff"), ("FMul", "Fff"), ("ICmpLe", "Iii"), ("ICmpLt", "Iii"), ("FCmpLe", "Iff"), ("FCmpLt", "Iff"), ("IAnd", "Iii"), ("JmpIfIZero", "ij"), ("VAdd", "Xxx"),
-    ("Simd", "sssw#"), ("SpanLen", "Iv#"), ("SpanBounds", "vii##"), ("SpanLoad", "Xvii###"), ("SpanStore", "vixi###"), ("VOp", "s#Xxxx"), ("VSplatN", "Xf#"), ("VExtractN", "Fx##"),
-    ("VAny", "Ix"), ("VPrefix", "Xi###"), ("Raise", "k"), ("VMul", "Xxx"), ("VLoadM", "XviLi"), ("VStoreM", "vixLi"), ("LoopFact", "iLi"), ("GuardLenLe", "ii"), ("IMov", "Ii"),
-    ("FMov", "Ff"), ("VMov", "Xx"), ("FAdd", "Fff"), ("FFma", "Ffff"), ("StorageLen", "Iv"), ("FLoad", "Fvi"), ("FStore", "vif"), ("VSplat", "Xf"), ("VLoad", "XviL"), ("VStore", "vixL"),
-    ("VFma", "Xxxx"), ("VLane", "Fx#"), ("FRet", "f"),
-    ("U32Load", "Ivi"), ("U32Store", "vii"), ("U32Add", "Iii"), ("U32Sub", "Iii"), ("SpanEqual", "vvk"), ("VSplatI", "Xi#"), ("VExtractI", "Ix##"),
-];
+/// The graph-only macros the derivation expands, after the opcode table's
+/// own rows.
+const MACROS: &[(&str, &str)] = &[("U32Load", "Ivi"), ("U32Store", "vii"), ("U32Add", "Iii"), ("U32Sub", "Iii"), ("SpanEqual", "vvk"), ("VSplatI", "Xi#"), ("VExtractI", "Ix##")];
+
+/// What the table cannot say: which immediates are a wide integer or a
+/// double (1-based positions), and the two SIMD scalar opcodes whose kind
+/// operand decides a class a graph value has to fix.
+const PAYLOADS: &[(&str, &[(usize, char)])] = &[("IK", &[(2, 'L')]), ("IAddK", &[(3, 'L')]), ("FK", &[(2, 'D')]), ("VLoadM", &[(4, 'L')]), ("VStoreM", &[(4, 'L')]), ("VLoad", &[(4, 'L')]), ("VStore", &[(4, 'L')]), ("LoopFact", &[(2, 'L')])];
+const PINNED: &[(&str, &str)] = &[("VSplatN", "Xf#"), ("VExtractN", "Fx##")];
+
+/// The signature letters of every opcode, derived from the opcode table by
+/// the rule `graph.nupp` applies to the same table: a defined register is
+/// its class in uppercase, a register both read and written is a use (the
+/// value written is one of the instruction's extras), a window's base is
+/// `w`, and the other classes map to their letters.
+fn derived_signatures() -> Vec<(&'static str, &'static str)> {
+    use crate::opcodes::{Class, Mode};
+    let leak = |s: &str| -> &'static str { Box::leak(s.to_string().into_boxed_str()) };
+    let mut out = Vec::new();
+    for row in crate::opcodes::table().rows() {
+        if let Some((_, pinned)) = PINNED.iter().find(|(n, _)| *n == row.name) { out.push((leak(&row.name), *pinned)); continue; }
+        let payload = PAYLOADS.iter().find(|(n, _)| *n == row.name).map(|(_, p)| *p).unwrap_or(&[]);
+        let mut letters = String::with_capacity(row.operands.len());
+        for (i, spec) in row.operands.iter().enumerate() {
+            let position = i + 1;
+            let letter = match spec.class {
+                Class::Reg(c) => {
+                    let lower = match c { C::V => 'v', C::I => 'i', C::F => 'f', C::X => 'x' };
+                    if spec.mode == Mode::Def { lower.to_ascii_uppercase() } else if row.windows.iter().any(|w| w.base == position) { 'w' } else { lower }
+                }
+                Class::ScalarByKind(_) => if spec.mode == Mode::Def { 'S' } else { 's' },
+                Class::Const => 'k', Class::Jump => 'j', Class::Imm => '#', Class::Shape => 'h', Class::Func => 'n', Class::Table => 't', Class::Name => 's',
+            };
+            letters.push(payload.iter().find(|(p, _)| *p == position).map(|(_, l)| *l).unwrap_or(letter));
+        }
+        out.push((leak(&row.name), leak(&letters)));
+    }
+    out.extend(MACROS.iter().copied());
+    out
+}
 const TERMINATORS: &[&str] = &["Jmp", "JmpIf", "JmpIfNot", "JmpIfIZero", "IJmpIfUle", "IJmpIfUlt", "Switch", "Ret", "RetNil", "RetN", "FRet", "Raise", "Park"];
 
 /// Terminator kinds, as the image numbers them.
@@ -168,8 +185,9 @@ const HOT: &[&str] = &["Move", "K", "SetIdx", "GetField", "GetCell", "PadResults
 pub struct Table { pub entries: Vec<Signature>, result_letters: Vec<Option<u8>> }
 impl Table {
     pub fn new() -> Self {
-        let mut entries = Vec::with_capacity(SIGNATURES.len());
-        for &(name, sig) in SIGNATURES {
+        let signatures = derived_signatures();
+        let mut entries = Vec::with_capacity(signatures.len());
+        for (name, sig) in signatures {
             let result_at = sig.bytes().position(|c| c.is_ascii_uppercase()).unwrap_or(usize::MAX);
             let result = sig.bytes().find(|c| c.is_ascii_uppercase()).and_then(class_of);
             let hot = HOT.iter().position(|h| *h == name).map(|i| i as u8 + 1).unwrap_or(0);
@@ -295,7 +313,21 @@ struct Header<'a> { image: Image, nfunctions: usize, opcode_of: Vec<u32>, reader
 impl Header<'_> {
     fn next_function(&mut self, table: &Table, fi: usize, g: &mut Graph) -> Result<(), String> {
         decode_graph(table, &mut self.reader, &self.image, self.nfunctions, &mut self.opcode_of, g).map_err(|e| format!("graph image function {fi}: {e}"))?;
-        verify_with(table, &self.image, g, self.nfunctions, &mut self.scratch).map_err(|e| format!("function {}: {e}", self.image.text(g.name)))?;
+        if let Err(e) = verify_with(table, &self.image, g, self.nfunctions, &mut self.scratch) {
+            if std::env::var_os("NUPP_GRAPH_TRACE").is_some() {
+                let name = |n: u32| self.image.text(n).to_string();
+                eprintln!("graph of {}: nparams {} values {:?}", name(g.name), g.nparams, g.classes.iter().zip(&g.slots).enumerate().map(|(v, (c, s))| format!("{v}:{}{s}", b"vifx"[*c as usize] as char)).collect::<Vec<_>>());
+                for (bid, b) in g.blocks.iter().enumerate() {
+                    eprintln!("  block {bid} params {:?} term {} value {} edges {:?}", b.params.get(&g.values), b.term, b.value as i64, b.edges.get(&g.edges).iter().map(|e| (e.target, e.args.get(&g.values).to_vec())).collect::<Vec<_>>());
+                    for (k, words) in b.insts.get(&g.insts).iter().enumerate() {
+                        let at = b.insts.start as usize + k;
+                        let sig = &table.entries[words[0] as usize];
+                        eprintln!("    {} {:?} extras {:?}", sig.name, &words[1..=sig.operands.len()], g.extras[at].get(&g.values));
+                    }
+                }
+            }
+            return Err(format!("function {}: {e}", self.image.text(g.name)));
+        }
         Ok(())
     }
     fn finish(self) -> Result<Image, String> {
@@ -795,7 +827,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
                 "FUnbox" => code.push(Op::FUnbox(a(0)?, a(1)?)), "ISub" => code.push(Op::ISub(a(0)?, a(1)?, a(2)?)), "IMaskU32" => code.push(Op::IMaskU32(a(0)?, a(1)?)), "IToF" => code.push(Op::IToF(a(0)?, a(1)?)), "FToI" => code.push(Op::FToI(a(0)?, a(1)?)),
                 "FSub" => code.push(Op::FSub(a(0)?, a(1)?, a(2)?)), "FMul" => code.push(Op::FMul(a(0)?, a(1)?, a(2)?)), "ICmpLe" => code.push(Op::ICmpLe(a(0)?, a(1)?, a(2)?)), "ICmpLt" => code.push(Op::ICmpLt(a(0)?, a(1)?, a(2)?)),
                 "FCmpLe" => code.push(Op::FCmpLe(a(0)?, a(1)?, a(2)?)), "FCmpLt" => code.push(Op::FCmpLt(a(0)?, a(1)?, a(2)?)), "IAnd" => code.push(Op::IAnd(a(0)?, a(1)?, a(2)?)), "VAdd" => code.push(Op::VAdd(a(0)?, a(1)?, a(2)?)),
-                "Simd" => code.push(Op::Simd(simd_op(o[0]), element(o[1]), element(o[2]), a(3)?, a(4)?)),
+                "Simd" => code.push(Op::Simd(simd_op(o[0]), element(o[1]), element(o[4]), a(2)?, a(3)?)),
                 "SpanLen" => code.push(Op::SpanLen(a(0)?, a(1)?, a(2)?)), "SpanBounds" => code.push(Op::SpanBounds(a(0)?, a(1)?, a(2)?, a(3)?, flag(4)?)),
                 "SpanLoad" => code.push(Op::SpanLoad(a(0)?, a(1)?, a(2)?, a(3)?, a(4)?, a(5)?, a(6)?)), "SpanStore" => code.push(Op::SpanStore(a(0)?, a(1)?, a(2)?, a(3)?, a(4)?, a(5)?, a(6)?)),
                 "VOp" => code.push(Op::VOp(simd_op(o[0]), a(1)?, a(2)?, a(3)?, a(4)?, a(5)?)), "VSplatN" => code.push(Op::VSplatN(a(0)?, a(1)?, a(2)?)), "VExtractN" => code.push(Op::VExtractN(a(0)?, a(1)?, a(2)?, a(3)?)),
@@ -934,15 +966,22 @@ pub fn derive_all(it: &mut Interp, image: &Image, base: u32, shape_ids: &[u32]) 
 /// by identity where the heap already holds the layout, modules, extension
 /// declarations, then every function derived and verified, and the image
 /// recorded as a code event for checkpoints. Returns the entry function.
-pub fn load(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> {
+pub fn load(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> { load_with(it, bytes, false) }
+
+/// `load` for an image added to a running VM: one with vector instructions is
+/// refused where the runtime cannot compile them, as `image::load_plugin`
+/// refuses the text.
+pub fn load_plugin(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> { let refuse = !it.simd_interpret; load_with(it, bytes, refuse) }
+
+fn load_with(it: &mut Interp, bytes: &[u8], refuse_native: bool) -> Result<u32, String> {
     let scope = it.open_scope();
-    let r = with_table(|table| install(table, it, bytes));
+    let r = with_table(|table| install(table, it, bytes, refuse_native));
     it.close_scope(scope);
     if let Ok((entry, functions)) = r { it.code_events.push(crate::persist::CodeEvent::Graph { bytes: bytes.to_vec(), functions }); return Ok(entry); }
     r.map(|(entry, _)| entry)
 }
 
-fn install(table: &Table, it: &mut Interp, bytes: &[u8]) -> Result<(u32, u32), String> {
+fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) -> Result<(u32, u32), String> {
     use crate::heap::SlotTy;
     let mut header = decode_header(table, bytes)?;
     let image = &header.image;
@@ -975,6 +1014,7 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8]) -> Result<(u32, u32), S
         let mut d = Derivation { it, base, shape_ids: &shape_ids };
         let f = derive(table, &header.image, &g, &mut d).map_err(|e| format!("function {}: {e}", header.image.text(g.name)))?;
         crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?;
+        if refuse_native && crate::image::needs_native(&f) { return Err(crate::image::uncompiled_native_message("image refused", &f.name, &f.module)); }
         funcs.push(f);
     }
     let image = &header.image;
@@ -1003,7 +1043,14 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8]) -> Result<(u32, u32), S
     let modules: Vec<(String, u32, Option<String>)> = image.modules.iter().map(|&(name, chunk, path)| (image.text(name).to_string(), chunk, if path == NONE { None } else { Some(image.text(path).to_string()) })).collect();
     for (name, chunk, path) in &modules {
         it.modules.insert(name.clone(), base + chunk);
-        if let Some(p) = path { it.module_paths.insert(name.clone(), p.clone()); }
+        if let Some(p) = path {
+            it.module_paths.insert(name.clone(), p.clone());
+            // Each function keeps its own source path, as the text loader
+            // gives it: a later image may load another chunk under this
+            // module's name.
+            let path: std::sync::Arc<str> = p.as_str().into();
+            for f in funcs.iter_mut().filter(|f| f.module == *name && f.path.is_none()) { f.path = Some(path.clone()); }
+        }
     }
     crate::hotpatch::record(it, base, &funcs, &shape_ids, &modules);
     for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }

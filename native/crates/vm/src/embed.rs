@@ -186,6 +186,19 @@ impl Vm {
         Ok(())
     }
 
+    /// Loads a verified image of either kind: a graph image by its magic,
+    /// else text.
+    pub fn load_image_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.starts_with(crate::graph::MAGIC) {
+            crate::graph::load(&mut self.interp, bytes).map_err(Error)?;
+        } else {
+            let text = std::str::from_utf8(bytes).map_err(|_| Error("image is not UTF-8 text".into()))?;
+            crate::image::load(&mut self.interp, text).map_err(Error)?;
+        }
+        self.interp.prepare_threaded();
+        Ok(())
+    }
+
     /// Registers `module` as the module `module.name()`, checked against its
     /// `.d.nupp` `declaration` before any of its code runs: every declared
     /// function must be registered under the declared type. The module is

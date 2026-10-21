@@ -64,7 +64,9 @@ local function derive(name: string): string
         local class, mode = operand.class, operand.mode
         local letter: string
         if class == "v" or class == "i" or class == "f" or class == "x" then
-            if mode == "def" or mode == "both" then
+            -- A register both read and written is a use; the value written
+            -- is one of the instruction's extras, on the same slot.
+            if mode == "def" then
                 letter = class:upper()
             elseif bases[position] then
                 letter = "w"

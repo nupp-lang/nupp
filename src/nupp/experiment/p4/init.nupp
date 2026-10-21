@@ -9,6 +9,7 @@ local lower = require("nupp.compiler.vm.lower")
 local convert = require("nupp.compiler.vm.convert")
 local G = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
+local graphemit = require("nupp.compiler.vm.graphemit")
 
 local driver = {}
 
@@ -53,24 +54,9 @@ function driver.main(argv: {string}): integer
         end
     end
     local converted = os.clock()
-    local shapes = {}
-    for i, shape in ipairs(header.shapes or {}) do
-        local slots = {}
-        for j, slot in ipairs(shape.slots) do
-            local ty = slot.ty as string
-            local record = ty:match("^rec:(%d+)$")
-            slots[j] = {name = slot.name, type = record and "rec" or ty, record = record and tonumber(record) or nil}
-        end
-        local identity = shape.module and shape.module .. ":" .. shape.name
-        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
-            shapes[i] = {name = shape.name, identity = identity, slots = slots}
-        else
-            shapes[i] = {name = shape.name, slots = slots}
-        end
-    end
     local encoded = graphimage.encode({
         functions = graphs,
-        shapes = shapes,
+        shapes = graphemit.shapes(header.shapes or {}),
         modules = header.modules,
         entry = header.entry
     })

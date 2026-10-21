@@ -355,6 +355,7 @@ fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("loop") => return load_loop(&args[2], args[3].parse().unwrap()),
+        Some("signatures") => { graph::with_table(|t| for e in &t.entries { println!("{}\t{}", e.name, e.operands); }); return Ok(()); }
         Some("scalar") => scalar(args.get(2).ok_or("PREFIX")?, std::path::Path::new(args.get(3).ok_or("OUT")?)),
         Some("typed") => typed(args.get(2).ok_or("PREFIX")?),
         Some("image") => image_gate(args.get(2).ok_or("PREFIX")?),

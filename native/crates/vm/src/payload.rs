@@ -32,7 +32,8 @@ const MAX_COMMAND_BYTES: u64 = 1 << 24;
 #[derive(Debug)]
 pub struct Program {
     pub entry: String,
-    pub image: String,
+    /// The image, text or graph, as the build wrote it.
+    pub image: Vec<u8>,
 }
 
 /// The program appended to `executable`, `None` when nothing is appended.
@@ -64,12 +65,12 @@ pub fn read(executable: &Path) -> Result<Option<Program>, String> {
     if trailer_digest(&payload) != trailer[32..40] {
         return Err("the payload does not match the digest recorded beside it; it was probably damaged in transit".into());
     }
-    let text = String::from_utf8(payload).map_err(|_| "the program image is not UTF-8 text".to_string())?;
-    let (entry, image) = text.split_once('\n').ok_or("the program payload names no entry module")?;
+    let newline = payload.iter().position(|&b| b == b'\n').ok_or("the program payload names no entry module")?;
+    let entry = std::str::from_utf8(&payload[..newline]).map_err(|_| "the program payload's entry module is not UTF-8 text".to_string())?;
     if entry.is_empty() {
         return Err("the program payload names no entry module".into());
     }
-    Ok(Some(Program { entry: entry.to_string(), image: image.to_string() }))
+    Ok(Some(Program { entry: entry.to_string(), image: payload[newline + 1..].to_vec() }))
 }
 
 fn trailer_start(file: &mut File, size: u64) -> std::io::Result<Option<u64>> {
@@ -198,14 +199,14 @@ mod tests {
     fn an_appended_program_names_its_entry_and_image() {
         let program = parse(&stamped(b"RUNTIME", b"app.main\nmodule app.main 0 x\n", FLAG_VM_PROGRAM)).unwrap().unwrap();
         assert_eq!(program.entry, "app.main");
-        assert_eq!(program.image, "module app.main 0 x\n");
+        assert_eq!(program.image, b"module app.main 0 x\n");
     }
 
     #[test]
     fn a_signed_runtime_finds_its_trailer_before_the_padding() {
         for padding in [0, 3, 17, 4095] {
             let program = parse(&signed(b"main\nimage", padding, b"SIGNATURE")).unwrap().unwrap();
-            assert_eq!((program.entry.as_str(), program.image.as_str()), ("main", "image"));
+            assert_eq!((program.entry.as_str(), program.image.as_slice()), ("main", b"image".as_slice()));
         }
     }
 

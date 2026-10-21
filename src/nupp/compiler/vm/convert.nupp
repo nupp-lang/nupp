@@ -55,7 +55,7 @@ local function shape(name: string): any
     local jump = 0
     for i = 1, #described.operands do
         local operand = described.operands[i]
-        operands[i] = {class = operand.class, mode = operand.mode, kind = operand.kind}
+        operands[i] = {class = operand.class, mode = operand.mode, kind = operand.kind, optional = operand.optional}
         if operand.class == "j" then
             jump = i
         end
@@ -545,6 +545,11 @@ function convert.graph(f: any): any
                 for i = 1, #operands do
                     local operand = operands[i]
                     local value = ins[i + 1]
+                    if value == nil and operand.optional then
+                        -- A SIMD descriptor's source element, left out when
+                        -- it is the element itself, as the loader reads it.
+                        value = ins[3]
+                    end
                     if i == sig.resultAt then
                         dstSlot = value as integer
                         dstClass = registerClass(operand, ins)

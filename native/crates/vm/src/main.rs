@@ -241,7 +241,7 @@ pub(crate) fn main() {
     } else {
         let mut vm = Interp::new();
         match program.take() {
-            Some(found) => { image::load(&mut vm, &found.image).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }); }
+            Some(found) => load_image_bytes(&mut vm, &found.image, "<appended>").unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }),
             None => load_image_file(&mut vm, &args[2]).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }),
         }
         // NUPP_GRAPH_IMAGE=FILE: a graph image beside the text one, whose

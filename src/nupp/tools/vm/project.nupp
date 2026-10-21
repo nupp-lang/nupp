@@ -427,6 +427,28 @@ function project.program(
     -- reached it rather than first on its own.
     local carried: any = extras
     carried.after = names
+    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
+    -- A function with vector instructions runs only compiled (`native_simd`'s
+    -- `required`), so a program holding one has its image compiled ahead of
+    -- time and linked into its runtime (`scripts/toolchain vm-program`): the
+    -- binary carries no code generator. The rest stay interpreter-only.
+    local native: {[string]: boolean} = {}
+    for _, op in ipairs(NATIVE_OPS) do
+        native[op] = true
+    end
+    lower.pathMapper = function(path: string): string?
+        return programPath(root, compilerRoot, path)
+    end
+    lower.graphSink = function(_: string, functions: {any}, _: table): nil
+        for _, f in ipairs(functions) do
+            for _, ins in ipairs(f.code) do
+                if native[ins[1]] then
+                    reached["vector"] = true
+                    return
+                end
+            end
+        end
+    end
     local image = emitProject(
         root,
         config,
@@ -439,32 +461,15 @@ function project.program(
         nil,
         sources
     )
-    -- A function with vector instructions runs only compiled (`native_simd`'s
-    -- `required`), so a program holding one has its image compiled ahead of
-    -- time and linked into its runtime (`scripts/toolchain vm-program`): the
-    -- binary carries no code generator. The rest stay interpreter-only.
-    for _, op in ipairs(NATIVE_OPS) do
-        if image:find("\n  " .. op .. " ", 1, true) then
-            reached["vector"] = true
-            break
-        end
-    end
+    lower.pathMapper = nil
+    lower.graphSink = nil
     local facilities: {string} = {}
     for facility in pairs(reached) do
         facilities[#facilities + 1] = facility
     end
     table.sort(facilities)
-    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
 
-    local named = image:gsub("\nmodule ([^ \n]+) (%d+) ([^\n]+)", function(
-        name: string,
-        id: string,
-        path: string
-    ): string
-        return "\nmodule " .. name .. " " .. id .. " " .. programPath(root, compilerRoot, path)
-    end)
-
-    return named, facilities
+    return image, facilities
 end
 
 --- Inspect the VM instructions emitted for one checked source file: its

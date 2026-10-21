@@ -1,0 +1,62 @@
+module nupp.compiler.vm.graphemit
+
+--[[
+The graph image of a finished lowering: every function the lowering wrote,
+converted to its closed-block graph, encoded beside the header the text
+image carries (shapes, modules, entry). The lowering hands over its
+functions in image order and the header it would have spelled as lines.
+]]
+
+local convert = require("nupp.compiler.vm.convert")
+local graphimage = require("nupp.compiler.vm.graphimage")
+
+local graphemit = {}
+
+--- The image's shape table as the graph codec takes it: slot types by
+--- name, a record slot naming its shape's index, and the identity the text
+--- header would carry.
+function graphemit.shapes(order: {any}): {any}
+    local shapes = {}
+    for i, shape in ipairs(order) do
+        local slots = {}
+        for j, slot in ipairs(shape.slots) do
+            local ty = slot.ty as string
+            local record = ty:match("^rec:(%d+)$")
+            slots[j] = {name = slot.name, type = record and "rec" or ty, record = record and tonumber(record) or nil}
+        end
+        local identity = shape.module and shape.module .. ":" .. shape.name
+        if identity and not shape.physical and identity:find("^[%w_.]+:[%w_]+$") then
+            shapes[i] = {name = shape.name, identity = identity, slots = slots}
+        else
+            shapes[i] = {name = shape.name, slots = slots}
+        end
+    end
+
+    return shapes
+end
+
+--- The graph image of `functions`, in their order, under `header`
+--- (`shapes` in allocation order, `modules` with each one's chunk and path,
+--- `entry`).
+--- @raises string when a function's stream does not convert or its graph
+--- does not verify.
+function graphemit.image(functions: {any}, header: any): string
+    local graphs = {}
+    for i = 1, #functions do
+        graphs[i] = convert.graph(functions[i])
+    end
+
+    return graphimage.encode({
+        functions = graphs,
+        shapes = graphemit.shapes(header.shapes),
+        modules = header.modules,
+        entry = header.entry
+    })
+end
+
+--- Whether the format the environment asks for is the graph.
+function graphemit.wanted(): boolean
+    return os.getenv("NUPP_VM_IMAGE_FORMAT") == "graph"
+end
+
+export = graphemit
