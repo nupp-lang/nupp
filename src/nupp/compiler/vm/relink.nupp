@@ -21,14 +21,17 @@ again in the same order, writes are made again, and every read must give the
 answer it gave before. One that does not means a fresh lowering could take a
 different path, so the replay is undone and the module is lowered from source.
 
-Each kept function is the image text lowering wrote for it, with the numbers
-that depend on the rest of the image replaced by placeholders: the module's
-own function ids (relative to its first function, and in the names anonymous
-functions take from their id) and every shape operand. A shape the module
+Each kept function is the lowering's record of it, with the numbers that
+depend on the rest of the image made relative: the module's own function ids
+(in operands, `func` constants, the parent, and the names anonymous functions
+take from their id) count from the module's first function, and every shape
+operand is an index into the fragment's shape references. A shape the module
 allocated is named by its position among the module's allocations; any other
 by its text without index (`canonicalKey`), which must name exactly one shape
 when the module is replayed. Relocating a kept function at its original base
-reproduces the original text exactly, or the module is not kept.
+reproduces the lowering's record exactly, or the module is not kept. A
+replayed function is an ordinary one with code: the writer renders it and the
+graph conversion reads it as if the module had been lowered.
 
 A record is registered by its nominal object and, when it has one, by its
 declaration key, the two together; a read by object that finds nothing is
@@ -48,7 +51,7 @@ local opcodes = require("nupp.compiler.vm.opcodes")
 local relink = {}
 
 --- Bumped whenever a kept fragment's shape or meaning changes.
-relink.FORMAT = "vm-relink/1"
+relink.FORMAT = "vm-relink/2"
 
 --- Operand positions (1-based, after the opcode) that carry a function id, per
 --- opcode, as the VM's image loader relocates them.
@@ -59,24 +62,6 @@ relink.SHAPE_OPERANDS = opcodes.shapeOperand
 
 local function int(text: string): integer
     return assert(tonumber(text), "not a number: " .. text) as integer
-end
-
-local function words(line: string): {string}
-    local out: {string} = {}
-    for word in line:gmatch("%S+") do
-        out[#out + 1] = word
-    end
-
-    return out
-end
-
-local function lines(text: string): {string}
-    local out: {string} = {}
-    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
-        out[#out + 1] = line
-    end
-
-    return out
 end
 
 --- A plain-data copy of a struct layout, which a store can keep.
@@ -425,7 +410,7 @@ function relink.new(reuse: any): any
                 listed = listed,
             }
         end
-        started.texts = {}
+        started.fns = {}
         for id = started.firstFunction, functionCount - 1 do
             owners[id] = started
         end
@@ -433,50 +418,124 @@ function relink.new(reuse: any): any
         self.stats.lowered = self.stats.lowered + 1
     end
 
-    --- Called with each function's image text as the output is written.
-    function self.wrote(f: any, out: {string}, first: integer): nil
+    --- Called with each function as the output is written.
+    function self.wrote(f: any, _: {string}, _: integer): nil
         local owner = owners[f.id]
         if owner then
-            owner.texts[f.id - owner.firstFunction + 1] = table.concat(out, "\n", first, #out)
+            owner.fns[f.id - owner.firstFunction + 1] = f
         end
     end
 
-    -- Placeholders: \1F<n>\2 is the module's n-th function, \1S<n>\2 its n-th
-    -- shape reference.
-    local function relocate(text: string, base: integer, shapes: {any}): string
-        local functions = text:gsub("\1F(%d+)\2", function(n: string): string
+    -- A name's `.fn<n>` segments name the module's n-th function.
+    local function relocateName(name: string, base: integer): string
+        return (name:gsub("\1F(%d+)\2", function(n: string): string
             return tostring(base + int(n))
-        end)
-        local result = functions:gsub("\1S(%d+)\2", function(n: string): string
-            return tostring(shapes[int(n)].id)
-        end)
-
-        return result
+        end))
     end
 
-    -- The kept form of one function's text, or nil and why when it cannot be kept.
-    local function placeholders(
+    -- The function a kept record describes, numbered `id` in an image whose
+    -- module starts at `base`, naming the shapes `shapes`.
+    local function relocate(record: any, id: integer, base: integer, module: string, shapes: {any}): any
+        local consts: {lowerstate.Const} = {}
+        for i, c in ipairs(record.consts) do
+            local value = c.value
+            if c.kind == "func" then
+                value = base + (value as integer)
+            end
+            consts[i] = new lowerstate.Const(kind = c.kind, value = value)
+        end
+        local code: {any} = {}
+        local lines = record.lines
+        for i, ins in ipairs(record.code) do
+            local copy: any = {}
+            for j = 1, #ins do
+                copy[j] = ins[j]
+            end
+            local op = ins[1] as string
+            local functionAt = relink.FUNCTION_OPERANDS[op]
+            if functionAt then
+                copy[functionAt + 1] = base + (ins[functionAt + 1] as integer)
+            end
+            local shapeAt = relink.SHAPE_OPERANDS[op]
+            if shapeAt then
+                copy[shapeAt + 1] = shapes[ins[shapeAt + 1] as integer].id
+            end
+            if lines[i] ~= 0 then
+                copy.line = lines[i]
+            end
+            code[i] = copy
+        end
+        local f = new lowerstate.Fn(
+            id = id,
+            name = relocateName(record.name, base),
+            module = module,
+            environment = record.environment == true,
+            consts = consts,
+            code = code,
+            nregs = record.nregs,
+            nfregs = record.nfregs,
+            nvregs = record.nvregs,
+            maxRegs = record.maxRegs,
+            maxFregs = record.maxFregs,
+            nparams = record.nparams,
+            sig = record.sig,
+            ret = record.ret,
+            vararg = record.vararg
+        )
+        for i, captured in ipairs(record.captures) do
+            f.upvalIndex[captured] = i - 1
+        end
+        f.gpu = record.gpu
+
+        return f
+    end
+
+    -- Whether a relocated function is the one it was kept from.
+    local function same(a: any, b: any): boolean
+        if a.name ~= b.name or #a.consts ~= #b.consts or #a.code ~= #b.code then
+            return false
+        end
+        for i = 1, #a.consts do
+            if a.consts[i].kind ~= b.consts[i].kind or a.consts[i].value ~= b.consts[i].value then
+                return false
+            end
+        end
+        for i = 1, #a.code do
+            local x, y = a.code[i], b.code[i]
+            if #x ~= #y or (x.line or 0) ~= (y.line or 0) then
+                return false
+            end
+            for j = 1, #x do
+                if x[j] ~= y[j] then
+                    return false
+                end
+            end
+        end
+
+        return true
+    end
+
+    -- The kept form of one function, or nil and why when it cannot be kept.
+    local function record(
         started: any,
         functions: {any},
-        text: string,
+        f: any,
         refs: {any},
         refIndex: {[any]: integer}
-    ): (string?, string?)
+    ): (any, string?)
         local first: integer = started.firstFunction
         local last: integer = started.lastFunction
 
-        local function functionId(token: string): string?
-            local id = tonumber(token)
-            if not id or id < first or id >= last then
+        local function functionId(id: integer): integer?
+            if id < first or id >= last then
                 return nil
             end
 
-            return "\1F" .. tostring(id - first) .. "\2"
+            return id - first
         end
 
-        local function shapeRef(token: string): string?
-            local id = tonumber(token)
-            local shape = id and shapeOrder[id + 1]
+        local function shapeRef(id: integer): integer?
+            local shape = shapeOrder[id + 1]
             if not shape then
                 return nil
             end
@@ -488,70 +547,92 @@ function relink.new(reuse: any): any
                 refIndex[shape] = n
             end
 
-            return "\1S" .. tostring(n) .. "\2"
+            return n
         end
 
-        local out: {string} = {}
-        for i, line in ipairs(lines(text)) do
-            if i == 1 then
-                local parts = words(line)
-                if parts[1] ~= "function" then
-                    return nil, "unexpected function header"
-                end
-                -- An anonymous function is named `<parent>.fn<id>`: each such
-                -- segment naming one of the module's functions, as that function's
-                -- own name ends, is relative.
-                local name = parts[2]
-                local rewritten = name:gsub("()%.fn(%d+)", function(at: integer, digits: string): string?
-                    local id = int(digits)
-                    local target = functions[id + 1]
-                    local upTo = name:sub(1, at + 2 + #digits)
-                    if target and id >= first and id < last and (target.name as string):gsub("%s", "_") == upTo then
-                        return ".fn\1F" .. tostring(id - first) .. "\2"
-                    end
+        -- An anonymous function is named `<parent>.fn<id>`: each such segment
+        -- naming one of the module's functions, as that function's own name
+        -- ends, is relative.
+        local name = f.name as string
+        local rewritten = name:gsub("()%.fn(%d+)", function(at: integer, digits: string): string?
+            local id = int(digits)
+            local target = functions[id + 1]
+            local upTo = name:sub(1, at + 2 + #digits)
+            if target and id >= first and id < last and target.name == upTo then
+                return ".fn\1F" .. tostring(id - first) .. "\2"
+            end
 
-                    return nil
-                end)
-                parts[2] = rewritten
-                local own = functionId(parts[3])
-                if not own then
-                    return nil, "function id outside the module"
+            return nil
+        end)
+        local consts: {any} = {}
+        for i, c in ipairs(f.consts) do
+            local value = c.value
+            if c.kind == "func" then
+                value = functionId(value as integer)
+                if value == nil then
+                    return nil, "names a function outside the module"
                 end
-                parts[3] = own
-                out[i] = table.concat(parts, " ")
-            elseif line:sub(1, 2) == "  " then
-                local opcode = line:match("^  (%S+)")
-                local functionAt = opcode and relink.FUNCTION_OPERANDS[opcode]
-                local shapeAt = opcode and relink.SHAPE_OPERANDS[opcode]
-                if opcode == "const" and line:match("^  const %d+ func ") then
-                    functionAt = 3
+            end
+            consts[i] = {kind = c.kind, value = value}
+        end
+        local code: {any} = {}
+        local lines: {integer} = {}
+        for i, ins in ipairs(f.code) do
+            local copy: {any} = {}
+            for j = 1, #ins do
+                copy[j] = ins[j]
+            end
+            local op = ins[1] as string
+            local functionAt = relink.FUNCTION_OPERANDS[op]
+            if functionAt then
+                local placed = functionId(ins[functionAt + 1] as integer)
+                if placed == nil then
+                    return nil, "names a function outside the module"
                 end
-                if functionAt or shapeAt then
-                    local parts = words(line:sub(3))
-                    if functionAt then
-                        local placed = parts[functionAt + 1] and functionId(parts[functionAt + 1])
-                        if not placed then
-                            return nil, "names a function outside the module"
-                        end
-                        parts[functionAt + 1] = placed
-                    end
-                    if shapeAt then
-                        local placed = parts[shapeAt + 1] and shapeRef(parts[shapeAt + 1])
-                        if not placed then
-                            return nil, "names an unknown shape"
-                        end
-                        parts[shapeAt + 1] = placed
-                    end
-                    out[i] = "  " .. table.concat(parts, " ")
-                else
-                    out[i] = line
+                copy[functionAt + 1] = placed
+            end
+            local shapeAt = relink.SHAPE_OPERANDS[op]
+            if shapeAt then
+                local placed = shapeRef(ins[shapeAt + 1] as integer)
+                if placed == nil then
+                    return nil, "names an unknown shape"
                 end
-            else
-                out[i] = line
+                copy[shapeAt + 1] = placed
+            end
+            code[i] = copy
+            lines[i] = ins.line or 0
+        end
+        local parent = nil
+        if f.parent then
+            parent = functionId(f.parent.id)
+            if parent == nil then
+                return nil, "its parent is outside the module"
             end
         end
+        local captures: {string} = {}
+        for captured, index in pairs(f.upvalIndex) do
+            captures[(index as integer) + 1] = captured
+        end
 
-        return table.concat(out, "\n"), nil
+        return {
+            name = rewritten,
+            nparams = f.nparams,
+            sig = f.sig,
+            ret = f.ret,
+            vararg = f.vararg,
+            nregs = f.nregs,
+            nfregs = f.nfregs,
+            nvregs = f.nvregs,
+            maxRegs = f.maxRegs,
+            maxFregs = f.maxFregs,
+            environment = f.environment == true,
+            consts = consts,
+            code = code,
+            lines = lines,
+            parent = parent,
+            captures = captures,
+            gpu = plain(f.gpu),
+        }, nil
     end
 
     --- After the image is written: hands every module lowered fresh to `keep`.
@@ -560,26 +641,26 @@ function relink.new(reuse: any): any
             local unkept = started.unkept
             local refs: {any} = {}
             local refIndex: {[any]: integer} = {}
-            local texts: {string} = {}
+            local records: {any} = {}
             local count = (started.lastFunction - started.firstFunction) as integer
             for i = 1, count do
                 if unkept then
                     break
                 end
-                local original = started.texts[i]
+                local original = started.fns[i]
                 if not original then
                     unkept = "a function was not written"
                     break
                 end
-                local kept, problem = placeholders(started, functions, original, refs, refIndex)
+                local kept, problem = record(started, functions, original, refs, refIndex)
                 if not kept then
                     unkept = problem
                     break
                 end
-                texts[i] = kept as string
+                records[i] = kept
             end
             if not unkept then
-                -- The placeholders must give back exactly what was written.
+                -- The relative numbering must give back exactly what was written.
                 local shapes: {any} = {}
                 for n, r in ipairs(refs) do
                     shapes[n] = r.own and started.own[r.own] or resolveKey(r.ext, #shapeOrder)
@@ -592,8 +673,10 @@ function relink.new(reuse: any): any
                     if unkept then
                         break
                     end
-                    if relocate(texts[i], started.firstFunction, shapes) ~= started.texts[i] then
-                        unkept = "its text does not relocate to itself"
+                    local original = started.fns[i]
+                    local back = relocate(records[i], original.id, started.firstFunction, started.name, shapes)
+                    if not same(back, original) then
+                        unkept = "its record does not relocate to itself"
                     end
                 end
             end
@@ -609,7 +692,7 @@ function relink.new(reuse: any): any
                     deps = started.deps,
                     queued = started.queued,
                     chunk = started.chunk,
-                    functions = texts,
+                    functions = records,
                     shapes = started.shapes,
                     events = started.events,
                     refs = refs,
@@ -802,10 +885,12 @@ function relink.new(reuse: any): any
             end
         end
         local base = #functions
-        for i, text in ipairs(fragment.functions) do
-            functions[
-                base + i
-            ] = new lowerstate.Fn(id = base + i - 1, module = name, rendered = relocate(text, base, shapes))
+        for i, kept in ipairs(fragment.functions) do
+            local f = relocate(kept, base + i - 1, base, name, shapes)
+            if kept.parent then
+                f.parent = functions[base + (kept.parent as integer) + 1]
+            end
+            functions[base + i] = f
         end
         modules[name] = {id = base + fragment.chunk}
         moduleOrder[#moduleOrder + 1] = name

@@ -184,9 +184,6 @@ export record Fn
     curLine: integer?
     curStmt: Node?
 
-    --- A function a kept module's replay placed, already relocated.
-    rendered: string?
-
     function const(self, kind: string, value: string | number | boolean): integer
         local key = kind .. "\0" .. (kind == "num" and ("%.17g"):format(value as number) or tostring(value))
         local known = self.constIndex[key]

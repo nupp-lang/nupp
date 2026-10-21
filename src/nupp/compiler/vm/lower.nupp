@@ -5919,11 +5919,6 @@ function lower.emit(
         emit(table.concat(parts, " "))
     end
     for _, f in ipairs(functions) do
-        if f.rendered then
-            -- A function a kept module's replay placed, already relocated.
-            emit(f.rendered)
-            goto continue
-        end
         local inspected = nil
         local firstOut = #out + 1
         f:compact()
