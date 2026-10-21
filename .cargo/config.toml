@@ -3,6 +3,13 @@
 # toolchain driver owns. Feature-selected production builds override this with
 # a content-addressed directory beneath the same root.
 target-dir = "build/rust/target"
+# The collector finds the values compiled frames hold by walking the frame
+# pointer chain up from the Rust helper compiled code called, so every Rust
+# frame has to keep one. Apple targets do by default and x86-64 Linux and
+# Windows do not; without it a helper's rbp is any register value and the walk
+# misses the compiled caller's roots. Cargo joins this with the
+# build.rustflags scripts/toolchain passes through --config.
+rustflags = ["-C", "force-frame-pointers=yes"]
 
 [net]
 git-fetch-with-cli = true
