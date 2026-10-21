@@ -1,219 +1,20 @@
 module nupp.compiler.vm.convert
 
 --[[
-The closed-block graph of a function the lowering has finished.
+What the image keeps of a function the lowering has finished.
 
-The lowering builds labeled blocks of instructions over mutable registers,
-each ended by a jump, a branch or a return. This pass turns them into the
-graph the image persists: the blocks the entry reaches, each taking the
-registers live at its start as parameters, every definition a value of its
-own, and the physical register as every value's slot, so the stream the
-runtime derives from the graph is the code the lowering wrote. Definitions
-and uses come from the opcode table, so no instruction is described twice.
-A kernel arrives with the graph its own frontend built, region tree and all,
-and is passed through.
+The lowering builds labeled blocks of instructions over the frame's
+registers, each ended by a jump, a branch or a return. The image keeps them
+as they are: the blocks the entry reaches, in the order they were placed,
+with jumps threaded past blocks that hold only a jump. A register is its own
+value, so there is nothing to rename and an edge carries nothing: every block
+finds its values where its predecessors left them. What the runtime needs to
+know about registers (which are live where) it works out from the opcode
+table, over these blocks. A kernel arrives with the SSA graph its own
+frontend built, region tree and all, and is passed through.
 ]]
 
-local G = require("nupp.compiler.vm.graph")
-local opcodes = require("nupp.compiler.vm.opcodes")
-
 local convert = {}
-
-local classIndex = {v = 1, i = 2, f = 3, x = 4}
-local classNames = {"v", "i", "f", "x"}
-
---- One opcode's operand shape, parsed once: register operands with their
---- modes, the jump operand, the windows, and how control leaves.
-local shapes: {[string]: any} = {}
-
-local function parseWindow(text: string): any
-    local class, mode, base, offset, count, formula = text:match("^([vifx]):(%a+)@(%d+)%+(%d+):(%d+):(%w+)$")
-    if class == nil then
-        error("window specification: " .. text, 0)
-    end
-
-    return {
-        class = class,
-        mode = mode,
-        base = tonumber(base) as integer,
-        offset = tonumber(offset) as integer,
-        count = tonumber(count) as integer,
-        formula = formula
-    }
-end
-
-local function shape(name: string): any
-    local cached = shapes[name]
-    if cached then
-        return cached
-    end
-    local described = opcodes.describe(name)
-    if described == nil then
-        error("unknown opcode " .. name, 0)
-    end
-    local operands = {}
-    local jump = 0
-    for i = 1, #described.operands do
-        local operand = described.operands[i]
-        operands[i] = {class = operand.class, mode = operand.mode, kind = operand.kind, optional = operand.optional}
-        if operand.class == "j" then
-            jump = i
-        end
-    end
-    local windows = {}
-    for i = 1, #described.windows do
-        windows[i] = parseWindow(described.windows[i])
-    end
-    cached = {
-        operands = operands,
-        windows = windows,
-        jump = jump,
-        flow = described.flow,
-        frame = described.frame == true
-    }
-    shapes[name] = cached
-
-    return cached
-end
-
-local function fixedArgs(n: integer): integer
-    if n >= 128 then
-        return n % 128
-    end
-
-    return n % 64
-end
-
-local function callArgs(n: integer): integer
-    local fixed = fixedArgs(n)
-    if n < 128 and math.floor(n / 64) % 2 == 1 then
-        return fixed + 8
-    end
-
-    return fixed
-end
-
-local function simdResults(op: any, argc: integer): integer
-    if op == "transpose" then
-        return argc
-    elseif op == "interleave" or op == "deinterleave" or op == "loadPairs" then
-        return 2
-    elseif op == "loadTriples" then
-        return 3
-    elseif op == "loadQuads" then
-        return 4
-    end
-
-    return 1
-end
-
-local function windowSize(window: any, ins: any): integer
-    local n = ins[window.count + 1]
-    if type(n) == "string" then
-        n = tonumber(n)
-    end
-    local count = n as integer
-    local formula = window.formula
-    if formula == "n" then
-        return count
-    elseif formula == "minus1" then
-        return math.max(count - 1, 0)
-    elseif formula == "fixed" then
-        return fixedArgs(count)
-    elseif formula == "fixedmax1" then
-        return math.max(fixedArgs(count), 1)
-    elseif formula == "callargs" then
-        return callArgs(count)
-    elseif formula == "callargs1" then
-        return callArgs(count) + 1
-    elseif formula == "retn" then
-        local k = count
-        if count >= 128 then
-            k = count % 128 + 8
-        end
-
-        return math.max(k, 1)
-    elseif formula == "simdresults" then
-        return simdResults(ins[2], count)
-    elseif formula == "simdspan" then
-        return math.max(count + 1, simdResults(ins[2], count))
-    end
-    error("window formula " .. tostring(formula), 0)
-end
-
---- A register operand's class, which a kind operand may decide.
-local function registerClass(operand: any, ins: any): string?
-    local class = operand.class
-    if class == "v" or class == "i" or class == "f" or class == "x" then
-        return class
-    end
-    if operand.kind then
-        local kind = ins[(operand.kind as integer) + 1]
-        return (tonumber(kind) or 0) >= 8 and "f" or "i"
-    end
-
-    return nil
-end
-
---- Appends the registers an instruction defines to `defs` after its first
---- `nd` and the ones it reads to `uses` after its first `nu`, as
---- `class * 256 + register` keys, and returns both new counts. A register
---- both read and written is in both.
-local function addDefsUses(ins: any, defs: {integer}, nd: integer, uses: {integer}, nu: integer): (integer, integer)
-    local s = shape(ins[1])
-    local operands = s.operands
-    for i = 1, #operands do
-        local operand = operands[i]
-        local class = registerClass(operand, ins)
-        if class then
-            local key = (classIndex[class] * 256 + (ins[i + 1] as integer)) as integer
-            local mode = operand.mode
-            if mode == "def" then
-                nd = nd + 1
-                defs[nd] = key
-            elseif mode == "both" then
-                nu, nd = nu + 1, nd + 1
-                uses[nu], defs[nd] = key, key
-            elseif mode == "use" then
-                nu = nu + 1
-                uses[nu] = key
-            end
-        end
-    end
-    local windows = s.windows
-    for i = 1, #windows do
-        local window = windows[i]
-        local mode = window.mode
-        if mode ~= "check" then
-            local base = (ins[window.base + 1] as integer) + window.offset
-            local size = windowSize(window, ins)
-            local class = classIndex[window.class] * 256
-            if mode == "def" or mode == "defs" then
-                for r = base, base + size - 1 do
-                    nd = nd + 1
-                    defs[nd] = (class + r) as integer
-                end
-            else
-                for r = base, base + size - 1 do
-                    nu = nu + 1
-                    uses[nu] = (class + r) as integer
-                end
-            end
-        end
-    end
-
-    return nd, nu
-end
-
---- The registers an instruction defines and reads.
-local function defsUses(ins: any): ({integer}, {integer})
-    local defs, uses = {}, {}
-    addDefsUses(ins, defs, 0, uses, 0)
-
-    return defs, uses
-end
-
-convert.defsUses = defsUses
 
 --- Where a jump to `b` really goes: past the blocks that hold nothing but a
 --- jump, which the lowering leaves wherever two labels meet.
@@ -227,28 +28,17 @@ local function through(b: any): any
     return b
 end
 
---- The registers a block's ending reads, as `class * 256 + register` keys.
-local function endUses(b: any): {integer}
-    if b.ends == "branch" then
-        return {((b.branchOp == "JmpIfIZero" and 2 or 1) * 256 + b.branchReg) as integer}
-    elseif b.ends == "return" then
-        local _, uses = defsUses(b.ret)
-        return uses
-    end
-
-    return {}
-end
-
---- The graph of a lowered function: `f` is the lowering's record, with its
---- blocks, constants and register counts, or a kernel's own graph.
---- @raises string when a block reads a register no path defined, a typed
---- register is read before any write, or a jump names a label never placed.
-function convert.graph(f: any): any
+--- What the image keeps of function `f`, the lowering's record: its reached
+--- blocks with their endings, or, for a kernel, the graph its frontend built
+--- (`graph`). An ending's value is a key, `class * 256 + register` with
+--- classes v, i, f and x numbered 0 to 3.
+--- @raises string when a jump names a label never placed.
+function convert.blocks(f: any): any
     if f.graph then
         local g = f.graph
         g.name, g.module, g.sig, g.ret, g.vararg, g.gpu = f.name, f.module, table.concat(f.sig or {}), f.ret
             or "v", f.vararg == true, f.gpu
-        return g
+        return {graph = g}
     end
     local nparams = f.nparams
     -- The blocks the entry reaches, in the order they were placed.
@@ -294,301 +84,81 @@ function convert.graph(f: any): any
             number[b] = nblocks
         end
     end
-    -- Per block, its instructions' definitions and uses as flat key lists,
-    -- with where each instruction's start: read once from the table.
-    local defKeys, useKeys, defStart, useStart = {}, {}, {}, {}
-    local hasFrame = false
-    for bi = 1, nblocks do
-        local code = order[bi].code
-        local dk, uk, ds, us = {}, {}, {}, {}
-        local nd: integer, nu: integer = 0, 0
-        for k = 1, #code do
-            ds[k], us[k] = nd + 1, nu + 1
-            nd, nu = addDefsUses(code[k], dk, nd, uk, nu)
-            hasFrame = hasFrame or shape(code[k][1]).frame
-        end
-        ds[#code + 1], us[#code + 1] = nd + 1, nu + 1
-        defKeys[bi], useKeys[bi], defStart[bi], useStart[bi] = dk, uk, ds, us
-    end
-    -- Every register the function defines, parameters included, which a
-    -- frame operation reads; most functions have none.
-    local everyRegister: {integer} = {}
-    if hasFrame then
-        local seen = {}
-        for r = 1, nparams do
-            seen[256 + r] = true
-            everyRegister[#everyRegister + 1] = 256 + r
-        end
-        for bi = 1, nblocks do
-            local dk = defKeys[bi]
-            for i = 1, #dk do
-                if not seen[dk[i]] then
-                    seen[dk[i]] = true
-                    everyRegister[#everyRegister + 1] = dk[i]
-                end
-            end
-        end
-    end
-    -- Per block: what it defines, what it reads before defining, successors.
-    local blockDefs, blockUses, blockSucc = {}, {}, {}
-    for bi = 1, nblocks do
-        local b = order[bi]
-        local code = b.code
-        local dk, uk, ds, us = defKeys[bi], useKeys[bi], defStart[bi], useStart[bi]
-        local defined, upward, reads = {}, {}, {}
-        local nreads: integer = 0
-
-        local function read(key: integer): nil
-            if not defined[key] and not upward[key] then
-                upward[key] = true
-                nreads = nreads + 1
-                reads[nreads] = key
-            end
-        end
-
-        for k = 1, #code do
-            for i = us[k], us[k + 1] - 1 do
-                read(uk[i])
-            end
-            if hasFrame and shape(code[k][1]).frame then
-                for i = 1, #everyRegister do
-                    read(everyRegister[i])
-                end
-            end
-            for i = ds[k], ds[k + 1] - 1 do
-                defined[dk[i]] = true
-            end
-        end
-        local ends = endUses(b)
-        for i = 1, #ends do
-            read(ends[i])
-        end
-        blockDefs[bi], blockUses[bi] = defined, reads
-        if b.ends == "jump" then
-            blockSucc[bi] = {number[through(b.target)]}
-        elseif b.ends == "branch" then
-            blockSucc[bi] = {number[through(b.target)], number[through(b.fall)]}
-        else
-            blockSucc[bi] = {}
-        end
-    end
-    -- Live-in registers per block, by backward iteration to a fixed point:
-    -- a set for membership, a list in the order keys joined it.
-    local liveSet, liveList = {}, {}
-    for bi = 1, nblocks do
-        liveSet[bi], liveList[bi] = {}, {}
-    end
-    local changed = true
-    while changed do
-        changed = false
-        for bi = nblocks, 1, -1 do
-            local set, list, defined = liveSet[bi], liveList[bi], blockDefs[bi]
-            local succ = blockSucc[bi]
-            for si = 1, #succ do
-                local from = liveList[succ[si]]
-                for i = 1, #from do
-                    local key = from[i]
-                    if not defined[key] and not set[key] then
-                        set[key] = true
-                        list[#list + 1] = key
-                        changed = true
-                    end
-                end
-            end
-            local reads = blockUses[bi]
-            for i = 1, #reads do
-                local key = reads[i]
-                if not set[key] then
-                    set[key] = true
-                    list[#list + 1] = key
-                    changed = true
-                end
-            end
-        end
-    end
-    -- The graph: physical slots, parameters as the fixed first value ids.
-    local g = G.new(nparams)
-    g.physical = true
-    g.name, g.module, g.sig, g.ret, g.vararg = f.name, f.module, table.concat(f.sig or {}), f.ret
-        or "v", f.vararg == true
-    g.registers = {math.max(f.maxRegs or 0, f.nregs) + 9, math.max(f.maxFregs or 0, f.nfregs) + 2, f.nvregs or 2}
-    g.counts = {v = g.registers[1] + 1, i = g.registers[2] + 1, f = g.registers[2] + 1, x = g.registers[3] + 1}
-    g.gpu = f.gpu
+    local constants = {}
     for i = 1, #f.consts do
         local c = f.consts[i]
-        g.constants[i] = {kind = c.kind, value = c.value}
+        constants[i] = {kind = c.kind, value = c.value}
     end
-    local positions = {}
+    local positions, positionOf = {}, {}
 
     local function position(line: integer?): integer
         if line == nil or line == 0 then
             return 0
         end
-        local at = positions[line]
+        local at = positionOf[line]
         if at == nil then
-            at = G.position(g, line, 0)
-            positions[line] = at
+            at = #positions + 1
+            positions[at] = {line = line, column = 0}
+            positionOf[line] = at
         end
 
-        return at
+        return at as integer
     end
 
     local blocks = {}
     for bi = 1, nblocks do
-        blocks[bi] = G.block(g)
-    end
-    -- A block's parameters are the registers live at its start. The entry's
-    -- are the untyped registers above the function's parameters that it
-    -- reads before writing, which the frame initializes to nil; a typed
-    -- register read before any write is a lowering bug.
-    local paramKeys = {}
-    for bi = 1, nblocks do
-        local keys = {}
-        local live = liveList[bi]
-        for li = 1, #live do
-            local key = live[li]
-            if bi > 1 then
-                keys[#keys + 1] = key
-            elseif key > 256 + nparams then
-                if key >= 512 then
-                    error(
-                        (
-                            "%s: %s%d is read before any write"
-                        ):format(f.name, classNames[math.floor(key / 256)], (key % 256) as integer),
-                        0
-                    )
-                end
-                keys[#keys + 1] = key
-            end
-        end
-        table.sort(keys)
-        paramKeys[bi] = keys
-        for i = 1, #keys do
-            local key = keys[i]
-            blocks[bi].params[i] = G.value(g, classNames[math.floor(key / 256)], (key % 256) as integer)
-        end
-    end
-    for bi = 1, nblocks do
         local b = order[bi]
-        local block = blocks[bi]
-        local dk, ds = defKeys[bi], defStart[bi]
-        local current = {{}, {}, {}, {}}
-        for r = 1, nparams do
-            current[1][r] = r
-        end
-        local keys = paramKeys[bi]
-        for i = 1, #keys do
-            current[math.floor(keys[i] / 256)][(keys[i] % 256) as integer] = block.params[i]
-        end
-
-        local function read(class: string, reg: integer): integer
-            local v = current[classIndex[class]][reg]
-            if v == nil then
-                error(("%s: block %d reads %s%d before any path defines it"):format(f.name, bi, class, reg), 0)
-            end
-
-            return v
-        end
-
-        local function edge(target: any): any
-            local to = number[through(target)]
-            local keys = paramKeys[to]
-            local args = {}
-            for i = 1, #keys do
-                local key = keys[i]
-                args[i] = read(classNames[math.floor(key / 256)], (key % 256) as integer)
-            end
-
-            return {target = to, args = args}
-        end
-
         local code = b.code
+        local pos = {}
         for k = 1, #code do
-            local ins = code[k]
-            local op = ins[1]
-            local s = shape(op)
-            -- Arguments in signature order: every operand but the result.
-            local sig = G.signatures[op]
-            if sig == nil then
-                error("no graph signature for " .. op, 0)
-            end
-            local args, argAt, dstSlot, dstClass = {}, 0, nil, nil
-            local operands = s.operands
-            for i = 1, #operands do
-                local operand = operands[i]
-                local value = ins[i + 1]
-                if value == nil and operand.optional then
-                    -- A SIMD descriptor's source element, left out when it is
-                    -- the element itself, as the loader reads it.
-                    value = ins[3]
-                end
-                if i == sig.resultAt then
-                    dstSlot = value as integer
-                    dstClass = registerClass(operand, ins)
-                else
-                    argAt = argAt + 1
-                    local class = registerClass(operand, ins)
-                    if class and operand.mode ~= "none" and operand.mode ~= "check" then
-                        args[argAt] = read(class, value as integer)
-                    else
-                        -- An immediate, or a window base: the slot the code names.
-                        args[argAt] = value
-                    end
-                end
-            end
-            -- Window definitions and read-and-written operands change
-            -- registers beside the result; each is a fresh untyped value the
-            -- instruction defines, on the register's slot.
-            local extras = nil
-            for i = ds[k], ds[k + 1] - 1 do
-                local key = dk[i]
-                local class, reg = math.floor(key / 256), (key % 256) as integer
-                if not (dstClass and class == classIndex[dstClass] and reg == dstSlot) then
-                    if class ~= 1 then
-                        error(f.name .. ": typed register window written by " .. op, 0)
-                    end
-                    local v = G.value(g, "v", reg)
-                    current[class][reg] = v
-                    extras = extras or {}
-                    extras[#extras + 1] = v
-                end
-            end
-            local id = G.emit(g, block, op, args, position(ins.line), nil, dstSlot, extras)
-            if id ~= nil and dstClass then
-                current[classIndex[dstClass]][dstSlot as integer] = id
-            end
+            pos[k] = position(code[k].line)
         end
+        local term
         local ends = b.ends
         if ends == "jump" then
-            block.term = {kind = "jump", edges = {edge(b.target)}}
+            term = {kind = "jump", targets = {number[through(b.target)]}}
         elseif ends == "branch" then
             local op = b.branchOp
-            local value = read(op == "JmpIfIZero" and "i" or "v", b.branchReg)
+            local value = (op == "JmpIfIZero" and 256 or 0) + b.branchReg
+            local taken, fall = number[through(b.target)], number[through(b.fall)]
+            -- The first target is where a truthy (or nonzero) value goes.
             if op == "JmpIf" then
-                block.term = {kind = "branch", value = value, edges = {edge(b.target), edge(b.fall)}}
+                term = {kind = "branch", value = value, targets = {taken, fall}}
             else
-                block.term = {kind = "branch", value = value, edges = {edge(b.fall), edge(b.target)}}
+                term = {kind = "branch", value = value, targets = {fall, taken}}
             end
         else
             local ret = b.ret
             local op = ret[1]
             if op == "Ret" then
-                block.term = {kind = "return", value = read("v", ret[2] as integer), edges = {}}
+                term = {kind = "return", value = ret[2], targets = {}}
             elseif op == "FRet" then
-                block.term = {kind = "return", value = read("f", ret[2] as integer), edges = {}}
+                term = {kind = "return", value = 512 + (ret[2] as integer), targets = {}}
             elseif op == "RetNil" then
-                block.term = {kind = "return", edges = {}}
+                term = {kind = "return", targets = {}}
             elseif op == "RetN" then
-                block.term = {kind = "returns", value = read("v", ret[2] as integer), count = ret[3], edges = {}}
+                term = {kind = "returns", value = ret[2], count = ret[3], targets = {}}
             elseif op == "Raise" then
-                block.term = {kind = "raise", constant = ret[2], edges = {}}
+                term = {kind = "raise", constant = ret[2], targets = {}}
             else
-                error(f.name .. ": no terminator for " .. tostring(op), 0)
+                error(f.name .. ": no ending for " .. tostring(op), 0)
             end
         end
+        blocks[bi] = {code = code, pos = pos, term = term}
     end
 
-    return g
+    return {
+        name = f.name,
+        module = f.module,
+        nparams = nparams,
+        vararg = f.vararg == true,
+        sig = table.concat(f.sig or {}),
+        ret = f.ret or "v",
+        registers = {math.max(f.maxRegs or 0, f.nregs) + 9, math.max(f.maxFregs or 0, f.nfregs) + 2, f.nvregs or 2},
+        constants = constants,
+        positions = positions,
+        blocks = blocks
+    }
 end
 
 export = convert

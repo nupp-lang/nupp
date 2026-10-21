@@ -77,15 +77,19 @@ function M.theLoweringRefusesWhatTheTableDoesNotDescribe()
 end
 
 function M.anEmittedInstructionGoesThroughTheTable()
-    local f = setmetatable({id = 0, name = "t", code = {}}, lowerstate.Fn)
+    local f = setmetatable({id = 0, name = "t", blocks = {}}, lowerstate.Fn)
     f:op("Nil", 1)
-    local at = f:op("Jmp", 0)
-    f:patch(at, "Jmp", f:offset(at, f:here()))
-    test.equal(#f.code, 2)
+    local done = f:label()
+    f:jump(done)
+    f:place(done)
+    test.equal(#f.blocks[1].code, 1)
+    test.equal(f.blocks[1].ends, "jump")
+    test.assert(f.blocks[1].target == done, "the jump names its label")
     test.assert(not pcall(f.op, f, "Nill", 1))
     test.assert(not pcall(f.op, f, "Nil", 1, 2))
-    test.assert(not pcall(f.patch, f, at, "Jmpp", 0))
-    test.equal(#f.code, 2)
+    -- A jump is a block's ending, which only jump and branch write.
+    test.assert(not pcall(f.op, f, "Jmp", 0))
+    test.equal(#f.blocks[1].code, 1)
 end
 
 return M

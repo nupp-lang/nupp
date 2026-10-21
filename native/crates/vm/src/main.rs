@@ -163,6 +163,7 @@ fn show(it: &Interp, v: Value) -> String {
 /// the text the lowering writes.
 pub(crate) fn load_image_file(vm: &mut Interp, path: &str) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("image {path}: {e}"))?;
+    if bytes.starts_with(nupp_vm::graph::MAGIC) { return nupp_vm::graph::load_owned(vm, bytes).map(|_| ()); }
     load_image_bytes(vm, &bytes, path)
 }
 
@@ -243,16 +244,6 @@ pub(crate) fn main() {
         match program.take() {
             Some(found) => load_image_bytes(&mut vm, &found.image, "<appended>").unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }),
             None => load_image_file(&mut vm, &args[2]).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) }),
-        }
-        // NUPP_GRAPH_IMAGE=FILE: a graph image beside the text one, whose
-        // functions replace the loaded ones of the same name, so a program
-        // runs on streams derived from the graph (the single-IR plan's P1).
-        if let Ok(paths) = std::env::var("NUPP_GRAPH_IMAGE") {
-            for path in paths.split(':').filter(|p| !p.is_empty()) {
-                let bytes = std::fs::read(path).unwrap_or_else(|e| { eprintln!("graph image {path}: {e}"); std::process::exit(1) });
-                let n = nupp_vm::graph::replace_from_sidecar(&mut vm, &bytes).unwrap_or_else(|e| { eprintln!("graph image {path}: {e}"); std::process::exit(1) });
-                if std::env::var_os("NUPP_GRAPH_TRACE").is_some() { eprintln!("graph: {n} functions derived from {path}"); }
-            }
         }
         for path in additional_images {
             load_image_file(&mut vm, &path).unwrap_or_else(|e| { eprintln!("load {path}: {e}"); std::process::exit(1) });

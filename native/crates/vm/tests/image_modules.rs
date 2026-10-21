@@ -133,7 +133,8 @@ fn load(text: &str) -> Interp {
 
 fn modules(text: &str) -> Vec<ImageModule> {
     let it = load(text);
-    analyze(&it, text).expect("the image was loaded at function zero")
+    let count = text.lines().filter(|l| l.trim_start().starts_with("function ")).count();
+    analyze(&it, count).expect("the image was loaded at function zero")
 }
 
 fn find<'a>(modules: &'a [ImageModule], name: &str) -> &'a ImageModule {

@@ -836,6 +836,12 @@
       "reason": "pure Lua against compiler modules within the subset"
     },
     {
+      "suite": "memarenatest",
+      "class": "port-required",
+      "facilities": "ffi",
+      "reason": "reads arena row addresses and struct types through LuaJIT ffi; ports when the VM arena exposes them"
+    },
+    {
       "suite": "memberstest",
       "class": "portable",
       "facilities": "-",

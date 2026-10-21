@@ -312,10 +312,87 @@ fn load_loop(path: &str, rounds: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// The instruction-by-instruction backward dataflow, to a fixed point over
+/// every pc: slow, and the definition the block dataflow is held to.
+fn reference_liveness(f: &Function) -> (Vec<[nupp_vm::verify::RegSet; 4]>, Vec<[nupp_vm::verify::RegSet; 4]>) {
+    use nupp_vm::verify::{RegSet, C};
+    let n = f.code.len();
+    let class_of = |c: C| match c { C::V => 0, C::I => 1, C::F => 2, C::X => 3 };
+    let succs = nupp_vm::verify::successors(f);
+    let spans: Vec<u8> = f.code.iter().filter_map(|op| match *op { Op::SpanLen(_, s, _) => Some(s), _ => None }).collect();
+    let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
+        let (d, u) = if nupp_vm::opcodes::table().row(op).frame {
+            (Vec::new(), (0..=f.nregs as u8).map(|r| (C::V, r)).chain((0..f.nireg).map(|r| (C::I, r))).chain((0..f.nfreg).map(|r| (C::F, r))).chain((0..f.nvreg).map(|r| (C::X, r))).collect())
+        } else { nupp_vm::verify::defs_uses(op) };
+        let mut ds = [RegSet::default(); 4]; let mut us = [RegSet::default(); 4];
+        for (c, r) in d { ds[class_of(c)].insert(r); }
+        for (c, r) in u { us[class_of(c)].insert(r); }
+        let _ = &spans;
+        (ds, us)
+    }).collect();
+    let mut live_in = vec![[RegSet::default(); 4]; n];
+    let mut live_out = vec![[RegSet::default(); 4]; n];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for pc in (0..n).rev() {
+            let mut out = [RegSet::default(); 4];
+            for &s in &succs[pc] { for k in 0..4 { out[k] = out[k].union(&live_in[s][k]); } }
+            let mut inn = [RegSet::default(); 4];
+            for k in 0..4 { inn[k] = out[k].minus(&du[pc].0[k]).union(&du[pc].1[k]); }
+            if out != live_out[pc] || inn != live_in[pc] { live_out[pc] = out; live_in[pc] = inn; changed = true; }
+        }
+    }
+    (live_in, live_out)
+}
+
+/// `graph_gate analyses IMAGE`: what the runtime spends rebuilding control
+/// flow from derived streams, against loading them: the liveness dataflow,
+/// resume points and successor lists over every function, and the share of
+/// functions that hold anything the JIT or the SIMD prover would ask for.
+fn analyses(path: &str) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mut vm = Interp::new();
+    let start = Instant::now();
+    load_any(&mut vm, &bytes)?;
+    let load = us(start);
+    let mut times = [0f64; 3];
+    let mut instructions = 0usize;
+    // The block dataflow against the instruction-by-instruction one it
+    // replaced, which is the reference: every set must agree.
+    let mut differing = 0usize;
+    for f in &vm.funcs {
+        instructions += f.code.len();
+        let t = Instant::now(); std::hint::black_box(nupp_vm::verify::successors(f)); times[0] += us(t);
+        let t = Instant::now(); let blocks = nupp_vm::verify::liveness(f); times[1] += us(t);
+        let t = Instant::now(); std::hint::black_box(nupp_vm::verify::verify_classes(f, vm.funcs.len()).ok()); times[2] += us(t);
+        let reference = reference_liveness(f);
+        if blocks.0.iter().zip(&reference.0).chain(blocks.1.iter().zip(&reference.1)).any(|(a, b)| a != b) { differing += 1; }
+    }
+    if differing > 0 { return Err(format!("{differing} functions' liveness differs from the reference")); }
+    println!("{}", serde_json::json!({"functions": vm.funcs.len(), "instructions": instructions, "load_us": load, "successors_us": times[0], "liveness_us": times[1], "verify_classes_us": times[2]}));
+    if bytes.starts_with(graph::MAGIC) {
+        // What a graph image's words go to.
+        let image = graph::decode(&bytes)?;
+        let (mut values, mut params, mut args, mut insts, mut operand_words, mut edges) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+        for g in &image.functions {
+            values += g.classes.len();
+            params += g.blocks.iter().map(|b| b.params.len as usize).sum::<usize>();
+            args += g.edges.iter().map(|e| e.args.len as usize).sum::<usize>();
+            edges += g.edges.len();
+            insts += g.insts.len();
+            operand_words += g.insts.iter().map(|w| graph::with_table(|t| t.entries[w[0] as usize].operands.len())).sum::<usize>();
+        }
+        println!("{}", serde_json::json!({"values": values, "block_params": params, "edges": edges, "edge_args": args, "instructions": insts, "operand_words": operand_words}));
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("loop") => return load_loop(&args[2], args[3].parse().unwrap()),
+        Some("analyses") => return analyses(&args[2]),
         Some("signatures") => { graph::with_table(|t| for e in &t.entries { println!("{}\t{}", e.name, e.operands); }); return Ok(()); }
         Some("scalar") => scalar(args.get(2).ok_or("PREFIX")?, std::path::Path::new(args.get(3).ok_or("OUT")?)),
         Some("typed") => typed(args.get(2).ok_or("PREFIX")?),

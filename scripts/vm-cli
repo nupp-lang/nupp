@@ -83,9 +83,10 @@ def install(args):
     runtime, image = args.runtime.resolve(strict=True), args.image.resolve(strict=True)
     if not os.access(runtime, os.X_OK):
         raise ValueError("runtime is not executable")
-    with image.open() as source:
-        if not any(line.startswith("module nupp.tools.vm.root ") for line in source):
-            raise ValueError("image does not contain the full nupp.tools.vm.root CLI")
+    # A graph image names its modules in its header; the verifier below
+    # checks the rest.
+    if b"nupp.tools.vm.root" not in image.read_bytes():
+        raise ValueError("image does not contain the full nupp.tools.vm.root CLI")
     PACKAGES.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".install-", dir=PACKAGES) as directory:
         stage = Path(directory)

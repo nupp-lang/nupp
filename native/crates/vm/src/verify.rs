@@ -207,9 +207,7 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
         // field plan and a SIMD descriptor are valid or not on their own terms.
         match *op {
             Op::GetPhys(_,_,p)|Op::GetPhysF(_,_,p)|Op::GetPhysI(_,_,p)|Op::GetPhysU(_,_,p)|Op::SetPhys(_,p,_)|Op::SetPhysF(_,p,_)|Op::SetPhysI(_,p,_) => {
-                if p.kind>10 || p.offset.checked_add(crate::storage::physical_width(p.kind).unwrap_or(0) as u32).is_none() { return Err(format!("pc {pc}: invalid physical field plan")); }
-                let carrier=match *op {Op::GetPhysF(..)=>matches!(p.kind,1..=6|9|10),Op::GetPhysI(..)=>p.kind==7,Op::GetPhysU(..)=>p.kind==8,Op::SetPhysF(..)=>matches!(p.kind,9|10),Op::SetPhysI(..)=>matches!(p.kind,7|8),_=>true};
-                if !carrier { return Err(format!("pc {pc}: physical scalar kind does not match register carrier")); }
+                physical_plan(table.row(op).name.as_str(), p.kind, p.offset).map_err(|e| format!("pc {pc}: {e}"))?;
             }
             Op::Simd(op, kind, source, base, argc) => {
                 let last = (argc as usize).max(crate::simd::result_count(op, argc as usize).saturating_sub(1));
@@ -223,6 +221,16 @@ pub fn verify_classes(f: &Function, nfuncs: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether a physical field plan is valid for the operation that carries it:
+/// a known kind, an offset its width cannot overflow, and a kind the
+/// operation's register class can hold.
+pub(crate) fn physical_plan(name: &str, kind: u8, offset: u32) -> Result<(), String> {
+    if kind > 10 || offset.checked_add(crate::storage::physical_width(kind).unwrap_or(0) as u32).is_none() { return Err("invalid physical field plan".into()); }
+    let carrier = match name { "GetPhysF" => matches!(kind, 1..=6 | 9 | 10), "GetPhysI" => kind == 7, "GetPhysU" => kind == 8, "SetPhysF" => matches!(kind, 9 | 10), "SetPhysI" => matches!(kind, 7 | 8), _ => true };
+    if !carrier { return Err("physical scalar kind does not match register carrier".into()); }
+    Ok(())
+}
+
 /// A set of registers of one class, 256 wide.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct RegSet(pub [u64; 4]);
@@ -231,6 +239,7 @@ impl RegSet {
     pub fn remove(&mut self, r: u8) { self.0[(r >> 6) as usize] &= !(1 << (r & 63)); }
     pub fn contains(&self, r: u8) -> bool { self.0[(r >> 6) as usize] & (1 << (r & 63)) != 0 }
     pub fn union(&self, o: &RegSet) -> RegSet { RegSet([self.0[0] | o.0[0], self.0[1] | o.0[1], self.0[2] | o.0[2], self.0[3] | o.0[3]]) }
+    pub fn minus(&self, o: &RegSet) -> RegSet { RegSet([self.0[0] & !o.0[0], self.0[1] & !o.0[1], self.0[2] & !o.0[2], self.0[3] & !o.0[3]]) }
     pub fn iter(&self) -> impl Iterator<Item = u8> + '_ { (0..=255u8).filter(move |&r| self.contains(r)) }
     pub fn len(&self) -> usize { self.0.iter().map(|w| w.count_ones() as usize).sum() }
 }
@@ -267,31 +276,38 @@ pub fn defs_uses(op: &Op) -> (Vec<(C, u8)>, Vec<(C, u8)>) {
 /// The successors of each instruction: its jump targets, its jump table's
 /// targets, and the next instruction when it falls through.
 pub fn successors(f: &Function) -> Vec<Vec<usize>> {
+    (0..f.code.len()).map(|pc| successors_at(f, pc)).collect()
+}
+
+/// The pcs the instruction at `pc` may continue at.
+pub fn successors_at(f: &Function, pc: usize) -> Vec<usize> {
     let table = opcodes::table();
     let n = f.code.len();
-    f.code.iter().enumerate().map(|(pc, op)| {
-        let row = table.row(op);
-        let (_, offs) = operands(op);
-        let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
-        let values = op.operands();
-        for (spec, &v) in row.operands.iter().zip(&values) {
-            if spec.class == Class::Table { if let Some((def, tbl)) = f.jump_tables.get(v as usize) { for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } } }
-        }
-        if row.flow.falls() && pc + 1 < n { s.push(pc + 1); }
-        s.retain(|&t| t < n);
-        s
-    }).collect()
+    let op = &f.code[pc];
+    let row = table.row(op);
+    let (_, offs) = operands(op);
+    let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
+    let values = op.operands();
+    for (spec, &v) in row.operands.iter().zip(&values) {
+        if spec.class == Class::Table { if let Some((def, tbl)) = f.jump_tables.get(v as usize) { for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } } }
+    }
+    if row.flow.falls() && pc + 1 < n { s.push(pc + 1); }
+    s.retain(|&t| t < n);
+    s
 }
 
 /// Live-in and live-out register sets per pc, by class (V, I, F, X): the
 /// backward dataflow over the bytecode's control flow. A frame record
 /// written at a park needs only the registers live after it; a frame-record
 /// entry needs only the registers live at its pc.
+///
+/// The fixed point runs over basic blocks, found from the instructions that
+/// do anything but fall through (the only ones whose successors are read),
+/// and one backward pass through each block gives every pc its sets.
 pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
     let table = opcodes::table();
     let n = f.code.len();
     let class_of = |c: C| match c { C::V => 0, C::I => 1, C::F => 2, C::X => 3 };
-    let succs = successors(f);
     let native_spans = crate::native_simd::spans(f);
     let du: Vec<([RegSet; 4], [RegSet; 4])> = f.code.iter().map(|op| {
         let (d, u) = if table.row(op).frame {
@@ -308,17 +324,65 @@ pub fn liveness(f: &Function) -> (Vec<[RegSet; 4]>, Vec<[RegSet; 4]>) {
         for &span in native_spans.keys() { us[0].insert(span); }
         (ds, us)
     }).collect();
-    let mut live_in = vec![[RegSet::default(); 4]; n];
-    let mut live_out = vec![[RegSet::default(); 4]; n];
+    // Basic blocks: a leader at 0, after every instruction that does more than
+    // fall through, and at everything such an instruction may go to.
+    let mut leader = vec![false; n + 1];
+    if n > 0 { leader[0] = true; }
+    let mut exits: Vec<(usize, Vec<usize>)> = Vec::new();
+    for pc in 0..n {
+        if table.row(&f.code[pc]).flow != opcodes::Flow::Next {
+            let s = successors_at(f, pc);
+            leader[pc + 1] = true;
+            for &t in &s { leader[t] = true; }
+            exits.push((pc, s));
+        }
+    }
+    let starts: Vec<usize> = (0..n).filter(|&pc| leader[pc]).collect();
+    let nb = starts.len();
+    let mut block_of = vec![0usize; n];
+    for b in 0..nb { let end = if b + 1 < nb { starts[b + 1] } else { n }; for pc in starts[b]..end { block_of[pc] = b; } }
+    let end_of = |b: usize| if b + 1 < nb { starts[b + 1] } else { n };
+    // Where each block's last instruction goes: what it branches or jumps to,
+    // or the next instruction.
+    let mut block_exits: Vec<Vec<usize>> = (0..nb).map(|b| if end_of(b) < n { vec![end_of(b)] } else { Vec::new() }).collect();
+    for (pc, s) in exits { block_exits[block_of[pc]] = s; }
+    // Each block's upward-exposed uses and definitions.
+    let mut exposed = vec![[RegSet::default(); 4]; nb];
+    let mut kill = vec![[RegSet::default(); 4]; nb];
+    for b in 0..nb {
+        for pc in (starts[b]..end_of(b)).rev() {
+            for k in 0..4 { exposed[b][k] = exposed[b][k].minus(&du[pc].0[k]).union(&du[pc].1[k]); kill[b][k] = kill[b][k].union(&du[pc].0[k]); }
+        }
+    }
+    let block_succs: Vec<Vec<usize>> = block_exits.iter().map(|e| e.iter().map(|&t| block_of[t]).collect()).collect();
+    let mut block_in = vec![[RegSet::default(); 4]; nb];
     let mut changed = true;
     while changed {
         changed = false;
-        for pc in (0..n).rev() {
+        for b in (0..nb).rev() {
             let mut out = [RegSet::default(); 4];
-            for &s in &succs[pc] { for k in 0..4 { out[k] = out[k].union(&live_in[s][k]); } }
+            for &s in &block_succs[b] { for k in 0..4 { out[k] = out[k].union(&block_in[s][k]); } }
             let mut inn = [RegSet::default(); 4];
-            for k in 0..4 { let mut t = out[k]; for r in du[pc].0[k].iter() { t.remove(r); } inn[k] = t.union(&du[pc].1[k]); }
-            if out != live_out[pc] || inn != live_in[pc] { live_out[pc] = out; live_in[pc] = inn; changed = true; }
+            for k in 0..4 { inn[k] = exposed[b][k].union(&out[k].minus(&kill[b][k])); }
+            if inn != block_in[b] { block_in[b] = inn; changed = true; }
+        }
+    }
+    // One backward pass through each block for its pcs.
+    let mut live_in = vec![[RegSet::default(); 4]; n];
+    let mut live_out = vec![[RegSet::default(); 4]; n];
+    for b in 0..nb {
+        let end = end_of(b);
+        for pc in (starts[b]..end).rev() {
+            let mut out = [RegSet::default(); 4];
+            if pc + 1 < end {
+                out = live_in[pc + 1];
+            } else {
+                for &t in &block_exits[b] { for k in 0..4 { out[k] = out[k].union(&block_in[block_of[t]][k]); } }
+            }
+            let mut inn = [RegSet::default(); 4];
+            for k in 0..4 { inn[k] = out[k].minus(&du[pc].0[k]).union(&du[pc].1[k]); }
+            live_out[pc] = out;
+            live_in[pc] = inn;
         }
     }
     (live_in, live_out)

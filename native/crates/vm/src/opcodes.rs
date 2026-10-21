@@ -211,6 +211,14 @@ pub fn call_args(nargs: u8) -> u8 { fixed_args(nargs) + if nargs < 128 && nargs 
 impl Window {
     /// The registers the window covers for an instruction's operands.
     pub fn registers(&self, values: &[i64]) -> impl Iterator<Item = u8> {
+        let (first, count) = self.span(values);
+        (first..first + count).filter_map(|r| u8::try_from(r).ok())
+    }
+
+    /// The first register the window covers and how many, for an
+    /// instruction's operands, without stopping at the last register a frame
+    /// can name.
+    pub fn span(&self, values: &[i64]) -> (usize, usize) {
         let base = values.get(self.base - 1).copied().unwrap_or(0) as u8;
         let n = values.get(self.count - 1).copied().unwrap_or(0) as u8;
         let count = match self.formula {
@@ -224,8 +232,7 @@ impl Window {
             Formula::SimdSpan => { let results = crate::simd::result_count(values[0] as u8, n as usize); (n as usize).max(results.saturating_sub(1)) + 1 }
             Formula::SimdResults => crate::simd::result_count(values[0] as u8, n as usize),
         };
-        let first = base as usize + self.offset as usize;
-        (first..first + count).filter_map(|r| u8::try_from(r).ok())
+        (base as usize + self.offset as usize, count)
     }
 }
 

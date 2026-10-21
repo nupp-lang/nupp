@@ -199,7 +199,7 @@ function shared.main(argv: {string}): integer
         reject(g, "observable work in the skipped GPU continue block")
         local last = #continuing.op
         continuing.op[last], continuing.dst[last], continuing.args[last] = nil, nil, nil
-        continuing.pos[last], continuing.cert[last], continuing.extra[last] = nil, nil, nil
+        continuing.pos[last], continuing.cert[last] = nil, nil
         maps.verify(g)
         print(name, #g.blocks, #g.types, #result.cpu.code, #result.wgsl)
     end

@@ -79,7 +79,8 @@ print("ok")]]
         assert(#produced.spi == 2)
         assert(produced.spi[1].interface == "example.api.Codec")
         local code = assert(fs.readFile(dir .. "/out/main.image"))
-        assert(code:find('"example.api.Codec"', 1, true), code)
+        -- The interface is named in the image's string table.
+        assert(code:find("example.api.Codec", 1, true), "the image does not name the interface")
     end)
 end
 

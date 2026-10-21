@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 
 pub const NONE: u32 = u32::MAX;
 pub const MAGIC: &[u8; 8] = b"NUPPGRAF";
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 5;
 /// No image is this large; a count past it is hostile rather than big.
 const LIMIT: usize = 1 << 30;
 
@@ -49,9 +49,9 @@ const PINNED: &[(&str, &str)] = &[("VSplatN", "Xf#"), ("VExtractN", "Fx##")];
 
 /// The signature letters of every opcode, derived from the opcode table by
 /// the rule `graph.nupp` applies to the same table: a defined register is
-/// its class in uppercase, a register both read and written is a use (the
-/// value written is one of the instruction's extras), a window's base is
-/// `w`, and the other classes map to their letters.
+/// its class in uppercase, a register both read and written is a use (no
+/// kernel's graph holds one; register form names registers), a window's base
+/// is `w`, and the other classes map to their letters.
 fn derived_signatures() -> Vec<(&'static str, &'static str)> {
     use crate::opcodes::{Class, Mode};
     let leak = |s: &str| -> &'static str { Box::leak(s.to_string().into_boxed_str()) };
@@ -126,9 +126,11 @@ pub struct Graph {
     pub sig: u32,
     pub ret: u32,
     pub map: bool,
-    /// Slots are physical registers, reused once a value is dead; the
-    /// frame's register counts are `registers`, as the text header spells them.
-    pub physical: bool,
+    /// A lowered function in register form: instruction operands are the
+    /// frame's registers, an ending names a `class << 8 | register` key,
+    /// blocks have no parameters and edges no arguments, there are no values
+    /// or regions, and the frame's register counts are `registers`.
+    pub register_form: bool,
     pub registers: [u32; 3],
     pub constants: Vec<Constant>,
     pub positions: Vec<(u32, u32)>,
@@ -139,9 +141,6 @@ pub struct Graph {
     pub insts: Vec<[u32; 8]>,
     pub pos: Vec<u32>,
     pub cert: Vec<u32>,
-    /// Per instruction, the untyped values a register window it writes
-    /// defines beside its result: a span into `values`.
-    pub extras: Vec<Span>,
     pub edges: Vec<Edge>,
     pub values: Vec<u32>,
     pub regions: Vec<Region>,
@@ -154,7 +153,7 @@ impl Graph {
     /// capacity: a loader decodes thousands of functions into one buffer.
     fn clear(&mut self) {
         self.constants.clear(); self.positions.clear(); self.certificates.clear(); self.classes.clear(); self.slots.clear();
-        self.blocks.clear(); self.insts.clear(); self.pos.clear(); self.cert.clear(); self.extras.clear(); self.edges.clear(); self.values.clear();
+        self.blocks.clear(); self.insts.clear(); self.pos.clear(); self.cert.clear(); self.edges.clear(); self.values.clear();
         self.regions.clear(); self.block_region.clear(); self.gpu = None;
     }
 }
@@ -284,12 +283,18 @@ fn decode_header<'a>(table: &Table, bytes: &'a [u8]) -> Result<Header<'a>, Strin
             let slot = r.index(nstrings, "slot name")?;
             let ty = r.word()?;
             if ty > 4 { return Err("graph image slot type".into()); }
-            let record = r.optional(shapes.len() + 1, "slot record shape")?;
+            // May name a later shape; it installs untyped, as the text loader does.
+            let record = r.word()?;
             slots.push((slot, ty, record));
         }
         let mut methods = Vec::new();
         for _ in 0..r.count(8)? { methods.push((r.index(nstrings, "method name")?, r.word()?)); }
         shapes.push(Shape { name, identity, slots, methods });
+    }
+    for s in &shapes {
+        for &(_, _, record) in &s.slots {
+            if record != NONE && record as usize >= shapes.len() { return Err(format!("graph image slot record shape {record} outside its table of {}", shapes.len())); }
+        }
     }
     let mut modules = Vec::new();
     for _ in 0..r.count(12)? { modules.push((r.index(nstrings, "module name")?, r.word()?, r.optional(nstrings, "module path")?)); }
@@ -313,21 +318,7 @@ struct Header<'a> { image: Image, nfunctions: usize, opcode_of: Vec<u32>, reader
 impl Header<'_> {
     fn next_function(&mut self, table: &Table, fi: usize, g: &mut Graph) -> Result<(), String> {
         decode_graph(table, &mut self.reader, &self.image, self.nfunctions, &mut self.opcode_of, g).map_err(|e| format!("graph image function {fi}: {e}"))?;
-        if let Err(e) = verify_with(table, &self.image, g, self.nfunctions, &mut self.scratch) {
-            if std::env::var_os("NUPP_GRAPH_TRACE").is_some() {
-                let name = |n: u32| self.image.text(n).to_string();
-                eprintln!("graph of {}: nparams {} values {:?}", name(g.name), g.nparams, g.classes.iter().zip(&g.slots).enumerate().map(|(v, (c, s))| format!("{v}:{}{s}", b"vifx"[*c as usize] as char)).collect::<Vec<_>>());
-                for (bid, b) in g.blocks.iter().enumerate() {
-                    eprintln!("  block {bid} params {:?} term {} value {} edges {:?}", b.params.get(&g.values), b.term, b.value as i64, b.edges.get(&g.edges).iter().map(|e| (e.target, e.args.get(&g.values).to_vec())).collect::<Vec<_>>());
-                    for (k, words) in b.insts.get(&g.insts).iter().enumerate() {
-                        let at = b.insts.start as usize + k;
-                        let sig = &table.entries[words[0] as usize];
-                        eprintln!("    {} {:?} extras {:?}", sig.name, &words[1..=sig.operands.len()], g.extras[at].get(&g.values));
-                    }
-                }
-            }
-            return Err(format!("function {}: {e}", self.image.text(g.name)));
-        }
+        verify_with(table, &self.image, g, self.nfunctions, &mut self.scratch).map_err(|e| format!("function {}: {e}", self.image.text(g.name)))?;
         Ok(())
     }
     fn finish(self) -> Result<Image, String> {
@@ -360,9 +351,9 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     if ret != b'v' as u32 && ret != b'f' as u32 { return Err("return class".into()); }
     let flags = r.word()?;
     if flags > 3 { return Err("function flags".into()); }
-    let (map, physical) = (flags & 1 != 0, flags & 2 != 0);
+    let (map, register_form) = (flags & 1 != 0, flags & 2 != 0);
     let registers = [r.word()?, r.word()?, r.word()?];
-    if physical && (registers[0] == 0 || registers[0] > 255 || registers[1] > 255 || registers[2] > 255) { return Err("register counts".into()); }
+    if register_form && (registers[0] == 0 || registers[0] > 255 || registers[1] > 255 || registers[2] > 255) { return Err("register counts".into()); }
     let mut constants = std::mem::take(&mut g.constants);
     for _ in 0..r.count(8)? {
         let kind = r.word()?;
@@ -377,6 +368,11 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     }
     let mut positions = std::mem::take(&mut g.positions);
     for _ in 0..r.count(8)? { positions.push((r.word()?, r.word()?)); }
+    if register_form {
+        g.name = name; g.module = module; g.path = path; g.nparams = nparams; g.vararg = vararg; g.sig = sig; g.ret = ret; g.map = map; g.register_form = true; g.registers = registers;
+        g.constants = constants; g.positions = positions;
+        return decode_registers(table, r, image, nfunctions, opcode_of, g);
+    }
     let mut certificates = std::mem::take(&mut g.certificates);
     let ncerts = r.count(12)?;
     for _ in 0..ncerts { certificates.push([r.word()?, r.word()?, r.word()?]); }
@@ -388,7 +384,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
     for c in &mut certificates { for v in c.iter_mut() { if *v as usize >= nvalues { return Err("certificate value".into()); } } }
     let nblocks = r.count(16)?;
     if nblocks == 0 || nblocks > 100_000 { return Err("block count".into()); }
-    g.name = name; g.module = module; g.path = path; g.nparams = nparams; g.vararg = vararg; g.sig = sig; g.ret = ret; g.map = map; g.physical = physical; g.registers = registers;
+    g.name = name; g.module = module; g.path = path; g.nparams = nparams; g.vararg = vararg; g.sig = sig; g.ret = ret; g.map = map; g.register_form = false; g.registers = registers;
     g.constants = constants; g.positions = positions; g.certificates = certificates; g.classes = classes; g.slots = slots;
     g.blocks.reserve(nblocks);
     for _ in 0..nblocks {
@@ -401,7 +397,6 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         g.insts.reserve(len as usize);
         g.pos.reserve(len as usize);
         g.cert.reserve(len as usize);
-        g.extras.reserve(len as usize);
         for _ in 0..len {
             let name = r.index(nstrings, "opcode")?;
             let mut op = opcode_of[name as usize];
@@ -428,10 +423,6 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
             g.insts.push(words);
             g.pos.push(r.optional(g.positions.len(), "position")?);
             g.cert.push(r.optional(ncerts, "certificate")?);
-            let start = g.values.len() as u32;
-            let len = r.count(1)? as u32;
-            for _ in 0..len { g.values.push(r.index(nvalues, "window value")?); }
-            g.extras.push(Span { start, len });
         }
         let insts = Span { start, len };
         let term = r.word()?;
@@ -455,7 +446,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         g.blocks.push(Block { params, insts, term, value, constant, count, edges: Span { start, len: nedges as u32 } });
     }
     let nregions = r.count(24)?;
-    if nregions == 0 && !physical { return Err("no region tree".into()); }
+    if nregions == 0 { return Err("no region tree".into()); }
     for _ in 0..nregions {
         let kind = r.word()?;
         if kind > ELSE { return Err("region kind".into()); }
@@ -466,7 +457,7 @@ fn decode_graph(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize,
         let merge = r.optional(nblocks, "region merge")?;
         g.regions.push(Region { kind, parent, head, entry, continuing, merge });
     }
-    for _ in 0..nblocks { g.block_region.push(if nregions == 0 { let w = r.word()?; if w != NONE { return Err("block region without a tree".into()); } NONE } else { r.index(nregions, "block region")? }); }
+    for _ in 0..nblocks { g.block_region.push(r.index(nregions, "block region")?); }
     match r.word()? {
         0 => {}
         1 => {
@@ -496,11 +487,155 @@ pub fn verify(table: &Table, image: &Image, g: &Graph, nfunctions: usize) -> Res
     verify_with(table, image, g, nfunctions, &mut Scratch::default())
 }
 
+/// The blocks of a register-form function: per block its instructions, with
+/// registers for register operands, its ending, and the blocks it may go to.
+fn decode_registers(table: &Table, r: &mut Reader, image: &Image, nfunctions: usize, opcode_of: &mut [u32], g: &mut Graph) -> Result<(), String> {
+    let nstrings = image.strings.len();
+    let nblocks = r.count(5)?;
+    if nblocks == 0 || nblocks > 100_000 { return Err("block count".into()); }
+    let register = |w: u32| -> Result<u32, String> { if w > 255 { Err("register operand".into()) } else { Ok(w) } };
+    let key = |w: u32| -> Result<u32, String> { if w > 0x3ff { Err("ending register".into()) } else { Ok(w) } };
+    g.blocks.reserve(nblocks);
+    for _ in 0..nblocks {
+        let params = Span { start: 0, len: 0 };
+        let start = g.insts.len() as u32;
+        let len = r.count(2)? as u32;
+        g.insts.reserve(len as usize);
+        g.pos.reserve(len as usize);
+        g.cert.reserve(len as usize);
+        for _ in 0..len {
+            let name = r.index(nstrings, "opcode")?;
+            let mut op = opcode_of[name as usize];
+            if op == NONE {
+                op = table.index(image.text(name)).ok_or_else(|| format!("unknown opcode {}", image.text(name)))?;
+                opcode_of[name as usize] = op;
+            }
+            let sig = &table.entries[op as usize];
+            if sig.terminator { return Err(format!("terminator {} inside a block", sig.name)); }
+            let mut words = [0u32; 8];
+            words[0] = op;
+            for (i, letter) in sig.operands.bytes().enumerate() {
+                words[i + 1] = match letter {
+                    b'v' | b'i' | b'f' | b'x' | b'V' | b'I' | b'F' | b'X' | b'w' => register(r.word()?)?,
+                    b'k' => r.index(g.constants.len(), "constant operand")?,
+                    b'n' => r.index(nfunctions, "function operand")?,
+                    b'h' => r.index(image.shapes.len(), "shape operand")?,
+                    b's' => r.index(nstrings, "named operand")?,
+                    b'L' => r.index(image.wides.len(), "wide literal")?,
+                    b'D' => r.index(image.floats.len(), "float literal")?,
+                    _ => r.word()?,
+                };
+            }
+            g.insts.push(words);
+            g.pos.push(r.optional(g.positions.len(), "position")?);
+            g.cert.push(NONE);
+        }
+        let insts = Span { start, len };
+        let term = r.word()?;
+        if term > RETURNS || term == SWITCH || term == PARK { return Err("terminator kind".into()); }
+        let value = r.word()?;
+        if value != NONE { key(value)?; }
+        let constant = r.optional(g.constants.len(), "raise constant")?;
+        let count = r.word()?;
+        if term == RETURNS && (value == NONE || count == NONE || count > 255) { return Err("returns terminator".into()); }
+        let ntargets = r.count(1)?;
+        let expected = match term { JUMP => 1, BRANCH => 2, _ => 0 };
+        if ntargets != expected { return Err("edge count".into()); }
+        let start = g.edges.len() as u32;
+        for _ in 0..ntargets {
+            let target = r.index(nblocks, "edge target")?;
+            if target == 0 { return Err("edge into the entry block".into()); }
+            g.edges.push(Edge { target, args: Span { start: 0, len: 0 } });
+        }
+        g.blocks.push(Block { params, insts, term, value, constant, count, edges: Span { start, len: ntargets as u32 } });
+    }
+    Ok(())
+}
+
+/// A register-form function's checks, which make the stream derived from it
+/// safe without checking that stream again: every block reached, every
+/// register within the frame (windows sized by the opcode table included),
+/// physical field plans and SIMD descriptors valid, and endings of the class
+/// they need.
+fn verify_registers(table: &Table, image: &Image, g: &Graph, scratch: &mut Scratch) -> Result<(), String> {
+    use crate::opcodes::{Class, Mode};
+    use crate::verify::C;
+    let limit = |class: u8| -> usize { (match class { V => g.registers[0] + 1, I | F => g.registers[1], _ => g.registers[2] }) as usize };
+    let class_of = |c: C| match c { C::V => V, C::I => I, C::F => F, C::X => X };
+    // The boxing register a float return uses sits above the parameters.
+    if g.registers[0] < g.nparams + 1 { return Err("frame smaller than its parameters".into()); }
+    let seen = &mut scratch.seen;
+    let queue = &mut scratch.queue;
+    seen.clear(); seen.resize(g.blocks.len(), false);
+    queue.clear(); queue.push_back(0usize);
+    while let Some(b) = queue.pop_front() {
+        if std::mem::replace(&mut seen[b], true) { continue; }
+        for e in g.blocks[b].edges.get(&g.edges) { queue.push_back(e.target as usize); }
+    }
+    if let Some(b) = seen.iter().position(|v| !v) { return Err(format!("block {b} is unreachable")); }
+    let rows = crate::opcodes::table().rows();
+    for (bid, b) in g.blocks.iter().enumerate() {
+        let within = |class: u8, reg: usize| -> Result<(), String> {
+            if reg >= limit(class) { Err(format!("block {bid}: register {reg} outside the frame")) } else { Ok(()) }
+        };
+        for words in b.insts.get(&g.insts) {
+            let op = words[0] as usize;
+            let sig = &table.entries[op];
+            let row = rows.get(op).filter(|r| r.name == sig.name).ok_or_else(|| format!("{} is not an instruction register form holds", sig.name))?;
+            // The operands as the derived instruction holds them.
+            let mut values = [0i64; 8];
+            for (i, letter) in sig.operands.bytes().enumerate() {
+                let w = words[i + 1];
+                values[i] = match letter {
+                    b's' if i == 0 => crate::simd::operation(image.text(w)).map(i64::from).unwrap_or(-1),
+                    b's' => crate::simd::ELEMENTS.iter().position(|k| *k == image.text(w)).map(|k| k as i64).unwrap_or(-1),
+                    b'L' => image.wides[w as usize],
+                    _ => w as i64,
+                };
+            }
+            for (at, spec) in row.operands.iter().enumerate() {
+                if spec.mode == Mode::None { continue; }
+                if let Some(class) = match spec.class { Class::Reg(_) | Class::ScalarByKind(_) => row.register_class(at, &values).map(class_of), _ => None } {
+                    within(class, values[at] as usize)?;
+                }
+            }
+            for window in &row.windows {
+                let (first, count) = window.span(&values);
+                if count > 0 { within(class_of(window.class), first + count - 1)?; }
+            }
+            if sig.name == "Simd" {
+                let (code, kind, base, argc, source) = (values[0], values[1], values[2], values[3], values[4]);
+                let last = (argc as usize).max(crate::simd::result_count(code as u8, argc as usize).saturating_sub(1));
+                if code < 0 || kind < 0 || source < 0 || !crate::simd::valid_descriptor(code as u8, kind as u8, source as u8, argc as usize) || base as usize + last > u8::MAX as usize {
+                    return Err("invalid SIMD descriptor or argument window".into());
+                }
+            }
+            if sig.name.contains("Phys") {
+                // identity and name constants, then ordinal, offset and kind.
+                let at = row.operands.iter().position(|o| o.class == Class::Const).unwrap_or(0);
+                crate::verify::physical_plan(sig.name, values[at + 4] as u8, values[at + 3] as u32)?;
+            }
+        }
+        if b.value != NONE {
+            let (class, reg) = ((b.value >> 8) as u8, (b.value & 0xff) as usize);
+            let ok = match b.term { BRANCH => matches!(class, V | I), RETURN => matches!(class, V | I | F), RETURNS => class == V, _ => false };
+            if !ok { return Err(format!("block {bid}: ending value class")); }
+            let n = if b.term == RETURNS { let n = b.count as u8; if n >= 128 { (n & 127) as usize + 8 } else { n as usize }.max(1) } else { 1 };
+            within(class, reg + n - 1)?;
+        } else if matches!(b.term, BRANCH | RETURNS) {
+            return Err(format!("block {bid}: ending without a value"));
+        }
+        if b.term == RAISE && b.constant == NONE { return Err(format!("block {bid}: raise without a constant")); }
+    }
+    Ok(())
+}
+
 /// The verifier's working vectors, kept across functions by a loader.
 #[derive(Default)]
 pub struct Scratch { owner: Vec<u32>, defined: Vec<bool>, seen: Vec<bool>, queue: VecDeque<usize>, occupied: Vec<u32> }
 
 pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, scratch: &mut Scratch) -> Result<(), String> {
+    if g.register_form { return verify_registers(table, image, g, scratch); }
     let nvalues = g.classes.len();
     let nparams = g.nparams as usize;
     if nvalues < nparams { return Err("fewer values than parameters".into()); }
@@ -525,10 +660,8 @@ pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, s
             if (v as usize) < nparams { return Err("function parameter defined again".into()); }
             if defined[v as usize] { return Err(format!("value {v} defined twice")); }
             let key = (g.classes[v as usize] as u32) << 8 | g.slots[v as usize];
-            if !g.physical {
-                if occupied.contains(&key) { return Err(format!("overlapping slot hints in block {bid}")); }
-                occupied.push(key);
-            }
+            if occupied.contains(&key) { return Err(format!("overlapping slot hints in block {bid}")); }
+            occupied.push(key);
             defined[v as usize] = true;
             owner[v as usize] = bid;
             Ok(())
@@ -539,11 +672,7 @@ pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, s
             if g.classes[v as usize] != class { return Err(format!("block {bid}: value {v} is not of class {class}")); }
             Ok(())
         };
-        if bid == 0 && b.params.len != 0 {
-            // A converted stream reads untyped registers the frame initialized to nil; the entry takes those as parameters.
-            if !g.physical { return Err("entry parameters come from the frame".into()); }
-            for &p in b.params.get(&g.values) { if g.classes[p as usize] != V || g.slots[p as usize] <= nparams as u32 { return Err("entry parameters are frame registers".into()); } }
-        }
+        if bid == 0 && b.params.len != 0 { return Err("entry parameters come from the frame".into()); }
         for &p in b.params.get(&g.values) { define(p, &mut owner, &mut defined, &mut occupied)?; }
         for (k, words) in b.insts.get(&g.insts).iter().enumerate() {
             let sig = &table.entries[words[0] as usize];
@@ -566,10 +695,6 @@ pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, s
             }
             if let Some(d) = result { define(d, &mut owner, &mut defined, &mut occupied)?; }
             let at = b.insts.start as usize + k;
-            for &v in g.extras[at].get(&g.values) {
-                if g.classes[v as usize] != V { return Err(format!("{}: window values are untyped", sig.name)); }
-                define(v, &mut owner, &mut defined, &mut occupied)?;
-            }
             if g.cert[at] != NONE { if !matches!(sig.name, "SpanLoad" | "SpanStore" | "VLoad" | "VStore" | "FLoad" | "FStore" | "VLoadM" | "VStoreM") { return Err(format!("{}: certificate on an instruction that is not a span access", sig.name)); } }
         }
         let value_class = |v: u32| g.classes[v as usize];
@@ -591,7 +716,6 @@ pub fn verify_with(table: &Table, image: &Image, g: &Graph, nfunctions: usize, s
     if let Some(v) = defined.iter().position(|d| !d) { return Err(format!("value {v} is never defined")); }
     for c in &g.certificates { if c.iter().any(|&v| g.classes[v as usize] != I) { return Err("certificate cites values outside the integer class".into()); } }
     for &k in &g.constants { if k.kind == 8 && k.payload as usize >= nfunctions { return Err("function constant outside the image".into()); } }
-    if g.physical && g.regions.is_empty() { return Ok(()); }
     verify_regions(g)
 }
 
@@ -670,9 +794,14 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
         for (v, &class) in g.classes.iter().enumerate() { if v >= nparams as usize { counts[class as usize] = counts[class as usize].max(g.slots[v] + 1); } }
         counts
     };
-    let physical = |v: u32| -> u32 { if g.physical { g.slots[v as usize] } else if g.classes[v as usize] == V { if v < nparams { v + 1 } else { value_base + g.slots[v as usize] } } else { g.slots[v as usize] } };
-    let scratch = |class: u8| -> u32 { if g.physical { counts[class as usize] } else if class == V { value_base + counts[0] } else { counts[class as usize] } };
-    if !g.physical && (counts[1] >= 237 || counts[2] >= 237 || counts[3] >= 249 || value_base + counts[0] >= 241) { return Err("graph register capacity".into()); }
+    // A register-form operand is its register; an SSA value has the register
+    // its slot lays out, and an ending names a key in register form.
+    let form = g.register_form;
+    let physical = |v: u32| -> u32 { if form { v } else if g.classes[v as usize] == V { if v < nparams { v + 1 } else { value_base + g.slots[v as usize] } } else { g.slots[v as usize] } };
+    let end_reg = |v: u32| -> u32 { if form { v & 0xff } else { physical(v) } };
+    let end_class = |v: u32| -> u8 { if form { (v >> 8) as u8 } else { g.classes[v as usize] } };
+    let scratch = |class: u8| -> u32 { if class == V { value_base + counts[0] } else { counts[class as usize] } };
+    if !form && (counts[1] >= 237 || counts[2] >= 237 || counts[3] >= 249 || value_base + counts[0] >= 241) { return Err("graph register capacity".into()); }
     let r8 = |n: u32, what: &str| -> Result<u8, String> { u8::try_from(n).map_err(|_| format!("{what} {n} does not fit a register")) };
     let r16 = |n: u32, what: &str| -> Result<u16, String> { u16::try_from(n).map_err(|_| format!("{what} {n} does not fit sixteen bits")) };
     let wide = |n: u32| image.wides[n as usize];
@@ -756,7 +885,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             // Operands in VM order, registers made physical, window bases offset.
             let mut o = [0u32; 7];
             for (i, letter) in sig.operands.bytes().enumerate() {
-                o[i] = match letter { b'v' | b'i' | b'f' | b'x' | b'V' | b'I' | b'F' | b'X' => physical(words[i + 1]), b'w' => if g.physical { words[i + 1] } else { value_base + words[i + 1] }, _ => words[i + 1] };
+                o[i] = match letter { b'v' | b'i' | b'f' | b'x' | b'V' | b'I' | b'F' | b'X' => physical(words[i + 1]), b'w' => if form { words[i + 1] } else { value_base + words[i + 1] }, _ => words[i + 1] };
             }
             let a = |i: usize| -> Result<u8, String> { r8(o[i], sig.name) };
             let h = |i: usize| -> Result<u16, String> { r16(o[i], sig.name) };
@@ -847,11 +976,11 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
         match b.term {
             JUMP => copies(&mut code, &mut debug, &mut patches, &edges[0], Some(next))?,
             BRANCH => {
-                let cond = r8(physical(b.value), "branch condition")?;
-                let test = |off: i32| if g.classes[b.value as usize] == V { Op::JmpIfNot(cond, off) } else { Op::JmpIfIZero(cond, off) };
+                let cond = r8(end_reg(b.value), "branch condition")?;
+                let test = |off: i32| if end_class(b.value) == V { Op::JmpIfNot(cond, off) } else { Op::JmpIfIZero(cond, off) };
                 let same = |e: &Edge| g.blocks[e.target as usize].params.get(&g.values).iter().zip(e.args.get(&g.values)).all(|(&p, &a)| physical(p) == physical(a));
                 let identity = same(&edges[1]);
-                if g.classes[b.value as usize] == V && edges[0].target != next && edges[1].target == next && identity && same(&edges[0]) {
+                if end_class(b.value) == V && edges[0].target != next && edges[1].target == next && identity && same(&edges[0]) {
                     // The false edge falls through: one jump on the true edge.
                     patches.push((code.len(), edges[0].target));
                     code.push(Op::JmpIf(cond, 0)); debug.push((0, 0));
@@ -881,7 +1010,7 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
                 for ei in trampolines { targets[ei] = Err(code.len()); copies(&mut code, &mut debug, &mut patches, &edges[ei], None)?; }
                 table_patches.push((at, jump_tables.len() - 1, targets));
             }
-            RETURNS => { code.push(Op::RetN(r8(physical(b.value), "returns window")?, b.count as u8)); debug.push((0, 0)); }
+            RETURNS => { code.push(Op::RetN(r8(end_reg(b.value), "returns window")?, b.count as u8)); debug.push((0, 0)); }
             RAISE => { code.push(Op::Raise(r16(b.constant, "raise constant")?)); debug.push((0, 0)); }
             PARK => {
                 let mut reg = r8(physical(b.value), "park value")?;
@@ -893,8 +1022,8 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
             _ => {
                 if b.value == NONE { code.push(Op::RetNil); debug.push((0, 0)); }
                 else {
-                    let reg = r8(physical(b.value), "return value")?;
-                    match g.classes[b.value as usize] {
+                    let reg = r8(end_reg(b.value), "return value")?;
+                    match end_class(b.value) {
                         F if g.ret == b'f' as u32 => { code.push(Op::FRet(reg)); debug.push((0, 0)); }
                         F => { let boxed = r8(nparams + 1, "box")?; code.push(Op::FBox(boxed, reg)); code.push(Op::Ret(boxed)); debug.push((0, 0)); debug.push((0, 0)); }
                         I => { let boxed = r8(nparams + 1, "box")?; code.push(Op::IBox(boxed, reg)); code.push(Op::Ret(boxed)); debug.push((0, 0)); debug.push((0, 0)); }
@@ -929,10 +1058,10 @@ pub fn derive(table: &Table, image: &Image, g: &Graph, d: &mut Derivation) -> Re
         code,
         consts,
         nparams: nparams as u8,
-        nregs: if g.physical { g.registers[0] as u8 } else { (value_base + if counts[0] > 0 { counts[0] + 1 } else { 0 } + 9) as u8 },
-        nireg: if g.physical { g.registers[1] as u8 } else { nf },
-        nfreg: if g.physical { g.registers[1] as u8 } else { nf },
-        nvreg: if g.physical { g.registers[2] as u8 } else { (counts[3] + 1) as u8 },
+        nregs: if form { g.registers[0] as u8 } else { (value_base + if counts[0] > 0 { counts[0] + 1 } else { 0 } + 9) as u8 },
+        nireg: if form { g.registers[1] as u8 } else { nf },
+        nfreg: if form { g.registers[1] as u8 } else { nf },
+        nvreg: if form { g.registers[2] as u8 } else { (counts[3] + 1) as u8 },
         jump_tables,
         debug,
         vararg: g.vararg,
@@ -967,6 +1096,17 @@ pub fn derive_all(it: &mut Interp, image: &Image, base: u32, shape_ids: &[u32]) 
 /// declarations, then every function derived and verified, and the image
 /// recorded as a code event for checkpoints. Returns the entry function.
 pub fn load(it: &mut Interp, bytes: &[u8]) -> Result<u32, String> { load_with(it, bytes, false) }
+
+/// `load` for a buffer the caller gives up, which the code event keeps rather
+/// than a copy of it.
+pub fn load_owned(it: &mut Interp, bytes: Vec<u8>) -> Result<u32, String> {
+    let scope = it.open_scope();
+    let r = with_table(|table| install(table, it, &bytes, false));
+    it.close_scope(scope);
+    let (entry, functions) = r?;
+    it.code_events.push(crate::persist::CodeEvent::Graph { bytes, functions });
+    Ok(entry)
+}
 
 /// `load` for an image added to a running VM: one with vector instructions is
 /// refused where the runtime cannot compile them, as `image::load_plugin`
@@ -1022,7 +1162,9 @@ fn derive_functions(table: &Table, header: &mut Header, it: &mut Interp, base: u
         header.next_function(table, fi, &mut g)?;
         let mut d = Derivation { it, base, shape_ids };
         let f = derive(table, &header.image, &g, &mut d).map_err(|e| format!("function {}: {e}", header.image.text(g.name)))?;
-        if verify_stream { crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?; }
+        // A lowered graph's frame was bounded as it was verified; a kernel's,
+        // and anything native code must prove, is checked on the stream.
+        if verify_stream && (!g.register_form || crate::image::needs_native(&f)) { crate::verify::verify_classes(&f, nfuncs).map_err(|e| format!("function {}: {e}", f.name))?; }
         if refuse_native && crate::image::needs_native(&f) { return Err(crate::image::uncompiled_native_message("image refused", &f.name, &f.module)); }
         funcs.push(f);
     }
@@ -1111,33 +1253,6 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) ->
     Ok((entry, functions))
 }
 
-/// Replaces loaded functions with their graph-derived streams, matched by
-/// module and name: the P1 gate, which runs today's programs on derived
-/// code before the image is the graph.
-pub fn replace_from_sidecar(it: &mut Interp, bytes: &[u8]) -> Result<usize, String> {
-    let image = decode(bytes)?;
-    let scope = it.open_scope();
-    let derived = derive_all(it, &image, 0, &[])?;
-    let mut replaced = 0;
-    for f in derived {
-        // By name when the name is unique in the image, else by module too.
-        let named: Vec<usize> = it.funcs.iter().enumerate().filter(|(_, old)| old.name == f.name).map(|(i, _)| i).collect();
-        let fid = match named.as_slice() {
-            [one] => *one,
-            [] => return Err(format!("sidecar function {} is not in the image", f.name)),
-            many => *many.iter().find(|&&i| it.funcs[i].module == f.module).ok_or_else(|| format!("sidecar function {} is ambiguous in the image", f.name))?,
-        };
-        let old = &it.funcs[fid];
-        if old.nparams != f.nparams || old.sig != f.sig || old.ret != f.ret { return Err(format!("sidecar function {} differs in signature", f.name)); }
-        let mut f = f;
-        f.path = old.path.clone();
-        it.funcs[fid] = f;
-        replaced += 1;
-    }
-    let _ = scope;
-    Ok(replaced)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1192,8 +1307,8 @@ mod tests {
         items.push(W(2)); // blocks
         items.push(W(0)); // block 0: no params
         items.push(W(2)); // two instructions
-        items.extend([W(3), W(1), W(0), W(0), W(NONE), W(0)]); // K v1 k0, at position 0, no window values
-        items.extend([W(4), W(2), W(0), W(1), W(NONE), W(NONE), W(0)]); // Add v2 v0 v1
+        items.extend([W(3), W(1), W(0), W(0), W(NONE)]); // K v1 k0, at position 0
+        items.extend([W(4), W(2), W(0), W(1), W(NONE), W(NONE)]); // Add v2 v0 v1
         items.extend([W(JUMP), W(NONE), W(NONE), W(NONE), W(1), W(1), W(1), W(2)]); // jump 1(v2)
         items.extend([W(1), W(3)]); // block 1: param v3
         items.push(W(0)); // no instructions
@@ -1231,6 +1346,19 @@ mod tests {
         assert!(matches!(it.code_events.last(), Some(crate::persist::CodeEvent::Graph { functions: 1, .. })));
         let tid = it.spawn(0, &[Value::num(41.)]);
         assert!(matches!(it.run_rust(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
+    }
+
+    #[test]
+    fn a_slot_may_name_a_later_shape() {
+        let with_shapes = |record: u32| {
+            let mut items = tiny_items();
+            let at = (0..items.len()).find(|&i| matches!(items.get(i..i + 4), Some([W(0), W(0), W(0), W(NONE)]))).unwrap();
+            // Shape 0 "K" has a slot "v" holding shape `record`; shape 1 "m" is empty.
+            items.splice(at..at + 1, [W(2), W(3), W(NONE), W(1), W(2), W(3), W(record), W(0), W(1), W(NONE), W(0), W(0)]);
+            decode(&encode(&items))
+        };
+        assert_eq!(with_shapes(1).unwrap().shapes[0].slots[0].2, 1);
+        assert!(with_shapes(2).unwrap_err().contains("slot record shape"));
     }
 
     #[test]

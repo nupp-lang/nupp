@@ -324,7 +324,7 @@ function M.anUninstrumentedImageIsUnchanged()
     local instrumented = lowered(path, "sample", true)
     assert(instrumented:find("__nuppCoverage", 1, true), "an instrumented image probes")
     assert(
-        instrumented:find("\nmodule nupp.runtime.coveragecounter ", 1, true),
+        instrumented:find("nupp.runtime.coveragecounter", 1, true),
         "an instrumented image carries its counters"
     )
 end

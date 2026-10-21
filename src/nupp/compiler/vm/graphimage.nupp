@@ -12,7 +12,7 @@ local G = require("nupp.compiler.vm.graph")
 local image = {}
 
 image.MAGIC = "NUPPGRAF"
-image.VERSION = 3
+image.VERSION = 5
 
 local NONE = 4294967295
 image.NONE = NONE
@@ -82,6 +82,53 @@ local function wideBytes(n: number): string
     return wordBytes(lo) .. wordBytes(hi)
 end
 
+--- The eight little-endian two's-complement bytes of a 64-bit integer spelled
+--- in decimal or `0x` hexadecimal, with an optional sign, computed exactly in
+--- sixteen-bit limbs: the lowering spells wide literals as text because a
+--- binary64 number cannot hold every one.
+--- @raises string when the text is not an integer or needs more than 64 bits.
+local function wideTextBytes(text: string): string
+    local negative = text:sub(1, 1) == "-"
+    local digits = text:gsub("^[-+]", "")
+    local base = 10
+    if digits:match("^0[xX]") then
+        base, digits = 16, digits:sub(3)
+    end
+    if digits == "" then
+        error("wide literal is not an integer: " .. text, 0)
+    end
+    local limbs: {number} = {0, 0, 0, 0}
+    for ch in digits:gmatch(".") do
+        local d = tonumber(ch, base)
+        if d == nil then
+            error("wide literal is not an integer: " .. text, 0)
+        end
+        local carry = d as number
+        for i = 1, 4 do
+            local v = limbs[i] * base + carry
+            limbs[i] = v % 65536
+            carry = math.floor(v / 65536)
+        end
+        if carry ~= 0 then
+            error("wide literal needs more than 64 bits: " .. text, 0)
+        end
+    end
+    if negative then
+        local carry = 1
+        for i = 1, 4 do
+            local v = 65535 - limbs[i] + carry
+            limbs[i] = v % 65536
+            carry = math.floor(v / 65536)
+        end
+    end
+    local bytes: {string} = {}
+    for i = 1, 4 do
+        bytes[#bytes + 1] = string.char(limbs[i] % 256, math.floor(limbs[i] / 256))
+    end
+
+    return table.concat(bytes)
+end
+
 --- The eight little-endian bytes of a binary64 number.
 local function floatBytes(x: number): string
     if x ~= x then
@@ -112,6 +159,7 @@ end
 
 image.floatBytes = floatBytes
 image.wideBytes = wideBytes
+image.wideTextBytes = wideTextBytes
 
 --- An image encoder: `add` encodes one graph at a time, which carries its
 --- `name`, `module`, optional `path`, `nparams`, `sig` (one class letter per
@@ -136,13 +184,13 @@ function image.encoder(): any
     end
 
     local function wide(given: number | string): integer
-        -- The lowering spells wide immediates as decimal text.
-        local n = type(given) == "string" and (tonumber(given as string) as number) or given as number
-        local at = wideIndex[n]
+        -- The lowering spells wide immediates as text, exact past 2^53.
+        local bytes = type(given) == "string" and wideTextBytes(given as string) or wideBytes(given as number)
+        local at = wideIndex[bytes]
         if at == nil then
             at = nwides
             nwides = nwides + 1
-            wides[nwides], wideIndex[n] = wideBytes(n), at
+            wides[nwides], wideIndex[bytes] = bytes, at
         end
 
         return at
@@ -197,37 +245,23 @@ function image.encoder(): any
         end
     end
 
-    --- Encodes graph `g` as the image's next function.
-    --- @raises string when the graph does not verify, a wide literal is not
-    --- an exact integer, or a region annotation does not describe its graph.
-    local function add(g: any): nil
-        -- One buffer for every function's words: only the first `nbody` are
-        -- this function's, so it is never cleared or grown again.
-        nbody = 0
-        -- A kernel's graph is verified here, against its region tree; a
-        -- lowered function's graph is built from code the runtime verifies
-        -- as it loads, which is the check that matters for both.
-        if not g.physical then
-            G.verify(g)
-        end
-        -- A converted stream carries no region tree: regions describe
-        -- structure a frontend authored, and only kernels have one.
-        local regions = g.physical and {count = 0, blockRegion = {}} or G.regions(g)
-        word(str(g.name))
-        word(str(g.module or ""))
-        optional(g.path)
-        word(g.nparams)
-        word(g.vararg and 1 or 0)
-        word(str(g.sig or string.rep("v", g.nparams)))
-        word(string.byte(g.ret or "v"))
-        -- Flags: 1 a map kernel, 2 physical slots; then the frame's register
-        -- counts as the text header spells them, zero when the slots decide.
-        word((g.map and 1 or 0) + (g.physical and 2 or 0))
-        local registers = g.registers or {0, 0, 0}
+    -- What every function begins with: its name and signature, its flags (1
+    -- a map kernel, 2 register form), the frame's register counts as a
+    -- register-form function sets them, its constants and positions.
+    local function header(fn: any, flags: integer): nil
+        word(str(fn.name))
+        word(str(fn.module or ""))
+        optional(fn.path)
+        word(fn.nparams)
+        word(fn.vararg and 1 or 0)
+        word(str(fn.sig or string.rep("v", fn.nparams)))
+        word(string.byte(fn.ret or "v"))
+        word(flags)
+        local registers = fn.registers or {0, 0, 0}
         word(registers[1])
         word(registers[2])
         word(registers[3])
-        local constants = g.constants
+        local constants = fn.constants
         word(#constants)
         for i = 1, #constants do
             local c = constants[i]
@@ -245,12 +279,115 @@ function image.encoder(): any
                 word(0)
             end
         end
-        local positions = g.positions
+        local positions = fn.positions
         word(#positions)
         for i = 1, #positions do
             word(positions[i].line)
             word(positions[i].column)
         end
+    end
+
+    -- An instruction's operands in the VM's order, the result included where
+    -- the signature puts it; `register` gives each register operand's word.
+    local function operands(op: string, args: any, result: integer?, register: function(integer): integer): nil
+        local sig = G.signatures[op]
+        local argClasses = sig.args
+        local argAt = 0
+        for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
+            if j == sig.resultAt then
+                word(register(result as integer))
+            else
+                argAt = argAt + 1
+                local letter, arg = argClasses[argAt], args[argAt]
+                if G.classes[letter] then
+                    word(register(arg))
+                elseif letter == "L" then
+                    word(wide(arg))
+                elseif letter == "D" then
+                    word(float(arg))
+                elseif letter == "s" then
+                    word(str(type(arg) == "string" and arg or tostring(arg)))
+                else
+                    word(arg)
+                end
+            end
+        end
+    end
+
+    local function raw(r: integer): integer
+        return r
+    end
+
+    local function done(): nil
+        nfunctions = nfunctions + 1
+        functionParts[nfunctions] = table.concat(body, "", 1, nbody)
+    end
+
+    --- Encodes a lowered function as the image's next one, in register form:
+    --- `r` is what `nupp.compiler.vm.convert` keeps of it, blocks of the
+    --- lowering's instructions over registers, each with its ending.
+    local function addRegisters(r: any): nil
+        -- One buffer for every function's words: only the first `nbody` are
+        -- this function's, so it is never cleared or grown again.
+        nbody = 0
+        header(r, 2)
+        local blocks = r.blocks
+        word(#blocks)
+        for bi = 1, #blocks do
+            local b = blocks[bi]
+            local code, pos = b.code, b.pos
+            word(#code)
+            for k = 1, #code do
+                local ins = code[k]
+                local op = ins[1] as string
+                local sig = G.signatures[op]
+                -- The lowering's operands, with the result pulled out where
+                -- the signature has one; an absent optional operand (a SIMD
+                -- descriptor's source element) is the element itself.
+                local args, result = {}, nil
+                local argAt = 0
+                for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
+                    local value = ins[j + 1]
+                    if value == nil then
+                        value = ins[3]
+                    end
+                    if j == sig.resultAt then
+                        result = value as integer
+                    else
+                        argAt = argAt + 1
+                        args[argAt] = value
+                    end
+                end
+                word(str(op))
+                operands(op, args, result, raw)
+                word(pos[k] == 0 and NONE or pos[k] - 1)
+            end
+            local t = b.term
+            word(assert(termKinds[t.kind], "unknown terminator"))
+            word(t.value or NONE)
+            word(t.constant or NONE)
+            word(t.count or NONE)
+            local targets = t.targets
+            word(#targets)
+            for i = 1, #targets do
+                word(targets[i] - 1)
+            end
+        end
+        done()
+    end
+
+    local function minus1(v: integer): integer
+        return v - 1
+    end
+
+    --- Encodes kernel graph `g` as the image's next function.
+    --- @raises string when the graph does not verify, a wide literal is not
+    --- an exact integer, or a region annotation does not describe its graph.
+    local function add(g: any): nil
+        nbody = 0
+        G.verify(g)
+        local regions = G.regions(g)
+        header(g, g.map and 1 or 0)
         local certificates = g.certificates
         word(#certificates)
         for i = 1, #certificates do
@@ -276,40 +413,14 @@ function image.encoder(): any
             for i = 1, #params do
                 word(params[i] - 1)
             end
-            local ops, dsts, allArgs, poss, certs, extras = b.op, b.dst, b.args, b.pos, b.cert, b.extra
+            local ops, dsts, allArgs, poss, certs = b.op, b.dst, b.args, b.pos, b.cert
             word(#ops)
             for i = 1, #ops do
                 local op = ops[i]
-                local sig = G.signatures[op]
-                local argClasses, args = sig.args, allArgs[i]
                 word(str(op))
-                local argAt = 0
-                for j = 1, sig.n + (sig.result ~= "-" and 1 or 0) do
-                    if j == sig.resultAt then
-                        word(dsts[i] - 1)
-                    else
-                        argAt = argAt + 1
-                        local letter, arg = argClasses[argAt], args[argAt]
-                        if G.classes[letter] then
-                            word(arg - 1)
-                        elseif letter == "L" then
-                            word(wide(arg))
-                        elseif letter == "D" then
-                            word(float(arg))
-                        elseif letter == "s" then
-                            word(str(type(arg) == "string" and arg or tostring(arg)))
-                        else
-                            word(arg)
-                        end
-                    end
-                end
+                operands(op, allArgs[i], dsts[i], minus1)
                 word(poss[i] == 0 and NONE or poss[i] - 1)
                 word(certs[i] == 0 and NONE or certs[i] - 1)
-                local extra = extras[i]
-                word(#extra)
-                for j = 1, #extra do
-                    word(extra[j] - 1)
-                end
             end
             local t = b.term
             word(assert(termKinds[t.kind], "unknown terminator"))
@@ -354,8 +465,7 @@ function image.encoder(): any
         else
             word(0)
         end
-        nfunctions = nfunctions + 1
-        functionParts[nfunctions] = table.concat(body, "", 1, nbody)
+        done()
     end
 
     --- The image: header words, then every function added, in order.
@@ -420,7 +530,7 @@ function image.encoder(): any
         return table.concat(parts)
     end
 
-    return {add = add, finish = finish}
+    return {add = add, addRegisters = addRegisters, finish = finish}
 end
 
 --- Encodes an image whose graphs are `functions`, beside the optional

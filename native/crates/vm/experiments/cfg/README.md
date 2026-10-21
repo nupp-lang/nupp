@@ -1,45 +1,56 @@
 # CFG and SSA experiment
 
-## Status, 2026-10-20: the image is the graph (P4)
+## Status, 2026-10-21: the image is the graph (P4)
 
 The lowering builds labeled blocks rather than an instruction stream with
 offsets. `nupp.compiler.vm.lowerstate` gives each function `label`,
 `place`, `jump` and `branch`; an instruction that leaves the function ends
 its block, and code after it lands in a block nothing reaches. There are no
-offsets, patches or compaction pass. `nupp.compiler.vm.convert` turns a
-function's blocks into the closed-block graph: the blocks the entry
-reaches, jumps threaded past blocks that hold nothing but a jump, the
-registers live at each block's start as its parameters, every definition a
-value whose slot is its physical register, definitions and uses read from
-the opcode table. Untyped registers the frame initializes to nil enter as
-the entry block's parameters. A kernel hands over the graph its own
-frontend built. `nupp.compiler.vm.graphemit` converts and encodes one
-function at a time, and `lower.emit` returns the graph image: there is no
-text writer and no format switch. Inspection (`nupp bc`, the editor's
-listing) renders the stream the runtime derives from each graph.
+offsets, patches or compaction pass.
+
+A lowered function ships in register form: its reached blocks in order,
+jumps threaded past blocks that hold nothing but a jump, instructions with
+their raw register operands, and a terminator whose key names the class and
+register it tests or returns. Edges carry no arguments and there is no
+value table, live-in list or region tree, because nothing at run time reads
+them. `nupp.compiler.vm.convert` produces it straight from the lowering's
+blocks and `nupp.compiler.vm.graphimage` encodes it one function at a time,
+so no intermediate graph is built. Kernels keep SSA form: the frontend's
+own graph, verified by the graph verifier, with regions and certificates.
+Inspection (`nupp bc`, the editor's listing) renders the stream the runtime
+derives.
 
 The runtime loads graph images by their magic everywhere it loaded text:
 `nupp-vm run`, `exec`, `verify`, `aot`, `--load`, `vm.loadImage`, a
 program's payload, the embedding API, hot patches, checkpoints and
-workers. `graph::load` streams one function at a time through a reused
-buffer. The text loader stays, because the pinned stage-zero release emits
-text and the Rust tests' fixtures are text.
+workers. `graph::load` streams one function at a time. A register-form
+function is checked once at load (`verify_registers`: operand bounds,
+register windows, physical plans, SIMD descriptors, block endings,
+reachability); the stream class check runs only for functions that need
+native code. Liveness is one block-level dataflow whose leaders come from
+control instructions alone, and `graph_gate analyses` cross-checks it
+against the per-instruction reference over the whole image. The text
+loader stays for the Rust tests' fixtures and for bridging a format change
+through the text-default generation; a cold bootstrap runs the tree's own
+lowering under LuaJIT, so it emits graphs.
 
-Image words are shifted varints (NONE is a single zero byte); an
-instruction carries the untyped values a register window it writes defines
-beside its result (varargs, a call's further results). The emit cache
-keeps each module's blocks with relative function ids.
+Image words are shifted varints (NONE is a single zero byte). The emit
+cache keeps each module's blocks with relative function ids.
 
 The compiler's own root image, against the previous compiler on the same
 sources:
 
-| | previous (text) | blocks (graph) |
+| | previous (text) | register form |
 |---|---|---|
-| functions | 6,221 | 6,225 |
-| instructions | 842,119 | 840,693 |
-| image | 19.4 MB | 24.8 MB |
-| load | 120 ms, 97 MB | 138 ms, 118 MB |
-| whole emission | 161 s, 2.3 GB | 168 s, 2.9 GB |
+| functions | 6,221 | 6,221 |
+| image | 19.4 MB | 8.86 MB |
+| load (`verify`) | 120 ms, 99 MB | 40 ms, 72 MB |
+| liveness, whole image | 1,245 ms | 79 ms |
+| whole emission | 161 s, 2.3 GB | 156 s, 2.4 GB |
+
+The first graph format, with values, live-ins and edge arguments, was
+24.8 MB, loaded in 138 ms and emitted in 168 s; none of that information
+was read after load.
 
 ## Status, 2026-10-20: P1
 

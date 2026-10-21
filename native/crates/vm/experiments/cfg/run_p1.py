@@ -78,20 +78,18 @@ def main():
         run('typed-frontend-' + name, [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', path, OUT / (name + '.functions'), ''], env)
         typed[name] = run('typed-gate-' + name, [GATE, 'typed', OUT / name], environment()).strip()
     # The whole fixture program on graph-derived streams: the emitted image
-    # with its kernels replaced by the decoded graphs' derivations, under the
-    # interpreter and the JIT with collector stress.
+    # carries its kernels' graphs and every other function in register form,
+    # run under the interpreter and the JIT with collector stress.
     image = OUT / 'direct.image'
     run('emit', [RUNTIME, 'exec', DRIVER, 'nupp.experiment.typedcfg', project, image, 'emit'], env)
-    merged = ':'.join(str(OUT / f'{name}.functions.graph') for name in ['kinds', 'kernels', 'flow'])
     for case, command, flags in [('jit', ['run'], {}), ('interpreter', ['run'], {'NO_JIT': '1'}), ('tasks', ['run', '--tasks'], {})]:
-        run('sidecar-' + case, [RUNTIME, 'run', image, 'nupp.tests.vmnativesimd', *command], environment(NUPP_GRAPH_IMAGE=merged, NUPP_GRAPH_TRACE='1', JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **flags))
-        log = (OUT / f'sidecar-{case}.log').read_text()
-        assert log.splitlines().count('42') == 1, f'sidecar-{case}: the fixture program did not print 42 once'
-        assert 'functions derived from' in log, f'sidecar-{case}: no functions were replaced'
+        run('program-' + case, [RUNTIME, 'run', image, 'nupp.tests.vmnativesimd', *command], environment(JIT_VERIFY='1', GC_INTERLEAVE='1', GC_ORACLE='1', GC_QUARANTINE='1', **flags))
+        log = (OUT / f'program-{case}.log').read_text()
+        assert log.splitlines().count('42') == 1, f'program-{case}: the fixture program did not print 42 once'
     # Decode plus derive for a checker-sized image against today's text parse
     # of the compiler's own image.
     size = json.loads(run('size', [GATE, 'size', OUT / 'fixture-replicated.graph', ROOT / 'build/vm-fixpoint/root.image', OUT / 'size.json'], environment()))
-    result = {'scalar': scalar, 'typed': typed, 'sidecar': {case: (OUT / f'sidecar-{case}.log').read_text().splitlines()[-1] for case in ['jit', 'interpreter', 'tasks']}, 'size': size,
+    result = {'scalar': scalar, 'typed': typed, 'program': {case: (OUT / f'program-{case}.log').read_text().splitlines()[-1] for case in ['jit', 'interpreter', 'tasks']}, 'size': size,
               'frontend': json.loads((OUT / 'fixture.frontend.json').read_text())}
     (OUT / 'results.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({'scalar_cases': scalar['cases'], 'typed': typed, 'size': size}, indent=2))

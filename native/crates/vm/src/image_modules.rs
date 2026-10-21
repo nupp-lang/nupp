@@ -9,11 +9,11 @@
 //! the way it walks the module graph of a LuaJIT tree. It is read off the
 //! image the VM started from, never off sources, which may have moved on.
 //!
-//! A module's digest covers its functions as the image spells them, with
-//! every image-wide index rewritten to something that does not move when
-//! another module changes: a function id becomes the owning module and the
-//! function's position in it, and a shape index becomes the shape's own
-//! text. Its edges are its literal requires, the modules whose functions it
+//! A module's digest covers its functions as the runtime holds them, from a
+//! text image or a graph alike, with every image-wide index rewritten to
+//! something that does not move when another module changes: a function id
+//! becomes the owning module and the function's position in it, and a shape
+//! id becomes the shape's own text. Its edges are its literal requires, the modules whose functions it
 //! names, the modules defining methods of the shapes it uses, and what an
 //! `@requires-dynamically` marker declares.
 //!
@@ -27,6 +27,7 @@
 //! literal naming a module the image does not carry is no edge: that code is
 //! no more covered by the whole image's digest than by this.
 
+use crate::heap::SlotTy;
 use crate::interp::{Interp, Op};
 use crate::value::Value;
 use crate::verify::C;
@@ -44,162 +45,109 @@ pub struct ImageModule {
     pub unknown: bool,
 }
 
-struct TextFunction<'a> {
-    module: &'a str,
-    header: &'a str,
-    body: Vec<&'a str>,
-}
-
-struct TextImage<'a> {
-    shapes: Vec<&'a str>,
-    functions: Vec<TextFunction<'a>>,
-    /// (name, entry function id, path)
-    modules: Vec<(&'a str, usize, &'a str)>,
-}
-
-fn parse(text: &str) -> Option<TextImage<'_>> {
-    let mut image = TextImage { shapes: Vec::new(), functions: Vec::new(), modules: Vec::new() };
-    let mut open = false;
-    for raw in text.lines() {
-        let line = raw.trim();
-        if line.is_empty() { continue; }
-        let word = line.split_whitespace().next().unwrap_or("");
-        match word {
-            "shape" if !open => image.shapes.push(line),
-            "function" => { open = true; image.functions.push(TextFunction { module: "", header: line, body: Vec::new() }); }
-            "end" if open => open = false,
-            "source" if open => { image.functions.last_mut()?.module = line.split_whitespace().nth(1).unwrap_or(""); }
-            "module" if !open => {
-                let mut parts = line.split_whitespace();
-                parts.next();
-                let name = parts.next()?;
-                let fid = parts.next()?.parse().ok()?;
-                image.modules.push((name, fid, parts.next().unwrap_or("")));
-            }
-            _ if open => image.functions.last_mut()?.body.push(line),
-            _ => {}
-        }
-    }
-    Some(image)
-}
-
-/// The modules of the image `text`, as loaded into `it` starting at function
-/// zero: `it` supplies the lowered code the require accounting reads and the
-/// modules the runtime itself provides. None when `it` does not hold `text`
-/// at function zero.
-pub fn analyze(it: &Interp, text: &str) -> Option<Vec<ImageModule>> {
-    let image = parse(text)?;
-    if it.funcs.len() < image.functions.len() { return None; }
-    for (fid, f) in image.functions.iter().enumerate() {
-        if it.funcs[fid].module != f.module { return None; }
-    }
+/// The modules of the image loaded into `it` as its first `count` functions:
+/// their code as the runtime holds it, whichever format it came in. None when
+/// `it` holds fewer functions.
+pub fn analyze(it: &Interp, count: usize) -> Option<Vec<ImageModule>> {
+    if it.funcs.len() < count { return None; }
+    let funcs = &it.funcs[..count];
+    let table = crate::opcodes::table();
     // A function's stable name: its module and its position among that
     // module's functions.
     let mut ordinal: HashMap<&str, usize> = HashMap::new();
-    let names: Vec<String> = image.functions.iter().map(|f| {
-        let n = ordinal.entry(f.module).or_insert(0);
+    let names: Vec<String> = funcs.iter().map(|f| {
+        let n = ordinal.entry(f.module.as_str()).or_insert(0);
         *n += 1;
         format!("{}#{}", f.module, *n - 1)
     }).collect();
-    let fname = |token: &str| -> String {
-        token.parse::<usize>().ok().and_then(|i| names.get(i)).cloned().unwrap_or_else(|| format!("?{token}"))
-    };
-    let owner = |token: &str| -> Option<&str> { token.parse::<usize>().ok().and_then(|i| image.functions.get(i)).map(|f| f.module) };
+    let fname = |id: u32| -> String { names.get(id as usize).cloned().unwrap_or_else(|| format!("?{id}")) };
+    let owner = |id: u32| -> Option<&str> { funcs.get(id as usize).map(|f| f.module.as_str()) };
+    let text = |v: Value| -> String { String::from_utf8_lossy(it.bytes_of(v)).into_owned() };
 
-    // A shape's text without its index, a record slot naming the shape it holds
-    // by name and identity, and a method by its function's stable name.
-    let shape_key = |index: usize| -> String {
-        let Some(line) = image.shapes.get(index) else { return format!("?{index}") };
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        let identity = parts.iter().skip(3).find(|p| p.starts_with("identity="));
-        format!("{}{}", parts.get(2).unwrap_or(&""), identity.map(|i| format!(" {i}")).unwrap_or_default())
+    // A shape's text without its heap id: its name and identity, its slots, a
+    // record slot naming the shape it holds by name and identity, and its
+    // methods by their functions' stable names; and the modules defining them.
+    let mut identity: HashMap<u32, &str> = HashMap::new();
+    for (key, &id) in &it.heap.shape_identities { identity.insert(id, key.as_str()); }
+    let shallow = |id: u32| -> String {
+        let shape = &it.heap.shapes[id as usize];
+        format!("{}{}", shape.name, identity.get(&id).map(|k| format!(" identity={k}")).unwrap_or_default())
     };
-    let mut shapes: Vec<(String, BTreeSet<&str>)> = Vec::with_capacity(image.shapes.len());
-    for line in &image.shapes {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        let mut text = String::from(*parts.get(2).unwrap_or(&""));
-        let mut owners = BTreeSet::new();
-        for p in parts.iter().skip(3) {
-            text.push(' ');
-            if let Some((name, fid)) = p.strip_prefix("method:").and_then(|m| m.split_once('=')) {
-                text.push_str(&format!("method:{name}={}", fname(fid)));
-                if let Some(m) = owner(fid) { owners.insert(m); }
-            } else if let Some((slot, record)) = p.split_once(":rec:") {
-                text.push_str(&format!("{slot}:rec:{}", record.parse().map(shape_key).unwrap_or_else(|_| record.to_string())));
-            } else {
-                text.push_str(p);
+    let mut shape_text: HashMap<u32, (String, BTreeSet<&str>)> = HashMap::new();
+    let mut describe = |id: u32| -> (String, BTreeSet<&str>) {
+        shape_text.entry(id).or_insert_with(|| {
+            let shape = &it.heap.shapes[id as usize];
+            let mut out = shallow(id);
+            for (slot, ty) in shape.names.iter().zip(&shape.types) {
+                let ty = match ty { SlotTy::Num => "num".to_string(), SlotTy::Str => "str".to_string(), SlotTy::Bool => "bool".to_string(), SlotTy::Record(r) => format!("rec:{}", shallow(*r)), SlotTy::Any => "any".to_string() };
+                out.push_str(&format!(" {}:{ty}", text(*slot)));
             }
-        }
-        shapes.push((text, owners));
-    }
+            let mut owners = BTreeSet::new();
+            let mut methods: Vec<(String, String)> = shape.methods.iter().filter_map(|(&k, &v)| v.as_func().map(|fid| {
+                if let Some(m) = owner(fid) { owners.insert(m); }
+                (text(k), fname(fid))
+            })).collect();
+            methods.sort();
+            for (name, f) in methods { out.push_str(&format!(" method:{name}={f}")); }
+            (out, owners)
+        }).clone()
+    };
 
+    let in_image: BTreeSet<&str> = it.modules.iter().filter(|entry| (*entry.1 as usize) < count).map(|(name, _)| name.as_str()).collect();
     let mut code: BTreeMap<&str, String> = BTreeMap::new();
     let mut edges: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
-    for &(name, fid, path) in &image.modules {
-        code.entry(name).or_default().push_str(&format!("module {} {}\n", fname(&fid.to_string()), path));
+    for &name in &in_image {
+        let path = it.module_paths.get(name).map(String::as_str).unwrap_or("");
+        code.entry(name).or_default().push_str(&format!("module {} {}\n", fname(it.modules[name]), path));
         edges.entry(name).or_default();
     }
-    for f in &image.functions {
-        let module = f.module;
+    for f in funcs {
+        let module = f.module.as_str();
         let out = code.entry(module).or_default();
         let deps = edges.entry(module).or_default();
-        // The header without the function's image-wide id, which an anonymous
-        // function's name (`parent.fn<id>`) also carries.
-        let header: Vec<&str> = f.header.split_whitespace().collect();
-        let name = header.get(1).map(|name| name.split('.').map(|segment| match segment.strip_prefix("fn") {
-            Some(id) if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) => format!("fn[{}]", fname(id)),
+        // The name without the function's image-wide id, which an anonymous
+        // function's name (`parent.fn<id>`) carries.
+        let name = f.name.split('.').map(|segment| match segment.strip_prefix("fn") {
+            Some(id) if !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()) => format!("fn[{}]", fname(id.parse().unwrap_or(u32::MAX))),
             _ => segment.to_string(),
-        }).collect::<Vec<_>>().join(".")).unwrap_or_default();
-        out.push_str(&name);
-        for part in header.iter().skip(3) { out.push(' '); out.push_str(part); }
-        out.push('\n');
-        for line in &f.body {
-            let word = line.split(' ').next().unwrap_or("");
-            let function_at = match word {
-                "const" if line.split_whitespace().nth(2) == Some("func") => Some(3),
-                "Call" | "CallT" | "CallK" => Some(1),
-                "NewClosure" => Some(2),
-                _ => None,
-            };
-            let shape_at = match word {
-                "NewRecord" => Some(2),
-                "GetSlot" | "SetSlot" | "GetSlotF" | "SetSlotF" => Some(4),
-                "TagCheckRec" | "IsRec" => Some(3),
-                "SetMethod" => Some(1),
-                _ => None,
-            };
-            if function_at.is_none() && shape_at.is_none() {
-                out.push_str(line);
-                out.push('\n');
-                continue;
+        }).collect::<Vec<_>>().join(".");
+        out.push_str(&format!("function {name} {} {:?} {} {} {} {} {} {}\n", f.nparams, f.sig, f.ret, f.vararg, f.nregs, f.nireg, f.nfreg, f.nvreg));
+        for &c in &f.consts {
+            if let Some(fid) = c.as_func() {
+                out.push_str(&format!("const func {}\n", fname(fid)));
+                if let Some(m) = owner(fid).filter(|&m| m != module) { deps.insert(m.to_string()); }
+            } else if it.is_stringish(c) {
+                out.push_str(&format!("const str {:?}\n", it.bytes_of(c)));
+            } else {
+                out.push_str(&format!("const {:#x}\n", c.0));
             }
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            let mut rewritten: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
-            if let Some(i) = function_at.filter(|&i| i < parts.len()) {
-                rewritten[i] = fname(parts[i]);
-                if let Some(m) = owner(parts[i]).filter(|&m| m != module) { deps.insert(m.to_string()); }
-            }
-            if let Some(i) = shape_at.filter(|&i| i < parts.len()) {
-                match parts[i].parse::<usize>().ok().and_then(|s| shapes.get(s)) {
-                    Some((text, owners)) => {
-                        rewritten[i] = format!("[{text}]");
-                        for m in owners { if *m != module { deps.insert(m.to_string()); } }
+        }
+        for (pc, op) in f.code.iter().enumerate() {
+            let row = table.row(op);
+            out.push_str(&row.name);
+            for (spec, v) in row.operands.iter().zip(op.operands()) {
+                match spec.class {
+                    crate::opcodes::Class::Func => {
+                        out.push_str(&format!(" {}", fname(v as u32)));
+                        if let Some(m) = owner(v as u32).filter(|&m| m != module) { deps.insert(m.to_string()); }
                     }
-                    None => rewritten[i] = format!("?{}", parts[i]),
+                    crate::opcodes::Class::Shape => {
+                        let (described, owners) = describe(v as u32);
+                        out.push_str(&format!(" [{described}]"));
+                        for m in owners { if m != module { deps.insert(m.to_string()); } }
+                    }
+                    _ => out.push_str(&format!(" {v}")),
                 }
             }
-            out.push_str(&rewritten.join(" "));
-            out.push('\n');
+            out.push_str(&format!(" @{}\n", f.debug.get(pc).map_or(0, |d| d.0)));
         }
     }
 
     // Requires, read off the loaded code.
-    let in_image: BTreeSet<&str> = image.modules.iter().map(|m| m.0).collect();
     let mut dynamic: BTreeSet<&str> = BTreeSet::new();
     let mut markers: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-    for (fid, tf) in image.functions.iter().enumerate() {
-        let f = &it.funcs[fid];
-        let module = tf.module;
+    for f in funcs {
+        let module = f.module.as_str();
         for &c in &f.consts {
             if it.is_stringish(c) {
                 let found = declared(it.bytes_of(c));
@@ -308,15 +256,7 @@ fn require_sites(it: &Interp, f: &crate::interp::Function) -> Vec<Site> {
         || f.code.iter().any(|op| matches!(op, Op::GetField(_, _, k) if text(*k) == Some(b"require")));
     if !relevant { return Vec::new(); }
     let n = f.code.len();
-    let succs: Vec<Vec<usize>> = f.code.iter().enumerate().map(|(pc, op)| {
-        let (_, offs) = crate::verify::operands(op);
-        let mut s: Vec<usize> = offs.iter().map(|o| (pc as i64 + 1 + *o as i64) as usize).collect();
-        if let Op::Switch(_, t) = op { if let Some((def, tbl)) = f.jump_tables.get(*t as usize) { for o in std::iter::once(def).chain(tbl.iter()) { s.push((pc as i64 + 1 + *o as i64) as usize); } } }
-        let falls = !matches!(op, Op::Jmp(..) | Op::Ret(..) | Op::RetNil | Op::RetN(..) | Op::FRet(..) | Op::Raise(..) | Op::Switch(..));
-        if falls { s.push(pc + 1); }
-        s.retain(|&t| t < n);
-        s
-    }).collect();
+    let succs = crate::verify::successors(f);
     let mut states: Vec<Option<State>> = vec![None; n];
     if n > 0 { states[0] = Some(State::new()); }
     let mut sites: BTreeMap<usize, Vec<Site>> = BTreeMap::new();
@@ -396,13 +336,12 @@ fn require_sites(it: &Interp, f: &crate::interp::Function) -> Vec<Site> {
 /// unknown = {module = boolean}}` for the image the VM started from, or nil
 /// when it did not start from one.
 pub fn tables(it: &mut Interp) -> Value {
-    let modules = match it.code_events.first() {
-        Some(crate::persist::CodeEvent::Image(text)) => {
-            let text = text.clone();
-            analyze(it, &text)
-        }
-        _ => None,
+    let count = match it.code_events.first() {
+        Some(crate::persist::CodeEvent::Image(text)) => text.lines().filter(|l| l.trim_start().starts_with("function ")).count(),
+        Some(crate::persist::CodeEvent::Graph { functions, .. }) => *functions as usize,
+        _ => return Value::NIL,
     };
+    let modules = analyze(it, count);
     let Some(modules) = modules else { return Value::NIL };
     let scope = it.open_scope();
     let result = it.new_table(); it.handles.push(result);
