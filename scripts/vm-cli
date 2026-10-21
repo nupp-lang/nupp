@@ -202,7 +202,11 @@ def cargo(features, target, extra_env=None, default_features=True):
     # Share compiled dependencies across worktrees when sccache is installed.
     if "RUSTC_WRAPPER" not in env and shutil.which("sccache"):
         env["RUSTC_WRAPPER"] = "sccache"
-    command = ["cargo", "build", "--offline", "--release", "-p", "nupp-vm"]
+    # Locked always, offline only when asked, as scripts/toolchain builds: a
+    # fresh machine has fetched no crates yet.
+    command = ["cargo", "build", "--locked", "--release", "-p", "nupp-vm"]
+    if os.environ.get("NUPP_HOST_OFFLINE"):
+        command.append("--offline")
     if not default_features:
         command.append("--no-default-features")
     if features:
