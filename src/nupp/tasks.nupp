@@ -189,6 +189,10 @@ local type ScopeState = {
     failure: any,
     suppressed: Packed?,
     failed: boolean,
+
+    --- Whether the scope was already cancelled when its first failure came: a
+    --- child failing while it unwinds, a consequence of the cancellation.
+    failedUnwinding: boolean,
     cancellation: tasks.Cancellation?,
     deadline: number?,
     handler: suspensionHost.Handler,
@@ -532,6 +536,7 @@ local function ownFailure(owner: ScopeState, problem: any): nil
     if not owner.failed then
         owner.failed = true
         owner.failure = problem
+        owner.failedUnwinding = owner.cancellation ~= nil
     else
         const suppressed = owner.suppressed
         if suppressed == nil then
@@ -1472,6 +1477,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         failure = nil,
         suppressed = nil,
         failed = false,
+        failedUnwinding = false,
         cancellation = nil,
         deadline = deadline,
         handler = nil as any,
@@ -1756,10 +1762,21 @@ local function runImpl(...: any): ...any
 
         return unpack(answer.values, 2, answer.count)
     end
-    const problem = answer.values[2]
+    local problem = answer.values[2]
     -- What the scope owns reaches the body where it waits, so a body may end by
     -- raising the scope's own failure or deadline. That is not the body failing on
     -- its own account: settling raises it, as it would have anyway.
+    -- A deadline that had already cancelled the scope stays what ended it, even
+    -- when a child's failure while unwinding reached the body first: which the
+    -- body woke to is only which arrived first.
+    if owner.failed
+        and problem == owner.failure
+        and owner.failedUnwinding
+        and owner.cancellation ~= nil
+        and not owner.deliberate
+    then
+        problem = owner.cancellation
+    end
     const scopeOwned = (owner.failed and problem == owner.failure)
         or (owner.cancellation ~= nil and not owner.deliberate and problem == owner.cancellation)
     if not scopeOwned and not owner.closed then
