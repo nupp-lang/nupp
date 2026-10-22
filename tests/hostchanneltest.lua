@@ -46,14 +46,18 @@ local function compiledEvents()
     local directory = os.tmpname()
     os.remove(directory)
     assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
+    -- The events are Lua the node host loads, which only the LuaJIT compiler's
+    -- generator writes: built from the component, so its manifest applies.
+    -- A copy, so the build's own state stays out of the source tree.
+    local component = directory .. "/component"
+    assert(os.execute("cp -R " .. shellQuote(HERE .. "/hostchannel/component") .. " " .. shellQuote(component)) == 0)
     local output, ok = capture(
-        shellQuote(ROOT .. "/bin/nupp") .. " lsp artifact --kind lua "
-            .. shellQuote(HERE .. "/hostchannel/component/src/hostevents.nupp")
+        "cd " .. shellQuote(component) .. " && NUPP_ENGINE=luajit "
+            .. shellQuote(ROOT .. "/bin/nupp") .. " build -o " .. shellQuote(directory)
+            .. " src/hostevents.nupp 2>&1"
     )
     check.assert(ok, "the stream scenario's events did not compile:\n" .. output)
-    local file = assert(io.open(directory .. "/hostevents.lua", "wb"))
-    file:write(output)
-    file:close()
+    check.assert(io.open(directory .. "/src/hostevents.lua", "rb"), "the build wrote no events module:\n" .. output)
     return directory
 end
 
@@ -63,7 +67,7 @@ local function passesNodeSuite(label, file)
     local environment = table.concat({
         "NUPP_ROOT=" .. shellQuote(ROOT),
         "NUPP_LUAJIT=" .. shellQuote(luajit()),
-        "LUA_PATH=" .. shellQuote(events .. "/?.lua;" .. package.path),
+        "LUA_PATH=" .. shellQuote(events .. "/src/?.lua;" .. events .. "/?.lua;" .. package.path),
         "LUA_CPATH=" .. shellQuote(package.cpath),
     }, " ")
     local output, exited = capture(
