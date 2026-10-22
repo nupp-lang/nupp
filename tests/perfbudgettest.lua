@@ -137,12 +137,17 @@ end
 --
 -- Each ceiling is about a tenth above what the file lowered to at the commit that
 -- set it. An edit to a benchmark moves its own numbers, and the message says which.
+--
+-- aos and soa moved on 2026-10-22, with no edit to either file: each declares a
+-- struct, and since 765713656 a struct's declaration carries its C layout,
+-- built once in the module chunk (about 210 instructions for aos's Particle),
+-- not in the timed functions.
 local BYTECODE = {
-    ["aos"] = 345,
+    ["aos"] = 508,
     ["frames"] = 45,
     ["optparser"] = 685,
     ["presize"] = 108,
-    ["soa"] = 617,
+    ["soa"] = 818,
     ["trivia-record"] = 272,
 }
 
