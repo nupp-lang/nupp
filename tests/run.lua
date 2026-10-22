@@ -3126,6 +3126,12 @@ then
                     sharded.failed = sharded.failed + (report.failed or 0)
                     for _, record in ipairs(report.tests or {}) do
                         sharded.results[#sharded.results + 1] = record
+                        -- A worker's own output is silenced or captured, so what
+                        -- --verbose shows of a passing case is shown here; a
+                        -- failure's output is in the failure section already.
+                        if verbose and record.status ~= "failed" and record.output then
+                            showCaptured(record)
+                        end
                     end
                     for _, record in ipairs(report.suites or {}) do
                         record.shard = report.shard and report.shard.index or nil
@@ -3396,7 +3402,13 @@ local function runSuite(suiteInfo, slices)
                 end
             end
             if not takesAll then
-                cases = {}
+                -- Nothing at all: running the hooks here too ran beforeAll and
+                -- afterAll twice, beside the slice that holds the cases, and
+                -- recorded the suite twice.
+                if removeLoader then
+                    removeLoader()
+                end
+                return
             end
         else
             -- Packing is by cost, and a shard may legitimately hold two slices of one
