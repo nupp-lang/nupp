@@ -536,7 +536,8 @@ end
 --- the compiler reaches by computed name.
 project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
-    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
+    .. "nupp.runtime.provider.nativepath"
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
