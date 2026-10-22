@@ -453,14 +453,14 @@ impl<M: Module> Compiler<M> {
             let k0 = b.ins().band(hash, mask); let e0 = b.ins().ishl_imm(k0, 4); let e0 = b.ins().iadd(tp, e0); let b0 = b.ins().load(types::I64, flags, e0, 0);
             let m0 = b.ins().icmp(IntCC::Equal, b0, name); b.ins().brif(m0, hit1, &[], p1, &[]);
             b.switch_to_block(hit1); b.seal_block(hit1);
-            let s0 = b.ins().load(types::I32, flags, e0, 8); let s0 = b.ins().uextend(types::I64, s0); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s0, 3); let a0 = b.ins().iadd(slots, so); let v0 = b.ins().load(types::I64, flags, a0, 0); b.ins().jump(out, &[v0.into()]);
+            let s0 = b.ins().load(types::I32, flags, e0, 8); let s0 = b.ins().uextend(types::I64, s0); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s0, 3); let a0 = b.ins().iadd(slots, so); let v0 = b.ins().load(types::I64, flags, a0, 0); let nil0 = b.ins().icmp_imm(IntCC::Equal, v0, NIL); let miss_value0 = b.ins().iconst(types::I64, MISS); let r0 = b.ins().select(nil0, miss_value0, v0); b.ins().jump(out, &[r0.into()]);
             b.switch_to_block(p1); b.seal_block(p1);
             let empty0 = b.ins().icmp_imm(IntCC::Equal, b0, 0); b.ins().brif(empty0, absent, &[], p2, &[]);
             b.switch_to_block(p2); b.seal_block(p2);
             let k1 = b.ins().iadd_imm(k0, 1); let k1 = b.ins().band(k1, mask); let e1 = b.ins().ishl_imm(k1, 4); let e1 = b.ins().iadd(tp, e1); let b1 = b.ins().load(types::I64, flags, e1, 0);
             let m1 = b.ins().icmp(IntCC::Equal, b1, name); let miss2 = b.create_block(); b.ins().brif(m1, hit2, &[], miss2, &[]);
             b.switch_to_block(hit2); b.seal_block(hit2);
-            let s1 = b.ins().load(types::I32, flags, e1, 8); let s1 = b.ins().uextend(types::I64, s1); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s1, 3); let a1 = b.ins().iadd(slots, so); let v1 = b.ins().load(types::I64, flags, a1, 0); b.ins().jump(out, &[v1.into()]);
+            let s1 = b.ins().load(types::I32, flags, e1, 8); let s1 = b.ins().uextend(types::I64, s1); let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let so = b.ins().ishl_imm(s1, 3); let a1 = b.ins().iadd(slots, so); let v1 = b.ins().load(types::I64, flags, a1, 0); let nil1 = b.ins().icmp_imm(IntCC::Equal, v1, NIL); let miss_value1 = b.ins().iconst(types::I64, MISS); let r1 = b.ins().select(nil1, miss_value1, v1); b.ins().jump(out, &[r1.into()]);
             b.switch_to_block(miss2); b.seal_block(miss2);
             let empty1 = b.ins().icmp_imm(IntCC::Equal, b1, 0); b.ins().brif(empty1, absent, &[], miss, &[]);
             // absent from the shape: the overflow part, the same table
@@ -1257,8 +1257,9 @@ impl<M: Module> Compiler<M> {
                         let known = facts.shape(t, pc).and_then(|s| cases.iter().find(|c| c.0 == s).copied());
                         let read = |b: &mut FunctionBuilder, slot: u16, join: Block, miss: Block| {
                             let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let v = b.ins().load(types::I64, flags, slots, slot as i32 * 8);
-                            let fl = b.ins().uload8(types::I64, flags, o, 3); let meta = b.ins().band_imm(fl, crate::heap::F_METATABLE as i64);
-                            let vnil = b.ins().icmp_imm(IntCC::Equal, v, NIL); let has_meta = b.ins().icmp_imm(IntCC::NotEqual, meta, 0); let ask = b.ins().band(vnil, has_meta);
+                            // A nil slot asks the runtime, as the interpreter does: the
+                            // shape may hold a method of that name, or a metatable answer.
+                            let ask = b.ins().icmp_imm(IntCC::Equal, v, NIL);
                             b.ins().brif(ask, miss, &[], join, &[v.into()]);
                         };
                         if let Some((_, slot)) = known { read(&mut b, slot, join, miss); }
@@ -1877,7 +1878,7 @@ impl<M: Module> Compiler<M> {
                         b.ins().brif(is_obj, chk, &[], helper, &[]);
                         b.switch_to_block(chk); b.seal_block(chk);
                         let o = b.ins().band_imm(tv, PAYLOAD);
-                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64); let object_flags = b.ins().load(types::I8, flags, o, 3); let meta = b.ins().band_imm(object_flags, crate::heap::F_METATABLE as i64);
+                        let kind = b.ins().load(types::I8, flags, o, OFF_KIND); let is_rec = b.ins().icmp_imm(IntCC::Equal, kind, KIND_RECORD as i64);
                         let shape = b.ins().load(types::I32, flags, o, OFF_AUX); let shape1 = b.ins().uextend(types::I64, shape); let shape1 = b.ins().iadd_imm(shape1, 1);
                         let seen = b.ins().load(types::I64, flags, ca, 0);
                         let same = b.ins().icmp(IntCC::Equal, shape1, seen); let hit = b.ins().band(is_rec, same);
@@ -1885,7 +1886,9 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(fast); b.seal_block(fast);
                         let slots = b.ins().load(types::I64, flags, o, OFF_AUX_PTR); let idx = b.ins().load(types::I64, flags, ca, 8); let off = b.ins().ishl_imm(idx, 3); let a = b.ins().iadd(slots, off);
                         let v = b.ins().load(types::I64, flags, a, 0);
-                        let vnil = b.ins().icmp_imm(IntCC::Equal, v, NIL); let has_meta = b.ins().icmp_imm(IntCC::NotEqual, meta, 0); let ask = b.ins().band(vnil, has_meta);
+                        // A nil slot asks the helper, which answers a method the shape
+                        // holds under that name, as the interpreter does.
+                        let ask = b.ins().icmp_imm(IntCC::Equal, v, NIL);
                         b.ins().brif(ask, helper, &[], join, &[v.into()]);
                         b.switch_to_block(probe); b.seal_block(probe);
                         if let Some(site) = site_addr!(pc) {

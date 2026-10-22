@@ -36,9 +36,13 @@ fn emit_object(image_path: &str, output_path: &str, frames: bool, vector_only: b
     let mut compiler = nupp_vm::jit::Compiler::<cranelift_object::ObjectModule>::new_object();
     compiler.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
     let (mut compiled, mut refused) = (Vec::new(), Vec::new());
+    // AOT_ONLY=a,b compiles those names and nothing else, which bisects a
+    // miscompiled function the way JIT_ONLY does for the JIT.
+    let only: Vec<String> = std::env::var("AOT_ONLY").map(|s| s.split(',').map(|x| x.to_string()).collect()).unwrap_or_default();
     for (fid, f) in it.funcs.iter().enumerate() {
         if !frames && f.name.starts_with("module:") { continue; }
         if vector_only && !image::needs_native(f) { continue; }
+        if !only.is_empty() && !only.iter().any(|n| *n == f.name) { continue; }
         match compiler.try_compile_object_mode(f, fid as u32, frames) {
             Ok(()) => compiled.push(fid),
             Err(e) => refused.push(format!("{fid}\t{}\t{e}", f.name)),

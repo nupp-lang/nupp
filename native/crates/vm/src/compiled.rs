@@ -815,9 +815,9 @@ fn j_get_field_ic_impl(t: u64, name: u64, cache: *mut u64) -> u64 {
     if it.ic_stats { let kind = tv.as_obj().map(|p| unsafe { (*p.as_ptr()).kind }); let i = match kind { Some(KIND_RECORD) => if unsafe { *cache } == 0 { 0 } else { 1 }, Some(KIND_TABLE) => 2, _ => 3 }; IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if kind == Some(KIND_RECORD) { let sh = unsafe { (*tv.as_obj().unwrap().as_ptr()).shape() }; let mut g = IC_SITES.lock().unwrap(); g.get_or_insert_with(Default::default).entry(cache as usize).or_default().insert(sh); } }
     if let Some(p) = tv.as_obj() {
         let h = unsafe { &*p.as_ptr() };
-        // A record with a metatable of its own caches its slot too; the site
-        // answers a present value and asks again on nil.
-        if h.kind == KIND_RECORD { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.slot_of(V(name)) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } let v = h.slots()[i]; if v != V::NIL || h.flags & crate::heap::F_METATABLE == 0 { return v.0; } } }
+        // The site caches the slot; it answers a present value and asks again on
+        // nil, which may name a method the shape holds, or a metatable answer.
+        if h.kind == KIND_RECORD { let sh = &it.heap.shapes[h.shape() as usize]; if let Some(i) = sh.slot_of(V(name)) { unsafe { *cache = h.shape() as u64 + 1; *cache.add(1) = i as u64; } let v = h.slots()[i]; if v != V::NIL { return v.0; } } }
     }
     it.field(tv, V(name)).0
 }

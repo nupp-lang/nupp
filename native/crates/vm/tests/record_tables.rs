@@ -481,3 +481,46 @@ fn shaped_tables_keep_sparse_numeric_keys_and_promote_contiguous_entries() {
     vm.release(restored_root);
     vm.release(root);
 }
+
+/// A slot that holds nil answers a method of the same name its shape holds,
+/// in compiled code as in the interpreter: a record declared `is Reader`
+/// carries the interface's `close` as a slot, while the method `close` the
+/// module defines after the record lives on the shape. A compiled field read
+/// that answered the nil slot made every reader look like no reader.
+#[cfg(feature = "jit")]
+#[test]
+fn a_nil_slot_answers_the_shape_method_in_compiled_code() {
+    use nupp_vm::{compiled, image, jit::Jit};
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, META_PROGRAM).unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    let mut jit = Jit::new();
+    jit.extra_addr = vm.extra.as_ptr() as i64;
+    jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+    jit.entries_addr = vm.entries.as_ptr() as i64;
+    jit.callee_info = vm.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
+    vm.calltab = jit.callee_info.iter().map(|&(np, plain)| np as u64 | ((plain as u64) << 8)).collect();
+    jit.calltab_addr = vm.calltab.as_ptr() as i64;
+    vm.shape_probe = vm.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
+    jit.probe_addr = vm.shape_probe.as_ptr() as i64;
+    compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+    let readfield = vm.funcs.iter().position(|f| f.name == "readfield").unwrap();
+    let entry = jit.try_compile(&vm.funcs[readfield].clone(), readfield as u32).unwrap();
+    vm.entries[readfield] = entry as u64;
+    vm.jit = Some(Box::new(jit));
+    let name = vm.intern("answer");
+    let method = Value::builtin(id_of("assert").unwrap());
+    vm.heap.shapes[0].methods.insert(name, method);
+    let object = vm.new_record(0);
+    vm.register(object);
+    // The first read misses the site cache and the second hits it; both ask
+    // past the nil slot.
+    for _ in 0..2 {
+        assert_eq!(vm.call_value(Value::func(readfield as u32), &[object]), vec![method]);
+    }
+    vm.set_index(object, name, Value::FALSE);
+    assert_eq!(vm.call_value(Value::func(readfield as u32), &[object]), vec![Value::FALSE]);
+    vm.set_index(object, name, Value::NIL);
+    assert_eq!(vm.call_value(Value::func(readfield as u32), &[object]), vec![method]);
+}
