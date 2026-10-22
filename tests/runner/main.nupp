@@ -29,11 +29,15 @@ if rawget(_G, "__nupp_load_image") then
     local load: function(string): any = require
     load("nupp.compiler.syntax.triviaarena").install(load("nupp.compiler.syntax.triviaarena.table"))
     load("nupp.compiler.vm.chunks").install()
-    const program = tostring(arg[0])
-    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", "'" .. program:gsub("'", "'\\''") .. "'")
 else
     rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
 end
+-- A process worker is this same program started again, on either host: its
+-- modules are stamped into it, and a bare `luajit tests/run.lua` has none of
+-- them beside a project's empty build directory.
+-- The LuaJIT host names itself in __NUPP_EXECUTABLE; the VM in arg[0].
+const program = tostring(rawget(_G, "__NUPP_EXECUTABLE") or arg[0])
+rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", "'" .. program:gsub("'", "'\\''") .. "'")
 arg[0] = "tests/run.lua"
 
 -- The runner is loaded as a file, so its dependency is invisible to the module
