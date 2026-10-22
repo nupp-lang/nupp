@@ -77,7 +77,17 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
         if PORTABLE_PROVIDERS[name] then
             return path
         end
-        return path ~= nil and path:sub(1, #vmLib) == vmLib and path or nil
+        if path == nil then
+            return nil
+        end
+        -- Compared normalized: on Windows one side spells the directory with
+        -- backslashes, or its drive letter in the other case, and the VM's
+        -- providers were then never taken.
+        local found, under = fs.normalize(path as string), fs.normalize(vmLib) .. "/"
+        if found:match("^%a:") then
+            found, under = found:lower(), under:lower()
+        end
+        return found:sub(1, #under) == under and path or nil
     end
     if name == "nupp.vm.taskScope" then
         -- Reuse the public implementation under a private link name.
@@ -536,8 +546,7 @@ end
 --- the compiler reaches by computed name.
 project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
-    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
-    .. "nupp.runtime.provider.nativepath"
+    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.
