@@ -21,6 +21,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local operators = require("nupp.compiler.check.operators")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")
+local targetLayout = require("nupp.compiler.targetlayout")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -370,7 +371,20 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     c.diag("NUPP2402", node, ("field %q of %s has no C spelling"):format(name, subject.name))
                     return T.any
                 end
-                parts[#parts + 1] = name .. ":" .. (byValue and ("$" .. spelling) or spelling)
+                -- A stored `Fixed<N>` vector occupies more than its C array's payload,
+                -- aligned as the target layout model lays it out; the C array cannot
+                -- say so, so the spec carries the occupied size and alignment.
+                local vectorElement, vectorLanes = targetLayout.storageVector(fieldType)
+                local occupied = ""
+                if vectorElement ~= nil then
+                    local laid = targetLayout.vector(
+                        "x86_64-unknown-linux-gnu",
+                        targetLayout.VECTOR_ELEMENT_BYTES[vectorElement as string] as integer,
+                        vectorLanes as integer
+                    ) as targetLayout.Vector
+                    occupied = ("@%d/%d"):format(laid.size, laid.alignment)
+                end
+                parts[#parts + 1] = name .. ":" .. (byValue and ("$" .. spelling) or spelling) .. occupied
                 printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
                 if byValue then
                     nested[#nested + 1] = elementOf and (elementOf as T.Nominal).name or spelling
