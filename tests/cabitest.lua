@@ -225,24 +225,17 @@ function M.vmForeignSignaturesUseCheckedTypes()
     testAssert.equal(readonly.params[1].readonly, true)
     pointer.elem = T.uint8
     testAssert.equal(metadata.foreignSignature(declaration).params[1], "pointer")
+    -- A variadic function's extra arguments are typed per call.
+    local variadic = {cAbiSignature = cabi.functionRecord("printf", {{type = T.cstring, mode = "plain"}}, T.int32)}
+    variadic.cAbiSignature.varargs = true
+    testAssert.equal(metadata.foreignSignature(variadic).variadic, true)
     local cases = {
-        {
-            change = function(d)
-                d.cAbiSignature.varargs = true
-            end,
-            reason = "variadic"
-        },
-        {
-            change = function(d)
-                d.countedAbi = {}
-            end,
-            reason = "counted-pointer"
-        },
         {
             change = function(d)
                 d.cAbiSignature.params[1].mode = "out"
             end,
-            reason = "out-parameter"
+            -- Out parameters are supported; one that is no pointer has no slot.
+            reason = "out parameter is a pointer to its slot"
         },
         {
             change = function(d)
@@ -261,7 +254,7 @@ function M.vmForeignSignaturesUseCheckedTypes()
         local candidate = {cAbiSignature = cabi.functionRecord("test", {{type = T.cstring, mode = "plain"}}, T.uint64)}
         case.change(candidate)
         local ok, why = pcall(metadata.foreignSignature, candidate)
-        assert(not ok and tostring(why):find(case.reason, 1, true), tostring(why))
+        assert(not ok and tostring(why):find(case.reason, 1, true), case.reason .. ": " .. tostring(why))
     end
 end
 

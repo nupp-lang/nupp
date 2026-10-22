@@ -207,9 +207,13 @@ function metadata.foreignSignature(declaration)
     for _, output in ipairs(physical and physical.ffiOut or {}) do
         outputs[output.cIndex] = output
     end
+    -- By name, for the counts that name their pointer; a C declaration may
+    -- leave a parameter unnamed, and nothing can name that one.
     local positions = {}
     for index, parameter in ipairs(signature.params or {}) do
-        positions[parameter.name] = index
+        if parameter.name ~= nil then
+            positions[parameter.name] = index
+        end
     end
     local counts = {}
     for _, parameter in ipairs(signature.params or {}) do
