@@ -267,6 +267,9 @@ jobs:
         run: ./bin/nupp build
 
       - name: Build the bootstrap compiler and the documentation
+        env:
+          # Markdown renders only on the VM runtime.
+          NUPP_ENGINE: ""
         run: |
           ./bin/nupp build --target bootstrapCompiler
           ./bin/nupp build --target docs
@@ -453,6 +456,9 @@ jobs:
           dumpbin /dependents build/lib/nupp_native_dev.dll
 
       - name: Build the bootstrap compiler and the documentation
+        env:
+          # Markdown renders only on the VM runtime.
+          NUPP_ENGINE: ""
         shell: bash
         run: |
           ./bin/nupp build --target bootstrapCompiler
@@ -805,11 +811,17 @@ jobs:
         run: ./bin/nupp build
 
       - name: Build the bootstrap compiler and the documentation
+        env:
+          # Markdown renders only on the VM runtime.
+          NUPP_ENGINE: ""
         run: |
           ./bin/nupp build --target bootstrapCompiler
           ./bin/nupp build --target docs
 
       - name: Regenerate and verify the documentation
+        env:
+          # Markdown renders only on the VM runtime.
+          NUPP_ENGINE: ""
         run: ./bin/nupp test --group=docs
 
       - name: Save the VM compiler
