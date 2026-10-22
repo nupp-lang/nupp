@@ -215,6 +215,15 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
         exit 1
     fi
     NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
+    # A rock dependency runs LuaRocks, which is the pinned one here as on the
+    # LuaJIT path below: the shim provisions it on first use. Windows starts
+    # tools natively and cannot run a shell script, so it keeps the PATH lookup.
+    if [ -z "${NUPP_LUAROCKS:-}" ]; then
+        case "$(uname -s 2>/dev/null)" in
+            MINGW*|MSYS*|CYGWIN*) ;;
+            *) NUPP_LUAROCKS="$ROOT/scripts/luarocks"; export NUPP_LUAROCKS ;;
+        esac
+    fi
     # Programs `nupp run` compiles have no linked entries; a deployed no-JIT
     # host refuses their SIMD functions, the developer CLI interprets them.
     SIMD_INTERPRET=${SIMD_INTERPRET:-1}
