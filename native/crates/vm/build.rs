@@ -42,6 +42,12 @@ fn main() {
     std::fs::write(&probe, "int f(int x); int g(int x) { __attribute__((musttail)) return f(x); }\n").unwrap();
     let ok = cc::Build::new().file(&probe).warnings(false).cargo_warnings(false).try_compile("musttail_probe").is_ok();
     if !ok { println!("cargo:warning=C compiler lacks musttail; nupp-vm runs its Rust dispatch loop"); return; }
-    build.compile("nupp_vm_dispatch");
+    // A compiler can take the probe's musttail and still refuse one in the
+    // dispatch loop: some Apple clangs fail tail call elimination in the
+    // backend. The Rust loop answers the same, only slower.
+    if let Err(error) = build.try_compile("nupp_vm_dispatch") {
+        println!("cargo:warning=C dispatch loop did not compile ({error}); nupp-vm runs its Rust dispatch loop");
+        return;
+    }
     println!("cargo:rustc-cfg=threaded");
 }

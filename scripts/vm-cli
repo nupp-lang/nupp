@@ -212,7 +212,9 @@ def cargo(features, target, extra_env=None, default_features=True):
     if features:
         command += ["--features", features]
     run_step(command, env, "cargo " + (features or "default"))
-    return target / "release" / "nupp-vm"
+    # Cargo names a Windows executable with its suffix; copies made from it
+    # keep their own names, which Windows runs by full path.
+    return target / "release" / ("nupp-vm.exe" if os.name == "nt" else "nupp-vm")
 
 
 def generation_dir(generation):
