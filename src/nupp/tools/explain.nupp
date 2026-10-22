@@ -1571,47 +1571,12 @@ ENTRIES[
     docs = "docs/learn/projects/build.md#target-capability-profiles",
 }
 
--- What AOT lowering refuses, as opposed to the checker's `@aot` rules above. A check
--- lowers only for a target that compiles `@aot` functions, so these are marked `aot`
--- and their examples are checked under one, pinned to aarch64 so a tier's lanes are
--- the same on every machine that runs the test.
--- A preferred species reads one vector; LANE names the lane taken out of it.
-local SIMD_LANE = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"nupp.mem.span\")\n"
-    .. "local simd = require(\"nupp.simd\")\n\n@aot\n"
-    .. "local function lane(borrows input: span.Span<float>): number\n"
-    .. "    if species = simd.vectors(array.float) then\n        if species.lanes <= #input then\n"
-    .. "            return species:load(input, 1):extract(LANE)\n        end\n    end\n    return 0.0\nend\n\n"
-    .. "return {lane = lane}\n"
-
--- A GPU map kernel with one uniform, PARAMETER, and one stored VALUE.
-local GPU_SCALE = "local span = require(\"nupp.mem.span\")\n\n@aot(target = \"gpu\")\nlocal function scale(\n"
-    .. "    exclusive output: span.WriteSpan<float>,\n    borrows input: span.Span<float>,\n    PARAMETER\n): nil\n"
-    .. "    assert(#output == #input, \"length mismatch\")\n    for index = 1, #output do\n"
-    .. "        output[index] = VALUE\n    end\nend\n\nreturn {scale = scale}\n"
-
--- Nine calls, each closing the family over another constant when SIGNATURE is const.
-local CONST_FAMILY = "@aot\nlocal function SIGNATURE: number\n    local answer = value\n"
-    .. "    for _ = 1, BOUND do\n        answer = answer + value\n    end\n    return answer\nend\n\n"
-    .. "return repeated(1.0, 1) + repeated(1.0, 2) + repeated(1.0, 3) + repeated(1.0, 4) + repeated(1.0, 5)\n"
-    .. "    + repeated(1.0, 6) + repeated(1.0, 7) + repeated(1.0, 8) + repeated(1.0, 9)\n"
-
 ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2905",
-    summary = "An `@aot` body uses a value or operation lowering cannot admit",
-    rule = "An `@aot` body lowers to typed native code, which decides at compile time "
-    .. "what the Lua version decides as it runs: a branch condition has to be a "
-    .. "boolean rather than any truthy value, a call has to reach an admitted "
-    .. "intrinsic or helper, a span read has to be proved in bounds, and a parameter "
-    .. "has to have a type the native ABI can carry. The message names the construct "
-    .. "and what it would take. Rewrite that construct, or remove `@aot` and let the "
-    .. "function run as ordinary Nupp.",
-    wrong = "@aot\nlocal function sign(value: number): number\n    if value then\n        return 1.0\n"
-    .. "    end\n    return 0.0\nend\n\nreturn {sign = sign}\n",
-    right = "@aot\nlocal function sign(value: number): number\n    if value > 0 then\n        return 1.0\n"
-    .. "    end\n    return 0.0\nend\n\nreturn {sign = sign}\n",
-    aot = true,
+    summary = "A retired lowering refused an `@aot` body",
+    rule = "This diagnostic belonged to the structured AOT lowering, which the typed control-flow graph replaced and which reported it while lowering an `@aot` body under `aot = \"require\"`. An `@aot` function now runs on the VM as ordinary Nupp, so nothing reports this code.",
     related = {"NUPP2903", "NUPP2906"},
     docs = "docs/learn/performance/ahead-of-time/index.md#annotation-guarantees",
 }
@@ -1620,15 +1585,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2906",
-    summary = "The selected feature tier cannot carry an explicit vector operation",
-    rule = "Explicit SIMD code is legalized for the tier it is compiled for, and every "
-    .. "tier a build selects compiles the same body. A constant lane index past the "
-    .. "lanes the tier's species has names a lane that does not exist there. Index "
-    .. "within `species.lanes`, or keep the lane-specific code inside the branch "
-    .. "that tested the species.",
-    wrong = SIMD_LANE:gsub("LANE", "5"),
-    right = SIMD_LANE:gsub("LANE", "1"),
-    aot = true,
+    summary = "A retired lowering refused a vector lane its tier lacks",
+    rule = "This diagnostic belonged to the structured AOT lowering, which the typed control-flow graph replaced and which reported it while lowering an `@aot` body under `aot = \"require\"`. Explicit SIMD code runs on the VM, which lays out a fixed species at its own width, so nothing reports this code.",
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/simd-programming.md#prefix-scans",
 }
@@ -1637,14 +1595,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2907",
-    summary = "A GPU kernel is outside the subset the GPU backend compiles",
-    rule = "A kernel that runs on the GPU lowers to a shader, which has no call stack, "
-    .. "no dynamic allocation and a narrower set of types than a CPU kernel. The "
-    .. "message names the rule the kernel broke. Keep the kernel to the map and "
-    .. "workgroup forms the GPU page describes, or run it on the CPU.",
-    wrong = GPU_SCALE:gsub("PARAMETER", "enabled: boolean"):gsub("VALUE", "enabled and input[index] or 0.0"),
-    right = GPU_SCALE:gsub("PARAMETER", "factor: float"):gsub("VALUE", "input[index] * factor"),
-    aot = true,
+    summary = "A retired lowering refused a GPU kernel",
+    rule = "This diagnostic belonged to the structured AOT lowering, which the typed control-flow graph replaced and which reported it while lowering an `@aot` body under `aot = \"require\"`. GPU kernels are lowered through the typed graph, whose subset the GPU page describes, so nothing reports this code.",
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/gpu.md#inspection-and-limits",
 }
@@ -1653,15 +1605,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2908",
-    summary = "A const-specialized family cannot be compiled",
-    rule = "A const-generic `@aot` function compiles one body per closed set of "
-    .. "constant arguments its callers use, from a checked source, and a module "
-    .. "may demand only so many of them. Pass fewer distinct constants, or make "
-    .. "the varying argument an ordinary parameter.",
-    wrong = CONST_FAMILY:gsub("SIGNATURE", "repeated<const N: integer>(value: number, count: N)")
-        :gsub("BOUND", "count as integer"),
-    right = CONST_FAMILY:gsub("SIGNATURE", "repeated(value: number, count: integer)"):gsub("BOUND", "count"),
-    aot = true,
+    summary = "A retired lowering refused a const-specialized family",
+    rule = "This diagnostic belonged to the structured AOT lowering, which the typed control-flow graph replaced and which reported it while lowering an `@aot` body under `aot = \"require\"`. Without that lowering there are no per-constant bodies to cap, so nothing reports this code.",
     related = {"NUPP2905"},
     docs = "docs/learn/performance/ahead-of-time/index.md#const-specialized-families",
 }

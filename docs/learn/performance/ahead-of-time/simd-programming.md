@@ -1214,12 +1214,14 @@ forms consistent when a value is shared.
 
 ### Storage layout
 
-Native-only aggregates cannot be span or array elements. The checker rejects
-the storage declaration and identifies the field that makes it native-only:
+Native-only aggregates cannot be span or array elements, since their vectors
+have no layout a storage type could hold. The structured AOT lowering refused
+such an element; it was retired, and nothing reports one now, so keep them out
+of storage:
 
 ```nupp:fragment
 @aot
-local function first(borrows values: span.Span<Pair>): Pair -- NUPP2905
+local function first(borrows values: span.Span<Pair>): Pair -- not storable
     return values[1]
 end
 ```

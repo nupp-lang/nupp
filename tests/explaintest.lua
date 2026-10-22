@@ -112,27 +112,29 @@ local function codesFor(entry, index, which)
    return reportedFor(entry.aot and true or false)[fileFor(index, which)] or {}
 end
 
+-- Every entry is checked before failing, so one run names all that drifted.
 local function everyWrongExampleReportsTheCodeItIsFiledUnder()
-   local checked = 0
+   local checked, silent = 0, {}
    for index, entry in ipairs(explain.entries) do
       if entry.wrong then
          checked = checked + 1
-         local codes = codesFor(entry, index, "wrong")
-         assert(codes[entry.code],
-            entry.code .. ": its `wrong` example no longer reports it")
+         if not codesFor(entry, index, "wrong")[entry.code] then
+            silent[#silent + 1] = entry.code
+         end
       end
    end
    assert(checked > 0, "the catalogue has worked examples to check")
+   assert(#silent == 0, "`wrong` examples that no longer report their code: " .. table.concat(silent, ", "))
 end
 
 local function everyRightExampleReportsNothing()
+   local loud = {}
    for index, entry in ipairs(explain.entries) do
-      if entry.right then
-         local codes = codesFor(entry, index, "right")
-         assert(not codes[entry.code],
-            entry.code .. ": its `right` example still reports it")
+      if entry.right and codesFor(entry, index, "right")[entry.code] then
+         loud[#loud + 1] = entry.code
       end
    end
+   assert(#loud == 0, "`right` examples that still report their code: " .. table.concat(loud, ", "))
 end
 
 -- Both catalogues read the same two bulk compiler reports. Keep them in one
@@ -142,18 +144,20 @@ function M.everyWorkedExampleMatchesItsDiagnosticEntry()
    everyRightExampleReportsNothing()
 end
 
--- What lowering refuses is reported by a check of a target that lowers, so each
--- refusal a check can report has a worked pair, checked above under such a target.
--- NUPP2909 is the one a check never reports: a build does not either.
+-- What the checker refuses in an `@aot` body under a target that compiles one is
+-- reported by a check of that target, so each such code has a worked pair checked
+-- above under one. NUPP2909 is one a check never reports, and the lowering
+-- refusals the structured AOT lowering published are retired with it: no program
+-- reports them, so none has an example.
 function M.everyAotRefusalACheckReportsHasAWorkedExample()
-   for _, code in ipairs({"NUPP2905", "NUPP2906", "NUPP2907", "NUPP2908", "NUPP2910"}) do
-      local entry = assert(explain.lookup(code), code)
-      assert(entry.aot == true, code .. " is marked as needing a target that lowers")
-      assert(entry.wrong and entry.right, code .. " has both examples")
+   local entry = assert(explain.lookup("NUPP2910"))
+   assert(entry.aot == true, "NUPP2910 is marked as needing a target that lowers")
+   assert(entry.wrong and entry.right, "NUPP2910 has both examples")
+   for _, code in ipairs({"NUPP2905", "NUPP2906", "NUPP2907", "NUPP2908", "NUPP2909"}) do
+      local none = assert(explain.lookup(code), code)
+      assert(none.wrong == nil and none.aot == false, code .. " has no program a check reports")
    end
-   local none = assert(explain.lookup("NUPP2909"))
-   assert(none.wrong == nil and none.aot == false, "NUPP2909 has no program a check reports")
-   local pipe = assert(io.popen(("'%s' explain NUPP2906 --json 2>/dev/null"):format(NUPP)))
+   local pipe = assert(io.popen(("'%s' explain NUPP2910 --json 2>/dev/null"):format(NUPP)))
    local decoded = json.decode(pipe:read("*a"))
    pipe:close()
    assert(decoded.aot == true, "the command says which targets report it")

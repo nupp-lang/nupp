@@ -1934,22 +1934,19 @@ annotation. It changes no runtime behavior.
 ### Ahead-of-time compilation
 
 `@aot` reserves a required whole-function ahead-of-time compilation contract on
-a top-level local function declaration. A target's `aot` policy says what a
-build does with it: `off`, the default, does nothing; `require` compiles every
-`@aot(target = "gpu")` kernel and fails the build on a CPU `@aot` function,
-whose native code generator was removed with LuaJIT. The VM lowers those bodies
-itself.
+a top-level local function declaration. The VM lowers an `@aot` body itself,
+and a GPU kernel through the typed graph; the structured lowering a target's
+`aot = "require"` policy once ran, and the refusals it published, were retired
+with LuaJIT's native code generator.
 
 A closure, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside one reports `NUPP2903` at the construct. A constructor,
 qualified declaration or inline requirement is not a replaceable local function
 declaration, so annotating one reports `NUPP2902`.
 
-What lowering itself refuses is `NUPP2905` through `NUPP2908`: a `number` used
-as a branch condition, a call no intrinsic admits, a lane past the tier's
-species, a GPU kernel outside its subset, or a const family over its cap.
-`nupp check` lowers too, for a target whose policy is anything but `off`, so a
-program that checks against that target is one its build admits.
+`NUPP2905` through `NUPP2908` were that lowering's refusals and are retired:
+nothing reports them. A native-only entry reached from Lua still reports
+`NUPP2910`, and a write to a native-only aggregate's field `NUPP2911`.
 
 A block kernel may use independently sized spans, structured scalar control
 flow, and multiple numeric or boolean results. A loop from one through

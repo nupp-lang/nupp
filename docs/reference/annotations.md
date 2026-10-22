@@ -484,21 +484,17 @@ local function clamp(value: number, low: number, high: number): number
 end
 ```
 
-A target's `aot` build policy says what happens with it: `off`, the default,
-does nothing; `require` compiles every `@aot(target = "gpu")` kernel and refuses
-a CPU `@aot` function, whose native code generator was removed with LuaJIT. The
-VM lowers CPU `@aot` bodies itself.
+The VM lowers an `@aot` body itself, and a GPU kernel through the typed graph.
+The structured lowering a target's `aot = "require"` policy once ran, and the
+refusals it published, were retired with LuaJIT's native code generator.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside the body reports `NUPP2903` at the construct, and annotating a
 constructor or inline requirement reports `NUPP2902`, since neither is a whole
 function to compile.
 
-What lowering refuses about an admitted construct, such as a `number` used as a
-branch condition or a call no intrinsic admits, reports `NUPP2905` through
-`NUPP2908`. `nupp check` lowers for a target whose policy is anything but
-`off`, so it reports these where the build would, and a target under `off`,
-which never lowers, reports none of them.
+`NUPP2905` through `NUPP2908` were that lowering's refusals and are retired:
+nothing reports them.
 
 Code that runs in vector lanes uses `nupp.simd`. See
 [simd-programming.md](../learn/performance/ahead-of-time/simd-programming.md) for the

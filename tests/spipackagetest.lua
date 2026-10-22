@@ -95,51 +95,6 @@ return {newBuffer = text.newBuffer, now = time.now, storage = representation.sto
     assert(ok, why)
 end
 
-function M.advertisedImplementationsAndTheirImportsReceiveTheAotPolicy()
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[return {include = {"src"}, build = {
-            kind = "modules", outDir = "out", entries = {"main"},
-            sources = {"src/main.nupp"}, aot = "require"
-        }}]],
-        ["nupp/spi.json"] = [[{"api.Kernel":["implementation"]}]],
-        ["src/api.nupp"] = [[module api
-export interface Kernel
-    @readonly apply: function(number): number
-end
-]],
-        [
-            "src/main.nupp"
-        ] = [[local {type Kernel} = require("api")
-local impl = assert(nupp.spi.load(Kernel)())
-return impl.apply
-]],
-        ["src/implementation.nupp"] = [[local kernel = require("kernel")
-return {apply = kernel.apply}
-]],
-        [
-            "src/kernel.nupp"
-        ] = [[module kernel
-@aot
-local function apply(value: number): number
-    return value * 2 + 1
-end
-export = {apply = apply}
-]],
-    })
-    -- Only GPU kernels compile ahead of time, so the policy reaching the
-    -- implementation's import shows as the CPU kernel's refusal.
-    local here = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-    local status, output = process.capture({fs.absolute(here .. "/../bin/nupp"), "build"}, {cwd = dir})
-    testAssert.equal(status, 1, "the implementation's CPU @aot import is refused: " .. tostring(output))
-    testAssert.assert(
-        tostring(output):find("apply is a CPU @aot function", 1, true),
-        "the refusal names the imported kernel: " .. tostring(output)
-    )
-    remove(dir)
-end
-
 local function checkDocumentedSpi(page)
     local files = {
         [
