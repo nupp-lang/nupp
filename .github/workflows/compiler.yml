@@ -64,10 +64,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The VM compiler a job builds or restores runs interpreted: linking its
-# compiled code costs ten minutes of a runner's cores, in the background beside
-# the suites, for a compiler that answers the same either way.
+# The VM compiler bootstraps the tree: built from the pinned stage-zero image
+# when no restored one is current, it builds the LuaJIT compiler the suites run
+# on, as they did before the image was pinned; the VM test runner has not run
+# on Linux yet. It runs interpreted, since linking its compiled code costs ten
+# minutes of a runner's cores for a compiler that answers the same either way.
+# The fixpoint job asks for the VM compiler itself.
 env:
+  NUPP_ENGINE: luajit
   NUPP_VM_AUTO_LINK: "0"
 
 jobs:
@@ -752,6 +756,8 @@ jobs:
         run: ./scripts/toolchain --all
 
       - name: Verify the self-hosting fixpoint
+        env:
+          NUPP_ENGINE: ""
         run: ./bin/nupp fixpoint
 
       - name: Save the VM compiler

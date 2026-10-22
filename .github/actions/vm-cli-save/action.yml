@@ -9,7 +9,7 @@ runs:
     - shell: bash
       run: |
         cd .nupp/vm-cli 2>/dev/null || exit 0
-        keep=" $(cat current 2>/dev/null) $(cat emitter 2>/dev/null) "
+        keep=" $(cat current 2>/dev/null || true) $(cat emitter 2>/dev/null || true) "
         for entry in */; do
           entry=${entry%/}
           case "$keep" in *" $entry "*) ;; *) rm -rf "$entry" ;; esac
