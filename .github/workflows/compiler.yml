@@ -569,9 +569,13 @@ jobs:
         shell: bash
         run: ./bin/nupp build --target dist
 
+      # The portable suites run on the VM runner, which reports each suite it
+      # leaves to LuaJIT as not executed; the step after it runs those.
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          NUPP_ENGINE: ""
         # `core_pattern` already pipes to systemd-coredump on this image, but
         # the soft limit is zero, so the kernel writes nothing and the shell
         # still says "core dumped". Raising it here is what makes the step
@@ -587,6 +591,15 @@ jobs:
             ./bin/nupp test --lane=shell --jobs=2 \
               --exclude-group=external-corpus,rust-native-gate,measurement
           fi
+
+      - name: Run the suites left to LuaJIT
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2046
+          ./bin/nupp test --jobs=2 $(python3 .github/scripts/luajit-suites.py) \
+            --exclude-group=external-corpus,rust-native-gate,measurement
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -650,6 +663,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         env:
+          NUPP_ENGINE: ""
           NUPP_TEST_AOT_TRACE: 1
           NUPP_TEST_AOT_ARTIFACTS: ${{ runner.temp }}/nupp-worker-dumps
         run: |
@@ -665,6 +679,8 @@ jobs:
           ./bin/nupp test --lane=shared \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
           ./bin/nupp test --lane=shell --jobs=2 \
+            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
+          NUPP_ENGINE=luajit ./bin/nupp test --jobs=2 $(python3 .github/scripts/luajit-suites.py) \
             --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
 
       # What the suite saved, named in the log so a reader knows what the
