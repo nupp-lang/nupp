@@ -98,19 +98,12 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
 end
 
 function M.aPointerToAnArrayKeepsItsParentheses()
-    -- The spelling is what LuaJIT lays out, so the check is on the C text and on
-    -- the size LuaJIT gives it: a pointer to four ints, not four pointers.
+    -- A pointer to four ints, not four pointers.
     local T = require("nupp.compiler.types")
-    local ffi = require("ffi")
     local row = T.ptr(T.carray(T.int32, 4))
     local rows = T.carray(T.ptr(T.int32), 4)
     testAssert.equal(cabi.declaration(row, "row", "ffi"), "int32_t (*row)[4]")
     testAssert.equal(cabi.declaration(rows, "rows", "ffi"), "int32_t *rows[4]")
-    testAssert.equal(ffi.sizeof("struct { " .. cabi.declaration(row, "row", "ffi") .. "; }"), ffi.sizeof("void *"))
-    testAssert.equal(
-        ffi.sizeof("struct { " .. cabi.declaration(rows, "rows", "ffi") .. "; }"),
-        4 * ffi.sizeof("void *")
-    )
 end
 
 function M.aGuardIsAlwaysACIdentifier()
@@ -130,20 +123,6 @@ function M.functionRecordsRejectUnmodelledCallingConventions()
     local prototype, why = cabi.prototype(signature)
     testAssert.equal(prototype, nil)
     testAssert.equal(why, "the C function signature has an unsupported calling convention")
-end
-
-function M.hostRuntimeLayoutAgreesWithTheCanonicalRecord()
-    local exports, parsed = checked(SOURCE)
-    local host = assert(require("nupp.compiler.targetlayout").hostKey())
-    local description = assert(cabi.aggregate(exports.types.Motion, host))
-    local generated = require("nupp.compiler.lua.gen").generate(parsed, "src/game.nupp")
-    local game = assert(loadstring(generated, "@generated-game"))()
-    local ffi = require("ffi")
-    testAssert.equal(ffi.sizeof(game.Motion), description.size, "host size")
-    testAssert.equal(ffi.alignof(game.Motion), description.alignment, "host alignment")
-    for _, field in ipairs(description.fields) do
-        testAssert.equal(ffi.offsetof(game.Motion, field.name), field.offset, "host offset for " .. field.name)
-    end
 end
 
 function M.layoutAndSemanticChangesAlterThePublishedFingerprints()

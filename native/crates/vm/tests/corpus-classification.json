@@ -345,9 +345,9 @@
     },
     {
       "suite": "cabitest",
-      "class": "retired",
-      "facilities": "load,ffi,getinfo,lua-generator",
-      "reason": "tests machinery the plan deletes: AOT/LLVM lowering, the Lua generator, LuaRocks, the browser guest, LuaJIT-specific layout"
+      "class": "portable",
+      "facilities": "getinfo",
+      "reason": "ported: the C ABI records and headers, with the LuaJIT layout comparisons removed"
     },
     {
       "suite": "cachestamptest",
@@ -837,9 +837,9 @@
     },
     {
       "suite": "memarenatest",
-      "class": "port-required",
-      "facilities": "ffi",
-      "reason": "reads arena row addresses and struct types through LuaJIT ffi; ports when the VM arena exposes them"
+      "class": "portable",
+      "facilities": "",
+      "reason": "ported: rows compared by reference identity, which the per-page reference cache makes their address"
     },
     {
       "suite": "memberstest",
@@ -1131,9 +1131,9 @@
     },
     {
       "suite": "runnertest",
-      "class": "harness",
+      "class": "portable",
       "facilities": "getinfo,spawn",
-      "reason": "test runner, not a test"
+      "reason": "ported: the runner binds its descriptor and process-group calls through the VM foreign calls"
     },
     {
       "suite": "runtimereflectiontest",

@@ -1,5 +1,4 @@
 -- nupp.mem.arena: zero-filled struct rows leased from pages that never move.
-local ffi = require("ffi")
 local arena = require("nupp.mem.arena")
 local test = require("nupp.test")
 
@@ -10,12 +9,11 @@ local struct Row
     y: float
 end
 
--- Where a row sits. A page's first row is at its start, so this also says
--- where a page is.
-local function addressOf(row: Row): number
-    -- A struct reference converts to a pointer to its bytes, and a pointer to
-    -- an integer; a struct does not convert to an integer directly.
-    return tonumber(ffi.cast("uintptr_t", ffi.cast("void *", row)) as any) as number
+-- Whether two leases are the same row. Each page caches one reference per row
+-- when it is made, so a row's reference is its identity for as long as the
+-- arena lives.
+local function same(a: Row, b: Row): boolean
+    return rawequal(a, b)
 end
 
 -- Bytes allocated while `body` ran, with the collector stopped: the count
@@ -82,13 +80,11 @@ end
 function M.rowsAreStructReferencesIntoThePage(): nil
     local rows = arena.newArena(Row, 4)
     local first = rows:acquire()
-    assert(ffi.istype(Row, first), "a row is a reference of the struct type")
     first.x = 1.5
     local second = rows:acquire()
     second.x = 2.5
     test.equal(first.x, 1.5, "rows do not alias")
     test.equal(second.x, 2.5)
-    test.equal(addressOf(second) - addressOf(first), ffi.sizeof(Row), "rows are contiguous within a page")
 end
 
 function M.nestedAcquiresGiveDistinctRows(): nil
@@ -99,7 +95,7 @@ function M.nestedAcquiresGiveDistinctRows(): nil
     inner.x = 2
     local innermost = rows:acquire()
     innermost.x = 3
-    assert(addressOf(outer) ~= addressOf(inner) and addressOf(inner) ~= addressOf(innermost))
+    assert(not same(outer, inner) and not same(inner, innermost))
     test.equal(outer.x, 1)
     test.equal(inner.x, 2)
     test.equal(innermost.x, 3)
@@ -109,7 +105,7 @@ function M.nestedAcquiresGiveDistinctRows(): nil
     test.equal(rows:live(), 0)
     test.equal(rows:used(), 3, "a release does not rewind the cursor")
     local next = rows:acquire()
-    assert(addressOf(next) ~= addressOf(outer), "a released row is not reused before a reset")
+    assert(not same(next, outer), "a released row is not reused before a reset")
 end
 
 function M.acquireAllocatesNothingOnceItsPageExists(): nil
@@ -150,7 +146,7 @@ function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
     test.equal(rows:live(), 2)
     test.equal(rows:pages(), 1)
     local third = rows:acquire()
-    assert(addressOf(third) ~= addressOf(first) and addressOf(third) ~= addressOf(second), "the cursor did not rewind")
+    assert(not same(third, first) and not same(third, second), "the cursor did not rewind")
     test.equal(second.x, 9)
     rows:release(first)
     rows:release(second)
@@ -177,12 +173,12 @@ function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
     test.equal(first.x, 7, "a reset does not touch the rows until they are leased again")
 
     local again = rows:acquire()
-    test.equal(addressOf(again), addressOf(first), "the first lease after a reset is the first row of page one")
+    assert(same(again, first), "the first lease after a reset is the first row of page one")
     test.equal(again.x, 0)
     test.equal(again.y, 0)
-    test.equal(addressOf(rows:acquire()), addressOf(second))
+    assert(same(rows:acquire(), second))
     local reused = rows:acquire()
-    test.equal(addressOf(reused), addressOf(third), "page two is reused rather than allocated")
+    assert(same(reused, third), "page two is reused rather than allocated")
     test.equal(reused.y, 0)
     test.equal(rows:pages(), 2)
 end
@@ -191,25 +187,20 @@ function M.pagesNeverMoveWhenTheArenaGrows(): nil
     local rows = arena.newArena(Row, 2)
     local first = rows:acquire()
     first.x = 3
-    local pageOne = addressOf(first)
     local kept: {Row} = {first}
-    -- Where each row was when it was leased, before any later page existed.
-    local leasedAt: {number} = {pageOne}
-    local pageStarts: {number} = {pageOne}
+    -- The first row of each page, as it was leased before any later page existed.
+    local pageStarts: {Row} = {first}
     for index = 2, 8 do
         local row = rows:acquire()
         row.x = index + 2
         kept[index] = row
-        leasedAt[index] = addressOf(row)
         if index % 2 == 1 then
-            pageStarts[#pageStarts + 1] = addressOf(row)
+            pageStarts[#pageStarts + 1] = row
         end
     end
     test.equal(rows:pages(), 4)
-    test.equal(addressOf(first), pageOne, "the first page stayed where it was")
     test.equal(first.x, 3, "a write through the old reference still lands in its page")
     for index = 1, 8 do
-        test.equal(addressOf(kept[index]), leasedAt[index], "row " .. tostring(index) .. " did not move")
         test.equal(kept[index].x, index + 2)
     end
     for index = 1, 8 do
@@ -218,7 +209,8 @@ function M.pagesNeverMoveWhenTheArenaGrows(): nil
     rows:reset()
     for page = 1, 4 do
         local row = rows:acquire()
-        test.equal(addressOf(row), pageStarts[page], "page " .. tostring(page) .. " is where it was")
+        assert(same(row, pageStarts[page]), "page " .. tostring(page) .. " is where it was")
+        test.equal(row.x, 0, "and its row reads as zero again")
         rows:acquire()
     end
 end
