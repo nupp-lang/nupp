@@ -74,6 +74,7 @@ fn options(vm: &mut Interp, value: Value) -> native::SpawnOptions {
         clear_env,
         cwd,
         modes,
+        raw_last: false,
     }
 }
 fn spawn(vm: &mut Interp, options: native::SpawnOptions) -> Outs {
@@ -148,6 +149,7 @@ fn shell(command: &str) -> native::SpawnOptions {
         clear_env: false,
         cwd: None,
         modes: [native::StdioMode::Inherit; 3],
+        raw_last: true,
     }
 }
 pub(crate) fn execute(vm: &mut Interp, args: &[Value]) -> Outs {

@@ -43,6 +43,11 @@ pub struct SpawnOptions {
     pub clear_env: bool,
     pub cwd: Option<OsString>,
     pub modes: [StdioMode; 3],
+    /// Pass the last argument through verbatim on Windows rather than quoted.
+    /// A shell command line handed to `cmd /c` has to reach cmd as written, as
+    /// C's `system` and `_popen` hand it; quoting it again breaks cmd's own
+    /// rules for a line that starts and ends with a quote.
+    pub raw_last: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -378,6 +383,15 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     }
     let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
     let mut command = Command::new(&options.args[0]);
+    #[cfg(windows)]
+    if options.raw_last && options.args.len() > 1 {
+        let last = options.args.len() - 1;
+        command.args(&options.args[1..last]);
+        command.raw_arg(&options.args[last]);
+    } else {
+        command.args(&options.args[1..]);
+    }
+    #[cfg(not(windows))]
     command.args(&options.args[1..]);
     if options.clear_env {
         command.env_clear();
@@ -1004,6 +1018,7 @@ mod tests {
             clear_env: false,
             cwd: None,
             modes: [StdioMode::Pipe, StdioMode::Pipe, StdioMode::Pipe],
+            raw_last: false,
         })
         .unwrap()
     }
@@ -1271,6 +1286,7 @@ mod tests {
                 clear_env: false,
                 cwd: None,
                 modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+                raw_last: false,
             });
             assert!(refused.is_err(), "{name:?} was accepted");
         }
