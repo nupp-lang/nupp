@@ -417,9 +417,8 @@ built by another release is refused by exact version rather than adapted.
 | Format | Version | Rule | Declared in |
 | --- | --- | --- | --- |
 | Native provider ABI | 2 | exact major | `native/include/nupp_native.h` `NUPP_NATIVE_ABI_VERSION` |
-| Embedding ABI | 2 | exact, config `size` at least the struct | `native/crates/host/src/embed.rs` `EMBED_ABI_VERSION` |
 | Compiler host ABI | 1 | exact | `src/nupp/tools/build/platform.nupp` `hostAbiVersion` |
-| Payload trailer | 1 | exact | `native/crates/host/src/payload.rs` `FORMAT_VERSION` |
+| Payload trailer | 1 | exact | `native/crates/vm/src/payload.rs` `FORMAT_VERSION` |
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |

@@ -126,7 +126,7 @@ end
 -- Run without a selected image, as a person at a terminal would, and without the
 -- background link, which would outlive the case.
 local ENV = "NUPP_VM_CLI_IMAGE= NUPP_VM_BINARY= NUPP_VM_AUTO_LINK= NUPP_VM_AUTO_REBUILD="
-    .. " NUPP_ENGINE= NUPP_VM_AUTO_LINK=0"
+    .. " NUPP_VM_AUTO_LINK=0"
 
 local function ran(dir, command, env)
     return capture(("cd '%s' && %s %s ./bin/nupp %s 2>&1"):format(dir, ENV, env or "", command))

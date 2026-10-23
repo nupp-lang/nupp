@@ -76,19 +76,6 @@ local function run(dir, argv)
     return out, status == 0
 end
 
--- Whether `nupp build` stamps VM programs: the compiler it runs is VM-hosted,
--- named outright or installed for the checkout. A LuaJIT-hosted compiler stamps
--- LuaJIT programs, whose native shared bytes and transfer walk the cases gated
--- on this are about.
-local function stampsVmPrograms()
-    local selected = io.open(HERE .. "/../.nupp/vm-cli/current", "rb")
-    if selected then
-        selected:close()
-    end
-
-    return os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or (selected ~= nil and os.getenv("NUPP_ENGINE") ~= "luajit")
-end
-
 local MANIFEST = [[
 return {
    include = { "src" },
@@ -561,7 +548,7 @@ end
     assert(builtOk, "the native worker binary builds: " .. built)
     local output, ranOk = run(dir, EXECUTABLE)
     assert(ranOk, "the native worker binary runs: " .. output)
-    local checkedId = stampsVmPrograms() and "10" or "dynamic"
+    local checkedId = "10"
     local expected = "36\t36\t49\t10\tdone\t16\t18\ttrue\tkept\t1\t6\tnative string\t9\tschema\ttrue\ttrue\t"
         .. checkedId
         .. "\ttrue\t11\ttrue\tspare\ttrue\t13\ttrue\ttrue\theld\t112\tregion:17:99:true\tregion\n84\ntrue\ttrue\nfalse\ttrue\nfalse\ttrue\n64\t200\n45\nhi!\n"
@@ -747,105 +734,6 @@ end
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- A region's extent is two private fields, and a forged one used to reach the
--- native push beside a moved array: the push refused the region, and freed the
--- array twice. The transfer walk refuses it first, with the array still owned.
--- A VM worker receives a copy of a region's managed block, and its views check
--- every extent against that storage, so there is no native push to reach.
-function M.aRegionWhoseExtentWasForgedIsRefusedBeforeItCrosses()
-    test.requireCapability("native-region-transfer", not stampsVmPrograms())
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
-}}}}
-]],
-        [
-            "src/jobs.nupp"
-        ] = [[
-module jobs
-
-const heap = require("nupp.mem.heap")
-const sharedbytes = require("nupp.mem.sharedbytes")
-
-export function inspect(takes frame: heap.Array<uint8>, region: sharedbytes.Region): integer
-    local count = frame.count
-    frame:close()
-    return count + region:length()
-end
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-const jobs = require("jobs")
-const heap = require("nupp.mem.heap")
-const sharedbytes = require("nupp.mem.sharedbytes")
-const tasks = require("nupp.tasks")
-
-local region = sharedbytes.copy("abc")
-rawset(region as any, "_length", 99)
-local ok, problem = pcall(function(): nil
-    local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-    with scope = tasks.open() do
-        scope:fork(frame, region, jobs.inspect)
-    end
-end)
-print(ok, tostring(problem):find("extent lies outside its storage", 1, true) ~= nil)
-rawset(region as any, "_length", 3)
-local frame = heap.allocate(ffi.typeof<uint8>(), 64)
-with scope = tasks.open() do
-    print(scope:fork(frame, region, jobs.inspect):await())
-end
-]],
-    })
-    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
-    assert(builtOk, "the forged-region binary builds: " .. built)
-    local expected = "false\ttrue\n67\n"
-    local output, ranOk = run(dir, EXECUTABLE)
-    assert(ranOk and output == expected, "a forged region extent is refused before it crosses: " .. output)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
--- A native shared-bytes block is accounted while a region holds it and given back
--- when the last one is collected. A VM region's block is managed storage, which
--- the collector accounts for like any other value.
-function M.nativeSharedBytesAreAccountedUntilCollected()
-    test.requireCapability("native-shared-bytes", not stampsVmPrograms())
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[
-return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
-}}}}
-]],
-        [
-            "src/main.nupp"
-        ] = [[
-const sharedbytes = require("nupp.mem.sharedbytes")
-
-local type Accounted = {accounted: @nosuspend function(): integer}
-local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
-collectgarbage("collect")
-collectgarbage("collect")
-local before = rawShared.accounted()
-local grown: sharedbytes.Region? = sharedbytes.copy(("y"):rep(65536))
-print(rawShared.accounted() - before == 65536, grown ~= nil)
-grown = nil
-collectgarbage("collect")
-collectgarbage("collect")
-print(rawShared.accounted() == before)
-]],
-    })
-    local built, builtOk = run(dir, "'" .. NUPP .. "' build")
-    assert(builtOk, "the shared-bytes binary builds: " .. built)
-    local output, ranOk = run(dir, EXECUTABLE)
-    assert(ranOk and output == "true\ttrue\ntrue\n", "a region's block is accounted until collected: " .. output)
-    os.execute("rm -rf '" .. dir .. "'")
-end
-
 -- The task-scopes guide's fork inside a spawned child, with more items than
 -- slots, run for real. Every slot held by a child waiting on the worker task it
 -- forked used to deadlock the scope ("a task cannot complete: no readiness
@@ -976,7 +864,7 @@ print(owing)
     -- A moved native array has to be freed by whoever holds it last, so its
     -- unconsumed result stays listed for close. On the VM the array is managed
     -- storage the undelivered result drops, and nothing stays owed.
-    local owed = stampsVmPrograms() and "0" or "1"
+    local owed = "0"
     assert(
         ranOk and output == "true\ttrue\n" .. owed .. "\n",
         "settled worker tasks left the scope and the unconsumed moved result stayed: " .. output

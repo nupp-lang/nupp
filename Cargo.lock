@@ -1296,24 +1296,6 @@ name = "nupp-extension"
 version = "0.1.0"
 
 [[package]]
-name = "nupp-native"
-version = "0.1.0"
-dependencies = [
- "nupp-native-abi",
- "nupp-native-checksum",
- "nupp-native-compression",
- "nupp-native-files",
- "nupp-native-gpu",
- "nupp-native-http",
- "nupp-native-net",
- "nupp-native-platform",
- "nupp-native-process",
- "nupp-native-runtime",
- "nupp-native-tls",
- "url",
-]
-
-[[package]]
 name = "nupp-native-abi"
 version = "0.1.0"
 
@@ -1351,16 +1333,6 @@ dependencies = [
  "pollster",
  "serde_json",
  "wgpu",
-]
-
-[[package]]
-name = "nupp-native-host"
-version = "0.1.0"
-dependencies = [
- "libc",
- "nupp-native",
- "nupp-native-platform",
- "nupp-native-runtime",
 ]
 
 [[package]]

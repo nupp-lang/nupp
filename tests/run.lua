@@ -37,9 +37,8 @@ if modulesRoot and modulesRoot ~= "" then
     package.path = modulesRoot .. "/?.lua;" .. modulesRoot .. "/?/init.lua;" .. package.path
 end
 
--- Which engine runs the suites this process loads: the VM when the runner is a
--- VM program, LuaJIT otherwise. Every suite record says so.
-local engine = rawget(_G, "__nupp_load_image") and "vm" or "luajit"
+-- Which engine runs the suites this process loads. Every suite record says so.
+local engine = "vm"
 
 -- On the VM a suite's `require` of a project or standard module the runner image
 -- does not carry compiles that module from source into an image of its own,
@@ -1400,44 +1399,6 @@ end)
 -- What runs the shared lane: Nupp worker states inside a LuaJIT host, or on
 -- the VM, where a worker shares no Lua state with the runner, processes.
 local sharedWorkers = workerHost and "Nupp workers" or engine == "vm" and "VM processes" or "Nupp workers"
-
--- What the VM runner leaves to LuaJIT: the suites the corpus classification
--- marks `port-required` (they still drive the Lua generator, `ffi`, `jit` or a
--- LuaJIT host), `retired` (they test machinery the VM deletes) or `harness`
--- (this runner's own suite, which drives it as a LuaJIT program). A run that
--- names one explicitly runs it here anyway; a selection by group, lane or
--- default reports each as not executed, so the gap stays in the totals rather
--- than out of sight. `tests/run` is the LuaJIT runner that still executes them.
-local deferredSuites = {}
-if engine == "vm" and not wanted and not queueDir then
-    local classified = {}
-    local file = io.open(dir .. "/../native/crates/vm/tests/corpus-classification.json", "rb")
-    if file then
-        local text = file:read("*a")
-        file:close()
-        local ok, decoded = pcall(function()
-            return testJson.decode(text)
-        end)
-        for _, row in ipairs(ok and type(decoded) == "table" and decoded.suites or {}) do
-            if row.class == "port-required" or row.class == "retired" or row.class == "harness" then
-                classified[row.suite] = row.class
-            end
-        end
-    end
-    local named = {}
-    for _, name in ipairs(chosen) do
-        named[name] = true
-    end
-    local kept = {}
-    for _, info in ipairs(suites) do
-        if classified[info.name] and not named[info.name] then
-            deferredSuites[#deferredSuites + 1] = {name = info.name, class = classified[info.name]}
-        else
-            kept[#kept + 1] = info
-        end
-    end
-    suites = kept
-end
 
 local function loadSuite(suite)
     local path = dir .. "/" .. suite.name .. "." .. suite.extension
@@ -3908,30 +3869,6 @@ if #shard == 0 and not queueDir then
     rememberTimings(suiteRecords, results)
 end
 
--- After the timings, so a suite that did not run does not record costing nothing.
-for _, deferred in ipairs(deferredSuites) do
-    total = total + 1
-    notExecutedCount = notExecutedCount + 1
-    mark("N")
-    results[
-        #results + 1
-    ] = {
-        id = deferred.name .. "/*",
-        suite = deferred.name,
-        name = "*",
-        durationMs = 0,
-        status = "not-executed",
-        notExecuted = {
-            reason = deferred.class == "retired"
-            and "retired: tests machinery the VM deletes; runs on LuaJIT (tests/run)"
-            or deferred.class .. ": runs on LuaJIT (tests/run) until it is ported to the VM",
-        },
-    }
-    suiteRecords[
-        #suiteRecords + 1
-    ] = {suite = deferred.name, durationMs = 0, loadMs = 0, hooksMs = 0, casesMs = 0, tests = 0, engine = "luajit",}
-end
-
 -- Coverage-generated modules share one small global counter table.  The runner owns
 -- the process boundary, so it is the right place to turn that in-memory table into a
 -- shard the parent `nupp test --coverage` command can merge after the test process
@@ -4203,21 +4140,6 @@ else
         ):format(total, passed, skipped, notExecutedCount, failed, duration)
         or ("%d tests, %d passed, %d skipped, %d failed (%.1fms)"):format(total, passed, skipped, failed, duration)
     io.write("\n" .. paint(failed == 0 and "1;32" or "1;31", summary) .. "\n")
-    if engine == "vm" and #shard == 0 and not queueDir then
-        -- Which engine ran the run, and what it left to the other one by name, so
-        -- a green line on the VM never reads as the LuaJIT-only suites passing.
-        local names = {}
-        for _, deferred in ipairs(deferredSuites) do
-            names[#names + 1] = deferred.name
-        end
-        io.write(
-            (
-                "Engine: vm%s\n"
-            ):format(
-                #names > 0 and ("; %d left to LuaJIT (tests/run): %s"):format(#names, table.concat(names, " ")) or ""
-            )
-        )
-    end
     if timingRows > 0 and #suiteRecords > 0 then
         io.write(timingReport())
     end

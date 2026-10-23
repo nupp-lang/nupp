@@ -1036,8 +1036,6 @@ function M.unknownRunnerOptionIsRejectedBeforeDiscovery()
     test.equal(output:find("suites across", 1, true), nil, "an unknown option does not start the suite")
 end
 
--- Named, because a run that names no suite on the VM leaves out of its listing
--- the suites still left to LuaJIT.
 function M.fixedWidthRuntimeUsesTheFreshProcessLane()
     local isolated, isolatedRun = runRepositoryRunner("fixedwidthtest --lane=isolated --list-suites")
     test.equal(isolatedRun.status, 0, "isolated lane listing failed" .. evidence(isolatedRun))

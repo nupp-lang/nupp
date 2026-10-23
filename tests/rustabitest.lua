@@ -14,14 +14,6 @@ local function read(path)
     return text
 end
 
-function M.publicHeaderLinksAndRunsAgainstTheSelectedCdylib()
-    local pipe = assert(io.popen("'" .. ROOT:gsub("'", "'\\''") .. "/scripts/test-rust-abi' 2>&1; echo __exit__:$?"))
-    local output = pipe:read("*a")
-    pipe:close()
-    local status = tonumber(output:match("__exit__:(%d+)%s*$"))
-    assert(status == 0, output)
-end
-
 local function lastLine(command)
     local pipe = assert(io.popen(("cd %s && %s 2>/dev/null"):format(quote(ROOT), command)))
     local line = pipe:read("*a"):match("([^\r\n]+)%s*$")
