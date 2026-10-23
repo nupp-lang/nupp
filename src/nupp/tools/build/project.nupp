@@ -512,10 +512,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- the entry's namespace directory where the binary goes: `app.main` wrote
     -- `build/app/main.lua`, and the next build of a binary named `app` could not
     -- create that directory beside it. Such a build checks the modules and
-    -- generates nothing; the image carries the resources from their sources. A
-    -- coverage build still generates, since the sites it records are numbered
-    -- there; specializing that Lua re-checked every module of a fully reused
-    -- build (~380 s for the test runner), so it is skipped.
+    -- generates nothing; the image carries the resources from their sources,
+    -- and a coverage build's sites are numbered where the image is lowered.
     local vmProgramModules = false
     if not opts.checkOnly
         and target.kind == "binary"
@@ -524,7 +522,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         and rawget(_G, "__nupp_load_image") ~= nil
     then
         (target as any)._skipConstSpecialization = true
-        vmProgramModules = (config as any)._coverage ~= true
+        vmProgramModules = true
     end
     local result, buildErr = buildModules(
         root,

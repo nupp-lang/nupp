@@ -1062,6 +1062,10 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
             artifactHash = job.contentDigest(code)
         end
         generateMs = progress.now() - startedGenerating
+    elseif not external and not fatal and config._coverage then
+        -- A VM program lowers its modules from source and numbers their sites
+        -- there; packaging only needs to know which file each module is.
+        coverage = {path = path, sites = {}}
     end
     local moduleEffect = native.forModule(name)
     if moduleEffect ~= nil then
