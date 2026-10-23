@@ -1384,7 +1384,9 @@ impl Interp {
         crate::nregex::install(self);
         let package = self.new_table(); self.registered.push(package);
         { let loaded = self.new_table(); self.registered.push(loaded); self.loaded_table = loaded; let k = self.intern("loaded"); self.set_index(package, k, loaded); }
-        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); let v = self.heap_new_string("/\n;\n?\n!\n-\n"); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); 
+        { let preload = self.new_table(); self.registered.push(preload); let k = self.intern("preload"); self.set_index(package, k, preload); // Its first line is the directory separator, which sources read to tell
+        // Windows apart, as LuaJIT spells it there.
+        let v = self.heap_new_string(if cfg!(windows) { "\\\n;\n?\n!\n-\n" } else { "/\n;\n?\n!\n-\n" }); let vh = self.register(v); let k = self.intern("config"); self.set_index(package, k, v); self.release(vh); 
           // Lua's search paths: LUA_PATH and LUA_CPATH, where `;;` stands for the default.
           for (name, variable, default) in [("path", "LUA_PATH", "./?.lua;./?/init.lua"), ("cpath", "LUA_CPATH", "./?.so")] {
               let text = std::env::var(variable).map(|v| v.replace(";;", &format!(";{default};"))).unwrap_or_else(|_| default.to_string());
