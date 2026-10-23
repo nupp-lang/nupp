@@ -137,9 +137,9 @@ whenever output is not a terminal, so piped output never carries escapes.
   Add `--write` only when the requested change should be applied.
 - `./bin/nupp lsp artifacts --json FILE LINE COLUMN` lists what the file
   compiles to and names the function at the position.
-- `./bin/nupp lsp artifact --kind lua [-O0|-O1|-O2] FILE` prints the generated
-  Lua. It is line-identical to its source, so line N of the output is line N of
-  the input.
+- `./bin/nupp lsp artifact --kind bytecode|image FILE` prints one of them: the
+  bytecode listing beside the source lines it came from, or the image itself;
+  under `--json` a listing carries its own mapping.
 - `./bin/nupp lsp actions --json FILE LINE COLUMN` lists code actions. Use
   `--only quickfix` to narrow the results.
 
