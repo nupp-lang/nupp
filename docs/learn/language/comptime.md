@@ -5,8 +5,8 @@ order: 120
 # Comptime
 
 `comptime do ... end` is an expression whose value is computed while the file is
-compiled and written into the generated Lua as a literal. The block is ordinary
-Nupp, and none of the work survives into the program.
+compiled and written into the program as a literal. The block is ordinary Nupp,
+and none of the work survives into the program.
 
 ```nupp
 @comptime
@@ -36,28 +36,16 @@ local function checksum(text: string): integer
 end
 ```
 
-The generated Lua holds a 256-entry table of numbers. The loop that built it is
-not in the program at all.
+The program holds a 256-entry table of numbers. The loop that built it is not in
+the program at all.
 
 ## Accumulating loops
 
-A constant expression does not need `comptime`, because `-O1` folds one already.
 What no rewrite of an expression can produce is a table built by iterating, and
 that is what this is for.
 
 `comptime` opens a block only when `do` follows it on the same line. Everywhere
 else it is an ordinary name.
-
-::: deepdive
-Constant folding looks like a smaller comptime, and it cannot stand in for one,
-because the two carry opposite obligations. A fold is an `-O1` rewrite that must
-be invisible in the result, is absent at `-O0` and under `nupp check`, and may
-decline silently. A block is a language construct that must be visible in the
-result, runs at every optimization level, and owes a diagnostic when it cannot
-produce a value. Anything whose meaning depends on a compile-time value could
-never be a fold, because `-O0` still has to compile the program.
-
-:::
 
 ## Values checked at their destination
 

@@ -141,7 +141,5 @@ named `continue` and writes `a or continue` now means the suffix.
 
 ## Lowering
 
-The compiler lowers a suffix to straight-line statements — one local per result
-slot, a branch, and the exit — and introduces no closure and no pack table.
-Generated LuaJIT and portable Lua 5.1 agree, and comptime executes the same
-branch. A native AOT kernel does not admit the suffix and says so.
+A suffix is straight-line code — a branch and the exit — and introduces no
+closure and no pack table. Comptime executes the same branch. A native AOT kernel does not admit the suffix and says so.

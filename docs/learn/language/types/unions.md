@@ -191,8 +191,7 @@ for the reachability rules that go with them.
 A union that lists `nupp.types.nonExhaustive()` among its alternatives carries
 one member no value inhabits, no name resolves to, and no case can cover:
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local type Status = "ok" | "error" | nupp.types.nonExhaustive()
 
 local function describe(status: Status): string
@@ -203,19 +202,6 @@ local function describe(status: Status): string
     end
 end
 ```
-
-```lua [Generated Lua]
-local function describe(status)
-    local __nuppT1 = status
-    local __nuppT2
-    if __nuppT1 == "ok" then __nuppT2 = "fine"
-    elseif __nuppT1 == "error" then __nuppT2 = "broken"
-    else __nuppT2 = "unrecognized"
-    end
-    return __nuppT2
-end
-```
-:::
 
 Handling `"ok"` and `"error"` leaves that member behind, so the switch keeps
 asking for its `else` and never reports one as unnecessary. `Status` prints as

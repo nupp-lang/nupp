@@ -91,35 +91,26 @@ may be a global the program sets at run time. See
 ## Declaration files
 
 A `.d.nupp` file describes an interface somebody else implements, and may
-write `any` where that is the type the interface actually has. LuaJIT's
-`string.buffer` `encode(v: any): string` does take any Lua value, and no
-annotation written here changes what LuaJIT accepts. A declaration file cannot
+write `any` where that is the type the interface actually has. The
+`string.buffer` `encode(v: any): string` does take any value, and no annotation written here
+changes what the implementation accepts. A declaration file cannot
 declare a source module.
 
 ## Constructs that aren't erased
 
-A `struct` has a checked fixed layout. Native LuaJIT targets lower it to FFI
-cdata, while portable targets may select the table-backed struct provider. A C
-header imports as checked declarations that load native symbols. Everything
-else is ordinary Lua at run time: the types are gone, and what remains is what
-you would have written by hand.
+A `struct` has a checked fixed C layout, and the program keeps that layout at
+run time. A C header imports as checked declarations that load native symbols.
+Annotations, generics, interfaces, affine policies, and `as` leave nothing in
+the compiled program.
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local struct Vec2
     x: float
     y: float
 end
 ```
 
-```lua [Generated Lua]
-const __nuppMt_Vec2 = {__index = {}}
-const Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_Vec2)
-```
-:::
-
-See [Structs](types/records-and-structs.md#structs) for the layout rules that
-lowering follows.
+See [Structs](types/records-and-structs.md#structs) for the layout rules.
 
 ::: seealso
 - [type-system/overview.md](types/index.md) for what the checker
@@ -150,7 +141,7 @@ path.
 ### Do types exist at runtime?
 
 Annotations, generics, interfaces, affine policies, and most other checked
-constructs erase when source lowers to Lua. A `struct` retains a runtime
+constructs leave nothing in the compiled program. A `struct` retains a runtime
 representation because its checked layout is the feature, and [C
 declarations](../runtime/c-interop/index.md) remain runtime bindings because
 they load native symbols. Ordinary typed code acquires no type registry or

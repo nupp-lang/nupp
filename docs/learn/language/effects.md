@@ -28,8 +28,8 @@ shape or metatable, let it escape, allocate, yield, raise, or invoke opaque
 external behavior.
 
 `@effects` is type-erased. It adds no runtime guard and changes no calling
-convention. Its consumers are the checker and the optimizations that need to
-know whether a call can invalidate a proof.
+convention. Its consumer is the checker, including the proofs that need to know
+whether a call can invalidate them.
 
 ## Complete upper bounds
 
@@ -71,8 +71,7 @@ changing its contract.
 ::: deepdive
 The asymmetry is deliberate. A caller reasons from what a contract does not
 say, so a missing fact is the one error that cannot be made safe by checking
-harder afterwards. An over-declared fact costs an optimization and nothing
-else, and the author can tighten it whenever the narrower promise is worth
+harder afterwards. An over-declared fact costs a proof and nothing else, and the author can tighten it whenever the narrower promise is worth
 keeping.
 
 What that costs is a contract that a rewrite can turn into a lie. That is why
@@ -260,7 +259,7 @@ local function fail(message: string): never
 end
 ```
 
-`raises` is an optimizer effect, not a replacement for API documentation. It is
+`raises` is a checker effect, not a replacement for API documentation. It is
 a boolean: it says whether a path can raise, never what is raised. What is
 raised belongs in `@raises <Type> [text]` docblocks, one line per raised type,
 and `never` still describes a function that never returns normally.
@@ -299,8 +298,8 @@ automatic cleanup. An exact direct export transports allocation, raising, path,
 escape, and return summaries under separate incremental fact keys. An unknown
 callback, method, call through `any`, or uncontracted C function proves neither
 fact. Indexing an `any` value may raise, since nothing says whether it can be indexed or what its
-`__index` does, and `int64` or `uint64` arithmetic allocates, since LuaJIT boxes
-each result.
+`__index` does, and `int64` or `uint64` arithmetic allocates, since each result
+is boxed.
 
 A bodyless or foreign declaration may establish a fact with a trusted `@effects`
 contract. That is a promise about the unseen implementation, not a proof about
@@ -318,7 +317,7 @@ still checked against its contract.
 Inference deliberately classifies an indexed parameter assignment as both. It
 does not try to prove that `values[1] = replacement` replaces an already-present
 slot rather than inserting or removing one, because a shape fact that was too
-narrow could authorize an optimization, while one that is too wide can only
+narrow could authorize a false proof, while one that is too wide can only
 decline one.
 
 A write through a nonlocal table is summarized under `$capture`. A write to a
@@ -428,13 +427,12 @@ The first missing fact is what the checker names:
 ```
 
 An unknown call instead reports that the contract calls code with unknown
-effects. The annotation points at the function declaration, while an optimizer
-remark points at the call or mutation that stopped a proof.
+effects. The annotation points at the function declaration.
 
 ## Inferred bounds
 
 A helper's indexed accesses can be proved safe from its caller's flow facts.
-The proof works during checking, including at `-O0`, without inlining:
+The proof works during checking, without inlining:
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -473,7 +471,7 @@ flow, and exhausted analysis budgets lose evidence conservatively.
 
 A visible function does not need `@effects` for the compiler to analyze it. The
 checker infers a summary whether or not an annotation is present. Exact imported
-calls carry that summary to checking and optimization in their callers.
+calls carry that summary to checking in their callers.
 
 ```nupp
 local function append(values: {integer}, value: integer)
@@ -485,7 +483,7 @@ Add `@effects` when the contract itself is valuable: when an API boundary should
 make its side effects reviewable, when a visible implementation should be
 prevented from silently growing new effects, when a bodyless or C declaration
 needs a trusted summary, or when a future implementation must preserve a stable
-optimization interface. An inferred private summary changes with its body, while
+interface. An inferred private summary changes with its body, while
 a declared complete contract becomes an obligation every later edit must
 satisfy.
 
@@ -499,24 +497,6 @@ scheduler installed and without one, so a library never splits into two versions
 of itself. See [suspension.md](../runtime/concurrency/suspension.md) for the guarantee that does travel
 in a signature.
 :::
-
-## Optimizer interaction
-
-The numeric `ipairs` pass is the first consumer. It lowers a loop only after a
-separate dense-entry and alias proof succeeds, and the calls in the containing
-body are then checked pessimistically:
-
-- `top` or an unresolved call stops the rewrite;
-- `external`, `suspends`, or a metatable effect stops it;
-- a `shapes` effect mapped to the iterated array stops it;
-- a captured or unresolved shape effect stops it.
-
-An effect contract cannot force the rewrite. The array must still be a visible
-dense literal with a static bound, its binding must not be exposed elsewhere,
-and every other proof obligation of the pass must hold. Use `-O1 --remarks` or
-`-O2 --remarks` to see `OPT-2` explain why it rewrote or declined a loop, and
-see [performance.md](../performance/index.md#opt-2-numeric-ipairs) for the
-benchmark behind that restriction.
 
 ## Effects, stability, relaxation, and ownership
 
@@ -546,9 +526,8 @@ current limits are part of the contract with users:
   available;
 - a trusted C or `.d.nupp` declaration is only as correct as its author.
 
-These choices lose optimization opportunities. They are safe defaults: when the
-compiler cannot establish a fact, it declines the transformation instead of
-manufacturing a proof.
+These choices lose proofs. They are safe defaults: when the compiler cannot
+establish a fact, it declines instead of manufacturing a proof.
 
 ## Complete contract
 
@@ -587,7 +566,7 @@ When an effect contract is reported:
    helper.
 5. Do not reach for `external = true` to suppress an unknown visible call; it
    does not mean unchecked.
-6. Re-run `nupp check` before looking at optimizer remarks.
+6. Re-run `nupp check`.
 
 For a bodyless declaration, review the implementation on the other side of the
 boundary. The checker cannot do that verification for you.
@@ -607,8 +586,7 @@ is unavailable.
 
 `@effects` is erased after checking, so it adds no guard, wrapper, allocation,
 or calling-convention change. The compiler uses the summary to reject an
-invalid contract and to decide whether an [optimization
-proof](#optimizer-interaction) survives a call.
+invalid contract and to decide whether a proof survives a call.
 
 ### Do effects replace ownership contracts?
 

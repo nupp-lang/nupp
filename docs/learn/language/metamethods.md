@@ -44,7 +44,7 @@ installs `__call` fails at the first call. This is the same trust boundary as a
 declaration file or an FFI signature.
 
 ::: deepdive
-Nupp types LuaJIT metamethod dispatch without taking ownership of runtime
+Nupp types metamethod dispatch without taking ownership of runtime
 metatable construction, because the construction is where the variety is: a
 registrar, a foreign runtime, and a hand-written `setmetatable` all end at the
 same table, and a language feature that covered one of them would refuse the
@@ -137,8 +137,8 @@ under a `metatable<T>` annotation, each of its `__` keys is checked:
 | one T contracts for | the declared contract, self specialized to T |
 | `__mode` | a string |
 | `__index`, `__newindex` | a table to defer to, or a function to run |
-| any other key LuaJIT knows | a function, since LuaJIT calls it |
-| a `__` name LuaJIT does not know | reported as a misspelling, with the repair |
+| any other metamethod key | a function, since the runtime calls it |
+| any other `__` name | reported as a misspelling, with the repair |
 
 A table written directly under `__index` is what instances read their members
 through, so an entry naming a declared member is held to what the declaration
@@ -349,17 +349,14 @@ is legal, and it is written down.
 
 ## Excluded contracts
 
-Several metamethods have no contract. Most are the ones the runtime Nupp
-generates for does not dispatch; the rest are jobs another part of the language
-already does.
+Several metamethods have no contract. Some the checker does not accept as
+contracts; the rest are jobs another part of the language already does.
 
 ### Bit operators
 
-LuaJIT 3.0 gives the bit operators metamethods. The 2.1 backport Nupp generates
-for did not take them, and neither does the `bit` library those operators are
-shorthand for, so `__band`, `__bor`, `__bxor`, `__bnot`, `__shl`, `__shr` and
-`__sar` are rejected. They will be reconsidered when the runtime dispatches
-them.
+LuaJIT 3.0 gives the bit operators metamethods. Nupp does not accept them as
+contracts, so `__band`, `__bor`, `__bxor`, `__bnot`, `__shl`, `__shr` and
+`__sar` are rejected.
 
 ```nupp:refused
 local record Flags
@@ -372,31 +369,27 @@ end
 error: NUPP2118: metamethod __band is not dispatched by this LuaJIT target
 ```
 
-`__idiv` is rejected for the same reason: 2.1 has no `//` at all, so it
-[lowers to a floored division](syntax.md#lowered-syntax) that dispatches
-nothing.
+`__idiv` is rejected the same way.
 
 ### In-place arithmetic
 
 `a += b` where `a` holds a value with an `__add` contract calls `__add(a, b)`,
-not the `__add(a, b, true)` LuaJIT 3.0 specifies. The in-place third argument
-is another part of the backport that did not come across. Nothing depends on
-it: a metamethod that ignores its third argument behaves identically under
+not the `__add(a, b, true)` LuaJIT 3.0 specifies. Nothing depends on the
+in-place third argument: a metamethod that ignores it behaves identically under
 both.
 
 ### Cleanup and iteration
 
 `__gc` and `__close` are not static operation contracts. Deterministic cleanup
 uses [affine ownership](../runtime/ownership/index.md) and automatic lexical cleanup instead.
-`__pairs` is not used to type `pairs`, because LuaJIT's ordinary `pairs`
-accepts nominal record tables directly.
+`__pairs` is not used to type `pairs`, because ordinary `pairs` accepts records
+directly.
 
 ### Struct metamethods
 
-Declaration-only struct metamethods are rejected. LuaJIT FFI metatypes must be
-installed when `ffi.metatype` is called, so an erased promise would leave no
-later runtime fulfillment point. Ordinary inline struct methods are supported
-through the generated `ffi.metatype` method namespace.
+Declaration-only struct metamethods are rejected. A struct's metamethods are
+installed with its type, so a declaration-only promise would leave no later
+point to fulfill it. Ordinary inline struct methods are supported.
 
 ### Macro-generated declarations
 
@@ -418,9 +411,9 @@ a visible translation residue.
 
 ### Does a metamethod contract emit any code?
 
-No. The declaration is checked and erased, so the generated Lua for a record
-with contracts is the generated Lua for the same record without them. The
-runtime behavior comes entirely from whatever installs the function.
+No. The declaration is checked and erased, so a record with contracts compiles
+to the same program as the record without them. The runtime behavior comes
+entirely from whatever installs the function.
 
 ### Must a record declare `is` to satisfy a contract?
 

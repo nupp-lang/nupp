@@ -149,7 +149,7 @@ signature you mean.
 The *result* narrows even though the argument does not, because `type` returns
 from a closed set: `"nil" | "boolean" | "number" | "string" | "table" |
 "function" | "thread" | "userdata" | "cdata"`. A comparison against a name
-LuaJIT never returns is caught where it is written, and a returning dispatch
+`type` never returns is caught where it is written, and a returning dispatch
 over the set reports the
 [`exhaustiveness`](../../../reference/lints.md#exhaustiveness) lint for the
 names it leaves out. A guard chain whose remaining cases are handled by the code
@@ -385,10 +385,10 @@ repeated in several places. See
 [interfaces.md](interfaces.md#is-is-a-claim-not-a-proof) for what an `is` edge
 proves.
 
-### Does narrowing change the generated Lua?
+### Does narrowing add work at run time?
 
 No. A narrowed type is a fact the checker carries and erases, so the branch
-lowers to the Lua you wrote. See
+compiles to what you wrote. See
 [file-types.md](../file-types.md#constructs-that-arent-erased) for the
 two things that do survive.
 

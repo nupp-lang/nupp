@@ -121,31 +121,6 @@ entry of its own can still be resolved this far.
 | `NUPP4001` | Formatting could not safely produce the requested result. |
 | `NUPP4002` | A file is not formatted the way `nupp fmt` writes it. |
 | `NUPP5xxx` | A development-time change requires a restart. |
-| `OPT-n` | An optimization pass reporting what it did or declined to do. |
-
-`OPT-n` is the one family that does not describe a problem. A pass reports one
-to say that it rewrote something, or that it looked at something and could not.
-The severity is always `note`, so a remark is reported and stepped over and
-never fails a build.
-
-Remarks are off unless `--remarks` is passed, and they come from `nupp build`
-and `nupp run` rather than `nupp check`, which does not optimize. The code is
-stable across a pass being renamed, split, or merged, so it can be cited in a
-bug report or passed to `-Zno-opt`. See the [performance
-guide](../learn/performance/index.md) for what each pass reports.
-
-::: deepdive
-An optimizer is the one part of the compiler whose silence is ambiguous. A pass
-that declined to inline a call and a pass that was never reached both produce a
-program with the call still in it, and nothing in the output says which
-happened. `OPT-n` is the answer a language owes its user when a declared
-intention did not reach the generated code.
-
-Giving remarks codes rather than free text is what makes them usable twice. The
-same identifier that names a remark in a bug report turns the pass off through
-`-Zno-opt`, and it survives the pass being renamed or split, so neither use
-breaks when the optimizer is rearranged.
-:::
 
 ## Codes by area
 

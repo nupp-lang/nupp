@@ -125,8 +125,8 @@ what `or return` forwards.
 
 ### Numerals and named varargs
 
-Underscores separate digits, the `LL`, `ULL`, and `i` suffixes make a cdata
-number, and a named vararg parameter collects the call's extra arguments into a
+Underscores separate digits, the `LL` and `ULL` suffixes make a 64-bit
+integer, the `i` suffix an imaginary number, and a named vararg parameter collects the call's extra arguments into a
 table carrying their count as `n`.
 
 ```nupp
@@ -222,8 +222,7 @@ local record Point
 end
 ```
 
-A `struct` is the same declaration with a fixed reifiable layout. Native
-LuaJIT targets represent it as FFI cdata.
+A `struct` is the same declaration with a fixed reifiable C layout.
 
 ```nupp
 local struct Vec2
@@ -451,89 +450,11 @@ One more thing changes without breaking: `a || b` now parses, as `a or b`,
 where Lua 5.1 rejected it. It raises the `customary-operator` lint, which is a
 house-style judgement a project can turn off.
 
-### Required LuaJIT build
-
-Generated Lua targets **LuaJIT 2.1.1784535649 or newer**, the first build
-carrying the backported syntax extensions. `bin/nupp` checks `luajit -v` and
-names the required build rather than letting a run fail on a line nobody wrote.
-
-::: deepdive
-Requiring a recent build buys shorter and faster output. A native `?.` is one
-branch, where the equivalent lowering is a closure call, and the same holds for
-the ternary, `??`, and compound assignment. Lowering them would have widened
-the runtime floor to stock 5.1 at the price of making every program that used
-them slower than the Lua somebody would have written by hand.
-
-The floor is a build rather than a version because the extensions were
-backported into 2.1 rather than released with 3.0. See
-[CONTRIBUTING.md](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#luajit)
-for the source-checkout requirement. Released Nupp binaries carry their own
-LuaJIT host.
-:::
-
-### Pass-through syntax
-
-Most of level 0 is written straight through, because LuaJIT 2.1 backported it:
-the bit operators, the customary operators, `?:`, `?.`, `??`, compound
-assignment, `continue`, `const`, short functions, and underscores and cdata
-suffixes in numerals.
-
-::: code-group
-```nupp [Nupp]
-local t = {x = 1}
-local x = t?.x ?? 0
-```
-
-```lua [Generated Lua]
-local t = {x = 1}
-local x = t?.x ?? 0
-```
-:::
-
-### Lowered syntax
-
-Five level-0 constructs are lowered, because 2.1 did not take them, along with
-the level-1 `is` test.
-
-| Written | Generated |
-| --- | --- |
-| `a // b` | `_G.math.floor((a) / (b))` |
-| `a //= b` | `a = _G.math.floor((a) / (b))` |
-| `x ??= "set"` | `if x == nil then x = "set" end` |
-| `function(...xs)` | `function(...) const xs = {n = _G.select("#", ...), ...}` |
-| `` `a is ${a}` `` | `("a is " .. _G.tostring(a))` |
-| `v is Point` | a `_G.type()` comparison, with nil compared directly |
-
-A lowering reaches the runtime functions it needs through `_G`, so a local
-named `math`, `type`, `select`, `tostring` or `setmetatable` in the program
-does not change what the construct means. `//` on an `int64` or `uint64`
-operand calls a helper instead, because `math.floor` refuses cdata and cdata
-`/` truncates toward zero; the helper rounds the quotient down, as `//` does
-for numbers.
-
-The rest of level 1 erases: annotations, `as`, generics, `@unsafe do` (which
-becomes `do`), and the `interface` and `type` declarations, which have no
-runtime value at all. A `struct` and a `switch` are the other two constructs
-with output of their own.
-
-::: deepdive
-Generated code never changes the line count. A cursor emits each token at its
-source line and inserts newlines to catch up, never going back, so an
-`@file.nupp` chunkname gives a correct traceback with no source map.
-
-That is what constrains every lowering above to one line. `x ??= "set"`
-becomes a complete `if` statement rather than a formatted block, and the named
-vararg's table is built on the line its `function` keyword was on. A lowering
-that needed two lines would cost either the line correspondence or a source
-map, and every stack trace a reader ever sees is worth more than either.
-:::
-
 ### Builtin functions
 
 LuaJIT's `table.new` and `table.clear`, and Nupp's own `table.clone`, are
-available directly in Nupp source. Each generated module binds a used builtin
-once on its first line, so no source `require` is needed. Recognition follows
-the prelude definition, so a local named `table` is left alone.
+available directly in Nupp source, with no `require`. Recognition follows the
+prelude definition, so a local named `table` is left alone.
 
 ```nupp
 local buffer = table.new(64, 0)
@@ -546,28 +467,7 @@ metatable. A value that is itself a table stays shared, and `__index` is not
 consulted, so the copy holds what `next` would have walked and inherits the
 rest the same way the original did.
 
-### Stock Lua 5.1
-
-Generated code does not run on stock Lua 5.1 in general. Three things stop it:
-
-- any passed-through extension is a 5.1 parse error, as is the `goto` that
-  automatic cleanup lowering emits;
-- `require("ffi")` is injected for any struct, `cdef`, `ffi.*` call, `carray`,
-  or `cheader`;
-- `require("table.new")` or `require("table.clear")` is injected when its
-  builtin is used, and `table.clone` injects its own definition; presizing also
-  uses the `table.new` binding.
-
-A file that uses none of those, and whose typed layer erases cleanly, does
-generate plain 5.1 Lua. There is no flag that guarantees it.
-
 ## FAQ
-
-### Does running generated code need LuaJIT 3.0?
-
-No. The syntax is LuaJIT 3.0's, but the output targets 2.1.1784535649 or newer,
-which backported the extensions. See
-[Required LuaJIT build](#required-luajit-build) for what the toolchain checks.
 
 ### Can a variable be named `record` or `switch`?
 
@@ -578,7 +478,5 @@ read as Lua.
 
 ### Does the typed layer change what a traceback points at?
 
-No. Generated code never changes the line count, so a runtime error names the
-line you wrote. See [Lowered syntax](#lowered-syntax) for the constructs that
-still produce code, and [constructs that aren't erased](file-types.md#constructs-that-arent-erased)
-for the two that leave a runtime trace.
+No. The compiled program records the source line of every instruction, so a
+runtime error names the line you wrote. `nupp bc` prints that mapping.

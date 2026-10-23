@@ -168,7 +168,7 @@ cares about the pair.
 ### Does an intersection cost anything at run time?
 
 No. Intersections are erased, exactly as the rest of the structural type layer
-is, so `A & B` lowers to whatever the underlying value already was. See [Type
+is, so `A & B` is whatever the underlying value already was. See [Type
 system](index.md#does-anything-survive-to-run-time) for what does and does not
 survive to run time.
 

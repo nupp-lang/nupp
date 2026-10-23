@@ -77,12 +77,13 @@ end
 local SECTIONS: {reference.Section} = {
 
     new reference.Section(
-        title = "Nupp and LuaJIT",
+        title = "Nupp and Lua",
         codes = {"NUPP1006", "NUPP2105", "NUPP2106"},
         body = [=[
-A statically typed language that compiles to LuaJIT's Lua and works beside plain
-`.lua` files. A `.lua` file is required, built, and run unchanged, and the typed
-layer is refused in one (`NUPP1006`).
+A statically typed language whose untyped base is LuaJIT's Lua dialect, and
+which works beside plain `.lua` files. Programs are lowered to images the Nupp VM
+runs. A `.lua` file is required, built, and run as written, and the typed layer
+is refused in one (`NUPP1006`).
 
 | Extension | Meaning |
 | --- | --- |
@@ -97,11 +98,7 @@ reports neither, since an unknown name there may be a Lua global, and a
 `.d.nupp` file may use `any` at the boundary it describes. LuaCATS and EmmyLua
 comments in a `.lua` file are imported as checker facts.
 
-Two things are not erased. A `struct` lowers to FFI cdata with a fixed layout,
-and C headers import as checked declarations. Everything else is ordinary Lua at
-run time.
-
-Generated code targets LuaJIT 2.1.1784535649 or newer.
+A `struct` has a fixed C layout, and C headers import as checked declarations.
 ]=]
     ),
 
@@ -157,7 +154,7 @@ infers as, so it drops out of a union already holding one: `opts = opts or {}`
 leaves a declared record still holding its fields.
 
 Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
-variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
+variable-length C array and `T[N]` a fixed one. C arrays are zero-based,
 unlike the one-based `{T}`. `|` builds a union, a string literal is the type
 containing only that value, and `const T` is a read-only view.
 
@@ -271,8 +268,8 @@ return x, vertical, fixedX
         body = [=[
 Inside a parenthesized call, `name = value` fills that parameter directly.
 Named arguments follow every positional argument and appear in parameter order.
-They erase to ordinary positional Lua arguments; an omitted optional slot before
-a later named argument is emitted as `nil`.
+They become ordinary positional arguments; an omitted optional slot before a
+later named argument is passed as `nil`.
 
 `{name} = value` means `name = value.name` and nothing more, and `{a, b} =
 value` fills several parameters from one operand. Nothing is declared on the
@@ -382,7 +379,7 @@ operators.
 Algorithms use ordinary Nupp in a `@comptime function`. Parameters and results
 may be compiler-only `type` or `typepack` handles. `nupp.types` inspects
 immutable semantics and constructs structural types, never declarations. Calls
-use parentheses in type position and erase completely from generated Lua.
+use parentheses in type position and leave nothing in the compiled program.
 
 `nupp.types.elements` takes a pack apart as readily as a composite type, giving
 its fixed head, and `nupp.types.arguments` gives the arguments a generic
@@ -629,9 +626,8 @@ A record is a table with declared fields. An inline function is an instance
 method when its first parameter is named `self`, and a static function on the
 record's own table without one.
 
-`new` is the only way to construct a record or a struct. It lowers to the
-metatable stamp or the ctype call directly and installs nothing, which is what
-leaves `__call` and `__new` to the program. Calling a record that declares no
+`new` is the only way to construct a record or a struct. It builds the
+instance directly and installs nothing, which is what leaves `__call` and `__new` to the program. Calling a record that declares no
 `__call` contract is `NUPP2202`, and `new` on anything that is not a record or a
 struct is `NUPP2206`. Without a name after it on the same line, `new` remains an
 ordinary variable.
@@ -641,8 +637,8 @@ is the compiler's to build, so the instance is the only allocation and an
 initializer table beside one is `NUPP2202`. Fields fill in written order, so
 their values evaluate where the source put them. `new Point(1, 2)` fills them in
 declaration order instead, builds the same table, and reports `NUPP2512`. A
-struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` lowers to
-`Vec2(1.0, 2.0)` with no table at any point, and naming its fields is
+struct has no such choice: it is its C layout, so `new Vec2(1.0, 2.0)` fills that
+layout with no table at any point, and naming its fields is
 `NUPP2202`.
 
 `local p: Point` declares storage and constructs nothing, so it holds nil until
@@ -884,8 +880,8 @@ return m, raw, held
         codes = {"NUPP2122"},
         body = [=[
 An interface may carry a `satisfies` declaration, which names the runtime test
-that decides whether a value is one of these. `x is T` lowers to it, so
-`s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+that decides whether a value is one of these. `x is T` runs it, so
+`s is m.Circle` below tests `type(s) == "table" and s.kind == "circle"`.
 
 It is a function of the value, so it is written as one, in either form a
 function takes anywhere else: `satisfies |self| -> test`, or `satisfies(self):
@@ -933,8 +929,7 @@ return m
         title = "Structs",
         codes = {"NUPP2203"},
         body = [=[
-A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
-hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
+A `struct` reifies: it has a fixed C layout and no hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
 the one place a type changes what the program does at run time rather than only
 what the checker accepts.
 
@@ -1303,7 +1298,7 @@ local description = switch shape do
 end
 ```
 
-Records use their nominal metatable identity, structs use `ffi.istype`,
+Records use their nominal record shape, structs their struct type,
 primitive types use `type`, and a refined interface uses its declared runtime
 predicate. An interface with no runtime identity is `NUPP3001`, exactly as it is
 for an ordinary `is` expression. Cases are tried from top to bottom, so putting
@@ -1335,16 +1330,10 @@ preserved: `yield(...)`, `yield {...}`, and `yield "text"` are calls. Bind a
 value to a local first to yield an expression that would otherwise start with
 one of those forms.
 
-### Placement and lowering
+### Evaluation
 
 The selector is evaluated exactly once. Static comparisons and type tests run
-in source order, and only the selected arm runs. The lowering uses lexical
-locals and an `if`/`elseif` chain rather than an immediately invoked function,
-so a switch inside a hot loop creates no closure and does not abort LuaJIT
-tracing. A large static integer or string switch whose arms and `else` all
-produce one inert scalar may instead finish with one compiler-owned table read,
-allocated once in module setup. That is an optimizer choice rather than part of
-switch semantics.
+in source order, and only the selected arm runs.
 
 A switch preserves eager left-to-right evaluation and conditional execution in
 `and`, `or`, `??`, ternary arms, and work guarded by safe navigation. Static
@@ -1659,10 +1648,10 @@ return m
         codes = {"NUPP2203", "NUPP2101", "NUPP2602", "NUPP2619"},
         body = [=[
 `cdef` declares C functions, structs, unions, and integer bitfields.
-`from "lib"` uses `ffi.load`; omitting it uses the default namespace.
+`from "lib"` loads the named native library; omitting it uses the default
+namespace.
 
-`cheader('path.h')` types a pinned header through LuaJIT's C parser at compile
-time, and `nupp import-c` ejects the same declarations as an editable module.
+`cheader('path.h')` types a pinned header at compile time, and `nupp import-c` ejects the same declarations as an editable module.
 Both preserve unions, bitfields, fixed and nested arrays, function pointers in
 every C declarator position, enum storage, and typedef-named anonymous
 aggregates. Imported pointers are nullable until the generated contract is
@@ -1748,7 +1737,7 @@ one specified degree-12 binary32 polynomial, and squares seven times; it never
 delegates to host or device transcendental libraries. `fromBits` and `toBits`
 expose the canonical bit contract.
 
-Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
+Calls use Lua numbers in canonical ranges rather than allocating boxed values.
 Aliasing a standard member preserves its intrinsic identity; shadowing the name
 makes it an ordinary call.
 
@@ -1875,9 +1864,7 @@ supplied trusted `Span` or SoA view and returns ordinary `first` and `last`
 integers. Its typed borrowed vararg passes each original span unchanged and
 allocates no container. A const-bound range over const-bound spans proves
 matching indexed reads and writes non-raising in the dominated numeric loop,
-which is what admits them inside `@noraise` code. That proof holds at every
-optimization level, and at `-O1` the regular backend also lowers the exact
-access to direct rooted FFI indexing after the one range check. Arbitrary
+which is what admits them inside `@noraise` code. Arbitrary
 indexes, held frames, and accesses outside the same-function witness stay
 checked.
 
@@ -1918,8 +1905,8 @@ targets and wrong value types are errors, so an annotation never becomes a
 silently erased comment.
 
 An application writes an unqualified `@name`, so a definition is registered
-project-wide and is the one declaration exempt from the visibility rule. Both
-the definition and every application are erased from the generated Lua.
+project-wide and is the one declaration exempt from the visibility rule. Neither
+the definition nor any application leaves anything in the compiled program.
 
 Built-in contracts use the same surface. `@effects` is a complete effect
 summary: visible bodies are checked against it and bodyless declarations are
@@ -1936,8 +1923,7 @@ annotation. It changes no runtime behavior.
 `@aot` reserves a required whole-function ahead-of-time compilation contract on
 a top-level local function declaration. The VM lowers an `@aot` body itself,
 and a GPU kernel through the typed graph; the structured lowering a target's
-`aot = "require"` policy once ran, and the refusals it published, were retired
-with LuaJIT's native code generator.
+`aot = "require"` policy once ran, and the refusals it published, are retired.
 
 A closure, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside one reports `NUPP2903` at the construct. A constructor,
@@ -1971,7 +1957,8 @@ resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The kernel returned by `compile` borrows its context, and the binding returned
 by `bind` borrows its kernel; both are closeable. `aot = "off"` retains the
-ordinary function value. WGPU performs platform shader translation.
+ordinary function value. WGPU performs platform shader translation. The VM has
+no GPU provider yet, so a program running on it finds no device.
 
 The current GPU subset is one complete-span map with fixed-width elements, any
 number of proved read and write spans, and up to 128 bytes of fixed-width scalar
@@ -2183,8 +2170,7 @@ return user
         title = "LuaJIT 3.0 syntax",
         codes = {"NUPP2504"},
         body = [=[
-Nupp implements every LuaJIT 3.0 syntax extension and adds to them. Most is
-written straight through to the output, because LuaJIT 2.1 backported it.
+Nupp implements every LuaJIT 3.0 syntax extension and adds to them.
 
 Available: `continue`; compound assignment (`+= -= *= /= //= %= &= |=`); the
 ternary `c ? a : b`; `??` for nil-coalescing; safe navigation `?.`; short
@@ -2296,7 +2282,7 @@ family instead:
 - `gather` returns values and errors side by side, for a caller handling each.
 - `race` returns the first settled value and its index, then cancels the rest.
 
-These share one LuaJIT state and run one at a time between suspensions, so they
+These share one VM and run one at a time between suspensions, so they
 are concurrency and not CPU parallelism. Cores are `fork`, which runs a child on
 a `nupp.workers` lane.
 
@@ -2530,13 +2516,12 @@ return m
         body = [=[
 `comptime do ... end` is an expression whose value is computed while the file is
 compiled. The block is ordinary Nupp, and what it returns is written into the
-generated Lua as a literal, so nothing of the work survives into the program.
+program as a literal, so nothing of the work survives into it.
 `comptime` opens a block only when `do` follows it on the same line; everywhere
 else it is an ordinary name.
 
 Its reason to exist is the loop that accumulates: a table built by iterating,
-which no rewrite of an expression can produce. A constant expression does not
-need it, because `-O1` already folds one.
+which no rewrite of an expression can produce.
 
 The `prefer-comptime` lint, off by default, finds a function with no inputs whose
 body reduces to a smaller scalar literal, and offers to wrap the body in
@@ -2689,7 +2674,7 @@ piped output never carries escapes.
   diagnostics with `help`, `related`, `notes` and machine-applicable `fixes`.
   Read `help` and `related` before editing, and apply a whole titled fix rather
   than picking single edits out of one: a fix is all-or-nothing.
-- `nupp build --json [FILE...]` returns those diagnostics alongside what the
+- `nupp build --json` returns those diagnostics alongside what the
   build wrote, so one call says both what failed and what landed.
 - `nupp explain CODE [--json]` gives the rule behind a code, a program that
   reports it, and the same program corrected. Every diagnostic carries a `docs`
@@ -2821,7 +2806,7 @@ local TOOLCHAIN_SECTIONS: {
 `nupp help` lists every command. Use it when a focused skill names a command but
 does not need every flag in context.
 
-- `check`, `build`, `run`, and `fmt` work with source and generated Lua.
+- `check`, `build`, `run`, and `fmt` check, build, run, and format source.
 - `test` runs the bundled or configured test command; `test --coverage` uses a
   separate instrumented build and writes a report.
 - `lsp` answers semantic source questions; `explain` expands a diagnostic; and
@@ -2856,8 +2841,8 @@ behavior, read the indicated source, and add a test that establishes that
 behavior. Re-run the focused coverage command, then `nupp test` before
 committing. Do not add tests solely to raise a percentage: prefer decisions,
 error paths, and boundary cases whose expected result a test can state clearly.
-The HTML report shows the same locations alongside highlighted Nupp and
-generated Lua when visual context helps.
+The HTML report shows the same locations in highlighted source when visual
+context helps.
 ]=]
     ),
 }
@@ -2874,17 +2859,17 @@ repeat after an edit, and point back to authored source:
 
 ```bash
 nupp check --json
-nupp build --json --remarks-out
+nupp bc src/main.nupp
 ```
 
 `check` reports ordinary diagnostics, and `timing` says where the compile went.
-`--remarks-out` writes the optimizer's account of what it did and declined to do,
-with the allocation sites it left standing. Read `help`, `notes`, `related`, and
-whole machine-applicable fixes before editing. Use `--schema` before automating
+`bc` prints the VM bytecode a file compiles to beside the source line each
+instruction came from. Read `help`, `notes`, `related`, and whole
+machine-applicable fixes before editing. Use `--schema` before automating
 against any JSON output.
 
-A remark explains where to experiment. It does not prove the code runs, becomes
-hot, or is fast.
+A listing explains where to experiment. It does not prove the code runs,
+becomes hot, or is fast.
 ]=]
     ),
     new reference.Section(
@@ -2900,21 +2885,20 @@ nupp bench --baseline build/bench-baseline.json
 ```
 
 Every fork of a case counts the same work, so their scores compare. A baseline
-gates the deterministic counters -- allocation sites the optimizer left -- and
 reports durations against a margin rather than failing on them.
 ]=]
     ),
     new reference.Section(
-        title = "Prove an optimization helped",
+        title = "Prove a change helped",
         codes = {},
         body = [=[
 Use a workload that represents the application, warm it consistently, and
-compare the same target and optimization level. Check answers before and after.
+compare the same target. Check answers before and after.
 Preserve error order, effects, ownership, stack traces, and source attribution.
 
 Do not rewrite code merely to silence a warning. Profiling one input does not
-establish a static rule. Keep a benchmark for every optimization that survives
-review.
+establish a static rule. Keep a benchmark for every performance change that
+survives review.
 ]=]
     ),
 }
@@ -2937,8 +2921,8 @@ reference.chapters = {
     new reference.Chapter(
         name = "performance",
         title = "Performance",
-        summary = "Nupp compiler evidence, benchmarks, and the optimization workflow.",
-        skillDescription = "Optimize Nupp with compiler diagnostics, optimizer remarks, and benchmarks. Use for slow code, hot loops, performance regressions, and performance-sensitive Nupp generation.",
+        summary = "Nupp compiler evidence, benchmarks, and the performance workflow.",
+        skillDescription = "Make Nupp faster with compiler diagnostics, bytecode listings, and benchmarks. Use for slow code, hot loops, performance regressions, and performance-sensitive Nupp code.",
         sections = PERFORMANCE_SECTIONS
     ),
 }
@@ -3292,7 +3276,7 @@ function reference.skill(chapter: reference.Chapter?): string
         end
     else
         out[#out + 1] = "  Write, check and repair Nupp, the statically typed language"
-        out[#out + 1] = "  for LuaJIT. Load before editing any .nupp file, or when"
+        out[#out + 1] = "  for the Nupp VM. Load before editing any .nupp file, or when"
         out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
         out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
         out[#out + 1] = "  check/explain/lsp, test coverage, and benchmark commands and"

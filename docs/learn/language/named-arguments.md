@@ -30,11 +30,10 @@ end
 ## Named arguments come last
 
 A named argument follows every positional one and appears in parameter order.
-An optional slot skipped before a later named argument is emitted as `nil`, so
-the generated call is the positional one you would have written.
+An optional slot skipped before a later named argument is passed as `nil`, so
+the call is the positional one you would have written.
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
@@ -44,18 +43,6 @@ local function render(): nil
     draw(10, y = 20)
 end
 ```
-
-```lua [Generated Lua]
-local function draw(x, y, color)
-    print(x, y, color)
-end
-
-local function render()
-    draw(10, 20, "blue")
-    draw(10, 20)
-end
-```
-:::
 
 ## Plucking reads a field
 

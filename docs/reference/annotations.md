@@ -79,8 +79,8 @@ why it is written without a visibility: applications name an unqualified
 to reach it through. It is the one declaration exempt from `NUPP2119`; see
 [modules.md](../learn/language/modules.md#exports-and-privacy) for the visibility rule
 every other declaration holds to. Definitions and applications may live in
-different files, no runtime import is required, and the definition record itself
-and every application are erased from generated Lua.
+different files, no runtime import is required, and neither the definition record
+itself nor any application leaves anything in the compiled program.
 
 ::: deepdive
 The model follows Smithy traits: a trait is declared with the same shape as the
@@ -486,7 +486,7 @@ end
 
 The VM lowers an `@aot` body itself, and a GPU kernel through the typed graph.
 The structured lowering a target's `aot = "require"` policy once ran, and the
-refusals it published, were retired with LuaJIT's native code generator.
+refusals it published, are retired.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside the body reports `NUPP2903` at the construct, and annotating a
@@ -511,7 +511,8 @@ kernel returned by `compile` borrows its context, and the binding returned by
 `bind` borrows its kernel; both are closeable.
 
 `aot = "off"` retains the ordinary function value. WGPU performs platform
-shader translation internally.
+shader translation internally. The VM has no GPU provider yet, so a program
+running on it finds no device.
 
 The GPU subset has two entry shapes. A complete-span map assigns one invocation
 to every element. A structured workgroup entry ends in
@@ -640,8 +641,7 @@ the function has no observable effects; it does not mean "infer these later."
 
 See [effects.md](../learn/language/effects.md) for the path vocabulary, every member's
 meaning, inference and fixed-point propagation, return aliases, unknown-call
-behavior, trusted declarations, optimizer interaction, current limitations, and
-complete examples.
+behavior, trusted declarations, current limitations, and complete examples.
 
 ## Const declaration bindings
 
@@ -659,8 +659,7 @@ return {monotonicNow = monotonicNow}
 In visible Nupp, `const` is checked from the binding itself. In `.d.nupp` files
 and similar bodyless declaration surfaces, it is the trusted statement that the
 host implementation will not replace the binding. Reassigning a const binding is
-an error. The standard declaration of `ipairs` is const, and that identity fact
-is one part of the proof for numeric array-loop lowering.
+an error. The standard declaration of `ipairs` is const.
 
 ## Relaxing observable guarantees
 

@@ -137,8 +137,8 @@ for:
 
 A `.lua` file is held to neither, since an unknown name there may be a global
 the program sets at run time. A `.d.nupp` file may write `any` where the
-interface it describes has it: LuaJIT's `string.buffer.encode(v: any): string`
-really does take any Lua value. See [File types](../file-types.md) for what
+interface it describes has it: `string.buffer.encode(v: any): string` really
+does take any value. See [File types](../file-types.md) for what
 each extension holds.
 
 ## Escape hatches
@@ -246,10 +246,8 @@ that admits.
 
 ### Does anything survive to run time?
 
-Almost nothing. Annotations, aliases, interfaces, and `as` are erased, so
-generated Lua carries no type tags; `record`, `struct`, and interface default
-implementations emit the tables that ordinary Lua would have written by hand.
-See [constructs that aren't
+Almost nothing. Annotations, aliases, interfaces, and `as` are erased, so the
+compiled program carries no checker. See [constructs that aren't
 erased](../file-types.md#constructs-that-arent-erased) for the two exceptions.
 
 ::: seealso

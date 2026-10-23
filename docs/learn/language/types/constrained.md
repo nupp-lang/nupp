@@ -105,24 +105,21 @@ the `if` and a plain `string` after it.
 
 ## Admission lowering
 
-An admission the compiler could not discharge becomes one call to a test
-declared once for the module. Every site carrying the same constraint shares it,
-so a constraint used in twenty places costs one function between them, and a
-trace inlines it.
+An admission the compiler could not discharge tests the value where it is
+written, reading it once, and raises when the test fails:
 
-```lua
--- from `local count: ShiftCount = nupp.admit(by)`
-local __nuppAdmit1 = function(__nuppV)
-    if __nuppV % 1 == 0 and (__nuppV <= 31 and __nuppV >= 0) then return __nuppV end
-    error("value is not established as ShiftCount", 2)
-end
+```text
+value is not established as ShiftCount
 ```
+
+For `ShiftCount` the test is that the value is integral and lies between 0 and
+31.
 
 The integrality test is not decoration. `type(x) == "number"` is all Lua's own
 test says, and an integer base says more than that: without it a fraction inside
 the bounds would pass, and so would an infinity and a NaN.
 
-An admission the compiler did discharge emits nothing at all. Writing one around
+An admission the compiler did discharge costs nothing at all. Writing one around
 a value that is already proved is deliberate rather than an error, because a
 bound can move and the source that said what it meant should keep compiling when
 it does.

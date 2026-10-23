@@ -235,7 +235,7 @@ A computed result mode of `borrowed` makes its binding a shared borrow of the
 iterator triple for one execution of the body. `exclusive` makes it an
 exclusive borrow. Neither may escape the body; `continue`, `break`, `return`,
 and errors all end the current iteration's loans. Both modes and the pack
-expansion erase, so the generated Lua is the generic loop written in source.
+expansion erase, so the compiled loop is the generic loop written in source.
 
 ## Coroutine protocols
 

@@ -67,8 +67,7 @@ literal, bind it to a local first, then yield that name.
 A [switch](switch-expressions.md) arm written `-> do ... end` uses this same
 expression. There is no separate switch-block result mechanism.
 
-LuaJIT and portable Lua lowering use scoped locals, branches, and loop exits;
-the expression itself introduces no function or closure. Do expressions also
+The expression itself introduces no function or closure. Do expressions also
 work during `comptime` evaluation and native AOT compilation. In AOT, the
 statements and result must fit the backend's existing supported types and
 operations. This includes nested blocks, early function returns, and ordinary

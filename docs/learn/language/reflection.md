@@ -84,7 +84,7 @@ models own those choices.
 
 Every record and struct has a visible nominal type value: its declaration name
 is a `Type<T>`, distinct from an instance. A record witness remains the
-record's ordinary runtime table, while a struct witness is its LuaJIT ctype.
+record's runtime table, while a struct witness is its struct type.
 Constructors, static members, and method dispatch keep their runtime behavior.
 See [Names hold their
 table](types/records-and-structs.md#names-hold-their-table) for how the two stand

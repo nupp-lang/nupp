@@ -87,9 +87,9 @@ local FAMILIES = {
         prefix = "NUPP3",
         title = "Code generation",
         summary = "Code generation cannot represent the construct",
-        rule = "The program checked, but the generator cannot lower it to Lua. "
-        .. "This is a limit of the backend rather than a mistake in the "
-        .. "program's typing.",
+        rule = "The program checked, but the compiler cannot represent it in "
+        .. "what it is building. This is a limit of the compiler or the "
+        .. "target rather than a mistake in the program's typing.",
         docs = "docs/reference/diagnostics.md#code-families"
     },
     {
@@ -112,10 +112,10 @@ local FAMILIES = {
     {
         prefix = "OPT",
         title = "Optimizer remarks",
-        summary = "An optimizer remark",
-        rule = "Not a problem. A pass saying what it rewrote, or what it looked "
-        .. "at and declined to rewrite. Always a note, and never fails a "
-        .. "build.",
+        summary = "A retired optimizer remark",
+        rule = "Not a problem. These were notes from optimization passes, "
+        .. "which were retired with the Lua generator they rewrote; nothing "
+        .. "reports an `OPT` code any more.",
         docs = "docs/learn/performance/index.md#optimization-passes"
     },
 }
@@ -579,7 +579,7 @@ local ENTRIES: {any} = {
         .. "is where the value fulfilling it is written, so the value is "
         .. "held to it, with `self` specialized to the receiver, through a "
         .. "bounded type parameter as readily as through a concrete type. "
-        .. "Where the declaration contracts for nothing, LuaJIT still says "
+        .. "Where the declaration contracts for nothing, the runtime still says "
         .. "what it will do with the key: `__mode` is read as a string, "
         .. "`__index` and `__newindex` are a table to defer to or a function "
         .. "to run, and everything else it knows is called.\n\n"
@@ -1291,8 +1291,8 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2702",
         summary = "A non-yieldable C callback can reach suspension",
-        rule = "LuaJIT cannot yield through every C frame. Make the callback and every "
-        .. "call it reaches non-suspending, or invoke it from a yieldable Lua boundary.",
+        rule = "A suspension cannot cross a native frame. Make the callback and every "
+        .. "call it reaches non-suspending, or invoke it from a yieldable boundary.",
         wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n",
         right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n",
         related = {"NUPP2701"},
@@ -1422,8 +1422,8 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP3005",
-        summary = "Generated code that a Lua VM will not load",
-        rule = "The generator writes Lua and this is that Lua refusing to parse. Almost always it is one of two limits, and the message says which. A function may capture at most sixty names from around it: one reading that many things from its scope is usually reading a record it could take as one argument instead, so pass what varies, or gather what it reads into one value and capture that. And a function, the file's top level included, may hold at most two hundred locals at once: past that, gather related values into a table, or split the function or the module in two. A declared module whose records, structs, interfaces, cdef items and exported functions do not fit is generated with those moved into a table, so only the `local`s it wrote count against its top level, and `nupp check` reports a top level with more of those than fit.\n\nAny other spelling of this is a bug in the compiler rather than in the program. `nupp lsp artifact --kind lua FILE` prints the Lua it wrote even when that Lua does not load, which is where the reason can be read. It is reported where the file is built rather than where the module is first required, because the line a VM would name belongs to generated text and the line here is the one that was written.",
+        summary = "A module's top level holds more locals than a function can",
+        rule = "A function, the file's top level included, may hold at most two hundred locals at once, and `nupp check` reports a top level with more. Gather related values into a table, or split the module in two. A declared module's records, structs, interfaces, cdef items and exported functions do not count against it; only the `local`s it writes do.",
         related = {"NUPP3004"},
         docs = "docs/reference/diagnostics.md#nupp3005",
     },
@@ -2027,7 +2027,7 @@ ENTRIES[
 ] = {
     code = "NUPP2303",
     summary = "A literal ffi.cdef block does not parse as C",
-    rule = "A literal string given directly to ffi.cdef declares to the checker as well as to LuaJIT at runtime, so it has to be declarations LuaJIT's own C parser accepts. A string built at runtime, or reached only through a guard, is not read this way and so cannot be checked.",
+    rule = "A literal string given directly to ffi.cdef declares to the checker, so it has to be declarations the checker's C parser accepts. A string built at runtime, or reached only through a guard, is not read this way and so cannot be checked.",
     wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ this is not C ]]\nreturn 0\n",
     right = "local ffi = require(\"ffi\")\nffi.cdef[[ int mini_add(int a, int b); ]]\nreturn 0\n",
     related = {"NUPP2301", "NUPP2304"},
@@ -2039,7 +2039,7 @@ ENTRIES[
 ] = {
     code = "NUPP2304",
     summary = "A typed FFI operation's type string does not name a C type",
-    rule = "ffi.new, ffi.cast, ffi.typeof, ffi.istype, ffi.sizeof, and ffi.alignof read a literal string argument through LuaJIT's own type-string parser when one is given, so that string has to name a type already declared, through a cdef or cheader the checker has already seen.",
+    rule = "ffi.new, ffi.cast, ffi.typeof, ffi.istype, ffi.sizeof, and ffi.alignof read a literal string argument through the checker's C type parser when one is given, so that string has to name a type already declared, through a cdef or cheader the checker has already seen.",
     wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstNoSuch\")\nreturn p\n",
     right = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstA\")\nreturn p\n",
     related = {"NUPP2303", "NUPP2203"},
@@ -2241,7 +2241,7 @@ ENTRIES[
 ] = {
     code = "NUPP2501",
     summary = "A cast to a C pointer type has no lifetime root to hold the string alive",
-    rule = "The `string-pointer` lint reports a `ffi.cast<T>(value)` to a pointer type whose argument is a Lua string but is not itself a named binding or a preserved parameter: the pointer aliases the string's bytes, and a fresh string is scratch storage LuaJIT is free to collect once the expression that produced it goes unread. Bind the string to a local, or thread it through a preserving parameter, before casting a pointer out of it. Default level is `warning`, and a project may reconfigure or suppress it like any other lint.",
+    rule = "The `string-pointer` lint reports a `ffi.cast<T>(value)` to a pointer type whose argument is a Lua string but is not itself a named binding or a preserved parameter: the pointer aliases the string's bytes, and a fresh string is scratch storage the collector is free to reclaim once the expression that produced it goes unread. Bind the string to a local, or thread it through a preserving parameter, before casting a pointer out of it. Default level is `warning`, and a project may reconfigure or suppress it like any other lint.",
     wrong = "local pointer = ffi.cast<cstring>('a' .. 'b')\nprint(pointer)\n",
     right = "local text = 'a' .. 'b'\nlocal pointer = ffi.cast<cstring>(text)\nprint(pointer)\n",
     related = {"NUPP2608", "NUPP2603"},

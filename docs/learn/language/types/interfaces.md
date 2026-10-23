@@ -167,9 +167,8 @@ end
 ```
 
 It compiles for `nil`, the primitives, function types, records, and structs. A
-record reaches its declaration through `__index`, so a value the declaration
-built answers yes whether it was stamped directly or linked back to; a struct
-uses `ffi.istype`. `x is integer` compiles to `type(x) == "number"`, because
+record value answers by the record shape the declaration built it with, and a
+struct value by its struct type. `x is integer` compiles to `type(x) == "number"`, because
 integrality is not checked at run time.
 
 ### Tests that do not run
@@ -200,21 +199,15 @@ Where the subject's type does not settle it, an interface has no runtime table
 of its own. An interface whose fields carry literal types has already said what
 its test is, since the field admits that value and nothing else:
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local interface Circle
     kind: "circle"
     radius: number
 end
 ```
 
-```lua [Generated Lua]
--- `x is Circle` becomes
-(type(x) == "table" and x.kind == "circle")
-```
-:::
-
-That is what lets a decoded table answer `is`. It applies to interfaces only: a
+`x is Circle` tests that `x` is a table whose `kind` is `"circle"`. That is what
+lets a decoded table answer `is`. It applies to interfaces only: a
 record and a struct already answer exactly, so a derived test beside either
 would be a second answer chosen by whether the fields happened to be literals.
 
@@ -239,8 +232,7 @@ language.
 An interface may implement what it declares, and a declaration that takes the
 contract takes the behavior with it:
 
-::: code-group
-```nupp [Nupp]
+```nupp
 local interface Greeter
     name: string
 
@@ -254,20 +246,9 @@ local record Person is Greeter
 end
 ```
 
-```lua [Generated Lua]
-const Greeter = {}
-function Greeter.greet(self)
-return "hello, " .. self.name
-end
-
-const Person = {} Person.__index = Person Person.greet = Greeter.greet
-```
-:::
-
-The body is emitted **once** and referenced, not copied. It is resolved where
+The body is compiled **once** and referenced, not copied. It is resolved where
 the implementor is written rather than looked up at run time, so there is no
-chain and no indirection. A struct takes it through its metatype's index table,
-and a chain of interfaces passes it along.
+chain and no indirection. A chain of interfaces passes it along.
 
 This is the one thing that gives an interface a runtime presence. An interface
 declaring only signatures still emits nothing at all, so the table is paid for
@@ -351,11 +332,10 @@ and right values, so a right-hand-only contract has to type both positions. See
 [metamethods.md](../metamethods.md#supported-contracts) for the
 declarable set and the parameters each one takes.
 
-Structs cannot declare metamethod contracts, because LuaJIT metatypes must be
-installed when `ffi.metatype` is called and an erased promise would leave no
-later fulfillment point. The bit-operator contracts (`__band`, `__bor`,
-`__bxor`, `__bnot`, `__shl`, `__shr`, `__sar`) and `__idiv` are rejected because
-the LuaJIT 2.1 backport does not dispatch them. `__gc` and `__close` are not
+Structs cannot declare metamethod contracts: a struct's metamethods are
+installed with its type, and a declaration-only promise would leave no later
+point to fulfill it. The bit-operator contracts (`__band`, `__bor`, `__bxor`,
+`__bnot`, `__shl`, `__shr`, `__sar`) and `__idiv` are not declarable either. `__gc` and `__close` are not
 contracts either, since deterministic cleanup is
 [ownership](../../runtime/ownership/borrowing.md).
 

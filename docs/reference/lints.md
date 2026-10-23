@@ -392,20 +392,15 @@ lints = { performance = "note" }
 #### Struct conversion costs
 
 The judgement stays a suggestion, because the two are not interchangeable at
-runtime. A struct has a fixed layout and gives up the prototype a record stamps
-on what it builds, and an instance stops being a table.
+runtime. A struct has a fixed layout, and an instance stops being a table.
 
 | Operation | On a record | On a struct |
 | --- | --- | --- |
 | `type(v)` | `"table"` | `"cdata"` |
-| `pairs(v)` | iterates fields | needs a `__pairs` metamethod |
-| `string.buffer.encode(v)` | encodes | raises, and takes no hook |
-| a table-walking serializer | works | sees no keys |
+| `string.buffer.encode(v)` | encodes | raises |
 
-`__pairs` is dispatched on an `ffi.metatype`, so iteration can be restored by
-declaring one. Serialization cannot be patched the same way, because LuaJIT's
-serializer refuses cdata outright with no extension point, so a struct that has
-to cross a serialization boundary needs a conversion written for it.
+A struct that has to cross a serialization boundary needs a conversion written
+for it.
 
 [`NUPP2201`](diagnostics.md) is the other half of the pair. It fires once
 `struct` is written and a field cannot live in C memory, so between them a

@@ -4,9 +4,8 @@ order: 230
 
 # Records and structs
 
-A `record` is a Lua table with a nominal name, and a `struct` has a fixed
-reifiable layout. Native LuaJIT targets represent structs as FFI cdata;
-portable targets may select the checked table-backed provider.
+A `record` is an object with a nominal name and named fields, and a `struct` has
+a fixed reifiable C layout.
 
 ```nupp
 local record Point
@@ -22,8 +21,8 @@ end
 
 ## Records
 
-A record declaration builds one runtime table, uses it as the metatable of
-every instance, and gives the name a nominal type:
+A record declaration gives the name a nominal type and a runtime shape, the
+fixed set of slots every instance is built with:
 
 ```nupp
 local record Point
@@ -39,24 +38,14 @@ local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
-```lua [Generated Lua]
-const Point = {} Point.__index = Point
-local p = setmetatable({ x = 3, y = 4 }, Point)
-```
-
 Named construction is preferred because a record's table field order is not
 meaningful. Positional construction in declaration order is also accepted for
 Lua compatibility, but the `positional-record-construction` lint recommends
 naming the fields.
 
-The declaration's runtime table is the type's identity, which is what lets `p is
-Point` lower to a `getmetatable` comparison. An instance is a value that came
-from the declaration, not only one the declaration stamped itself: a constructor
-may link back rather than stamping, giving instances their own metatable whose
-`__index` is the record, which is how a prototype-style registrar builds them.
-The test reaches the record through `__index` so both arrive at the same answer,
-which works because a record is its own prototype. A value with no metatable,
-another record's instance, and the declaration's own table all return `false`.
+The shape is the type's identity at run time, which is what lets `p is Point`
+answer without a tag field. A plain table and another record's instance both
+return `false`.
 
 ### Names hold their table
 
@@ -186,7 +175,7 @@ The declaring module may construct, read, and write it; another checked module
 sees the nominal type and its public operations but cannot access or initialize
 the field. Privacy applies through generic instantiation and module summaries.
 It is a checked-language abstraction boundary, not a runtime sandbox against
-generated Lua or explicit `any` interop.
+plain Lua or explicit `any` interop.
 
 Records alone support private fields, and the checker says so anywhere else.
 Structs expose C layout and interfaces declare public contracts, so both reject
@@ -282,8 +271,8 @@ local p: m.Shapes.Point = new m.Shapes.Point(x = 1)
 
 ## Structs
 
-On a native LuaJIT target, a struct declaration builds an FFI type and gives it
-a metatype, so the fields are offsets into real memory rather than hash lookups:
+A struct declaration defines a C layout, so the fields are offsets into real
+memory:
 
 ```nupp
 local struct Vec2
@@ -292,14 +281,7 @@ local struct Vec2
 end
 ```
 
-```lua [Generated Lua]
-const __nuppMt_Vec2 = {__index = {}}
-const Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_Vec2)
-```
-
-The portable provider preserves the checked field widths and construction rules
-with a table representation. A native `float` field occupies and truncates to
-the width of a C `float`.
+A `float` field occupies and truncates to the width of a C `float`.
 
 Struct construction is positional in declaration order. A struct binding is
 never nil and a bare declaration is complete on its own:
@@ -311,10 +293,9 @@ local b: Vec2 -- zero-initialized
 
 A struct may declare a [constructor](#constructors-and-result-policies) the
 way a record does, and `new` then runs it instead of filling fields
-positionally. The instance is the ctype's own zero-filled allocation, so a
-field default is written into it before the body runs, and the body assigns
-the rest. The generated function sits on the metatype beside the struct's
-methods and returns the cdata it allocated:
+positionally. The instance is a zero-filled allocation of the struct's layout,
+so a field default is written into it before the body runs, and the body
+assigns the rest:
 
 ```nupp
 local struct Scaled
@@ -437,9 +418,8 @@ print(origin.x) -- 1
 Copy explicitly when you want a copy.
 
 Reading a nested struct field or an element of a `T[N]` array or `carray` does
-not copy either: LuaJIT hands back a reference into the parent's bytes, and
-nothing anchors the parent to it. The checker types that read as a borrow of
-the parent, so it may be used in place, handed to a `borrows` parameter, or
+not copy either: the read is a reference into the parent's bytes. The checker
+types that read as a borrow of the parent, so it may be used in place, handed to a `borrows` parameter, or
 copied into another struct's field, but it cannot be returned (`NUPP2608`) or
 stored through a reference (`NUPP2603`), which is where it would outlive the
 memory it points into. A parent that is only a temporary has no lifetime to
@@ -473,23 +453,19 @@ values, or a hot field access you want to be an offset instead of a hash lookup.
 
 |  | `record` | `struct` |
 | --- | --- | --- |
-| Runtime | Lua table plus metatable | FFI cdata |
-| Field access | Hash lookup | Offset |
+| Runtime | Object with a nominal shape | Fixed C layout |
+| Field access | Slot | Offset |
 | Field types | Anything | C-representable only |
 | Construction | `new R(x = 1)` (preferred) or `new R(1)` | `new S(1, 2)` |
 | Binding with no initializer | Rejected | Zero-initialized |
-| Memory | Garbage collected | Managed by the FFI |
+| Memory | Garbage collected | Garbage collected |
 | Array field `{T}` | Allowed | Rejected |
 | Property capabilities | `@readonly` / `@writeonly` | Ordinary fields only |
 | Private fields | Allowed | Rejected |
 | Nested declarations | Allowed | Rejected |
-| Inline methods | Yes | Yes, through `ffi.metatype` |
+| Inline methods | Yes | Yes |
 | Metamethod contracts | Yes | Rejected |
-| `is` test | Reaches the record through `__index` | `ffi.istype(S, v)` |
-
-The runtime column describes a native LuaJIT target. A portable target uses the
-checked table-backed struct provider while preserving the declaration's fixed
-field set, construction rules, and layout facts.
+| `is` test | The record's shape | The struct's type |
 
 Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record is assignable to a structural shape
@@ -498,10 +474,8 @@ with the same fields, so width subtyping works in that direction only.
 ::: deepdive
 Choosing between a record and a struct is a declaration rather than an
 optimization the compiler makes, because the two have genuinely different
-runtime meanings. On a native target, a struct is FFI cdata with a fixed layout
-and no hash part; a record is a table with a metatable, identity, and dynamism.
-The portable struct provider changes the host representation without changing
-the authored layout contract.
+runtime meanings. A struct is bytes in a fixed C layout with no hash part; a
+record is an object with identity and dynamism.
 :::
 
 `layoutof(T)` reports how a declaration is laid out, which is what lets a codec,
@@ -514,9 +488,9 @@ returns.
 
 ### Are records classes or ordinary Lua tables?
 
-A record declaration creates the table and metatable pattern ordinary Lua code
-already uses. It adds a nominal type to checking but no class runtime or hidden
-instance wrapper. See [records](#records) for the lowering, and [metamethod
+Neither. A record is an object built with its declaration's shape, and it adds
+a nominal type to checking but no class runtime or hidden instance wrapper. See
+[records](#records) for what the declaration builds, and [metamethod
 contracts](../metamethods.md#declaring-a-contract) for the explicit
 declaration an API needs when it wants operator behavior.
 

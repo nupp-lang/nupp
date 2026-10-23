@@ -27,7 +27,7 @@ These names, and only these, resolve as bare builtin types:
 | `nil` | The nil singleton |
 | `boolean` | true or false |
 | `string` | A Lua string |
-| `number` | A LuaJIT double |
+| `number` | A double |
 | `integer` | A number known to be integral |
 | `table` | Any table shape; compatible with each in both directions |
 | `thread` | A coroutine |
@@ -39,11 +39,11 @@ These names, and only these, resolve as bare builtin types:
 | `int8` | Signed physical storage; loads as `int32` |
 | `int16` | Signed physical storage; loads as `int32` |
 | `int32` | An established signed 32-bit Lua integer |
-| `int64` | A boxed 64-bit signed cdata integer, as LuaJIT's `1LL` |
+| `int64` | A boxed 64-bit signed integer, as `1LL` |
 | `uint8` | Unsigned physical storage; loads as `uint32` |
 | `uint16` | Unsigned physical storage; loads as `uint32` |
 | `uint32` | An established unsigned 32-bit Lua integer |
-| `uint64` | A boxed 64-bit unsigned cdata integer, as LuaJIT's `1ULL` |
+| `uint64` | A boxed 64-bit unsigned integer, as `1ULL` |
 
 `metatable<T>`, `ctype<T>`, and `carray<T>` use generic angle-bracket syntax.
 `affine(T, cleanup)`, `affine(T)`, and `pinned(T)` are built-in compile-time
@@ -203,11 +203,10 @@ local x: number = 1
 local y: integer = x -- NUPP2001: number is not a integer
 ```
 
-`int64` and `uint64` are boxed cdata rather than Lua numbers, and they stand
-apart from that lattice. A Lua number does not become one without a conversion,
-one does not widen to `integer` or `number`, and the signed and unsigned boxes
-do not convert into each other: `math.sqrt(1LL)` raises, and a table indexed
-by `1LL` finds nothing. An `LL` or `ULL` literal, a load from a struct field or
+`int64` and `uint64` are boxed 64-bit integers rather than Lua numbers, and they
+stand apart from that lattice. A Lua number does not become one without a
+conversion, one does not widen to `integer` or `number`, and the signed and
+unsigned boxes do not convert into each other. An `LL` or `ULL` literal, a load from a struct field or
 C array, or a `cdef` function's result establishes one, and storing a Lua
 number into an `int64` field converts it the way C does.
 
@@ -240,7 +239,7 @@ local rounded: float = nupp.math.f32.narrow(0.5)
 
 The erased assertion `as` may claim one of these types but does not establish
 it, and is reported where the evidence is missing. Ordinary arithmetic over them
-keeps LuaJIT's numeric semantics and produces `number`, so use the
+keeps Lua's numeric semantics and produces `number`, so use the
 `nupp.math.f32`, `nupp.math.i32`, and `nupp.math.u32` operations when a
 particular width is part of the calculation. See [](nupp.math) for the complete
 operation set.
@@ -268,11 +267,11 @@ store itself performs the narrowing.
 ::: deepdive
 Two names for the same C width would be the obvious alternative, one for storage
 and one for the value a load yields. The division here is narrower on purpose:
-LuaJIT has no `uint8` register, so every narrow load already arrives as a
-32-bit Lua number, and a `uint8` local would be a type describing a
-representation that does not exist at run time. Keeping the narrow names to
-layout positions means the value types are exactly the ones LuaJIT can hold,
-and the diagnostic names the wider type to write instead.
+every narrow load already arrives as a 32-bit Lua number, so a `uint8` local
+would be a type describing a representation that does not exist at run time.
+Keeping the narrow names to layout positions means the value types are exactly
+the ones a value can hold, and the diagnostic names the wider type to write
+instead.
 :::
 
 ### Numeric literals
@@ -318,7 +317,8 @@ Write `A | B` with spaces. `A||B` lexes as the single `||` operator. See
 | `T[4]` | C array of fixed length, zero-based |
 | `T[?]` | C array of unspecified length, zero-based |
 
-`{T}` and `T[N]` are different types: one is a Lua table, the other is cdata.
+`{T}` and `T[N]` are different types: one is a Lua table, the other is fixed C
+storage.
 Reading a map yields `V?`, because a key may be absent, while reading an array
 yields `T`:
 
@@ -345,7 +345,7 @@ all.
 A pointer type is written `T*`, and a pointer that may be NULL is `T*?`.
 Pointers are invariant in their pointee. `nil` is not a `T*`; the diagnostic
 says so and names `T*?` as the fix. A struct value is accepted where `struct*`
-is wanted, matching LuaJIT's automatic address-of:
+is wanted, taking its address automatically:
 
 ```nupp
 local struct Vec2
@@ -462,7 +462,7 @@ A function returning nothing still states `: nil`.
 
 ### Is `integer` a different runtime value from `number`?
 
-No. Both are LuaJIT doubles, and `integer` records that the checker has proof
+No. Both are doubles, and `integer` records that the checker has proof
 the value is integral. `x is integer` compiles to `type(x) == "number"`, so
 integrality is not re-tested at run time.
 

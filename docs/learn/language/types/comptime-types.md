@@ -255,7 +255,7 @@ unchecked `...any` tail.
 local message = string.format("%s has %d messages", "Ada", 3)
 ```
 
-Supported conversions match LuaJIT's bounded formatting surface. This is
+The checker supports a bounded set of conversions. This is
 implemented through the same type-function mechanism available to user code,
 not a format-specific checker branch.
 
@@ -388,7 +388,8 @@ discards the rest, so the extra text is a request that never happens.
 Type functions run in the isolated comptime worker under deterministic
 iteration, step, call-depth, wall-clock, memory, protocol, graph-size, and
 member limits. Results cross the worker boundary as validated structural
-blueprints, so they cannot forge nominal identity or escape into generated Lua.
+blueprints, so they cannot forge nominal identity or escape into the compiled
+program.
 Recursive algorithms use ordinary comptime calls or loops and are governed by
 the same limits.
 

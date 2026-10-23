@@ -85,8 +85,8 @@ end
 
 ::: deepdive
 A refined type is entered by running the test, not by writing the name. An
-annotation on its own establishes nothing a consumer can use, because it lowers
-to exactly the Lua that writing no annotation lowers to. A name that reads as a
+annotation on its own establishes nothing a consumer can use, because it
+compiles to exactly what writing no annotation compiles to. A name that reads as a
 guarantee and proves nothing is worse than no name: every consumer that wanted
 the fact still has to test for it, and every reader believes something untrue.
 Running the test at `is` is what turns the name into a fact the checker

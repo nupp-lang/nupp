@@ -345,15 +345,10 @@ specified. A helper module becomes an ordinary runtime dependency of the
 consumer even when the comptime provider itself would otherwise erase.
 
 ::: deepdive
-Keeping behavior in the language makes arbitrary runtime control flow,
-optimization, effects, diagnostics, and future generic helpers available without
+Keeping behavior in the language makes arbitrary runtime control flow, effects, diagnostics, and future generic helpers available without
 turning them into a macro IR. A macro IR would have to grow its own version of
 each of those, and every one would then be a second implementation to keep
 agreeing with the first.
-
-The generated wrapper is a semantic node the compiler may inline or sink when
-ordinary optimization proves that safe. Such optimization is not part of the
-provider contract, so a recipe cannot depend on it happening.
 :::
 
 ::: seealso
