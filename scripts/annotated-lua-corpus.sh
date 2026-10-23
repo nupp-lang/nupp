@@ -32,4 +32,4 @@ if [ ! -f "$COMPLETE" ]; then
     printf '%s\n' "$DIGEST" > "$COMPLETE"
 fi
 
-exec luajit "$ROOT/scripts/annotated-lua-corpus.lua" "$TREE"
+exec "$ROOT/bin/nupp" run "$ROOT/scripts/annotated-lua-corpus.lua" "$TREE"

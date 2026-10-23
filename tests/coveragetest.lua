@@ -62,19 +62,18 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
     assert(index:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
     assert(
-        index:find("href='files/src/nupp/compiler/lua/gen.nupp/index.html'", 1, true),
+        index:find("href='files/src/nupp/tools/coverage.nupp/index.html'", 1, true),
         "coverage index links to a file page"
     )
-    local genPage = read(out .. "/files/src/nupp/compiler/lua/gen.nupp/index.html")
-    test.matches(genPage, "Nupp source")
-    test.matches(genPage, "Generated Lua")
-    assert(genPage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true), "coverage pages have breadcrumbs")
+    local filePage = read(out .. "/files/src/nupp/tools/coverage.nupp/index.html")
+    test.matches(filePage, "Nupp source")
+    assert(filePage:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true), "coverage pages have breadcrumbs")
     assert(
-        genPage:find("href='../../../../../../directories/src/index.html'>src</a>", 1, true),
+        filePage:find("href='../../../../../directories/src/index.html'>src</a>", 1, true),
         "coverage breadcrumbs link each parent layer"
     )
     assert(
-        genPage:find("href='../../../../../../directories/src/nupp/compiler/index.html'>compiler</a>", 1, true),
+        filePage:find("href='../../../../../directories/src/nupp/tools/index.html'>tools</a>", 1, true),
         "coverage breadcrumbs link nested parent layers"
     )
     assert(not index:find("location.hash", 1, true), "coverage navigation uses real pages")
@@ -86,9 +85,9 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
         index:find("<details open><summary><a href='directories/src/nupp/index.html'", 1, true),
         "coverage tree opens its second level"
     )
-    local compilerPage = read(out .. "/directories/src/nupp/compiler/index.html")
+    local toolsPage = read(out .. "/directories/src/nupp/tools/index.html")
     assert(
-        compilerPage:find("href='../../../../files/src/nupp/compiler/lua/gen.nupp/index.html'", 1, true),
+        toolsPage:find("href='../../../../files/src/nupp/tools/coverage.nupp/index.html'", 1, true),
         "directory summaries link to file pages"
     )
     local query = assert(
@@ -275,40 +274,6 @@ local function lowered(path, name, covered, source)
     return image, request and request.manifests or nil
 end
 
-local function generated(path, name, source)
-    local code, diagnostics, manifest = require("nupp.compiler.lua.gen").generate(checked(path, name, source), path, {
-        path = path
-    })
-    test.equal(#diagnostics, 0)
-
-    return code, manifest
-end
-
-local function sameSites(left, right, label)
-    test.equal(#left, #right, label .. ": site count")
-    for index, site in ipairs(left) do
-        local other = right[index]
-        for _, field in ipairs({"id", "kind", "line", "name", "endLine"}) do
-            test.equal(site[field], other[field], ("%s: site %d %s"):format(label, index, field))
-        end
-    end
-end
-
-function M.vmLoweringNumbersTheSitesTheGeneratorNumbers()
-    local path = fixturePath()
-    local _, manifests = lowered(path, "sample", true)
-    local _, manifest = generated(path, "sample")
-    assert(#manifest.sites > 40, "the fixture has every kind of site")
-    test.equal(manifests.sample.path, path)
-    sameSites(manifests.sample.sites, manifest.sites, "fixture")
-    -- And a module written for its own sake rather than for this test.
-    local real = ROOT .. "/src/nupp/compiler/switchplan.nupp"
-    local _, realManifests = lowered(real, "nupp.compiler.switchplan", true)
-    local _, realManifest = generated(real, "nupp.compiler.switchplan")
-    assert(#realManifest.sites > 100, "the module has sites to compare")
-    sameSites(realManifests["nupp.compiler.switchplan"].sites, realManifest.sites, "nupp.compiler.switchplan")
-end
-
 function M.anUninstrumentedImageIsUnchanged()
     local path = fixturePath()
     local ordinary = lowered(path, "sample", nil)
@@ -351,29 +316,16 @@ local function countedRun(path, run)
     return result, hits
 end
 
-local function vmImageCountsWhatTheGeneratedLuaCounts()
+local function vmImageCountsWhatItRuns()
     local path = fixturePath()
     local image, manifests = lowered(path, "sample", true)
-    local vmResult, vmHits = countedRun(path, function()
+    local _, vmHits = countedRun(path, function()
         return rawget(_G, "__nupp_load_image")(image)().run()
     end)
-    local code = generated(path, "sample")
-    -- The generated prelude installs the managed runtime, which a corpus image
-    -- carries only when something names it.
-    require("nupp.runtime.managed")
-    local luaResult, luaHits = countedRun(path, function()
-        return assert(loadstring(code, "@" .. path))().run()
-    end)
-    test.equal(vmResult, luaResult)
     local reached = 0
     for _, site in ipairs(manifests.sample.sites) do
         local keys = site.kind == "branch" and {site.id .. ":true", site.id .. ":false"} or {tostring(site.id)}
         for _, key in ipairs(keys) do
-            test.equal(
-                vmHits[key],
-                luaHits[key],
-                ("%s site %d (%s, line %d)"):format(key, site.id, site.kind, site.line)
-            )
             reached = reached + ((vmHits[key] or 0) > 0 and 1 or 0)
         end
     end
@@ -389,7 +341,7 @@ end
 -- statements of its own (the type witnesses' cells) before any the source wrote.
 -- Those once reused the register the counts were loaded into, and every count of
 -- the module's top level went into the witness table instead.
-local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
+local function vmModuleLoadCountsItsTopLevel()
     local path = ROOT .. "/src/nupp/compiler/types/generics.nupp"
     local realName = "nupp.compiler.types.generics"
     local real = require(realName)
@@ -402,7 +354,7 @@ local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
     assert(source:sub(1, #declaration + 1) == declaration .. "\n", "the real module begins with its declared header")
     source = "module " .. name .. source:sub(#declaration + 1)
     local previousFixture = package.loaded[name]
-    local vmHits, luaHits
+    local vmHits, manifests
 
     local function compilerUnchanged()
         test.equal(package.loaded[realName], real, "coverage did not replace the real loaded compiler module")
@@ -415,16 +367,10 @@ local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
     local ok, problem = pcall(function()
         -- Both checks see the rewritten header first. The physical path and
         -- line count stay unchanged, so all original coverage sites compare.
-        local image = lowered(path, name, true, source)
-        local vmResult
-        vmResult, vmHits = countedRun(path, function()
+        local image
+        image, manifests = lowered(path, name, true, source)
+        _, vmHits = countedRun(path, function()
             return rawget(_G, "__nupp_load_image")(image)()
-        end)
-        compilerUnchanged()
-        local code = generated(path, name, source)
-        local luaResult
-        luaResult, luaHits = countedRun(path, function()
-            return assert(loadstring(code, "@" .. path))()
         end)
         compilerUnchanged()
     end)
@@ -432,20 +378,21 @@ local function vmModuleLoadCountsWhatTheGeneratedLuaCounts()
     if not ok then
         error(problem, 0)
     end
-    local keys = 0
-    for key, value in pairs(luaHits) do
-        test.equal(vmHits[key], value, "site " .. key)
-        keys = keys + 1
+    local sites = {}
+    for _, site in ipairs(manifests[name].sites) do
+        sites[tostring(site.id)] = true
     end
+    local keys = 0
     for key in pairs(vmHits) do
-        assert(luaHits[key] ~= nil, "the VM counted site " .. key .. " the generated Lua did not")
+        assert(sites[key:match("^(%d+)")], "the VM counted site " .. key .. ", which the lowering never numbered")
+        keys = keys + 1
     end
     assert(keys > 50, "loading the module reached its top level")
 end
 
 if rawget(_G, "__nupp_load_image") then
-    M.vmImageCountsWhatTheGeneratedLuaCounts = vmImageCountsWhatTheGeneratedLuaCounts
-    M.vmModuleLoadCountsWhatTheGeneratedLuaCounts = vmModuleLoadCountsWhatTheGeneratedLuaCounts
+    M.vmImageCountsWhatItRuns = vmImageCountsWhatItRuns
+    M.vmModuleLoadCountsItsTopLevel = vmModuleLoadCountsItsTopLevel
 end
 
 return M

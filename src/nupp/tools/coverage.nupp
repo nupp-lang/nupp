@@ -132,7 +132,6 @@ function coverage.collect(statePath: string, shardPath: string): coverage.Model
                 file = {
                     path = path,
                     source = source,
-                    generated = record.output,
                     sites = {},
                     lines = metric(),
                     functions = metric(),
@@ -547,16 +546,13 @@ local function codeRows(source, file, language)
 end
 
 local function fileBody(file, currentPage)
-    local generated = readFile(file.generated) or "-- generated Lua unavailable"
     local out = {
         pageHeading(file.path, currentPage) .. "<div class=cards>",
         metricCard("Lines", file.lines),
         metricCard("Functions", file.functions),
         metricCard("Branches", file.branches),
-        "</div><div class=tabs><button data-view=source>Nupp source</button>"
-        .. "<button data-view=generated>Generated Lua</button></div>",
-        "<pre data-view=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>",
-        "<pre data-view=generated class='view code hidden'>" .. codeRows(generated, file, "lua") .. "</pre>"
+        "</div><div class=tabs><button data-view=source>Nupp source</button></div>",
+        "<pre data-view=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>"
     }
 
     return table.concat(out)
@@ -612,7 +608,7 @@ end
 function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     local summary = aggregate(model.files, "")
     model.summary = summary
-    -- Source text and generated Lua belong in their HTML pages, not in the machine
+    -- Source text belongs in its HTML pages, not in the machine
     -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
     local public = {
         schemaVersion = coverage.SCHEMA_VERSION,

@@ -1471,32 +1471,7 @@ local function loadSuite(suite)
         return chunk(), nil
     end
 
-    -- A Nupp suite is an ordinary module after compilation. Keep its runtime
-    -- loader installed while its cases run so it may require project modules.
-    local compile = require("nupp.tools.cli.compile")
-    -- The runner is invoked from the project root, just as `nupp test` runs
-    -- its configured command. Keep this root normalized for module lookup.
-    local env = require("nupp.compiler.project.env").new(".")
-    local settings = compile.settings({})
-    local code, compileErr = compile.module(path, env, settings)
-    if not code then
-        error("cannot compile Nupp test suite " .. path .. ": " .. tostring(compileErr), 0)
-    end
-    local removeLoader = require("nupp.compiler.runtime").install(env, function(modulePath, e)
-        return compile.module(modulePath, e, settings)
-    end)
-    local chunk, loadErr = loadstring(code, "@" .. path)
-    if not chunk then
-        removeLoader()
-        error("cannot load Nupp test suite " .. path .. ": " .. tostring(loadErr), 0)
-    end
-    local ok, loaded = pcall(chunk)
-    if not ok then
-        removeLoader()
-        error(loaded, 0)
-    end
-
-    return loaded, removeLoader
+    error("Nupp test suites run on the VM: " .. path, 0)
 end
 
 --- Where a test function is written, which is stable and worth reporting even

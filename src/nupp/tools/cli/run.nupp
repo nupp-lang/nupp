@@ -85,11 +85,7 @@ local function run(options: any): integer
         end
         chunk, err = loadImage(image)
     elseif path:find("%.nupp$") then
-        local code = compile.module(path, projectEnv, settings)
-        if not code then
-            return 1
-        end
-        chunk, err = loadstring(code, "@" .. path)
+        return usageError("running a .nupp program needs the VM; install a VM CLI with scripts/vm-cli")
     else
         chunk, err = loadfile(path)
     end
@@ -117,13 +113,12 @@ local function run(options: any): integer
         compileLoaded, loaded = watch.compileLoaded, watch.loaded
     else
         compileLoaded = function(modulePath: string, env: any, name: string): string?, string?
-            if loadImage then
-                local image = compile.image(modulePath, env, name)
-                return image, image == nil and "type errors" or nil
+            if not loadImage then
+                return nil, "loading a .nupp module needs the VM"
             end
-            local code, problem = compile.module(modulePath, env, settings)
+            local image = compile.image(modulePath, env, name)
 
-            return code, problem
+            return image, image == nil and "type errors" or nil
         end
     end
     local checkPlain = function(modulePath: string, env: any): boolean

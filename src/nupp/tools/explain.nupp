@@ -2370,10 +2370,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP3002",
-    summary = "A struct field's type has no C declarator the generator can emit",
-    rule = "Every field of a reified `struct` lowers to a literal C declarator inside the `ffi.typeof` string the record compiles to. The checker admits any pointer or fixed array uniformly as a reifiable field, but the generator still has to spell each concrete shape syntactically, and some admitted shapes have no case in that spelling, chief among them an array whose element is itself a pointer. Such a field is refused at generation rather than at check.",
-    wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n",
-    right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n",
+    summary = "The retired Lua generator could not spell a struct field in C",
+    rule = "This diagnostic belonged to the Lua generator, which spelled each field of a `struct` as a C declarator inside the `ffi.typeof` string LuaJIT laid it out from. The VM lays a struct out from its checked field types, so nothing reports this code.",
     related = {"NUPP2201", "NUPP3003", "NUPP3004"},
     docs = "docs/learn/runtime/c-interop/index.md#type-mapping",
 }
@@ -2382,10 +2380,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP3003",
-    summary = "A cdef struct field or function signature has no C spelling",
-    rule = "`cdef struct` and `cdef function` declare literal C, and every field and parameter type must render as one. A pointer to an ordinary Nupp record, one with no `cdef struct` layout of its own, passes the checker's general rule that any pointer is reifiable, but has no C declarator: only cdef-declared aggregates, primitives, `cstring`, `voidptr`, and pointers built from those actually render. Point at a `cdef struct` instead of a plain `record`.",
-    wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
-    right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n",
+    summary = "The retired Lua generator could not spell a cdef declaration in C",
+    rule = "This diagnostic belonged to the Lua generator, which rendered every `cdef struct` and `cdef function` as literal C for LuaJIT's ffi. The VM binds a cdef declaration from its checked types, so nothing reports this code.",
     related = {"NUPP2203", "NUPP3002", "NUPP3004"},
     docs = "docs/learn/runtime/c-interop/index.md#type-mapping",
 }
@@ -2394,10 +2390,8 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP3004",
-    summary = "An FFI operation's explicit type argument has no C spelling",
-    rule = "`ffi.new<T>`, `ffi.cast<T>`, `ffi.typeof<T>` and their siblings take T as a literal C type argument to LuaJIT, not an ordinary Nupp value type. The checker resolves any named type here without verifying it is renderable; only a `cdef struct`, a Nupp `struct`, a primitive, or a pointer built from those actually is. Naming a plain `record` fails at generation instead.",
-    wrong = "local record Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n",
-    right = "local struct Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n",
+    summary = "The retired Lua generator could not spell an FFI type argument in C",
+    rule = "This diagnostic belonged to the Lua generator, which handed `ffi.new<T>` and its siblings T as a literal C type for LuaJIT. LuaJIT's ffi is not part of the VM, so nothing reports this code.",
     related = {"NUPP2203", "NUPP3002", "NUPP3003"},
     docs = "docs/learn/runtime/c-interop/index.md#type-mapping",
 }

@@ -91,11 +91,11 @@ local function reportedFor(aot)
    if #names == 0 then return codes end
 
    local pipe = assert(io.popen(("cd '%s' && '%s' %s --json %s 2>/dev/null")
-      :format(dir, NUPP, aot and "check" or "build", table.concat(names, " "))))
+      :format(dir, NUPP, "check", table.concat(names, " "))))
    local out = pipe:read("*a")
    pipe:close()
    local ok, decoded = pcall(json.decode, out)
-   assert(ok, "build --json did not produce JSON: " .. out)
+   assert(ok, "check --json did not produce JSON: " .. out)
    for _, diagnostic in ipairs(decoded.diagnostics or {}) do
       local file = tostring(diagnostic.file or ""):match("([^/\\]+)$")
       if file and diagnostic.code then

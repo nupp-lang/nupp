@@ -22,8 +22,7 @@ const {type Observer} = require("nupp.compiler.project.incremental")
 const {type Value} = require("nupp.compiler.project.store")
 
 local envMod = require("nupp.compiler.project.env")
-local gen = require("nupp.compiler.lua.gen")
-local optimize = require("nupp.compiler.lua.optimize")
+local requires = require("nupp.tools.build.requires")
 local hash = require("nupp.compiler.hash")
 local incremental = require("nupp.compiler.project.incremental")
 local diagnosticMod = require("nupp.compiler.diagnostics")
@@ -834,7 +833,7 @@ local GUARANTEE_QUERY = {moduleCallGuarantees = true, moduleCallGuarantee = true
 
 --- The runtime modules generated code requires, as a build packages them.
 local function runtimeImports(name: string, code: string, config: Config, target: Target): any
-    local required = gen.runtimeModules(code)
+    local required = requires.modules(code)
     -- Watch generation reaches its registry through a global rather than a
     -- require, so nothing in the generated code says the module it needs is
     -- there. Naming it here is what packages it.
@@ -1004,65 +1003,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
     local runtimeModules = jsonArray({} as {string})
     local generated = false
     local generateMs: number = 0
-    if not external and not fatal and not job.checkOnly then
-        if job.generating ~= nil then
-            job.generating(name)
-        end
-        local startedGenerating = progress.now()
-        local genDiags
-        -- Numbered before the passes rewrite the tree: a VM program lowers the
-        -- source as it was checked, and its counters are filed against the same
-        -- numbers this records.
-        local coverageIndex = config._coverage and require("nupp.compiler.coverage").enumerate(result.result.root, path)
-            or nil
-        local remarks = optimize.run(result.result, {
-            level = config._optLevel or 0,
-            filename = path,
-            disabled = config._disabledPasses,
-            constSelection = job.constSelection,
-        })
-        optimizationAccounted = true
-        for _, note in ipairs(remarks) do
-            optimizationRemarks[#optimizationRemarks + 1] = note
-        end
-        for _, site in ipairs(optimize.allocationSites(result.result)) do
-            allocationSites[#allocationSites + 1] = {file = path, kind = site.kind, line = site.line, col = site.col,}
-        end
-        local emittedEffects
-        -- A reload component is generated the way `nupp run --watch` generates:
-        -- one slot array per module, every named function dispatching through
-        -- it, and the same registration calls. What makes it a component rather
-        -- than a watch run is who seals it and who holds the compiler session,
-        -- both of which packaging and the host settle later.
-        local hotRequest: any = config._reload
-            and {mode = "initial", module = name, libraries = config._reloadLibraries or {}}
-            or nil
-        code, genDiags, coverage, emittedEffects = gen.generate(
-            result.result,
-            path,
-            coverageIndex and {path = path, index = coverageIndex} or nil,
-            hotRequest,
-            ((target as any)._aotGpuSources or {})[normalize(path)] and {["runtime.gpu"] = true} or nil
-        )
-        -- Generation is the last word on runtime reachability: it has now seen
-        -- which checked nodes survived folding, comptime erasure, materialization,
-        -- and lowering. Persist the same set that selected the generated prologue
-        -- so packaging carries only features the generated Lua uses.
-        result.result.effects = emittedEffects
-        runtimeModules = runtimeImports(name, code, config, target)
-        for effect in pairs(emittedEffects) do
-            effectNames[#effectNames + 1] = effect
-        end
-        table.sort(effectNames)
-        generated = true
-        for _, diag in ipairs(genDiags) do
-            mine[#mine + 1] = diag
-        end
-        if #genDiags == 0 then
-            artifactHash = job.contentDigest(code)
-        end
-        generateMs = progress.now() - startedGenerating
-    elseif not external and not fatal and config._coverage then
+    if not external and not fatal and config._coverage then
         -- A VM program lowers its modules from source and numbers their sites
         -- there; packaging only needs to know which file each module is.
         coverage = {path = path, sites = {}}

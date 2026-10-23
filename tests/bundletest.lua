@@ -984,31 +984,25 @@ print(owing)
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.nativeWorkersRequireACompatibleBinaryHost()
-    local function rejected(kind, stub)
-        local manifest = (
-            [[
+-- A binary is a VM program, so a stub other than the compiler's own runtime is
+-- refused before anything is built.
+function M.aBinaryNamesTheNuppRuntimeAsItsStub()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
 return {
    include = {"src"},
    build = {default = "app", targets = {app = {
-      kind = %q, entries = {"main"}, stub = %s,
+      kind = "binary", entries = {"main"}, stub = "third-party-host",
    }}},
 }
-]]
-        ):format(kind, stub and string.format("%q", stub) or "nil")
-        local dir = tempProject({
-            ["nupp.lua"] = manifest,
-            ["src/main.nupp"] = 'local workers = require("nupp.workers")\nreturn workers\n',
-        })
-        local out, ok = run(dir, "'" .. NUPP .. "' build")
-        os.execute("rm -rf '" .. dir .. "'")
-        assert(
-            not ok and out:find('native workers require a binary host with stub = "nupp"', 1, true),
-            kind .. " with " .. tostring(stub) .. " is refused before runtime: " .. out
-        )
-    end
-
-    rejected("binary", "third-party-host")
+]],
+        ["src/main.nupp"] = "return 42\n",
+    })
+    local out, ok = run(dir, "'" .. NUPP .. "' build")
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(not ok and out:find('stub must be "nupp"', 1, true), "a foreign stub is refused: " .. out)
 end
 
 -- One tree, one deliverable, and every claim about it. That a program runs with

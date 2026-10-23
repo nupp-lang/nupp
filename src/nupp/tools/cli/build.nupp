@@ -8,7 +8,6 @@ require; naming none builds the manifest's default target. The manifest options
 and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
-const files = require("nupp.io.files")
 
 local usageError = require("nupp.tools.cli.error").forCommand("build")
 local cliModule = require("nupp.cli")
@@ -18,11 +17,7 @@ local REPORT_SCHEMA = {
     description = "What a build reported and what it produced.",
     properties = {
         diagnostics = require("nupp.tools.cli.report").DIAGNOSTICS,
-        target = {
-            type = "string",
-            description = "The manifest target that was built. Absent for a "
-            .. "build of explicitly named source files."
-        },
+        target = {type = "string", description = "The manifest target that was built."},
         platform = {type = "string", description = "The selected binary platform for a one-platform build."},
         distributionReady = {
             type = "boolean",
@@ -201,46 +196,18 @@ local REPORT_SCHEMA = {
     required = {"ok", "diagnostics", "written", "materializations", "derives"},
 }
 
--- Whether the manifest declares a target by this name. Asked only about a positional
--- that is not a file, so an ordinary build never reads the manifest to find out.
-local function configuredTarget(name: string): boolean
-    local project = require("nupp.tools.build.project")
-    local config = project.loadManifest(".")
-    local targets = config and config.build and config.build.targets or {}
-
-    return targets[name] ~= nil
-end
-
 local function run(options: any): integer
-    local positional: {string} = options.paths
     local values = options
-    local paths: {string} = positional
-    -- `--output` names the directory the build writes into in either shape: the
-    -- manifest target's output directory, or where explicit source files land.
-    local outDir: string? = #paths > 0 and values.output or nil
-    local projectOutDir: string? = #paths == 0 and values.output or nil
+    -- `--output` names the manifest target's output directory.
+    local projectOutDir: string? = values.output
     local target = values.target
     if values.remarksOut == "" then
         return usageError("--remarks-out= requires a file name")
     end
-    if #paths > 0 and (target or values.platform or values.host) then
-        return usageError("--target, --platform and --host cannot be used with explicit source files")
-    end
-    -- A positional is a source file, and a target is named with `--target`. `nupp build
-    -- docs` reads as the first and means the second, so the two are told apart here
-    -- rather than several steps later, where the manifest is out of reach and all that
-    -- is left to report is that a directory did not read as a module.
-    for _, path in ipairs(paths) do
-        if not files.isFile(path) and configuredTarget(path) then
-            return usageError(
-                ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
-            )
-        end
-    end
     local reportMod = require("nupp.tools.cli.report")
     local asJson = values.format == "json"
     -- Under --json the diagnostics belong in the document rather than on stderr as they
-    -- are found, so both build shapes are handed somewhere to put them.
+    -- are found.
     local diagnostics: {any} = {}
     local compile = require("nupp.tools.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)
@@ -251,8 +218,7 @@ local function run(options: any): integer
     local materializations: {any} = {}
     local derives: {any} = {}
 
-    -- Ends the command with what the build produced, in the shape the project build
-    -- fills in; the file shape fills in the fields it has and leaves the rest absent.
+    -- Ends the command with what the build produced.
     local function finish(code: integer, produced: {[string]: any}): integer
         -- Every way out of this command passes here, which is the point: the option is
         -- advertised on `build`, and a build that wrote nothing because it took a
@@ -279,191 +245,34 @@ local function run(options: any): integer
         return code
     end
 
-    if #paths == 0 then
-        local project = require("nupp.tools.build.project")
-        local produced: {[string]: any} = {}
-        local code = project.build(".", {
-            outDir = projectOutDir,
-            target = target,
-            platform = values.platform,
-            host = values.host,
-            optLevel = settings.optLevel,
-            remarks = settings.remarks,
-            remarksFile = settings.remarksFile,
-            disabled = settings.disabled,
-            diagnostics = asJson and diagnostics or nil,
-            produced = (asJson or settings.remarksOut ~= nil) and produced or nil,
-            progress = progressMode
-        })
-        if settings.remarksOut then
-            settings.optLevel = produced.optLevel or settings.optLevel
-            settings.collectedRemarks = produced.optimizationRemarks or {}
-            settings.collectedAllocationSites = produced.allocationSites or {}
-            settings.accountedModules = produced.accountedModules or 0
-        end
-        return finish(code, produced)
-    end
-    local fs = require("nupp.compiler.fs")
-    outDir = outDir or "build"
-    if outDir and not fs.mkdir(outDir) then
-        reportMod.fileFailure(
-            outDir,
-            "cannot create output directory " .. outDir,
-            "check that the directory can be created",
-            asJson and diagnostics or nil
-        )
-        return finish(1, {})
-    end
-    local envMod = require("nupp.compiler.project.env")
-    local env = envMod.new(".")
-    settings.materializations = materializations
-    settings.derives = derives
-    settings.specializedBodies = 0
-    -- The file shape has no module graph to count through, since what it will reach is
-    -- discovered by reaching it, so its reporter names files as it gets to them and
-    -- leaves the counter off.
-    local progressMod = require("nupp.tools.build.progress")
-    local report = progressMod.new(progressMode)
-    local failed = false
-    local written: {[string]: boolean} = {}
-    local outputs: {string} = {}
-    local runtimeNames: {[string]: boolean} = {}
-    local runtimeDone: {[string]: boolean} = {}
-    local gen = require("nupp.compiler.lua.gen")
-    local carried = require("nupp.compiler.bundled")
-
-    -- Positionals arrive spelled however the caller typed them, while `env.loaded`
-    -- records paths the environment has normalized. `written` is keyed on the
-    -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the
-    -- module graph are one module, emitted once.
-    local function emitModule(givenPath: string, moduleName: string?, sourceOverride: string?): boolean
-        local path = fs.normalize(givenPath)
-        if written[path] then
-            return true
-        end
-        written[path] = true
-        report:at("compile")
-        report:step("compiling " .. path)
-        local startedAt = progressMod.now()
-        local before = settings.specializedBodies as integer
-        local code = compile.module(path, env, settings, moduleName, sourceOverride)
-        report:addSpecialized((settings.specializedBodies as integer) - before)
-        report:spent(path, progressMod.now() - startedAt)
-        report:resolved()
-        if not code then
-            report:clear()
-            return false
-        end
-        for _, name in ipairs(gen.runtimeModules(code)) do
-            if name == "nupp.runtime.managed" then
-                runtimeNames[name] = true
-            end
-        end
-        local outPath: string
-        if outDir then
-            -- The dependency loop below routes every reached module through here,
-            -- so the output tree keeps each module's relative directory: flattening
-            -- to basenames would let two same-named modules silently overwrite one
-            -- another and put `a/util.lua` where `require("a.util")` cannot find
-            -- it. An absolute source path has no relative spelling to keep and
-            -- lands by basename.
-            local relative = path
-            if path:sub(1, 1) == "/" or path:match("^[A-Za-z]:/") then
-                relative = path:match("([^/]+)$") or path
-            end
-            outPath = outDir .. "/" .. relative:gsub("%.nupp$", "") .. ".lua"
-        else
-            outPath = path:gsub("%.nupp$", "") .. ".lua"
-        end
-        report:at("write")
-        local wrote, err = fs.writeFile(outPath, code)
-        if not wrote then
-            reportMod.fileFailure(outPath, err, "check that the output path is writable", asJson and diagnostics or nil)
-            return false
-        end
-        outputs[#outputs + 1] = outPath
-
-        return true
+    local project = require("nupp.tools.build.project")
+    local produced: {[string]: any} = {}
+    local code = project.build(".", {
+        outDir = projectOutDir,
+        target = target,
+        platform = values.platform,
+        host = values.host,
+        optLevel = settings.optLevel,
+        remarks = settings.remarks,
+        remarksFile = settings.remarksFile,
+        disabled = settings.disabled,
+        diagnostics = asJson and diagnostics or nil,
+        produced = (asJson or settings.remarksOut ~= nil) and produced or nil,
+        progress = progressMode
+    })
+    if settings.remarksOut then
+        settings.optLevel = produced.optLevel or settings.optLevel
+        settings.collectedRemarks = produced.optimizationRemarks or {}
+        settings.collectedAllocationSites = produced.allocationSites or {}
+        settings.accountedModules = produced.accountedModules or 0
     end
 
-    for _, path in ipairs(paths) do
-        if not emitModule(path) then
-            failed = true
-        end
-    end
-
-    -- Building an entry builds what it requires: checking the entry populated the
-    -- environment with every module it reached, and each of those needs generated Lua
-    -- of its own to be loadable at runtime. Declaration files (.d.nupp) describe an
-    -- interface and emit nothing.
-    local pending = true
-    while pending do
-        pending = false
-        local reached: {string} = {}
-        for _, record in pairs(env.loaded or {}) do
-            if record.path then
-                reached[#reached + 1] = record.path
-            end
-        end
-        -- Compiler-injected runtime modules are emitted even without imports.
-        -- Carry it without staging unrelated standard-library Lua into the source
-        -- roots, where it would shadow their checked compiler declarations.
-        local runtime: {string} = {}
-        for name in pairs(runtimeNames) do
-            if not runtimeDone[name] then
-                runtime[#runtime + 1] = name
-            end
-        end
-        table.sort(runtime)
-        for _, name in ipairs(runtime) do
-            runtimeDone[name] = true
-            local path = envMod.findRuntimeModulePath(env, name)
-            if path and path:match("%.nupp$") then
-                pending = true
-                if not emitModule(path, name) then
-                    failed = true
-                end
-            elseif path == nil or path:match("%.lua$") then
-                for _, suffix in ipairs({".nupp", "/init.nupp"}) do
-                    local relative = name:gsub("%.", "/") .. suffix
-                    local source = carried.source("/" .. relative)
-                    if source then
-                        pending = true
-                        if not emitModule(relative, name, source) then
-                            failed = true
-                        end
-                        break
-                    end
-                end
-            end
-        end
-        table.sort(reached)
-        for _, path in ipairs(reached) do
-            if path:match("%.nupp$") and not path:match("%.d%.nupp$") and not written[path] then
-                pending = true
-                if not emitModule(path) then
-                    failed = true
-                end
-            end
-        end
-    end
-    table.sort(outputs)
-    report:counted(#outputs, 0)
-    -- A build that stopped on a diagnostic has already said what is wrong with the
-    -- program, and how long it took to find out is not the answer anybody is waiting
-    -- for.
-    if not failed then
-        report:finish("built")
-    end
-
-    return finish(failed and 1 or 0, {outputs = outputs, timing = report:timing()})
+    return finish(code, produced)
 end
 
---- Build source files or a configured project target.
+--- Build a configured project target.
 ---
---- With files, emits those modules and their dependencies. Without files,
---- builds the manifest's default or selected target.
---- Manifest target options cannot be combined with explicit source files.
+--- Builds the manifest's default or selected target.
 --- The optimization level is part of the build key, so changing it rebuilds
 --- rather than mixing artifacts compiled at two levels. JSON output carries
 --- diagnostics, written artifacts, materialization facts, and timing data.
@@ -475,7 +284,6 @@ end
 ---     nupp build
 ---     nupp build --target app
 ---     nupp build -O2 --remarks
----     nupp build -o build/generated src/main.nupp
 @cli("build")
 @derive(cliModule.Command)
 local record Build
@@ -544,10 +352,6 @@ local record Build
 
     --- Print the JSON Schema of JSON output and exit.
     schema: boolean = false
-
-    --- Source files to build.
-    @cli(positional = "FILE")
-    paths: {string} = {}
 
     function run(self): integer
         return run(self)

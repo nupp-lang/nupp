@@ -593,10 +593,9 @@ end
 
 function M.theBuiltInsAreTheTemplatesThatAreThere()
     local names = template.builtins()
-    testAssert.equal(#names, 3, "three built-ins ship")
+    testAssert.equal(#names, 2, "two built-ins ship")
     testAssert.equal(names[1], "app", "app is one")
-    testAssert.equal(names[2], "lib", "lib is one")
-    testAssert.equal(names[3], "love", "and love is the other")
+    testAssert.equal(names[2], "lib", "and lib is the other")
     assert(#template.builtinDescription("app") > 0, "each says what it is for")
 end
 
@@ -810,14 +809,6 @@ end
 function M.theLibTemplateChecksBuildsAndTests()
     -- No `run`: a library has no entry point, and its test is what exercises it.
     scaffoldAndVerify("lib", "sample-lib", nil)
-end
-
-function M.theLoveTemplateChecksBuildsAndTests()
-    -- LÖVE owns the event loop, so its host integration is not part of this
-    -- headless suite. The template's game logic and generated module tree are, and
-    -- they are checked against the LuaCATS revision the template pins, fetched as
-    -- `nupp init love` fetches it, so a pin this compiler cannot read fails here.
-    scaffoldAndVerify("love", "sample-love", nil)
 end
 
 -- A game template's manifest ------------------------------------------------

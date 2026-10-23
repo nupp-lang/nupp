@@ -192,7 +192,7 @@ function M.buildReportsErrorsInDependencies()
         .. "return {double = double}\n",
         ["main.nupp"] = APP,
     })
-    local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
     assert(out:find("NUPP2002", 1, true), "a type error inside a dependency is reported: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -230,7 +230,7 @@ function M.declarationFilesPreservePropertyCapabilities()
             "\n"
         ),
     })
-    local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
+    local out = capture(("cd '%s' && '%s' check main.nupp"):format(dir, NUPP))
     testAssert.equal(out, "", "property capabilities survive declaration files: " .. out)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -246,11 +246,9 @@ function M.importCWritesAModule()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
--- A positional is a source file and a target is named with `--target`, so a manifest
--- target's name in first position is a mistake the report has to name. It used to reach
--- the compiler as a path, and a directory that does not read as a module was all that
--- was left to say about it.
-function M.cliTellsATargetNameFromASourceFile()
+-- A build names its target with `--target` and takes no source files, so a
+-- target's name in first position is refused with a pointer to the help.
+function M.buildTakesNoPositionalArguments()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -263,11 +261,7 @@ function M.cliTellsATargetNameFromASourceFile()
     })
 
     local named = capture(("cd '%s' && '%s' build docs"):format(dir, NUPP))
-    assert(
-        named:find("docs names a build target rather than a source file", 1, true),
-        "a target name in first position is named as one: " .. named
-    )
-    assert(named:find("--target docs", 1, true), "the report says how to build it: " .. named)
+    assert(named:find("docs", 1, true), "the stray argument is named: " .. named)
     assert(named:find("nupp help build", 1, true), "validation errors point to command help: " .. named)
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -290,7 +284,7 @@ end
 
 function M.cliProvidesCommandHelpAndValidatesOptions()
     local help = capture(("'%s' help build"):format(NUPP))
-    assert(help:find("Build source files", 1, true), "build help has a command summary: " .. help)
+    assert(help:find("Build a configured project target", 1, true), "build help has a command summary: " .. help)
     assert(help:find("--target NAME", 1, true), "build help documents target selection: " .. help)
 
     local missing = capture(("'%s' build --target"):format(NUPP))
@@ -308,14 +302,14 @@ function M.theLoweringDialectIsNotAnOptionAKeyOrAField()
         ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}}}\n',
         ["main.nupp"] = "return 42\n",
     })
-    local built = require("testjson").decode(captureJson(("cd '%s' && '%s' build main.nupp --json"):format(dir, NUPP)))
+    local built = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
     testAssert.equal(built.ok, true)
     testAssert.equal(built.dialect, nil, "the build report has no dialect")
     local checked = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
     testAssert.equal(checked.ok, true)
     testAssert.equal(checked.dialect, nil, "the check report has no dialect")
-    for _, command in ipairs({"check", "build"}) do
-        local refused = capture(("cd '%s' && '%s' %s --dialect luajit main.nupp"):format(dir, NUPP, command))
+    for _, command in ipairs({"check main.nupp", "build"}) do
+        local refused = capture(("cd '%s' && '%s' %s --dialect luajit"):format(dir, NUPP, command))
         assert(refused:find("unknown option --dialect", 1, true), command .. ": " .. refused)
     end
     local keyed = tempProject({
@@ -745,7 +739,7 @@ return new Model()
     })
     local first = require(
         "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
+    ).decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
     assert(first.ok and #first.derives == 1, "cold build reports all derives")
     local byProvider = {}
     for _, observation in ipairs(first.derives) do
@@ -760,7 +754,7 @@ return new Model()
 
     local second = require(
         "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
+    ).decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
     assert(second.ok and #second.derives == 1, "cached build preserves derive observations")
     for index, observation in ipairs(first.derives) do
         testAssert.equal(

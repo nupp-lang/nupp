@@ -20,7 +20,7 @@ local function write(path, text)
     file:close()
 end
 
-function M.buildsFilesAndLineReadersInAColdComponent()
+function M.buildsFilesAndLineReadersInAColdProject()
     local directory = os.tmpname()
     if package.config:sub(1, 1) == "\\" then
         directory = directory:gsub("^/([A-Za-z])/", "%1:/")
@@ -30,8 +30,7 @@ function M.buildsFilesAndLineReadersInAColdComponent()
     write(
         directory .. "/nupp.lua",
         [[
-return {include = {"src"}, build = {kind = "component", outDir = "build",
-    entries = {"fixture"}, exports = {"fixture.read"}}}
+return {include = {"src"}, build = {outDir = "build", entries = {"fixture"}}}
 ]]
     )
     write(
@@ -56,16 +55,11 @@ end
 ]]
     )
     -- A preceding check can warm declarations and hide incorrect ownership
-    -- contracts when the component checks its carried standard modules.
+    -- contracts when the build checks the standard modules it reaches.
     local status, output = process.capture({compiler, "build"}, {
         cwd = directory,
         env = {NUPP_CACHE_DIR = directory .. "/cache"},
     })
-    local artifact = io.open(directory .. "/build/component.nuppc", "rb")
-    local bytes = artifact and artifact:read("*a") or ""
-    if artifact then
-        artifact:close()
-    end
     write(directory .. "/lines.txt", string.rep("x", 70000) .. "\r\n\nlast")
     write(
         directory .. "/read.nupp",
@@ -78,10 +72,6 @@ assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
     os.execute("rm -rf " .. quote(directory))
     test.equal(status, 0, output)
     test.equal(ran, 0, runOutput)
-    assert(
-        bytes:find('package.preload["nupp.io.files"]', 1, true),
-        "the component carries the file implementation it checked"
-    )
 end
 
 return M

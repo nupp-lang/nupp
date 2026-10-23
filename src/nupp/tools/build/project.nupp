@@ -23,7 +23,6 @@ local modules = require("nupp.tools.build.modules")
 local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
 local native = require("nupp.tools.build.native")
-local nativeFeatures = require("nupp.compiler.native")
 local materializeObserve = require("nupp.compiler.comptime.materialize.observe")
 local progressMod = require("nupp.tools.build.progress")
 
@@ -296,16 +295,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    if selectedPlatform and not opts.checkOnly then
-        local record, recordErr = require("nupp.tools.build.stubs").record(selectedPlatform)
-        if not record then
-            say(opts, "NUPP0004", "nupp: " .. tostring(recordErr) .. "\n")
-            return 1
-        end
-        target._stubRecord = record
-        config._stubCatalogRelease = record.catalogRelease
-        config._stubSha256 = record.sha256
-    end
     config._target = target
     config._platform = selectedPlatform
     -- The optimization level belongs to the build key. It reaches the config before the
@@ -314,33 +303,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- declare its own level; and a deliverable kind, which is a release artifact,
     -- builds with every pass unless somebody says otherwise.
     local defaultLevel = 0
-    if target.kind == "binary" or target.kind == "bundle" or target.kind == "component" then
+    if target.kind == "binary" then
         defaultLevel = 2
-    end
-    -- A reload component is a watch build: development generation, where every
-    -- named function dispatches through a patchable slot and no pass moves one.
-    -- Reload belongs to the build key for the same reason coverage does, because
-    -- it changes the emitted Lua.
-    config._reload = target.reload == true
-    if config._reload then
-        defaultLevel = 0
-        if opts.optLevel and opts.optLevel ~= 0 then
-            say(opts, "NUPP0002", "nupp: a reload component builds at -O0\n")
-            return 1
-        end
-        -- The same map the session will compile against. A pinned library is part
-        -- of what watch generation writes into a module, so a component generated
-        -- without it is not the code the session would produce for it.
-        local read, pinned = pcall(
-            loadBuildTool("nupp.tools.hotsession").libraries,
-            config,
-            require("nupp.compiler.fs").absolute(root)
-        )
-        if not read then
-            say(opts, "NUPP0002", "nupp: " .. tostring(pinned) .. "\n")
-            return 1
-        end
-        config._reloadLibraries = pinned
     end
     config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
     config._disabledPasses = opts.disabled or {}
@@ -366,18 +330,45 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             checkOnly = opts.checkOnly,
             output = opts.outDir,
         }))
-    elseif target.kind
+    elseif not opts.checkOnly
+        and (target.kind == "modules" or target.kind == "bundle" or target.kind == "component")
+    then
+        -- These produced Lua, and nothing produces Lua any more: a library is its
+        -- Nupp source, and a program is a binary on the VM runtime.
+        say(
+            opts,
+            "NUPP0002",
+            "nupp: a "
+            .. target.kind
+            .. " target produced Lua, which Nupp no longer generates; "
+            .. "a library needs no build target, and a program is kind = \"binary\" with stub = \"nupp\"\n"
+        )
+        return 1
+    elseif target.kind ~= nil
+        and target.kind ~= "binary"
         and target.kind ~= "modules"
         and target.kind ~= "bundle"
-        and target.kind ~= "binary"
         and target.kind ~= "component"
     then
-        -- A bundle is a modules build plus one more file, and a binary is a bundle
-        -- stamped into a stub, so both fall through to the same path and finish
-        -- themselves at the end of it.
         say(opts, "NUPP0002", "nupp: unsupported build target kind " .. tostring(target.kind) .. "\n")
         return 1
+    elseif target.kind == "binary" and not opts.checkOnly then
+        -- A binary is a VM program for the machine building it: the image lowered
+        -- from its sources, stamped onto the VM runtime.
+        local refusal = nil
+        if target.stub ~= "nupp" then
+            refusal = "a binary target's stub must be \"nupp\": binaries are VM programs on the Nupp runtime"
+        elseif selectedPlatform ~= nil then
+            refusal = "a binary builds for the machine building it; VM programs for another platform are not available"
+        end
+        if refusal ~= nil then
+            say(opts, "NUPP0002", "nupp: " .. refusal .. "\n")
+            return 1
+        end
     end
+    -- A target without a kind is a library, which is its source: building one
+    -- checks its modules and records them, and produces nothing beside them.
+    local checkOnly = opts.checkOnly
     local outDir = normalize(opts.outDir or target.outDir or "build")
     local completionPath = join(root, join(outDir, ".nupp-complete"))
     -- The stamp is written when the build starts and renamed into place when it
@@ -387,7 +378,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- too late to be compiled was also too old to ask for another build, so the tree
     -- stayed one edit behind until something unrelated happened to move.
     local pendingCompletionPath = completionPath .. ".pending"
-    if not opts.checkOnly then
+    if not checkOnly then
         os.remove(completionPath)
         os.remove(pendingCompletionPath)
     end
@@ -399,7 +390,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     newState.compilerHash = toolFingerprint(contentDigest)
     -- Dated here, before a single source has been read, and published by the rename
     -- below once they all have been.
-    if not opts.checkOnly then
+    if not checkOnly then
         local stamped, stampErr = writeFile(pendingCompletionPath, newState.compilerHash .. "\n")
         if not stamped then
             say(opts, "NUPP0001", "nupp: " .. tostring(stampErr) .. "\n")
@@ -428,7 +419,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- and the binary it builds, each used on one project -- is kept beside this
     -- one's record rather than replacing it, and alternating them no longer
     -- rechecks everything each time.
-    if opts.checkOnly then
+    if checkOnly then
         checkState = storeMod.openValue(
             join(root, join(outDir, "cache/checks.buf")),
             CHECK_STATE_STAMP .. "\0" .. newState.moduleCompilerHash
@@ -488,42 +479,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.nupp")), 2)
 
-    if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
+    if checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageGpuRuntime()
     end
-    -- The AOT policy runs before the modules it affects. `off` is the default
-    -- and looks for nothing, so a project that has not asked for native code
-    -- never asks for the code generator -- but `require` replaces `@aot` bodies
-    -- with the wrappers that call the compiled code, and that has to happen
-    -- before the module build reads them.
-    --
-    -- It reads the checked tree of each source it lowers, so the same graph
-    -- answers both phases: the sources it checks are checked again with their
-    -- wrappers in front of them, and everything those two imports have in common
-    -- is answered once.
-    --
-    -- A check does none of it. `nupp check` answers a question about the source
-    -- as written, and asking it to compile and link first would make checking a
-    -- project need the code generator that only building it requires. What it
-    -- does ask is the question the policy's first step answers: the module build
-    -- lowers each checked `@aot` source it reaches for this target's tiers and
-    -- A compiler on the VM lowers a VM program's image from source itself, so
-    -- the Lua this phase would generate for one is never run, and writing it put
-    -- the entry's namespace directory where the binary goes: `app.main` wrote
-    -- `build/app/main.lua`, and the next build of a binary named `app` could not
-    -- create that directory beside it. Such a build checks the modules and
-    -- generates nothing; the image carries the resources from their sources,
-    -- and a coverage build's sites are numbered where the image is lowered.
-    local vmProgramModules = false
-    if not opts.checkOnly
-        and target.kind == "binary"
-        and target.stub == "nupp"
-        and selectedPlatform == nil
-        and rawget(_G, "__nupp_load_image") ~= nil
-    then
-        (target as any)._skipConstSpecialization = true
-        vmProgramModules = true
-    end
+    -- Modules are checked and nothing is generated from them: a VM program's
+    -- image is lowered from the sources themselves, and a coverage build's sites
+    -- are numbered where it is.
+    (target as any)._skipConstSpecialization = true
     local result, buildErr = buildModules(
         root,
         outDir,
@@ -531,7 +493,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         target,
         oldState,
         newState,
-        opts.checkOnly or vmProgramModules,
+        true,
         opts.stats,
         opts.diagnostics,
         checkState,
@@ -553,7 +515,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         return 1
     end
-    if opts.checkOnly then
+    if checkOnly then
         report:finish("checked", targetKey)
         if opts.produced then
             opts.produced.target = target.name or opts.target or "default"
@@ -567,99 +529,20 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         newState.outputs[output] = true
     end
 
-    local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
-    local reachedWorkers = detectedEffects["runtime.workers"] == true or detectedEffects["native.workers"] == true
-    local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
-    if resolvedEffects["native.workers"] and target.kind == "binary" and target.stub ~= "nupp" then
-        say(
-            opts,
-            "NUPP0002",
-            "nupp: native workers require a binary host with stub = \"nupp\"; "
-            .. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
-        )
-        return 1
-    end
-    if target.kind == "bundle" then
-        local unresolved = {}
-        for effect in pairs(resolvedEffects) do
-            local feature = nativeFeatures.feature(effect)
-            -- Provider sidecars need a modules or binary artifact.
-            if feature == nil or feature.binary then
-                unresolved[#unresolved + 1] = effect
-            end
-        end
-        table.sort(unresolved)
-        if #unresolved > 0 then
-            say(
-                opts,
-                "NUPP0002",
-                "nupp: a one-file bundle cannot carry native features; "
-                .. "build modules or use a binary target with its lib directory ("
-                .. table.concat(
-                    unresolved,
-                    ", "
-                ) .. ")\n"
-            )
-            return 1
-        end
-    end
-    -- A compiler running on the VM stamps its binaries onto the VM runtime,
-    -- which carries every native facility itself: no LuaJIT host, no provider
-    -- beside it. A cross-platform stamp still needs a catalog stub.
-    local vmProgram = target.kind == "binary"
-        and target.stub == "nupp"
-        and selectedPlatform == nil
-        and rawget(_G, "__nupp_load_image") ~= nil
-    if not vmProgram then
-        report:at("native")
-        report:step("building native providers")
-        local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
-        report:clear()
-        if not nativeOutputs then
-            say(opts, "NUPP0004", "nupp: " .. tostring(nativeErr) .. "\n")
-            return 1
-        end
-        for output in pairs(nativeOutputs) do
-            newState.outputs[output] = true
-        end
-    end
-    -- A bundle is a modules build and then one more file: everything it just compiled,
-    -- folded into a chunk that runs with nothing beside it.
+    -- A binary is its program image stamped onto the VM runtime, which carries
+    -- every native facility itself.
     local primaryArtifact: string? = nil
-    if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
+    if target.kind == "binary" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
-        local runtimeModules = {}
-        for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
-            if feature.runtimeModule then
-                runtimeModules[#runtimeModules + 1] = feature.runtimeModule
-            end
-        end
-        table.sort(runtimeModules)
-        local requiredHostFeatures = nativeFeatures.requiredHostFeatureNames(resolvedEffects)
-        local text, bundleErr, unreachable, facilities
-        if vmProgram then
-            text, bundleErr, unreachable, facilities = loadBuildTool(
-                "nupp.tools.build.package"
-            ).programPayload(root, config, target, outDir, newState.modules)
-        else
-            text, bundleErr, unreachable = loadBuildTool(
-                "nupp.tools.build.package"
-            ).bundleText(
-                root,
-                config,
-                target,
-                nil,
-                newState.modules,
-                reachedWorkers or resolvedEffects["native.workers"] == true,
-                runtimeModules,
-                ((target.kind == "binary" and target.stub == "nupp") or target.kind == "component")
-                and requiredHostFeatures
-                or nil,
-                target.kind == "component",
-                outDir
-            )
-        end
+        local package = loadBuildTool("nupp.tools.build.package")
+        local text, bundleErr, unreachable, facilities = package.programPayload(
+            root,
+            config,
+            target,
+            outDir,
+            newState.modules
+        )
         if not text then
             say(opts, "NUPP0004", "nupp: " .. tostring(bundleErr) .. "\n")
             return 1
@@ -675,102 +558,68 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 ):format(#unreachable, #unreachable == 1 and "" or "s", unreachable[1])
             )
         end
-        local name = target.name or opts.target or (target.platforms and "default") or target.kind
-        local output
-        if target.kind == "binary" then
-            output = loadBuildTool(
-                "nupp.tools.build.package"
-            ).binaryOutput(root, target, name, outDir, selectedPlatform, opts.outDir ~= nil)
-            if target.payloadOutput ~= nil then
-                local payloadOutput = join(root, target.payloadOutput as string)
-                if normalize(payloadOutput) == normalize(output) then
-                    say(opts, "NUPP0002", "nupp: binary payloadOutput must differ from its executable output\n")
-                    return 1
-                end
-                local written, writeErr = writeFile(payloadOutput, text)
-                if not written then
-                    say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
-                    return 1
-                end
-                newState.outputs[payloadOutput] = true
-            end
-            local stubPath, hostErr
-            if vmProgram then
-                report:step("building the VM program runtime")
-                -- A program with vector code gets a runtime with its image
-                -- compiled in; any other is stamped onto the shared runtime.
-                local named: {string} = {}
-                local vector = false
-                for _, facility in ipairs(facilities or {}) do
-                    if facility == "vector" then
-                        vector = true
-                    else
-                        named[#named + 1] = facility
-                    end
-                end
-                if vector then
-                    local payloadPath = join(root, join(outDir, ".nupp-vm-program.payload"))
-                    local written, writeErr = writeFile(payloadPath, text)
-                    if not written then
-                        say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
-                        return 1
-                    end
-                    stubPath, hostErr = native.vmProgramRuntime(named, payloadPath)
-                else
-                    stubPath, hostErr = native.vmRuntime(named)
-                end
-            else
-                stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
-            end
-            if not stubPath then
-                say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
+        local name = target.name or opts.target or target.kind
+        local output = package.binaryOutput(root, target, name, outDir, nil, opts.outDir ~= nil)
+        if target.payloadOutput ~= nil then
+            local payloadOutput = join(root, target.payloadOutput as string)
+            if normalize(payloadOutput) == normalize(output) then
+                say(opts, "NUPP0002", "nupp: binary payloadOutput must differ from its executable output\n")
                 return 1
             end
-            local resolvedStub = stubPath == target.stub and join(root, stubPath) or stubPath
-            local stub, stubErr = readFile(resolvedStub)
-            if not stub then
-                say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
-                return 1
-            end
-            local payload, payloadFlags, payloadErr
-            if vmProgram then
-                payload, payloadFlags = text, loadBuildTool("nupp.tools.build.package").payloadFlagVmProgram
-            else
-                payload, payloadFlags, payloadErr = loadBuildTool(
-                    "nupp.tools.build.package"
-                ).payloadBytes(text, selectedPlatform)
-            end
-            if not payload then
-                say(opts, "NUPP0004", "nupp: " .. tostring(payloadErr) .. "\n")
-                return 1
-            end
-            local stamped, stampErr, archive = loadBuildTool(
-                "nupp.tools.build.package"
-            ).stampFile(output, stub, payload, selectedPlatform, payloadFlags)
-            if not stamped then
-                say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
-                return 1
-            end
-            if archive then
-                newState.outputs[archive] = true
-            end
-        else
-            output = target.kind == "component"
-                and loadBuildTool("nupp.tools.build.package").componentOutput(root, target, name, opts.outDir)
-                or loadBuildTool("nupp.tools.build.package").bundleOutput(root, target, name, opts.outDir)
-            local written, writeErr = writeFile(output, text)
+            local written, writeErr = writeFile(payloadOutput, text)
             if not written then
                 say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
                 return 1
             end
+            newState.outputs[payloadOutput] = true
+        end
+        report:step("building the VM program runtime")
+        -- A program with vector code gets a runtime with its image compiled in;
+        -- any other is stamped onto the shared runtime.
+        local named: {string} = {}
+        local vector = false
+        for _, facility in ipairs(facilities or {}) do
+            if facility == "vector" then
+                vector = true
+            else
+                named[#named + 1] = facility
+            end
+        end
+        local stubPath, hostErr
+        if vector then
+            local payloadPath = join(root, join(outDir, ".nupp-vm-program.payload"))
+            local written, writeErr = writeFile(payloadPath, text)
+            if not written then
+                say(opts, "NUPP0001", "nupp: " .. tostring(writeErr) .. "\n")
+                return 1
+            end
+            stubPath, hostErr = native.vmProgramRuntime(named, payloadPath)
+        else
+            stubPath, hostErr = native.vmRuntime(named)
+        end
+        if not stubPath then
+            say(opts, "NUPP0004", "nupp: " .. tostring(hostErr) .. "\n")
+            return 1
+        end
+        local stub, stubErr = readFile(stubPath as string)
+        if not stub then
+            say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(stubPath, tostring(stubErr)))
+            return 1
+        end
+        local stamped, stampErr, archive = package.stampFile(output, stub, text, nil, package.payloadFlagVmProgram)
+        if not stamped then
+            say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
+            return 1
+        end
+        if archive then
+            newState.outputs[archive] = true
         end
         primaryArtifact = output
         newState.outputs[output] = true
         -- A dependency's library has to go with the artifact: its binding names
         -- it relative to whatever loads that binding, and here that is the
-        -- artifact. One
-        -- named for the platform loader instead carries no `@` and stays where
-        -- it is, since nothing is looking for it beside anything.
+        -- artifact. One named for the platform loader instead carries no `@` and
+        -- stays where it is, since nothing is looking for it beside anything.
         for _, dep in pairs(dependencies) do
             local relative = dep.usage == "target"
                 and dep.reference ~= nil
@@ -823,22 +672,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     newState.targets[targetKey] = mine
     if opts.remarks or opts.produced then
-        if (config._optLevel or 0) == 0 then
-            result.optimizationRemarks[
-                #result.optimizationRemarks + 1
-            ] = {
-                code = "OPT-0",
-                severity = "note",
-                status = "unavailable",
-                hotness = "unknown",
-                filename = opts.remarksFile or join(root, "nupp.lua"),
-                line = 1,
-                col = 1,
-                offset = 1,
-                length = 0,
-                msg = "optimizer unavailable at -O0; select -O1 or -O2 to request optimization",
-            }
-        end
         if opts.remarks then
             local selected = require(
                 "nupp.tools.cli.compile"
@@ -858,10 +691,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.target = target.name or opts.target or "default"
         opts.produced.platform = selectedPlatform
         opts.produced.artifact = primaryArtifact
-        if selectedPlatform == "aarch64-apple-darwin" then
-            opts.produced.distributionReady = false
-            opts.produced.notice = "the macOS binary must be signed on macOS and has not passed notarization"
-        end
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives

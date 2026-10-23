@@ -585,7 +585,7 @@ return res
 
             local buildErrors = dir .. "/build-errors.txt"
             local buildCommand = (
-                "cd '%s' && '%s/bin/nupp' build main.nupp " .. "> /dev/null 2> '%s'"
+                "cd '%s' && '%s/bin/nupp' check main.nupp " .. "> /dev/null 2> '%s'"
             ):format(dir, ROOT, buildErrors)
             testAssert.equal(os.execute(buildCommand), 0, "the dependency recheck: " .. readFile(buildErrors))
 

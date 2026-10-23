@@ -222,7 +222,6 @@ and no checkout:
   built-in template  what it writes
   app                A runnable program, with a test and a task to start it
   lib                A typed library with public declarations
-  love               A small LÖVE game using Nupp's LuaJIT compatibility target
 ```
 
 `--list --json` gives the same listing as `templates`, each with its `name`,
@@ -747,11 +746,9 @@ See [fmt.md](../learn/tooling/formatter.md) for the rules the formatter applies 
 ### `build`
 
 ```text [nupp build --help]
-Build source files or a configured project target.
+Build a configured project target.
 
-With files, emits those modules and their dependencies. Without files,
-builds the manifest's default or selected target.
-Manifest target options cannot be combined with explicit source files.
+Builds the manifest's default or selected target.
 The optimization level is part of the build key, so changing it rebuilds
 rather than mixing artifacts compiled at two levels. JSON output carries
 diagnostics, written artifacts, materialization facts, and timing data.
@@ -763,13 +760,9 @@ Examples:
     nupp build
     nupp build --target app
     nupp build -O2 --remarks
-    nupp build -o build/generated src/main.nupp
 
 Usage:
-  nupp build [options] [FILE...]
-
-Arguments:
-  FILE  Source files to build.
+  nupp build [options]
 
 Options:
   --target NAME         Build a named manifest target.
@@ -2159,7 +2152,7 @@ Commands:
   bc               Show the bytecode a Nupp file compiles to.
   check            Type-check source without emitting Lua.
   fmt              Format Nupp source.
-  build            Build source files or a configured project target.
+  build            Build a configured project target.
   clean            Remove build outputs configured in nupp.lua.
   bench            Run isolated benchmark programs.
   lints            List the lints and the level each runs at.

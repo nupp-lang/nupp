@@ -167,18 +167,15 @@ function M.checkOutputMatchesItsSchema()
 end
 
 function M.buildOutputMatchesItsSchemaWhenItFailsAndWhenItDoesNot()
-    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["bad.nupp"] = BAD, ["good.nupp"] = GOOD})
-    local failed = agrees(dir, "build bad.nupp")
+    local bad = tempProject({["nupp.lua"] = 'return {include = {"."}, build = {outDir = "out"}}\n', ["bad.nupp"] = BAD})
+    local failed = agrees(bad, "build")
     assert(failed.ok == false, "a build that reported an error is not ok")
     assert(#failed.written == 0, "and wrote nothing")
 
-    local built = agrees(dir, "build good.nupp")
+    local good = tempProject({["nupp.lua"] = 'return {include = {"."}, build = {outDir = "out"}}\n', ["good.nupp"] = GOOD})
+    local built = agrees(good, "build")
     assert(built.ok == true, "a build that worked says so")
-    assert(
-        #built.written == 2,
-        "and names the entry and ownership runtime it wrote: " .. table.concat(built.written, ", ")
-    )
-    os.execute("rm -rf '" .. dir .. "'")
+    os.execute("rm -rf '" .. bad .. "' '" .. good .. "'")
 end
 
 function M.fmtOutputMatchesItsSchemaAndSeparatesFailureFromUnformatted()
@@ -361,7 +358,6 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
     local good, broken, none = failureProjects()
     for _, argv in ipairs({
         "check nosuch.nupp",
-        "build nosuch.nupp",
         "fmt nosuch.nupp",
         "bc nosuch.nupp",
         "doc nosuch.nupp",

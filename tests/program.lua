@@ -1,13 +1,9 @@
--- A checked fragment as a running program. On the VM the fragment is lowered
--- by the VM's own lowering (`nupp.compiler.vm.lower`) to an image the running
--- VM loads, which is how `nupp run` and `nupp test` execute Nupp. Under the
--- LuaJIT runner, until the Lua generator is deleted, it is generated Lua.
+-- A checked fragment as a running program: lowered by the VM's own lowering
+-- (`nupp.compiler.vm.lower`) to an image the running VM loads, which is how
+-- `nupp run` and `nupp test` execute Nupp.
 local lower = require("nupp.compiler.vm.lower")
 
 local program = {}
-
--- Named rather than spelled, so a VM image of a suite never carries the generator.
-local GENERATOR = "nupp.compiler.lua.gen"
 
 --- The image a checked parse lowers to. `listing`, when given, receives the
 --- bytecode listing the lowering keeps for `nupp bc`.
@@ -60,25 +56,20 @@ end
 --- answers what it returns. Answers nil and a reason when it cannot load.
 function program.load(result, name, path)
     local loadImage = rawget(_G, "__nupp_load_image")
-    if loadImage then
-        installSourceModules(loadImage)
-        local ok, image = pcall(program.image, result, name, path)
-        if not ok then
-            return nil, tostring(image)
-        end
-        local loaded, chunk, problem = pcall(loadImage, image)
-        if not loaded then
-            return nil, tostring(chunk)
-        end
-
-        return chunk, problem
+    if not loadImage then
+        return nil, "fragments run on the VM"
     end
-    local code, problems = require(GENERATOR).generate(result, path or name or "main")
-    if #problems > 0 then
-        return nil, tostring(problems[1].msg)
+    installSourceModules(loadImage)
+    local ok, image = pcall(program.image, result, name, path)
+    if not ok then
+        return nil, tostring(image)
+    end
+    local loaded, chunk, problem = pcall(loadImage, image)
+    if not loaded then
+        return nil, tostring(chunk)
     end
 
-    return loadstring(code, "@" .. (path or name or "main"))
+    return chunk, problem
 end
 
 --- Whether an image holds the string constant `s`: a graph image keeps each

@@ -23,13 +23,6 @@ local TEMPLATE_FILES = {
     "app/src/main.nupp",
     "app/template.lua",
     "app/tests/greetingtest.nupp",
-    "love/.gitignore",
-    "love/README.md",
-    "love/nupp.lua",
-    "love/src/game.nupp",
-    "love/src/main.nupp",
-    "love/template.lua",
-    "love/tests/gametest.nupp",
     "lib/nupp.lua",
     "lib/nupp/${moduleName}.d.nupp",
     "lib/src/${moduleName}.nupp",
@@ -369,10 +362,6 @@ local RESOURCES = {
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 }
 
--- Bootstrap module builds do not execute GPU programs. Keep those compiler
--- builds independent of WGPU; the compiler and distribution targets also run
--- user programs through `run` and `bench`, so they enable GPU support below.
-local COMPILER_NATIVE_FEATURES = {gpu = false, workers = false}
 for _, resource in ipairs({
     "src/nupp/io/net/internal.nupp",
     "src/nupp/io/net/types.nupp",
@@ -432,12 +421,12 @@ return {
         outDir = "build",
         default = "compiler",
         targets = {
+            -- The compiler's sources, checked. The pinned stage zero reads the
+            -- resources its CLI carries from this target by name, so it stays
+            -- until the pin moves past v0.0.15-vm.1.
             compiler = {
-                kind = "modules",
-                description = "Build the self-hosted compiler",
-                optimize = 2,
+                description = "Check the self-hosted compiler",
                 entries = {"nupp.tools.main"},
-
                 nativeFeatures = {gpu = true, workers = false},
                 resources = RESOURCES,
             },
@@ -457,19 +446,9 @@ return {
                 stub = "nupp",
                 output = "build/nupp-test",
             },
-            bootstrapCompiler = {
-                kind = "modules",
-                description = "Build the self-contained stage-zero compiler",
-                outDir = "build/bootstrap-compiler",
-                entries = {"nupp.tools.main"},
-
-                nativeFeatures = COMPILER_NATIVE_FEATURES,
-                resources = RESOURCES,
-            },
-            -- Nupp stamped into a feature-matched host as one self-contained
-            -- executable. It is the first payload the format ever carries, on
-            -- purpose: a packager that cannot package itself has no business
-            -- claiming it packages anything.
+            -- The compiler as one self-contained executable: its image stamped
+            -- onto the VM runtime. A packager that cannot package itself has no
+            -- business claiming it packages anything.
             dist = {
                 kind = "binary",
                 description = "Stamp the compiler into a self-contained binary",
@@ -478,7 +457,6 @@ return {
                 resources = RESOURCES,
                 stub = "nupp",
                 output = "build/dist/nupp",
-                payloadOutput = "build/dist/nupp.payload.lua",
             },
             docs = {
                 kind = "docs",
@@ -541,9 +519,7 @@ return {
             "annotated-lua-corpus"
         ] = {
             description = "Fetch the pinned LuaLS corpus and exercise annotation ingestion",
-            build = "compiler",
             argv = {"sh", "scripts/annotated-lua-corpus.sh"},
-            env = {LUA_PATH = "build/?.lua;;"},
         },
     },
 

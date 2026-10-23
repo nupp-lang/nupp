@@ -250,7 +250,7 @@ end
 function M.gatingTheRunnerSuiteDoesNotGateTheRestOfTheBenchSurface()
     local surfacesOf = classifier().surfacesOf
     test.assert(
-        not surfacesOf("src/nupp/compiler/lua/gen.nupp").measurement,
+        not surfacesOf("src/nupp/compiler/vm/lower.nupp").measurement,
         "an ordinary compiler change should not pay for the runner suite"
     )
 

@@ -636,43 +636,6 @@ function M.parallelBuildsWriteWhatSerialBuildsWrite()
     assert(require("nupp.io.files").remove(directory, true))
 end
 
--- Const specialization is planned across every module of a build at once. A
--- project declaring a const-generic function is built in one process, and says so;
--- its check, which plans nothing, still uses workers.
-function M.constGenericProjectsBuildSerially()
-    local directory = tempProject(false)
-    write(
-        directory .. "/src/scaled.nupp",
-        [[
-local function doubled<const N: integer>(value: number, count: N): number
-    local total = value
-    for _ = 1, count as integer do
-        total = total * 2.0
-    end
-    return total
-end
-
-local function four(): number
-    return doubled(1, 2)
-end
-
-return {four = four}
-]]
-    )
-    local code, report = coldBuild(directory, {NUPP_CHECK_JOBS = "2"}, {"-O2"})
-    testAssert.equal(code, 0, "const-generic build: " .. json.encode(report.diagnostics))
-    testAssert.equal(report.timing.parallel.mode, "serial", "the build stays in one process")
-    assert(
-        tostring(report.timing.parallel.reason):find("const-generic", 1, true),
-        "the build says why: " .. tostring(report.timing.parallel.reason)
-    )
-    local checkCode, checkReport = coldCheck(directory, {NUPP_CHECK_JOBS = "2"})
-    testAssert.equal(checkCode, 0, "const-generic check")
-    testAssert.equal(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
-
-    assert(require("nupp.io.files").remove(directory, true))
-end
-
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     local directory = tempProject(false)
     local serialCode, _, serialState = coldCheck(directory, {NUPP_CHECK_JOBS = "1"})

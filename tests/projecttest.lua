@@ -447,7 +447,12 @@ end
 function M.cachedProducersRetainNestedRuntimeTypeWitnesses()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include={"src"},build={outDir="out",entries={"main"}}}',
-        ["src/main.nupp"] = 'local models=require("witnessmodels") return models.make().child.value',
+        -- Reaches the reflection modules from the start, so the edit below changes
+        -- only the consumer and not what the build has to link.
+        [
+            "src/main.nupp"
+        ] = 'local models=require("witnessmodels") local _=nupp.reflect.runtime(models.Parent) '
+        .. "return models.make().child.value",
         [
             "src/witnessmodels.nupp"
         ] = [[
@@ -945,224 +950,6 @@ function M.manifestRestrictsPortablePayloadOutputsToBinaryTargets()
     remove(invalidDir)
 end
 
-local function syntheticStub(platform)
-    if platform == "x86_64-unknown-linux-gnu" then
-        return "\127ELF" .. string.char(2) .. ("\0"):rep(13) .. string.char(62, 0) .. ("\0"):rep(44)
-    end
-    if platform == "aarch64-apple-darwin" then
-        return "\207\250\237\254" .. string.char(12, 0, 0, 1) .. ("\0"):rep(56)
-    end
-
-    return "MZ" .. ("\0"):rep(58) .. string.char(64, 0, 0, 0) .. "PE\0\0" .. string.char(100, 134) .. ("\0"):rep(58)
-end
-
-function M.crossTargetBuildUsesVerifiedLocalStubsAndWritesPosixArchives()
-    local platforms = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc",}
-    local dir = tempProject({
-        [
-            "nupp.lua"
-        ] = [[return {build = {kind = "binary", stub = "nupp",
-         entries = {"main"}, platforms = {"x86_64-unknown-linux-gnu",
-         "aarch64-apple-darwin", "x86_64-pc-windows-msvc"}}}]],
-        ["main.nupp"] = "return true\n",
-    })
-    local stubDir = dir .. "/stubs"
-    os.execute("mkdir -p '" .. stubDir .. "'")
-    testAssert.equal(
-        project.check(dir, {
-            platform = platforms[1]
-        }),
-        0,
-        "checking a selected platform needs no stub or network"
-    )
-    local records = {}
-    for _, platform in ipairs(platforms) do
-        local suffix = platform == "x86_64-pc-windows-msvc" and ".exe" or ""
-        local artifact = "nupp-host-" .. platform .. suffix
-        local bytes = syntheticStub(platform)
-        write(stubDir .. "/" .. artifact, bytes)
-        records[
-            platform
-        ] = {
-            platform = platform,
-            hostAbi = 1,
-            artifact = artifact,
-            sha256 = hash.sha256(bytes),
-            size = #bytes,
-            executableSuffix = suffix,
-            hostFeatures = {},
-            noticeArtifact = "notices-" .. platform .. ".tar",
-        }
-    end
-    local catalogPath = dir .. "/catalog.json"
-    write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
-    local getenv = os.getenv
-    os.getenv = function(name)
-        if name == "NUPP_STUB_CATALOG" then
-            return catalogPath
-        end
-        if name == "NUPP_STUB_DIR" then
-            return stubDir
-        end
-
-        return getenv(name)
-    end
-    local produced = {}
-    local ok, code = pcall(project.build, dir, {platform = "all", produced = produced})
-    assert(ok, code)
-    testAssert.equal(code, 0, "all synthetic platforms stamp")
-    testAssert.equal(#produced.platforms, 3, "one result per platform")
-    testAssert.equal(
-        produced.platforms[2].distributionReady,
-        false,
-        "an unsigned macOS output is not described as distributable"
-    )
-    assert(produced.platforms[2].notice:find("must be signed", 1, true), produced.platforms[2].notice)
-    for _, platform in ipairs(platforms) do
-        local suffix = platform == "x86_64-pc-windows-msvc" and ".exe" or ""
-        local output = dir .. "/build/default/" .. platform .. "/default" .. suffix
-        assert(exists(output), platform .. " raw binary exists")
-        if platform ~= "x86_64-pc-windows-msvc" then
-            local archive = read(output .. ".tar")
-            testAssert.equal(archive:sub(101, 108), "0000755\0", platform .. " tar records executable mode")
-        end
-    end
-    local linux = platforms[1]
-    local linuxRecord = records[linux]
-    local cached = dir
-        .. "/.nupp/stubs/synthetic-1/1/"
-        .. linux
-        .. "/"
-        .. linuxRecord.sha256
-        .. "/"
-        .. linuxRecord.artifact
-    assert(exists(cached), "a verified stub is installed in the content-addressed cache")
-    write(cached, "corrupt")
-    testAssert.equal(
-        project.build(dir, {
-            platform = linux
-        }),
-        0,
-        "a corrupt cache entry is replaced from the verified local source"
-    )
-    testAssert.equal(read(cached), syntheticStub(linux), "the repaired cache contains authenticated bytes")
-    local hiddenStubDir = stubDir .. "-hidden"
-    testAssert.equal(os.rename(stubDir, hiddenStubDir), true)
-    testAssert.equal(
-        project.build(dir, {
-            platform = linux
-        }),
-        0,
-        "a verified cache hit needs no source directory artifact"
-    )
-    testAssert.equal(os.rename(hiddenStubDir, stubDir), true)
-
-    write(
-        dir .. "/nupp.lua",
-        [[return {build = {kind = "binary", stub = "nupp", entries = {"main"},
-         platforms = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin",
-         "x86_64-pc-windows-msvc"},
-         platformOutputs = {['x86_64-unknown-linux-gnu'] = "custom/linux"}}}]]
-    )
-    local overridden = {}
-    testAssert.equal(
-        project.build(dir, {
-            platform = linux,
-            outDir = "alternate",
-            produced = overridden
-        }),
-        0,
-        "an output-directory override reroots a configured platform output"
-    )
-    testAssert.equal(
-        overridden.artifact,
-        dir .. "/alternate/default/x86_64-unknown-linux-gnu/default",
-        "the reported platform artifact uses the override"
-    )
-    assert(exists(overridden.artifact), "the overridden platform artifact exists")
-    assert(not exists(dir .. "/custom/linux"), "the manifest platform path was not written")
-    write(
-        dir .. "/nupp.lua",
-        [[return {build = {kind = "binary", stub = "nupp", entries = {"main"},
-         platforms = {"x86_64-unknown-linux-gnu", "aarch64-apple-darwin",
-         "x86_64-pc-windows-msvc"}}}]]
-    )
-
-    write(catalogPath, json.encode({catalogRelease = "synthetic-abi", hostAbi = 2, stubs = records}))
-    testAssert.equal(
-        project.build(dir, {
-            platform = linux
-        }),
-        1,
-        "a catalog for another host ABI is refused before stamping"
-    )
-    write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
-
-    local wrongBytes = syntheticStub("aarch64-apple-darwin")
-    local wrongArtifact = "wrong-linux-host"
-    write(stubDir .. "/" .. wrongArtifact, wrongBytes)
-    local originalLinux = records[linux]
-    records[
-        linux
-    ] = {
-        platform = linux,
-        hostAbi = 1,
-        artifact = wrongArtifact,
-        sha256 = hash.sha256(wrongBytes),
-        size = #wrongBytes,
-        executableSuffix = "",
-        hostFeatures = {},
-        noticeArtifact = "notices-wrong.tar",
-    }
-    write(catalogPath, json.encode({catalogRelease = "synthetic-wrong", hostAbi = 1, stubs = records}))
-    local wrongOk, wrongCode = pcall(project.build, dir, {platform = linux})
-    assert(wrongOk, wrongCode)
-    testAssert.equal(wrongCode, 1, "a digest-valid stub for the wrong architecture is refused")
-    records[linux] = originalLinux
-    write(catalogPath, json.encode({catalogRelease = "synthetic-1", hostAbi = 1, stubs = records}))
-
-    write(dir .. "/main.nupp", 'local workers = require("nupp.workers")\nreturn workers\n')
-    testAssert.equal(
-        project.build(dir, {
-            platform = linux
-        }),
-        1,
-        "a payload feature absent from the selected stub is refused"
-    )
-    write(dir .. "/main.nupp", "return true\n")
-
-    local windowsOutput = dir .. "/build/default/x86_64-pc-windows-msvc/default.exe"
-    os.remove(windowsOutput)
-    records["aarch64-apple-darwin"] = nil
-    write(catalogPath, json.encode({catalogRelease = "synthetic-2", hostAbi = 1, stubs = records}))
-    local partial = {}
-    local partialCode = project.build(dir, {platform = "all", produced = partial})
-    os.getenv = getenv
-    testAssert.equal(partialCode, 1, "one missing platform makes the aggregate fail")
-    testAssert.equal(partial.platforms[1].status, "built", "the first platform still builds")
-    testAssert.equal(partial.platforms[2].status, "failed", "the missing platform is reported")
-    testAssert.equal(partial.platforms[3].status, "built", "later independent platforms still build")
-    assert(exists(windowsOutput), "a platform after the failure was restamped")
-    local removed = {}
-    testAssert.equal(
-        project.clean(dir, {
-            target = "default",
-            platform = "x86_64-pc-windows-msvc",
-            removed = removed,
-        }),
-        0,
-        "one platform can be cleaned"
-    )
-    testAssert.equal(
-        removed[1],
-        "build/default/x86_64-pc-windows-msvc/default.exe",
-        "clean reports the selected platform output"
-    )
-    assert(not exists(windowsOutput), "the selected Windows output was removed")
-    assert(exists(dir .. "/build/default/x86_64-unknown-linux-gnu/default"), "another platform output remains")
-    remove(dir)
-end
-
 function M.crossTargetBuildRefusesSidecarOnlyProvidersBeforeCargoRuns()
     local dir = tempProject({})
     local outputs, err = nativeStage.build(dir, "out", {["native.http"] = true}, "x86_64-pc-windows-msvc")
@@ -1608,8 +1395,8 @@ return {
         ["src/schema.nupp"] = "return { version = 1 }\n",
     })
     testAssert.equal(project.build(dir), 0)
-    assert(exists(dir .. "/out/app/data.d.nupp"), "resources keep include-relative path")
-    assert(exists(dir .. "/out/app/data/schema.nupp"), "resource tables use their explicit target-relative output")
+    -- A library is its source, so its build writes nothing beside the record.
+    assert(not exists(dir .. "/out/app/data.d.nupp"), "a library build copies no resources")
     assert(exists(dir .. "/out/.nupp-state.json"), "persistent state is written")
     assert(exists(dir .. "/out/.nupp-complete"), "the completion marker is published")
     assert(
@@ -1622,7 +1409,7 @@ return {
     -- to be compiled was also too old to ask for another build, and the tree stayed one
     -- edit behind until something unrelated happened to move.
     testAssert.equal(
-        os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/app/data.d.nupp'"):format(dir, dir)),
+        os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/.nupp-state.json'"):format(dir, dir)),
         0,
         "the completion marker must not be newer than what the build wrote"
     )

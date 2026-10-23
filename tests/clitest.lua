@@ -1014,7 +1014,7 @@ function M.initListsItsTemplatesAsJson()
     local output, ok = captureJsonAt(HERE, "init --list --json")
     assert(ok, "--list --json succeeds: " .. output)
     local report = json.decode(output)
-    assert(report.ok and #report.templates >= 3, "every built-in is listed: " .. output)
+    assert(report.ok and #report.templates >= 2, "every built-in is listed: " .. output)
     assert(report.templates[1].name and report.templates[1].kind == "builtin", "with its name and kind")
 end
 

@@ -6,8 +6,11 @@ return {
       default = "app",
       targets = {
          app = {
-            kind = "modules",
+            kind = "binary",
             description = "Build ${name}",
+            entries = { "main" },
+            stub = "nupp",
+            output = "build/${name}",
          },
       },
    },
