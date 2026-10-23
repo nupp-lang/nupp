@@ -303,7 +303,7 @@ nupp task annotated-lua-corpus
 The task lazily downloads a pinned MIT-licensed LuaLS source archive, verifies
 its SHA-256 digest, caches it under `build/corpus`, and feeds every real
 annotation comment in every `.lua` file through the importer. Recoverable
-warnings and files using Lua syntax outside LuaJIT's grammar are counted. Every
+warnings and files using Lua syntax outside the grammar Nupp parses are counted. Every
 syntax-compatible annotated file is also passed through the checker. An importer
 or checker crash, or a dropped annotation, fails the task.
 
@@ -351,8 +351,8 @@ change visible in version control.
 
 A type dependency does not install a runtime package. If the host provides a
 global, the definition merely describes that global. If the program needs an
-ordinary Lua module at runtime, obtain it through the host, a `luarocks` dependency,
-or the project's own deployment process.
+ordinary Lua module at runtime, obtain it through a `luarocks` dependency or
+carry it in the project's own sources.
 
 The provider is intentionally generic: future readers can use the same
 `kind = "types"` lifecycle and select their representation through `format`.
@@ -361,5 +361,4 @@ Today, `luacats` is the supported format.
 ::: seealso
 - [Build dependencies](../build.md#type-dependencies) for the manifest
   contract shared by every type provider
-- [LÖVE](love.md) for a host integration using the pinned LuaCATS definitions
 :::

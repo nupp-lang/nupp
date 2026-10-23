@@ -1,6 +1,7 @@
 ---
 order: 555
 title: Native modules
+redirects: learn/projects/embedding
 ---
 
 # Native modules
@@ -16,11 +17,6 @@ Either way the module arrives through one versioned C ABI, and either way it is
 checked against the module's `.d.nupp` declaration before any of its code runs.
 The declaration is what typed callers were checked against, so a library that
 registers another signature is refused, not called.
-
-::: info
-Native modules run on the Nupp VM. The LuaJIT embedding described in
-[Embedding Nupp](embedding.md) is a separate, older surface.
-:::
 
 ## Declaring the module
 

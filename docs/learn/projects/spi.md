@@ -122,7 +122,7 @@ Creating an iterator executes no provider. Each advance requires one module, so
 stopping early leaves the rest unloaded, and an empty index gives an empty
 iterator. A provider that fails to load propagates its ordinary `require`
 error, values and identities intact, and ordinary module caching keeps an
-implementation's identity within a Lua state. If a caller catches that error,
+implementation's identity within one VM. If a caller catches that error,
 the next advance retries the same provider; a failed provider never becomes an
 implicit skip to the next one.
 
@@ -177,7 +177,7 @@ program.
 ## Workers
 
 A worker receives the artifact's immutable index and loads its own module
-instances in its own Lua state. Provider objects and closures do not cross a
+instances in its own VM. Provider objects and closures do not cross a
 worker boundary.
 
 ::: seealso

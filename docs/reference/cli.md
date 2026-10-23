@@ -19,9 +19,9 @@ The commands, in the order `nupp help` lists them:
 - [`init`](#init): create a project from a template
 - [`ast`](#ast): dump a Nupp file's parsed syntax tree as JSON
 - [`bc`](#bc): show the bytecode a Nupp file compiles to
-- [`check`](#check): type-check source without emitting Lua
+- [`check`](#check): type-check source without building it
 - [`fmt`](#fmt): format Nupp source
-- [`build`](#build): build source files or a configured project target
+- [`build`](#build): build a configured project target
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
 - [`bench`](#bench): run isolated benchmark programs
 - [`lints`](#lints): list the lints and the level each runs at
@@ -148,9 +148,11 @@ return {
       default = "app",
       targets = {
          app = {
-            kind = "modules",
+            kind = "binary",
             description = "Build the greeter",
             entries = { "main" },
+            stub = "nupp",
+            output = "build/greeter",
          },
       },
    },
@@ -248,7 +250,7 @@ Next:
  │   ├── greeting.nupp
  │   └── main.nupp
  └── tests/
-     └── run.lua
+     └── greetingtest.nupp
 ```
 
 That project checks, builds, tests and runs as it stands, which is what the
@@ -459,8 +461,7 @@ Options:
   --no-color       Never color output
 ```
 
-The listing is of the VM image the file lowers to, so it needs the VM-hosted
-compiler; a LuaJIT-hosted `nupp` says so and stops. The file runs down the left
+The listing is of the VM image the file lowers to. The file runs down the left
 and what each line compiled to runs down the right. A line that compiled to
 several instructions keeps the first beside it and the rest on the rows below.
 A line that compiled to nothing -- a comment, a type annotation -- is a row with
@@ -483,7 +484,7 @@ is, as everywhere else, unless [`--color`](#universal-options) says otherwise.
 ### `check`
 
 ```text [nupp check --help]
-Type-check source without emitting Lua.
+Type-check source without building it.
 
 With no files, checks the configured project target. Named files are
 checked with project context when available.
@@ -573,13 +574,8 @@ A cold whole-project check uses semantic workers when the project has at least
 the available parallelism. Warm checks, checks of named files, smaller projects,
 and targets with an ahead-of-time policy stay in one process.
 
-A cold `nupp build` uses the same workers on the same terms, and each worker also
-optimizes and generates the modules it checked; the coordinating process writes
-what they generated. The artifacts are byte-for-byte the ones a single process
-writes. One more case stays in one process: an optimized build of a project that
-declares a function with a `const` type parameter, because constant
-specialization is planned across every module at once. `timing.parallel.reason`
-says so when it happens.
+A cold `nupp build` uses the same workers on the same terms. What it records is
+byte-for-byte what a single process records.
 
 `NUPP_CHECK_JOBS` sets the worker count, for checks and builds alike, and
 bypasses the workload floor. A count is capped at eight and at the number of
@@ -611,16 +607,16 @@ far through the source set it is, on one line it rewrites in place, and finishes
 with how long it took and where that time went:
 
 ```text
-  [ 62%] [251/405] checking src/nupp/compiler/lua/gen.nupp
+  [ 62%] [251/405] checking src/nupp/compiler/check/calls.nupp
 ```
 
 ```text
 checked compiler in 44.3s: 405 compiled, 0 reused
   check 41.8s  scan 1.9s
   slowest
-    nupp.compiler.lua.gen          2.7s
+    nupp.compiler.check.calls      2.7s
     nupp.compiler.syntax.parser    1.6s
-    nupp.compiler.aot.lower        1.3s
+    nupp.compiler.vm.lower         1.3s
 ```
 
 The count is what to compare between runs and the percentage is what says at a
@@ -788,43 +784,19 @@ Options:
 
 #### Output directories
 
-`--output` (`-o`) names the directory the build writes into. In a project
-build it overrides the manifest target's output directory; with explicit
-source files it is where their Lua lands, `build` when it is not given:
+`--output` (`-o`) names the directory the build writes into, overriding the
+manifest target's output directory:
 
 ```bash
 nupp build --target app --output dist
-nupp build -o dist src/greet.nupp
 ```
 
-#### Optimization levels
+#### Optimization flags
 
-The default depends on what is being built. An ad-hoc file build stays at
-`-O0`, which performs no rewrite at all and maps output one-to-one to source.
-A `binary`, `bundle`, or `component` target is a release artifact and builds
-at `-O2` unless its manifest entry declares its own level with
-`optimize = 0|1|2`; an explicit `-O` on the command line wins over both. The
-compiler builds itself optimized the same way, through `optimize = 2` on its
-own target. `-O1` and `-O2` currently run the same eight passes, `OPT-1`
-through `OPT-8`.
-
-```bash
-nupp build -O1 --remarks
-nupp build -O1 -Zno-opt=OPT-3
-```
-
-`--remarks` reports what the optimizer did and what it declined to do.
-`-Zno-opt=CODE` turns off one pass by its stable code, and the `-Z` prefix marks
-it as unstable: the option's name may change or go away. See
-[performance.md](../learn/performance/index.md#optimization-passes) for what each
-pass rewrites and what it measured.
-
-::: deepdive
-`-Zno-opt` reaches the build key as well, not only `-O`. That is what makes it
-a usable bisection tool: turning a pass off and building again produces a tree
-compiled entirely without it, rather than one where whichever modules happened
-to be cached still carry it.
-:::
+`-O0`, `-O1`, `-O2`, `--remarks`, `--remarks-for`, `--remarks-out` and
+`-Zno-opt` are accepted and change nothing the build produces: there are no
+optimization passes. See
+[performance.md](../learn/performance/index.md#optimization-passes).
 
 #### Progress and timing
 
@@ -833,24 +805,22 @@ place, and then how long the whole thing took, which activities that time went
 to, and the modules that cost the most of it:
 
 ```text
-built compiler in 18.9s: 164 compiled, 0 reused
-  check 16.1s  generate 952ms
+built app in 2.4s: 2 compiled, 0 reused
+  bundle 1.9s  generate 251ms  other 193ms
   slowest
-    nupp.compiler.lua.gen        1.9s
-    nupp.mem.heap                699ms
-    nupp.compiler.check.calls    664ms
+    main  1ms
 ```
 
 One activity is current at a time, so the second line's parts add up to the
-whole rather than overlapping. A module is charged for its own checking and
-generation and not for the dependencies its check pulled in, so the list names
-where the time went rather than whichever module happened to be reached first.
+whole rather than overlapping; `bundle` is lowering the binary's image and
+stamping it. A module is charged for its own checking and not for the
+dependencies its check pulled in, so the list names where the time went rather
+than whichever module happened to be reached first.
 
 To anything that is not a terminal a successful build still writes nothing, so a
 script reading its output sees what it always saw. `--progress=always` asks for
 the report anyway, `-q` refuses it, and `NUPP_PROGRESS` says the same thing for
-the builds nothing passes a flag to, including the rebuild `bin/nupp` runs
-before every other command.
+the builds nothing passes a flag to.
 
 #### JSON report
 
@@ -861,15 +831,16 @@ data rather than as a report:
 {
   "ok": true,
   "target": "app",
-  "written": ["build/greet.lua", "build/main.lua"],
+  "artifact": "build/greeter",
+  "written": ["build/greeter"],
   "diagnostics": [],
   "materializations": [],
   "timing": {
-    "totalMs": 412.7,
+    "totalMs": 2584.6,
     "compiledModules": 2,
     "reusedModules": 0,
-    "phases": [{"name": "check", "durationMs": 331.2}],
-    "slowest": [{"module": "main", "durationMs": 208.4}]
+    "phases": [{"name": "bundle", "durationMs": 1995.0}],
+    "slowest": []
   }
 }
 ```
@@ -1235,10 +1206,10 @@ Nupp reference chapters
 
   language    Nupp syntax, types, runtime constructs, lints, and diagnostics.
   cli         Nupp commands, JSON contracts, testing, and coverage workflows.
-  performance Nupp trace checking, sampling, abort analysis, zones, and benchmark workflow.
+  performance Nupp compiler evidence, benchmarks, and the performance workflow.
 
 Language sections
-  nupp-and-luajit
+  nupp-and-lua
   declaring-things
   types
   functions
@@ -1525,10 +1496,10 @@ Options:
 The list marks the default build target:
 
 ```text [nupp task --list]
-task           kind     description
-app (default)  modules  Build the greeter
-greet          task     Print a greeting
-test           test     Build and run project tests
+task           kind    description
+app (default)  binary  Build the greeter
+greet          task    Print a greeting
+test           test    Build and run project tests
 ```
 
 Naming one after `--list` prints its effective configuration, inherited
@@ -1538,7 +1509,7 @@ manifest defaults included:
 Name: app
 Default: yes
 Description: Build the greeter
-Kind: modules
+Kind: binary
 Category: build
 Command: nupp build --target app
 Output directory: build
@@ -1701,8 +1672,8 @@ Options:
 The first non-option argument is the program; everything after it goes to the
 program, options included. Arguments arrive as the chunk's varargs and in the
 global `arg`, where `arg[0]` is the program and `arg[1]` onwards what followed
-it, as for a script `luajit` runs. A `.nupp` file is compiled first; anything
-else is loaded as Lua directly.
+it. A `.nupp` file is checked and lowered to an image first; anything else is
+loaded as plain Lua. Either way it runs on the VM.
 
 ```text [nupp run src/main.nupp]
 Hello, world
@@ -2095,10 +2066,10 @@ release. A release is a tag, the tag is built from the commit that set the
 number, and release CI runs the archived binary and compares what it prints to
 the tag before publishing it.
 
-`--json` adds the LuaJIT interpreter underneath:
+`--json` adds the runtime underneath:
 
 ```json
-{"version": "1.2.3", "runtime": "LuaJIT 2.1.1234567890"}
+{"version": "1.2.3", "runtime": "Nupp VM"}
 ```
 
 Answering costs nothing but starting the process: the number is a string in the
@@ -2150,7 +2121,7 @@ Commands:
   init             Create a project from a template.
   ast              Dump a Nupp file's parsed syntax tree as JSON.
   bc               Show the bytecode a Nupp file compiles to.
-  check            Type-check source without emitting Lua.
+  check            Type-check source without building it.
   fmt              Format Nupp source.
   build            Build a configured project target.
   clean            Remove build outputs configured in nupp.lua.

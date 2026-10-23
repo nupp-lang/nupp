@@ -3,33 +3,31 @@ order: 700
 title: Distribution
 ---
 
-# Stubs and payloads
+# Runtimes and payloads
 
-A distributed program is a stub with a payload appended to it. The stub is an
-executable embedding LuaJIT that knows how to find a payload, and the payload is
-one Lua chunk carrying everything the program needs.
+A distributed program is the VM runtime with a payload appended to it. The
+runtime is the executable that knows how to find a payload, and the payload is
+the program's image: everything the program needs, lowered from its sources.
 
 ```text
-[ stub executable ][ payload chunk ][ trailer ]
+[ VM runtime ][ program payload ][ trailer ]
 ```
 
-Making a binary is copying a stub, appending a payload, and writing a trailer
-that says where the payload starts. Nothing in that is specific to Nupp's own
-compiler: an engine or framework can publish a host that opens a window or owns
-an event loop, and [`nupp build`](../learn/projects/build.md) stamps programs into it
-without knowing what it is.
+Making a binary is building the runtime, appending a payload, and writing a
+trailer that says where the payload starts. [`nupp build`](../learn/projects/build.md)
+does all three for a `binary` target, for the machine it runs on.
 
 ## Container
 
-The payload is appended to the stub file, followed by a fixed trailer. An
+The payload is appended to the runtime file, followed by a fixed trailer. An
 unsigned file ends at the trailer. A signed Mach-O carries Apple's
 code-signature blob after it, with any zero alignment padding in between, and
-the stub finds that boundary through `LC_CODE_SIGNATURE`.
+the runtime finds that boundary through `LC_CODE_SIGNATURE`.
 
 | Region | Contents | Present |
 | --- | --- | --- |
-| stub executable | an ordinary ELF, Mach-O, or PE image | always |
-| payload | one Lua chunk | once stamped |
+| runtime | an ordinary ELF, Mach-O, or PE image | always |
+| payload | the entry module's name and the program image | once stamped |
 | trailer | 48 fixed bytes | once stamped |
 | Mach-O signature | Apple's code-signature blob | signed macOS only |
 
@@ -38,197 +36,128 @@ extends `__LINKEDIT` over them before the native signer runs. See [Signing for
 macOS](#signing-for-macos) for the order that makes that work.
 
 ::: deepdive
-An appended chunk rather than a platform section: an ELF section, a Mach-O
+An appended payload rather than a platform section: an ELF section, a Mach-O
 section and a PE resource are three formats and three writers, and the payload
 contract needs nothing any of them supplies.
-
-The format is specified before its consumers because it stops being revisable
-the moment somebody publishes a stub built against it, in a repository nobody
-here controls. The first two consumers are both Nupp's own, the trivial test
-host and the compiler itself, and the [packaging fixpoint](#packaging-fixpoint)
-is the last gate before a third party is invited to publish one.
 :::
 
 ### Trailer
 
 48 bytes, little-endian, at the end of an unsigned file. For a signed Mach-O it
 is immediately before the zero alignment padding and code-signature offset named
-by `LC_CODE_SIGNATURE`. A stub checks only those format-defined boundaries; it
-does not search arbitrary executable bytes for the magic.
+by `LC_CODE_SIGNATURE`. The runtime checks only those format-defined boundaries;
+it does not search arbitrary executable bytes for the magic.
 
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 8 | magic, the ASCII bytes `NUPPLOAD` |
 | 8 | 4 | format version, currently 1 |
-| 12 | 4 | flags, bit 0 set when the payload is bytecode, bit 1 when it is a VM program |
+| 12 | 4 | flags; bit 1 is set when the payload is a VM program |
 | 16 | 8 | payload offset from the start of the file |
 | 24 | 8 | payload length in bytes |
 | 32 | 8 | the payload's XXH64 under seed zero, little-endian |
 | 40 | 8 | trailer length, currently 48 |
 
-The magic is last-resort identification, not a search key: a stub that finds no
-magic has no payload and says so, and one that finds a version it does not know
-refuses rather than guessing. Bits the flags field does not define are zero and
-are checked to be zero, so a later version can use them and an older stub will
+The magic is last-resort identification, not a search key: a runtime that finds
+no magic has no payload, and one that finds a version it does not know refuses
+rather than guessing. Bits the flags field does not define are zero and are
+checked to be zero, so a later version can use them and an older runtime will
 refuse rather than misread.
 
-Bit 0 says the payload is precompiled LuaJIT bytecode rather than Lua source.
-Both are loaded the same way, by the same call, which tells them apart by the
-header a dump carries; the bit is there so the file says what it holds instead
-of leaving that to be sniffed, and so a stub written before the bit refuses on
-it rather than loading something it was never told to expect.
-
-A payload is precompiled when the binary is being built for the machine
-building it. A dump records the endianness and the VM configuration it was made
-for and is refused by a VM that does not match, so a binary stamped for another
-platform carries its source payload instead.
-
-The dump is made with LuaJIT's `d` and `s` flags. `d` sorts the entries of a
-template table, which are otherwise written in the order the keys hash and
-differ between processes; without it a stamped binary could not stamp another
-identical to itself. `s` discards debug information, which is what keeps the
-chunk name the host supplies. A dump that kept its debug information would
-carry the name it was given when it was built, and the payload's name is not a
-build-time fact: the host names it after the executable it found itself in, and
-code in the payload reads that name to find what travels beside the binary. The
-price is that a traceback out of a stamped binary has no line numbers. The same
-crash reproduces under a `modules` build, which is not stamped and keeps them.
-
-Bit 1 says the payload is a VM program rather than a Lua chunk, and the stub
-is the VM runtime rather than a LuaJIT host. A compiler running on the VM
-stamps every binary for the machine it runs on this way: the payload is the
-entry module's name, a newline, and the image the VM's lowering wrote for the
-entry and everything it reaches, the target's resources among them as the
-`nupp.embedded` module. The runtime runs the entry module's body on a task,
-with the program's arguments as `arg` and the executable as `arg[0]`, and links
-only the native facilities -- compression, networking, HTTP -- the image
-requires. A LuaJIT host refuses the bit, and the VM runtime refuses a Lua
-payload, each naming what it found.
+Bit 1 says the payload is a VM program, and every binary Nupp builds sets it.
+Bit 0 marked the LuaJIT bytecode payloads of earlier releases; the VM runtime
+refuses a payload without bit 1, saying it carries a LuaJIT payload this
+runtime does not run.
 
 The digest is a corruption check, not a security boundary: the file is
 unsigned, and anyone who can rewrite the payload can rewrite the trailer beside
-it. What it catches is a truncated download or a damaged file, and the stub's
-message says so. A stub that wanted a guarantee against tampering would need a
-signature over the payload, which is a separate field and a separate question.
+it. What it catches is a truncated download or a damaged file, and the
+runtime's message says so. A runtime that wanted a guarantee against tampering
+would need a signature over the payload, which is a separate field and a
+separate question.
 
 Which is why it is XXH64 rather than a cryptographic digest. The check runs on
 every invocation over the whole payload, and the compiler's own binary carries
-about ten megabytes of one: at SHA-256 that is twenty-five milliseconds added
-to every command, against a tool whose design goal is that an unchanged project
-answers in about the time it takes to start. XXH64 answers the same question in
-under a millisecond.
+megabytes of one: at SHA-256 that is milliseconds added to every command,
+against a tool whose design goal is that an unchanged project answers in about
+the time it takes to start. XXH64 answers the same question in well under a
+millisecond.
 
-`src/nupp/compiler/hash.nupp` writes it and the Rust base provider
-checks it. They are one contract with two spellings, and the input is read
-little-endian in both so a binary stamped on one machine verifies on another.
-
-### Compiler host ABI
-
-The container format version answers whether a stub can locate a payload. The
-compiler host ABI answers whether that host can run what the compiler put in the
-payload. It is currently `1` and is published to the payload as
-`__nuppHost.hostAbi`, beside a `hostFeatures` set.
-
-The ABI changes when an older compiler-owned host cannot correctly run a new
-payload: incompatible preload registration, bootstrap capability records,
-worker startup protocol, or generated-runtime requirements. Adding a compatible
-optional host feature does not change it. A trailer change changes the container
-format version, and changes the host ABI too only when it also changes the
-payload/host runtime contract. Target C layout ABI is separate from both.
-
-A compiler compares a catalog stub's host ABI before stamping it. The payload
-repeats the comparison before user code runs, checks its required host features,
-and removes unselected native preloads. That exposure mask depends only on the
-target's selected features, so selecting a universal catalog stub does not
-change payload bytes or make unused modules observable.
+`src/nupp/tools/build/package.nupp` writes the trailer and
+`native/crates/vm/src/payload.rs` reads it. They are one contract with two
+spellings, and the input is read little-endian in both.
 
 ## Payload
 
-One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. Its
-shape:
-
-```lua
-package.preload["some.module"] = function(...) --[[ compiled module ]] end
--- ...one per module in the program...
-package.preload["nupp.embedded"] = function()
-    return {["/some/resource.txt"] = [==[ ... ]==]}
-end
--- the entry module's code, last, as the chunk's own body
-```
-
-The chunk is plain Lua and runs under a compatible `luajit` when that runtime
-also supplies every native feature the target resolved. A target with no native
-effects needs no stub; one that reaches a native provider needs a
-feature-matched host or the provider library beside it.
-
-"Plain" has a floor. Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1
-backported, meaning `?.`, `??`, `?:`, the bit operators and compound assignment,
-rather than in a lowering of it, so a payload needs LuaJIT 2.1.1784535649 or
-newer. A stub is therefore not free to embed whichever LuaJIT its build system
-had lying around: `scripts/toolchain.pins` pins one by revision and digest, and
-the pin is a requirement rather than a preference.
+The entry module's name on the first line, then the image the VM's lowering
+wrote for the entry and everything the build carries. The runtime loads the
+image, runs the entry module's body on a task with the program's arguments as
+`arg` and the executable as `arg[0]`, and the program's exit status is the
+process's.
 
 ### Resources and rock modules
 
-Resources ride in `package.preload["nupp.embedded"]` as a table of path to
-content. That is the same mechanism the compiler uses to carry its own standard
-library declarations, so a program's resources and the compiler's behave
-identically and are read through one lookup.
+A target's resources ride in the image as the `nupp.embedded` module, a table of
+path to content. That is the same mechanism the compiler uses to carry its own
+standard library declarations, so a program's resources and the compiler's
+behave identically and are read through one lookup.
 
-Rock modules ride in `package.preload` too, under the names `require` would have
-found them by in the tree they came from, so `require("pl.stringx")` resolves in a
-checkout, in a bundle, and in a stamped binary, and the program cannot tell
-which it is running in. A target names what it carries with the `bundle` globs
-on its [rock dependencies](../learn/projects/build.md#rock-dependencies); a rock tree
-also holds test scripts, command-line programs and data nobody asked for, and
-a payload that swept the tree would carry all of it.
+Rock modules ride in the image too, under the names `require` would have found
+them by in the tree they came from, so `require("pl.stringx")` resolves in a
+checkout and in a stamped binary alike. A target names what it carries with the
+`bundle` globs on its [rock dependencies](../learn/projects/build.md#rock-dependencies);
+a rock tree also holds test scripts, command-line programs and data nobody asked
+for, and a payload that swept the tree would carry all of it.
 
 ### Determinism
 
-Modules and resources are emitted in sorted order, and nothing records a
+Modules and resources are carried in sorted order, and nothing records a
 timestamp, a path from the building machine, or a build counter. Two builds of
 one tree produce byte-identical payloads, which is what the [packaging
 fixpoint](#packaging-fixpoint) below rests on.
 
-The compiler-owned host is reproducible to the same standard across checkouts,
-directories, locales, time zones, umasks and users. Rust records the source
-paths of its dependencies and standard library in panic locations, and those sit
-under the building user's `CARGO_HOME` and rustup directory, so
-`scripts/toolchain` remaps them for every crate it builds: the registry to
-`/cargo`, a vendor directory to `/vendor`, and rustup's copy of the standard
-library back to the `/rustc/<commit>` path the Rust release itself records.
-Where those directories are is therefore not part of the build. An ambient
-`RUSTFLAGS` replaces the remapping, as it replaces any `build.rustflags` in
-Cargo, and is already part of the artifact key.
+The runtime is reproducible to the same standard across checkouts, directories,
+locales, time zones, umasks and users. Rust records the source paths of its
+dependencies and standard library in panic locations, and those sit under the
+building user's `CARGO_HOME` and rustup directory, so `scripts/toolchain`
+remaps them for every crate it builds: the registry to `/cargo`, a vendor
+directory to `/vendor`, and rustup's copy of the standard library back to the
+`/rustc/<commit>` path the Rust release itself records. Where those directories
+are is therefore not part of the build. An ambient `RUSTFLAGS` replaces the
+remapping, as it replaces any `build.rustflags` in Cargo, and is already part of
+the artifact key.
 
-## Stub requirements
+## The runtime
 
-A stub does six things, in this order.
+`scripts/toolchain vm-runtime FACILITIES` builds the runtime a binary is
+stamped onto, linking only the optional native facilities the program's image
+reaches: compression, networking, HTTP, regular expressions, Markdown, and C
+header parsing. A program with vector code is built differently, with
+`scripts/toolchain vm-program FACILITIES PAYLOAD`: its image is compiled ahead
+of time into a runtime that carries no code generator and runs only that image.
+Either way the runtime is built from the compiler's Rust sources, which is why
+building a binary needs a Nupp source checkout.
 
-1. Locate its own executable. Not `arg[0]`, which is whatever the caller typed:
-   `/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`.
-2. Read the last 48 bytes. No magic, or a version it does not know: report that
-   plainly and exit non-zero. Do not fall back to guessing.
-3. Verify the payload's length and truncated digest.
-4. Load the payload as a Lua chunk, named so tracebacks are readable.
+A runtime with nothing appended is the VM's own runner, which runs the image its
+command line names. A runtime with a payload is that program, and reads none of
+its arguments as runner controls. It finds the payload in this order:
+
+1. Locate its own executable, not `arg[0]`, which is whatever the caller typed.
+2. Read the trailer. No magic means no payload. A version it does not know,
+   unknown flags, or a payload without the VM program bit is refused, plainly.
+3. Verify the payload's bounds and digest.
+4. Read the entry module's name and load the image.
 5. Set `arg` from the command line, dropping nothing the program should see.
 6. Run it. The program's exit status is the process's.
 
-A stub with no payload is a plain interpreter: it runs the file named as its
-first argument. That is what makes a stub testable before anything is stamped
-into it, and what makes `nupp` itself usable during development.
-
-Everything else a stub does is its own business. A game engine's stub may open a
-window and own an event loop before step 6; Nupp's own does none of that.
-
 ## Host source acquisition
 
-The compiler-owned toolchain builds pinned LuaJIT and LuaRocks
-sources rather than committing generated native artifacts or source archives.
-An ordinary cold build downloads
-the exact upstream files and verifies their SHA-256 digests before extraction
-or compilation. A verified source already in the toolchain cache is reused
-before any download.
+The toolchain builds pinned LuaJIT and LuaRocks sources, which LuaRocks needs
+to install rock dependencies, rather than committing generated native artifacts
+or source archives. An ordinary cold build downloads the exact upstream files
+and verifies their SHA-256 digests before extraction or compilation. A verified
+source already in the toolchain cache is reused before any download. The pinned
+stage-zero image is fetched and verified the same way.
 
 Package managers, offline builders and CI caches may put the same canonically
 named archives in another directory and point the build at it:
@@ -236,8 +165,7 @@ named archives in another directory and point the build at it:
 ```sh
 NUPP_HOST_SOURCE_DIR=/opt/nupp-sources \
 NUPP_HOST_OFFLINE=1 \
-./scripts/toolchain host \
-  native-files,native-net,native-process,native-tls,workers
+./scripts/toolchain luajit luarocks
 ```
 
 `NUPP_HOST_SOURCE_DIR` may be relative to the command's working directory,
@@ -262,64 +190,29 @@ the source-directory setting needed to supply it.
 
 Cargo dependencies use the committed `Cargo.lock` and Cargo checksums rather
 than the archive list above. Provision an offline source tree once, then name it
-for Rust-native builds:
+for the Rust builds:
 
 ```sh
 ./scripts/toolchain rust-vendor /opt/nupp-rust-sources
 NUPP_RUST_VENDOR_DIR=/opt/nupp-rust-sources \
 NUPP_HOST_OFFLINE=1 \
-./scripts/toolchain native-rust http,net,tls,uri
+./scripts/toolchain vm-runtime http,net
 ```
 
 An offline Rust build without `NUPP_RUST_VENDOR_DIR` fails before Cargo runs.
 
-## Cross-target stub acquisition
-
-A binary target with `stub = "nupp"` and `platforms` stamps verified prebuilt
-compiler hosts instead of invoking a target linker. The initial catalog is
-local-only: `NUPP_STUB_CATALOG` may name an immutable JSON catalog and
-`NUPP_STUB_DIR` names the directory containing its artifacts. Embedded release
-catalogs use the same shape.
-
-A binary target may set `payloadOutput` to retain the portable Lua source chunk
-assembled before the current-host payload is precompiled. Release packaging can
-stamp that source into a host built on another operating system without treating
-one platform's LuaJIT bytecode as portable.
-
-Every stub is checked for host ABI, required host features, byte length,
-SHA-256, executable format and target architecture. Accepted bytes are cached
-under `.nupp/stubs/<catalogRelease>/<hostAbi>/<platform>/<sha256>/`; changing a
-catalog or override digest therefore forces a restamp. A cache or directory
-miss is an error and does not invoke `curl` or another system downloader.
-
-Cross-target POSIX results include a deterministic `.tar` containing the raw
-binary at mode `0755`, so a Windows build host cannot erase the executable bit.
-PE results need no mode operation. Cross-stamped macOS binaries are unsigned
-development artifacts, and an ad-hoc signature on macOS makes one locally
-executable:
-
-```bash
-codesign --force --sign - <binary>
-```
-
-Release CI uses a Developer ID identity and notarizes the final stamped bytes
-when its optional Apple credentials are configured. Without them it publishes
-the same macOS bytes unsigned.
-
 ## Third-party notices
 
-The compiler-owned stub links LuaJIT and one feature-selected Rust provider
-archive. A stamped binary or provider is a
-distribution of what it links, so the notices ship in
+A stamped binary is a distribution of what its runtime links, so the notices
+ship in
 [`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
-and `host/notices/`. C-source notices are carried as they arrive in the pinned
-sources, byte for byte. The generated Rust notice covers every third-party
-package in `Cargo.lock`, so one committed notice set is valid for every provider
-feature and target. Hand the directory over with the binary the way a release
-archive carries a README.
+and `host/notices/`. The generated Rust notice covers every third-party package
+in `Cargo.lock`, so one committed notice set is valid for every facility and
+target. Hand the directory over with the binary the way a release archive
+carries a README.
 
-The C sources are fetched at build time rather than committed, so nothing else
-in the tree carries their notices. `scripts/toolchain` compares each committed
+The LuaJIT source is fetched at build time rather than committed, so nothing
+else in the tree carries its notice. `scripts/toolchain` compares the committed
 copy against the source it has just verified by digest and fails the build when
 they differ. `scripts/rust-dependency-notices --write` refreshes the Cargo
 aggregate; the test suite refuses a lockfile whose third-party package inventory
@@ -327,42 +220,42 @@ is not represented there.
 
 ## Signing for macOS
 
-The catalog stub arrives ad-hoc signed from its linker, and appending after that
+The runtime arrives ad-hoc signed from its linker, and appending after that
 signature produces trailing bytes Apple's signer refuses. The packager takes the
-signature off, appends, and leaves the result for a native signer.
+signature off, appends, and signs again.
 
 ### Packager steps
 
 1. Validate and remove the final `LC_CODE_SIGNATURE` command and blob.
 2. Append the payload and trailer.
 3. Extend `__LINKEDIT` through the trailer.
-4. Leave explicit cross-target output unsigned for a native signer.
+4. Sign the result ad hoc, with a fixed identifier and no timestamp.
 
-`codesign` then appends a new signature blob in the ordinary Apple-supported
-layout. The host reads the trailer just before that blob, including the small
-zero padding `codesign` may insert for alignment. Strict signature verification
+`codesign` appends a new signature blob in the ordinary Apple-supported layout.
+The runtime reads the trailer just before that blob, including the small zero
+padding `codesign` may insert for alignment. Strict signature verification
 therefore covers the payload instead of tolerating it as unsealed trailing data.
-
-A source-built current-macOS target is ad-hoc signed automatically with a fixed
-identifier and no timestamp so it runs immediately and remains deterministic.
-Explicit cross-target output is the same unsigned bytes regardless of compiler
-host. Windows developer artifacts remain unsigned unless a release policy
-supplies Authenticode; ELF needs no signing step.
+The ad-hoc signature lets the binary run where it was built and keeps two builds
+of one tree byte-identical. Windows binaries remain unsigned unless a release
+policy supplies Authenticode; ELF needs no signing step.
 
 ### Optional release credentials
 
-Tagged release CI can use these GitHub Actions secrets:
+Each release platform builds its own compiler on its own runner. Tagged release
+CI can re-sign the macOS one with a Developer ID using these GitHub Actions
+secrets:
 
 - `APPLE_CERTIFICATE`: the base64-encoded Developer ID Application `.p12`;
 - `APPLE_CERTIFICATE_PASSWORD` and `APPLE_SIGNING_IDENTITY`;
 - `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` for `notarytool`.
 
-With none of them configured, the job publishes an unsigned macOS archive and
-records that fact in its `SIGNING.txt`. With all six configured, it verifies the
-final code signature, waits for notarization, and assesses the executable before
-release assets are created. A partial credential set is an error rather than a
-silent fallback. Windows release binaries are intentionally unsigned; their
-archive likewise says so rather than implying Authenticode was applied.
+With none of them configured, the job publishes a macOS archive that is not
+Developer ID signed and records that fact in its `SIGNING.txt`. With all six
+configured, it verifies the final code signature, waits for notarization, and
+assesses the executable before release assets are created. A partial credential
+set is an error rather than a silent fallback. Windows release binaries are
+intentionally unsigned; their archive likewise says so rather than implying
+Authenticode was applied.
 
 ## Packaging fixpoint
 
@@ -379,25 +272,9 @@ out stamp another, and compares them. Stage one is kept beside the output so
 stage two writes where stage one did, and the comparison is of two files made
 the same way rather than of one file and a memory of another.
 
-It is the acceptance test for everything above. It fails if the payload is not
-deterministic, if the trailer does not round-trip, if the emitter's idea of
-where a payload starts disagrees with the stub's, or if signing is not
-reproducible. It passes, and it is the last gate before a third party is allowed
-to publish a stub, because after that the format cannot move.
-
-::: deepdive
-Two things the fixpoint caught, both of which would otherwise have been found by
-somebody else.
-
-A bundle was carrying every `.lua` under the output directory, which is also
-where native dependencies build, and a dependency tree can contain example
-scripts that are not valid preload modules. A bundle now carries what the build
-compiled and nothing else.
-
-The stub could not provide JSON until the native opener was linked and
-registered in `package.preload`, because the compiler uses JSON before it does
-most work.
-:::
+It fails if the payload is not deterministic, if the trailer does not
+round-trip, if the packager's idea of where a payload starts disagrees with the
+runtime's, or if signing is not reproducible.
 
 ## Versions
 
@@ -407,17 +284,15 @@ before 1.0: a reader that finds a version it does not know refuses, naming the
 version it found and the one it reads, rather than guessing.
 
 Two policies cover them. A document another process reads -- a manifest, a
-report, a catalog -- carries an integer `schemaVersion` (or the older `schema`)
-and is bumped whenever its shape changes. A binary contract -- an ABI, the
-payload trailer -- is versioned apart from any document, because it versions the
-bytes two programs exchange rather than what one of them wrote. Components,
-payloads and stubs are rebuilt with the toolchain that reads them: a component
-built by another release is refused by exact version rather than adapted.
+report -- carries an integer `schemaVersion` (or the older `schema`) and is
+bumped whenever its shape changes. A binary contract -- an ABI, the payload
+trailer -- is versioned apart from any document, because it versions the bytes
+two programs exchange rather than what one of them wrote. Payloads and runtimes
+are rebuilt with the toolchain that reads them.
 
 | Format | Version | Rule | Declared in |
 | --- | --- | --- | --- |
 | Native provider ABI | 2 | exact major | `native/include/nupp_native.h` `NUPP_NATIVE_ABI_VERSION` |
-| Compiler host ABI | 1 | exact | `src/nupp/tools/build/platform.nupp` `hostAbiVersion` |
 | Payload trailer | 1 | exact | `native/crates/vm/src/payload.rs` `FORMAT_VERSION` |
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
@@ -445,25 +320,22 @@ A distributed binary is deliberately none of these things.
   asset beside it exists so a source checkout can build a compiler; a
   distributed binary is what comes out the other end. Different problems that
   are easy to conflate.
+- **It is for one platform.** A binary is built for the machine building it.
+  There is no cross-platform stamping: each platform's binary is built on that
+  platform, as each release platform's compiler is built on its own runner.
 - **Stamping does not absorb arbitrary native dependencies.** A binary still
-  ships project C and provider libraries beside it.
+  ships project C and Rust dependency libraries beside it.
 - **C dependencies still need a C compiler.** A project C dependency built from
   sources needs a C compiler on the machine; prebuilt target-indexed C archives
   remain usable without one.
-
-  Filesystem and network operations, TLS, clocks, payload trailer verification
-  and child processes come from the feature-selected Rust native archive linked
-  into the compiler-owned host. Another payload selects whatever its own code
-  and bundled dependencies need; the format has no opinion.
-- **It does not make Nupp a C project either.** The production host and native
-  resource owners are Rust. LuaJIT, protected VM shims, and compiled AOT
-  code remain deliberate native boundaries; the complete ownership and support
-  matrix is in [Native runtime and support](native-runtime.md).
+- **It does not make Nupp a C project either.** The runtime and its native
+  facilities are Rust; the complete ownership and support matrix is in [Native
+  runtime and support](native-runtime.md).
 
 ::: seealso
 - [build.md](../learn/projects/build.md#rock-dependencies) for the targets and rock
   globs a payload is assembled from
-- [embedding.md](../learn/projects/embedding.md) for running Nupp inside a host you own
-  rather than one the packager stamps
+- [native-modules.md](../learn/projects/native-modules.md#embedding-the-vm) for
+  running Nupp inside a Rust application you own
 - [native-runtime.md](native-runtime.md) for the exact Rust/native boundary
 :::

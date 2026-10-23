@@ -3,10 +3,12 @@
 Nupp libraries are ordinary Nupp modules. What varies by host is chosen at
 require time through SPI providers rather than by building a library twice.
 
-## LuaJIT modules
+## LuaJIT library modules
 
-`require("ffi")`, `require("string.buffer")`, `require("table.new")`, `bit`, and
-the `jit.*` modules are LuaJIT facilities.
+The VM provides `bit`, `require("string.buffer")`, and `table.new` and
+`table.clear` on the `table` library. The checker also declares `ffi` and the
+`jit.*` modules, which are LuaJIT facilities the VM does not have: requiring one
+fails at run time.
 
 ```nupp
 const bit = require("bit")
@@ -37,7 +39,7 @@ module. Shared storage, struct, memory-host, and integer declarations remain in
 `nupp.mem.representation.spi`; storage and its integer operations must agree.
 
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
-Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and
+Its native adapter uses `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 
 GPU providers use the shared interfaces in `nupp.gpu.spi`. Each context retains its
@@ -55,12 +57,12 @@ in `nupp/spi.json`. The build checks ordinary assignment compatibility, includin
 generic signatures, ownership, and suspension. Lua implementations need a matching
 `.d.nupp` declaration or typed adapter. Discovery never executes provider code.
 
-Only target runtime dependencies contribute implementations. Built-in native adapters are
-excluded from portable payloads. See [SPI](../spi.md) for metadata and examples.
+Only target runtime dependencies contribute implementations. See [SPI](../spi.md)
+for metadata and examples.
 
 ## Workers
 
-Worker lanes start fresh Lua states with the artifact's immutable provider index.
+Worker lanes each run their own VM with the artifact's immutable provider index.
 They load and cache their own module instances. Provider objects and closures do
 not cross lane boundaries; each consumer chooses during its own initialization.
 

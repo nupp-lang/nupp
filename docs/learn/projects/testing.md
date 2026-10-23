@@ -28,7 +28,7 @@ return {
    build = {
       outDir = "build",
       default = "app",
-      targets = { app = { kind = "modules", entries = { "app.main" } } },
+      targets = { app = { entries = { "app.main" } } },
    },
 
    test = {
@@ -49,7 +49,7 @@ reports `test requires build configuration`. The command runs with the project
 root as its working directory, and anything you pass after `nupp test` is
 appended to the bundled runner or configured `argv`. The rock tree the built
 target depends on is added to `LUA_PATH` and `LUA_CPATH` for it, since the test
-command is a fresh interpreter that has never heard of that tree. See [rock
+command is a fresh process that has never heard of that tree. See [rock
 dependencies](build.md#rock-dependencies) for where that tree comes from.
 
 ## Arguments
@@ -115,7 +115,7 @@ prints N of them, and `--timings=0` prints none. Under `--json` the same
 measurements are `suites` and `shards` beside `tests`. Named metrics are stored
 on each test and added under the run's `metrics` field.
 
-The `app`, `lib`, and `love` templates include a real suite using `nupp.test`.
+The `app` and `lib` templates include a real suite using `nupp.test`.
 `nupp test` builds first and forwards its remaining arguments to the runner.
 
 ::: deepdive
@@ -378,16 +378,10 @@ The run stays in one process for a single named suite, for `--jobs=1`, inside
 a shard, and while [coverage](#coverage) is collected, where the shards would
 race each other for the one counter file `NUPP_COVERAGE_FILE` names.
 
-Under a VM-hosted compiler the runner is a VM program: the build stamps it onto
-the VM runtime, Nupp suites lower to images with the VM's own lowering, and a
-module the runner's image does not carry is compiled from source when a suite
-first requires it. A VM worker shares no Lua state, so a parallel lane there is
-another process rather than a worker inside one. Each suite record in
-`--json` says which `engine` ran it, `vm` or `luajit`. The repository's suites
-that still drive the Lua generator, LuaJIT's `ffi` or its host are left to the
-LuaJIT runner, `tests/run`: a selection that includes one reports it as a
-single not-executed case with `engine` `luajit`, and naming the suite runs it
-on the VM regardless.
+The runner runs on the VM: Nupp suites lower to images with the VM's own
+lowering, and a module the runner does not carry is compiled from source when a
+suite first requires it. A parallel lane is another process rather than a
+worker inside one.
 
 ::: deepdive
 The default is one worker per processor. `--jobs=N` is explicit because the
@@ -461,7 +455,7 @@ What moves to the harness with it:
   a replacement command owns its own execution model.
 - **The coverage protocol.** A custom runner must load the build directory
   `NUPP_COVERAGE_BUILD` names ahead of its ordinary output and flush the
-  generated global `__nuppCoverage.hits` to the file named by
+  global `__nuppCoverage.hits` to the file named by
   `NUPP_COVERAGE_FILE`.
 
 What stays: the build, the working directory, `test.env`, and the rock paths.
@@ -488,7 +482,7 @@ JSON remains the only document on standard output; `coverage.json` holds the
 coverage data.
 
 The HTML report has a collapsible source tree, root and per-directory totals,
-sortable file metrics, and syntax-highlighted Nupp and generated-Lua views.
+sortable file metrics, and syntax-highlighted Nupp source.
 The index, each directory summary, and each source file are separate HTML pages,
 so opening the report does not load the source for the whole project. Green
 means executed, red means executable but missed, amber means a partial branch,
@@ -511,7 +505,7 @@ nupp test --coverage --report-json --coverage-out reports/coverage
 ```
 
 It carries per-file metrics, missed locations, and counted coverage sites.
-Source text and generated Lua remain in the HTML report.
+Source text remains in the HTML report.
 
 Each site says where it is and how often it was reached, and carries what is
 worth knowing about its kind:

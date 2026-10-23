@@ -33,7 +33,7 @@ return {
       migrate = {
          description = "Apply pending schema migrations",
          build = "app",
-         argv = { "luajit", "build/app/migrate.lua" },
+         argv = { "build/app", "migrate" },
          env = { DATABASE_URL = "postgres://localhost/app" },
       },
    },
@@ -70,8 +70,8 @@ for index = 1, select("#", ...) do
 end
 ```
 
-A `bundle` target compiles it to one file that `luajit` can run directly, and
-the task builds that target before running it:
+A `binary` target compiles it to one executable, and the task builds that
+target before running it:
 
 ```lua
 return {
@@ -82,10 +82,11 @@ return {
       default = "tools",
       targets = {
          tools = {
-            kind = "bundle",
+            kind = "binary",
             description = "Build the maintenance tools",
             entries = { "tools.release" },
-            output = "build/release.lua",
+            stub = "nupp",
+            output = "build/release",
          },
       },
    },
@@ -94,7 +95,7 @@ return {
       release = {
          description = "Stamp a release archive",
          build = "tools",
-         argv = { "luajit", "build/release.lua" },
+         argv = { "build/release" },
          env = { RELEASE_CHANNEL = "stable" },
       },
    },
@@ -106,11 +107,7 @@ stamping stable release
 argument: v1.2.0
 ```
 
-A `modules` target works the same way with one more step: it writes
-`build/tools/release.lua` beside the rest of the project's modules, so the
-command needs the output directory on its path, as
-`env = { LUA_PATH = "build/?.lua;;" }`. See [build.md](build.md) for what each
-target kind produces.
+See [build.md](build.md) for what a binary target carries.
 
 ## Building a target first
 
@@ -196,9 +193,10 @@ each build target, with the default one marked, the default or configured test
 command, the self-host action `nupp fixpoint` runs, and each named task.
 
 ```text [nupp task --list]
-task             kind     what it does
-release          task     Stamp a release archive
-tools (default)  modules  Build the maintenance tools
+task             kind    description
+release          task    Stamp a release archive
+test             test    Build and run project tests
+tools (default)  binary  Build the maintenance tools
 ```
 
 `nupp task --list <name>` prints that entry's effective configuration, filled in with
@@ -214,8 +212,7 @@ Category: task
 Command: nupp task release
 Build target: tools
 Arguments:
-  - luajit
-  - build/release.lua
+  - build/release
 Environment:
   - RELEASE_CHANNEL=stable
 ```

@@ -6,8 +6,8 @@ title: Build system
 # Project builds
 
 A Nupp project is a `nupp.lua` manifest naming where source lives, what the
-project depends on, and which targets it produces. `nupp build` compiles the
-whole source set into the outputs those targets describe.
+project depends on, and which targets it produces. `nupp build` checks the
+whole source set and produces what the selected target describes.
 
 ```lua
 return {
@@ -16,7 +16,9 @@ return {
       default = "app",
       targets = {
          app = {
-            kind = "modules"
+            kind = "binary",
+            entries = { "main" },
+            stub = "nupp"
          }
       }
    }
@@ -25,16 +27,16 @@ return {
 
 ## Source sets
 
-Running `nupp build` without source arguments loads `nupp.lua` and compiles the
+`nupp build` takes no source files. It loads `nupp.lua` and checks the
 project's source set: every `.nupp` under the manifest's include roots, minus
-the build output. Explicit source builds remain available as
-`nupp build file.nupp`.
+the build output.
 
-A `modules` build executes nothing, so it needs no entry and compiles the whole
-source set. A bundle, binary or component requires `entries` to say where
-execution starts and which chunk becomes the body. Entries do not say what
-exists. A build compiles what the project is written in, the way a compiler
-compiles a source set, rather than walking `require` edges out from an entry.
+A target with no `kind` is a library, which is its source: building one checks
+its modules and records them, and produces nothing beside them, so it needs no
+entry. A binary requires `entries` to say where execution starts. Entries do
+not say what exists. A build compiles what the project is written in, the way a
+compiler compiles a source set, rather than walking `require` edges out from an
+entry.
 
 ::: deepdive
 The walk answers three questions at once and gets two of them wrong:
@@ -52,21 +54,21 @@ and costing about sixteen kilobytes on a 1.6 MB binary.
 
 ### Target source sets
 
-A module or bundle target may narrow the initial source set with `sources`.
-Files and directories use the same recursive expansion as a documentation
-target:
+A target may narrow the initial source set with `sources`. Files and
+directories use the same recursive expansion as a documentation target:
 
 ```lua
 targets = {
-   compiler = {
-      kind = "bundle",
-      entries = { "compiler.browser" },
-      sources = { "src/compiler/browser.nupp", "src/runtime/portable" }
+   tool = {
+      kind = "binary",
+      entries = { "tool.main" },
+      sources = { "src/tool/main.nupp", "src/shared" },
+      stub = "nupp"
    }
 }
 ```
 
-The target checks and packages every selected `.nupp` and `.lua` file. It
+The target checks and carries every selected `.nupp` and `.lua` file. It
 also adds dependencies reached through a constant `require`, even when they sit
 outside the selected paths. Omitting `sources` retains the whole project
 source set.
@@ -89,9 +91,11 @@ build = {
    default = "app",
    targets = {
       app = {
-         kind = "modules",
+         kind = "binary",
          description = "Build the application",
          entries = { "app.main" },
+         stub = "nupp",
+         output = "build/app",
          resources = { "src/app/*.d.nupp" },
          dependencies = { "fast", "codec" }
       }
@@ -99,17 +103,31 @@ build = {
 }
 ```
 
-Entries are optional for a `modules` target and required for a bundle, binary,
-or component. They may be module names or `.nupp` paths. Generated Lua
-preserves module paths beneath `outDir`, so `app.main` becomes
-`build/app/main.lua`.
+There are three kinds of target:
+
+| Kind | Builds |
+| --- | --- |
+| none | A library: its modules are checked and recorded, and nothing is written beside them |
+| `binary` | A program: its image stamped onto the VM runtime, as one executable for the machine building it |
+| `docs` | A documentation site; see [Documentation targets](#documentation-targets) |
+
+Entries are optional for a library and required for a binary, whose first entry
+is the module it starts in. They may be module names or `.nupp` paths. A
+binary's `stub` must be `"nupp"`, and `output` names the executable, by default
+`<outDir>/<target>` with the platform's executable suffix.
+
+`modules`, `bundle` and `component` targets produced Lua, which Nupp no longer
+generates, and are refused when built:
+
+```text
+nupp: a bundle target produced Lua, which Nupp no longer generates; a library needs no build target, and a program is kind = "binary" with stub = "nupp"
+```
 
 ### Browser host
 
-A target's `host = "browser"` selects browser services; `nupp build --host
-browser` overrides the manifest for one invocation. The output is a Lua module
-tree carrying the browser providers; nothing in this repository runs it in a
-browser yet.
+A target's `host = "browser"` checks it against the services a browser host
+provides; `nupp build --host browser` overrides the manifest for one
+invocation. Nothing builds a program a browser runs.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:
@@ -150,9 +168,10 @@ results are reported.
 
 ### Resource destinations
 
-Resource globs preserve paths relative to the nearest include root. A resource
-table gives one source an explicit target-relative destination when its runtime
-lookup is relative to another module:
+A binary carries its resources inside it, as the `nupp.embedded` table its
+modules read them from. Resource globs preserve paths relative to the nearest
+include root. A resource table gives one source an explicit target-relative
+destination when its runtime lookup is relative to another module:
 
 ```lua
 resources = {
@@ -216,147 +235,52 @@ the manifest shape a task takes.
 the paths without changing them. Clean rejects absolute paths, parent
 traversal, and the project root before removing anything.
 
-A multi-platform binary also accepts
-`nupp clean --target <name> --platform <triple>`; `--platform all` and an
-omitted platform remove all platform outputs owned by that target. A platform
-option without a target is refused.
+## Native facilities
 
-## Compiler-native features
+Compiler-provided native APIs do not appear in `dependencies`. A binary is its
+program image stamped onto a VM runtime, and that runtime links only the
+optional native facilities the image reaches -- compression, networking, HTTP
+and URI parsing, regular expressions, Markdown, and C header parsing -- and none
+it does not. A program that reaches none of them is stamped onto the plain
+runtime. A program with vector code gets a runtime of its own instead, with its
+image compiled ahead of time into it.
 
-Compiler-provided native APIs do not appear in `dependencies`. Their resolved
-uses record effects while Nupp checks the target's complete source set, and the
-build stages the matching providers automatically. For example, [](nupp.io.path)
-spells and transforms paths in Nupp, while calls that reach its working-directory
-and canonicalization provider record `native.path` and select the generic filesystem
-feature in `build/lib/nupp_native`; a target with no resolved native use does not build
-or retain the library at all. The global [`nupp`
-standard-library namespace](../runtime/data/standard-library.md) itself is always
-created by generated code.
+Those runtimes are built from the compiler's Rust sources by
+`scripts/toolchain`, so building a binary needs a Nupp source checkout and a
+Rust toolchain. A compiler with no checkout behind it refuses:
 
-Nested members use the same exact resolution. `nupp.codec.json.encode(value)`
-selects JSON support, while an alias such as `local json = nupp.codec.json`
-followed by `json.encode(value)` selects the same feature without also selecting
-UUID or UTF-8.
-Files and filesystem-backed path operations use the Rust-native
-provider; whole-file transfers and processes share its Tokio executor and use
-bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
-parser, and UUID uses the Rust-native provider. Built-in message digests are
-written in Nupp and stage no native artifact. Installed digest implementations may
-bring their own declared native dependencies.
-The Rust facilities share the versioned `build/lib/nupp_native` sidecar.
-Generated or external C interop builds its own declared native dependencies;
-there is no unversioned compatibility provider beside the Rust provider.
-Each provider is built with the union of its selected features. Pure facilities
-such as buffers, checksums and `nupp.math` emit
-their Lua adapters but stage no native artifact. At `-O1` and above the build
-recomputes these effects from the post-folding tree, so a use found only in a
-constant-dead branch or loop is removed with that code.
-
-The registry also recognizes compiler-provided modules: `require("nupp.codec.json")`
-selects the native JSON provider. A local table named `nupp`, or a computed
-`require`, does not claim a compiler feature: only the resolved global path and
-literal module name do.
-
-### Feature overrides
-
-Detection is the default, not a requirement to configure every target. A
-target may override one answer when it deliberately supplies or forbids a
-provider: `true` forces inclusion, `false` forces removal, and an absent name
-keeps the detected answer.
-
-```lua
-nativeFeatures = {
-   compression = true,
-   uuid = false
-}
+```text
+nupp: the VM program runtime needs compiler source; use a source checkout
 ```
 
-The forceable feature names are the binary ones: `compression`, `crc`, `files`,
-`gpu`, `http`, `net`, `path`, `process`, `sharedbytes`, `time`, `tls`, `uri`,
-`uuid`, and `workers`. The registered module effects include
-`nupp.codec.json`. Bundled LuaRock modules are checked too, so a rock that
-requires a provider contributes it even when application source does not.
-Forced removal is an expert escape hatch:
-if reachable code still requires that provider, the resulting program fails at
-runtime in the usual way.
+`NUPP_COMPILER_ROOT` names the checkout when the compiler is not running from
+one.
 
-### Platform builds
+Built-in message digests are written in Nupp and need no native facility.
+Installed digest implementations may bring their own declared native
+dependencies.
 
-A binary target may use `stub = "nupp"` to ask the source compiler to build its
-own host with exactly the resolved host features. A path-valued `stub` remains
-a prebuilt or third-party artifact and is never silently relinked. The same
-compiler-owned target can name catalog platforms:
+What decides is the modules the image carries, so a facility reached only
+through a computed `require` is not linked.
 
-```lua
-platforms = {
-   "x86_64-unknown-linux-gnu",
-   "aarch64-apple-darwin",
-   "x86_64-pc-windows-msvc"
-}
+### Output and signing
+
+`--output` (`-o`) temporarily replaces the target's output directory. The
+binary and the libraries built beside it move together; an explicitly
+configured `output` path keeps its file name and lands in the new directory.
+
+On macOS a binary is ad-hoc signed as it is written, with a fixed identifier
+and no timestamp, so it runs where it was built and two builds of one tree stay
+byte-identical. The release workflow signs with a Developer ID and notarizes
+when its optional Apple credentials are configured; otherwise its macOS archive
+remains unsigned and says so.
+
+A binary builds for the machine building it, and a target's `platforms` list or
+`--platform` is refused:
+
+```text
+nupp: a binary builds for the machine building it; VM programs for another platform are not available
 ```
-
-Build one with `nupp build --target app --platform <triple>` or all in manifest
-order with `--platform all`. A multi-platform default output is
-`<outDir>/<target>/<platform>/<target><executableSuffix>`; `platformOutputs`
-may map configured triples to custom raw paths. POSIX platforms also own a
-deterministic `.tar` which records mode `0755`.
-
-`--output` (`-o`) temporarily replaces the target's output directory. It reroots
-bundles, components, host binaries, platform binaries, modules, and resources
-together; it does not write an explicitly configured output path from the
-manifest during that build.
-
-An explicit macOS result is unsigned and build JSON reports
-`distributionReady = false` with a signing notice. Sign it on macOS with
-`codesign --force --sign - <binary>` for local execution. The release workflow
-uses Developer ID signing and notarization when its optional Apple credentials
-are configured; otherwise its macOS archive remains unsigned and says so.
-
-Platform selection sets `layoutTarget` for that build and separates its cache
-and completion state. The selected compiler-owned catalog stub satisfies every
-resolved feature that has a host implementation, so files and process do not
-stage a current-machine sidecar beside a foreign executable. Sidecar-only
-features such as path, URI, UUID and HTTP are refused until the catalog has a
-provider artifact for that platform.
-
-### Reload components
-
-A component built with `reload = true` is the development build of the same
-program: every named function dispatches through a slot an embedding host can
-patch while the process runs, and the component records the digest of the
-generated Lua each module carries.
-
-```lua
-build = {
-   targets = {
-      game = {
-         kind = "component",
-         entries = { "game.main" },
-         exports = { "game.update" },
-      },
-      gameDev = {
-         kind = "component",
-         entries = { "game.main" },
-         exports = { "game.update" },
-         output = "build/game-dev.nuppc",
-         reload = true,
-      },
-   },
-}
-```
-
-`reload` is only valid for a component, and it builds at `-O0`: watch generation
-is development generation, and a target that also named an optimization level is
-refused rather than quietly demoted. It is refused beside an `@aot` policy too,
-which replaces a body with a call into compiled machine code that a Lua patch
-cannot reach. Ship the ordinary target; hand the reload
-one to a host that opens a session over it with `nupp_reload_attach`. See
-[embedding.md](embedding.md#hot-reload) for the session and
-[hot-reload.md](hot-reload.md) for which edits it accepts.
-
-The recorded digests are what a session checks when it attaches: it recompiles
-each running module from source and compares, so attaching to a component the
-tree has moved past is refused rather than patched against the wrong baseline.
 
 ### Target capability profiles
 
@@ -377,8 +301,8 @@ author accepts what a callback costs rather than that the destination can make
 one. A target nothing describes refuses nothing.
 
 A vendor describes a private target in its compiler pack, so nothing about a
-confidential platform has to reach the public distribution catalog. `pack.json`
-takes an optional `profile`:
+confidential platform has to be published. `pack.json` takes an optional
+`profile`:
 
 ```json
 "profile": {
@@ -416,10 +340,9 @@ so a sysroot remains relocatable after the archive is installed elsewhere.
 
 ### Native artifacts
 
-Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
-Ship the target's `lib` directory with a binary unless its selected stub links
-the provider itself; a Lua payload cannot embed a shared library. A one-file
-`bundle` target rejects providers that need sidecars. See
+A C or Rust dependency's shared library is built under `outDir/lib`, and a
+binary that uses one gets a copy beside it, since the binding names the library
+relative to what loads it. Ship those files with the binary. See
 [distribution.md](../../reference/distribution.md#limits) for what a stamped
 binary can and cannot carry.
 
@@ -551,8 +474,8 @@ section's sidebar with every document it holds.
 ## Cache and failure behavior
 
 One rule covers every cache here -- the build state, the check state, the value
-stores under `build/cache`, the module graph, the prelude image and the compiled
-bytecode: nothing is migrated. Each is keyed on the compiler that wrote it and
+stores under `build/cache`, the module graph and the prelude image: nothing is
+migrated. Each is keyed on the compiler that wrote it and
 on a marker naming its own shape, and any mismatch, missing file or failed
 decode is a miss that costs cold work, never an error and never a different
 answer. The markers are spelled differently from store to store (`version`,
@@ -569,19 +492,16 @@ Generated files are rewritten only
 when their content changes. A missing or malformed state file causes a cold
 build.
 
-Warm builds reuse checked module records and generated Lua across processes. A
-source edit checks and generates that module; dependents are only invalidated
-when its exported interface fingerprint changes. Changes to project-wide type
+Warm builds reuse checked module records across processes. A source edit
+rechecks that module; dependents are only invalidated when its exported
+interface fingerprint changes. Changes to project-wide type
 declarations invalidate the project index, while body-only edits preserve it.
 Deleting the state file, changing compiler or configuration inputs, or
 modifying an emitted artifact safely falls back to the required cold work.
 
-The optimization level is among those keys. `nupp build -O2` reaches the
-configuration before it is hashed, so changing it invalidates every artifact
-built with the old optimizer contract rather than leaving a project half
-compiled under each. Switching therefore costs a cold build, and cannot
-produce a mixture. `-O0` is the default and performs no rewrite; see the [performance
-guide](../performance/index.md#optimization-passes) for what the levels above it do.
+A binary's image is kept beside it, under a key covering its modules' sources,
+its resources and the compiler that lowered it, so rebuilding an unchanged
+binary stamps the image it already has rather than lowering it again.
 
 ### Compiler identity
 
@@ -611,45 +531,12 @@ NUPP_CACHE_DIR=/tmp/nupp-cache nupp check
 The build state is not moved by it: its records are keyed by module name, so
 two projects sharing them would read each other's modules.
 
-### Compiled modules
-
-A `modules` build also leaves `<outDir>/.bytecode`: each module it wrote,
-compiled once, so that starting the program parses none of them. For the
-compiler's own build that is a hundred and eighty files and about forty
-milliseconds off every command.
-
-Entries sit under a directory named for the LuaJIT that wrote them, because a
-checkout can be worked on by more than one -- one on the path and one the
-toolchain built -- and neither should be able to take the other's cache away.
-Within it an entry is named by the digest of the module it holds, and the
-`index` beside them maps a module name to a digest and records the directory
-they were written for. Nothing about a build depends on any of it: an index
-that is missing, damaged, or written for a tree that has since moved is
-ignored, and the modules are parsed the way they always were. What the index
-does not name is removed on the next build, so the directory holds one entry
-per module rather than one per edit.
-
-The recorded directory matters because a dump carries the chunk name it was
-given, and the compiler reads that name back off itself to find its
-declarations and its native library. Entries name the tree they were written
-for, so a copied build directory is ignored until a build rewrites it.
-
-`nupp clean` removes it with the rest of the build.
-
 ### Write ordering
 
-The checker and generator finish before module outputs are changed. Each file
-is written through a sibling temporary file, state is saved after the
-artifacts, and `.nupp-complete` is written last. `bin/nupp` reads that marker to
-decide whether the compiler in `build/` has seen every edit and needs rebuilding
-before the command it was asked for.
-
-It is not how the compiler to run is chosen. A build removes the marker before
-it writes anything, so for as long as a build takes there is a working compiler
-in `build/` and no marker beside it; `bin/nupp` runs the compiler that is there,
-and hands the command to the VM compiler only when there is none. One build at a time writes a
-tree -- a build takes a lock for as long as it runs, and a command that has to
-read the compiler waits for it.
+The checker finishes before any output is changed. Each file is written
+through a sibling temporary file, state is saved after the artifacts, and
+`.nupp-complete` is written last. A build removes the marker before it writes
+anything, so a marker beside the outputs says the last build finished.
 
 ## Build progress and timing
 
@@ -657,26 +544,25 @@ A build run from a terminal names the module it is working on and how far
 through the source set it is, on one line it rewrites in place:
 
 ```text
-  [ 74%] [122/164] checking src/nupp/compiler/lua/gen.nupp
+  [ 74%] [122/164] checking src/nupp/compiler/check/calls.nupp
 ```
 
 It finishes with how long it took, where that time went, and which modules cost
 the most of it:
 
 ```text
-built compiler in 18.9s: 164 compiled, 0 reused
-  check 16.1s  generate 952ms
+built app in 2.4s: 2 compiled, 0 reused
+  bundle 1.9s  generate 251ms  other 193ms
   slowest
-    nupp.compiler.lua.gen        1.9s
-    nupp.mem.heap                699ms
-    nupp.compiler.check.calls    664ms
+    main  1ms
 ```
 
 Time is accounted as a timeline: one activity is current at any moment, so
 switching closes the one before it and the activities add up to the run rather
 than overlapping it. They are `scan`, which is deciding what can be reused,
-`check`, `generate`, `write`, `persist`, `dependencies`, `native`, `bundle`,
-and `other` for what is left over. A warm build that compiles nothing still
+`check`, `resolve`, `generate`, `write`, `persist`, `dependencies`, `bundle`,
+which is lowering a binary's image and stamping it, and `other` for what is
+left over. A warm build that compiles nothing still
 reports `check`: deciding a module can be reused consults the exported call
 guarantees of the modules it depends on, and answering that is a check.
 
@@ -691,8 +577,7 @@ whichever one the build happened to start with.
 Nothing is written unless standard error is a terminal, so a build driven by a
 script is as quiet as it has always been. `--progress=always` reports anyway,
 `-q` reports nothing, and `NUPP_PROGRESS` says the same thing with `always`,
-`never` or `auto` for the builds nothing passes a flag to, including the rebuild
-`bin/nupp` runs before every other command. `nupp build --json` carries the same
+`never` or `auto` for the builds nothing passes a flag to. `nupp build --json` carries the same
 numbers in a `timing` object rather than writing a report.
 
 ## Type dependencies
@@ -703,11 +588,11 @@ it while checking, but never executes it, adds it to `package.path`, or copies
 it to the output.
 
 ```lua
-love = {
+host_api = {
    kind = "types",
    format = "luacats",
    source = {
-      git = "https://github.com/LuaCATS/love2d.git",
+      git = "https://example.com/host-api.git",
       rev = "<full commit id>",
    },
    path = "library",
@@ -715,8 +600,8 @@ love = {
 ```
 
 The first supported format is `luacats`. Its Lua files are parsed as annotated
-declarations, so a definition of a global such as `love` becomes available to
-Nupp source without a local adapter. The Git revision is mandatory and must be
+declarations, so a definition of a global becomes available to Nupp source
+without a local adapter. The Git revision is mandatory and must be
 a full commit id. Nupp caches the checkout under `.nupp/deps/<name>`, and
 `nupp check`, `nupp build` and the language server all resolve the pinned
 revision before checking, so an editor and a build agree about what the project
@@ -762,10 +647,10 @@ image = {
 }
 ```
 
-The shared artifact remains the one a generated FFI binding loads. A static
+The shared artifact remains the one a generated binding loads. A static
 artifact is a linker input: another C dependency can name this dependency and
 will link the archive into its own shared library. Binary targets use the
-shared-library sidecar path.
+shared library, copied beside them.
 
 `output` renames the sole artifact for `shared` or `static`; with `both`, it
 names the shared artifact. `staticOutput` independently renames the archive and
@@ -815,7 +700,7 @@ have been compiled into the published library already.
 ### Header-only C dependencies
 
 An API made entirely from `static inline` functions and function-like macros has
-no native symbol for LuaJIT to load. Opt its binding into a generated bridge; no
+no native symbol to load. Opt its binding into a generated bridge; no
 empty `.c` source is required:
 
 ```lua
@@ -880,10 +765,8 @@ build/lib/libimage.dylib
 Linux uses `libimage.so`; Windows uses the platform DLL name. The generated
 binding names that library `@lib/libimage.dylib`: a leading `@` is resolved
 against the module that loads it rather than handed to the platform loader, so a
-copied or moved output tree still finds it. A `kind = "bundle"`, `"binary"` or
-`"component"` target is one file someone carries somewhere, so the build puts a
-copy of the library beside the artifact, the way it already does for compiled
-`@aot` code. A `bindings.library` override, a `load` naming a library already
+copied or moved output tree still finds it. A binary is one file someone carries
+somewhere, so the build puts a copy of the library beside it. A `bindings.library` override, a `load` naming a library already
 installed, and a `pkgConfig` package are written through unchanged, since none
 of them are part of what the build ships.
 
@@ -948,8 +831,7 @@ enforces at the boundary.
 
 The copy in `outDir/lib` is named the way a C dependency's library is, so a
 generated binding says `@lib/libtiny_rust.dylib` and a copied or moved output
-tree still finds it. A single-artifact target carries it beside the artifact for
-the same reason.
+tree still finds it. A binary carries it beside itself for the same reason.
 
 ## Rock dependencies
 
@@ -989,8 +871,6 @@ A `version` pins a name, and the server decides which bytes it stands for. A
 rockspec in the project pins the bytes: when its `source` names an archive by
 URL and gives its `md5`, LuaRocks refuses an archive with another digest before
 unpacking it, and the rockspec itself is pinned by the commit that carries it.
-Nupp's own manifest pins every rock its release binary bundles that way, with
-`rockDependencies = false` so that nothing is resolved from a server either.
 
 `rockDependencies = false` passes `--deps-mode=none` when an upstream rockspec's
 dependency list is deliberately unsuitable. The target must name separately
@@ -1004,42 +884,42 @@ boundary, not an unpinned-install mode.
 | `version` | The exact version to install |
 | `rockspec` | A rockspec in the project to install from |
 | `path` | A directory to build in place with `luarocks make` |
-| `bundle` | Globs naming what a bundle or binary carries |
+| `bundle` | Globs naming the modules a binary carries |
 | `tree` | Where to install, `.rocks` by default |
 | `luaVersion` | The tree's Lua version, `5.1` by default |
 | `luaDir` | Where the Lua headers and libraries live |
 | `server` | An additional rocks server to fetch from |
-| `luarocks` | The LuaRocks executable, `luarocks` by default |
+| `luarocks` | The LuaRocks executable, `NUPP_LUAROCKS` or `luarocks` by default |
 | `rockDependencies` | `false` installs the rock without its declared dependencies |
 
 Rocks install into `.rocks` in the project root, a tree the project owns rather
 than the one the user's account owns, so two checkouts can hold different
 versions of a library without either able to break the other's build by
-upgrading something. LuaJIT is Lua 5.1, and a C rock compiled against another
-5.1 loads into a VM that cannot call it, which is what `luaVersion` pins. The
-headers a C rock compiles against are found from the running interpreter's own
-module path; `luaDir`, or the `NUPP_LUA_DIR` environment variable, names them
-instead.
+upgrading something. LuaRocks runs on a Lua 5.1 interpreter, which is what
+`luaVersion` pins; `luaDir`, or the `NUPP_LUA_DIR` environment variable, names
+where that interpreter's headers and libraries live. Run from a source
+checkout, `bin/nupp` points `NUPP_LUAROCKS` at the LuaRocks `scripts/toolchain`
+builds on the pinned LuaJIT, provisioned the first time a build installs a rock.
+
+What a Nupp program uses from a rock is its Lua modules, which are compiled
+with the program. The VM has no Lua C API, so a rock's C modules do not load in
+it.
 
 A pinned rock already installed at the version asked for is left alone, so a
 warm build reaches for nothing. A rock built from `path` is remade whenever its
 sources change, which is what the fingerprint is for.
 
-The tree is added to the search path of the build that installed it, so a
-target's own dependencies are loadable the moment they are installed, and
-`nupp doc` installs its renderer and renders with it in one command. `nupp test`
-puts the tested target's trees on `LUA_PATH` and `LUA_CPATH` for the test
-command, ahead of what is already there and without replacing it. Anything else
-that runs outside the build reads the tree the way LuaRocks trees are always
-read.
+`nupp test` puts the tested target's trees on `LUA_PATH` and `LUA_CPATH` for
+the test command, ahead of what is already there and without replacing it, and
+`nupp task` does the same for a task that names a build target.
 
 An installed rock may also carry typed module declarations in its versioned
 `nupp/` directory, which the checker reads as it reads a project's own.
 
-### Carrying a rock into a bundle
+### Carrying a rock into a binary
 
-A bundle and a binary are one file, and one file cannot bring a rock tree along.
-`bundle` names what goes in with it, as globs over the tree the rock installs
+A binary is one file, and one file cannot bring a rock tree along. `bundle`
+names the modules that go in with it, as globs over the tree the rock installs
 into:
 
 ```lua
@@ -1050,21 +930,16 @@ penlight = {
 }
 ```
 
-Each selected file becomes a `package.preload` entry under the name `require`
-would have found it by in the tree, so `pl/stringx.lua` becomes `pl.stringx`,
-and a `foo/init.lua` becomes `foo`. The same `require`
-therefore resolves in a checkout, in a bundle, and in a stamped binary, and the
-program cannot tell which it is running in.
+Each selected file is carried under the name `require` would have found it by
+in the tree, so `pl/stringx.lua` becomes `pl.stringx`, and a `foo/init.lua`
+becomes `foo`. The same `require` therefore resolves in a checkout and in a
+stamped binary. A project module of the same name stays the one the program
+runs.
 
 Named rather than swept, because a rock tree also holds test scripts,
 command-line programs and documentation that nothing will ever ask for. A rock
 with no `bundle` is installed and not carried, which is the right answer for
 anything only the build itself uses.
-
-A rock's C libraries cannot ride in a payload, because a `.so` is not a Lua
-chunk, so a binary that needs one needs a stub linked against it. Nupp's own
-stub links the three its commands cannot run without; see
-[distribution.md](../../reference/distribution.md#limits) for that boundary.
 
 ## Self-hosting
 
@@ -1118,11 +993,13 @@ edit to a function body invalidates one module. `nupp check --json` reports
 `timing.compiledModules` and `timing.slowest`, so a run says how much it redid
 rather than leaving that to be inferred from how long it took.
 
-### Can a one-file bundle carry a native library?
+### Can a binary carry a native library?
 
-No. A bundle contains Lua chunks, and cannot embed a shared library. A binary that uses native providers
-ships their sidecars or links them into its host. See
-[distribution.md](../../reference/distribution.md#limits) for the whole boundary.
+No. A binary carries its program image and resources, not a shared library. The
+libraries a C or Rust dependency builds are copied beside it and ship with it;
+the native facilities Nupp itself provides are linked into the runtime it is
+stamped onto. See [distribution.md](../../reference/distribution.md#limits) for
+the whole boundary.
 
 ::: seealso
 - [cli.md](../../reference/cli.md#build) for every flag `nupp build` takes

@@ -22,8 +22,7 @@ Call `poll` between units of work, when no update or request is partially
 applied. Application state, registered callback values and module tables stay in
 place; only future calls enter new bodies.
 
-Watch mode takes no optimization level other than `-O0`, and it runs on the VM
-CLI only: a launcher still running the LuaJIT compiler refuses `--watch`.
+Watch mode refuses an `-O` level other than `-O0`.
 
 ## Start, edit, reload
 
@@ -206,7 +205,7 @@ Restart after changing any top-level executable statement or initializer,
 adding, removing, renaming or moving a named declaration, changing a callable
 signature or capture set, or changing a record, struct, native or component
 layout. Changes to C declarations, imported header declarations, and configured
-native artifacts also require a restart: the old FFI declarations, loaded
+native artifacts also require a restart: the old C declarations, loaded
 library, and any values created from them already exist in the VM.
 
 A changed derive-provider file also requires restart. Nupp observes and rechecks
@@ -267,7 +266,7 @@ changed and the module that requires it.
 Yes, named or anonymous: see [Callbacks and running calls](#callbacks-and-running-calls).
 
 ::: seealso
-- [build.md](build.md) for the ordinary optimized build that ships
+- [build.md](build.md) for the ordinary build that ships
 - [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
   session tracks
 :::
