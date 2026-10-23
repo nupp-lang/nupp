@@ -7,11 +7,11 @@ layout: home
 
 # Nupp
 
-LuaJIT with static guarantees.
+A statically typed Lua dialect with its own VM.
 
-Nupp adds checked types, resource contracts, concurrency, native compilation,
-and a complete project toolchain while keeping ordinary Lua modules and control
-flow.
+Nupp adds checked types, resource contracts, concurrency, and a complete project
+toolchain to Lua's modules and control flow, and runs the result on the Nupp
+VM.
 
 [Get started](getting-started/index.md)
 
@@ -62,10 +62,10 @@ do
 end
 ```
 
-C headers import as checked declarations, and component builds embed checked
-modules in a C-owned process. See [ownership](learn/runtime/ownership/index.md),
+C headers import as checked declarations, and a Rust application can embed the
+VM and the modules it runs. See [ownership](learn/runtime/ownership/index.md),
 [C interop](learn/runtime/c-interop/index.md), and
-[embedding](learn/projects/embedding.md).
+[native modules](learn/projects/native-modules.md).
 
 ## Waiting and parallel work
 
@@ -112,15 +112,16 @@ local value: Optional(string) = "ready"
 ```
 
 The standard library includes files, networking, TLS, HTTP, processes, JSON,
-hashes, parsing, memory spans, and GPU storage. See
+hashes, parsing, and memory spans. See
 [comptime](learn/language/comptime.md), [serde](learn/runtime/data/serde.md),
 and the [standard library](learn/runtime/data/standard-library.md).
 
-## CPU, SIMD, and GPU compilation
+## Kernels and SIMD
 
-`@aot` lowers admitted CPU functions through verified IR to C or Wasm. Complete
-span maps can become lane-parallel, while `target = "gpu"` produces typed
-resident-buffer kernels and native or WebGPU artifacts.
+`@aot` holds a function to a checked subset with stable numeric meaning, and
+`nupp.simd` writes a loop in CPU vector lanes with its species, masks, and tail
+stated. `target = "gpu"` checks a function as a typed resident-buffer kernel;
+the VM has no GPU provider yet, so no device runs one.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -138,9 +139,11 @@ See [ahead-of-time compilation](learn/performance/ahead-of-time/index.md),
 and
 [GPU compute](learn/performance/ahead-of-time/gpu.md).
 
-## Portable targets and packaging
+## Libraries and binaries
 
-Projects can produce module trees, bundles, binaries, and embedded components.
+A library is its source, and building it checks its modules. A program builds
+to one executable: its image stamped onto the VM runtime for the machine
+building it.
 
 ```lua [nupp.lua]
 return {

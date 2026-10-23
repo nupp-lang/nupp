@@ -56,33 +56,33 @@ print(pending.name)
 
 ## Performance and compute
 
-- [Performance](../learn/performance/index.md) explains optimization levels, remarks,
-  observable guarantees, and the eight named optimization passes.
-- [Ahead-of-time compilation](../learn/performance/ahead-of-time/index.md) covers CPU kernels,
-  SIMD, Lua-value construction, native artifacts, and Wasm side modules.
+- [Performance](../learn/performance/index.md) explains how checked types reach
+  VM instructions and how to read the bytecode a file lowers to.
+- [Ahead-of-time compilation](../learn/performance/ahead-of-time/index.md) covers the
+  checked `@aot` subset and its numeric guarantees.
 - [SIMD programming](../learn/performance/ahead-of-time/simd-programming.md)
   teaches what SIMD is and how a Nupp loop uses lanes, starting from nothing.
-- [GPU compute](../learn/performance/ahead-of-time/gpu.md) covers generated resident-buffer
-  kernels, structured workgroups, tensor layouts, and the browser WebGPU
-  profiles.
+- [GPU compute](../learn/performance/ahead-of-time/gpu.md) covers checked
+  resident-buffer kernels; the VM has no GPU provider yet, so none runs on a
+  device.
 
 ## Projects and hosts
 
 - [Project builds](../learn/projects/build.md) covers targets, dependencies, caches,
-  standalone binaries, and static components.
+  and standalone binaries.
 - [Portable libraries](../learn/projects/portability/libraries.md) choose
   host-specific implementations at require time.
-- [Embedding](../learn/projects/embedding.md) loads checked components into a C or C++
-  application through the Rust-owned SDK.
+- [Native modules](../learn/projects/native-modules.md) write a module's functions
+  in Rust or C, and embed the VM in a Rust application.
 - [Hot reload](../learn/projects/hot-reload.md) replaces compatible function bodies
   at explicit safe points.
-- [Integrations](../learn/projects/integrations/index.md) covers LuaRocks, LuaCATS,
-  and LÖVE projects.
+- [Integrations](../learn/projects/integrations/index.md) covers LuaCATS
+  annotations and pinned API definitions.
 
 ## Libraries and tools
 
 [Standard library](../learn/runtime/data/standard-library.md) maps the public modules
-for I/O, networking, data, parsing, memory, GPU compute, model assets, and
-workers. [Tooling](../learn/tooling/index.md) maps checking, building, testing,
+for I/O, networking, data, parsing, memory, model assets, and workers.
+[Tooling](../learn/tooling/index.md) maps checking, building, testing,
 formatting, documentation, editor services, diagnostics, coverage, migration,
 ownership audits, and compiler inspection.

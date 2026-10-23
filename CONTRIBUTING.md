@@ -7,12 +7,11 @@ project work, use the
 
 ## Clone and build
 
-Nupp is written in Nupp, so the first build starts from the previous release's
-compiler, lowered to one Lua file and fetched against a digest pinned in the
-tree. Building the real one takes C, C++, and the exact Rust toolchain in
-`rust-toolchain.toml`. The interpreter it runs on, the libraries it links and
-that first compiler are fetched from pinned sources and built by the checkout
-itself when the machine does not already have them.
+Nupp is written in Nupp, so the first build starts from a release's compiler
+image, fetched against a digest pinned in the tree. Building the real one takes
+C, C++, and the exact Rust toolchain in `rust-toolchain.toml`: the VM runtime it
+runs on is built from the checkout's own Rust sources, and that first compiler
+and the pinned sources the build needs are fetched by the checkout itself.
 
 ```bash
 git clone https://github.com/nupp-lang/nupp
@@ -32,44 +31,39 @@ the corresponding C++ names are probed beside each C compiler.
 Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
 `NUPP_CARGO` may name an equivalent toolchain explicitly; the build refuses a
 different release so its content-addressed native artifacts remain reproducible.
-Windows uses the `x86_64-pc-windows-gnu` Rust toolchain because LuaJIT and the
-host's remaining protected C shims use the MinGW ABI. Install it with
+Windows uses the `x86_64-pc-windows-gnu` Rust toolchain, linked by the MinGW
+compiler pair the rest of the build uses. Install it with
 `rustup toolchain install 1.98.0-x86_64-pc-windows-gnu --profile minimal`; the
-build refuses the ABI-incompatible MSVC Rust host rather than mixing objects.
+build refuses a Rust host of another ABI rather than mixing objects.
+`NUPP_RUST_WINDOWS_ABI=gnullvm` selects LLVM-MinGW instead.
 
-Everything else is provisioned. `scripts/toolchain` fetches LuaJIT and LuaRocks
-by pinned revision, refuses any archive whose SHA-256 is not the
-one written down, builds each with that compiler pair, and caches the result
-beside the repository so every worktree shares one build. Cargo resolves the
-Rust-native crates, including networking and TLS, through the committed
-lockfile. The toolchain driver builds Nupp's Rust native providers, executable
-host, and embedding libraries; `bin/nupp` runs it for what is missing and
+Everything else is provisioned. Cargo resolves the Rust crates, including
+networking and TLS, through the committed lockfile, and `scripts/toolchain`
+builds the VM runtime from them; `bin/nupp` runs it for what is missing and
 nothing more. See [Native runtime and support](https://nupp.dev/reference/native-runtime/)
-for the feature mapping, retained non-Rust boundaries, and release matrix.
+for the facility mapping, retained non-Rust boundaries, and release matrix.
 
 ### LuaJIT
 
-**LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
-syntax that 2.1 backported, meaning `?.`, `??`, `?:`, the bit operators and
-compound assignment, rather than in a lowering of it. That rolling version is
-the first build carrying those extensions.
-
-`bin/nupp` reads `luajit -v` and uses what is on `PATH` when it is new enough.
-When it is not, the pinned LuaJIT is built and its `bin` goes on `PATH` ahead of
-the older one, so the comptime workers, the LSP relay and the test runner all
-reach the same interpreter.
+Nothing Nupp builds runs on LuaJIT. The pinned LuaJIT is the interpreter
+LuaRocks runs on, for projects with [rock
+dependencies](https://nupp.dev/learn/projects/build/#rock-dependencies).
+`scripts/toolchain` fetches LuaJIT and LuaRocks by pinned revision, refuses any
+archive whose SHA-256 is not the one written down, builds each with the compiler
+pair, and caches the result beside the repository so every worktree shares one
+build. Outside Windows, `bin/nupp` provisions it the first time a build installs
+a rock; on Windows, LuaRocks is found on `PATH`.
 
 ### JSON
 
 The performance JSON decoder is Nupp source whose `@aot` SIMD path the VM
-lowers natively. Portable compiler and browser targets select the vendored
-pure-Lua codec instead. Neither route requires a C++ compiler, simdjson
-package, or JSON-specific native dependency. The simdjson binding under
-`bench/serde-spike/simdjson-native` is only a performance control.
+lowers natively. It requires no simdjson package or JSON-specific native
+dependency. The simdjson binding under `bench/serde-spike/simdjson-native` is
+only a performance control.
 
 ### Offline and mirrored builds
 
-Three settings, shared with the host build's own fetching:
+Three settings, shared by everything `scripts/toolchain` fetches:
 
 | Setting | Effect |
 | --- | --- |
@@ -87,7 +81,7 @@ built components land.
 
 | Component | Needed for | Installed by |
 | --- | --- | --- |
-| LuaRocks | projects that declare rock dependencies | `scripts/toolchain luarocks` or your package manager |
+| LuaRocks | projects that declare rock dependencies | `bin/nupp`, through `scripts/toolchain luarocks`, on first use |
 
 `nupp doc` needs nothing installed: its Markdown renderer (`pulldown-cmark`) is
 part of the VM runtime, and fenced code is highlighted by Nupp's own lexer and a
@@ -96,22 +90,27 @@ for what a stamped binary carries and how to build one.
 
 ## Building from a checkout
 
-`bin/nupp` is the entry point and it builds on demand: it runs
-`build/nupp/tools/main.lua` when that exists and no source is newer, and compiles the
-compiler first when it does not. An edit to the compiler is picked up by the
-next command rather than by the next person who remembers to build.
+`bin/nupp` is the entry point and it builds on demand: it runs the VM compiler
+installed under `.nupp/vm-cli`, and rebuilds it first when a compiler source is
+newer than the installed generation. A rebuild reuses what earlier builds
+lowered for every module nothing it read has changed. An edit to the compiler
+is picked up by the next command rather than by the next person who remembers
+to build.
 
 ```bash
-./bin/nupp check    # builds the compiler first if a source is newer
+./bin/nupp check    # rebuilds the compiler first if a source is newer
 ```
+
+A failed rebuild leaves the previous generation selected and says so, with the
+log in `.nupp/vm-cli/rebuild.log`; later commands do not try again until
+another source changes. `scripts/vm-cli build` rebuilds explicitly.
 
 ### Shared toolchain cache
 
-Downloaded sources and the classic toolchain components land beside the
-repository's common Git directory, so every worktree shares LuaJIT.
-Rust host and provider outputs default to the worktree's `build/rust` and
-the worktree helper seeds that content-validated cache from the originating
-checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
+Downloaded sources and the toolchain components land beside the repository's
+common Git directory, so every worktree shares them. Rust outputs default to
+the worktree's `build/rust` and the worktree helper seeds that
+content-validated cache from the originating checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
 moves Rust outputs:
 
 ```bash
@@ -124,18 +123,16 @@ it. `scripts/worktree BRANCH PATH [START_POINT]` seeds a new worktree with
 content-validated compiler caches and the test runner's last suite timings;
 generated outputs remain local to each worktree.
 
-The native code a build stages for a project is the compiler's rather than the
-project's -- both the providers behind [](nupp.io.files) and its siblings, and
-the executable a binary target is stamped into -- which is why it is cached with
-the rest rather than under each project's output directory. Without that, every
-project reaching a native facility would compile that facility from nothing.
+The runtime a binary target is stamped onto is the compiler's rather than the
+project's, which is why it is cached with the rest rather than under each
+project's output directory. Without that, every project building a binary would
+compile the runtime from nothing.
 
 ### Build locking
 
-Only one build runs in a tree at a time. A build removes the completion stamp
-before it writes anything, so a second command starting inside that window sees
-a tree that looks unbuilt; rather than starting its own build over the same
-files, it waits for the one already running and uses what that produces.
+Only one compiler rebuild runs in a checkout at a time, under a lock directory
+holding the builder's pid. A command that finds it held waits, and then runs
+what that build installed.
 
 ### Stage-zero compiler
 
@@ -168,21 +165,12 @@ Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
 ./bin/nupp build --target dist
 ```
 
-That writes `build/dist/nupp`, a single file carrying the compiler and its
-standard library, needing no LuaJIT installed alongside:
-
-| Carried | How | For |
-| --- | --- | --- |
-| `LuaJIT` | linked into the stub | running anything |
-| Rust native provider | linked into the stub | filesystem, networking, TLS, clocks, payload checks, and child processes |
-| Vendored JSON codec | in the payload | JSON, `--json`, and the LSP |
-
-This LuaJIT-hosted binary has no Markdown renderer or regular-expression
-engine: `nupp doc` and `nupp.text.regex` need the VM runtime, which carries
-both. See [distribution](https://nupp.dev/reference/distribution/) for the
-stub-and-payload format, and
-[carrying a rock into a bundle](https://nupp.dev/learn/projects/build/#carrying-a-rock-into-a-bundle)
-for carrying your own.
+That writes `build/dist/nupp`, a single file: the compiler's image, with its
+standard library and resources, stamped onto a VM runtime built for this machine
+that links the native facilities the compiler reaches. See
+[distribution](https://nupp.dev/reference/distribution/) for the runtime and
+payload format. Building a `binary` target with it still needs a source
+checkout, since the runtime it stamps is built from Nupp's Rust sources.
 
 ## Running checks
 
@@ -191,8 +179,8 @@ for carrying your own.
 ./bin/nupp test
 ```
 
-`check` type-checks the project configured in `nupp.lua`. `test` builds and
-runs the suite, which is plain LuaJIT with no framework behind it.
+`check` type-checks the project configured in `nupp.lua`. `test` builds the
+test runner, `build/nupp-test`, as a VM program and runs the suite on it.
 
 Run the suites that cover what changed rather than all of them. Named groups
 say what a set of suites is for, and are what the workflows ask for:
@@ -202,7 +190,7 @@ say what a set of suites is for, and are what the workflows ask for:
 ./bin/nupp test --group=docs
 ./bin/nupp test --lane=shared          # the ~100 suites that use Nupp workers
 ./bin/nupp test --lane=shell           # suites that use reusable process workers
-./bin/nupp test --exclude-group=aot    # everything an earlier run did not cover
+./bin/nupp test --exclude-group=docs   # everything an earlier run did not cover
 ./bin/nupp test --list-suites          # what a selection would run, running none
 ```
 
@@ -265,8 +253,7 @@ nupp test
 nupp task start
 ```
 
-`nupp init --list` also shows the library, browser, browser SIMD, and LÖVE
-templates. See [Getting started](https://nupp.dev/getting-started/) for the
+`nupp init --list` also shows the library template. See [Getting started](https://nupp.dev/getting-started/) for the
 project loop and what each template contains.
 
 ## See also

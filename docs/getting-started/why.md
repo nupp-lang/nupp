@@ -6,10 +6,10 @@ redirects: learn/getting-started/why
 
 # Why use Nupp
 
-Nupp is LuaJIT with a type system, cleanup obligations the checker tracks, and
-one binary holding every tool. Every valid LuaJIT program is already a valid
-Nupp program, and each addition below is opted into on the declaration that
-wants it.
+Nupp is LuaJIT's Lua dialect with a type system, cleanup obligations the
+checker tracks, its own VM, and one binary holding every tool. Every valid
+LuaJIT program is already a valid Nupp program, and each addition below is
+opted into on the declaration that wants it.
 
 ```nupp
 local record Point
@@ -26,8 +26,8 @@ print(scale(new Point(x = 3, y = 4), 2).x)
 
 ## Lua beside Nupp
 
-Your Lua already builds. A `.lua` file is required, compiled, and run
-unchanged, and nothing in it has to be annotated for that to keep working. Its
+Your Lua already builds. A `.lua` file is required, compiled, and run as
+written, and nothing in it has to be annotated for that to keep working. Its
 LuaCATS and EmmyLua comments are imported as checker facts, and `nupp migrate`
 converts them into a `.nupp` file when a module is ready to move.
 
@@ -66,8 +66,7 @@ a code, a caret, and usually a machine-applicable fix. See
 Most Nupp types erase. Declarations that define a runtime representation remain
 in the lowered program.
 
-A native-target `struct` becomes FFI cdata: fixed layout, real C widths, no
-hash part.
+A `struct` is bytes in a fixed C layout: real C widths, no hash part.
 
 ```nupp
 local struct Vec2
@@ -76,19 +75,18 @@ local struct Vec2
 end
 ```
 
-That is `ffi.metatype(ffi.typeof("struct { float x; float y; }"), ...)`. A
-portable target may select the checked table-backed struct provider instead. A
-`record` with the same fields is always a Lua table with a metatable. Declaring
-which representation the type needs is the point. See [records and
+A `record` with the same fields is an object with a nominal shape, the fixed
+set of slots every instance has. Declaring which representation the type needs
+is the point. See [records and
 structs](../learn/language/types/records-and-structs.md#choosing) for which one a given type wants.
 
 The other survivor is a C declaration, which stays a runtime binding because it
-loads a native symbol. Everything else is ordinary Lua once it lowers.
+loads a native symbol.
 
-## FFI a header can describe
+## C a header can describe
 
-A raw `ffi.C.point_length(p)` call carries no checked signature. A `cdef`
-declaration supplies the ABI and the pointer contract:
+A C prototype says nothing about who owns a pointer. A `cdef` declaration
+supplies the ABI and the pointer contract:
 
 ```nupp
 cdef struct nativePoint
@@ -166,7 +164,7 @@ call down to the subscription contract.
 One binary provides the project tools:
 
 - `nupp check` type-checks the project.
-- `nupp build` compiles to Lua, incrementally.
+- `nupp build` builds a binary, incrementally.
 - `nupp run` compiles and runs.
 - `nupp fmt` applies fixed rules with width and method-parentheses controls.
 - `nupp doc` generates an API site from the parse tree.
@@ -178,24 +176,6 @@ One binary provides the project tools:
 See [tooling](../learn/tooling/index.md) for the guided version of that list.
 
 ## Limits
-
-The compiler optimizes costs paid before execution and facts the type checker
-proves. Eight passes run at `-O1` and `-O2`, each named by a stable `OPT-n`
-code. Ad-hoc builds default to `-O0`; deliverable targets default to `-O2`.
-
-::: deepdive
-A tracing JIT is already good at the transformations an ahead-of-time compiler
-usually performs, and it performs them with the run-time types in hand rather
-than the declared ones. Doing them again in the compiler buys a soundness
-burden on every pass for gains that vanish once a trace warms up, and it puts
-two optimizers in the path of any miscompile.
-
-What is left is the work a trace cannot reach: anything paid once before the
-first trace is recorded, and anything resting on a fact the checker proved and
-then erased. See [optimization
-passes](../learn/performance/index.md#optimization-passes) for what each one
-rewrites, and how to turn one off to bisect a miscompile.
-:::
 
 The type system has deliberate holes, and they are written down rather than
 implied: `as` is unchecked, `table` is compatible with every

@@ -33,14 +33,14 @@ area without turning the tour into a reference manual.
 ## Building and measuring
 
 [Project builds](projects/build.md) owns targets, dependencies, and artifacts.
-[Performance](performance/index.md) covers optimization and measurement, and
-[ahead-of-time compilation](performance/ahead-of-time/index.md) covers CPU, Wasm, SIMD,
-and GPU code generation.
+[Performance](performance/index.md) covers what the VM runs and how to measure
+it, and [ahead-of-time compilation](performance/ahead-of-time/index.md) covers the
+`@aot` subset, SIMD, and GPU kernels.
 
 ## Tools and deployment
 
 [Tooling](tooling/index.md) introduces the checker, formatter, language server,
 documentation generator, and inspection commands. The project pages cover
 [portable libraries](projects/portability/libraries.md),
-[embedding](projects/embedding.md), and
+[native modules](projects/native-modules.md), and
 [integrations](projects/integrations/index.md).

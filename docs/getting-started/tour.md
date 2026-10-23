@@ -5,8 +5,8 @@ redirects: learn/getting-started/tour
 
 # Tour of Nupp
 
-Nupp adds a type system, ownership, and checked C interop to LuaJIT without
-changing what the syntax underneath means. Each section below is the short
+Nupp adds a type system, ownership, and checked C interop to LuaJIT's Lua
+dialect without changing what the syntax underneath means. Each section below is the short
 version of one construct, with a link to the page that owns the long one.
 
 ```nupp
@@ -22,7 +22,7 @@ end
 
 ## Plain Lua is valid Nupp
 
-Every valid LuaJIT program is valid Nupp syntax. A `.lua` file runs unchanged;
+Every valid LuaJIT program is valid Nupp syntax. A `.lua` file runs as written;
 renaming it to `.nupp` enables the typed syntax and the checks that come with
 it, such as unknown-variable errors.
 
@@ -73,15 +73,16 @@ local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
 
-`new Point(...)` lowers to `setmetatable({x = 3, y = 4}, Point)`. The runtime
-shape is what you would have written by hand. See
+`new Point(...)` builds an object with `Point`'s nominal shape: the fixed set of
+slots every instance has, which is also what lets `p is Point` answer at run
+time. See
 [records](../learn/language/types/records-and-structs.md#records) for constructors, field defaults,
 private fields, and recursive declarations.
 
 ## Structs have fixed layouts
 
-A `struct` has a fixed, reifiable layout. A native LuaJIT target represents it
-as FFI memory with real C field widths and no hash lookups.
+A `struct` has a fixed, reifiable layout: its fields are offsets into memory
+with real C field widths and no hash lookups.
 
 ```nupp
 local struct Vec2
@@ -90,10 +91,7 @@ local struct Vec2
 end
 ```
 
-On that target it becomes
-`ffi.metatype(ffi.typeof("struct { float x; float y; }"), ...)`. A portable
-target may select the checked table-backed struct provider instead. A struct
-binding is never nil and zero-initializes, so a bare declaration is complete
+A struct binding is never nil and zero-initializes, so a bare declaration is complete
 on its own:
 
 ```nupp
@@ -211,8 +209,7 @@ local function area(f: Figure): number
 end
 ```
 
-Narrowing reads `is`, `== nil`, truthiness, discriminant fields, and
-`ffi.istype`. It does not read `type(x) == "string"`, which is an ordinary call
+Narrowing reads `is`, `== nil`, truthiness, and discriminant fields. It does not read `type(x) == "string"`, which is an ordinary call
 returning an ordinary string, and the checker has no way to tie it back to `x`.
 Write `x is string`. See [narrowing
 tests](../learn/language/types/narrowing.md#narrowing-tests) for what proves what, and
@@ -249,8 +246,7 @@ end
 ```
 
 An arm that needs statements writes `-> do`, then `yield value`; `return`
-continues to exit the enclosing function. The selector runs once and lowering
-adds no arm closure. See [switch
+continues to exit the enclosing function. The selector runs once. See [switch
 expressions](../learn/language/switch-expressions.md) for the complete syntax and
 constraints.
 
@@ -368,7 +364,8 @@ end
 cdef function point_length(borrows point: nativePoint*): number from"mini"
 ```
 
-That emits `ffi.cdef` and an `ffi.load` lookup. The parameter modes `borrows`,
+The VM calls it through libffi, loading the `mini` library by name. The
+parameter modes `borrows`,
 `takes`, `exclusive`, `retains`, and `releases` say what C does with a pointer,
 which a header cannot. None of them change the ABI.
 
@@ -395,7 +392,7 @@ profiler, and C importer are the same executable, built from the same parse.
 
 ```bash
 nupp check          # type-check the project
-nupp build          # compile to Lua
+nupp build          # build the default target
 nupp run app.nupp   # compile and run
 nupp fmt            # format
 nupp doc            # generate this site

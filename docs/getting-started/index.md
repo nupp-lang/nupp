@@ -42,14 +42,13 @@ example. `nupp reference --for CODE` opens the relevant language section.
 manifest, tests, and the tasks needed for its host.
 
 - `app` creates a command-line application.
-- `lib` creates a typed LuaRocks library.
-- `love` creates a checked LÖVE project with pinned API definitions.
+- `lib` creates a typed library with public declarations.
 
 ## Continue learning
 
 Read the [tour](tour.md) for the core language. Use the
-[feature map](features.md) to find comptime, ownership, workers, AOT, GPU
-compute, embedding, and the standard library. The
+[feature map](features.md) to find comptime, ownership, workers, SIMD, native
+modules, and the standard library. The
 [tooling guide](../learn/tooling/index.md) covers the daily commands in more depth.
 
 [Install a release](installation.md) to get `nupp` on `PATH`. Building Nupp

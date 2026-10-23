@@ -456,7 +456,7 @@ return {
                 outDir = "build/docs",
                 title = "Nupp API",
                 name = "Nupp",
-                description = "LuaJIT with static guarantees.",
+                description = "A statically typed Lua dialect with its own VM.",
                 github = "https://github.com/nupp-lang/nupp",
                 logo = "images/nupp.svg",
                 favicon = "images/nupp-icon-32.png",

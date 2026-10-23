@@ -6,8 +6,8 @@ redirects: learn/getting-started/installation
 # Installation
 
 Nupp releases are self-contained: the compiler, runtime, standard library, and
-documentation tools travel in one platform archive. You do not need LuaJIT,
-Rust, or a C compiler to start a Nupp project.
+documentation tools travel in one platform archive. Checking, running and
+documenting a project need nothing else.
 
 ## Homebrew on macOS
 
@@ -56,7 +56,7 @@ provides these complete distributions:
 | --- | --- |
 | Linux x86-64 | `nupp-linux-x86_64.tar.gz` |
 | Apple-silicon macOS | `nupp-macos-arm64.tar.gz` |
-| Windows x86-64 | `nupp-windows-x86_64.zip` |
+| Windows x86-64 | `nupp-windows-x86_64.tar.gz` |
 
 Extract the archive, put `nupp` or `nupp.exe` on `PATH`, and verify it:
 
@@ -68,16 +68,17 @@ That prints one line, `nupp` and the release, which is the release you
 downloaded. `nupp --help` lists what it can do.
 
 Each archive includes its third-party notices, signing status, and a
-`SHA256SUMS` file for the executable. Ahead-of-time compilation needs nothing
-else: `nupp` carries its own code generator and linker. Building a C dependency
-from source is the one thing that still needs a C compiler on the machine.
+`SHA256SUMS` file for the executable. Building a C dependency from source needs
+a C compiler on the machine. Building a `binary` target builds the VM runtime it
+is stamped onto from Nupp's Rust sources, so it needs a Nupp source checkout and
+a Rust toolchain; see [project builds](../learn/projects/build.md#native-facilities).
 
 ## Build from source
 
 Clone the repository only when you want to contribute to Nupp or work on the
 compiler itself. The
 [contributing guide](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md)
-covers the pinned Rust, C/C++, LuaJIT, bootstrap, and worktree
+covers the pinned Rust and C toolchains, the bootstrap, and worktree
 requirements without making them prerequisites for ordinary users.
 
 ## Start a project
