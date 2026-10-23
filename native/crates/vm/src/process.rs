@@ -177,6 +177,24 @@ pub(crate) fn execute(vm: &mut Interp, args: &[Value]) -> Outs {
             .collect(),
     }
 }
+/// What a text-mode read on Windows answers for `bytes`: every CRLF a newline.
+fn text_mode(bytes: Vec<u8>) -> Vec<u8> {
+    if !bytes.contains(&b'\r') {
+        return bytes;
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'\r' && bytes.get(at + 1) == Some(&b'\n') {
+            at += 1;
+            continue;
+        }
+        out.push(bytes[at]);
+        at += 1;
+    }
+    out
+}
+
 pub(crate) fn popen(vm: &mut Interp, args: &[Value]) -> Outs {
     let command = text(vm, args.first().copied().unwrap_or(Value::NIL));
     let mode = args.get(1).copied().unwrap_or(Value::NIL);
@@ -406,6 +424,11 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 match read {
                     native::Read::Data(n) => {
                         if line && buffer[0] == b'\n' {
+                            // A popen pipe is text, as C's is: on Windows the
+                            // child's CRLF reads as one newline.
+                            if cfg!(windows) && output.last() == Some(&b'\r') {
+                                output.pop();
+                            }
                             if spec.ends_with('L') {
                                 output.push(b'\n');
                             }
@@ -418,6 +441,9 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                     }
                     native::Read::Gone => break,
                 }
+            }
+            if cfg!(windows) && !line {
+                output = text_mode(output);
             }
             if output.is_empty() && !all && limit != 0 {
                 [Value::NIL].into_iter().collect()
