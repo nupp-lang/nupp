@@ -21,11 +21,14 @@ local function expand(root: string, pattern: string): {string}
     return paths
 end
 
---- Carry the compiler target's declared resources in its VM image.
+--- Carry the resources of the target `selfHost.target` names -- the compiler's
+--- own -- in its VM image. A manifest naming none falls back to `compiler`.
 function resources.source(root: string, config: table): string
+    local selfHost = config.selfHost as {target: string?}?
+    local name = selfHost and selfHost.target or "compiler"
     local target = assert(
-        config.build and config.build.targets and config.build.targets.compiler,
-        "VM CLI emission requires the compiler build target"
+        config.build and config.build.targets and config.build.targets[name],
+        "VM CLI emission requires the build target selfHost.target names"
     )
     local values, keys = {}, {}
     for _, resource in ipairs(target.resources or {}) do
