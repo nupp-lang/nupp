@@ -722,6 +722,86 @@ local silenceProcessOutput = function()
 end
 -- The descriptor the marks go to, for handing to a worker.
 --
+-- LuaJIT's FFI, or on the VM the few C calls this runner makes, bound through
+-- the VM's foreign calls under the names the FFI gives them. Only what the
+-- descriptor and process-group code below calls is here; anything else it asks
+-- for raises, which the optional parts of that code already guard against.
+local function hostFfi()
+    local loaded, ffi = pcall(require, "ffi")
+    if loaded then
+        return true, ffi
+    end
+    local bound, foreign = false, nil
+    if rawget(_G, "__nupp_load_image") then
+        bound, foreign = pcall(require, "nupp.vm.foreign")
+    end
+    if not bound then
+        return false
+    end
+    local windows = package.config:sub(1, 1) == "\\"
+    local system = "Windows"
+    if not windows then
+        local pipe = io.popen("uname -s 2>/dev/null")
+        local name = pipe and pipe:read("*l") or ""
+        if pipe then
+            pipe:close()
+        end
+        system = name == "Darwin" and "OSX" or "Linux"
+    end
+    local text = {kind = "pointer", readonly = true}
+    local int = "int32"
+    local signatures = {
+        getpid = {params = {}, result = int},
+        getppid = {params = {}, result = int},
+        kill = {params = {int, int}, result = int},
+        setpgid = {params = {int, int}, result = int},
+        dup = {params = {int}, result = int},
+        dup2 = {params = {int, int}, result = int},
+        open = {params = {text, int, int}, result = int, fixed = 2},
+        close = {params = {int}, result = int},
+        fflush = {params = {"pointer"}, result = int},
+        write = {params = {int, text, "uint64"}, result = "int64"},
+        isatty = {params = {int}, result = int},
+        unsetenv = {params = {text}, result = int},
+        usleep = {params = {"uint32"}, result = int},
+        _dup = {params = {int}, result = int},
+        _dup2 = {params = {int, int}, result = int},
+        _open = {params = {text, int, int}, result = int, fixed = 2},
+        _close = {params = {int}, result = int},
+        _write = {params = {int, text, "uint32"}, result = int},
+        _isatty = {params = {int}, result = int},
+        _putenv_s = {params = {text, text}, result = int},
+        Sleep = {params = {"uint32"}, result = "void"},
+    }
+    local C = setmetatable({}, {
+        __index = function(functions, name)
+            local signature = signatures[name]
+            if signature == nil then
+                error("the VM runner binds no C function " .. tostring(name), 2)
+            end
+            local library = nil
+            if windows then
+                library = name == "Sleep" and "kernel32" or "msvcrt"
+            end
+            local f = foreign.bind(library, name, signature)
+            rawset(functions, name, f)
+
+            return f
+        end,
+    })
+
+    return true, {
+        os = system,
+        C = C,
+        cdef = function()
+        end,
+        errno = foreign.errno,
+        cast = function()
+            error("the VM runner has no ffi.cast", 2)
+        end,
+    }
+end
+
 -- A worker cannot be told "your parent's standard output": `popen` has already
 -- made that the pipe the report comes back on, and a mark written there lands in
 -- the middle of the document. So the parent keeps a duplicate of its own stream
@@ -733,7 +813,7 @@ local sharedProgressStream = false
 -- while the nested runners its cases launch do not.
 local traceCases = os.getenv("NUPP_TEST_TRACE_CASES") ~= nil
 do
-    local loaded, ffi = pcall(require, "ffi")
+    local loaded, ffi = hostFfi()
     if loaded then
         if ffi.os == "Windows" then
             ffi.cdef[[

@@ -1335,16 +1335,21 @@ function M.processQueueRestoresModuleGlobalsBetweenPieces()
     assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
     write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    -- Modules that publish themselves as globals and read each other through
+    -- them at call time, as Lua 5.1's `module` makes them: a piece that kept the
+    -- loaded modules but lost the globals would call into a nil.
     write(dir .. "/tests/templater/fill.lua", [[
-module(..., package.seeall)
-function render() return "ready" end
+templater_fill = {}
+function templater_fill.render() return "ready" end
+return templater_fill
 ]])
     write(
         dir .. "/tests/templater.lua",
         [[
-local renderer = require("templater.fill")
-module(..., package.seeall)
-fill = renderer.render
+require("templater.fill")
+templater = {}
+function templater.fill() return templater_fill.render() end
+return templater
 ]]
     )
     for index, name in ipairs({"alphatest", "betatest"}) do
