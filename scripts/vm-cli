@@ -79,6 +79,25 @@ def write_stamp(pending=None):
     (PACKAGES / "failed").unlink(missing_ok=True)
 
 
+def move_into_place(stage, package):
+    """Renames the staged generation into place. Windows refuses a rename while
+    something still holds a file under it -- the runtime the validation just
+    ran, or a scanner reading it -- so there it retries, then copies: a held
+    file can still be read."""
+    for attempt in range(20 if os.name == "nt" else 1):
+        try:
+            stage.rename(package)
+            return
+        except PermissionError:
+            if os.name != "nt":
+                raise
+            time.sleep(0.5)
+    copied = package.with_name(package.name + ".copy")
+    shutil.rmtree(copied, ignore_errors=True)
+    shutil.copytree(stage, copied)
+    copied.rename(package)
+
+
 def install(args):
     runtime, image = args.runtime.resolve(strict=True), args.image.resolve(strict=True)
     if not os.access(runtime, os.X_OK):
@@ -88,7 +107,10 @@ def install(args):
     if b"nupp.tools.vm.root" not in image.read_bytes():
         raise ValueError("image does not contain the full nupp.tools.vm.root CLI")
     PACKAGES.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".install-", dir=PACKAGES) as directory:
+    # Windows may still hold a file the validation ran when the stage is
+    # removed; what is left behind is only a stale staging directory.
+    leftovers = {"ignore_cleanup_errors": True} if sys.version_info >= (3, 10) else {}
+    with tempfile.TemporaryDirectory(prefix=".install-", dir=PACKAGES, **leftovers) as directory:
         stage = Path(directory)
         shutil.copyfile(runtime, stage / "runtime")
         (stage / "runtime").chmod(0o755)
@@ -126,7 +148,7 @@ def install(args):
         reused = package.exists()
         if not reused:
             try:
-                stage.rename(package)
+                move_into_place(stage, package)
             except OSError:
                 if not package.exists():
                     raise
