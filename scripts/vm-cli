@@ -346,16 +346,24 @@ def build_from(args, out, target, image):
             emit_with(emitter, image, env)
         except ValueError:
             # An older compiler may not read what the sources now say; the newest
-            # one is the next best thing.
-            if emitter == selected():
-                raise
-            print("vm-cli: the pinned compiler could not lower these sources; using the installed one",
-                  file=sys.stderr)
-            emitter = selected()
-            emit_with(emitter, image, env)
-        if seed == "vm" or pinned() is None or emitter != pinned():
+            # one is the next best thing, and the stage zero, which the pin keeps
+            # able to read them, the last.
+            emitter = None
+            if (pinned() if seed == "pinned" else None) not in (None, selected()):
+                print("vm-cli: the pinned compiler could not lower these sources; using the installed one",
+                      file=sys.stderr)
+                try:
+                    emit_with(selected(), image, env)
+                    emitter = selected()
+                except ValueError:
+                    pass
+            if emitter is None:
+                print("vm-cli: the installed compiler could not lower these sources; starting from the stage zero",
+                      file=sys.stderr)
+                seed = "image"
+        if emitter is not None and (seed == "vm" or pinned() is None or emitter != pinned()):
             pin(emitter)
-    else:
+    if seed == "image":
         seed_image = (args.seed_image or stage_zero_image()).resolve(strict=True)
         plain = cargo(None, target)
         shutil.copyfile(plain, out / "plain-runtime.new")
