@@ -493,7 +493,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         target,
         oldState,
         newState,
-        true,
         opts.stats,
         opts.diagnostics,
         checkState,

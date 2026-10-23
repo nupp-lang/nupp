@@ -1057,7 +1057,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
     return {record = record, code = code, said = mine, generated = generated, generateMs = generateMs,}
 end
 
-local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, stats: modules.Stats?, diagnostics: {
+local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, stats: modules.Stats?, diagnostics: {
     any
 }?, checkState: Value?,
 
@@ -1361,7 +1361,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- still in the stored state, which is what `asked` carries down to the two places
     -- that would otherwise treat "not visited" as "not there".
     local asked = nil
-    if checkOnly and narrow and #narrow.paths > 0 then
+    if narrow and #narrow.paths > 0 then
         asked = {}
         for _, path in ipairs(narrow.paths) do
             local file = normalize(path)
@@ -1419,12 +1419,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    local suppliedConstSelection = (target as any)._constSelection
-    local constEnabled = not checkOnly
-        and (config._optLevel or 0) >= 1
-        and not (config._disabledPasses or {})["OPT-8"]
-        and not (target as any)._skipConstSpecialization
-
     -- Modules workers checked, the generated code of the ones they built, and the
     -- ones whose records this build then accepted.
     local parallelChecked: {[string]: boolean} = {}
@@ -1435,17 +1429,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     -- the cache candidate the validator below consumes, as an earlier run's would. It
     -- runs before runtime linking, which then reads the dependencies those records
     -- carry instead of checking each runtime module here to discover them.
-    --
-    -- A build's const specialization is planned across every module at once, which
-    -- workers cannot do. Workers build only a project that gives that planner nothing
-    -- to plan, so the selection each of them generates against is the empty one this
-    -- process would have reached; a project declaring a const-generic function is
-    -- built here.
-    if narrow == nil
-        and next(oldState.modules or {}) == nil
-        and next(overlays or {}) == nil
-        and suppliedConstSelection == nil
-    then
+    if narrow == nil and next(oldState.modules or {}) == nil and next(overlays or {}) == nil then
         local parallelcheck = require("nupp.tools.build.parallelcheck")
         local linked: {string} = {}
         for name in pairs(linkedModules) do
@@ -1462,8 +1446,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             state = newState,
             staged = opened.staged,
             reporter = report,
-            build = not checkOnly,
-            constSelection = constEnabled and {accepted = {}, declined = {}} or nil,
+            build = false,
             linked = linked,
         })
         if produced ~= nil then
@@ -1480,94 +1463,11 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    local specializationPlans: {any} = {}
-    local acceptedSpecializations: {any} = {}
-    local declinedSpecializations: {any} = {}
-    -- Only a local function with a `const` type parameter can be specialized, and a
-    -- source that spells none has nothing to plan. Read off the text, so a build of
-    -- a project without one -- warm ones included -- does not check every module
-    -- just to find that out. Over-approximated: any `const` parameter counts.
-    local mayPlan = false
-    if constEnabled and next(parallelChecked) == nil then
-        for _, item in ipairs(queue) do
-            local text = inc.fileText(item.path)
-            if text == nil or (text as string):find("[<,]%s*const%s+[%a_]") ~= nil then
-                mayPlan = true
-                break
-            end
-        end
-    end
-    -- Workers built only a project with nothing to specialize, so there is nothing
-    -- to plan, and checking every module here to find that out again is the work
-    -- they were there to do.
+    -- Nothing is specialized: the module build checks, and the VM lowers from
+    -- the checked source.
     local selectorMs = 0
-    if mayPlan then
-        -- Check the deliverable once before emission so incoming calls can request a
-        -- body from the module that declares it.  This is emission dependency
-        -- discovery, not a reverse type dependency: the incremental checker memoizes
-        -- these answers and a caller tuple enters only the declaring module's
-        -- specialization hash below.
-        local checkedForSpecialization: {any} = {}
-        local specializationCursor = 1
-        while specializationCursor <= #queue do
-            local item = queue[specializationCursor]
-            specializationCursor = specializationCursor + 1
-            local checked = inc.checkFile(item.path)
-            if checked.result ~= nil and checked.missing ~= true and checked.syntax ~= true then
-                checkedForSpecialization[
-                    #checkedForSpecialization + 1
-                ] = {filename = item.path, module = item.name, result = checked.result,}
-            end
-            for _, dependency in ipairs(inc.moduleDependencies(item.path)) do
-                local dependencyPath = inc.modulePath(dependency)
-                if dependencyPath ~= nil and not packagedCheckSources[dependency] then
-                    seed(dependency, dependencyPath)
-                end
-            end
-        end
-        if suppliedConstSelection ~= nil then
-            specializationPlans = suppliedConstSelection.plans
-            acceptedSpecializations = suppliedConstSelection.accepted
-            declinedSpecializations = suppliedConstSelection.declined
-        else
-            local selectorStart = os.clock()
-            specializationPlans = constspecialize.collectGraph(checkedForSpecialization)
-            acceptedSpecializations, declinedSpecializations = constspecialize.selectGraph(specializationPlans)
-            selectorMs = (os.clock() - selectorStart) * 1000
-        end
-    end
-    -- Only a computed selection is handed down. An empty one would still be a
-    -- selection, and the pass would read it as "this deliverable demands nothing"
-    -- rather than "nobody looked" -- the two are the same silence at the call site
-    -- but not the same answer, and OPT-8's own level and `-Zno-opt` gates already
-    -- decide whether it runs.
-    local constSelection: any? = constEnabled
-        and {accepted = acceptedSpecializations, declined = declinedSpecializations,}
-        or nil
-    local acceptedBodies = 0
-    for _, specialization in ipairs(acceptedSpecializations) do
-        if specialization.physical == specialization
-            and not (suppliedConstSelection ~= nil and specialization.requiredAot)
-        then
-            acceptedBodies = acceptedBodies + 1
-        end
-    end
-    local specializationKeys: {[string]: {string}} = {}
-    for _, plan in ipairs(specializationPlans) do
-        local keys = specializationKeys[normalize(plan.filename)]
-        if keys == nil then
-            keys = {}
-            specializationKeys[normalize(plan.filename)] = keys
-        end
-        for _, specialization in ipairs(plan.specializations) do
-            keys[#keys + 1] = specialization.key
-        end
-    end
+    local constSelection: any? = nil
     local specializationHashes: {[string]: string} = {}
-    for path, keys in pairs(specializationKeys) do
-        table.sort(keys)
-        specializationHashes[path] = contentDigest(table.concat(keys, "\0"))
-    end
     local emptySpecializationHash = contentDigest("")
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
@@ -1583,8 +1483,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local generateMs: {[string]: number} = {}
     stats = (stats or {}) as modules.Stats
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
-    stats.specializedBodies = acceptedBodies
-    report:addSpecialized(acceptedBodies)
+    stats.specializedBodies = 0
 
     -- Everything one module had to say, by module name, rather than one list everything
     -- is appended to. A module reused early can be invalidated and recompiled later,
@@ -1681,12 +1580,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         carriedRuntime[name] = true
         paths[name] = output
         local previous = oldState.modules[name]
-        if cacheCompatible
-            and previous
-            and previous.compilerRuntime
-            and previous.artifactHash == artifactHash
-            and (checkOnly or hashFile(output) == artifactHash)
-        then
+        if cacheCompatible and previous and previous.compilerRuntime and previous.artifactHash == artifactHash then
             reused[name] = true
         end
         order[#order + 1] = name
@@ -1766,7 +1660,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             outDir = outDir,
             config = config,
             target = target,
-            checkOnly = checkOnly == true,
+            checkOnly = true,
             external = external,
             constSelection = constSelection,
             specializationHash = specializationHashes[normalize(path)] or emptySpecializationHash,
@@ -1909,8 +1803,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     -- A worker's artifact is not on disk yet: it is the code the
                     -- worker handed back, and is written below with everything else.
                     usable = previous.artifactHash ~= nil and contentDigest(builtCode) == previous.artifactHash
-                elseif usable and previous and not checkOnly and not external then
-                    usable = previous.artifactHash ~= nil and hashFile(output as string) == previous.artifactHash
                 end
                 if usable and previous and parallelChecked[item.name] then
                     parallelAccepted[item.name] = true
@@ -2105,7 +1997,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
     report:at("persist")
     report:step("saving what this run worked out")
     inc.persist()
-    if checkOnly and checkState then
+    if checkState then
         local checked = {}
         -- A run that looked at the whole source set keeps only what it looked at, which
         -- is how a module that was deleted stops being remembered. A run asked about
@@ -2199,100 +2091,22 @@ local function buildModules(root: string, outDir: string, config: Config, target
             end
         end
     end
-    if checkOnly then
-        -- A VM program's build checks rather than generates: its image is lowered
-        -- from the sources these records name, so it takes them as a build's
-        -- would, and the effects they reach.
-        local effects = {}
-        if checkState == nil then
-            newState.modules = {}
-            for _, name in ipairs(order) do
-                newState.modules[name] = records[name]
-                for _, effect in ipairs(records[name].effects or {}) do
-                    effects[effect] = true
-                end
-            end
-        end
-        return {
-            outputs = {},
-            effects = effects,
-            materializations = materializations,
-            derives = derives,
-            optimizationRemarks = optimizationRemarks,
-            allocationSites = allocationSites,
-            accountedModules = accountedModules
-        }
-    end
-
-    -- Every module compiled, with no closure to prune it back to. A stale dependency
-    -- list can still enqueue a name, but a name that is not a source file has no path
-    -- and never entered the queue, and one that is a source file belongs in the build
-    -- regardless of who does or does not require it.
-    local pending: {{
-        path: string,
-        text: string
-    }} = {}
-    local outputs = {}
+    -- A VM program's build checks rather than generates: its image is lowered
+    -- from the sources these records name, so it takes them as a build's
+    -- would, and the effects they reach.
     local effects = {}
-    newState.modules = {}
-    for _, name in ipairs(order) do
-        local record = records[name]
-        newState.modules[name] = record
-        for _, effect in ipairs(record.effects or {}) do
-            effects[effect] = true
-        end
-        if record.output then
-            outputs[record.output] = true
-        end
-        if not record.external and not reused[name] then
-            local code = codeFor[name]
-            if code and hashFile(record.output) ~= record.artifactHash then
-                pending[#pending + 1] = {path = record.output, text = code}
+    if checkState == nil then
+        newState.modules = {}
+        for _, name in ipairs(order) do
+            newState.modules[name] = records[name]
+            for _, effect in ipairs(records[name].effects or {}) do
+                effects[effect] = true
             end
         end
     end
-
-    for _, name in ipairs(order) do
-        if not records[name].external and not records[name].artifactHash then
-            return nil, "code generation failed"
-        end
-    end
-
-    for _, resource in ipairs(target.resources or {}) do
-        local pattern: string
-        if type(resource) == "table" then
-            pattern = (resource as Resource).source
-        else
-            pattern = resource as string
-        end
-        for _, source in ipairs(expandGlob(root, pattern)) do
-            local output = join(root, join(outDir, resourceOutput(config, resource, source, root)))
-            local text, err = readFile(source)
-            if not text then
-                return nil, err
-            end
-            outputs[output] = true
-            if hashFile(output) ~= contentDigest(text) then
-                pending[#pending + 1] = {path = output, text = text}
-            end
-        end
-    end
-    report:at("write")
-    for _, item in ipairs(pending) do
-        report:step("writing " .. shortPath(root, item.path))
-        local ok, err = writeFile(item.path, item.text)
-        if not ok then
-            return nil, err
-        end
-    end
-
-    -- Once the modules on disk are the ones this build decided on, and not
-    -- before: the cache is named by what was written, so writing it first would
-    -- name something that is not there yet.
-    require("nupp.tools.bytecodecache").refresh(join(root, outDir), newState.modules)
 
     return {
-        outputs = outputs,
+        outputs = {},
         effects = effects,
         materializations = materializations,
         derives = derives,
