@@ -56,8 +56,6 @@ return {
 
     ["fmt"] = {"fmt*test"},
 
-    ["aot"] = {"aot*test"},
-
     -- Browser delivery: the worker seam and generated browser templates.
     [
         "browser"

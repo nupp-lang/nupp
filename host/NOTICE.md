@@ -13,6 +13,7 @@ repeated here so the release notices remain complete in one place.
 | --- | --- | --- | --- |
 | [Lunajson](https://github.com/grafi-tt/lunajson) | `1.2.3` | MIT | [notices/lunajson-LICENSE.txt](notices/lunajson-LICENSE.txt) |
 | Rust dependency graph | `Cargo.lock` | Mixed permissive licenses | [notices/Rust-dependencies.html](notices/Rust-dependencies.html) |
+| [libffi](https://sourceware.org/libffi/) | as `libffi-sys` 4.2.2 bundles it | MIT | [notices/libffi-LICENSE.txt](notices/libffi-LICENSE.txt) |
 | [LuaJIT](https://luajit.org/) | `1edc3e52b67eaf6ce5f809be8e17d6862594b8bc` | MIT | [notices/LuaJIT-COPYRIGHT.txt](notices/LuaJIT-COPYRIGHT.txt) |
 
 The VM runtime is Rust, and the locked Rust graph supplies it and the native
@@ -20,6 +21,11 @@ facilities a binary links, such as compression, networking and TLS. A build
 that does not link one of those does not distribute it; the notices stay here
 because each binary's facilities are decided independently. Lunajson's decoder
 and encoder are vendored into the compiler's runtime library.
+
+The runtime calls C through libffi, which the `libffi-sys` crate builds from the
+C sources it bundles and links statically. The Rust notice covers the crate;
+libffi's own notice is the C library's, copied from the source that crate
+bundles.
 
 LuaJIT is not part of a Nupp binary. `scripts/toolchain` builds the pinned
 LuaJIT only as the interpreter LuaRocks runs on when a project installs a rock
