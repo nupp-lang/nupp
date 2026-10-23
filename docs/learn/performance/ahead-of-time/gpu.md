@@ -5,7 +5,13 @@ order: 637
 # GPU compute
 
 `@aot(target = "gpu")` turns one verified Nupp function into a typed kernel
-specification. Native targets emit SPIR-V for the Rust WGPU provider.
+specification.
+
+::: warning
+The VM has no GPU provider yet. On it `gpu.available()` answers `false` and
+`gpu.open()` raises "GPU compute is not available on the VM runtime yet", so a
+kernel checks and binds but no device runs it.
+:::
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -187,9 +193,7 @@ the buffer.
 
 The build emits the native WGPU module as SPIR-V. On macOS WGPU translates that
 module for Metal internally; Nupp does not ship a second Metal artifact or a
-shader translator. `nupp build --remarks-out` records `GPU-DISPATCH` at the
-authored declaration, naming the shader digest, the workgroup width and the
-artifact.
+shader translator.
 
 For native operation costs, use `nupp run --gpu-costs costs.jsonl PROGRAM`.
 `nupp bench --gpu-costs DIRECTORY` allocates a separate JSONL file for
@@ -198,13 +202,14 @@ every case, fork and comparison candidate; the benchmark JSON names each file.
 and device timestamp availability. Cost recording adds overhead, so collect
 an instrumented account separately from uninstrumented CPU/GPU comparisons.
 
-GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
+GPU kernels cannot allocate managed values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU
 provider selected by the built target.
 
 ## Native GPU costs
 
-Use a caller-named JSONL file to collect native GPU costs:
+These records come from the WGPU provider, which the VM does not have yet. Use
+a caller-named JSONL file to collect native GPU costs:
 
 ```bash
 nupp run --gpu-costs frame-costs.jsonl src/main.nupp

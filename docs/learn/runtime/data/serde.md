@@ -202,7 +202,7 @@ is kept in the error's `suppressed` list, beside the original cause.
 
 ## Native persistence
 
-`nupp.serde.native` reads and writes a versioned LuaJIT-local frame through the
+`nupp.serde.native` reads and writes a versioned binary frame through the
 same bindings. It preserves rich scalar values and document boundaries, and
 refuses unsupported hosts before selecting a binding.
 
@@ -231,9 +231,8 @@ versions rather than guessing a layout.
 
 ## Runtime support
 
-JSON uses a portable provider on native and browser LuaJIT hosts. Native AOT
-can select checked decoding operations for supported carriers; custom adapters
-retain the visitor path. Native persistence requires a native LuaJIT host.
+JSON and native persistence both run on the VM. Custom adapters use the
+visitor path.
 
 ## Migration
 

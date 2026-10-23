@@ -368,7 +368,7 @@ source is refused with NUPP2621, and every other result stays owned as it was.
 
 ### Pinning
 
-`pinned(T)` pairs a pointer with a strong Lua anchor, so C may retain the
+`pinned(T)` pairs a pointer with a strong anchor, so C may retain the
 pointer under declared `retains` and `releases` contracts:
 
 ```nupp
@@ -387,7 +387,7 @@ a checked span supplies bounds and a root.
 
 ::: deepdive
 Pinning is separate from affinity because the two answer different questions. An
-affine obligation says who calls cleanup and when; a pin says the Lua garbage
+affine obligation says who calls cleanup and when; a pin says the garbage
 collector may not collect the storage a C pointer names while C still holds
 it. Folding them together would mean every pinned pointer also acquired a
 terminal, which is wrong for the common case of a callback that C releases on

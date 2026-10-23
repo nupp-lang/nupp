@@ -18,7 +18,7 @@ child:close()
 ```
 
 ::: note Only suspension-aware calls can park
-An arbitrary blocking Lua or C function still blocks the operating-system
+An arbitrary blocking function or C call still blocks the operating-system
 thread. A library opts into suspension through `nupp.suspension`; the runtime
 does not intercept other calls.
 :::
@@ -498,8 +498,8 @@ error: NUPP2706: control cannot enter a `with` scope
 
 ## C-call boundaries
 
-LuaJIT cannot yield through every C frame. A comparator called by `table.sort`,
-a replacement called by `string.gsub`, and an FFI callback are non-yieldable
+A suspension cannot cross a native frame. A comparator called by `table.sort`,
+a replacement called by `string.gsub`, and a C callback are non-yieldable
 positions. The checker follows those callback bodies and reports a call inside
 one that reaches a suspension:
 

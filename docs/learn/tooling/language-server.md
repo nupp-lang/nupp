@@ -235,8 +235,7 @@ for without asking for it.
 | `bytecode` | `nupp-bytecode` | `lines-collapsible` |
 | `image` | `nupp-image` | `lines` |
 
-Both are the VM image the buffer lowers to, so only the VM-hosted compiler
-produces them; a LuaJIT-hosted session answers `unsupported-host`. `bytecode` is
+Both are the VM image the buffer lowers to. `bytecode` is
 the instructions laid out against the source: line N holds the first instruction
 line N compiled to, a line that compiled to several indents the rest beneath it,
 and a line that compiled to nothing is blank, so folding every indented run puts

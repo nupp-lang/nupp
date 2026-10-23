@@ -75,10 +75,10 @@ intrinsic namespaces and the declared modules:
   a host provider.
 - [](nupp.system) reports execution platform, architecture, endianness, pointer
   width and available parallelism, independently of the worker scheduler.
-- [](nupp.host) asks whatever runs the program, a page or an embedding
-  application, for something by kind, and carries streams between them.
-  [](nupp.host.pump) runs an embedded component's operations for a host-owned
-  loop. See [host.md](../host.md).
+- [](nupp.host) asks whatever runs the program for something by kind, and
+  carries streams between them; nothing answers on the VM yet.
+  [](nupp.host.pump) runs an operation for a host-owned loop. See
+  [host.md](../host.md).
 - [](nupp.io) owns byte buffers, readers, writers, and typed scalar reads and
   writes over them.
 - [](nupp.io.files) owns filesystem metadata and directories.
@@ -105,8 +105,7 @@ intrinsic namespaces and the declared modules:
 - [](nupp.time) owns monotonic time, wall time, sleeps, and deadlines.
 - [](nupp.text.regex) matches regular expressions where Lua patterns are not enough.
 
-See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the
-browser provider, and [workers.md](../concurrency/workers.md) for the worker
+See [gpu.md](../../performance/ahead-of-time/gpu.md) for GPU kernels, and [workers.md](../concurrency/workers.md) for the worker
 scheduler and sendable values.
 
 ## Availability and initialization
@@ -125,20 +124,15 @@ const uuid4 = nupp.util.uuid4
 print(uuid4()) -- selects UUID support
 ```
 
-At `-O1` and above, feature effects are recomputed after constant folding, so a
-facility used only in a branch or loop that dead-code elimination removed keeps
-neither its adapter nor its provider. Code generation makes the final selection
-from the constructs it actually writes, so comptime erasure, materialization,
-and other lowering cannot leave a source-only facility in the generated
-first-line bootstrap. Native FFI declarations are split by that same set:
-selecting UUID does not declare the path, files, or process ABI. SHA-256
-declares none of its own: it is Nupp rather than a native provider.
+A `binary` target's runtime links a native facility, such as compression or
+the HTTP client, only when the program's image reaches a module that needs it;
+see [Native runtime](../../../reference/native-runtime.md#facility-selection).
+SHA-256 needs none: it is Nupp rather than a native provider.
 
 ### Provider initialization
 
 A module selects its implementation while it is required and retains the actual
-functions. Generated module prologues bind those modules before the consumer body
-runs. Exported operations perform no SPI lookup.
+functions. Exported operations perform no SPI lookup.
 
 Implementations satisfy the interface in the library's `.spi` module and are
 advertised in `nupp/spi.json`. Standard-library consumers choose the unique highest
@@ -146,14 +140,8 @@ priority, or use their built-in fallback when discovery is empty. See
 [SPI](../../projects/spi.md) for ordinary selection code and package discovery.
 
 The public surface does not expose the JSON provider module, a provider's own
-handles, or FFI pointers. Those are implementation details, so application code
+handles, or native pointers. Those are implementation details, so application code
 keeps the same Nupp API when a provider changes.
-
-### Forcing a native feature
-
-[`nativeFeatures`](../../projects/build.md#compiler-native-features) turns a binary
-feature on or off for an unusual packaging arrangement. Leave it unset and use
-automatic detection unless the packaging requires otherwise.
 
 ## Byte positions
 
@@ -194,10 +182,9 @@ declared modules](#intrinsics-and-declared-modules) shows.
 
 ### Does an unused facility cost anything in the built program?
 
-No adapter and no native artifact are emitted for a member no checked source
-resolves. Selection is recomputed after constant folding at `-O1` and above, so
-a facility whose only use was eliminated drops out with it. See [Selection
-follows use](#selection-follows-use) for what counts as a use.
+No adapter is emitted for a member no checked source resolves, and a binary's
+runtime links no facility its image does not reach. See [Selection follows
+use](#selection-follows-use) for what counts as a use.
 
 ### Can a buffer offset be passed to a Lua string function?
 
@@ -208,6 +195,6 @@ see [Byte positions](#byte-positions) for which convention an API uses.
 ::: seealso
 - [](nupp.io) for buffers, readers, writers, and byte views
 - [ownership.md](../ownership/index.md) for the affine results these modules return
-- [build.md](../../projects/build.md#compiler-native-features) for native feature
-  detection and its override
+- [build.md](../../projects/build.md#native-facilities) for the native
+  facilities a binary links
 :::

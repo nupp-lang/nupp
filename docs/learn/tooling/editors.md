@@ -34,40 +34,29 @@ point the extension at it.
 
 ### Inspecting compiled output
 
-Every checked function carries an **Inspect** code lens, and the command palette
-carries the same entries:
-
-| Command | What opens |
-| --- | --- |
-| **Nupp: Inspect Compiled Output** | A pick of what is available here |
-| **Nupp: Open Generated Lua** | The Lua this file erases to |
-| **Nupp: Compare Generated Artifacts** | Two levels of one artifact, in a diff |
+Every checked function carries an **Inspect** code lens, and **Nupp: Inspect
+Compiled Output** in the command palette does the same. Either offers what the
+server can produce for the file: the VM **Bytecode** laid out against the
+source, or the **VM image** text the file lowers to. The **Open Generated Lua**
+and **Compare Generated Artifacts** commands still exist in the extension, but
+the server produces no Lua, so neither opens anything.
 
 Artifacts open beside the source as ordinary read-only editors under the
 `nupp-generated:` scheme, so search, folding, diff and every other editor
 command keep working on them. They are made from the buffer rather than from the
 file, so an unsaved edit is what you are reading.
 
-Selecting in either view reveals the matching line in the other. For generated
-Lua that is the line itself, because the emitter never changes a file's line
-count.
+Selecting in either view reveals the matching line in the other, through the
+line mapping the server sends with each artifact.
 
 Scrolling either pane carries the other with it, matched line to line through
 the same mapping rather than by pixel offset -- the two panes rarely have the
 same number of rows, so matching offsets would drift apart immediately.
 `nupp.syncArtifactScrolling` turns it off.
 
-The generated Lua view folds where its source folds. It has to be told: the
-emitter writes at column zero, so there is no indentation for the editor to
-derive folding from, and a pane with no folding has no sticky scroll either --
-which left it sitting a row above the source at the same line, because the
-source pinned a header the artifact did not. It reuses the server's folding
-ranges for the source, which generated Lua being line-for-line with it makes
-exact.
-
 One lens per function rather than one per artifact kind is deliberate. Most
-kinds do not apply to most functions, and a row of six buttons over every
-function would be five dead links.
+kinds do not apply to most functions, and a row of buttons over every
+function would mostly be dead links.
 
 ### Tests and coverage
 
@@ -94,8 +83,8 @@ server when changed:
 - `nupp.serverArgs`: `["lsp", "serve", "${workspaceFolder}"]`.
 - `nupp.serverCwd`: `${workspaceFolder}`.
 - `nupp.serverEnvironment`: `{}`.
-- `nupp.artifactOptimizationLevel`: `0`, the level generated artifacts are
-  resolved at. Zero is the promise that nothing is rewritten.
+- `nupp.artifactOptimizationLevel`: `0`. It is sent with every artifact
+  request and changes nothing, since no optimizer runs.
 
 The four naming the process expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
 passed without shell interpretation. The extension runs one client per

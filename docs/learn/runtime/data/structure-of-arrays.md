@@ -244,9 +244,7 @@ matter on the selected target.
 
 ## Hot loops
 
-The canonical loop proves every indexed row access is in bounds, so it lowers
-to direct typed-column loads and stores. An arbitrary index keeps its runtime
-bounds check.
+Walk the rows with the canonical loop over `#rows`:
 
 ```nupp:fragment
 with rows = particles:write() do
@@ -256,9 +254,8 @@ with rows = particles:write() do
 end
 ```
 
-See [`OPT-6`](../../performance/index.md#opt-6-indexed-views) for how that proof
-lowers, and [ahead-of-time.md](../../performance/ahead-of-time/index.md) for what an `@aot`
-kernel retains.
+See [ahead-of-time.md](../../performance/ahead-of-time/index.md) for what an `@aot`
+kernel admits.
 
 ### Native AOT row views
 
@@ -288,9 +285,7 @@ end
 
 A column load under a full chunk of `over` is the whole-vector load the loop's bound proves; only the last chunk is masked. Where there are no vector registers the same loop runs a row at a time.
 
-Set the build's `aot` policy to `"require"` to require native execution.
-The field loads address contiguous columns, including slices; a writable view
-keeps per-column `noalias` in the generated code. Ordinary
+The field loads address contiguous columns, including slices. Ordinary
 length guards can relate separate views, and shared views may overlap. The
 existing ownership rules still reject incompatible exclusive overlaps.
 
@@ -300,20 +295,6 @@ updates under the usual AOT bounds proofs. Whole-row values, dynamic field
 selection, constructing views inside the kernel, and passing views through
 native helpers are not admitted. Wasm and GPU row-view entries are also refused;
 their existing span entry forms remain available.
-
-### Row views without a wrapper
-
-At `-O1`, a row view whose complete use is static and nonescaping is
-scalar-replaced: the slab anchor, columns, offset, count, and capability become
-compiler-owned values instead of an allocated wrapper. Acquisition effects
-still run once and the slab stays rooted.
-
-The same lowering covers a nonescaping const slice used only by proved indexed
-operations, a nonescaping writable-to-shared downgrade, and a statically
-resolved `field` projection. A directly called, nonrecursive local function in
-the same module can transport the virtual view. An escape, an opaque call, an
-export, recursion, and a dynamic, foreign, or cross-module boundary materialize
-the same checked view instead.
 
 ## Snapshots and ECS storage
 
@@ -366,7 +347,5 @@ refuses.
 
 ::: seealso
 - [](nupp.mem.span) for the views `field` projects
-- [performance.md](../../performance/index.md#opt-6-indexed-views) for the
-  indexed-view lowering
 - [reflection.md](../../language/reflection.md) for the comptime description of a struct
 :::

@@ -5,7 +5,7 @@ order: 625
 # Benchmarks
 
 `nupp bench` finds every `bench/*.bench.nupp`, runs each case in its own
-process at `-O1`, and merges the results. A benchmark is an ordinary program
+process, and merges the results. A benchmark is an ordinary program
 that declares cases through `nupp.bench` and ends in `bench.report()`.
 
 ```bash
@@ -43,7 +43,7 @@ Benchmark     Mode    Cnt       Score  Units       Alloc B/op             p25-p9
 point.sized    p50      7      16.897  ns/op           64.000    [16.626, 17.916]
 
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
-      interval: samples inside one process share its heap, traces and thermal
+      interval: samples inside one process share its heap and thermal
       state, so no population interval follows from them. A score far from the
       middle of that range means the samples are not centered on it. No interval or
       verdict is available below 10 forks; run --pilot to size a replicated run.
@@ -56,13 +56,13 @@ until a round is long enough to time, then every measured round uses that same
 
 `Alloc B/op` is measured in a separate pass with the collector stopped, so the
 account does not change the timing distribution. A suite divides the observed
-Lua-managed heap growth by `sampleIterations * operations`; a case divides it
+managed heap growth by `sampleIterations * operations`; a case divides it
 by its calibrated `n`. Replicated reports show the median across forks. It is a
 byte total, not an allocation-event count, and does not include native
 allocations. Frames and older records without the measurement show `-`.
 
 `p25-p99` is a **spread, not an error bar**. Rounds inside one process share a
-heap, a set of compiled traces and a thermal state. No population interval
+heap and a thermal state. No population interval
 follows from them, so one fork earns no interval and no verdict.
 
 Read it as a sanity check on the score. A score near the middle of the range
@@ -94,26 +94,13 @@ samples moves p99 and leaves p75 where it was. `p75Ms` is still in the record.
 
 ## Keeping results alive
 
-LuaJIT deletes work whose result never escapes its trace. A benchmark then
-comes out impossibly fast because the loop under test is gone and the
-measurement is of nothing. `bench.keep` stores the value somewhere a trace
-cannot sink it:
+A compiler is free to delete work whose result nothing reads, and a benchmark
+whose loop under test is gone measures nothing. `bench.keep` stores the value in
+a field of the `nupp.bench` module, so the result escapes the loop:
 
-::: code-group
-```nupp:fragment [Nupp]
+```nupp:fragment
 bench.keep({x = 1})
-local kept = bench.keep({y = 2})
 ```
-
-```lua [Generated]
-do const __nuppT2 = bench; __nuppT2.__nuppSink = {x = 1} end
-local kept = bench.keep({y = 2})
-```
-:::
-
-In statement position on a local holding the module, it is generated as that
-store rather than a call. A call per iteration is exactly the cost a sink must
-not add. Bind the result and you get an ordinary call instead.
 
 ## Comparing implementations
 
@@ -359,8 +346,7 @@ nupp bench --baseline build/bench-baseline.json --forks 12 --margin 2
 
 The same verdicts have weaker support because nothing controls for what changed
 on the machine between the two sessions, and the output says so. Where the
-machine itself differs, the duration section is withheld entirely while the
-deterministic gate is unaffected.
+machine itself differs, the duration section is withheld entirely.
 
 `--json`, `build/bench-record.json`, and `--history` retain the same comparison
 record. Candidate measurements are in `benchmarks`; each `comparisons` entry
@@ -440,7 +426,7 @@ nupp bench --case '^floats$' --variant '^ipairs$' --variant '^index$'
 ```
 
 Every case gets its own process, not every file. Two sharing one would share its
-heap, compiled traces and blacklist, so a program declaring more than one
+heap, so a program declaring more than one
 benchmark refuses a direct run too:
 
 ```text
@@ -458,59 +444,23 @@ sets another.
 
 ## Run gates
 
-Duration verdicts never change the exit status. One deterministic property
-gates because it is identical on every run of one binary: the **allocation
-sites** the optimizer left standing, counted per file.
+Duration verdicts never change the exit status.
 
 ```bash
 nupp bench --baseline build/bench-baseline.json           # compare
 nupp bench --baseline build/bench-baseline.json --accept  # replace
 ```
 
-```text
-allocations rose from 3 to 5 in src/parser.nupp
-```
-
-Durations, the calibrated `n`, allocated bytes, retained-heap delta, and the
-`--remarks` set are recorded but never gated. A run with no comparable baseline
-says so, which is a result and a different one from a pass; a named baseline
-that is not there exits non-zero.
+Durations, the calibrated `n`, allocated bytes and retained-heap delta are
+recorded but never gated. A run with no comparable baseline says so, which is a
+result and a different one from a pass; a named baseline that is not there
+exits non-zero.
 
 A baseline's `schema` is checked where it is read. Records are written at
 schema 4, which keeps every duration in milliseconds under an `Ms` name. A
-schema 3 record kept them in seconds under `Sec` names, so it still reads for
-the deterministic gate while every duration verdict against it is inconclusive.
-Any other schema is refused, naming the one it holds and the ones this version
-reads, and `--accept` replaces it.
-
-Allocation sites and remarks are the compiler's account of its own output, so
-every fork of one binary must agree. Disagreement is a defect, not a
-measurement, and is reported as one:
-
-```text
-nupp: json-decode.large: nondeterministic compiler output: fork 4 reported
-      different allocation sites
-```
-
-::: deepdive
-Allocations are counted per file rather than by line and column: a comment
-inserted above unchanged code would otherwise look like every allocation below
-it was newly introduced.
-
-Remarks are diffed both ways but not gated, because nothing in a remark says
-whether a pass fired or declined. A pass that started firing adds one remark and
-removes another.
-
-An allocation site is one the Nupp optimizer left in the Lua it wrote. It says
-nothing about whether LuaJIT went on to sink it. This catches that optimizer
-regressing, which is narrow and real, and is not a count of allocations
-performed.
-
-Baselines are keyed by optimization level and `-Zno-opt` set. The compiler digest is
-recorded and never keys anything: an optimizer change that moves an allocation
-site is exactly the regression this exists to catch, and keying by the digest
-would discard it as uncomparable the moment it appeared.
-:::
+schema 3 record kept them in seconds under `Sec` names, so every duration
+verdict against it is inconclusive. Any other schema is refused, naming the one
+it holds and the ones this version reads, and `--accept` replaces it.
 
 ## Machine-readable output
 
@@ -547,9 +497,8 @@ appends the same document as NDJSON once every selected benchmark reported.
 
 `nupp.bench` measures from inside a program; `nupp bench` discovers and isolates
 those programs. Neither replaces an application's own hot loop, such as a
-game's frame or a server's request path with its real asset load and trace
-population.
+game's frame or a server's request path with its real asset load.
 
 ::: seealso
-- [index.md](index.md) for the optimizer whose account a record carries
+- [index.md](index.md) for what to measure and how to read the bytecode
 :::

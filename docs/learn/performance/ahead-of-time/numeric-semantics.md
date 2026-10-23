@@ -26,9 +26,9 @@ end
 | `uint32` `+`, `-`, `*` on established operands | wrapping uint32 | native unsigned modular arithmetic |
 | `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
 | `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
-| 64-bit `/`, `%` in AOT | truncating integer division | LuaJIT's cdata answer for a zero divisor |
-| 64-bit `^`, unary `-` in AOT | wrapping integer power, negation | as LuaJIT's cdata |
-| a `number` stored into an integer field | truncated through int64 | the FFI store's rule, not `wrap` |
+| 64-bit `/`, `%` in AOT | truncating integer division | a zero divisor raises |
+| 64-bit `^`, unary `-` in AOT | wrapping integer power, negation | |
+| a `number` stored into an integer field | truncated through int64 | not `wrap` |
 
 Numeric `for` loops evaluate their start and stop once, in source order, before
 entering the loop. Assigning the visible loop variable does not change the next
@@ -36,23 +36,12 @@ iteration. CPU AOT preserves this behavior for the admitted implicit step of
 one, including signed counter limits, `uint32` bounds and binary64 bounds.
 Explicit steps remain a positioned refusal. A loop whose index is assigned
 must use a separately proved cursor for span access. GPU counted loops retain
-their [narrower signed-int32 contract](gpu.md). Loop entry also matches
-the selected runtime. The pinned ARM64 LuaJIT uses dual numbers: a negative-zero
-start becomes positive zero when the limit is exactly representable as `int32`;
-other limits retain its sign. The pinned x86/x64 LuaJIT uses single numbers and
-retains that sign. Same-host builds observe the local
-LuaJIT mode, including custom dual-number x64 builds, and include it in the AOT
-cache key. Native counted-loop artifacts check that mode before binding and
-refuse to load into an incompatible LuaJIT; this does not silently fall back.
+their [narrower signed-int32 contract](gpu.md).
 
-Ordinary `math.min` and `math.max` follow LuaJIT, which chooses the second
-operand on ties or unordered comparisons. Variadic calls apply that rule from
-left to right. The corrected `nupp.math.f32` operations have their own
-target-independent contract below. `math.log(value, base)` honors its optional
-base. Under LuaJIT, ordinary code and AOT both compute `log2(value) * (1 /
-log2(base))`, keeping the two roundings apart as LuaJIT does; a quotient of
-natural logarithms differs in the last bits and loses exact results such as
-`math.log(1e17, 0.1) == -17`.
+Ordinary `math.min` and `math.max` choose the first operand on ties or
+unordered comparisons: `math.min(-0.0, 0.0)` is `-0` and `math.max(0/0, 1)` is
+NaN. The corrected `nupp.math.f32` operations have their own target-independent
+contract below. `math.log(value, base)` honors its optional base.
 
 `a % b` is Lua's floored modulo, `a - floor(a / b) * b`, computed operation for
 operation and never contracted. It is not `fmod` moved into the divisor's sign:
@@ -73,8 +62,8 @@ overflowing `int32` or `int64` result is defined rather than undefined.
 wrapping operation of that width, in an `@aot` body and in the ordinary code
 around it alike: an `int32` accumulator plus an `int32` field read is the
 wrapping signed add of the two, a `uint32` cursor times a literal is the
-wrapping unsigned product, and the checker annotates the operator so the
-retained Lua body and the native lowering compute the same bits. One operand has to be typed
+wrapping unsigned product, and the checker annotates the operator so ordinary
+code and an `@aot` body compute the same bits. One operand has to be typed
 at the width and both established at it, so an erased `as int32` or a plain
 `integer` beside one still returns `integer`, which an assignment to the width
 then refuses. A `uint8` or `uint16` element read is typed `uint32` but is
@@ -84,27 +73,20 @@ established at `int32` as well, since it holds one; inside an `@aot` body an
 and unary `-` keep today's rules and return a number.
 
 A comparison between a signed and an unsigned 32-bit integer answers by
-mathematical value, as the two Lua numbers they are do: generated code widens
-both before comparing, so `-1` stays below `5`. A binary32 value or a `number`
+mathematical value, so `-1` stays below `5`. A binary32 value or a `number`
 meeting a 32-bit integer compares in binary64, which holds both exactly.
 
-A 64-bit integer is LuaJIT cdata, and LuaJIT compares and computes with cdata
-by C's rules, so generated code does the same. The other operand converts to
-the 64-bit type, to `uint64` if either side is one: `-1LL < 5ULL` is false,
-`-1LL == 0xffffffffffffffffULL` is true, and `1LL < 1.5` compares 1 with 1.
-A `number` converts as a store does, below. `/` and `%` are C's truncating
-division, and where C has no answer LuaJIT has one: a zero divisor gives
-`INT64_MIN` (2^63 for `uint64`), and so does `INT64_MIN / -1`, whose remainder
-is 0. `^` is an integer power and unary `-` wraps.
+A 64-bit integer compares with another 64-bit integer, or with a `number`, by
+mathematical value: `-1LL < 5ULL` and `1LL < 1.5` are true, and
+`-1LL == 0xffffffffffffffffULL` is false. `/` and `%` are truncating integer
+division, so `-7LL / 2LL` is -3 and `-7LL % 2LL` is -1, and a zero divisor
+raises `integer division by zero`. `^` is an integer power and unary `-` wraps.
 
-A `number` stored into an integer field or span element converts as LuaJIT's
-FFI store does, which is not `wrap`: it truncates toward zero through `int64`
-and keeps the low bits, so storing `1.9` gives 1 and `-1.9` gives -1 at every
-width, and `4294967303.5` stored into an `int32` gives 7. A `uint64`
-destination takes the union of both 64-bit ranges, so a negative value keeps
-its two's-complement pattern. `nupp.math.i32.wrap` and `u32.wrap` are LuaJIT's
-`tobit` instead, and round to nearest. NaN, infinities and values outside
-those ranges convert to target-dependent integers.
+A `number` stored into an integer field or span element is not `wrap`: it
+truncates toward zero through `int64` and keeps the low bits, so storing `1.9`
+gives 1 and `-1.9` gives -1 at every width, and `4294967303.5` stored into an
+`int32` gives 7. NaN, infinities and values outside the 64-bit ranges convert
+to target-dependent integers.
 
 The binary32 operations lower to native single-precision instructions, and this
 is exact rather than a relaxation: a binary32 operation over binary32 operands
@@ -172,8 +154,8 @@ and narrower -- a value at or above 2^31 does not survive it.
 
 A bitwise operator needs neither. Established `uint32` operands keep their
 unsigned range through `&`, `|`, `~`, `<<`, `>>`, and unary `~`; an exact
-in-range literal can supply the other operand. The ordinary Lua and native
-routes agree, including results with bit 31 set. Established signed or mixed
+in-range literal can supply the other operand. Ordinary code and `@aot`
+bodies agree, including results with bit 31 set. Established signed or mixed
 operands retain the signed `int32` result. Arithmetic right shift remains
 signed. Nothing has to be wrapped back to the width it never left:
 
@@ -196,7 +178,7 @@ Both require equal logical lane counts. Reinterpretation also requires equal
 element widths. Use `Fixed<N>` when changing element width: preferred species
 of different element widths have different lane counts.
 
-Numeric conversion follows LuaJIT FFI rules, not saturating conversion:
+Numeric conversion is not saturating:
 
 - Integer narrowing keeps the low bits; widening extends the source value.
 - Float-to-integer truncates toward zero through `int64`, then narrows. Thus
@@ -208,11 +190,10 @@ Numeric conversion follows LuaJIT FFI rules, not saturating conversion:
 
 NaN, infinities, and float inputs outside the conversion's supported range
 produce unspecified target-dependent integer values, never undefined behavior.
-Do not use those values as a portable overflow test. This does not promise the
-same exceptional integer that a particular LuaJIT build happens to return.
+Do not use those values as a portable overflow test.
 
 Conversions lower to vector operations, with target-dependent instruction
-counts; some targets must decompose 64-bit conversions. The generated code
+counts; some targets must decompose 64-bit conversions. The lowering
 guards floating inputs before any potentially undefined integer conversion.
 Reinterpretation does no numeric work and preserves NaN payloads and signed
 zero as bits.
@@ -278,7 +259,7 @@ lane does, sign- or zero-extended to its 32-bit carrier.
 
 ## Verification
 
-The generated code is a backend representation and not the safety boundary. Every span
+Machine code is a backend representation and not the safety boundary. Every span
 access, region relationship, conversion and lane operation is verified in the IR
 before anything is emitted, so a rewrite that produced something invalid is a
 compiler bug caught before it becomes a miscompilation.
@@ -338,21 +319,6 @@ local function classify(
     end
 end
 ```
-
-It lowers to one selector `Let`, one result `Let`, an ordered scalar-IR `If`,
-and branch `Assign` operations. An established `int32` or `uint32` selector
-with integer cases in its range compares in its own width, one `icmp eq` per
-case, and the code generator chooses the physical dispatch: a jump, a native
-`switch`, or, in the map above, lane-wise selects. Nupp `integer` is normally
-binary64, so those selectors deliberately remain binary64 equality branches
-rather than being converted. String selectors use the existing Lua-string AOT interface: the
-selector is evaluated once and rooted, then each case compares its byte length
-and contents with the literal. Comparisons preserve embedded NUL bytes, do not
-allocate case strings, and use byte equality rather than locale rules. Type
-patterns still report the ordinary subset boundary.
-Block arms use ordinary branches so that `break` still targets the authored
-loop. The code generator chooses the physical native dispatch; Nupp does not
-force a jump table or synthesize a perfect hash.
 
 A [do expression](../../language/do-expressions.md) may contain locals, branches,
 and supported loops. `yield` supplies its result and exits the nearest value

@@ -20,7 +20,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | Command | Purpose | More |
 | --- | --- | --- |
 | `check` | Type-check the project | [cli.md](../../reference/cli.md) |
-| `build` | Build configured Lua, native, Wasm, or packaged artifacts | [build.md](../projects/build.md) |
+| `build` | Check a library, or build a VM program binary or documentation site | [build.md](../projects/build.md) |
 | `run` | Compile and run | [cli.md](../../reference/cli.md#run) |
 | `test` | Build, then run the bundled or configured suite | [testing.md](../projects/testing.md) |
 | `fmt` | Format; fixed style | [fmt.md](formatter.md) |
@@ -31,13 +31,13 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `import-c` | Turn a C header into declarations | [c-interop.md](../runtime/c-interop/index.md) |
 | `export-c` | Export Nupp struct layouts and entry declarations | [c-interop.md](../runtime/c-interop/index.md) |
 | `migrate` | Convert annotated Lua into Nupp | [luacats.md](../projects/integrations/luacats.md) |
-| `aot` | Inspect verified AOT IR and target artifacts | [index.md](../performance/ahead-of-time/index.md) |
+| `bc` | Show the VM bytecode a file compiles to | [performance.md](../performance/index.md) |
+| `bench` | Run isolated benchmark programs | [benchmarks.md](../performance/benchmarks.md) |
 | `reference` | Print focused language and tool reference | [diagnostics.md](../../reference/diagnostics.md) |
 | `ownership-audit` | Report resource obligations and transfers | [ownership.md](../runtime/ownership/index.md) |
 | `test --coverage` | Aggregate Nupp coverage data | [testing.md](../projects/testing.md) |
 | `completions` | Generate shell completion definitions | [cli.md](../../reference/cli.md) |
-| `tasks` | List or inspect manifest targets | [build.md](../projects/build.md) |
-| `task` | Run a configured project task | [project-tasks.md](../projects/project-tasks.md) |
+| `task` | List targets, or run a configured project task | [project-tasks.md](../projects/project-tasks.md) |
 | `clean` | Remove configured build outputs | [build.md](../projects/build.md) |
 | `fixpoint` | Verify the self-hosting rebuild | [distribution.md](../../reference/distribution.md) |
 | `ast` | Dump a parsed syntax tree | [cli.md](../../reference/cli.md) |
@@ -143,13 +143,11 @@ does with its result.
 ```bash
 nupp build                    # the default manifest target
 nupp build --target docs      # a named target
-nupp build -O2                # optimize
 nupp task --list              # what targets exist
 nupp clean --dry-run          # what clean would remove
 ```
 
-Builds are incremental across processes. A source edit rechecks and regenerates
-that module; dependents are only invalidated when its exported interface
+Builds are incremental across processes. A source edit rechecks that module; dependents are only invalidated when its exported interface
 changes. See [build system](../projects/build.md) for the manifest, targets,
 caching, and native dependencies.
 

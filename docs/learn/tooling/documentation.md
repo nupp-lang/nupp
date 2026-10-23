@@ -42,8 +42,8 @@ Markdown is CommonMark with pipe tables, rendered by
 runtime carries; a docs target declares no dependency for it. Everything Nupp
 adds to Markdown -- fences with captions and line numbers, containers, embeds,
 heading anchors and symbol links -- is handled by `nupp doc` around the
-renderer, so the Markdown itself is plain CommonMark. A runtime without the
-renderer, such as the LuaJIT one, stops with a message instead of rendering.
+renderer, so the Markdown itself is plain CommonMark. A runtime built without the
+renderer stops with a message instead of rendering.
 
 ## Doc comments
 
@@ -294,7 +294,7 @@ the opener, so a longer fence can show a shorter one literally.
 A caption names a block, and becomes a tab label inside a code group:
 
 ````markdown
-```lua [Generated Lua]
+```nupp [main.nupp]
 local x = 1
 ```
 ````
@@ -342,8 +342,8 @@ local record Point
 end
 ```
 
-```lua [Generated Lua]
-local Point = {} Point.__index = Point
+```text [Output]
+Point
 ```
 :::
 ````
@@ -579,7 +579,9 @@ stdlib = {path = "luajit", title = "LuaJIT standard library"},
 The page is the compiler's own declarations: the prelude it loads into every
 check, and the declaration files behind `require("ffi")`,
 `require("string.buffer")` and the `jit` submodules. A signature on the page is
-the signature the checker enforces, because the two read the same file.
+the signature the checker enforces, because the two read the same file. It is
+not a promise about run time: on the VM, `require("ffi")` and the `jit` modules
+find nothing, while `string.buffer` and `bit` are there.
 
 The compiler-provided globals come first, then one section per library table,
 `string`, `table`, `math` and the rest, then the modules `require` loads, then

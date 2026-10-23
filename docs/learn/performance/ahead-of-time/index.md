@@ -4,10 +4,11 @@ order: 630
 
 # Ahead-of-time compilation
 
-`@aot` lowers a checked top-level local function through verified IR before the
-program runs. `target = "gpu"` produces a typed resident-buffer kernel and a
-native SPIR-V artifact. A CPU `@aot` function is lowered by the VM, which runs
-the same verified IR on its native tier.
+`@aot` marks a checked top-level local function as one that must stay inside
+the subset ahead-of-time lowering can represent: no closures, dynamic or
+optional calls, varargs, `goto`, constructor calls, owned scopes or `@unsafe`
+constructs.
+`target = "gpu"` makes it a typed resident-buffer kernel.
 
 ```nupp
 @aot
@@ -16,19 +17,20 @@ local function clamp(value: number, low: number, high: number): number
     if value > high then return high end
     return value
 end
+
+print(clamp(5, 1, 3))
 ```
 
-`nupp check` validates the target and the structural subset, and for a target
-whose policy compiles `@aot` code it lowers each function for every feature tier
-the build selects, so `@aot` on something the backend could not lower is an
-error rather than a surprise later. A target's `aot` policy selects what a
-build does with it: `off` by default, and `require` to compile every
-`@aot(target = "gpu")` kernel. Under `require` a CPU `@aot` function is refused:
-its LuaJIT-era native code generator was removed.
+`nupp check` validates the target and the structural subset, so `@aot` on
+something outside it is an error where it is written. A target's `aot` policy is
+`off` by default; `require` also binds every `@aot(target = "gpu")` kernel. On
+the VM a CPU `@aot` function is lowered with the rest of the program, so it runs
+on the same runtime as its callers.
 
 GPU entries replace the function with a checked `compile`, `bind`, and
-`dispatch` surface. A loop that runs in CPU vector lanes states its species,
-masks, and tail through `nupp.simd`.
+`dispatch` surface; the VM has no GPU provider yet, so no device opens on it. A
+loop that runs in CPU vector lanes states its species, masks, and tail through
+`nupp.simd`.
 
 ## Const-specialized families
 
@@ -46,17 +48,14 @@ end
 local result = doubled(5.0, 3)
 ```
 
-Lowering collects closed applications across the module graph and specializes a
-private body per admitted body class. One module may lower eight logical const
-body classes before target tiers multiply them. Calls with the same semantic
-key deduplicate, and keys with the same proven body and ABI coalesce. Exceeding
-the cap is an error that names its demanding call sites. With AOT off, the
-generic Lua body remains available; at `-O1` and above it may still be
-specialized by [`OPT-8`](../index.md#opt-8-const-monomorphization).
+The checker admits such a body as it admits any other `@aot` function. No
+per-constant bodies are produced: the lowering that specialized them was
+retired, and [NUPP2908](../../../reference/diagnostics.md), which capped them,
+is no longer reported.
 
 ## Annotation guarantees
 
-`@aot` promises ahead-of-time compilation and stable numeric meaning.
+`@aot` promises stable numeric meaning.
 
 The body's numeric meaning is pinned. Ordinary binary64 Nupp arithmetic is
 neither contracted nor reassociated, so an AOT function's results are a property
@@ -68,9 +67,9 @@ does not depend on grouping. Ask for a relaxation per function with
 ::: deepdive Required compilation
 The annotation is a contract over ordinary Nupp rather than a restricted
 sublanguage: the body uses the same parser, type system, operators, and
-diagnostics, so removing the annotation changes performance and artifacts but
-never the source-level result. There is no silent per-function fallback, because
-a contract that degrades quietly is a comment.
+diagnostics, so removing the annotation never changes the source-level result.
+A body outside the subset is an error rather than a silent per-function
+fallback, because a contract that degrades quietly is a comment.
 
 :::
 
@@ -82,7 +81,7 @@ See these pages for each part of the AOT pipeline.
   helpers, and feature tiers, with runnable examples.
 - [Numeric semantics](numeric-semantics.md) for arithmetic guarantees and
   verification.
-- [GPU compute](gpu.md) for native resident buffers and workgroup kernels.
+- [GPU compute](gpu.md) for resident buffers and workgroup kernels.
 
 ## FAQ
 
@@ -90,10 +89,8 @@ See these pages for each part of the AOT pipeline.
 
 ### Does `@aot` change what a function returns?
 
-Only through `@relax`. Removing `@aot`, or building the same source under
-`aot = "off"`, changes performance and artifacts and never the result.
-`@relax` is the one annotation that changes the answer, and it says so per
-function.
+No. Removing `@aot`, or building the same source under `aot = "off"`, never
+changes the result.
 
 ### How does a loop run in vector lanes?
 
@@ -102,6 +99,6 @@ and a tail. A loop without those operations is scalar. See
 [simd-programming.md](simd-programming.md) for the model and vector operations.
 
 ::: seealso
-- [performance.md](../index.md) for the rewrites applied to ordinary Nupp
+- [performance.md](../index.md) for reading the bytecode ordinary Nupp lowers to
 - [](nupp.mem.span) for the span types a kernel takes
 :::

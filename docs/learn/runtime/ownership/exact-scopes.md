@@ -155,6 +155,6 @@ those views are acquired.
 ::: seealso
 - [ownership.md](borrowing.md) for affine terminals, moves,
   aggregates, and unsafe representation boundaries
-- [performance.md](../../performance/index.md#soa-columns) for what a hot loop
-  over SoA columns lowers to
+- [structure-of-arrays.md](../data/structure-of-arrays.md#hot-loops) for loops
+  over SoA columns
 :::

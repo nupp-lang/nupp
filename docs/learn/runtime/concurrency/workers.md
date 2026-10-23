@@ -5,10 +5,10 @@ order: 150
 # Worker tasks
 
 `nupp.workers` runs sendable functions in parallel on a shared,
-bounded scheduler whose lanes are native threads with isolated LuaJIT states.
+bounded scheduler whose lanes are native threads, each running its own VM.
 A lane is reached through `fork` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
-while Lua heaps and their globals, userdata, cdata, and mutable module state stay
+while heaps and their globals, userdata, cdata, and mutable module state stay
 isolated. Eligible closure captures cross only as independent copies.
 
 ```nupp
@@ -36,32 +36,11 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current Lua state; passing it to `scope:fork` runs it on the worker
+in the current VM; passing it to `scope:fork` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
-::: note Workers need a compiler-owned binary, or a browser provider
-Natively, workers run only in a `binary` target whose `stub` is `"nupp"`. The
-host supplies the pinned LuaJIT, stamped payload, native scheduler primitives,
-and early machine-code address-space reservation. Builds refuse workers in
-module and bundle targets and with third-party binary stubs. See
-[Compiler-native features](../../projects/build.md#compiler-native-features).
-
-```lua
--- nupp.lua
-return {
-   include = { "src" },
-   build = {
-      kind = "binary",
-      stub = "nupp",
-      entries = { "main" }
-   }
-}
-```
-
-A bundle with a compatible `nupp.workers.spi.Provider` provider runs them too.
-That is [the browser backend](#browser-lanes) today, where a lane is a Web
-Worker rather than a thread.
-:::
+Workers run under `nupp run` and in a `binary` target alike: the VM runtime
+carries the scheduler, so nothing has to be configured to use them.
 
 ## Structured scopes
 
@@ -207,9 +186,9 @@ anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
 
 Submission chooses the lane with the fewest unsettled tasks. Each lane runs
-one task at a time in its own Lua state, while different lanes run in parallel.
+one task at a time in its own VM, while different lanes run in parallel.
 The lanes remain alive until process exit so repeated short scopes do not pay
-Lua-state startup for every task.
+VM startup for every task.
 
 The scheduler also owns one suspension readiness source. A poll pass drains
 available replies from every lane and wakes the tasks that settled. Awaiting
@@ -304,13 +283,13 @@ scope:fork(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
 
 The binding `requestedWidth` must be initialized and never reassigned. Its value
 must be copyable, just like an explicit argument. The source file must declare a
-module so a worker state has a stable place to load the outlined body. The local
+module so a worker VM has a stable place to load the outlined body. The local
 value is still an ordinary closure when called directly; outlining is additional
 worker metadata, not a different local calling convention.
 
 Module locals are reconstructed independently when that module loads in a lane.
-Activation locals are copied as captures. In neither case does a Lua upvalue or
-heap identity cross between states.
+Activation locals are copied as captures. In neither case does an upvalue or
+heap identity cross between VMs.
 
 A callable held as a value keeps the guarantee only where the type says so, so a
 dispatch table names it:
@@ -325,7 +304,7 @@ const handlers: {[string]: @sendable function(string): string} = {
 `nupp reference --section sendable-callables` describes contextual literals,
 effective finality, and how the guarantee travels through types.
 
-The worker requires the module in its own state and invokes the authored export
+The worker requires the module in its own VM and invokes the authored export
 or compiler-registered outline. Top-level module initialization therefore runs
 once in each lane that first uses the module. Treat mutable module state as
 lane-local, not shared state.
@@ -339,7 +318,7 @@ the lane: later tasks sent to it run normally.
 Transferable values are nil, booleans, numbers, strings, and tables recursively
 made from those values with scalar keys. An instance built by an exported Nupp
 record declaration is transferable too. Each receiver decodes an independent
-copy, and a record receives that state's declaration table as its metatable.
+copy, and a record receives that VM's declaration table as its metatable.
 Nil positions in argument and result packs are retained.
 
 A submitted signature is held to this where it is written. A parameter or a
@@ -421,7 +400,7 @@ running, and so do tasks whose values use records it already carries.
 
 One exception to the ownership refusal is deliberate. A worker parameter may
 take a [](nupp.mem.heap) array of a fixed-width element, and an affine result
-may return one; neither is a copy. The array's storage lives in neither Lua
+may return one; neither is a copy. The array's storage lives in neither VM's
 heap, so the message hands its pointer across and the receiving lane becomes
 the one owner. The fork consumes the sender's binding, so touching it
 afterwards is a compile error at the send site, and an affine result moves
@@ -519,8 +498,8 @@ handled where the scope is left, not by awaiting the task that carries it. Where
 each item should keep its own outcome, give each one a scope of its own, as the
 [fan-out](#fanning-out-over-a-list) children do, and catch there.
 
-A running task is not preempted. Lua and foreign code have no safe general
-interruption point, so leaving a scope waits for a task that is already running.
+A running task is not preempted. Running code and foreign calls have no safe
+general interruption point, so leaving a scope waits for a task that is already running.
 A bounded function can cooperate by calling `tasks.checkpoint()`:
 
 ```nupp:fragment
@@ -551,40 +530,3 @@ The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
 across process failure, and jobs that outlive the caller belong to a broker or
 [](nupp.io.process), not this scheduler.
-
-## Browser lanes
-
-The browser implementation satisfies `nupp.workers.spi.Provider`, so
-everything above is written the same way there. A lane is a module Web Worker
-holding its own Lua state, booted from the same verified application package
-the page loaded. A lane checks that the
-manifest it fetches has the digest of the one the page verified, so a deploy
-between page load and a lane's start fails that lane's tasks with "the
-application manifest changed after the page loaded it" rather than pairing two
-builds. Nothing is shared between
-lanes, so no Wasm threads, no `SharedArrayBuffer`, and no cross-origin isolation
-headers are involved.
-
-The page's pool is bounded by both the package's lane limit and
-`navigator.hardwareConcurrency`, and `nupp.system.availableParallelism()`
-returns that bound there. Lanes boot as work arrives rather than when the first
-fork is made.
-
-Three things a program can observe differ, because a browser gives two Workers no
-synchronous channel:
-
-- a reply reaches the calling state when it next waits, so `Task:isDone` returns
-  as of that point rather than the moment a lane produced the value;
-- `Task:cancel` still reports whether it made the first request, but a queued
-  task settles at the next wait rather than inside the call;
-- reading a cancellation request costs one turn of the lane's event loop, so
-  `tasks.checkpoint()` belongs at a granularity the loop chooses rather than on
-  every iteration of a tight one.
-
-One thing the native scheduler offers is not there. A [moved owned
-buffer](#moving-owned-buffers) cannot transfer its native pointer ownership into
-another lane, so every ownership mode keeps the copy refusal.
-
-Everything else is the same: a scope is fail-fast, a scope deadline reaches a
-lane, and `nupp.tasks.checkpoint()` is where a running lane observes that its
-cancellation was requested.

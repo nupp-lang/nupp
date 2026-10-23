@@ -24,9 +24,8 @@ end
 ```
 
 This *kernel*, a function that computes over a block of data, multiplies each
-input by `factor` and writes the result to `output`. The same source runs
-under ordinary Lua one value at a time; the caller below shows how to supply
-its data.
+input by `factor` and writes the result to `output`. The caller below shows
+how to supply its data.
 
 ## Scalar instructions
 
@@ -75,7 +74,7 @@ Scaling eight values stored as `float` needs two four-lane multiplications:
 load four values, multiply all four by two, store four results, and repeat.
 The NEON instruction `fmul.4s` multiplies four binary32 values at once. Nupp's
 array storage gives the opening kernel the contiguous values these loads
-need; the Lua table in the scalar example has a different layout.
+need; the table in the scalar example has a different layout.
 
 ## Suitable work
 
@@ -92,7 +91,7 @@ includes:
 
 Following a linked list has a different constraint: the next address depends
 on the previous load, so consecutive steps cannot be loaded together. Mixed
-Lua values and calls to a different function per element also lack the uniform
+dynamic values and calls to a different function per element also lack the uniform
 data and operations these kernels need.
 
 Different conditions per element can still use SIMD by selecting which lanes
@@ -101,10 +100,8 @@ their running time. The useful group size depends on the work and the target.
 
 ## Kernels
 
-Nupp's explicit SIMD operations use the *ahead-of-time* (AOT) path: an `@aot`
-function lowers through verified IR, which the VM compiles on its native tier
-into processor instructions. The kernel uses these modules to connect its data
-to those instructions:
+The VM runs explicit SIMD operations as vector instructions. The kernel uses
+these modules to connect its data to those instructions:
 
 - [](nupp.mem.array) allocates owned, contiguous storage of
   one element type. Contiguous means the elements sit next to each other in
@@ -112,13 +109,12 @@ to those instructions:
   when passed to an allocation or species constructor.
 - [](nupp.mem.span) provides a *span*, a bounds-checked view of
   storage. Its native representation includes an address and an element
-  count, so the kernel can read the data without navigating a Lua table.
+  count, so the kernel can read the data without navigating a table.
 - [](nupp.simd) provides vector operations. A *species* describes
   their element type and lane count, such as four `float` lanes on NEON.
 
-With AOT off, the preferred species is one lane wide and the loop runs under
-ordinary Lua. Each example followed by output runs with `nupp run` without
-an AOT build; shorter snippets illustrate parts of a kernel. The opening
+Each example followed by output runs with `nupp run`; shorter snippets
+illustrate parts of a kernel. The opening
 kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
@@ -190,8 +186,7 @@ local lanes = species.lanes
 ```
 
 `simd.species(array.float)` is the species for `float` on the selected target:
-four lanes on NEON, one lane on a target with no vector registers or when the
-function runs as plain Lua. The source
+four lanes on NEON, one lane on a target with no vector registers. The source
 never writes a lane count, so this element-by-element multiplication works
 at every width.
 
@@ -256,10 +251,9 @@ elements, and both the partial load and its store receive that mask.
 
 ## Running a kernel
 
-The VM lowers an `@aot` function's verified IR on its native tier, so explicit
-lane operations reach vector instructions without a separate build step. Run as
-ordinary Lua, under `aot = "off"`, the same source still answers the same: the
-preferred species has one lane and a fixed species its requested count.
+The VM runs explicit lane operations as vector instructions, so a kernel needs
+no separate build step under `nupp run`. A `binary` target whose program has
+vector code is stamped onto a runtime with its image compiled ahead of time.
 
 A loop without `nupp.simd` operations is scalar in Nupp's *intermediate
 representation* (IR). Explicit SIMD puts the lane operations in the source, so
@@ -297,14 +291,10 @@ With four lanes, `ones` contains `1, 1, 1, 1`, and `ramp` contains
 `simd.species(array.float)` is the *preferred species*, sized for the vector
 width selected by the build. `simd.species(array.float, 4)` is a *fixed
 species* with four logical lanes on every AOT tier, which the compiler
-implements in however many registers that takes. Under ordinary Lua a fixed
-species keeps its four lanes as well: a vector of it is a table of four lanes,
-and its mask is a table of four booleans. `species.lanes` reads 4 where the
-preferred species reads 1.
+implements in however many registers that takes.
 
 Prefer the preferred species unless an algorithm needs a known lane count,
-such as a four-by-four matrix transpose. An algorithm written against a fixed
-count runs unchanged as ordinary Lua, lane by lane in library code.
+such as a four-by-four matrix transpose.
 
 Species exist for every storage element: `uint8` through `uint64`, their
 signed forms, `float`, and `number`. The element is named by the witness
@@ -324,7 +314,7 @@ Construct both operands from the same species when they represent matching
 lanes.
 
 Vectors can pass between native CPU `@aot` functions. To return results to a
-Lua caller, store the elements into memory, extract a scalar lane, or reduce
+caller outside them, store the elements into memory, extract a scalar lane, or reduce
 the vector to a scalar. See [native-only entries](#native-only-entries) for
 vector parameters and results.
 
@@ -590,8 +580,7 @@ in how they combine contributions:
   width. It reduces the number of successive rounding steps for each input,
   though it is not more accurate for every input sequence.
 - `algebraicSum` permits regrouping, so the compiler can keep independent
-  partial sums. The answer can vary between targets and between compiled and
-  ordinary Lua execution; cancellation can make the difference substantial.
+  partial sums. The answer can vary between targets; cancellation can make the difference substantial.
 - `compensatedSum` carries the rounding error of each addition beside the
   total and adds the correction at the end. It improves accuracy at the cost
   of extra arithmetic and still has finite precision.
@@ -1134,26 +1123,26 @@ occupy several registers. Species and reducers cannot be entry parameters
 or results: a species is a compile-time fact, and a reducer belongs to a
 region. Vector and mask entry parameters and results require native CPU AOT.
 
-### Lua callers
+### Callers outside `@aot`
 
 When the target's AOT policy compiles these entries, the checker rejects
-calls from Lua code:
+calls from code outside `@aot` functions:
 
 ```nupp:fragment
-local function fromLua(): simd.Vector<float, simd.Preferred>
+local function outside(): simd.Vector<float, simd.Preferred>
     return twice(simd.species(array.float):splat(1.0)) -- NUPP2910
 end
 ```
 
 It also rejects passing a native-only function as an argument, returning it,
-or storing it in a Lua table. Module exports and import bindings are allowed
+or storing it in a table. Module exports and import bindings are allowed
 so other native functions can reach the entry.
 
-Native calls resolve through module exports without reading a Lua function
+Native calls resolve through module exports without reading a function
 value.
 
-Under `aot = "off"`, the functions are ordinary Nupp and callable from Lua.
-Preferred vectors use one lane; fixed vectors use their requested count.
+Under `aot = "off"`, the functions are ordinary Nupp and callable from any
+code.
 
 ## Native-only aggregates
 
@@ -1207,10 +1196,7 @@ local function conjugate(z: Pair): Pair
 end
 ```
 
-Return `new Pair(z.re, -z.im)` instead. Under `aot = "off"`, the aggregate
-is a Lua table built by position. Its preferred vector and mask fields hold
-numbers and booleans; fixed species use lane tables. Immutability keeps both
-forms consistent when a value is shared.
+Return `new Pair(z.re, -z.im)` instead.
 
 ### Storage layout
 
@@ -1226,7 +1212,7 @@ local function first(borrows values: span.Span<Pair>): Pair -- not storable
 end
 ```
 
-Constructing such an aggregate from Lua is also rejected when the target's
+Constructing such an aggregate outside an `@aot` function is also rejected when the target's
 AOT policy compiles it. Store scalar elements in memory, or use a stored
 vector field, and build the aggregate inside the kernel.
 
@@ -1236,7 +1222,7 @@ A stored struct needs a layout independent of the CPU tier, which a
 `Fixed<N>` vector of a storage element has. A struct holding such fields,
 and nothing else of the SIMD vocabulary, is a storage struct: a span or
 array holds it, and the field is read and written whole through its row, in
-a native kernel and as ordinary Lua alike:
+a native kernel and in ordinary code alike:
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -1274,13 +1260,8 @@ that alignment, so three `float` lanes occupy 16 bytes, 4 of them padding; a
 payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
 bytes a row, `velocity` at offset 16.
 
-Both sides are held to that model. The Lua struct declares the field as its
-element's C array with the model's alignment, so `layoutof(Particle)`, the
-FFI's allocation and its stride follow it, and native code loads and stores the
-field as one vector at the model's alignment.
-
-As ordinary Lua the field is the struct's C array: reading it returns the
-N-lane vector of its species, and assigning a vector copies the lanes in.
+Reading the field returns the N-lane vector of its species, and assigning a
+vector copies the lanes in.
 :::
 
 ## Feature tiers
@@ -1291,9 +1272,7 @@ compiled function may use: NEON on ARM, an x86 baseline, AVX2, or AVX-512.
 The preferred species has one lane on a scalar tier, while
 a fixed species retains its requested logical lane count on every tier.
 
-Under ordinary Lua the preferred species has one lane and a fixed species its
-requested count. The vector operations use library helpers, so a plain scalar
-loop can cost less. Use
+Use
 `simd.vectors(array.float)` when the kernel has its own scalar implementation:
 it returns a species where vector registers are available and `nil` where
 they are not. AOT resolves this choice at compile time for each tier:

@@ -6,10 +6,17 @@ title: Host requests
 # Host requests
 
 [](nupp.host) asks whatever runs the program for something and waits for the
-answer: the page's JavaScript in a browser, or the C or Rust application that
-embeds the runtime natively. Use it when a library needs a facility the host
-has and Nupp does not, such as a canvas, a clipboard, an engine's asset loader
-or its input devices, and should not care which host it runs under.
+answer. It is meant for a library that needs a facility the host has and Nupp
+does not, such as a canvas, a clipboard, an engine's asset loader or its input
+devices, and should not care which host it runs under.
+
+::: warning
+Nothing answers host requests on the VM yet. There `host.attached()` is
+`false`, and every call, post, send and route is refused by name: `nupp: no host
+answers app.image.decode; no embedding application is attached`. The VM's
+[Rust embedding](../projects/native-modules.md#embedding-the-vm) has no host
+channel.
+:::
 
 The host answers by kind, a dotted name such as `app.image.decode`. Nupp owns
 the channel and nothing that travels on it: what a kind means is between the
@@ -65,8 +72,7 @@ local length, echoed = digest(bytes = span.fromString(text))
 ```
 
 A byte result arrives as a span the caller owns. Bytes sent to the host may be
-up to 64 MiB and bytes answered up to 8 MiB, on both hosts, so a kind that works
-natively cannot fail in the browser on size alone. Large assets are better named
+up to 64 MiB and bytes answered up to 8 MiB. Large assets are better named
 than carried: give the host a URL or a path and let it answer with an id.
 
 ## Results nobody waits for
@@ -126,27 +132,7 @@ host applies an inbound route's policy before the messages cross, so what a
 route would drop never costs the program anything. An inbound message carries
 scalars and strings, which is what an event's fields hold.
 
-## Answering natively
-
-An application embedding the runtime registers a C handler per kind and answers
-at once or later from its own loop; see
-[Answering host requests](../projects/embedding.md#answering-host-requests). A
-program run on its own with `nupp run` has no host, and `host.attached()` says
-so.
-
-Natively a park blocks inside the call the application made, so a request the
-application answers later must run under a suspension handler. [](nupp.host.pump)
-is one: it runs an operation until it finishes or parks, and the application
-polls it from its loop.
-
-## What a frame costs
-
-A call that waits alone for its answer takes one frame each way. Many calls made
-together share their frames, so issue independent calls from separate tasks in
-a [task scope](concurrency/task-scopes.md) rather than one after another.
-
 ::: seealso
 - [](nupp.host) for the full API
 - [suspension.md](concurrency/suspension.md) for what a wait does under a handler
-- [embedding.md](../projects/embedding.md) for the C side of the channel
 :::

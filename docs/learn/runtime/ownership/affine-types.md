@@ -206,18 +206,15 @@ exactly once.
 
 ## FAQ
 
-### Why track ownership when LuaJIT already has GC finalizers?
+### Why track ownership when the collector can finalize?
 
-`ffi.gc` attaches runtime finalization to every resource and makes the garbage
-collector discover and dispatch its cleanup. `luajit bench/ownership.lua`
-compares that path with explicit cleanup around the same `malloc` and `free`; on
-LuaJIT 2.1 for arm64, finalization costs roughly an order of magnitude more per
-resource. Nupp's affine policy exists only during checking, adds no per-value
-wrapper, finalizer registration, or tracing work, and [lexical
-destruction](borrowing.md#consumption-and-lexical-destruction) performs like the
-equivalent explicit cleanup within measurement noise.
+A finalizer makes the garbage collector discover and dispatch every resource's
+cleanup at a time of its choosing. Nupp's affine policy exists only during
+checking, adds no per-value wrapper, finalizer registration, or tracing work,
+and [lexical destruction](borrowing.md#consumption-and-lexical-destruction)
+runs the cleanup where the scope ends.
 
-Cleanup timing also controls capacity. The garbage collector sees a small Lua
+Cleanup timing also controls capacity. The garbage collector sees a small
 wrapper, not the file descriptor, socket, lock, or native allocation behind it,
 so a program can exhaust its file-descriptor limit before enough wrappers
 trigger collection, or keep another task waiting on a lock whose unreachable
@@ -235,7 +232,7 @@ after the value moved.
 ### Does every Nupp value use ownership?
 
 No. Strings, numbers, tables, and records without a nontrivial capability retain
-ordinary Lua behavior and need no annotation, and a record constructor stays
+ordinary behavior and need no annotation, and a record constructor stays
 ordinary unless its result introduces a policy. See [public capability
 contracts](borrowing.md#public-capability-contracts) for the parameters that do
 need a mode.

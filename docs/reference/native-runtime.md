@@ -5,130 +5,63 @@ title: Native runtime and support
 
 # Native runtime and support
 
-Nupp source and the Nupp compiler own language behavior. Rust owns native
-resources, asynchronous work, and the production host around LuaJIT. A native
-build therefore does not translate a Nupp program into a Rust application:
-the compiler still emits Lua, C AOT code, or GPU shader code, and the selected
-Rust substrate supplies the mechanisms that code reaches.
+Nupp source and the Nupp compiler own language behavior. Rust owns the runtime
+that executes a program and the native resources it reaches. A native build
+does not translate a Nupp program into a Rust application: the compiler lowers
+the program to a VM image, and the Nupp VM runtime (`native/crates/vm`) loads
+and runs that image.
 
 The boundary is deliberately narrow:
 
 | Layer | Owner | Responsibilities |
 | --- | --- | --- |
-| language and compiler | Nupp | types, effects, ownership, suspension policy, feature selection, AOT analysis and emission |
-| native provider | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes, and GPU resources |
-| host | Rust | payload discovery, LuaJIT state lifetime, native preload registration, workers, components, embedding handles, and shutdown |
-| VM | C | LuaJIT |
-| generated AOT | C, platform object code, or shader code | compiler-admitted kernels and their bindings |
+| language and compiler | Nupp | types, effects, ownership, suspension policy, facility selection, lowering to VM images |
+| VM runtime | Rust, with a C dispatch core | image loading and verification, the interpreter, the heap and collector, tasks and scheduling, native C calls |
+| native facilities | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes, compression |
 
-Rust resources cross into LuaJIT as fixed-width values and generational
-handles. Nupp code never receives a Rust reference, future, WGPU object, Tokio
-handle, or Reqwest response. Rust executor threads never enter LuaJIT; they
-publish bounded completion records which the owning Lua lane consumes.
+Native resources cross into Nupp as plain values and handles. Nupp code never
+receives a Rust reference, future, Tokio handle, or Reqwest response. Executor
+threads never enter the VM: a network operation is a nonblocking poll of state
+the shared Tokio executor moves on its own threads.
 
-## Compiler-selected features
+## Facility selection
 
-Authors select APIs, not Cargo features. The compiler records effects from the
-reachable program and closes their dependencies. The build then asks
-`scripts/toolchain` for an exact-feature provider and host. Default Cargo
-features are disabled, so an HTTP-free program does not acquire Reqwest and a
-GPU-free program does not acquire WGPU.
+Authors select APIs, not Cargo features. The compiler records the native
+facilities a program's image reaches, and a [`binary`
+target](../learn/projects/build.md) is stamped onto a VM runtime built with
+those and no others. Every program runtime has the interpreter, native C calls,
+files, paths, clocks, UUIDs and processes; the optional facilities are:
 
-| Nupp facility | Rust provider feature | Host feature when linked into a stub |
+| Facility | Reached through | Rust implementation |
 | --- | --- | --- |
-| clocks and timer suspension | `base` | base host |
-| paths | `filesystem` | `native-files` |
-| asynchronous files | `files` | `native-files` |
-| UUID | `uuid` | provider archive |
-| URI | `uri` | provider archive |
-| HTTP client | `http` | provider archive |
-| TCP, UDP, DNS, and Unix path sockets | `net` | `native-net` |
-| TLS over a Rust-owned network stream | `tls` | `native-tls` |
-| child processes and pipes | `process` | `native-process` |
-| native GPU compute | `gpu` | provider archive |
-| workers and shared immutable bytes | host-owned | `workers` |
+| `compression` | compression | `flate2` |
+| `net` | sockets and TLS | Tokio and `socket2`, with Rustls for TLS |
+| `http` | the HTTP client and URI | Reqwest over Tokio and Rustls, and the `url` crate |
+| `regex` | `nupp.text.regex` | the `regex` crate |
+| `markdown` | Markdown rendering | `pulldown-cmark` |
+| `c-headers` | reading C headers at compile time | the C declaration reader |
 
-`tls` includes the Rust network implementation, and the compiler's HTTP effect
-closure also selects URI handling. Builds stage the provider ABI in a dynamic
-library beside the program.
+A program with vector code gets a runtime with its image compiled ahead of time
+and linked in, carrying no code generator. The compiler's own runtime links
+every facility.
 
-The provider's ABI version 2 is an internal compiler/runtime boundary. It is
-not an extension ABI for applications. The public C embedding API in
-`host/include/nupp.h` has its own version and opaque types; its implementation
-is Rust even though C and C++ applications call it.
-
-### Provider ABI evolution
-
-The provider has one consumer built from a different checkout: the pinned
-stage-zero compiler. A fresh checkout's first build runs the previous release's
-compiler against the provider this checkout has just built, and that compiler
-requires version 2 exactly. Every other caller is built from the same checkout
-as the provider. So the version stays at 2, and the ABI grows by addition:
-
-- A minor change never renumbers. It adds exports, a feature bit, or an enum
-  value an older caller never receives. It does not change a signature, a
-  struct layout, or the meaning of a status or state value in place.
-- A replacement is named for the capability it adds, as
-  `nuppNativeNetStreamPeerEndpoint` is for an IPv6 scope, never with a version
-  suffix.
-- A new struct that crosses by pointer starts with `uint32_t size`, which the
-  caller sets to the size it was compiled with. The provider refuses a size
-  smaller than the struct's first version and touches only the fields it knows,
-  so the struct can grow at its tail.
-- A symbol can be deleted once no provider module uses it and the pinned
-  stage-zero image does not name it. `rustabitest` checks that every
-  `nuppNative*` name in the pinned image is still declared in
-  `native/include/nupp_native.h`; the fixpoint, whose first stage runs that
-  image against this checkout's provider, checks the rest.
-- Status codes and their meanings are part of the ABI. `nuppNativeBytesCopy`
-  still returns `CAPACITY` for a short output, where every other call returns
-  `BUFFER_TOO_SMALL`, because the pinned stage zero reads that code as the
-  answer to its size probe.
-- A major bump takes two releases. The first ships a loader that accepts both
-  versions, the stage-zero pin moves to it, and only then does the provider
-  bump.
-
-Every export catches a Rust panic, so a panic never ends the process that called
-it. A call that returns a status reports `NUPP_NATIVE_INTERNAL`, with the
-panic's text as the last error.
-
-### Readiness
-
-Every native family advances one process-wide readiness generation when
-something a caller could be waiting for changes: a socket or TLS session moves,
-a whole-file transfer settles, an HTTP client has events, a child exits or one
-of its pipes moves, or GPU work finishes. `nuppNativePoll` snapshots it and
-`nuppNativeWait` sleeps until it moves past a snapshot. A caller polls first,
-checks what it is waiting for with the families' non-blocking calls, and waits
-from the snapshot, so an edge after the poll ends the wait at once and none is
-lost.
-
-So every native wait in a Lua state sleeps on the same thing, and a program
-waiting on a socket, a child and a GPU dispatch at once wakes for whichever
-moves first. `nupp.runtime.native` keeps one snapshot for all of them, and each
-family's readiness source sleeps from it. GPU `synchronize` parks on it too:
-`nuppNativeGpuSynchronizeReady` returns whether the submitted work is done
-without blocking, and a helper thread advances the generation when it is, so a
-task deadline reaches the wait and other tasks run meanwhile.
-
-The per-family poll and wait calls that came before are superseded and stay
-declared, because the pinned stage-zero compiler still calls them.
+The VM has no GPU provider yet, so a program using `nupp.gpu` finds no device
+on it.
 
 ## Native implementations
 
 The current implementation choices are:
 
-- WGPU owns GPU device discovery, resources, command submission, and backend
-  selection. Native targets enable Metal on macOS, DX12 and Vulkan on Windows,
-  and Vulkan and GLES on other Unix systems.
 - Tokio owns the shared asynchronous executor and the file, network, process,
-  timer, and cancellation lanes built on it. Nupp uses Tokio rather than a
-  second Mio-based reactor.
+  timer, and cancellation lanes built on it.
 - Reqwest owns the HTTP client, connection pooling, streaming, proxy support,
   and content decoding. The selected build uses Rustls rather than a native TLS
   backend.
 - Rustls owns TLS policy and protocol state. `ring` is the explicitly selected
   cryptography provider and system roots come through `rustls-native-certs`.
+- libffi, through the `libffi` crate, performs native C calls and builds
+  callback trampolines.
+- Cranelift compiles VM bytecode to machine code.
 - Rust standard APIs, `socket2`, `windows-sys`, and narrow `libc` calls cover
   files, sockets, process handles, and platform details not exposed by the
   standard library.
@@ -141,95 +74,45 @@ contracts and may intentionally expose less than the underlying crate.
 Rust is the default language for repository-owned native mechanisms, not a
 claim that every executable byte is Rust. Native builds still retain:
 
-- pinned LuaJIT, its allocator, garbage collector, JIT, stack, and C API;
-- `native/crates/host/c/lua_shim.c` and `worker_shim.c`, which contain the
-  protected LuaJIT stack, userdata, callback, and longjmp boundary while Rust
-  owns every persistent host and worker resource;
+- `native/crates/vm/csrc/dispatch.c`, the VM's tail-call-threaded interpreter
+  core and its helpers;
+- libffi's C and assembly, built and linked through the `libffi-sys` crate;
 - `ring`'s bounded C and assembly implementation under its Rust API;
-- operating-system libraries, GPU drivers, and platform SDKs selected by Rust
-  crates and the final linker.
+- operating-system libraries and platform SDKs selected by Rust crates and the
+  final linker.
 
-The release notices describe the exact third-party source carried by a host.
-Software Vulkan used by CI is external test infrastructure, not the production
-GPU ownership layer.
+The release notices describe the third-party source a binary carries.
 
 ## Release support matrix
 
-The official release workflow builds these compiler hosts and catalog stubs:
+The official release workflow builds the compiler on each platform's own
+runner, as a VM program for that runner:
 
-| Public target | Release archive | Rust build ABI |
-| --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | `nupp-linux-x86_64.tar.gz` | native Linux GNU |
-| `aarch64-apple-darwin` | `nupp-macos-arm64.tar.gz` | native Apple Darwin |
-| `x86_64-pc-windows-msvc` | `nupp-windows-x86_64.zip` | GNU |
+| Platform | Release archive |
+| --- | --- |
+| `x86_64-unknown-linux-gnu` | `nupp-linux-x86_64.tar.gz` |
+| `aarch64-apple-darwin` | `nupp-macos-arm64.tar.gz` |
+| `x86_64-pc-windows-gnu` | `nupp-windows-x86_64.tar.gz` |
 
-The Windows names describe two different contracts. The public target keeps the
-`x86_64-pc-windows-msvc` name and layout, while the Nupp host itself embeds a LuaJIT built by its GNU make and MinGW toolchain.
-The base release host and ordinary Windows source checkout therefore use the
-ABI-compatible `x86_64-pc-windows-gnu` Rust host named in
+The Windows build uses the GNU Rust toolchain named in
 [`CONTRIBUTING.md`](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#requirements).
-The toolchain driver refuses an MSVC-hosted Rust compiler rather than mixing
-object ABIs.
-
-The release workflow also publishes the browser runtime separately. Browser
-Lua and WebGPU use their own portable host and do not turn the desktop host
-matrix into a browser support promise.
+The release also publishes the stage-zero compiler image a source checkout
+bootstraps from.
 
 ### Verification ownership
 
 The compiler CI matrix runs the Nupp suite on Linux x86-64, macOS arm64, and
-Windows x86-64. Before that broad suite, each runner executes the Rust resource
-stress and cancellation tests, crosses the aggregate C ABI, and links and runs
-the production executable host, static application archive, and static and
-dynamic embedding SDKs. Release builders repeat that artifact gate on the
-runner whose output they package because a separate compiler workflow cannot
-be a dependency of a tagged release. They then stamp, package, unpack, and run
-the matching compiler hosts. Cross-target jobs stamp all three public targets
-and execute each result on its matching runner.
-
-Those workflows are the platform gates; their presence alone is not evidence
-that a particular commit completed them. The Rust-host cutover is exercised on
-the retained Linux, macOS, and Windows runners, including the executable host,
-static application host, static and dynamic embedding SDKs, workers, appended
-compiler payloads, unpacked release artifacts, and byte-identical compiler and
-binary packaging fixpoints. The Windows gate also exercises the DirectX 12 WGPU
-adapter rather than relying only on the cross-platform software adapter.
-Manual release rehearsals do not hold Apple Developer ID credentials and cannot
-exercise optional tag-only signing and notarization. The same release matrix
-still builds and verifies an unsigned macOS archive without those credentials.
-
-## Migration breaks
-
-The Rust-native cutover intentionally did not preserve every old native API or
-artifact:
-
-- The legacy provider ABI and its C implementation were removed. The compiler
-  and runtime now select the version-2 Rust provider only.
-- The production C host under `host/c` was removed. The executable,
-  application archive, embedding SDK, payload loader, and worker core are Rust.
-  The C embedding header remains, so existing hosts migrate at the SDK boundary
-  rather than by embedding Rust types.
-- SDL GPU, SPIRV-Cross, MSL artifacts, and the SDL provider ABI were removed.
-  Native GPU builds accept canonical SPIR-V and execute it through WGPU.
-- Curl and ada were removed. URI behavior follows Rust's WHATWG `url` contract,
-  and HTTP follows the documented Reqwest contract rather than curl parity.
-- Libuv and mbedTLS were removed. Tokio owns network resources and Rustls owns
-  ordinary TLS over those resources. DTLS, kTLS, the old public session-ID and
-  ticket-key controls, and Windows named-pipe emulation of Unix path streams
-  are not part of the retained contract.
-- File and process resources moved behind Rust ownership. Cancellation and
-  close semantics preserve the accepted Nupp state machines, but undocumented
-  C handles and backend functions are not compatibility surfaces.
-
-Code which used public Nupp modules should migrate to their current documented
-contracts. Code which loaded a provider directly, relied on SDL or curl
-behavior, or linked files from the deleted C host must move to the compiler-
-selected provider or the public embedding SDK. There is no compatibility mode
-which restores the old ownership model.
+Windows x86-64. Release builders gate the Rust native artifacts on the runner
+whose output they package, because a separate compiler workflow cannot be a
+dependency of a tagged release, then verify the binary packaging fixpoint and
+build, package, unpack and run the compiler. Those workflows are the platform
+gates; their presence alone is not evidence that a particular commit completed
+them. Manual release rehearsals do not hold Apple Developer ID credentials and
+cannot exercise optional tag-only signing and notarization; the same workflow
+still builds and verifies an unsigned macOS archive without them.
 
 ::: seealso
-- [Distribution](distribution.md) for stubs, payloads, and signing
-- [Embedding Nupp](../learn/projects/embedding.md) for the public C SDK
-- [Building projects](../learn/projects/build.md) for sidecar native artifacts
-- [Native GPU AOT](../learn/performance/ahead-of-time/gpu.md) for the WGPU contract
+- [Distribution](distribution.md) for payloads and signing
+- [Native modules](../learn/projects/native-modules.md) for extending and embedding the VM
+- [Building projects](../learn/projects/build.md) for binary targets
 :::

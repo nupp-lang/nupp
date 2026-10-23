@@ -30,7 +30,7 @@ readOnce()
 ```
 
 Ownership is opt in. A value takes part only once an API hands it an obligation,
-a root, a region, or an anchor, so ordinary Lua code pays nothing for the
+a root, a region, or an anchor, so ordinary code pays nothing for the
 machinery.
 
 ## Exact cleanup policies

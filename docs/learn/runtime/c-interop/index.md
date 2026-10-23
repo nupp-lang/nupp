@@ -4,8 +4,8 @@ order: 160
 
 # C interop
 
-Nupp turns C declarations into checked LuaJIT FFI calls, with no foreign-call
-runtime of its own. Reach for it to call a C library, and add ownership
+Nupp turns C declarations into checked native calls, which the VM runtime
+makes through libffi. Reach for it to call a C library, and add ownership
 contracts where a C signature cannot describe lifetime behavior.
 
 ```nupp
@@ -41,16 +41,12 @@ cdef function point_length(borrows point: nativePoint*): number from"mini"
 ```
 
 Use Nupp's C-compatible types and preserve the library's exact function name.
-The `from` clause loads the named native library through LuaJIT FFI; omit it to
-use the default namespace. Both forms lower to an `ffi.cdef` and a namespace
-lookup:
-
-```lua [Generated Lua]
-pcall(ffi.cdef, "struct nativePoint { double x; double y; };")
-const nativePoint = ffi.typeof("struct nativePoint")
-pcall(ffi.cdef, "double point_length(struct nativePoint *);")
-const point_length = ffi.load("mini").point_length
-```
+The `from` clause names the native library the VM loads, once, when the
+binding is first used; omit it to call a symbol the process already has, such
+as `abs` from the C library. A name beginning with `@` is a path resolved
+against the calling module's directory and its parents, then the running
+executable's directory, which is how a built binding finds the library built
+beside it.
 
 `cdef` bindings are always file-local. Export them through a declared module,
 as `import-c` does when it collects its declarations into one `export =`
@@ -240,11 +236,11 @@ An unsupported declaration is skipped with a reason rather than widened to
 `any` or a plausible-looking `voidptr`. The generated module keeps an
 `-- import-c: skipped` comment, naming the header line, for a flexible array,
 a vector or `_Complex` type, an unsupported scalar width or calling
-convention, and a name that collides with a Lua keyword.
+convention, and a name that collides with a keyword.
 
 A struct is imported only when the generated `cdef struct` lays out exactly as
-the header's does. `import-c` asks LuaJIT how the rendered members lay out and
-compares every size, alignment, offset and bit position with the header's own,
+the header's does. `import-c` asks libclang how the rendered members lay out
+and compares every size, alignment, offset and bit position with the header's own,
 so a struct changes in none of them on the way through. That refuses:
 
 - an anonymous member whose fields would promote into the enclosing aggregate,
@@ -254,7 +250,7 @@ so a struct changes in none of them on the way through. That refuses:
   moves away from its natural layout;
 - a `bool` bitfield, which reads back as a boolean and has no `cdef` spelling.
 
-An attribute that would change a declaration without LuaJIT seeing it, such as
+An attribute that would change a declaration without the `cdef` seeing it, such as
 `ext_vector_type` or a calling-convention attribute, refuses the declaration
 before it is parsed. An incomplete struct, declared but never defined, arrives
 as a fieldless `cdef struct` with a comment saying it is a handle: a pointer
@@ -262,7 +258,7 @@ to it is an ordinary parameter or result, and it is never a value. The checker
 holds that for any fieldless `cdef struct`: `ffi.new<T>` reports NUPP2203 and
 `carray(T, n)` reports NUPP2401, since C gives it no size.
 
-A declaration LuaJIT itself will not parse gets the same comment and does not
+A declaration the C reader will not parse gets the same comment and does not
 take the header down with it. That is commonly a struct laid out from a type
 whose definition belongs to a header this import left alone.
 
@@ -275,7 +271,7 @@ struct refused for its layout is also a warning of its own, as
 ## Header-only functions
 
 A `static inline` function has a callable C type but no exported symbol for
-LuaJIT to load, and a function-like macro has neither a symbol nor a C type. A
+the VM to load, and a function-like macro has neither a symbol nor a C type. A
 bridge turns either one into an ordinary exported function in the native
 dependency, leaving its logical Nupp name unchanged.
 
@@ -550,12 +546,12 @@ one proven physical meaning:
 - arbitrary preprocessor programs, variadic macros, pointer-bearing macro
   recipes, and expansions that are not valid in the generated return expression
   or void statement;
-- an inline definition whose signature LuaJIT cannot represent, or which is not
-  an eligible named `static inline` definition in the selected header.
+- an inline definition whose signature a `cdef` cannot represent, or which is
+  not an eligible named `static inline` definition in the selected header.
 
-Direct layout and calling facts are currently host LuaJIT facts. Rich Clang
-extraction, ABI witnesses, and complete cross-target bridge emission remain
-future work.
+C declarations, their widths and their layouts are read through libclang, which
+the compiler loads at run time from the usual install locations or from the
+path in `NUPP_LIBCLANG`. Layout facts are the building machine's.
 
 ## Type the header in place
 
@@ -592,8 +588,8 @@ A parse error names the header's own line either way.
 
 The exports are the header's functions and its enum members, which arrive as
 `int32` constants the way `import-c` gives them. A struct the header declares
-is the same type however the program reaches it, so one built with
-`ffi.new("struct point")` passes to the header's functions.
+is the same type however the program reaches it, so one the program builds
+passes to the header's functions.
 
 This suits a header that changes often, or one you would rather not vendor a
 translation of. `import-c` suits a header you want to prune and annotate, since
@@ -618,9 +614,16 @@ local align = ffi.alignof<nativePoint>()
 
 `ffi.new<T>` and `ffi.cast<T>` return `T`, `ffi.typeof<T>` returns `ctype<T>`,
 `ffi.istype<T>` returns `boolean`, and the last two return `integer`. Without a
-type argument the checker still reads a constant string spec through LuaJIT's
-own parser, so `ffi.new("struct Point")` types too; a spec built at run time
-yields `cdata`, and a string naming an undeclared type is reported.
+type argument the checker still reads a constant string spec as a C type, so
+`ffi.new("struct Point")` types too; a spec built at run time yields `cdata`,
+and a string naming an undeclared type is reported.
+
+::: warning
+All six are checked, but only `ffi.typeof<T>()` runs on the VM, where it
+lowers to the type's witness. The VM provides no `ffi` module for the other
+five, so a program that reaches one fails at run time. Allocate C-compatible
+storage with `carray` or `nupp.mem.heap`, and read sizes with `layoutof`.
+:::
 
 ### C arrays
 
@@ -680,7 +683,7 @@ end
 
 const layout = layoutof(Vertex)
 print(layout.size) -- 12
-print(layout.fingerprint) -- x:float,y:float,z:float|12
+print(layout.fingerprint)
 for _, f in ipairs(layout.fields) do
     print(f.name, f.ctype, f.offset, f.size, f.padding)
 end
@@ -690,9 +693,10 @@ end
 it. They are separate because they answer different questions: an `int8` before
 a `number` has size 1 and padding 7, and a writer walking bytes needs both.
 
-Every number is this platform's, asked of the FFI when the layout is first
-built and cached per ctype afterwards. The `fingerprint` therefore describes one
-platform's layout, which is what makes it usable for noticing that saved data no
+Every number is the target platform's. The `fingerprint` names the target
+triple, each field's offset, size and alignment, and the struct's size and
+alignment, as in `aarch64-apple-darwin|abi=1|x@0:4/4|y@4:4/4|z@8:4/4|size=12/align=4|fields=Vertex{x:float,y:float,z:float}`.
+It therefore describes one platform's layout, which is what makes it usable for noticing that saved data no
 longer matches what is reading it. Deciding what to do about a mismatch is the
 application's job.
 
@@ -717,9 +721,8 @@ lowering happens at the call site: a program that never calls `layoutof`
 carries none of this.
 
 ::: deepdive
-Reifying puts a value where anything that walks a table cannot reach it.
-`string.buffer.encode` refuses cdata outright, `pairs` needs a `__pairs`, and
-`type` returns `"cdata"`. Publishing the layout is what makes such a value
+Reifying puts a value where anything that walks a table cannot reach it:
+`pairs` needs a `__pairs`, and `type` returns `"cdata"`. Publishing the layout is what makes such a value
 reachable again without the language choosing a serialization format for
 everyone: a codec, a snapshot writer, or a GPU vertex-attribute descriptor is
 written against the layout, and the format stays yours.
@@ -763,8 +766,8 @@ parameters, callbacks, pinning, and raw-pointer escape hatches.
 ## Counted pointer adapters
 
 `countedBy(count)` relates a call-duration borrowed C pointer to its physical
-element count. The qualifier does not change the C ABI given to LuaJIT FFI,
-while checked callers see spans:
+element count. The qualifier does not change the C ABI of the call, while
+checked callers see spans:
 
 ```nupp:fragment
 cdef function transform(
@@ -822,9 +825,8 @@ end
 cdef function integrate(exclusive position: Position*, dt: float)
 ```
 
-The emitted prototype stays typed. LuaJIT internally receives a compiler-owned
-`void *` physical slot, because Nupp's sole runtime representation remains the
-existing anonymous ctype, while source checking, ownership, constness, counted
+The emitted prototype stays typed. The native call receives a compiler-owned
+`void *` physical slot, while source checking, ownership, constness, counted
 relationships, and the external C definition all retain the ordinary struct
 type. An ordinary struct does not cross this boundary by value. `export-c` is
 the only publisher: there is no annotation, no user-selected C tag, and no
@@ -840,13 +842,12 @@ dependencies](../../projects/build.md#c-dependencies) for the provider configura
 
 ## FAQ
 
-### Does checked C interop replace LuaJIT FFI?
+### What makes the call?
 
-Nupp does not replace LuaJIT FFI or insert a foreign-call runtime. A checked
-[`cdef` binding](#hand-write-a-small-binding) lowers to `ffi.cdef`, a namespace
-lookup, and the same native call. The [typed FFI
-operations](#typed-ffi-operations) likewise keep their LuaJIT representation
-while the checker validates their type arguments.
+The VM runtime. A checked [`cdef` binding](#hand-write-a-small-binding) is
+prepared once from its checked signature, and each call goes through libffi
+with its managed arguments rooted for as long as native code can observe their
+addresses.
 
 ### Does importing a header capture ownership?
 
@@ -871,5 +872,5 @@ of the pointer and count.
 - [](nupp.mem.span) for the views a counted pointer projects
 - [build.md](../../projects/build.md#c-dependencies) for C and Cargo dependency provider
   configuration
-- [embedding.md](../../projects/embedding.md) for calling Nupp from a C or C++ application
+- [native-modules.md](../../projects/native-modules.md#embedding-the-vm) for running the VM inside a C or Rust application
 :::

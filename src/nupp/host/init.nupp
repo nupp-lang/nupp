@@ -2,10 +2,12 @@ module nupp.host
 
 --[[
 `nupp.host` asks whatever is running the program for something and waits for
-the answer: the page's JavaScript in a browser, or the C or Rust application
-that embeds the runtime natively. Reach for it when a library needs a facility
-the host has and Nupp does not, such as a canvas, a clipboard or an engine's
-asset loader, and should not care which host it is running under.
+the answer. Reach for it when a library needs a facility the host has and Nupp
+does not, such as a canvas, a clipboard or an engine's asset loader, and should
+not care which host it is running under.
+
+Nothing answers host requests on the VM yet: there `attached()` is `false` and
+every call, post, send and route is refused, naming the kind.
 
 A request names a *kind*, a dotted name the host answers, and carries a flat
 list of values. Declare the kind's signature once as a function type and bind
@@ -103,9 +105,6 @@ fills applies its policy: `block` suspends the sender until the frame ships,
 the limit and counts it. An inbound message carries scalars and strings, which
 is what an event's fields hold; bytes travel on a call.
 
-Natively a send reaches the application's handler at once, so nothing waits
-to ship and a policy never applies.
-
 ## Kinds
 
 A kind is two or more dot-separated segments of letters, digits, `_` and `-`,
@@ -114,7 +113,7 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 ::: seealso
 - [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait
   does under a handler
-- [embedding.md](docs/learn/projects/embedding.md) for answering requests from C
+- [host.md](docs/learn/runtime/host.md) for the guide
 :::
 ]]
 
