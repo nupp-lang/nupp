@@ -5,8 +5,8 @@ module nupp.runtime.bitops
 --[[
 The bit operations the standard library and the compiler reach by name.
 
-It is LuaJIT's `bit`, which every target has, and this module is the one place
-that says so. It had a provider interface while `--dialect lua51` lowered
+It is the BitOp `bit` library, which the VM supplies as a builtin, and this
+module is the one place that says so. It had a provider interface while `--dialect lua51` lowered
 `a & b` to a call on it and a scalar implementation answered where the C library
 was absent; that lowering is gone, the dialect with it, and a seam with one
 implementation on every target is a seam in name only.

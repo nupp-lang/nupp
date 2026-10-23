@@ -200,7 +200,8 @@ export interface ByteQueue
     get: function(self: ByteQueue, ...: integer?): string
 end
 
---- Reads the queue contract on Lua 5.1 as well as userdata-backed LuaJIT queues.
+--- Reads the queue contract from a table or from a userdata-backed queue such as
+--- `string.buffer`.
 export const queueLength: function(source: ByteQueue): integer = function(source)
     local answer: any
     local custom = false

@@ -1,7 +1,7 @@
 module nupp.compiler.vm.lower
 
 --- Bytecode lowering and image writing from checked syntax. Project loading
---- is supplied by the caller, so the same lowering runs on LuaJIT and the VM.
+--- is supplied by the caller.
 local lower = {}
 
 --- When set, called once per emission with the entry name, the functions in

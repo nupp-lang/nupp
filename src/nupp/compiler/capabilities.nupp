@@ -1,7 +1,7 @@
 module nupp.compiler.capabilities
 
 -- Source representations and calling conventions are fixed by the compiler: every
--- artifact runs on LuaJIT, so each capability is native unless a caller narrows it.
+-- artifact runs on the VM, so each capability is native unless a caller narrows it.
 local capabilities = {}
 
 local CONTRACTS: {[string]: {

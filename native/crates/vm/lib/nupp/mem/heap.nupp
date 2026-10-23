@@ -20,14 +20,12 @@ do
 end -- released here
 ```
 
-On LuaJIT an allocation here sits outside the GC's allocation limit, which is
-the reason to reach for one there. The VM has no such limit: the array is
-managed storage, so it takes part in collection and snapshots, and releasing
-it drops the owner's reference rather than freeing the bytes under a view. An
-array handed to a worker moves: the worker adopts the allocation itself, with
-no copy, and a view the sender still held reports that the storage moved. Reading and writing are the operations
-[](nupp.mem.span) defines, and a live reader and a live writer over one array
-report `NUPP2607`.
+The array is managed storage, so it takes part in collection and snapshots, and
+releasing it drops the owner's reference rather than freeing the bytes under a
+view. An array handed to a worker moves: the worker adopts the allocation
+itself, with no copy, and a view the sender still held reports that the storage
+moved. Reading and writing are the operations [](nupp.mem.span) defines, and a
+live reader and a live writer over one array report `NUPP2607`.
 
 ::: tip Nonescaping views at -O1
 A nonescaping `read` or `write` can remain virtual, so no span wrapper is
@@ -111,9 +109,8 @@ end
 
 --- Allocates `count` contiguous values of `element`.
 ---
---- The result owns the allocation and releases it at its lexical boundary. On the
---- VM the bytes start zeroed; a program portable to LuaJIT, where they are not,
---- writes before it reads.
+--- The result owns the allocation and releases it at its lexical boundary. The
+--- bytes start zeroed.
 ---
 --- ```nupp:fragment
 --- do

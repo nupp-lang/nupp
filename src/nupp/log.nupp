@@ -199,14 +199,6 @@ nupp.log.setTimestampFormat("") -- off
 nupp.log.timestampFormat() -- ""
 ```
 
-::: deepdive Reading the second through the FFI
-`os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second is
-read through the FFI instead. `os.time` is still called once at startup to
-validate the symbol, because some Windows CRTs inline `time` to `_time64` or
-give it a 32-bit `time_t`, and a symbol that resolves but is the wrong width
-returns nonsense rather than failing to resolve.
-:::
-
 ## Named loggers
 
 `named` returns a logger carrying a fixed name, with a method per severity:

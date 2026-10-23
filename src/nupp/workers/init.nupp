@@ -27,7 +27,7 @@ end
 `jobs.hash` is an ordinary function. Calling it runs it here; handing it to
 `fork` runs it on a lane. There is no parallel version of it to write.
 
-A lane is a thread with its own LuaJIT state, so the two sides never see each
+A lane is a thread with its own VM and heap, so the two sides never see each
 other's tables, globals, userdata, or module state. Ordinary arguments and
 results cross as copies. Immutable byte regions can share their backing
 storage, and native fixed-width heap arrays can move ownership instead. What

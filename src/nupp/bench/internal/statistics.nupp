@@ -15,8 +15,8 @@ because the widest interval derivable from nine observations still does not
 reach 95% and a label saying otherwise would be wrong rather than approximate.
 
 Callers pass fork summaries -- one number per process -- not raw samples. Samples
-inside one process share its heap, traces and thermal state, so treating them as
-independent draws is the error this module exists to avoid.
+inside one process share its heap, compiled code and thermal state, so treating
+them as independent draws is the error this module exists to avoid.
 ]]
 
 local statistics = {}

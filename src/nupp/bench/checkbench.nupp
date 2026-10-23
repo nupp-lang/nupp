@@ -2,8 +2,8 @@ module nupp.bench.checkbench
 
 --- Runs the compiler's checker on the runtime: parse a source text, check
 --- it in a memory-only environment, and answer a checksum over the
---- diagnostics and the inferred types so a run can be checked against
---- LuaJIT.
+--- diagnostics and the inferred types so one run can be checked against
+--- another.
 local parser = require("nupp.compiler.syntax.parser")
 
 local checkMod = require("nupp.compiler.check")

@@ -132,7 +132,7 @@ frame              p99.9     60       3.750  ms/frame             -             
 frame:over-budget  count     60           2  frames               -                   -
 
 note: 1 fork per benchmark. p25-p99 is within-process spread, NOT a confidence
-      interval: samples inside one process share its heap, traces and thermal
+      interval: samples inside one process share its heap, compiled code and thermal
       state, so no population interval follows from them. A score far from the
       middle of that range means the samples are not centered on it. No interval or
       verdict is available below 10 forks; run --pilot to size a replicated run.

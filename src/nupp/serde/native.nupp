@@ -1,8 +1,8 @@
 module nupp.serde.native
 
 --[[
-The native codec saves values as a compact binary frame on a native LuaJIT
-host. See [serde.md](docs/learn/runtime/data/serde.md#native-persistence) for
+The native codec saves values as a compact binary frame on a native host.
+See [serde.md](docs/learn/runtime/data/serde.md#native-persistence) for
 what a frame preserves.
 
 ```nupp
@@ -28,8 +28,8 @@ or cycles, never runs code from its input, and cannot hold process handles.
 Its input is bounded at 16 MiB, 128 levels of nesting, and a million values.
 
 The frame is versioned and a reader rejects any version it does not know.
-It is specific to LuaJIT: this module raises on other hosts before it selects
-a binding. Use [](nupp.serde.json) for data that leaves the machine.
+It needs the native runtime: this module raises on any other host before it
+selects a binding. Use [](nupp.serde.json) for data that leaves the machine.
 ]]
 
 local core = require("nupp.serde.internal.value")
@@ -49,7 +49,7 @@ export const identity: table = {}
 
 local profile: table = {}
 
--- Version 1 is a LuaJIT-local tagged tree encoded by string.buffer. Names are
+-- Version 1 is a tagged tree encoded by string.buffer's serializer. Names are
 -- durable field identities; runtime slots and declaration fingerprints are not.
 local header = "NUPP\0LJ\1"
 local maxBytes: integer = 16777216
@@ -79,14 +79,11 @@ local supported: {
 }
 
 local function runtime(): any
-    assert(
-        target.host == "native" and rawget(_G, "__nuppBrowser") == nil,
-        "native persistence requires a native LuaJIT host"
-    )
-    -- The format is string.buffer's serialization, which LuaJIT and the VM
-    -- both provide; the VM's speaks LuaJIT's bytes.
+    assert(target.host == "native" and rawget(_G, "__nuppBrowser") == nil, "native persistence requires a native host")
+    -- The format is string.buffer's serialization, which the VM writes byte
+    -- for byte as LuaJIT 2.1 does.
     local loaded, buffer = pcall(_G.require, "string.buffer")
-    assert(loaded, "native persistence requires LuaJIT string.buffer")
+    assert(loaded, "native persistence requires string.buffer")
 
     return buffer
 end
@@ -441,8 +438,7 @@ end
 ---
 --- @param capacity the most bindings to retain selections for; nil is 256
 --- @return the codec
---- @raises string when the host is not native LuaJIT, or capacity is not a positive
----     integer
+--- @raises string when the host is not native, or capacity is not a positive integer
 export function codec(capacity: integer?): Codec
     runtime()
     return new Cached(scope = new Scope(memo = memos.new("native extension", capacity)))

@@ -76,7 +76,7 @@ operators.contractMetamethod = {
     __tostring = true,
 } as Set
 
---- Every key LuaJIT itself gives meaning to in a metatable, so a misspelling in a
+--- Every key the Lua dialect gives meaning to in a metatable, so a misspelling in a
 --- literal one is caught rather than silently ignored.
 operators.runtimeMetamethod = {
     __call = true,

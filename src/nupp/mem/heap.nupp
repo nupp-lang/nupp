@@ -1,9 +1,9 @@
 module nupp.mem.heap
 
 --[[
-Owned, malloc-backed C arrays.
+Owned contiguous arrays of one storage element type.
 
-The returned array is affine and is released with `free` at scope exit. Its
+The returned array is affine and is released at scope exit. Its
 logical element count moves with the allocation and its pointer is available
 only through checked span views.
 
@@ -17,13 +17,15 @@ do
     nupp.drop(writable)
     local readable = values:read()
     print(readable[1], #readable)
-end -- free runs here
+end -- released here
 ```
 
-An allocation here sits outside LuaJIT's GC allocation limit, which is the
-reason to reach for one over a `carray`. Reading and writing are the operations
-[](nupp.mem.span) defines, and a live reader and a live writer over one array
-report `NUPP2607`.
+The array is managed storage, so it takes part in collection and snapshots, and
+releasing it drops the owner's reference rather than freeing the bytes under a
+view. An array handed to a worker moves: the worker adopts the allocation
+itself, with no copy, and a view the sender still held reports that the storage
+moved. Reading and writing are the operations [](nupp.mem.span) defines, and a
+live reader and a live writer over one array report `NUPP2607`.
 
 ::: tip Nonescaping views at -O1
 A nonescaping `read` or `write` can remain virtual, so no span wrapper is
@@ -60,7 +62,7 @@ sealed interface heap.ArrayToken
     close: @nosuspend function(takes self: ArrayToken): nil
 end
 
---- Frees an allocation, which is what every heap array's contract names.
+--- Releases an allocation, which is what every heap array's contract names.
 ---
 --- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
 --- scope boundary or an explicit `nupp.drop` reaches it.
@@ -71,8 +73,8 @@ function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
     self:close()
 end
 
---- An owned contiguous native allocation whose logical count cannot be separated
---- from its pointer in checked code.
+--- An owned contiguous allocation whose logical count cannot be separated from
+--- its storage in checked code.
 --- @export
 record heap.Array<T> is heap.ArrayToken
     @private pointer: T[?]
@@ -80,7 +82,7 @@ record heap.Array<T> is heap.ArrayToken
     --- How many elements the allocation holds.
     @readonly count: integer
 
-    --- Frees the allocation. `nupp.drop` and scope exit both reach this.
+    --- Releases the allocation. `nupp.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
 
     --- Borrows the whole allocation as a shared checked span.
@@ -108,12 +110,10 @@ function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> bo
     return span.writeCarray(self.pointer, self.count)
 end
 
---- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
---- limit.
+--- Allocates `count` contiguous values of `element`.
 ---
---- The result owns the allocation and frees it at its lexical boundary. The bytes
---- are not zeroed, so a program that reads before it writes reads whatever was
---- there.
+--- The result owns the allocation and releases it at its lexical boundary. The
+--- bytes start zeroed.
 ---
 --- ```nupp:fragment
 --- do
@@ -126,8 +126,7 @@ end
 --- @param count how many elements to allocate
 --- @return the array, owned by the caller
 --- @export
---- @raises string when count is invalid, the byte size overflows, or allocation
----     fails
+--- @raises string when count is invalid or the byte size overflows
 function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
     if count < 0 or count ~= math.floor(count) then
         error("nupp: heap array count must be a nonnegative integer", 2)

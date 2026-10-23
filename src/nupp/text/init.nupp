@@ -14,9 +14,10 @@ out:put("hello", ", ", "world")
 print(out:get())
 ```
 
-A buffer comes from the host. On LuaJIT it is `string.buffer`; everywhere else
-it is a portable one written in Nupp. Both answer to the same [](Buffer), so a
-program that only ever writes and reads bytes does not notice which it has.
+A buffer comes from the host. On the VM it is the runtime's native
+`string.buffer`; a provider can supply another, such as the portable one written
+in Nupp. Both answer to the same [](Buffer), so a program that only ever writes
+and reads bytes does not notice which it has.
 
 [](nupp.text.utf8) is the other half of this namespace: codepoints rather than
 bytes.

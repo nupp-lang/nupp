@@ -79,9 +79,6 @@ local upper = spaces:replace("x y", function(found: regex.Match): string
 end)
 assert(upper == "x[ ]y")
 ```
-
-The engine is the VM runtime's. A host without one, such as the LuaJIT runtime,
-compiles nothing: `regex.compile` returns nil and says so.
 ]]
 
 local host = require("nupp.text.internal.regexhost")

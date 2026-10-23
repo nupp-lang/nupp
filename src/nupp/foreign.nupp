@@ -3,18 +3,21 @@ module nupp.foreign
 --[[
 C callbacks a program keeps past the call it passes them to.
 
-`retain` makes a callback C may keep. It passes wherever the function would and
-Nupp may call it as the function. `rebind` changes what it calls, and `release`
-ends it: C calling it afterwards raises. On the VM a callback's C signature is
-that of the first parameter it is passed to, and a plain function is lent a
-trampoline for one call only.
+A Nupp function passed to a `cdef` function-pointer parameter is lent a
+trampoline for that call alone: C that keeps the pointer and calls it after the
+call returns is refused. `retain` makes a callback C may keep. It passes wherever
+the function would and Nupp may call it as the function; its C signature is that
+of the first parameter it is passed to, and passing it to a parameter of another
+signature is refused. `rebind` changes what it calls without changing the
+pointer C holds, and `release` ends it: C calling the pointer afterwards is
+refused rather than reaching freed code.
 
 The handle is untyped: the `cdef` parameter it is passed to is what checks the
 function's type against the C signature.
 
-Under LuaJIT a retained callback is a forwarding function, which LuaJIT converts
-to a permanent C callback each time it is passed to C; releasing it makes the
-forwarder raise rather than freeing the conversion.
+C calls a callback on the VM's own thread, inside a native call that VM made. A
+call from any other thread returns zero to C and raises once the native call in
+flight, or the next one, returns.
 ]]
 
 local foreign = {}
@@ -38,7 +41,7 @@ function foreign.retain(f: any): any
     return forward
 end
 
---- Makes a retained callback call `f`.
+--- Makes a retained callback call `f`; the pointer C holds does not change.
 --- @raises string when `callback` is not a retained callback or was released.
 function foreign.rebind(callback: any, f: any): nil
     local slot = slots[callback]
@@ -48,7 +51,7 @@ function foreign.rebind(callback: any, f: any): nil
     slot[1] = f
 end
 
---- Releases a retained callback. C calling it afterwards raises.
+--- Releases a retained callback. C calling it afterwards is refused.
 function foreign.release(callback: any): nil
     local slot = slots[callback]
     if slot ~= nil then

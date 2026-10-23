@@ -27,7 +27,7 @@ no derive, and [](Options) renames, filters, or reinterprets its fields.
 The package splits by audience:
 
 - [](nupp.serde.json), [](nupp.serde.native), and [](nupp.serde.debug) are the
-  codecs: JSON text, a LuaJIT-local persistence frame, and diagnostic text.
+  codecs: JSON text, a machine-local persistence frame, and diagnostic text.
 - [](nupp.serde.document) holds schema-free values: a document tree, typed views
   of bound values, and saved [](nupp.util.Store) snapshots.
 - [](nupp.serde.adapters) builds bindings for a model library that owns its own

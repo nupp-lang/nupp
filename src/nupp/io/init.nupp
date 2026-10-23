@@ -12,8 +12,8 @@ local reader = bytes:newReader()
 assert(reader:read(5) == "hello")
 ```
 
-A buffer holds its bytes in the target's physical storage: a native array on
-LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are
+A buffer holds its bytes in native-layout storage the VM manages rather than in
+a Lua string. `Reader` and `Writer` are
 interfaces rather than the concrete things that satisfy them. Code written
 against either contract works over every implementation without knowing which
 one it has.
@@ -189,8 +189,8 @@ with a reason. Closing or dropping the line reader closes the source it took.
 ## Typed scalars
 
 A reader and a writer move bytes. `newScalarReader` and `newScalarWriter` add
-the missing piece, a sized integer or float landing on those bytes without an
-`ffi.cast` at every call site.
+the missing piece, a sized integer or float landing on those bytes without
+decoding it by hand at every call site.
 
 ```nupp
 local writer = nupp.io.newScalarWriter()
@@ -210,8 +210,8 @@ writer contracts above: a scalar either landed whole or the source was not what
 the format said, and there is no partial value to hand back.
 
 ::: deepdive Host byte order
-Both directions read and write host-endian, the only order LuaJIT ships, so
-that is the default. A format fixed to one byte order casts and swaps
+Both directions read and write in the host's byte order, so that is the
+default. A format fixed to one byte order casts and swaps
 explicitly, and there are no LE and BE variants here until something needs
 them. Adding a second set without a caller would double the surface and leave
 half of it untested.

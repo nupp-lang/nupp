@@ -2,7 +2,7 @@ module nupp.bench.parsebench
 
 --- Runs the compiler's parser on the runtime: the table arena provider
 --- installed, then `parse` over a source text, answering a checksum over
---- the concrete syntax tree so a run can be checked against LuaJIT.
+--- the concrete syntax tree so one run can be checked against another.
 local parser = require("nupp.compiler.syntax.parser")
 
 local triviaarena = require("nupp.compiler.syntax.triviaarena")

@@ -30,9 +30,8 @@ does not rewind until `reset`, and `reset` refuses while any lease is live, so
 a row that is out is never handed out twice. Releasing a row that is not live
 in this arena raises without changing its lease count.
 
-Storage comes from the `cstorage` capability, so the module is available on
-native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
-Table-backed record instances are [](nupp.util.Pool).
+Pages are native-layout storage the VM manages. Table-backed record instances
+are [](nupp.util.Pool).
 ]]
 
 local storage = require("nupp.runtime.storage")
@@ -202,10 +201,8 @@ function arena.newArena<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
     if rows < 1 or rows % 1 ~= 0 then
         error("nupp: arena page size must be a positive integer", 2)
     end
-    -- The physical descriptor is answered for a value: on LuaJIT the
-    -- declaration is already the ctype, and a table-backed provider knows a
-    -- struct by an instance carrying it. Calling the declaration gives one
-    -- either way.
+    -- The physical descriptor is answered for a value, and calling the
+    -- declaration gives one.
     local sample = (witness as any)()
     local element = storage.descriptor(sample)
     local created = new arena.Arena(

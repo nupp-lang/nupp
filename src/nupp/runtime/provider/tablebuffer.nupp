@@ -39,7 +39,7 @@ local record Buffer
     ---
     --- A number is written the way `tostring` writes it, and anything else has to
     --- answer `tostring` itself through a `__tostring` metamethod, which is what
-    --- LuaJIT's buffer accepts too. Values are appended in order, so one that is
+    --- `string.buffer` accepts too. Values are appended in order, so one that is
     --- refused leaves the values before it appended, as the native buffer does.
     ---
     --- @param ... the values to append
@@ -231,7 +231,8 @@ end
 
 --- Creates a buffer.
 ---
---- The arguments are LuaJIT's and are accepted so the two are called the same way.
+--- The arguments are `string.buffer`'s and are accepted so the two are called the
+--- same way.
 --- Neither means anything here: there is no allocation to size in advance, and the
 --- serializer the options configure is not part of this contract.
 ---

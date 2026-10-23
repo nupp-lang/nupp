@@ -14,8 +14,8 @@ This module needs no FFI, native bit library, or other service. It is suitable f
 stock Lua 5.1 and supplies portable conformance behavior. Its bit-by-bit loops
 prioritize portability over native instruction throughput.
 
-Nothing in the tree selects it: [](nupp.runtime.bitops) is LuaJIT's `bit` on
-every target. It stays as the second implementation the shared contract vectors
+Nothing in the tree selects it: [](nupp.runtime.bitops) is the VM's builtin
+`bit`. It stays as the second implementation the shared contract vectors
 in `tests/provider-contracts/bitops.nupp` are run against.
 ]]
 
