@@ -64,14 +64,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The VM compiler bootstraps the tree: built from the pinned stage-zero image
-# when no restored one is current, it builds the LuaJIT compiler the suites run
-# on, as they did before the image was pinned; the VM test runner has not run
-# on Linux yet. It runs interpreted, since linking its compiled code costs ten
-# minutes of a runner's cores for a compiler that answers the same either way.
-# The fixpoint job asks for the VM compiler itself.
+# The VM compiler bootstraps the tree, built from the pinned stage-zero image
+# when no restored one is current, and runs everything. It runs interpreted,
+# since linking its compiled code costs ten minutes of a runner's cores for a
+# compiler that answers the same either way.
 env:
-  NUPP_ENGINE: luajit
   NUPP_VM_AUTO_LINK: "0"
 
 jobs:
@@ -264,15 +261,10 @@ jobs:
         run: ./scripts/toolchain --all
 
       - name: Bootstrap the compiler
-        run: ./bin/nupp build
+        run: ./bin/nupp version
 
-      - name: Build the bootstrap compiler and the documentation
-        env:
-          # Markdown renders only on the VM runtime.
-          NUPP_ENGINE: ""
-        run: |
-          ./bin/nupp build --target bootstrapCompiler
-          ./bin/nupp build --target docs
+      - name: Build the documentation
+        run: ./bin/nupp build --target docs
 
       # The pre-push hook asks the same question of the files a push changes.
       # Ask it of the whole tree here, because a rewrite landed by a `--no-verify`
@@ -311,7 +303,7 @@ jobs:
         uses: ./.github/actions/vm-cli-save
 
   integration:
-    name: ${{ matrix.name }} / LuaJIT 2.1 rolling
+    name: ${{ matrix.name }}
     needs: [classify, fast-checks]
     if: >-
       !cancelled() && needs.classify.result == 'success'
@@ -422,47 +414,13 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
-      # LuaJIT 3.0 has not been released. Its matrix entries belong beside
-      # these when it has a source revision to pin; accepting an unversioned
-      # development branch here would make two runs of one commit test
-      # different interpreters. The rolling 2.1 pin must retain the syntax
-      # backports generated Nupp uses.
-      - name: Verify the LuaJIT matrix member
-        shell: bash
-        run: |
-          set -euo pipefail
-          . ./scripts/luajit.sh
-          export NUPP_LUAJIT_FLOOR="$LUAJIT_FLOOR"
-          luajit=$(./scripts/toolchain luajit)
-          "$luajit/bin/luajit" -e '
-            local floor = assert(tonumber(os.getenv("NUPP_LUAJIT_FLOOR")))
-            local rolling = jit.version:match("^LuaJIT 2%.1%.(%d+)")
-            assert(rolling, "expected LuaJIT 2.1 rolling, got " .. jit.version)
-            assert(tonumber(rolling) >= floor,
-              ("LuaJIT 2.1.%s is below the 2.1.%d floor"):format(rolling, floor))
-            print(jit.version)
-          '
-          echo "$luajit/bin" >> "$GITHUB_PATH"
-
       - name: Bootstrap the compiler
         shell: bash
-        run: ./bin/nupp build
+        run: ./bin/nupp version
 
-      - name: Diagnose a Windows native-library load failure
-        if: failure() && runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Get-ChildItem build/lib
-          dumpbin /dependents build/lib/nupp_native_dev.dll
-
-      - name: Build the bootstrap compiler and the documentation
-        env:
-          # Markdown renders only on the VM runtime.
-          NUPP_ENGINE: ""
+      - name: Build the documentation
         shell: bash
-        run: |
-          ./bin/nupp build --target bootstrapCompiler
-          ./bin/nupp build --target docs
+        run: ./bin/nupp build --target docs
 
       # Already answered on Linux by the fast gate, which every path through
       # this graph passes through before reaching here. The other platforms are
@@ -472,10 +430,10 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
-      # The Windows host ABI is selected through rustup, then shared by the
-      # Rust provider, application host, and embedding SDK. Exercise that
-      # contract before the expensive native and full-suite gates so a test
-      # fixture cannot accidentally model Windows as an invented Unix host.
+      # The Windows Rust ABI is selected through rustup, then shared by the VM
+      # runtime and its providers. Exercise that contract before the expensive
+      # native and full-suite gates so a test fixture cannot accidentally model
+      # Windows as an invented Unix host.
       #
       # Fail close to provisioning, and name the last case if the Windows
       # loader or native networking layer terminates the test process. Exercise
@@ -497,10 +455,9 @@ jobs:
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
           ./bin/nupp test --jobs=1 --group=windows-preflight
 
-      # Name the Rust-native release boundary before the broad suite. This runs
-      # each resource owner's stress/cancellation tests, the aggregate C ABI
-      # smoke, and C consumers of the executable, static application archive,
-      # and static/dynamic embedding SDKs on the retained platform itself.
+      # Name the Rust-native release boundary before the broad suite: each
+      # resource owner's stress and cancellation tests on the retained platform
+      # itself.
       - name: Gate the Rust-native platform artifacts
         shell: bash
         run: .github/scripts/test-rust-native-platform.sh
@@ -518,13 +475,8 @@ jobs:
           fi
           export NUPP_COMPILER_ROOT="$compiler_root"
           export NUPP_LUA_CORPUS="$compiler_root/.ci-corpus/teal/tl.lua"
-          export NUPP_NATIVE_LIBRARY
-          NUPP_NATIVE_LIBRARY=$(./scripts/toolchain \
-            native-rust base,files,http,net,process,tls,uri,uuid)
-          # `tests/run` refuses to start on Windows without these, the same way
-          # the whole-suite step below names them. This step reaches the runner
-          # directly rather than through `nupp test`, so it has to name them
-          # too, or the Windows job ends here having run no test at all.
+          # The runner refuses to start on Windows without these, the same way
+          # the whole-suite step below names them.
           if [ "$RUNNER_OS" = Windows ]; then
             bash_path=$(command -v bash)
             sh_path=$(dirname "$bash_path")/sh.exe
@@ -533,8 +485,7 @@ jobs:
             NUPP_TEST_BASH=$(cygpath -w "$bash_path")
             NUPP_TEST_SH=$(cygpath -w "$sh_path")
           fi
-          ./bin/nupp build --target testRunner
-          ./tests/run --jobs=1 --group=external-corpus
+          ./bin/nupp test --jobs=1 --group=external-corpus
 
       # Three minutes of starting child processes, and the only thing that can
       # change what they answer is bench code. `measurement` is the surface every
@@ -560,22 +511,9 @@ jobs:
       # `--exclude-group` names what earlier steps in this job already ran.
       # The shared lane is excluded on Linux only, where the fast gate this job
       # depends on has already run it against the same revision.
-      # hostbinarytest stamps this binary once and reuses it while it is newer
-      # than its sources. Stamped here, its host build -- a cargo build
-      # whenever the Rust cache is cold -- does not hold the checkout's build
-      # lock while every other test's nupp waits on it.
-      - name: Stamp the compiler binary
-        if: runner.os != 'Linux'
-        shell: bash
-        run: ./bin/nupp build --target dist
-
-      # The portable suites run on the VM runner, which reports each suite it
-      # leaves to LuaJIT as not executed; the step after it runs those.
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
-        env:
-          NUPP_ENGINE: ""
         # `core_pattern` already pipes to systemd-coredump on this image, but
         # the soft limit is zero, so the kernel writes nothing and the shell
         # still says "core dumped". Raising it here is what makes the step
@@ -584,22 +522,13 @@ jobs:
           set -euo pipefail
           ulimit -c unlimited || true
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,rust-native-gate,measurement
+            --exclude-group=external-corpus,measurement
           if [ "$RUNNER_OS" != Linux ]; then
             ./bin/nupp test --lane=shared \
-              --exclude-group=external-corpus,rust-native-gate,measurement
+              --exclude-group=external-corpus,measurement
             ./bin/nupp test --lane=shell --jobs=2 \
-              --exclude-group=external-corpus,rust-native-gate,measurement
+              --exclude-group=external-corpus,measurement
           fi
-
-      - name: Run the suites left to LuaJIT
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC2046
-          ./bin/nupp test --jobs=2 $(python3 .github/scripts/luajit-suites.py) \
-            --exclude-group=external-corpus,rust-native-gate,measurement
 
       # A worker killed by a signal says which suite it was in, and on Linux it
       # is killed by SIGSEGV in a different set of suites every run -- so the
@@ -663,7 +592,6 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         env:
-          NUPP_ENGINE: ""
           NUPP_TEST_AOT_TRACE: 1
           NUPP_TEST_AOT_ARTIFACTS: ${{ runner.temp }}/nupp-worker-dumps
         run: |
@@ -675,13 +603,11 @@ jobs:
           NUPP_TEST_SH=$(cygpath -w "$sh_path")
           export NUPP_TEST_BASH NUPP_TEST_SH
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement
           ./bin/nupp test --lane=shared \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement
           ./bin/nupp test --lane=shell --jobs=2 \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
-          NUPP_ENGINE=luajit ./bin/nupp test --jobs=2 $(python3 .github/scripts/luajit-suites.py) \
-            --exclude-group=external-corpus,windows-preflight,rust-native-gate,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement
 
       # What the suite saved, named in the log so a reader knows what the
       # artifact holds before downloading it. `aot-libraries.txt` beside these
@@ -778,8 +704,6 @@ jobs:
         run: ./scripts/toolchain --all
 
       - name: Verify the self-hosting fixpoint
-        env:
-          NUPP_ENGINE: ""
         run: ./bin/nupp fixpoint
 
       - name: Save the VM compiler
@@ -824,20 +748,12 @@ jobs:
         run: ./scripts/toolchain --all
 
       - name: Bootstrap the compiler
-        run: ./bin/nupp build
+        run: ./bin/nupp version
 
-      - name: Build the bootstrap compiler and the documentation
-        env:
-          # Markdown renders only on the VM runtime.
-          NUPP_ENGINE: ""
-        run: |
-          ./bin/nupp build --target bootstrapCompiler
-          ./bin/nupp build --target docs
+      - name: Build the documentation
+        run: ./bin/nupp build --target docs
 
       - name: Regenerate and verify the documentation
-        env:
-          # Markdown renders only on the VM runtime.
-          NUPP_ENGINE: ""
         run: ./bin/nupp test --group=docs
 
       - name: Save the VM compiler

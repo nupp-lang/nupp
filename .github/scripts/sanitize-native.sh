@@ -1,7 +1,6 @@
 #!/bin/sh
 
-# Run the native crates' tests under one sanitizer, then the C ABI smoke tests
-# against a provider built the same way.
+# Run the native crates' tests under one sanitizer.
 #
 #   .github/scripts/sanitize-native.sh address|thread
 #
@@ -13,10 +12,7 @@
 # keeps the flags off build scripts and proc macros.
 #
 # The C that build scripts compile is instrumented through CFLAGS: the cc
-# crate reads it (the AOT runtime, ring), and so does the host's own build
-# script (the LuaJIT shims). LuaJIT itself is the pinned prebuilt archive and
-# stays uninstrumented: accesses made inside it are not checked, and nothing
-# it does is reported.
+# crate reads it (the AOT runtime, ring).
 #
 # One crate is left out, the same one for both sanitizers: nupp-native-gpu
 # drives a Vulkan/Metal driver through wgpu. The driver is an uninstrumented
@@ -34,11 +30,6 @@ SUPPRESSIONS=$ROOT/.github/sanitizers
 
 cd "$ROOT"
 
-# The host crate links the pinned LuaJIT. Resolved before the compiler and
-# flags below are exported, so it is the ordinary cached build rather than an
-# instrumented one under a key of its own.
-NUPP_LUAJIT_PREFIX=$(./scripts/toolchain luajit)
-export NUPP_LUAJIT_PREFIX
 
 # A dated nightly, so two runs of one commit build with the same compiler and
 # a report can be reproduced. Move it deliberately, like any other pin.
@@ -133,42 +124,6 @@ fi
 cargo_test --package nupp-native-net
 cargo_test --package nupp-native-tls
 cargo_test --package nupp-native-http
-cargo_test --package nupp-native --no-default-features \
-    --features compression,files,http,net,process,tls,uri,uuid
-cargo_test --package nupp-native-host --no-default-features \
-    --features native-compression,native-files,native-net,native-process,native-tls,workers
-
-# The provider exactly as scripts/test-rust-abi links it. The GPU is compiled
-# in because the smoke test asserts the feature set and that invalid GPU
-# handles are refused; it never opens an adapter, so no driver is loaded.
-cargo build --locked -Zbuild-std --target "$TARGET" --package nupp-native \
-    --no-default-features --features files,gpu,http,net,process,tls,uri,uuid --lib
-DIRECTORY=$CARGO_TARGET_DIR/$TARGET/debug
-# Where the sanitizer runtime comes from differs. On Linux rustc links its
-# static runtime into executables only, so the C side is instrumented and
-# carries the C compiler's runtime. On macOS the runtime is a dylib the
-# provider already links, and a second one from the C compiler leaves its
-# interceptors uninstalled, so the C side is built plain.
-case "$(uname -s)" in
-    Darwin)
-        PROVIDER=$DIRECTORY/libnupp_native.dylib
-        smoke_flags=-g
-        ;;
-    *)
-        PROVIDER=$DIRECTORY/libnupp_native.so
-        smoke_flags=$CFLAGS
-        ;;
-esac
-TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-sanitize.XXXXXX")
-trap 'rm -r "$TEMP"' EXIT HUP INT TERM
-for smoke in abi_smoke net_abi_smoke; do
-    # shellcheck disable=SC2086
-    "$CC" -std=c11 -Wall -Wextra -Werror $smoke_flags \
-        -I"$ROOT/native/include" "$ROOT/native/tests/$smoke.c" \
-        "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$TEMP/$smoke"
-    "$TEMP/$smoke" || FAILED="$FAILED $smoke"
-done
-
 if [ -n "$FAILED" ]; then
     printf 'sanitize-native: failed under %s:%s\n' "$SANITIZER" "$FAILED" >&2
     exit 1

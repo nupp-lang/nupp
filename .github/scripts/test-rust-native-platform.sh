@@ -1,15 +1,11 @@
 #!/bin/sh
 
 # One retained-platform gate for the Rust-owned native boundary. This is kept
-# narrower than the Nupp suite: provider stress lives in the owning Rust crates,
-# the aggregate ABI smoke crosses the generated C header, and hostembeddingtest
-# consumes each production host artifact from C.
+# narrower than the Nupp suite: provider stress lives in the owning Rust crates.
 
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-FEATURES=native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
-HOST_FEATURES=native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
 
 cd "$ROOT"
 
@@ -37,68 +33,9 @@ RUSTC=${NUPP_RUSTC:-$(rustup which rustc)}
 RUSTDOC=$(rustup which rustdoc)
 export RUSTC RUSTDOC
 
-# The host crate compiles its protected Lua stack shims at build time. Name the
-# same pinned prerequisite that production host builds use.
-NUPP_LUAJIT_PREFIX=$(./scripts/toolchain luajit)
-export NUPP_LUAJIT_PREFIX
-
 "$CARGO" test --locked --package nupp-native-files --features lane
 "$CARGO" test --locked --package nupp-native-checksum
 "$CARGO" test --locked --package nupp-native-compression
 "$CARGO" test --locked --package nupp-native-process
 "$CARGO" test --locked --package nupp-native-net
 "$CARGO" test --locked --package nupp-native-tls
-"$CARGO" test --locked --package nupp-native-host --no-default-features \
-    --features "$HOST_FEATURES"
-
-./scripts/test-rust-abi
-
-# Build these before the suite so an unavailable artifact is a gate failure,
-# not a platform skip. The suite then links and runs the static embedding SDK,
-# dynamic embedding SDK, and statically relinked application host.
-host=$(./scripts/toolchain host "$FEATURES")
-sdk=$(./scripts/toolchain host-library "$FEATURES")
-[ -f "$host" ]
-[ -f "$sdk/libnupp.a" ]
-[ -f "$sdk/link.json" ]
-# Checksums are part of the base host; toolchain normalization omits their
-# compatibility feature from the Cargo feature list recorded in link.json.
-grep -F '"features": "native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"' \
-    "$sdk/link.json" >/dev/null
-case "$(uname -s 2>/dev/null || printf unknown)" in
-    MINGW*|MSYS*|CYGWIN*)
-        [ -f "$sdk/nupp.dll" ]
-        [ -f "$sdk/libnupp.dll.a" ]
-        ;;
-    Darwin) [ -f "$sdk/libnupp.dylib" ] ;;
-    *) [ -f "$sdk/libnupp.so" ] ;;
-esac
-
-TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-native-platform.XXXXXX")
-trap 'rm -rf "$TEMP"' EXIT HUP INT TERM
-cat > "$TEMP/host.lua" <<'LUA'
-assert(__nuppHost.hostFeatures["native-checksum"])
-assert(__nuppHost.hostFeatures["native-compression"])
-assert(__nuppHost.hostFeatures["native-files"])
-assert(__nuppHost.hostFeatures["native-gpu"])
-local ffi = require("ffi")
-ffi.cdef[[
-uint64_t nuppNativeFeatures(void);
-int32_t nuppNativeGpuCostsOutput(const uint8_t *, size_t);
-int32_t nuppNativeGpuCostsEnabled(void);
-int32_t nuppNativeGpuCostMetadata(uint64_t, uint64_t, int32_t, const uint8_t *, size_t);
-]]
-assert(require("bit").band(tonumber(ffi.C.nuppNativeFeatures()), 4) ~= 0)
-assert(ffi.C.nuppNativeGpuCostsOutput(nil, 0) == 0)
-assert(type(ffi.C.nuppNativeGpuCostsEnabled()) == "number")
-assert(type(ffi.C.nuppNativeGpuCostMetadata) == "cdata")
-assert(__nuppHost.hostFeatures["native-net"])
-assert(__nuppHost.hostFeatures["native-process"])
-assert(__nuppHost.hostFeatures["native-tls"])
-LUA
-"$host" "$TEMP/host.lua"
-
-# Named as a group so the broad suite in the same job can leave out what this
-# gate already ran against these exact artifacts, rather than building them
-# again twenty minutes later to reach the same answer.
-./bin/nupp test --jobs=1 --group=rust-native-gate

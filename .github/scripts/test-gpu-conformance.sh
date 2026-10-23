@@ -6,8 +6,6 @@ root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$root"
 icd=${NUPP_GPU_ICD:?NUPP_GPU_ICD must name the CI-provided Vulkan ICD manifest}
 [ -f "$icd" ] || { printf 'missing Vulkan ICD manifest: %s\n' "$icd" >&2; exit 1; }
-luajit=$($root/scripts/toolchain luajit)/bin/luajit
-bench=$root/bench/wgpu-spike
 
 export VK_ICD_FILENAMES="$icd"
 export WGPU_BACKEND=vulkan
@@ -18,17 +16,3 @@ export NUPP_EXPECT_GPU_ADAPTER=llvmpipe
 # Adapter absence is a failure in conformance, not an optional unit-test skip.
 cargo test -p nupp-native-gpu adapter_compute_round_trip_when_available \
     --locked -- --nocapture
-
-"$root/bin/nupp" build
-(
-    cd "$bench"
-    "$root/bin/nupp" build --target typed
-)
-
-typed=$bench/build/typed
-export LUA_PATH="$typed/?.lua;$typed/?/init.lua;$root/build/?.lua;;"
-export NUPP_NATIVE_LIBRARY="$typed/lib/nupp_native"
-export GEMM_M=64 GEMM_N=64 GEMM_K=64
-
-"$luajit" "$bench/counted-api.lua"
-"$luajit" "$bench/gemm-api.lua"

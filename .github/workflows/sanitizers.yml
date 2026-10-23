@@ -41,19 +41,6 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v5
 
-      # LuaJIT for the host crate. Restored and never saved: the
-      # entry belongs to the compiler matrix, and a manual run should not
-      # churn it.
-      - name: Restore the provisioned toolchain
-        uses: actions/cache/restore@v4
-        with:
-          path: .nupp-cache/toolchain
-          key: >-
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
-          restore-keys: |
-            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
-
       # The instrumented target directory is not cached. It is several
       # gigabytes per leg, built with a compiler nothing else uses, and
       # storing it would evict the entries the required matrix lives on to
@@ -64,9 +51,6 @@ jobs:
       # makes them abort before main. 28 bits is the long-standing default.
       - name: Leave the sanitizers their address space
         run: sudo sysctl -w vm.mmap_rnd_bits=28
-
-      - name: Provision LuaJIT
-        run: ./scripts/toolchain luajit
 
       # clang, which the script defaults to, is on the runner image.
       - name: Run the native tests under ${{ matrix.name }}

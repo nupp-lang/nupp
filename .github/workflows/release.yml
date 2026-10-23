@@ -21,7 +21,9 @@ permissions:
   actions: read
 
 jobs:
-  build-unix:
+  # Each platform builds its own compiler: the compiler's image stamped onto the
+  # VM runtime built on that runner, which carries every native facility.
+  build:
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -30,23 +32,28 @@ jobs:
           - name: Linux x86-64
             os: ubuntu-24.04
             artifact: nupp-linux-x86_64
-            upload_artifact: base-nupp-linux-x86_64
             platform: x86_64-unknown-linux-gnu
           - name: macOS arm64
             os: macos-14
             artifact: nupp-macos-arm64
-            upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
+          - name: Windows x86-64
+            os: windows-2022
+            artifact: nupp-windows-x86_64
+            platform: x86_64-pc-windows-gnu
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      # Compiling Nupp evaluates `@comptime` code, and the compiler evaluates that by
-      # starting a sealed worker through `bin/nupp` -- which is a LuaJIT launcher. A
-      # build of the compiler therefore needs the same interpreter the compiler matrix
-      # builds, whatever interpreter drives the build itself.
+      - name: Install the ABI-compatible Rust toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+
       - name: Build pinned host dependencies
         shell: bash
         run: ./scripts/toolchain --all
@@ -60,11 +67,7 @@ jobs:
 
       - name: Verify the binary packaging fixpoint
         shell: bash
-        run: |
-          set -euo pipefail
-          NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          export NUPP_TOOLCHAIN_PREFIX
-          ./bin/nupp fixpoint --binary
+        run: ./bin/nupp fixpoint --binary
 
       - name: Select macOS release signing
         id: macos-signing
@@ -103,109 +106,65 @@ jobs:
       - name: Build Nupp
         env:
           ARTIFACT_NAME: ${{ matrix.artifact }}
+          PLATFORM: ${{ matrix.platform }}
           MACOS_RELEASE_SIGNING: ${{ steps.macos-signing.outputs.enabled }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         shell: bash
         run: |
           set -euo pipefail
-          NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          export NUPP_TOOLCHAIN_PREFIX
-          bootstrap_host=$(./scripts/toolchain host base)
-          native_library=$(./scripts/toolchain native-rust files,process)
-
-          # Stage 0 through the launcher, which stages the native file provider that
-          # listing the compiler's own sources reaches. Stage 1 through the stub, so
-          # the interpreter every standalone binary
-          # carries is the one that compiles the payload it will carry.
-          ./bin/nupp build --target compiler
-          cat > build/current-compiler.lua <<'LUA'
-          package.path = os.getenv("GITHUB_WORKSPACE") .. "/build/?.lua;"
-             .. package.path
-          dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/tools/main.lua")
-          LUA
-          NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE" \
-            NUPP_NATIVE_LIBRARY="$native_library" \
-            "$bootstrap_host" \
-            build/current-compiler.lua build --target dist
-
-          mkdir -p release
-          mv build/dist/nupp "release/$ARTIFACT_NAME"
-          chmod +x "release/$ARTIFACT_NAME"
+          ./bin/nupp build --target dist
+          executable=nupp
+          [ "$RUNNER_OS" = Windows ] && executable=nupp.exe
+          package="release/package-$PLATFORM"
+          mkdir -p "$package/notices"
+          cp "build/dist/$executable" "$package/$executable"
+          chmod +x "$package/$executable"
 
           if [[ "$RUNNER_OS" == macOS && "$MACOS_RELEASE_SIGNING" == true ]]; then
             codesign --force --options runtime --timestamp \
-              --sign "$APPLE_SIGNING_IDENTITY" "release/$ARTIFACT_NAME"
+              --sign "$APPLE_SIGNING_IDENTITY" "$package/$executable"
           fi
 
-          "release/$ARTIFACT_NAME" check src/nupp/init.nupp
+          "$package/$executable" check src/nupp/init.nupp
 
-          # One universal compiler-owned host per platform. It is a raw immutable
-          # catalog artifact; end-user archives carry the stamped compiler below.
-          catalog_host=$(./scripts/toolchain host \
-            native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
-          stub="nupp-host-${{ matrix.platform }}"
-          cp "$catalog_host" "release/$stub"
-          chmod +x "release/$stub"
-          mkdir -p "release/notices-${{ matrix.platform }}"
-          cp host/NOTICE.md "release/notices-${{ matrix.platform }}/NOTICE.md"
-          cp -R host/notices "release/notices-${{ matrix.platform }}/notices"
-          notice="${stub}-notices.tar.gz"
-          ./scripts/toolchain archive "release/notices-${{ matrix.platform }}" \
-            "release/$notice" > /dev/null
-          ./bin/nupp run scripts/release.nupp record \
-            "${{ matrix.platform }}" "$GITHUB_SHA" \
-            "release/$stub" "release/$notice" \
-            "release/stub-${{ matrix.platform }}.json"
-
-          mkdir -p "release/package-${{ matrix.platform }}/notices"
-          cp "release/$ARTIFACT_NAME" "release/package-${{ matrix.platform }}/nupp"
-          cp host/NOTICE.md "release/package-${{ matrix.platform }}/NOTICE.md"
-          cp host/notices/* "release/package-${{ matrix.platform }}/notices/"
-          cp "release/stub-${{ matrix.platform }}.json" \
-            "release/package-${{ matrix.platform }}/stub-catalog-record.json"
-          (cd "release/package-${{ matrix.platform }}" && \
-            shasum -a 256 nupp > SHA256SUMS)
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            if [[ "$MACOS_RELEASE_SIGNING" == true ]]; then
-              printf '%s\n' \
-                'This archive is Developer ID signed and notarized by release CI.' \
-                > "release/package-${{ matrix.platform }}/SIGNING.txt"
-            else
-              printf '%s\n' \
-                'This archive is not Developer ID signed or notarized.' \
-                'macOS may require explicit approval before the executable can run.' \
-                > "release/package-${{ matrix.platform }}/SIGNING.txt"
-            fi
-          else
-            printf '%s\n' 'Linux executables do not use a platform code signature.' \
-              > "release/package-${{ matrix.platform }}/SIGNING.txt"
-          fi
+          cp host/NOTICE.md "$package/NOTICE.md"
+          cp host/notices/* "$package/notices/"
+          (cd "$package" && { shasum -a 256 "$executable" 2>/dev/null || sha256sum "$executable"; } > SHA256SUMS)
+          case "$RUNNER_OS" in
+            macOS)
+              if [[ "$MACOS_RELEASE_SIGNING" == true ]]; then
+                echo 'This archive is Developer ID signed and notarized by release CI.' > "$package/SIGNING.txt"
+              else
+                printf '%s\n' \
+                  'This archive is not Developer ID signed or notarized.' \
+                  'macOS may require explicit approval before the executable can run.' \
+                  > "$package/SIGNING.txt"
+              fi
+              ;;
+            Windows)
+              echo 'Windows release executables are unsigned by policy; Authenticode is not required to run them.' \
+                > "$package/SIGNING.txt"
+              ;;
+            *)
+              echo 'Linux executables do not use a platform code signature.' > "$package/SIGNING.txt"
+              ;;
+          esac
           # Names, contents and modes only: bsdtar and GNU tar otherwise write the
           # clock, the runner's user, macOS extended attributes and AppleDouble
           # `._` files, so no rebuild of a tag could reproduce its digest.
-          ./scripts/toolchain archive "release/package-${{ matrix.platform }}" \
-            "release/$ARTIFACT_NAME.tar.gz" > /dev/null
-          mkdir "release/verify-${{ matrix.platform }}"
-          tar -xzf "release/$ARTIFACT_NAME.tar.gz" \
-            -C "release/verify-${{ matrix.platform }}"
-          (cd "release/verify-${{ matrix.platform }}" && shasum -a 256 -c SHA256SUMS)
-          test -f "release/verify-${{ matrix.platform }}/NOTICE.md"
-          test -f "release/verify-${{ matrix.platform }}/stub-catalog-record.json"
-          "release/verify-${{ matrix.platform }}/nupp" --help
-          gpu_smoke="$PWD/.github/scripts/gpu-costs-smoke.lua"
-          (
-            cd "release/verify-${{ matrix.platform }}"
-            env -u NUPP_NATIVE_LIBRARY -u NUPP_COMPILER_ROOT \
-              ./nupp run --gpu-costs gpu-costs.jsonl "$gpu_smoke"
-            test -f gpu-costs.jsonl && test ! -s gpu-costs.jsonl
-          )
+          ./scripts/toolchain archive "$package" "release/$ARTIFACT_NAME.tar.gz" > /dev/null
+          mkdir "release/verify-$PLATFORM"
+          tar -xzf "release/$ARTIFACT_NAME.tar.gz" -C "release/verify-$PLATFORM"
+          (cd "release/verify-$PLATFORM" && { shasum -a 256 -c SHA256SUMS 2>/dev/null || sha256sum -c SHA256SUMS; })
+          test -f "release/verify-$PLATFORM/NOTICE.md"
+          "release/verify-$PLATFORM/$executable" --help
           # A tag is what a user installs and `nupp --version` is what they are told
           # they installed, and nothing but this makes the two agree: the number is a
           # string in the source, set by the commit the tag names. Checked against the
           # archived binary rather than against the source, so what is verified is the
           # artifact that ships.
           if [ "${GITHUB_REF_TYPE:-}" = tag ]; then
-            printed="$("release/verify-${{ matrix.platform }}/nupp" --version)"
+            printed="$("release/verify-$PLATFORM/$executable" --version)"
             expected="nupp ${GITHUB_REF_NAME#v}"
             if [ "$printed" != "$expected" ]; then
               echo "tag $GITHUB_REF_NAME ships $printed; bump nupp.tools.version" >&2
@@ -213,35 +172,11 @@ jobs:
             fi
           fi
 
-      - name: Stage the platform-independent payload
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          mv build/dist/nupp.payload.lua release/standalone-payload
-
       - name: Upload the standalone binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.upload_artifact }}
+          name: ${{ matrix.artifact }}
           path: release/${{ matrix.artifact }}.tar.gz
-          if-no-files-found: error
-
-      - name: Upload the catalog stub and notices
-        uses: actions/upload-artifact@v4
-        with:
-          name: stub-${{ matrix.platform }}
-          path: |
-            release/nupp-host-${{ matrix.platform }}
-            release/nupp-host-${{ matrix.platform }}-notices.tar.gz
-            release/stub-${{ matrix.platform }}.json
-          if-no-files-found: error
-
-      - name: Upload the platform-independent payload
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: standalone-payload
-          path: release/standalone-payload
           if-no-files-found: error
 
       - name: Notarize the macOS distribution
@@ -253,148 +188,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          codesign --verify --strict --verbose=2 release/nupp-macos-arm64
-          ditto -c -k --keepParent release/package-aarch64-apple-darwin \
+          codesign --verify --strict --verbose=2 release/package-${{ matrix.platform }}/nupp
+          ditto -c -k --keepParent release/package-${{ matrix.platform }} \
             "$RUNNER_TEMP/nupp-macos-notarization.zip"
           xcrun notarytool submit "$RUNNER_TEMP/nupp-macos-notarization.zip" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait
-          spctl --assess --type execute --verbose=2 release/nupp-macos-arm64
-
-  build-windows:
-    name: Windows x86-64
-    needs: build-unix
-    runs-on: windows-2022
-    timeout-minutes: 90
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      # Third-party, so pinned to the commit v1.13.1 names rather than to a tag
-      # its owner can move; actions/* stay on tags, as GitHub's own.
-      - name: Set up the MSVC environment
-        uses: step-security/msvc-dev-cmd@22c98154b708dbd743e6f27a933cf6ceba3305c4 # v1.13.1
-
-      - name: Install the ABI-compatible Rust toolchain
-        shell: bash
-        run: |
-          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
-          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
-
-      # The public catalog target keeps its established MSVC spelling, but the
-      # host and its static C consumers are one MinGW ABI. Exercise that exact
-      # GNU Rust artifact set before it is stamped or packaged.
-      - name: Gate the Rust-native platform artifacts
-        shell: bash
-        run: .github/scripts/test-rust-native-platform.sh
-
-      - name: Verify the binary packaging fixpoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          NUPP_TOOLCHAIN_PREFIX=$(./scripts/toolchain --prefix)
-          export NUPP_TOOLCHAIN_PREFIX
-          ./bin/nupp fixpoint --binary
-
-      - name: Download the platform-independent payload
-        uses: actions/download-artifact@v4
-        with:
-          name: standalone-payload
-          path: release
-
-      - name: Build the Windows host
-        shell: bash
-        run: |
-          set -euo pipefail
-          host=$(./scripts/toolchain host \
-            native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers)
-          mkdir -p build/release-host/release
-          cp "$host" build/release-host/release/nupp-host.exe
-
-      - name: Stamp and smoke-test the standalone binary
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./bin/nupp run scripts/release.nupp payload-stamp \
-            x86_64-pc-windows-msvc \
-            build/release-host/release/nupp-host.exe \
-            release/standalone-payload \
-            release/nupp-windows-x86_64.exe
-          release/nupp-windows-x86_64.exe --help
-
-      - name: Package the Windows compiler, catalog stub, and notices
-        shell: pwsh
-        run: |
-          $platform = "x86_64-pc-windows-msvc"
-          $stub = "nupp-host-$platform.exe"
-          Copy-Item build/release-host/release/nupp-host.exe "release/$stub"
-          New-Item -ItemType Directory -Force "release/notices-$platform/notices" | Out-Null
-          Copy-Item host/NOTICE.md "release/notices-$platform/NOTICE.md"
-          Copy-Item host/notices/* "release/notices-$platform/notices/"
-          Compress-Archive -Path "release/notices-$platform/*" `
-            -DestinationPath "release/$stub-notices.zip"
-          & bash ./bin/nupp run scripts/release.nupp record `
-            $platform $env:GITHUB_SHA "release/$stub" `
-            "release/$stub-notices.zip" "release/stub-$platform.json"
-          if ($LASTEXITCODE -ne 0) { throw "stub catalog record failed" }
-          New-Item -ItemType Directory -Force release/package/notices | Out-Null
-          Copy-Item release/nupp-windows-x86_64.exe release/package/nupp.exe
-          Copy-Item host/NOTICE.md release/package/NOTICE.md
-          Copy-Item host/notices/* release/package/notices/
-          Copy-Item "release/stub-$platform.json" release/package/stub-catalog-record.json
-          $digest = (Get-FileHash release/package/nupp.exe -Algorithm SHA256).Hash.ToLower()
-          "$digest  nupp.exe" | Set-Content release/package/SHA256SUMS -NoNewline
-          "Windows release executables are unsigned by policy; Authenticode is not required to run them." |
-            Set-Content release/package/SIGNING.txt
-          Compress-Archive -Path release/package/* `
-            -DestinationPath release/nupp-windows-x86_64.zip
-          Expand-Archive release/nupp-windows-x86_64.zip -DestinationPath release/verify
-          if (-not (Test-Path release/verify/NOTICE.md) -or
-              -not (Test-Path release/verify/stub-catalog-record.json)) {
-            throw "release archive is missing notices or its catalog record"
-          }
-          $verified = (Get-FileHash release/verify/nupp.exe -Algorithm SHA256).Hash.ToLower()
-          if ($verified -ne $digest) { throw "release archive checksum mismatch" }
-          & release/verify/nupp.exe --help
-          if ($LASTEXITCODE -ne 0) { throw "archived Windows compiler did not run" }
-          $gpuSmoke = (Resolve-Path .github/scripts/gpu-costs-smoke.lua).Path
-          Remove-Item Env:NUPP_NATIVE_LIBRARY -ErrorAction SilentlyContinue
-          Remove-Item Env:NUPP_COMPILER_ROOT -ErrorAction SilentlyContinue
-          Push-Location release/verify
-          try {
-            & ./nupp.exe run --gpu-costs gpu-costs.jsonl $gpuSmoke
-            if ($LASTEXITCODE -ne 0) { throw "archived compiler lacks GPU cost support" }
-            if (-not (Test-Path gpu-costs.jsonl) -or
-                (Get-Item gpu-costs.jsonl).Length -ne 0) {
-              throw "device-free GPU cost stream is missing or not empty"
-            }
-          } finally { Pop-Location }
-          if ($env:GITHUB_REF_TYPE -eq "tag") {
-            $printed = & release/verify/nupp.exe --version
-            $expected = "nupp " + ($env:GITHUB_REF_NAME -replace '^v', '')
-            if ($printed -ne $expected) {
-              throw "tag $env:GITHUB_REF_NAME ships $printed; bump nupp.tools.version"
-            }
-          }
-
-      - name: Upload the standalone binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: base-nupp-windows-x86_64
-          path: release/nupp-windows-x86_64.zip
-          if-no-files-found: error
-
-      - name: Upload the catalog stub and notices
-        uses: actions/upload-artifact@v4
-        with:
-          name: stub-x86_64-pc-windows-msvc
-          path: |
-            release/nupp-host-x86_64-pc-windows-msvc.exe
-            release/nupp-host-x86_64-pc-windows-msvc.exe-notices.zip
-            release/stub-x86_64-pc-windows-msvc.json
-          if-no-files-found: error
+          spctl --assess --type execute --verbose=2 release/package-${{ matrix.platform }}/nupp
 
   # The stage zero: the root CLI image the fixpoint verified, starting from the
   # pinned one, which a cold checkout runs on a runtime built from its own
@@ -439,164 +241,12 @@ jobs:
           path: release/nupp-stage0-*.image.gz
           if-no-files-found: error
 
-  catalog:
-    name: Assemble the next stub catalog
-    needs:
-      - build-unix
-      - build-windows
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Download native stub records
-        uses: actions/download-artifact@v4
-        with:
-          path: release/stubs
-          pattern: stub-*
-          merge-multiple: true
-
-      - name: Download the built Linux compiler
-        uses: actions/download-artifact@v4
-        with:
-          name: base-nupp-linux-x86_64
-          path: release/catalog-compiler
-
-      - name: Assemble and validate the immutable catalog
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release/catalog-runner
-          tar -xzf release/catalog-compiler/nupp-linux-x86_64.tar.gz \
-            -C release/catalog-runner
-          release/catalog-runner/nupp run scripts/release.nupp catalog \
-            "$GITHUB_SHA" release/stubs release/stub-catalog.json \
-            release/stubs/stub-*.json
-
-      - name: Upload the catalog
-        uses: actions/upload-artifact@v4
-        with:
-          name: stub-catalog
-          path: release/stub-catalog.json
-          if-no-files-found: error
-
-  cross-target:
-    name: Stamp every platform on one Linux host
-    needs: catalog
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Build pinned host dependencies
-        shell: bash
-        run: ./scripts/toolchain --all
-
-      - name: Download the immutable catalog
-        uses: actions/download-artifact@v4
-        with:
-          name: stub-catalog
-          path: release
-
-      - name: Download every native stub
-        uses: actions/download-artifact@v4
-        with:
-          path: release/stubs
-          pattern: stub-*
-          merge-multiple: true
-
-      - name: Build all configured platforms with one CLI invocation
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./bin/nupp build --target compiler
-          cd tests/fixtures/cross-target
-          NUPP_STUB_CATALOG="$GITHUB_WORKSPACE/release/stub-catalog.json" \
-            NUPP_STUB_DIR="$GITHUB_WORKSPACE/release/stubs" \
-            "$GITHUB_WORKSPACE/bin/nupp" build --platform all --format json \
-            > "$GITHUB_WORKSPACE/release/cross-target-result.json"
-          cp build/default/x86_64-unknown-linux-gnu/default.tar \
-            "$GITHUB_WORKSPACE/release/cross-linux.tar"
-          cp build/default/aarch64-apple-darwin/default.tar \
-            "$GITHUB_WORKSPACE/release/cross-macos.tar"
-          cp build/default/x86_64-pc-windows-msvc/default.exe \
-            "$GITHUB_WORKSPACE/release/cross-windows.exe"
-
-      - name: Upload the cross-target outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: cross-target-output
-          path: |
-            release/cross-target-result.json
-            release/cross-linux.tar
-            release/cross-macos.tar
-            release/cross-windows.exe
-          if-no-files-found: error
-
-  verify-cross-unix:
-    name: Run cross-stamped ${{ matrix.name }} output
-    needs: cross-target
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Linux x86-64
-            os: ubuntu-latest
-            archive: cross-linux.tar
-          - name: macOS arm64
-            os: macos-14
-            archive: cross-macos.tar
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Download the cross-target outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: cross-target-output
-          path: release
-
-      - name: Extract and execute
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir release/run
-          tar -xf "release/${{ matrix.archive }}" -C release/run
-          mode="$(stat -c '%a' release/run/default 2>/dev/null || stat -f '%Lp' release/run/default)"
-          test "$mode" = 755
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            codesign --force --sign - release/run/default
-            codesign --verify --strict release/run/default
-          fi
-          test "$(release/run/default)" = cross-target-ok
-
-  verify-cross-windows:
-    name: Run cross-stamped Windows x86-64 output
-    needs: cross-target
-    runs-on: windows-2022
-    steps:
-      - name: Download the cross-target outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: cross-target-output
-          path: release
-
-      - name: Execute
-        shell: pwsh
-        run: |
-          $output = & release/cross-windows.exe
-          if ($LASTEXITCODE -ne 0 -or $output -ne "cross-target-ok") {
-            throw "cross-stamped Windows output failed: $output"
-          }
-
   release:
     name: Add binaries to the release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs:
-      - build-unix
-      - build-windows
+      - build
       - stage-zero-image
-      - catalog
-      - verify-cross-unix
-      - verify-cross-windows
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -604,33 +254,12 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      - name: Download standalone binaries
+      - name: Download the binaries and the stage-zero image
         uses: actions/download-artifact@v4
         with:
           path: release
           pattern: nupp-*
           merge-multiple: true
-
-      # The Linux and Windows archives, as built.
-      - name: Download the Linux and Windows archives
-        uses: actions/download-artifact@v4
-        with:
-          path: release
-          pattern: base-nupp-*
-          merge-multiple: true
-
-      - name: Download immutable native stubs
-        uses: actions/download-artifact@v4
-        with:
-          path: release
-          pattern: stub-*-*-*
-          merge-multiple: true
-
-      - name: Download the stub catalog
-        uses: actions/download-artifact@v4
-        with:
-          name: stub-catalog
-          path: release
 
       - name: Create or update the tagged release
         env:

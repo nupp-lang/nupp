@@ -16,26 +16,7 @@ export WGPU_BACKEND=dx12
 export NUPP_REQUIRE_GPU=1
 export NUPP_EXPECT_GPU_BACKEND=dx12
 
-# First cross the Rust provider boundary with a small WGSL compute kernel.
+# Cross the Rust provider boundary with a small WGSL compute kernel. The public
+# Nupp API waits on the VM GPU provider, which LuaJIT's used to stand in for.
 "$cargo" test -p nupp-native-gpu adapter_compute_round_trip_when_available \
     --locked -- --nocapture
-
-# Then cross the public Nupp API with compiler-emitted SPIR-V and compare the
-# GPU result against the AOT CPU body emitted from the same source.
-"$root/bin/nupp" build
-bench=$root/bench/wgpu-spike
-(
-    cd "$bench"
-    "$root/bin/nupp" build --target typed
-)
-
-luajit=$($root/scripts/toolchain luajit)/bin/luajit
-typed=$bench/build/typed
-lua_root=$(cygpath -m "$root")
-lua_typed=$(cygpath -m "$typed")
-export LUA_PATH="$lua_typed/?.lua;$lua_typed/?/init.lua;$lua_root/build/?.lua;;"
-export NUPP_NATIVE_LIBRARY="$lua_typed/lib/nupp_native"
-export GEMM_M=64 GEMM_N=64 GEMM_K=64
-
-"$luajit" "$bench/counted-api.lua"
-"$luajit" "$bench/gemm-api.lua"
