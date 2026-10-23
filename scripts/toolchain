@@ -137,6 +137,18 @@ native_path() {
     fi
 }
 
+# A directory for Cargo, which hands it to build scripts as OUT_DIR. On Windows
+# that is the backslash spelling: libffi-sys turns a prefix into an MSYS path by
+# replacing ":\", so given D:/a/... it installed to /D:/a/..., and the native
+# ranlib it then ran could not find the archive there.
+cargo_dir() {
+    if [ "$PLATFORM" = windows ] && command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 # --- digests ----------------------------------------------------------------
 
 # Whichever of these the machine has. All three answer the same question and no
@@ -832,7 +844,7 @@ build_rust_vm_runtime() {
         --locked \
         --no-default-features \
         --features "$vm_features" \
-        --target-dir "$target" \
+        --target-dir "$(cargo_dir "$target")" \
         --config 'profile.release.lto="fat"' \
         --config 'profile.release.codegen-units=1' \
         --config 'profile.release.strip=true'
@@ -879,7 +891,7 @@ build_rust_vm_aot_tool() {
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_AOT_TOOL_OUT" ] && { release_lock; return 0; }
     note "building the VM object emitter with $RUSTC"
     set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm --bin nupp-vm \
-        --release --locked --features aot --target-dir "$target"
+        --release --locked --features aot --target-dir "$(cargo_dir "$target")"
     offline && set -- "$@" --offline
     vendor_arguments=$(rust_vendor_arguments)
     if [ -n "$vendor_arguments" ]; then
@@ -930,7 +942,7 @@ build_rust_vm_program_archive() {
     # emits its library list without deleting Cargo fingerprint state.
     set -- "$CARGO" rustc --manifest-path "$ROOT/Cargo.toml" --package nupp-vm-program --lib \
         --release --locked --no-default-features --features "aot-linked,compiled-runtime,$features" \
-        --target-dir "$target" \
+        --target-dir "$(cargo_dir "$target")" \
         --config 'profile.release.lto="fat"' \
         --config 'profile.release.codegen-units=1'
     offline && set -- "$@" --offline
