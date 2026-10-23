@@ -23,7 +23,11 @@ end
 -- of this compiler gets loaded. It is a cache and answers nothing when it has
 -- nothing to answer with, so a checkout without one, or with a stale one, simply
 -- loads the way it always did.
-require("nupp.tools.bytecodecache").install()
+-- What the VM CLI's root sets up too: the trivia store the parser writes into,
+-- and the loader that answers `load`, `loadstring` and `loadfile` with chunks
+-- the VM lowers, which reading a manifest needs.
+require("nupp.compiler.syntax.triviaarena").install(require("nupp.compiler.syntax.triviaarena.table"))
+require("nupp.compiler.vm.chunks").install()
 
 local code = require("nupp.tools.cli").main(arg)
 os.exit(code)
