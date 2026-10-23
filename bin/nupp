@@ -1,8 +1,8 @@
 #!/bin/sh
 # The nupp launcher.
 #
-# Runs an explicitly selected or installed VM compiler snapshot first. Without
-# one, runs build/nupp/tools and rebuilds it when compiler sources change.
+# Runs an explicitly selected or installed VM compiler snapshot, rebuilding the
+# installed one when compiler sources change.
 #
 # What it cannot do is start from nothing. The compiler is written in Nupp, so
 # compiling it needs a Nupp compiler, and the one it starts from is a release's

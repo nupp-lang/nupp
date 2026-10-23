@@ -3,11 +3,9 @@ module nupp.tools.build.package
 --[[
 One file that is the whole program.
 
-A bundle is every module a target reaches, concatenated into one Lua file with
-each registered in `package.preload`, so the result runs anywhere LuaJIT does
-with nothing beside it. A binary goes one step further: the bundle becomes a
-payload appended to a prebuilt host stub, found at run time by a magic trailer
-rather than by anything the filesystem has to be asked.
+A binary is a VM program: its entry's image, with the resources it carries,
+appended to the VM runtime as a payload the runtime finds at start by a magic
+trailer rather than by anything the filesystem has to be asked.
 ]]
 const {type ModuleRecord as ModuleRecord2} = require("nupp.tools.build.cache")
 const {type Resource} = require("nupp.tools.build.manifest")
@@ -26,9 +24,9 @@ local resourceOutput = modulesMod.resourceOutput
 
 local package_ = {}
 
--- Component source assembly deliberately uses a runtime format string. The
--- arguments are compiler metadata rather than a user-facing typed format, so
--- routing these calls through the compile-time format contract adds no safety.
+-- Payload assembly deliberately uses a runtime format string. The arguments are
+-- compiler metadata rather than a user-facing typed format, so routing these
+-- calls through the compile-time format contract adds no safety.
 local function interpolate(format: string, ...: any): string
     return string.format(format, ...)
 end
