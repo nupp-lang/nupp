@@ -3580,7 +3580,21 @@ restoreLane = function()
         restore(package.loaded, laneBaseline.loaded)
     end
     restore(package.preload, laneBaseline.preload)
+    -- The VM keeps each runtime module's state in a global under this prefix,
+    -- created on first use. It belongs to modules the repair above keeps, so
+    -- discarding it strands them: the timer kept a source registered in a
+    -- suspension state nothing reads any more, and the next suite to sleep was
+    -- told no readiness source was registered.
+    local runtimeState = {}
+    for key, item in pairs(_G) do
+        if type(key) == "string" and key:sub(1, 18) == "\0nupp:local-state:" then
+            runtimeState[key] = item
+        end
+    end
     restore(_G, laneBaseline.globals)
+    for key, item in pairs(runtimeState) do
+        _G[key] = item
+    end
     package.path, package.cpath = laneBaseline.path, laneBaseline.cpath
 end
 

@@ -140,7 +140,7 @@ function timers.create(clock: any): any
     --- ran.
     const function source(): suspension.Source
         const existing = timerSource
-        if existing ~= nil and not (existing as any).released then
+        if existing ~= nil and not (existing as any)._released then
             return existing
         end
         -- Registered once and kept, so it has to say when it is holding nothing.
