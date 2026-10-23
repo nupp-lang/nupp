@@ -84,7 +84,6 @@ function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
     -- Forbidden it, so it checks the prelude from source.
     local fresh = envMod.new(dir, {cache = false})
 
-    test.equal(cached.preludeRuntime, fresh.preludeRuntime, "the generated prelude runtime is the same source")
     test.equal(names(cached.globals), names(fresh.globals), "the same globals")
     test.equal(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
     test.equal(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")

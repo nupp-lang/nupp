@@ -1038,7 +1038,6 @@ function checkMod.check(
     -- switches: the build derives its native feature set from them.
     result.effects = {}
     result.host = env and env.artifactHost or "native"
-    result.preludeRuntime = env and env.preludeRuntime or nil
     result.moduleName = opts and opts.moduleName
         or env and env.moduleNameForPath and env.moduleNameForPath(env, filename)
         or nil

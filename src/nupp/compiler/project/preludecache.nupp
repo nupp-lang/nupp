@@ -107,9 +107,6 @@ local types = require("nupp.compiler.types")
 local preludecache = {}
 
 --- The roots `nupp.compiler.project.env` restores, in the order they are written.
----
---- `preludeRuntime` is not here: it is a string, so it needs no numbering and is
---- carried beside the graph.
 local ROOT_NAMES = {
     "annotationsByName",
     "featureEffects",
@@ -569,7 +566,6 @@ function preludecache.encode(roots: any, origin: preludecache.Origin?): any?
             digest = origin.digest,
         },
         roots = rootIds,
-        runtime = roots.preludeRuntime,
     }
 end
 
@@ -611,7 +607,6 @@ function preludecache.decode(image: any, origin: preludecache.Origin?): any?
         or type(image.triviaOf) ~= "table"
         or type(image.internedAs) ~= "table"
         or type(image.identity) ~= "table"
-        or type(image.runtime) ~= "string"
     then
         return nil
     end
@@ -884,7 +879,6 @@ function preludecache.decode(image: any, origin: preludecache.Origin?): any?
         local id = image.roots[index]
         roots[name] = id ~= 0 and built[id as integer] or nil
     end
-    roots.preludeRuntime = image.runtime
 
     return roots
 end
