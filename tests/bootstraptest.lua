@@ -120,7 +120,7 @@ end
 -- same question the checkout will.
 function M.embeddedResourcesHaveOneCheckoutSpelling()
     local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
-    local resources = manifest.build.targets.compiler.resources
+    local resources = manifest.build.targets[manifest.selfHost.target].resources
     local tracked = {}
     local listing = assert(io.popen(("git -C '%s' ls-files"):format(ROOT)))
     for path in listing:lines() do

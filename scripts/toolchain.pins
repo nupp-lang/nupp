@@ -10,10 +10,8 @@
 # licence Nupp redistributes, refreshing host/notices beside it. `scripts/toolchain`
 # refuses to build a source whose notice has drifted.
 
-# LuaJIT v2.1, at 2.1.1785763465. The floor is 2.1.1784535649, the first build
-# carrying the backported operators; anything older rejects generated Nupp at
-# parse time. This is why the pin lives here rather than trailing a package
-# manager: the interpreter has to be new enough to parse what the compiler emits.
+# LuaJIT v2.1, at 2.1.1785763465: the interpreter LuaRocks runs on, and the
+# headers C rocks build against.
 LUAJIT_REV=1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
 LUAJIT_SHA256=85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00
 LUAJIT_URL='https://github.com/LuaJIT/LuaJIT/archive/${LUAJIT_REV}.tar.gz'
@@ -44,6 +42,6 @@ LUAROCKS_DIRECTORY='luarocks-${LUAROCKS_VERSION}'
 # who runs `nupp fixpoint --emit-stage0` there. `scripts/toolchain stage0-image`
 # verifies it after decompressing and before installing, and an offline builder
 # may supply either spelling.
-STAGE0_IMAGE_TAG=v0.0.15-vm.1
-STAGE0_IMAGE_SHA256=efe3b902e504df29f0d3d26111b41d8e0dd751f71aad65cfd2ec6bc268cfaf14
+STAGE0_IMAGE_TAG=v0.0.15-vm.2
+STAGE0_IMAGE_SHA256=6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9
 STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_IMAGE_TAG}/nupp-stage0-${STAGE0_IMAGE_TAG}.image.gz'

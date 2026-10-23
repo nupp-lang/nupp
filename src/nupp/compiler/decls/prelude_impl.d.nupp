@@ -1,4 +1,0 @@
--- Nothing reads this. The prelude once carried an implementation unit generated
--- to Lua beside the declarations, and the pinned stage zero still opens this
--- file by name while it builds the compiler. Delete it once the pin moves past
--- v0.0.15-vm.1.

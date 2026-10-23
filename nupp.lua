@@ -419,17 +419,8 @@ return {
 
     build = {
         outDir = "build",
-        default = "compiler",
+        default = "dist",
         targets = {
-            -- The compiler's sources, checked. The pinned stage zero reads the
-            -- resources its CLI carries from this target by name, so it stays
-            -- until the pin moves past v0.0.15-vm.1.
-            compiler = {
-                description = "Check the self-hosted compiler",
-                entries = {"nupp.tools.main"},
-                nativeFeatures = {gpu = true, workers = false},
-                resources = RESOURCES,
-            },
             testRunner = {
                 kind = "binary",
                 description = "Build the worker-hosted test runner",
@@ -524,7 +515,7 @@ return {
     },
 
     selfHost = {
-        target = "compiler",
+        target = "dist",
         -- The compiler image this tree's first stage is lowered by. It is a
         -- release's root CLI image, fetched and verified against the digest pinned
         -- in `scripts/toolchain.pins`, which is also what `bin/nupp` builds a VM
