@@ -536,7 +536,10 @@ local function ownFailure(owner: ScopeState, problem: any): nil
     if not owner.failed then
         owner.failed = true
         owner.failure = problem
-        owner.failedUnwinding = owner.cancellation ~= nil
+        -- A child's own wait can see the deadline through the timer before the
+        -- driver records the cancellation, so a passed deadline counts as well.
+        const deadline = owner.deadline
+        owner.failedUnwinding = owner.cancellation ~= nil or (deadline ~= nil and timeModule.now() >= deadline)
     else
         const suppressed = owner.suppressed
         if suppressed == nil then
@@ -1769,13 +1772,13 @@ local function runImpl(...: any): ...any
     -- A deadline that had already cancelled the scope stays what ended it, even
     -- when a child's failure while unwinding reached the body first: which the
     -- body woke to is only which arrived first.
-    if owner.failed
-        and problem == owner.failure
-        and owner.failedUnwinding
-        and owner.cancellation ~= nil
-        and not owner.deliberate
-    then
-        problem = owner.cancellation
+    if owner.failed and problem == owner.failure and owner.failedUnwinding and not owner.deliberate then
+        if owner.cancellation == nil then
+            deadlinePassed(owner)
+        end
+        if owner.cancellation ~= nil then
+            problem = owner.cancellation
+        end
     end
     const scopeOwned = (owner.failed and problem == owner.failure)
         or (owner.cancellation ~= nil and not owner.deliberate and problem == owner.cancellation)
