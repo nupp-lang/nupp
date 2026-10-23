@@ -11,6 +11,19 @@
 # Nothing here is committed, and nothing here is fetched until a command finds no
 # VM compiler -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Autoconf writes the shell it ran under into each Makefile unquoted, and in
+# Git Bash that shell reaches a native process as C:/Program Files/..., which
+# the libtool command line then splits at the space. libffi's build, which
+# Cargo runs for the VM, failed that way. Name the shell by its short form.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        if [ -z "${CONFIG_SHELL:-}" ] && command -v cygpath >/dev/null 2>&1; then
+            CONFIG_SHELL=$(cygpath -m -s /usr/bin/sh.exe 2>/dev/null || true)
+            [ -n "$CONFIG_SHELL" ] && export CONFIG_SHELL
+        fi
+        ;;
+esac
 # Cargo builds the compiler starts (native providers, VM runtimes) share one
 # content-addressed compiler cache across worktrees when sccache is installed.
 if [ -z "${RUSTC_WRAPPER:-}" ] && command -v sccache >/dev/null 2>&1; then

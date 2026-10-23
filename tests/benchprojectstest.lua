@@ -72,26 +72,28 @@ end
 
 local function projects()
     local pipe = assert(io.popen("cd '" .. ROOT .. "/bench' && ls -d */"))
-    local names = {}
+    local names, found = {}, 0
     for line in pipe:lines() do
         local name = line:gsub("/$", "")
         local dir = ROOT .. "/bench/" .. name
-        if exists(dir .. "/nupp.lua")
-            and not exists(dir .. "/prepare.sh")
-            and nativePackagesResolve(read(dir .. "/nupp.lua"))
-        then
-            names[#names + 1] = name
+        if exists(dir .. "/nupp.lua") and not exists(dir .. "/prepare.sh") then
+            found = found + 1
+            if nativePackagesResolve(read(dir .. "/nupp.lua")) then
+                names[#names + 1] = name
+            end
         end
     end
     pipe:close()
     table.sort(names)
 
-    return names
+    return names, found
 end
 
 function M.everyBenchmarkProjectChecks()
-    local names = projects()
-    assert(#names >= 4, "the benchmark projects were found: " .. #names)
+    -- The floor guards the discovery, not the machine: a project whose
+    -- pkg-config packages this host lacks is found and then set aside.
+    local names, found = projects()
+    assert(found >= 4, "the benchmark projects were found: " .. found)
     local scratch = os.tmpname()
     os.remove(scratch)
     assert(os.execute("mkdir -p '" .. scratch .. "'") == 0)
