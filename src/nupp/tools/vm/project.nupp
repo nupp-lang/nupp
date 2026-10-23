@@ -97,8 +97,6 @@ function project.resolve(env: table, compilerRoot: string, name: string, soft: b
         return compilerRoot .. "/native/crates/vm/lib/nupp/generator.nupp"
     elseif name == "nupp.tasks" then
         return compilerRoot .. "/native/crates/vm/lib/nupp/tasks.nupp"
-    elseif name == "nupp.tools.bytecodecache" then
-        return compilerRoot .. "/native/crates/vm/lib/nupp/tools/bytecodecache.nupp"
     end
     if HOST_MODULES[name] or name:find("^nupp%.runtime%.browser%.") then
         return nil
