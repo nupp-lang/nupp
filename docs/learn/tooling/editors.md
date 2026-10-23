@@ -37,9 +37,7 @@ point the extension at it.
 Every checked function carries an **Inspect** code lens, and **Nupp: Inspect
 Compiled Output** in the command palette does the same. Either offers what the
 server can produce for the file: the VM **Bytecode** laid out against the
-source, or the **VM image** text the file lowers to. The **Open Generated Lua**
-and **Compare Generated Artifacts** commands still exist in the extension, but
-the server produces no Lua, so neither opens anything.
+source, or the **VM image** text the file lowers to.
 
 Artifacts open beside the source as ordinary read-only editors under the
 `nupp-generated:` scheme, so search, folding, diff and every other editor
@@ -75,18 +73,16 @@ of a session offers it rather than flipping it blind.
 
 ### Settings
 
-Five settings configure the extension. The four naming the process restart the
-server when changed:
+Four settings name the language-server process, and changing one restarts the
+server:
 
 - `nupp.serverPath`: empty, which resolves to this repository's `bin/nupp` when
   the workspace is the checkout and to `nupp` on `PATH` otherwise.
 - `nupp.serverArgs`: `["lsp", "serve", "${workspaceFolder}"]`.
 - `nupp.serverCwd`: `${workspaceFolder}`.
 - `nupp.serverEnvironment`: `{}`.
-- `nupp.artifactOptimizationLevel`: `0`. It is sent with every artifact
-  request and changes nothing, since no optimizer runs.
 
-The four naming the process expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
+They expand `${workspaceFolder}` and `${env:NAME}`, and arguments are
 passed without shell interpretation. The extension runs one client per
 workspace folder, each watching `**/*.nupp` so an edit from Git, a generator,
 or another editor invalidates the incremental graph.

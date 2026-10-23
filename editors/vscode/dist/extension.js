@@ -22899,20 +22899,18 @@ async function migrateAnnotatedLua(target) {
   const migrated = await vscode.workspace.openTextDocument(destination);
   await vscode.window.showTextDocument(migrated);
 }
-var ARTIFACT_LABELS = { lua: "Generated Lua" };
-function generatedUri(sourceUri, kind, optLevel) {
+var ARTIFACT_LABELS = { bytecode: "Bytecode", image: "VM image" };
+function generatedUri(sourceUri, kind) {
   const base = path.basename(sourceUri.fsPath);
-  const suffix = kind === "lua" ? ".lua" : ".bc";
   const query = new URLSearchParams({
     source: sourceUri.toString(),
-    kind,
-    optLevel: String(optLevel)
+    kind
   });
   return vscode.Uri.parse(
-    `${GENERATED_SCHEME}:/${base}.O${optLevel}${suffix}?${query.toString()}`
+    `${GENERATED_SCHEME}:/${base}.${kind}.bc?${query.toString()}`
   );
 }
-async function resolveArtifact(sourceUri, kind, optLevel) {
+async function resolveArtifact(sourceUri, kind) {
   const running = clientForUri(sourceUri);
   if (!running) {
     throw new Error("No Nupp language server is running for this file.");
@@ -22920,22 +22918,20 @@ async function resolveArtifact(sourceUri, kind, optLevel) {
   await vscode.workspace.openTextDocument(sourceUri);
   return running.client.sendRequest("nupp/artifact", {
     textDocument: { uri: sourceUri.toString() },
-    kind,
-    optLevel
+    kind
   });
 }
 async function refreshArtifact(uri) {
   const query = new URLSearchParams(uri.query);
   const sourceUri = vscode.Uri.parse(query.get("source"));
   const kind = query.get("kind");
-  const optLevel = Number(query.get("optLevel")) || 0;
-  const artifact = await resolveArtifact(sourceUri, kind, optLevel);
+  const artifact = await resolveArtifact(sourceUri, kind);
   generated.set(uri.toString(), artifact);
   generatedEvents.fire(uri);
   return artifact;
 }
-async function openArtifact(sourceUri, kind, optLevel, options) {
-  const uri = generatedUri(sourceUri, kind, optLevel);
+async function openArtifact(sourceUri, kind, options) {
+  const uri = generatedUri(sourceUri, kind);
   let artifact;
   try {
     artifact = await vscode.window.withProgress(
@@ -22987,9 +22983,6 @@ function generatedLineFor(artifact, sourceLine) {
   if (!artifact || !artifact.mapping) {
     return void 0;
   }
-  if (artifact.mapping.kind === "line-identity") {
-    return sourceLine;
-  }
   let best;
   for (const entry of artifact.mapping.entries || []) {
     if (entry.sourceLine === sourceLine && entry.role !== "synthetic") {
@@ -23001,9 +22994,6 @@ function generatedLineFor(artifact, sourceLine) {
 function sourceLineFor(artifact, generatedLine) {
   if (!artifact || !artifact.mapping) {
     return void 0;
-  }
-  if (artifact.mapping.kind === "line-identity") {
-    return generatedLine;
   }
   for (const entry of artifact.mapping.entries || []) {
     if (entry.generatedLine === generatedLine && entry.role !== "synthetic") {
@@ -23146,17 +23136,6 @@ function activeNuppUri(target) {
   const origin = originOf(editor.document.uri);
   return origin.fsPath.endsWith(".nupp") ? origin : void 0;
 }
-async function openGeneratedArtifact(kind, target) {
-  const uri = activeNuppUri(target);
-  if (!uri) {
-    void vscode.window.showInformationMessage("Open a Nupp file to inspect what it compiles to.");
-    return;
-  }
-  await openArtifact(uri, kind, artifactOptLevel(uri));
-}
-function artifactOptLevel(uri) {
-  return vscode.workspace.getConfiguration("nupp", uri).get("artifactOptimizationLevel", 0);
-}
 async function inspectCompiledFunction(target) {
   const uri = activeNuppUri(target);
   if (!uri) {
@@ -23196,7 +23175,7 @@ async function inspectCompiledFunction(target) {
   if (!picked) {
     return;
   }
-  const opened = await openArtifact(uri, picked.kind, artifactOptLevel(uri));
+  const opened = await openArtifact(uri, picked.kind);
   if (opened && target && target.position) {
     const artifact = generated.get(opened.toString());
     const line = generatedLineFor(artifact, target.position.line + 1);
@@ -23207,53 +23186,6 @@ async function inspectCompiledFunction(target) {
       revealLine(editor, line);
     }
   }
-}
-async function compareGeneratedArtifacts(target) {
-  const uri = activeNuppUri(target);
-  if (!uri) {
-    void vscode.window.showInformationMessage("Open a Nupp file to compare what it compiles to.");
-    return;
-  }
-  const kind = await vscode.window.showQuickPick(
-    Object.entries(ARTIFACT_LABELS).map(([value, label]) => ({ label, value })),
-    { title: "Compare which artifact?" }
-  );
-  if (!kind) {
-    return;
-  }
-  const levels = ["0", "1", "2"].map((value) => ({ label: `-O${value}`, value: Number(value) }));
-  const left = await vscode.window.showQuickPick(levels, { title: "Compare from" });
-  if (!left) {
-    return;
-  }
-  const right = await vscode.window.showQuickPick(
-    levels.filter((entry) => entry.value !== left.value),
-    { title: "Compare to" }
-  );
-  if (!right) {
-    return;
-  }
-  const leftUri = generatedUri(uri, kind.value, left.value);
-  const rightUri = generatedUri(uri, kind.value, right.value);
-  try {
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: `Nupp: resolving ${kind.label}` },
-      async () => {
-        await refreshArtifact(leftUri);
-        await refreshArtifact(rightUri);
-      }
-    );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`Could not resolve the artifacts: ${detail}`);
-    return;
-  }
-  await vscode.commands.executeCommand(
-    "vscode.diff",
-    leftUri,
-    rightUri,
-    `${kind.label}: -O${left.value} \u2194 -O${right.value}`
-  );
 }
 function runNupp(launch, args) {
   return new Promise((resolve) => {
@@ -23614,8 +23546,6 @@ async function activate(context) {
   registerCommands(context, [
     ["nupp.migrateAnnotatedLua", migrateAnnotatedLua],
     ["nupp.inspectCompiledFunction", inspectCompiledFunction],
-    ["nupp.openGeneratedLua", (target) => openGeneratedArtifact("lua", target)],
-    ["nupp.compareGeneratedArtifacts", compareGeneratedArtifacts],
     ["nupp.restartLanguageServer", async () => {
       await restartClients(context);
       void vscode.window.showInformationMessage("Nupp language server restarted.");
@@ -23640,44 +23570,6 @@ async function activate(context) {
   }
   context.subscriptions.push(
     generatedEvents,
-    // Generated Lua is emitted at column zero, so the indentation the editor
-    // would otherwise derive folding from is not there, and a pane with no
-    // folding has no sticky scroll either. The source pane has both, which left
-    // the two sitting a row apart at the same line -- right line, wrong height.
-    //
-    // The server already knows where this file folds, and generated Lua is line
-    // for line with its source, so its own folding ranges are the artifact's.
-    // With them the artifact pane pins the same headers as the source and the
-    // panes sit level.
-    vscode.languages.registerFoldingRangeProvider(
-      { scheme: GENERATED_SCHEME, language: "lua" },
-      {
-        async provideFoldingRanges(document) {
-          const artifact = generated.get(document.uri.toString());
-          if (!artifact || !artifact.mapping || artifact.mapping.kind !== "line-identity") {
-            return [];
-          }
-          const sourceUri = originOf(document.uri);
-          const running = clientForUri(sourceUri);
-          if (!running) {
-            return [];
-          }
-          let ranges;
-          try {
-            ranges = await running.client.sendRequest("textDocument/foldingRange", {
-              textDocument: { uri: sourceUri.toString() }
-            });
-          } catch {
-            return [];
-          }
-          const last = Math.max(0, document.lineCount - 1);
-          return (ranges || []).filter((range) => range.startLine < last).map((range) => new vscode.FoldingRange(
-            Math.min(range.startLine, last),
-            Math.min(range.endLine, last)
-          ));
-        }
-      }
-    ),
     // A content provider rather than a webview: what opens is an ordinary
     // read-only editor, so search, folding, diff and every editor command keep
     // working on generated code.

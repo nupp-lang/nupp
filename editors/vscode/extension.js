@@ -102,25 +102,22 @@ async function migrateAnnotatedLua(target) {
   await vscode.window.showTextDocument(migrated);
 }
 
-const ARTIFACT_LABELS = { lua: "Generated Lua" };
+const ARTIFACT_LABELS = { bytecode: "Bytecode", image: "VM image" };
 
-// A generated document's URI. The path decides the tab title and, for Lua, the
-// extension VS Code picks a highlighter from; the query carries everything the
-// commands need to refresh or compare it without re-deriving anything.
-function generatedUri(sourceUri, kind, optLevel) {
+// A generated document's URI. The path decides the tab title; the query carries
+// everything the commands need to refresh it without re-deriving anything.
+function generatedUri(sourceUri, kind) {
   const base = path.basename(sourceUri.fsPath);
-  const suffix = kind === "lua" ? ".lua" : ".bc";
   const query = new URLSearchParams({
     source: sourceUri.toString(),
-    kind,
-    optLevel: String(optLevel)
+    kind
   });
   return vscode.Uri.parse(
-    `${GENERATED_SCHEME}:/${base}.O${optLevel}${suffix}?${query.toString()}`
+    `${GENERATED_SCHEME}:/${base}.${kind}.bc?${query.toString()}`
   );
 }
 
-async function resolveArtifact(sourceUri, kind, optLevel) {
+async function resolveArtifact(sourceUri, kind) {
   const running = clientForUri(sourceUri);
   if (!running) {
     throw new Error("No Nupp language server is running for this file.");
@@ -130,8 +127,7 @@ async function resolveArtifact(sourceUri, kind, optLevel) {
   await vscode.workspace.openTextDocument(sourceUri);
   return running.client.sendRequest("nupp/artifact", {
     textDocument: { uri: sourceUri.toString() },
-    kind,
-    optLevel
+    kind
   });
 }
 
@@ -141,15 +137,14 @@ async function refreshArtifact(uri) {
   const query = new URLSearchParams(uri.query);
   const sourceUri = vscode.Uri.parse(query.get("source"));
   const kind = query.get("kind");
-  const optLevel = Number(query.get("optLevel")) || 0;
-  const artifact = await resolveArtifact(sourceUri, kind, optLevel);
+  const artifact = await resolveArtifact(sourceUri, kind);
   generated.set(uri.toString(), artifact);
   generatedEvents.fire(uri);
   return artifact;
 }
 
-async function openArtifact(sourceUri, kind, optLevel, options) {
-  const uri = generatedUri(sourceUri, kind, optLevel);
+async function openArtifact(sourceUri, kind, options) {
+  const uri = generatedUri(sourceUri, kind);
   let artifact;
   try {
     artifact = await vscode.window.withProgress(
@@ -206,16 +201,11 @@ async function openArtifact(sourceUri, kind, optLevel, options) {
 
 // Which generated line stands for a source line, and the other way round.
 //
-// `line-identity` is the Lua emitter's guarantee that it never changes the line
-// count, so the answer is the line itself. A mapping that carries entries may
-// give a source line several generated lines, and the first of them is what a
-// reader wants revealed.
+// A mapping may give a source line several generated lines, and the first of
+// them is what a reader wants revealed.
 function generatedLineFor(artifact, sourceLine) {
   if (!artifact || !artifact.mapping) {
     return undefined;
-  }
-  if (artifact.mapping.kind === "line-identity") {
-    return sourceLine;
   }
   let best;
   for (const entry of artifact.mapping.entries || []) {
@@ -229,9 +219,6 @@ function generatedLineFor(artifact, sourceLine) {
 function sourceLineFor(artifact, generatedLine) {
   if (!artifact || !artifact.mapping) {
     return undefined;
-  }
-  if (artifact.mapping.kind === "line-identity") {
-    return generatedLine;
   }
   for (const entry of artifact.mapping.entries || []) {
     // Synthetic lines stand for compiler-owned work rather than for anything
@@ -409,19 +396,6 @@ function activeNuppUri(target) {
   return origin.fsPath.endsWith(".nupp") ? origin : undefined;
 }
 
-async function openGeneratedArtifact(kind, target) {
-  const uri = activeNuppUri(target);
-  if (!uri) {
-    void vscode.window.showInformationMessage("Open a Nupp file to inspect what it compiles to.");
-    return;
-  }
-  await openArtifact(uri, kind, artifactOptLevel(uri));
-}
-
-function artifactOptLevel(uri) {
-  return vscode.workspace.getConfiguration("nupp", uri).get("artifactOptimizationLevel", 0);
-}
-
 // One entry point behind the lens, rather than a button per kind. The server
 // says what it can produce here; most kinds do not apply to most functions, and
 // a row of six buttons over every function would be five dead links.
@@ -466,7 +440,7 @@ async function inspectCompiledFunction(target) {
   if (!picked) {
     return;
   }
-  const opened = await openArtifact(uri, picked.kind, artifactOptLevel(uri));
+  const opened = await openArtifact(uri, picked.kind);
   // A function lens opened it, so put the reader at that function rather than
   // at the top of a file-sized artifact.
   if (opened && target && target.position) {
@@ -479,55 +453,6 @@ async function inspectCompiledFunction(target) {
       revealLine(editor, line);
     }
   }
-}
-
-// The same artifact under two configurations, in VS Code's own diff.
-async function compareGeneratedArtifacts(target) {
-  const uri = activeNuppUri(target);
-  if (!uri) {
-    void vscode.window.showInformationMessage("Open a Nupp file to compare what it compiles to.");
-    return;
-  }
-  const kind = await vscode.window.showQuickPick(
-    Object.entries(ARTIFACT_LABELS).map(([value, label]) => ({ label, value })),
-    { title: "Compare which artifact?" }
-  );
-  if (!kind) {
-    return;
-  }
-  const levels = ["0", "1", "2"].map((value) => ({ label: `-O${value}`, value: Number(value) }));
-  const left = await vscode.window.showQuickPick(levels, { title: "Compare from" });
-  if (!left) {
-    return;
-  }
-  const right = await vscode.window.showQuickPick(
-    levels.filter((entry) => entry.value !== left.value),
-    { title: "Compare to" }
-  );
-  if (!right) {
-    return;
-  }
-  const leftUri = generatedUri(uri, kind.value, left.value);
-  const rightUri = generatedUri(uri, kind.value, right.value);
-  try {
-    await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Window, title: `Nupp: resolving ${kind.label}` },
-      async () => {
-        await refreshArtifact(leftUri);
-        await refreshArtifact(rightUri);
-      }
-    );
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    void vscode.window.showErrorMessage(`Could not resolve the artifacts: ${detail}`);
-    return;
-  }
-  await vscode.commands.executeCommand(
-    "vscode.diff",
-    leftUri,
-    rightUri,
-    `${kind.label}: -O${left.value} ↔ -O${right.value}`
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -938,7 +863,7 @@ async function restartClients(context) {
 // Registering a command that already exists throws, and one throw in `activate`
 // abandons everything after it. That is how a second Nupp extension installed
 // alongside this one -- the same commands under a different publisher -- left
-// the palette with no `Open Generated Lua` at all: the first duplicate aborted
+// the palette with none of this one's commands: the first duplicate aborted
 // activation before the rest were contributed. A clash costs that one command
 // now, and is reported once rather than silently.
 function registerCommands(context, commands) {
@@ -967,8 +892,6 @@ async function activate(context) {
   registerCommands(context, [
     ["nupp.migrateAnnotatedLua", migrateAnnotatedLua],
     ["nupp.inspectCompiledFunction", inspectCompiledFunction],
-    ["nupp.openGeneratedLua", (target) => openGeneratedArtifact("lua", target)],
-    ["nupp.compareGeneratedArtifacts", compareGeneratedArtifacts],
     ["nupp.restartLanguageServer", async () => {
       await restartClients(context);
       void vscode.window.showInformationMessage("Nupp language server restarted.");
@@ -997,46 +920,6 @@ async function activate(context) {
 
   context.subscriptions.push(
     generatedEvents,
-    // Generated Lua is emitted at column zero, so the indentation the editor
-    // would otherwise derive folding from is not there, and a pane with no
-    // folding has no sticky scroll either. The source pane has both, which left
-    // the two sitting a row apart at the same line -- right line, wrong height.
-    //
-    // The server already knows where this file folds, and generated Lua is line
-    // for line with its source, so its own folding ranges are the artifact's.
-    // With them the artifact pane pins the same headers as the source and the
-    // panes sit level.
-    vscode.languages.registerFoldingRangeProvider(
-      { scheme: GENERATED_SCHEME, language: "lua" },
-      {
-        async provideFoldingRanges(document) {
-          const artifact = generated.get(document.uri.toString());
-          if (!artifact || !artifact.mapping || artifact.mapping.kind !== "line-identity") {
-            return [];
-          }
-          const sourceUri = originOf(document.uri);
-          const running = clientForUri(sourceUri);
-          if (!running) {
-            return [];
-          }
-          let ranges;
-          try {
-            ranges = await running.client.sendRequest("textDocument/foldingRange", {
-              textDocument: { uri: sourceUri.toString() }
-            });
-          } catch {
-            return [];
-          }
-          const last = Math.max(0, document.lineCount - 1);
-          return (ranges || [])
-            .filter((range) => range.startLine < last)
-            .map((range) => new vscode.FoldingRange(
-              Math.min(range.startLine, last),
-              Math.min(range.endLine, last)
-            ));
-        }
-      }
-    ),
     // A content provider rather than a webview: what opens is an ordinary
     // read-only editor, so search, folding, diff and every editor command keep
     // working on generated code.

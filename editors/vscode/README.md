@@ -10,25 +10,23 @@ incremental graph as well as changes made in an open VS Code document.
 
 ## Inspecting compiled output
 
-Every checked function carries an **Inspect** code lens, and the same entries
-are in the command palette: **Nupp: Open Generated Lua** and **Nupp: Compare
-Generated Artifacts**. Artifacts open beside the
-source as ordinary read-only editors, so search, folding and diff keep working
-on them, and they are made from the buffer rather than the file on disk.
+Every checked function carries an **Inspect** code lens, and **Nupp: Inspect
+Compiled Output** in the command palette offers the same choice: the bytecode
+the file lowers to, laid out against its source, or the VM image itself.
+Artifacts open beside the source as ordinary read-only editors, so search,
+folding and diff keep working on them, and they are made from the buffer rather
+than the file on disk.
 
-Selecting in either view reveals the matching line in the other. Generated Lua
-is line-identical to its source, because the emitter never changes a file's line
-count.
+Selecting in either view reveals the matching line in the other, through the
+line table the lowering records for every instruction. The bytecode view opens
+folded, so the rows a line with several instructions needed collapse and the
+panes line up.
 
 Scrolling either pane carries the other with it, matched line to line through
-the mapping. `nupp.syncArtifactScrolling` turns it off. The generated Lua view
-folds where its source folds, reusing the server's folding ranges, so it pins
-the same sticky headers and the panes sit level.
+the mapping. `nupp.syncArtifactScrolling` turns it off.
 
 One lens per function rather than one per artifact kind is deliberate: most
 kinds do not apply to most functions.
-
-`nupp.artifactOptimizationLevel` sets the level artifacts resolve at.
 
 ## Tests and coverage
 

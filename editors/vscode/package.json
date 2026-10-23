@@ -20,7 +20,6 @@
   ],
   "keywords": [
     "lua",
-    "luajit",
     "nupp",
     "language-server"
   ],
@@ -30,9 +29,7 @@
     "onLanguage:lua",
     "onCommand:nupp.migrateAnnotatedLua",
     "onCommand:nupp.restartLanguageServer",
-    "onCommand:nupp.inspectCompiledFunction",
-    "onCommand:nupp.openGeneratedLua",
-    "onCommand:nupp.compareGeneratedArtifacts"
+    "onCommand:nupp.inspectCompiledFunction"
   ],
   "files": [
     "icon.png",
@@ -60,16 +57,6 @@
       {
         "command": "nupp.inspectCompiledFunction",
         "title": "Nupp: Inspect Compiled Output",
-        "category": "Nupp"
-      },
-      {
-        "command": "nupp.openGeneratedLua",
-        "title": "Nupp: Open Generated Lua",
-        "category": "Nupp"
-      },
-      {
-        "command": "nupp.compareGeneratedArtifacts",
-        "title": "Nupp: Compare Generated Artifacts",
         "category": "Nupp"
       }
     ],
@@ -203,17 +190,6 @@
           "default": "auto",
           "scope": "resource",
           "description": "Dialect hint used only by annotated Lua migration. Annotation ingestion itself is always enabled."
-        },
-        "nupp.artifactOptimizationLevel": {
-          "type": "integer",
-          "enum": [
-            0,
-            1,
-            2
-          ],
-          "default": 0,
-          "description": "Optimization level used when resolving generated artifacts. 0 is the promise that nothing is rewritten.",
-          "scope": "resource"
         },
         "nupp.syncArtifactScrolling": {
           "type": "boolean",
