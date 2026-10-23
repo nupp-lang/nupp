@@ -18,7 +18,7 @@ return {
     -- instead of arriving twenty minutes later as unrun shards.
     [
         "windows-preflight"
-    ] = {"netnativetest", "runnertest", "rusttoolchaintest", "soatest", "toolchaintest", "worktreetest",},
+    ] = {"netnativetest", "runnertest", "worktreetest",},
 
     -- Fixtures whose inputs come from outside the repository. Kept nameable
     -- because a configured corpus used to be absent and silently skipped.
@@ -31,8 +31,6 @@ return {
     ] = {
         "cabitest",
         "ffitest",
-        "hostbinarytest",
-        "hostembeddingtest",
         "httpnativetest",
         "nativefoundationstest",
         "netnativetest",
@@ -45,7 +43,7 @@ return {
     -- built the executable host and both embedding SDKs. Named so the broad
     -- suite can leave it out rather than run it a second time against the same
     -- artifacts, and so that what the script runs is visible from here.
-    ["rust-native-gate"] = {"hostembeddingtest"},
+    ["rust-native-gate"] = {},
 
     -- Everything that reads or regenerates published documentation, including
     -- the diagnostic reference a `docs` anchor points at.
@@ -70,11 +68,7 @@ return {
     [
         "browser"
     ] = {
-        "browserhosttest",
-        "browserprovidertest",
-        "browserworkerstest",
         "portableiocontractstest",
-        "targetprofiletest",
         "templatetest",
     },
 

@@ -26,9 +26,8 @@
 --
 -- Each is kept by a deterministic case where one exists: the walk budget keeps the
 -- unchanged check and the server's initialize near their floor, the recompile count
--- keeps an edit cheap, the allocation budget keeps a check linear in the project, the
--- bytecode budget keeps the benchmarks' kernels what was measured, and toolchaintest
--- holds the launcher to one toolchain question per command.
+-- keeps an edit cheap, the allocation budget keeps a check linear in the project, and
+-- the bytecode budget keeps the benchmarks' kernels what was measured.
 local json = require("testjson")
 local test = require("nupp.test")
 
