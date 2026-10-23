@@ -184,10 +184,7 @@ function M.machOPackagingReplacesTheStubSignatureWithASignableLayout()
     ) .. little(120, 8) .. little(8, 8) .. little(1, 4) .. little(1, 4) .. little(0, 4) .. little(0, 4)
     local signature = little(0x1d, 4) .. little(16, 4) .. little(120, 4) .. little(8, 4)
     local stub = header .. linkedit .. signature .. "SIGNHERE"
-    local dir = tempProject({})
-    local output = dir .. "/app"
-    assert(packaging.stampFile(output, stub, "return true\n", "aarch64-apple-darwin"))
-    local bytes = assert(readFile(output))
+    local bytes = assert(packaging.stampBinary(stub, "return true\n", 0, true))
     assert(bytes:sub(-48, -41) == "NUPPLOAD", "the unsigned trailer ends the stamped file")
     assert(bytes:sub(17, 20) == little(1, 4), "the old signature load command is removed")
     assert(bytes:sub(21, 24) == little(72, 4), "the load-command byte count is updated")
@@ -195,7 +192,6 @@ function M.machOPackagingReplacesTheStubSignatureWithASignableLayout()
         bytes:sub(81, 88) == little(#bytes - 120, 8),
         "__LINKEDIT covers the payload and trailer for the next signer"
     )
-    os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()

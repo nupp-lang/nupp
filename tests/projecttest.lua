@@ -1,11 +1,9 @@
 local testAssert = require("nupp.test")
 local project = require("nupp.tools.build.project")
-local buildPackage = require("nupp.tools.build.package")
 local deps = require("nupp.tools.build.deps")
 local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local store = require("nupp.compiler.project.store")
-local nativeStage = require("nupp.tools.build.native")
 local buildPlatform = require("nupp.tools.build.platform")
 local hostSystem = buildPlatform.hostSystem()
 local fs = require("nupp.compiler.fs")
@@ -159,49 +157,6 @@ local function answerFrom(dir)
 end
 
 local M = {}
-
-function M.payloadWithoutBytecodeDumperKeepsSource()
-    local dump = rawget(string, "dump")
-    rawset(string, "dump", nil)
-    local ok, payload, flags, err = pcall(
-        buildPackage.payloadBytes,
-        "this is source, not compiled here",
-        buildPlatform.hostKey()
-    )
-    rawset(string, "dump", dump)
-    assert(ok, payload)
-    testAssert.equal(payload, "this is source, not compiled here")
-    testAssert.equal(flags, 0)
-    testAssert.equal(err, nil)
-end
-
-function M.payloadBytecodeDumperPreservesFlagsAndFailures()
-    local dump = rawget(string, "dump")
-    local calls = 0
-    rawset(string, "dump", function(chunk, options)
-        calls = calls + 1
-        assert(type(chunk) == "function")
-        assert(options == "ds")
-        return "test-bytecode"
-    end)
-    local ok, payload, flags, err = pcall(buildPackage.payloadBytes, "return true", buildPlatform.hostKey())
-    rawset(string, "dump", dump)
-    assert(ok, payload)
-    testAssert.equal(calls, 1)
-    testAssert.equal(payload, "test-bytecode")
-    testAssert.equal(flags, 1)
-    testAssert.equal(err, nil)
-
-    rawset(string, "dump", function()
-        error("test dumper failure", 0)
-    end)
-    ok, payload, flags, err = pcall(buildPackage.payloadBytes, "return true", buildPlatform.hostKey())
-    rawset(string, "dump", dump)
-    assert(ok, payload)
-    testAssert.equal(payload, nil)
-    testAssert.equal(flags, nil)
-    testAssert.equal(err, "the bundle did not dump: test dumper failure")
-end
 
 function M.sha256KnownVectors()
     testAssert.equal(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
@@ -950,14 +905,6 @@ function M.manifestRestrictsPortablePayloadOutputsToBinaryTargets()
     remove(invalidDir)
 end
 
-function M.crossTargetBuildRefusesSidecarOnlyProvidersBeforeCargoRuns()
-    local dir = tempProject({})
-    local outputs, err = nativeStage.build(dir, "out", {["native.http"] = true}, "x86_64-pc-windows-msvc")
-    testAssert.equal(outputs, nil, "a compiler-host HTTP sidecar is not staged")
-    assert(err:find("sidecar-only native feature http", 1, true), err)
-    remove(dir)
-end
-
 function M.taskDescriptionsUseEffectiveTargetConfiguration()
     local dir = tempProject({
         [
@@ -1173,130 +1120,6 @@ function M.subprocessPreservesEmptyArguments()
     remove(dir)
     testAssert.equal(status, 0, output)
     testAssert.equal(output, "2||tail", "an empty argv entry reaches the child process")
-end
-
-function M.nativeFacilitiesSharingAProviderBuildAsOneUnion()
-    local originalCapture, originalCopy = process.capture, fs.copyFile
-    local originalCompilerRoot = compilerEnv.compilerRoot
-    local calls, copies = {}, {}
-    -- The driver answers with the path it built, which is the last line it
-    -- writes; anything before that is progress.
-    process.capture = function(argv)
-        calls[#calls + 1] = argv
-        return 0, "/built/libnupp_native.dylib\n"
-    end
-    fs.copyFile = function(source, destination)
-        copies[#copies + 1] = {source, destination}
-        return true
-    end
-    compilerEnv.compilerRoot = function()
-        return "."
-    end
-    local ok, outputs, problem = pcall(nativeStage.build, ".", "out", {["native.path"] = true, ["native.uuid"] = true,})
-    process.capture, fs.copyFile = originalCapture, originalCopy
-    compilerEnv.compilerRoot = originalCompilerRoot
-    assert(ok, outputs)
-    assert(outputs, problem)
-    testAssert.equal(#calls, 1, "one provider union is built once")
-    testAssert.equal(#copies, 2, "the shared library and path runtime are staged")
-    local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
-    assert(command:find("\nnative%-rust\nfilesystem,uuid\n"), "path and UUID select one sorted Rust feature union")
-    testAssert.equal(copies[1][1], "/built/libnupp_native.dylib", "the Rust provider union has one source artifact")
-    assert(copies[1][2]:find("out/lib/nupp_native", 1, true), "the Rust provider union keeps its stable sidecar name")
-end
-
-function M.gpuOverrideSelectsAHostWithTheProviderLinked()
-    local originalCapture = process.capture
-    local originalCompilerRoot = compilerEnv.compilerRoot
-    local calls = {}
-    process.capture = function(argv)
-        calls[#calls + 1] = argv
-        return 0, "/built/nupp-host\n"
-    end
-    compilerEnv.compilerRoot = function()
-        return "."
-    end
-    local ok, problem = pcall(function()
-        for _, enabled in ipairs({false, true}) do
-            local effects = nativeStage.resolve({}, {gpu = enabled})
-            local host, err = nativeStage.hostStub(".", "out", {stub = "nupp"}, effects)
-            testAssert.equal(host, "/built/nupp-host", err)
-        end
-    end)
-    process.capture = originalCapture
-    compilerEnv.compilerRoot = originalCompilerRoot
-    assert(ok, problem)
-    testAssert.equal(#calls, 2, "each feature union selects its own host")
-    testAssert.equal(calls[1][#calls[1]], "", "GPU is absent when disabled")
-    testAssert.equal(calls[2][#calls[2]], "native-gpu", "forcing GPU changes the host build and cache key")
-end
-
-function M.nativeFacilityCanSelectItsProviderDriver()
-    local originalCapture, originalCopy = process.capture, fs.copyFile
-    local originalCompilerRoot = compilerEnv.compilerRoot
-    local calls, copies = {}, {}
-    process.capture = function(argv)
-        calls[#calls + 1] = argv
-        return 0, "/built/libnupp_native.dylib\n"
-    end
-    fs.copyFile = function(source, destination)
-        copies[#copies + 1] = {source, destination}
-        return true
-    end
-    compilerEnv.compilerRoot = function()
-        return "."
-    end
-    local ok, outputs, problem = pcall(nativeStage.build, ".", "out", {["native.gpu"] = true,})
-    process.capture, fs.copyFile = originalCapture, originalCopy
-    compilerEnv.compilerRoot = originalCompilerRoot
-    assert(ok, outputs)
-    assert(outputs, problem)
-    testAssert.equal(#calls, 1, "the facility selects one provider build")
-    local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
-    assert(command:find("\nnative%-rust\n"), "the feature's provider driver is passed to the toolchain")
-    assert(command:find("\ngpu\n", 1, true), "the selected driver receives the provider feature union")
-    testAssert.equal(copies[1][1], "/built/libnupp_native.dylib")
-    assert(copies[1][2]:find("out/lib/nupp_native", 1, true), "the Rust provider has an independent sidecar name")
-end
-
-function M.aTargetKeepsTheRuntimeModuleItAlreadyBuilt()
-    local originalCopy = fs.copyFile
-    local originalCompilerRoot = compilerEnv.compilerRoot
-    local copies = {}
-    fs.copyFile = function(source, destination)
-        copies[#copies + 1] = {source, destination}
-        return true
-    end
-    compilerEnv.compilerRoot = function()
-        return "/compiler"
-    end
-    local output = "/project/out/nupp/suspension.lua"
-    local ok, outputs, problem = pcall(nativeStage.build, "/project", "out", {['runtime.suspension'] = true}, nil, {
-        [output] = true
-    })
-    fs.copyFile = originalCopy
-    compilerEnv.compilerRoot = originalCompilerRoot
-    assert(ok, outputs)
-    assert(outputs, problem)
-    testAssert.equal(#copies, 0, "native staging preserves the target's generated runtime")
-    assert(outputs[output], "the preserved runtime remains a staged output")
-
-    copies = {}
-    fs.copyFile = function(source, destination)
-        copies[#copies + 1] = {source, destination}
-        return true
-    end
-    compilerEnv.compilerRoot = function()
-        return "/compiler"
-    end
-    ok, outputs, problem = pcall(nativeStage.build, "/project", "out", {['runtime.suspension'] = true})
-    fs.copyFile = originalCopy
-    compilerEnv.compilerRoot = originalCompilerRoot
-    assert(ok, outputs)
-    assert(outputs, problem)
-    testAssert.equal(#copies, 1, "an application still receives the compiler runtime")
-    testAssert.equal(copies[1][1], "/compiler/build/nupp/suspension.lua")
-    testAssert.equal(copies[1][2], output)
 end
 
 -- A docs target with no outDir does not land in the manifest's default

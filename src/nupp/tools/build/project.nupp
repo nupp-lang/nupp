@@ -606,13 +606,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             say(opts, "NUPP0001", ("nupp: cannot read the stub %s: %s\n"):format(stubPath, tostring(stubErr)))
             return 1
         end
-        local stamped, stampErr, archive = package.stampFile(output, stub, text, nil, package.payloadFlagVmProgram)
+        local stamped, stampErr = package.stampFile(output, stub, text, package.payloadFlagVmProgram)
         if not stamped then
             say(opts, "NUPP0004", "nupp: " .. tostring(stampErr) .. "\n")
             return 1
-        end
-        if archive then
-            newState.outputs[archive] = true
         end
         primaryArtifact = output
         newState.outputs[output] = true

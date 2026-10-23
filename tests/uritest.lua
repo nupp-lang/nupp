@@ -12,7 +12,6 @@
 -- for the suite, reached the way a generated program reaches it.
 local test = require("assert")
 local stdlib = require("nupp.compiler.stdlib")
-local nativeStage = require("nupp.tools.build.native")
 
 local M = {}
 
@@ -38,35 +37,8 @@ function M.beforeAll()
     math.randomseed(os.time())
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
-    -- The VM carries its own provider, so there is no library to stage and no
-    -- bootstrap to load: the facade reaches it the way a VM program does.
-    if rawget(_G, "__nupp_load_image") ~= nil then
-        uri = require("nupp.io.uri")
-        return
-    end
-    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
-    if not libraryPath then
-        local staged, problem = nativeStage.build(root, "out", {["native.uri"] = true})
-        if not staged then
-            unavailable = tostring(problem)
-            return
-        end
-        libraryPath = root .. "/out/lib/nupp_native"
-    end
-    local library = ("%q"):format(libraryPath)
-    local source = stdlib.bootstrap({
-        ["native.uri"] = true,
-        ["stdlib.io"] = true,
-    }):gsub(
-        'os%.getenv%("NUPP_NATIVE_LIBRARY"%)',
-        function()
-            return library
-        end
-    )
-    previous = rawget(_G, "nupp")
-    installedBootstrap = true
-    _G.nupp = nil
-    assert(loadstring(source))()
+    -- The VM carries its own provider: the facade reaches it the way a VM
+    -- program does.
     uri = require("nupp.io.uri")
 end
 

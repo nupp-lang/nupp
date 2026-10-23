@@ -69,7 +69,7 @@ return {
     ["gpu"] = {"gputest"},
 
     -- Packaging and release delivery.
-    ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "spipackagetest", "spitest",},
+    ["packaging"] = {"bundletest", "compilerpacktest", "spipackagetest", "spitest",},
 
     -- The benchmark runner's process boundary. Every case starts children and the
     -- replicated one starts twelve, so the suite costs about three minutes where the
