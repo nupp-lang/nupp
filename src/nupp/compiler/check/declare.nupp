@@ -2544,8 +2544,8 @@ function declare.install(
                         c.diag(
                             "NUPP2118",
                             e,
-                            "struct metamethods need runtime ffi.metatype "
-                            .. "installation and cannot be declaration-only"
+                            "struct metamethods are installed with the struct's type "
+                            .. "and cannot be declaration-only"
                         )
                     elseif mt.tag ~= "func" then
                         c.diag("NUPP2118", e, "a metamethod contract must be a function type")
@@ -2563,7 +2563,7 @@ function declare.install(
                         c.diag(
                             "NUPP2118",
                             e.name,
-                            ("metamethod %s is not dispatched by this LuaJIT " .. "target"):format(e.name.text),
+                            ("metamethod %s is not one a declaration can contract for"):format(e.name.text),
                             fixes
                         )
                     elseif localMetamethods[e.name.text] then

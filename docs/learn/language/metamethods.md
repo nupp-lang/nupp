@@ -366,7 +366,7 @@ end
 ```
 
 ```text [nupp check flags.nupp]
-error: NUPP2118: metamethod __band is not dispatched by this LuaJIT target
+error: NUPP2118: metamethod __band is not one a declaration can contract for
 ```
 
 `__idiv` is rejected the same way.

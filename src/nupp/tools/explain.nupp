@@ -1422,8 +1422,8 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP3005",
-        summary = "A module's top level holds more locals than a function can",
-        rule = "A function, the file's top level included, may hold at most two hundred locals at once, and `nupp check` reports a top level with more. Gather related values into a table, or split the module in two. A declared module's records, structs, interfaces, cdef items and exported functions do not count against it; only the `local`s it writes do.",
+        summary = "A module's top level declares more than two hundred locals",
+        rule = "A module's top level may declare at most two hundred locals, and `nupp check` reports one with more. Gather related values into a table, or split the module in two. A declared module's records, structs, interfaces, cdef items and exported functions do not count against it; only the `local`s it writes do.",
         related = {"NUPP3004"},
         docs = "docs/reference/diagnostics.md#nupp3005",
     },
@@ -2123,7 +2123,7 @@ ENTRIES[
 ] = {
     code = "NUPP2413",
     summary = "A comptime result has no literal spelling",
-    rule = "A block's result is quoted into the generated Lua as a literal: nil, booleans, numbers that read back unchanged, strings, and acyclic tables of those with no metatable. NaN, the infinities, functions, and cdata have no such spelling, and a table reachable by more than one path is refused rather than quoted twice into two tables where the block built one.",
+    rule = "A block's result is quoted into the program as a source literal: nil, booleans, numbers that read back unchanged, strings, and acyclic tables of those with no metatable. NaN, the infinities, functions, and cdata have no such spelling, and a table reachable by more than one path is refused rather than quoted twice into two tables where the block built one.",
     wrong = "local value: {{integer}} = comptime do\n    local shared = {1}\n    return {shared, shared}\nend\nprint(value)\n",
     right = "local value: {{integer}} = comptime do\n    return {{1}, {1}}\nend\nprint(value)\n",
     related = {"NUPP2414", "NUPP2416"},
