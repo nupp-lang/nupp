@@ -10,10 +10,6 @@ local suites = {
 
 local guarantees = {
    {
-      claim = "watch mode is O0-only",
-      cases = {{"hotreloadtest", "cliWatchRejectsOptimizedGeneration"}},
-   },
-   {
       claim = "poll commits compatible edits and preserves the last good generation",
       cases = {
          {"hotreloadtest", "cliWatchCommitsAndKeepsTheLastGoodGeneration"},

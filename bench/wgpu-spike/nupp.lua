@@ -16,7 +16,6 @@ return {
                 },
                 outDir = "build/typed",
                 aot = "require",
-                optimize = 1,
             }
         }
     },
