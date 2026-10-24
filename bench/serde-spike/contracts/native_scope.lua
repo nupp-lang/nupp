@@ -41,12 +41,12 @@ _G.require = function(name)
 end
 local ok, problem = pcall(native.encode, binding, {})
 _G.require = original
-assert(not ok and tostring(problem):find("requires LuaJIT", 1, true) and not selected, tostring(problem))
+assert(not ok and tostring(problem):find("requires string.buffer", 1, true) and not selected, tostring(problem))
 local prior = rawget(_G, "__nuppBrowser")
 _G.__nuppBrowser = {}
 ok, problem = pcall(native.decode, binding, "malformed")
 _G.__nuppBrowser = prior
-assert(not ok and tostring(problem):find("native LuaJIT host", 1, true) and not selected, tostring(problem))
+assert(not ok and tostring(problem):find("requires a native host", 1, true) and not selected, tostring(problem))
 local calls = 0
 local failed = {
     describe = function()
