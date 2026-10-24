@@ -135,13 +135,18 @@ fn wait_exit(child: &Arc<native::ChildProcess>) -> native::Exit {
 fn shell(command: &str) -> native::SpawnOptions {
     #[cfg(unix)]
     let args = vec!["/bin/sh".into(), "-c".into(), command.into()];
+    // The command runs exactly as written. cmd reads what follows `/c` by its
+    // own quote rules, which strip the first and last quote of a line that
+    // starts with one, so `"C:\Program Files\..." "arg"` lost both and ran
+    // `C:\Program`. Wrapped in one more pair, with `/s` saying to strip just
+    // that pair, the line cmd runs is the line the caller wrote.
     #[cfg(windows)]
     let args = vec![
         std::env::var_os("COMSPEC").unwrap_or("cmd.exe".into()),
         "/d".into(),
         "/s".into(),
         "/c".into(),
-        command.into(),
+        format!("\"{command}\"").into(),
     ];
     native::SpawnOptions {
         args,

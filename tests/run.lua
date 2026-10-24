@@ -387,10 +387,8 @@ if package.config:sub(1, 1) == "\\" then
     end
 
     local function invocation(path)
-        -- cmd.exe strips the first pair of quotes from a command line that starts
-        -- with a quoted executable. The outer pair preserves the executable and
-        -- script as two quoted arguments.
-        return ('""%s" "%s""'):format(bash:gsub('"', '\\"'), path:gsub('"', '\\"'))
+        -- The VM hands cmd a command line exactly as written.
+        return ('"%s" "%s"'):format(bash:gsub('"', '\\"'), path:gsub('"', '\\"'))
     end
 
     os.execute = function(command)
