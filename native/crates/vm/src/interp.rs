@@ -2302,6 +2302,18 @@ impl Interp {
     }
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
+    /// Whether an interpreted step in `fid` can be where compiled code takes
+    /// over: the function has a compiled entry, or the JIT may yet give it one.
+    /// Otherwise the step stays in the dispatch loop: a runtime linked with a
+    /// few functions compiled ahead of time would else leave the loop after
+    /// every instruction of every other function, which halved its speed.
+    #[inline]
+    fn frame_entry_pending(&self, fid: u32) -> bool {
+        #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
+        #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return true; }
+        let _ = fid;
+        false
+    }
     fn compiled_frames_active(&self) -> bool {
         if !self.frame_mode || self.execution_limit.is_some() { return false; }
         #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
@@ -2348,7 +2360,7 @@ impl Interp {
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
                 match self.step(tid, &win, pc) {
-                    Step::Next(next) => { pc = next; if self.compiled_frames_active() { self.tasks[tid].note_pc(pc); break; } },
+                    Step::Next(next) => { pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid) { self.tasks[tid].note_pc(pc); break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return o,
                 }
