@@ -880,12 +880,15 @@ EOF
     release_lock
 }
 
-# The runtime of one program with vector code: its image compiled ahead of
-# time into an object and linked with the program archive, so the binary
-# carries no code generator and allocates no executable memory. PAYLOAD is
-# the program payload (entry module, newline, image); the object is built for
-# exactly that image, which the runtime checks at startup. Windows links the
-# code generator instead until its link line is validated.
+# The runtime of one program with vector code: the functions holding vector
+# instructions, which only run compiled, compiled ahead of time into an object
+# and linked with the program archive, so the binary carries no code generator
+# and allocates no executable memory. Everything else stays on the
+# interpreter: compiling it too made the compiler's own binary 155 MB larger
+# to run it a fifth faster. PAYLOAD is the program payload (entry module,
+# newline, image); the object is built for exactly that image, which the
+# runtime checks at startup. Windows links the code generator instead until
+# its link line is validated.
 build_vm_program() {
     facilities=$(normalize_rust_features "${1:-}")
     payload=${2:-}
@@ -915,7 +918,7 @@ build_vm_program() {
     mkdir -p "$(dirname "$out")"
     work=$(mktemp -d "$out.work.XXXXXX") || die "cannot create program link workspace"
     tail -n +2 "$payload" > "$work/program.image"
-    "$RUST_VM_AOT_TOOL_OUT" aot "$work/program.image" "$work/program.o" --frames 2>"$work/emit.log" \
+    "$RUST_VM_AOT_TOOL_OUT" aot "$work/program.image" "$work/program.o" --frames --vector-only 2>"$work/emit.log" \
         || { cat "$work/emit.log" >&2; die "cannot compile the program's functions ahead of time"; }
     "$CC" -c "$ROOT/native/crates/vm-program/src/main.c" -o "$work/main.o" \
         || die "cannot compile the program entry"

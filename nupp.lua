@@ -412,6 +412,44 @@ end
 for _, relative in ipairs(TEMPLATE_FILES) do
     RESOURCES[#RESOURCES + 1] = {source = "templates/" .. relative, output = "nupp/compiler/templates/" .. relative,}
 end
+-- What the VM supplies natively, declared beside its crate: a compiler with no
+-- checkout behind it types `nupp.vm.*` from these copies.
+for _, relative in ipairs({
+    "nupp/cli/internal/terminalhost.d.nupp",
+    "nupp/compiler/hostpid.d.nupp",
+    "nupp/compiler/nativecdecl.d.nupp",
+    "nupp/compiler/nativehash.d.nupp",
+    "nupp/digest/internal/sha256.d.nupp",
+    "nupp/generator.d.nupp",
+    "nupp/runtime/provider/nativestorage.d.nupp",
+    "nupp/runtime/provider/nativeuuid.d.nupp",
+    "nupp/tasks.d.nupp",
+    "nupp/tools/build/clockhost.d.nupp",
+    "nupp/tools/bytecodecache.d.nupp",
+    "nupp/vm.d.nupp",
+    "nupp/vm/clock.d.nupp",
+    "nupp/vm/compression.d.nupp",
+    "nupp/vm/coroutine.d.nupp",
+    "nupp/vm/crc.d.nupp",
+    "nupp/vm/files.d.nupp",
+    "nupp/vm/foreign.d.nupp",
+    "nupp/vm/http.d.nupp",
+    "nupp/vm/markdown.d.nupp",
+    "nupp/vm/net.d.nupp",
+    "nupp/vm/ownedCoroutine.d.nupp",
+    "nupp/vm/persist.d.nupp",
+    "nupp/vm/process.d.nupp",
+    "nupp/vm/regex.d.nupp",
+    "nupp/vm/snapshot.d.nupp",
+    "nupp/vm/taskScope.d.nupp",
+    "nupp/vm/tasks.d.nupp",
+    "nupp/vm/uri.d.nupp",
+}) do
+    RESOURCES[#RESOURCES + 1] = {
+        source = "native/crates/vm/decls/" .. relative,
+        output = "nupp/compiler/vmdecls/" .. relative,
+    }
+end
 
 return {
     include = {"src", "tests/runner", "evals/lib"},

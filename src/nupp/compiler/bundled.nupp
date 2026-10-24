@@ -86,9 +86,10 @@ local function checkoutRoot(): string?
 end
 
 --- Where a carried file was copied from. The build writes the declarations under
---- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, and
---- the test runner comes from `tests/run.lua`. Everything else it carries keeps
---- the path it has under `src`.
+--- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, the VM's
+--- own under `native/crates/vm/decls` as `/vmdecls`, and the test runner comes
+--- from `tests/run.lua`. Everything else it carries keeps the path it has under
+--- `src`.
 ---
 --- A guess, in the sense that the manifest owns the real mapping and this does not
 --- read it. It is a safe one: a path this gets wrong names a file that is not
@@ -99,6 +100,9 @@ local function sourcePath(root: string, relative: string): string
     end
     if relative:sub(1, 7) == "/decls/" then
         return root .. "/src/nupp/compiler" .. relative
+    end
+    if relative:sub(1, 9) == "/vmdecls/" then
+        return root .. "/native/crates/vm/decls" .. relative:sub(9)
     end
 
     return root .. "/src" .. relative
