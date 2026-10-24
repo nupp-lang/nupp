@@ -312,16 +312,28 @@ export record Fn
         self.current = nil
     end
 
+    --- Refuses a function that needs more registers of one class than an
+    --- instruction can name. Ordinary values spill to a table well before this,
+    --- but integer and float values live in typed registers and do not, so a
+    --- function holding hundreds of them at once is refused here, named and
+    --- placed, rather than miscompiled.
+    --- @raises string always, naming the function and line
+    function pressure(self, class: string): nil
+        error(
+            (
+                "nupp: line %s: %s holds more than 250 %s values at once, more than a VM function's registers name; "
+                .. "split it into smaller functions"
+            ):format(tostring(nodeLine(self.curStmt)), self.name, class),
+            0
+        )
+    end
+
     function reg(self): integer
         local r = self.nregs
         self.nregs = r + 1
         self.maxRegs = math.max(self.maxRegs or 0, self.nregs)
         if r > 250 then
-            error(
-                "register pressure in " .. self.name .. " at statement " .. tostring(
-                    self.curStmt and self.curStmt.kind
-                ) .. " line " .. tostring(nodeLine(self.curStmt)) .. " declTop " .. tostring(self.declTop)
-            )
+            self:pressure("integer or ordinary")
         end
 
         return r
@@ -332,7 +344,7 @@ export record Fn
         self.nfregs = r + 1
         self.maxFregs = math.max(self.maxFregs or 0, self.nfregs)
         if r > 250 then
-            error("float register pressure in " .. self.name)
+            self:pressure("float")
         end
 
         return r
