@@ -80,7 +80,9 @@ function M.childrenRunConcurrentlyAndAwaitAnswersEachOne()
    end)
    testAssert.equal(first, "a", "the first child's result")
    testAssert.equal(second, "b", "the second child's result")
-   assert(time.now() - started < 70, "the children serialized")
+   -- Serialized, the two sleeps take at least 80 ms; anything under that ran them
+   -- together, however loaded the machine.
+   assert(time.now() - started < 80, "the children serialized")
 end
 
 function M.awaitingTwiceObservesOneSettlement()
