@@ -36,34 +36,22 @@ builder:commit(5)
 builder:append("!")
 assert(builder:freeze():toString() == "ABCDE!")
 ```
+
+On the VM a region's block is an immutable allocation the runtime shares by
+reference: `copy` copies the string into one, `freeze` turns the builder's
+storage into one without copying, and a region crossing into a worker -- an
+argument, a result, a captured value -- carries the same block, whatever its
+size. Every VM holding a block reads it in place; the last one to let go frees
+it. A checkpoint writes the block's bytes once, and a restore in the same
+process shares the live block again.
 ]]
 
 local span = require("nupp.mem.span")
-
-local type Native = {
-    fromString: @nosuspend function(string): (any?, integer?),
-    readFile: @nosuspend function(string): (any?, any),
-    text: @nosuspend function(any, integer, integer): string?,
-    pointer: @nosuspend function(any): any,
-    length: @nosuspend function(any): integer?,
-    builderNew: @nosuspend function(): any,
-    builderAppend: @nosuspend function(any, string): (boolean, string?),
-    builderReserve: @nosuspend function(any, integer): (any?, string?),
-    builderCommit: @nosuspend function(any, integer): boolean,
-    builderFreeze: @nosuspend function(any): (any?, any),
-    accounted: @nosuspend function(): integer
-}
--- Regions are engine blocks, so without the engine host there is nothing for
--- this module to stand on; say that rather than which file a search missed.
-local loadedNative, nativeModule = pcall(require, "nupp.mem.sharedbytes.native")
-if not loadedNative then
-    if tostring(nativeModule):find("module 'nupp.mem.sharedbytes.native' not found", 1, true) then
-        error("nupp: nupp.mem.sharedbytes needs the Nupp engine host, which a stamped binary provides", 0)
-    end
-    error(nativeModule, 0)
-end
-local native = nativeModule as Native
-local ffi = require("ffi")
+local files = require("nupp.vm.files")
+local storage: any = assert(
+    require("nupp.mem.representation").storage,
+    "nupp.mem.sharedbytes: no storage implementation is available for the target"
+)
 
 local foreignByteSpan = rawget(
     span as table,
@@ -76,9 +64,32 @@ local foreignSpan = rawget(
 
 local sharedbytes = {}
 
---- An immutable extent of an engine-owned block. Crossing a worker boundary
---- moves a reference, never the bytes; reading happens in place through a
---- borrowed byte view, and `toString` is the one explicit copy into a Lua state.
+-- One block: a read-only byte view over a shared allocation (or, from a
+-- checkpoint written before blocks were shared, an immutable string). Its
+-- identity is this record's, so equal bytes in separate blocks stay unequal.
+local record Block
+    @readonly data: any
+    @readonly regions: {[string]: any}
+end
+
+local function newBlock(data: any): Block
+    return new Block(data = data, regions = setmetatable({}, {__mode = "v"}) as {[string]: any})
+end
+
+-- A storage view `by` elements past `view`. Both operands stay dynamic so the
+-- addition is the view's own, never a numeric one.
+local function advance(view: any, by: any): any
+    return view + by
+end
+
+-- A read-only byte view of the block starting `offset` bytes in.
+local function bytesAt(block: Block, offset: integer): any
+    return advance(storage.castBytes(block.data), offset)
+end
+
+--- An immutable extent of an engine-owned block. Reading happens in place
+--- through a borrowed byte view, and `toString` is the one explicit copy into a
+--- Lua string. On the VM a worker receives the same block by reference.
 record sharedbytes.Region
     @private _handle: any
     @private _first: integer
@@ -101,18 +112,20 @@ record sharedbytes.Region
     toString: @nosuspend function(sharedbytes.Region): string
 end
 
-local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
+-- Two regions are equal when they name the same engine block, offset, and
+-- length; equal bytes in separate blocks are not equal. The VM gives records no
+-- `__eq`, so each block hands out one region per extent, kept while anything
+-- holds it, and identity is that equality.
+local function wrap(handle: Block, first: integer, length: integer): sharedbytes.Region
+    local key = first .. ":" .. length
+    local known = handle.regions[key]
+    if known ~= nil then
+        return known as sharedbytes.Region
+    end
+    local region = new sharedbytes.Region(_handle = handle, _first = first, _length = length)
+    handle.regions[key] = region
 
---- Two regions are equal when they name the same engine block, offset, and
---- length; equal bytes in separate blocks are not equal.
-rawset(RegionMT as table, "__eq", function(left: any, right: any): boolean
-    return native.pointer(left._handle) == native.pointer(right._handle)
-        and left._first == right._first
-        and left._length == right._length
-end)
-
-local function wrap(handle: any, first: integer, length: integer): sharedbytes.Region
-    return setmetatable({_handle = handle, _first = first, _length = length}, RegionMT) as sharedbytes.Region
+    return region
 end
 
 function sharedbytes.Region:length(): integer
@@ -143,69 +156,69 @@ function sharedbytes.Region:view(offset: integer?, count: integer?): span.ByteSp
         error("nupp: a region view is out of bounds", 2)
     end
 
-    return foreignByteSpan(self, native.pointer(self._handle), self._first - 1 + from, taking)
+    return foreignByteSpan(self, (self._handle as Block).data, self._first - 1 + from, taking)
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
 function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
-    local width = ffi.sizeof(element) as integer
-    local alignment = ffi.alignof(element) as integer
+    local width = storage.sizeOf(element) as integer
+    local alignment = (element as any).alignment as integer
     local byteOffset = self._first - 1
     if width < 1 or self._length % width ~= 0 then
         error("nupp: a typed region view must contain complete elements", 2)
     end
-    local pointer = native.pointer(self._handle)
-    local address = tonumber(ffi.cast<uint64>(pointer)) as integer
-    if self._length > 0 and (address + byteOffset) % alignment ~= 0 then
+    -- A block starts at the widest alignment storage gives any element, so the
+    -- offset into it is what decides whether the view is aligned.
+    if self._length > 0 and byteOffset % alignment ~= 0 then
         error("nupp: a typed region view is not suitably aligned", 2)
     end
 
-    local bytes = ffi.cast<uint8*>(pointer)
     @unsafe do
-        local start = borrowFrom((bytes + byteOffset) as voidptr, self)
+        local start = borrowFrom(bytesAt(self._handle as Block, byteOffset) as voidptr, self)
         return foreignSpan(self, start, 0, self._length // width, element)
     end
 end
 
---- @raises string when the region's engine storage has been released
 function sharedbytes.Region:toString(): string
-    local text = native.text(self._handle, self._first, self._first + self._length - 1)
-    if text == nil then
-        error("nupp: a region's storage has been released", 2)
+    local data = (self._handle as Block).data
+    if type(data) == "string" then
+        return (data as string):sub(self._first, self._first + self._length - 1)
     end
 
-    return text as string
+    return storage.string(bytesAt(self._handle as Block, self._first - 1), self._length) as string
 end
 
---- Copies `text` once into an engine-owned region.
---- @raises string when the engine cannot allocate the region
+--- Copies `text` into an engine-owned region.
 function sharedbytes.copy(text: string): sharedbytes.Region
-    local handle, length = native.fromString(text)
-    if handle == nil then
-        error("nupp: cannot allocate a region", 2)
-    end
-
-    return wrap(handle, 1, length as integer)
+    return wrap(newBlock(storage.share(text)), 1, #text)
 end
 
---- Reads a whole file directly into an engine-owned region, with no
---- intermediate Lua string for the payload.
+--- Reads a whole file directly into an engine-owned region.
 --- @param path the native path of the file to read
 --- @return the region, or nil when the file cannot be opened, sized, or read
 --- @return why it could not be read, when unsuccessful
 function sharedbytes.readFile(path: string): (sharedbytes.Region?, string?)
-    local handle, problem = native.readFile(path)
-    if handle == nil then
+    local text, problem = files.read(path)
+    if text == nil then
         return nil, tostring(problem)
     end
 
-    return wrap(handle, 1, native.length(handle) as integer), nil
+    return wrap(newBlock(storage.share(text)), 1, #(text as string)), nil
 end
 
 --- An affine accumulator of engine storage. Appending grows one private
 --- allocation, and freezing transfers it into a region without copying.
 interface sharedbytes.BuilderToken is nupp.Affine<self.drop>
     drop: @nosuspend function(takes self: sharedbytes.BuilderToken): nil
+end
+
+-- A builder's growable storage: `length` bytes committed, `reserved` lent to an
+-- open writer, nothing once frozen or dropped.
+local record Growing
+    bytes: any
+    capacity: integer
+    length: integer
+    reserved: integer?
 end
 
 --- A growable engine allocation that becomes a region when frozen.
@@ -235,36 +248,60 @@ record sharedbytes.Builder is sharedbytes.BuilderToken
     drop: @nosuspend function(takes self: sharedbytes.Builder): nil
 end
 
-local BuilderMT: metatable<sharedbytes.Builder> = {__index = sharedbytes.Builder}
-
---- @raises string when a reservation is open or the engine cannot grow the storage
-function sharedbytes.Builder:append(chunk: string): nil
-    local accepted, problem = native.builderAppend(self._handle, chunk)
-    if not accepted then
-        if problem == "open" then
-            error("nupp: a region builder has an open reservation", 2)
-        end
-        error("nupp: cannot grow a region builder", 2)
+-- Makes room for `needed` committed bytes, doubling so appends stay linear.
+local function ensure(growing: Growing, needed: integer): nil
+    if needed <= growing.capacity then
+        return
     end
+    local capacity = math.max(needed, growing.capacity * 2, 64)
+    local grown = storage.allocateBytes(capacity)
+    if growing.length > 0 then
+        storage.copy(grown, growing.bytes, growing.length)
+    end
+    growing.bytes = grown
+    growing.capacity = capacity
 end
 
---- @raises string when count is not a nonnegative integer, a reservation is
----     already open, or the engine cannot grow the storage
+local function live(builder: sharedbytes.Builder, level: integer): Growing
+    local growing = builder._handle as Growing?
+    if growing == nil or growing.bytes == nil then
+        error("nupp: a region builder was already frozen", level + 1)
+    end
+
+    return growing as Growing
+end
+
+--- @raises string when a reservation is open
+function sharedbytes.Builder:append(chunk: string): nil
+    local growing = live(self, 2)
+    if growing.reserved ~= nil then
+        error("nupp: a region builder has an open reservation", 2)
+    end
+    local count = #chunk
+    if count == 0 then
+        return
+    end
+    ensure(growing, growing.length + count)
+    storage.copy(advance(growing.bytes, growing.length), storage.borrowString(chunk), count)
+    growing.length = growing.length + count
+end
+
+--- @raises string when count is not a nonnegative integer or a reservation is
+---     already open
 function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
     if count < 0 or count ~= math.floor(count) then
         error("nupp: a region reservation must be a nonnegative integer", 2)
     end
-    local pointer, problem = native.builderReserve(self._handle, count)
-    if pointer == nil then
-        if problem == "open" then
-            error("nupp: a region builder already has an open reservation", 2)
-        end
-        error("nupp: cannot grow a region builder", 2)
+    local growing = live(self, 2)
+    if growing.reserved ~= nil then
+        error("nupp: a region builder already has an open reservation", 2)
     end
+    ensure(growing, growing.length + count)
+    growing.reserved = count
 
-    local typed = ffi.cast<uint8[?]>(pointer)
+    local window = advance(growing.bytes, growing.length)
 
-    return span.writeCarray(typed, count)
+    return span.writeCarray(window as uint8[?], count)
 end
 
 --- @raises string when `written` is not a nonnegative integer, no reservation
@@ -273,60 +310,45 @@ function sharedbytes.Builder:commit(written: integer): nil
     if written < 0 or written ~= math.floor(written) then
         error("nupp: a region commit must be a nonnegative integer", 2)
     end
-    if not native.builderCommit(self._handle, written) then
+    local growing = self._handle as Growing?
+    local reserved = growing and growing.reserved
+    if growing == nil or reserved == nil or written > reserved then
         error("nupp: a commit does not match the builder's open reservation", 2)
     end
+    growing.length = growing.length + written
+    growing.reserved = nil
 end
 
 --- @raises string when the builder was already frozen or a reservation is open,
 ---     because sealing would silently drop bytes a producer may have written
 function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
-    -- Sealing spends the builder: the engine hands its bytes to the region, and
+    -- Sealing spends the builder: its storage becomes the region's block, and
     -- the builder's own terminal has nothing left to release.
     local builder = @unsafe nupp.release(self)
-    local handle, length = native.builderFreeze(builder._handle)
-    if handle == nil then
-        if length == "open" then
-            error("nupp: a region builder has an open reservation", 2)
-        end
-        error("nupp: a region builder was already frozen", 2)
+    local growing = live(builder, 2)
+    if growing.reserved ~= nil then
+        error("nupp: a region builder has an open reservation", 2)
     end
+    local block = newBlock(storage.share(growing.bytes or storage.allocateBytes(0)))
+    local length = growing.length
+    growing.bytes = nil
 
-    return wrap(handle, 1, length as integer)
+    return wrap(block, 1, length)
 end
-
--- A provider built before the native module could release a builder leaves its
--- storage to the userdata's finalizer, as every provider once did.
-local releaseBuilder = rawget(native as table, "builderRelease") as(@nosuspend function(any): nil)?
 
 function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
     local builder = @unsafe nupp.release(self)
-    if releaseBuilder ~= nil then
-        releaseBuilder(builder._handle)
+    local growing = builder._handle as Growing?
+    if growing ~= nil then
+        growing.bytes = nil
     end
 end
 
 --- Opens an empty builder.
---- @raises string when the engine cannot allocate the builder
 function sharedbytes.newBuilder(): affine(sharedbytes.Builder)
-    local handle = native.builderNew()
-    if handle == nil then
-        error("nupp: cannot allocate a region builder", 2)
-    end
-
-    return setmetatable({_handle = handle}, BuilderMT) as affine(sharedbytes.Builder)
+    local growing = new Growing(bytes = storage.allocateBytes(0), capacity = 0, length = 0, reserved = nil)
+    return new sharedbytes.Builder(_handle = growing) as affine(sharedbytes.Builder)
 end
-
--- Private hooks for the worker transport: recognizing a region as a transfer
--- leaf, reading its parts for a message's attachments, and rebuilding one
--- around a received handle. Kept off the authored surface.
-rawset(_G.nupp, "__regionMetatable", RegionMT)
-rawset(sharedbytes, "__regionParts", function(region: any): (any, integer, integer)
-    return region._handle, region._first, region._length
-end)
-rawset(sharedbytes, "__regionFromParts", function(handle: any, first: integer, length: integer): any
-    return wrap(handle, first, length)
-end)
 
 sharedbytes.Region = sharedbytes.Region
 sharedbytes.Builder = sharedbytes.Builder

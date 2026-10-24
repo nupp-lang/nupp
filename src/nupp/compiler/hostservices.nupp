@@ -1,11 +1,8 @@
 module nupp.compiler.hostservices
 
--- Native compiler implementation services. Importing this module is the explicit
--- boundary that admits filesystem/process/C-header support into a compiler host.
-
+-- The VM evaluates compile-time code in its compiler and owns filesystem I/O.
 export = {
     cheader = require("nupp.compiler.cinterop.cheader"),
-    comptimeworker = require("nupp.compiler.comptime.worker"),
     fs = require("nupp.compiler.fs"),
     hash = require("nupp.compiler.nativehash"),
 }

@@ -61,10 +61,28 @@ local FACILITIES: {
     ["nupp.compiler.nativecdecl"] = "c-headers",
 }
 
--- Providers the source tree spells once for both runtimes: they reach the
--- native library only through modules the VM replaces beneath them, so the
--- VM takes them where it would otherwise take only its own.
-local PORTABLE_PROVIDERS: {[string]: boolean} = {["nupp.runtime.provider.nativehttp"] = true}
+-- The providers chosen at run time that the VM implements. A soft dependency
+-- is taken only when it is one of these: the others in the tree are written
+-- for hosts the VM is not, and an image carrying them would offer a provider
+-- that cannot load.
+local VM_PROVIDERS: {
+    [string]: boolean
+} = {
+    ["nupp.runtime.provider.nativebuffer"] = true,
+    ["nupp.runtime.provider.nativecompression"] = true,
+    ["nupp.runtime.provider.nativefiles"] = true,
+    ["nupp.runtime.provider.nativegpu"] = true,
+    ["nupp.runtime.provider.nativehost"] = true,
+    ["nupp.runtime.provider.nativehttp"] = true,
+    ["nupp.runtime.provider.nativenet"] = true,
+    ["nupp.runtime.provider.nativepath"] = true,
+    ["nupp.runtime.provider.nativeprocess"] = true,
+    ["nupp.runtime.provider.nativetime"] = true,
+    ["nupp.runtime.provider.nativetls"] = true,
+    ["nupp.runtime.provider.nativeuri"] = true,
+    ["nupp.runtime.provider.suspension"] = true,
+    ["nupp.runtime.provider.workers"] = true,
+}
 
 --- Where an image finds `name`, the rule every VM image builder shares: the
 --- VM's own implementations first, the modules the VM supplies left to run
@@ -72,22 +90,7 @@ local PORTABLE_PROVIDERS: {[string]: boolean} = {["nupp.runtime.provider.nativeh
 --- time) is taken only where the VM supplies its own implementation of it.
 function project.resolve(env: table, compilerRoot: string, name: string, soft: boolean?): string?
     if soft then
-        local path = envMod.findRuntimeModulePath(env as any, name)
-        local vmLib = compilerRoot .. "/native/crates/vm/lib/"
-        if PORTABLE_PROVIDERS[name] then
-            return path
-        end
-        if path == nil then
-            return nil
-        end
-        -- Compared normalized: on Windows one side spells the directory with
-        -- backslashes, or its drive letter in the other case, and the VM's
-        -- providers were then never taken.
-        local found, under = fs.normalize(path as string), fs.normalize(vmLib) .. "/"
-        if found:match("^%a:") then
-            found, under = found:lower(), under:lower()
-        end
-        return found:sub(1, #under) == under and path or nil
+        return VM_PROVIDERS[name] and envMod.findRuntimeModulePath(env as any, name) or nil
     end
     if name == "nupp.vm.taskScope" then
         -- Reuse the public implementation under a private link name.
@@ -163,8 +166,8 @@ local function emitProject(
         config = config,
     })
 
-    -- These declarations describe the modules this VM host supplies, rather
-    -- than the LuaJIT-backed library implementations in the source checkout.
+    -- These declare the modules this VM host supplies, and hold the VM's own
+    -- implementations the tree does not.
     local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/lib")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
@@ -542,9 +545,21 @@ end
 
 --- What the root CLI image carries beside what its entry requires: modules
 --- the compiler reaches by computed name.
+---
+--- The providers after nativeprocess are what `resolve` takes as soft
+--- dependencies. The pinned stage zero takes a soft provider only from
+--- native/crates/vm/lib, where they lived until they replaced their LuaJIT
+--- twins in src, so they are named outright until the pin moves past
+--- v0.0.15-vm.2.
 project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
-    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess"
+    .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
+    .. "nupp.runtime.provider.nativebuffer,nupp.runtime.provider.nativecompression,"
+    .. "nupp.runtime.provider.nativefiles,nupp.runtime.provider.nativegpu,nupp.runtime.provider.nativehost,"
+    .. "nupp.runtime.provider.nativenet,nupp.runtime.provider.nativepath,"
+    .. "nupp.runtime.provider.nativetime,nupp.runtime.provider.nativetls,"
+    .. "nupp.runtime.provider.nativeuri,nupp.runtime.provider.suspension,"
+    .. "nupp.runtime.provider.workers"
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.

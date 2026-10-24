@@ -1,130 +1,29 @@
 @!internal
+
 module nupp.runtime.provider.nativecompression
 
---[[Rust-native gzip, zlib, and raw DEFLATE provider for compression API 1.
-
-The fixed catalog forwards validated options and span bounds to the native ABI.
-Each encoder and decoder owns one native handle. Failed steps copy the native
-error into their reason, and closing surfaces a failed handle release.
+--[[
+The VM's gzip, zlib, and raw DEFLATE provider for compression API 1: the same
+catalog and records as the LuaJIT provider, written over the VM's
+`nupp.vm.compression` primitives rather than the native library's C ABI. Each
+encoder and decoder owns one native stream handle, and every step reads and
+writes the spans it is given in place. Failed steps carry the stream's error in
+their reason.
 ]]
 
 const contract = require("nupp.compression.spi")
-const native = require("nupp.runtime.native")
+const host = require("nupp.vm.compression")
 const span = require("nupp.mem.span")
 
-native.ffi.cdef[[
-int32_t nuppNativeCompressionEncoderCreate(uint32_t, uint32_t, uint64_t *);
-int32_t nuppNativeCompressionEncoderWrite(
-    uint64_t, const uint8_t *, size_t, uint8_t *, size_t,
-    size_t *, size_t *, uint32_t *);
-int32_t nuppNativeCompressionEncoderFlush(
-    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
-int32_t nuppNativeCompressionEncoderFinish(
-    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
-int32_t nuppNativeCompressionEncoderRelease(uint64_t);
-int32_t nuppNativeCompressionDecoderCreate(uint32_t, int32_t, uint64_t *);
-int32_t nuppNativeCompressionDecoderRead(
-    uint64_t, const uint8_t *, size_t, uint8_t *, size_t,
-    size_t *, size_t *, uint32_t *);
-int32_t nuppNativeCompressionDecoderFinishInput(
-    uint64_t, uint8_t *, size_t, size_t *, uint32_t *);
-int32_t nuppNativeCompressionDecoderRelease(uint64_t);
-]]
-
-const C = native.C
-const COMPRESSION_FEATURE = 1024
-native.requireFeature(COMPRESSION_FEATURE, "compression")
-
-local function encoderWrite(
-    handle: uint64,
-    borrows input: const uint8[?],
-    inputLength: integer,
-    borrows output: uint8[?],
-    outputLength: integer,
-    consumed: any,
-    written: any,
-    status: any
-): integer
-    local call = C.nuppNativeCompressionEncoderWrite as function(
-        uint64,
-        borrows input: const uint8[?],
-        integer,
-        borrows output: uint8[?],
-        integer,
-        any,
-        any,
-        any
-    ): integer
-
-    return call(handle, input, inputLength, output, outputLength, consumed, written, status)
-end
-
-local function encoderOutput(
-    operation: any,
-    handle: uint64,
-    borrows output: uint8[?],
-    outputLength: integer,
-    written: any,
-    status: any
-): integer
-    local call = operation as function(uint64, borrows output: uint8[?], integer, any, any): integer
-    return call(handle, output, outputLength, written, status)
-end
-
-local function decoderRead(
-    handle: uint64,
-    borrows input: const uint8[?],
-    inputLength: integer,
-    borrows output: uint8[?],
-    outputLength: integer,
-    consumed: any,
-    written: any,
-    status: any
-): integer
-    local call = C.nuppNativeCompressionDecoderRead as function(
-        uint64,
-        borrows input: const uint8[?],
-        integer,
-        borrows output: uint8[?],
-        integer,
-        any,
-        any,
-        any
-    ): integer
-
-    return call(handle, input, inputLength, output, outputLength, consumed, written, status)
-end
-
-local function decoderFinishInput(
-    handle: uint64,
-    borrows output: uint8[?],
-    outputLength: integer,
-    written: any,
-    status: any
-): integer
-    local call = C.nuppNativeCompressionDecoderFinishInput as function(
-        uint64,
-        borrows output: uint8[?],
-        integer,
-        any,
-        any
-    ): integer
-
-    return call(handle, output, outputLength, written, status)
-end
-
-local function failure(prefix: string): string
-    return prefix .. ": " .. (native.ffi.string(C.nuppNativeLastError()) as string)
+local function reason(prefix: string, problem: string?): string
+    return prefix .. ": " .. (problem or "unknown error")
 end
 
 local record Encoder is contract.Encoder
-    @private handle: uint64
-    @private consumed: any
-    @private written: any
-    @private status: any
+    @private handle: integer
 
     function close(takes self): nil
-        native.succeeded(C.nuppNativeCompressionEncoderRelease(self.handle), 2)
+        host.encoderRelease(self.handle)
     end
 
     function write(
@@ -132,66 +31,38 @@ local record Encoder is contract.Encoder
         borrows input: span.ByteSpan,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
-        local code = encoderWrite(
-            self.handle,
-            input:ref(),
-            #input,
-            output:ref(),
-            #output,
-            self.consumed,
-            self.written,
-            self.status
-        )
-        if code ~= 0 then
-            return nil, nil, nil, failure("compression encode failed")
+        local consumed, written, status, problem = host.encoderWrite(self.handle, input, output)
+        if consumed == nil then
+            return nil, nil, nil, reason("compression encode failed", problem)
         end
 
-        return tonumber(
-            self.consumed[0]
-        ) as integer, tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+        return consumed, written, status
     end
 
     function flush(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local code = encoderOutput(
-            C.nuppNativeCompressionEncoderFlush,
-            self.handle,
-            output:ref(),
-            #output,
-            self.written,
-            self.status
-        )
-        if code ~= 0 then
-            return nil, nil, failure("compression flush failed")
+        local written, status, problem = host.encoderFlush(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression flush failed", problem)
         end
 
-        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+        return written, status
     end
 
     function finish(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local code = encoderOutput(
-            C.nuppNativeCompressionEncoderFinish,
-            self.handle,
-            output:ref(),
-            #output,
-            self.written,
-            self.status
-        )
-        if code ~= 0 then
-            return nil, nil, failure("compression finish failed")
+        local written, status, problem = host.encoderFinish(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression finish failed", problem)
         end
 
-        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+        return written, status
     end
 end
 
 local record Decoder is contract.Decoder
-    @private handle: uint64
-    @private consumed: any
-    @private written: any
-    @private status: any
+    @private handle: integer
 
     function close(takes self): nil
-        native.succeeded(C.nuppNativeCompressionDecoderRelease(self.handle), 2)
+        host.decoderRelease(self.handle)
     end
 
     function read(
@@ -199,32 +70,21 @@ local record Decoder is contract.Decoder
         borrows input: span.ByteSpan,
         exclusive output: span.ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
-        local code = decoderRead(
-            self.handle,
-            input:ref(),
-            #input,
-            output:ref(),
-            #output,
-            self.consumed,
-            self.written,
-            self.status
-        )
-        if code ~= 0 then
-            return nil, nil, nil, failure("compression decode failed")
+        local consumed, written, status, problem = host.decoderRead(self.handle, input, output)
+        if consumed == nil then
+            return nil, nil, nil, reason("compression decode failed", problem)
         end
 
-        return tonumber(
-            self.consumed[0]
-        ) as integer, tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+        return consumed, written, status
     end
 
     function finishInput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
-        local code = decoderFinishInput(self.handle, output:ref(), #output, self.written, self.status)
-        if code ~= 0 then
-            return nil, nil, failure("compression decode failed")
+        local written, status, problem = host.decoderFinishInput(self.handle, output)
+        if written == nil then
+            return nil, nil, reason("compression decode failed", problem)
         end
 
-        return tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
+        return written, status
     end
 end
 
@@ -234,27 +94,22 @@ local record Format is contract.Format
 
     function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
         local level = options ~= nil and options.level or 6
-        local handle = native.ffi.new("uint64_t[1]")
-        native.succeeded(C.nuppNativeCompressionEncoderCreate(self.id, level, handle), 2)
-        return new Encoder(
-            handle = handle[0],
-            consumed = native.ffi.new("size_t[1]"),
-            written = native.ffi.new("size_t[1]"),
-            status = native.ffi.new("uint32_t[1]")
-        )
+        local handle, problem = host.encoderCreate(self.id, level)
+        if handle == nil then
+            error("nupp: " .. (problem or "could not create a compression encoder"), 2)
+        end
+
+        return new Encoder(handle = handle)
     end
 
     function createDecoder(self, options: contract.FormatOptions?): contract.Decoder
         local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedMembers ~= false)
-        local handle = native.ffi.new("uint64_t[1]")
-        native.succeeded(C.nuppNativeCompressionDecoderCreate(self.id, concatenatedMembers and 1 or 0, handle), 2)
+        local handle, problem = host.decoderCreate(self.id, concatenatedMembers)
+        if handle == nil then
+            error("nupp: " .. (problem or "could not create a compression decoder"), 2)
+        end
 
-        return new Decoder(
-            handle = handle[0],
-            consumed = native.ffi.new("size_t[1]"),
-            written = native.ffi.new("size_t[1]"),
-            status = native.ffi.new("uint32_t[1]")
-        )
+        return new Decoder(handle = handle)
     end
 end
 

@@ -1,365 +1,43 @@
 @!internal
+
 module nupp.runtime.provider.nativehost
 
 --[[
-The embedding application's answers to [](nupp.host) requests.
+The VM's answer to [](nupp.host) requests: none yet.
 
-An application embedding the runtime registers a C handler per kind
-(`nupp_host_register`). A request calls that handler directly, with its
-arguments borrowed for the length of the call; the handler answers then or
-later with `nupp_host_answer`, and either way the answer waits in the runtime
-until a poll delivers it. A program not run by an embedding application has no
-host: `nupp run` installs none, so every request is refused by name.
-
-Without a suspension handler a park blocks inside the very call the host made,
-so the host could never answer a request it did not answer at once. Such a
-request is refused rather than left to hang; run it under a handler, such as a
-[](nupp.host.pump), and drive it with `nupp_runtime_poll`.
-
-This provider serves the LuaJIT embedding. The VM replaces it with one that
-reports no host attached, since the VM's embedding has no host channel yet.
+LuaJIT's provider reaches the C handlers an embedding application registers
+through `nupp_host_register` in the LuaJIT embedding, which the VM does not
+carry. The VM's own embedding (an application that loads an image and answers
+host kinds) is the runtime plan's "Rust embedding and native extensions" item
+and has no host channel today. A program on the VM is therefore run by nothing
+that answers requests, as a program `nupp run` starts under LuaJIT is: every
+request and route is refused by name, and `attached` says so up front.
 ]]
-
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
-local suspensionContract = require("nupp.suspension.spi")
-local values = require("nupp.host.internal.values")
-local ffi = require("ffi")
-
-local unpackValues: any = rawget(_G, "unpack") or (table as any).unpack
 
 local provider = {}
 
--- Answers are delivered before timers in a pass, so a reply and the deadline it
--- raced resolve in the order the host produced them.
-const SOURCE_ORDER = 15
-
-const OPERATION_CALL = 0
-const OPERATION_POST = 1
-const OPERATION_SEND = 2
-
-local loaded, channel = pcall(require, "nupp.host.native")
-if not loaded or type(channel) ~= "table" or not channel.attached() then
-    channel = nil
-end
-
-local nextRequest: integer = 1
-local pending: {[integer]: any} = {}
-local pendingCount: integer = 0
-local source: any = nil
-
-local function report(kind: string, problem: any): nil
-    io.stderr:write("nupp: host " .. kind .. ": " .. tostring(problem) .. "\n")
-end
-
-local refusingHandler = new suspensionContract.Handler(
-    park = function(_: any, _: any, _: any): nil
-        error("nupp: a host late handler cannot suspend; release with host.post", 0)
-    end,
-    canPark = function(_: any): boolean
-        return false
-    end,
-    shutdown = function(_: any): nil
-    end
-)
-
-local function runLate(kind: string, late: any, ...: any): nil
-    local installed = suspensionHost.install(refusingHandler)
-    local ok, problem = pcall(late, ...)
-    installed:close()
-    if not ok then
-        report(kind, "late handler failed: " .. tostring(problem))
-    end
-end
-
-local function decodeTaken(status: any, kinds: any, ...: any): (any, any, any)
-    if status == nil then
-        return nil, nil, nil
-    elseif status == false then
-        return false, kinds, nil
-    end
-    local count = #(kinds as string)
-    local decoded: any = {...}
-    for position = 1, count do
-        if (kinds as string):sub(position, position) == "y" then
-            local text = decoded[position]
-            decoded[position] = values.byteSpan(text, ffi.cast("const uint8_t *", text), #text)
-        end
-    end
-
-    return true, count, decoded
-end
-
--- Moves a delivered answer into Lua values, byte results as spans the caller
--- owns, and frees the runtime's copy. Answers nothing while unanswered, then
--- `true, count, values` or `false, message`.
-local function takeAnswer(request: integer): (any, any, any)
-    return decodeTaken(channel.take(request))
-end
-
-local function forget(request: integer): nil
-    if pending[request] ~= nil then
-        pending[request] = nil
-        pendingCount = pendingCount - 1
-    end
-end
-
-local routes: {[string]: any} = {}
-
--- What the host pushed, drained flat: a kind, a value count, the values.
-local pushed: any = {}
-local pushedCounts: {[string]: integer} = {}
-
--- Where a pass's delivery has reached, so a failed delivery resumes after the
--- message that failed rather than abandoning the rest.
-local deliveryCursor: integer = 1
-local deliveredCount: integer = 0
-
--- `unpack` is beyond the JIT, so the counts input usually has are spelled out.
-local function deliverMessage(deliverTo: any, slot: integer, count: integer): nil
-    if count == 2 then
-        deliverTo(pushed[slot + 2], pushed[slot + 3])
-    elseif count == 1 then
-        deliverTo(pushed[slot + 2])
-    elseif count == 3 then
-        deliverTo(pushed[slot + 2], pushed[slot + 3], pushed[slot + 4])
-    elseif count == 4 then
-        deliverTo(pushed[slot + 2], pushed[slot + 3], pushed[slot + 4], pushed[slot + 5])
-    elseif count == 0 then
-        deliverTo()
-    else
-        deliverTo(unpackValues(pushed, slot + 2, slot + 1 + count))
-    end
-end
-
--- The pass's delivery from `deliveryCursor`, a plain loop the JIT compiles. A
--- route delivers through a vararg closure, and a vararg frame returning into
--- `pcall` is beyond the recorder, so the whole loop is protected once instead of
--- each message.
-local function deliverRouted(used: integer): nil
-    while deliveryCursor <= used do
-        local slot = deliveryCursor
-        local kind: string = pushed[slot]
-        local count: integer = pushed[slot + 1]
-        deliveryCursor = slot + 2 + count
-        local route = routes[kind]
-        local remaining = pushedCounts[kind]
-        if route ~= nil and remaining ~= nil then
-            pushedCounts[kind] = remaining - 1
-            local keep = route.policy == "latest" and 1 or route.limit
-            if remaining > keep then
-                route.dropped = route.dropped + 1
-            else
-                deliveredCount = deliveredCount + 1
-                deliverMessage(route.deliver, slot, count)
-            end
-        end
-    end
-end
-
--- Held untyped, so closing it is a call and not a scoped cleanup.
-local installRefusing: any = suspensionHost.install
-
--- Delivers what the host pushed since the last pass to the routes declared for
--- it, in the order the host pushed it, each route keeping what its policy says.
--- Observers run where no task is, so one installation refuses a park for the
--- whole pass.
-local function deliverPushed(): integer
-    local used: integer = channel.drain(pushed)
-    if used == 0 then
-        return 0
-    end
-    local routed: integer = 0
-    local slot: integer = 1
-    while slot <= used do
-        local kind: string = pushed[slot]
-        local count: integer = pushed[slot + 1]
-        if routes[kind] ~= nil then
-            pushedCounts[kind] = (pushedCounts[kind] or 0) + 1
-            routed = routed + 1
-        end
-        slot = slot + 2 + count
-    end
-    local delivered: integer = 0
-    if routed > 0 then
-        local installed: any = installRefusing(refusingHandler)
-        deliveryCursor = 1
-        deliveredCount = 0
-        while true do
-            local failed = deliveryCursor
-            local finished, problem = pcall(deliverRouted, used)
-            if finished then
-                break
-            end
-            -- The message that raised is the last one the cursor passed.
-            local kind = pushed[failed]
-            local scan = failed
-            while scan < deliveryCursor do
-                kind = pushed[scan]
-                scan = scan + 2 + pushed[scan + 1]
-            end
-            report(tostring(kind), "delivery failed: " .. tostring(problem))
-        end
-        delivered = deliveredCount
-        installed:close()
-        for kind in pairs(pushedCounts) do
-            pushedCounts[kind] = nil
-        end
-    end
-    for each = 1, used do
-        pushed[each] = nil
-    end
-
-    return delivered
-end
-
--- Delivers every answer the host has given since the last pass.
-local function deliver(): integer
-    local delivered: integer = deliverPushed()
-    for _, request in ipairs(channel.ready()) do
-        local entry = pending[request]
-        if entry ~= nil then
-            local ok, count, decoded = takeAnswer(request)
-            if ok ~= nil then
-                forget(request)
-                delivered = delivered + 1
-                if entry.cancelled then
-                    if ok and entry.late ~= nil then
-                        runLate(entry.kind, entry.late, unpackValues(decoded, 1, count))
-                    end
-                elseif entry.resume ~= nil then
-                    -- Held until the caller takes it: a task cancelled after this
-                    -- resumed it but before it ran never does, and the answer is
-                    -- then late's.
-                    entry.answer = {ok = ok, count = count, values = decoded}
-                    entry.resume(entry.answer)
-                end
-            end
-        end
-    end
-
-    return delivered
-end
-
-local function readiness(): any
-    if source == nil or source.released then
-        source = suspension.source("nupp.host", SOURCE_ORDER, deliver, nil, function(): boolean
-            return pendingCount > 0
-        end)
-    end
-
-    return source
-end
-
-local function dispatch(operation: integer, kind: string, ...: any): integer
-    if channel == nil then
-        error("nupp: no host answers " .. kind .. "; no embedding application is attached", 0)
-    end
-    local count = select("#", ...)
-    local bytes: any = nil
-    for position = 1, count do
-        local tag, value, length = values.classify(kind, position, (select(position, ...)))
-        if tag == "bytes" then
-            bytes = bytes or {}
-            bytes[position] = {tonumber(ffi.cast("uintptr_t", value)), length}
-        end
-    end
-    local request = nextRequest
-    nextRequest = nextRequest + 1
-    local found, problem = channel.dispatch(operation, request, kind, count, bytes, ...)
-    if not found then
-        error("nupp: " .. tostring(problem), 0)
-    end
-
-    return request
+local function refuse(kind: string): nil
+    error("nupp: no host answers " .. kind .. "; no embedding application is attached", 0)
 end
 
 function provider.attached(): boolean
-    return channel ~= nil
+    return false
 end
 
-function provider.call(kind: string, late: any, ...: any): ...any
-    local request = dispatch(OPERATION_CALL, kind, ...)
-    local ok, count, decoded = takeAnswer(request)
-    if ok == nil then
-        local entry: any = {kind = kind, late = late, cancelled = false, resume = nil, answer = nil}
-        pending[request] = entry
-        pendingCount = pendingCount + 1
-        if not suspension.handled() then
-            entry.cancelled = true
-            channel.cancel(request)
-            error(
-                "nupp: host "
-                .. kind
-                .. " was not answered during the call, and nothing can wait for it here;"
-                .. " run it under a suspension handler such as nupp.host.pump",
-                0
-            )
-        end
-        local answer = suspension.suspend("host " .. kind, function(
-            resume: function(any): nil,
-            context: any
-        ): function()
-            context:uses(readiness())
-            entry.resume = resume
-            return function(): nil
-                local answered = entry.answer
-                if answered ~= nil then
-                    entry.answer = nil
-                    if answered.ok and entry.late ~= nil then
-                        runLate(entry.kind, entry.late, unpackValues(answered.values, 1, answered.count))
-                    end
-                elseif pending[request] ~= nil then
-                    entry.cancelled = true
-                    entry.resume = nil
-                    channel.cancel(request)
-                end
-            end
-        end)
-        entry.answer = nil
-        ok, count, decoded = answer.ok, answer.count, answer.values
-    end
-    if not ok then
-        error("nupp: host " .. kind .. " failed: " .. tostring(count), 0)
-    end
-
-    return unpackValues(decoded, 1, count)
+function provider.call(kind: string, _: any, ...: any): ...any
+    refuse(kind)
 end
 
--- The runtime discards a post's answer itself and reports its failure, so
--- nothing here waits on or remembers one.
 function provider.post(kind: string, ...: any): nil
-    dispatch(OPERATION_POST, kind, ...)
+    refuse(kind)
 end
 
--- A send reaches the application's handler at once, so nothing is held and the
--- stream's policy never applies.
 function provider.send(kind: string, _: string, _: integer, ...: any): nil
-    dispatch(OPERATION_SEND, kind, ...)
+    refuse(kind)
 end
 
-function provider.route(kind: string, policy: string, limit: integer, deliverTo: any): (any, any)
-    if channel == nil then
-        error("nupp: no host pushes " .. kind .. "; no embedding application is attached", 0)
-    end
-    if routes[kind] ~= nil then
-        error("nupp: host stream " .. kind .. " is already routed; close that route first", 0)
-    end
-    local route: any = {deliver = deliverTo, policy = policy, limit = limit, dropped = 0}
-    routes[kind] = route
-    readiness()
-
-    local function stop(): nil
-        if routes[kind] == route then
-            routes[kind] = nil
-        end
-    end
-
-    local function dropped(): integer
-        return route.dropped
-    end
-
-    return stop, dropped
+function provider.route(kind: string, _: string, _: integer, _: any): (any, any)
+    error("nupp: no host pushes " .. kind .. "; no embedding application is attached", 0)
 end
 
 export = provider

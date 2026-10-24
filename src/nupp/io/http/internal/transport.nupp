@@ -2,6 +2,13 @@
 
 module nupp.io.http.internal.transport
 
+--[[
+The VM's native HTTP transport: the same clients and transfers as the LuaJIT
+module of this name, written over the VM's `nupp.vm.http` primitives rather than
+the native library's C ABI, with the readiness pump `nupp.vm.net` shares among
+every native family.
+]]
+
 const time = require("nupp.time")
 
 export interface NativeTransfer
@@ -28,109 +35,8 @@ export interface NativeClient
     close: @nosuspend function(self: NativeClient): nil
 end
 
-const native = require("nupp.runtime.native")
-
-native.ffi.cdef[[
-typedef struct { const uint8_t *data; size_t length; } NuppNativeHttpSlice;
-typedef struct { NuppNativeHttpSlice name; NuppNativeHttpSlice value; } NuppNativeHttpHeader;
-
-typedef struct {
-    uint64_t connect_timeout_ms;
-    uint32_t max_redirects;
-    uint32_t max_pending_requests;
-    uint32_t max_connections;
-    uint32_t max_connections_per_host;
-    int compressed;
-    int has_insecure_hosts;
-    int proxy_mode;
-    NuppNativeHttpSlice proxy;
-    int no_proxy_set;
-    NuppNativeHttpSlice no_proxy;
-    NuppNativeHttpSlice proxy_credentials;
-} NuppNativeHttpClientOptions;
-
-typedef struct {
-    NuppNativeHttpSlice url;
-    NuppNativeHttpSlice method;
-    const NuppNativeHttpHeader *headers;
-    size_t header_count;
-    NuppNativeHttpSlice body;
-    uint32_t body_kind;
-    int64_t body_length;
-    uint64_t timeout_ms;
-    uint64_t stall_timeout_ms;
-    uint64_t max_bytes;
-    int insecure;
-} NuppNativeHttpRequest;
-
-typedef struct {
-    uint32_t state;
-    uint16_t status;
-    uint8_t version;
-    size_t url_length;
-    size_t headers_length;
-} NuppNativeHttpHead;
-
-typedef struct { uint64_t transfer; uint32_t tokens; } NuppNativeHttpReady;
-
-int32_t nuppNativeHttpClientCreate(const NuppNativeHttpClientOptions *, uint64_t *);
-int32_t nuppNativeHttpClientRelease(uint64_t);
-int32_t nuppNativeHttpClientSend(uint64_t, const NuppNativeHttpRequest *, uint64_t *);
-int32_t nuppNativeHttpClientPending(uint64_t, size_t *);
-int32_t nuppNativeHttpTransferCancel(uint64_t);
-int32_t nuppNativeHttpTransferRelease(uint64_t);
-int32_t nuppNativeHttpTransferOffer(uint64_t, const uint8_t *, size_t, int32_t, int32_t *);
-int32_t nuppNativeHttpTransferPollHead(
-    uint64_t, NuppNativeHttpHead *, uint8_t *, size_t, uint8_t *, size_t);
-int32_t nuppNativeHttpTransferError(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeHttpTransferTakeBody(uint64_t, uint64_t *);
-int32_t nuppNativeHttpBodyArm(uint64_t);
-int32_t nuppNativeHttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeHttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
-int32_t nuppNativeHttpClientPoll(
-    uint64_t, NuppNativeHttpReady *, size_t, size_t *, int32_t *);
-]]
-
-local ffi = native.ffi
-const C = native.C
-
--- The readiness pump the HTTP provider suspends through: the one every native
--- family shares, reached here so that a runtime supplying its own transport
--- supplies its pump beside it.
-
---- The suspension priority of every native family's readiness source.
-export const READINESS_PRIORITY = native.READINESS_PRIORITY
-
---- Snapshots the readiness generation, unless one is already waiting.
-export function snapshot(): nil
-    native.snapshot()
-end
-
---- Sleeps until any native family reports a change since the snapshot, or
---- `waitMs` passes.
-export function sleep(waitMs: integer): integer
-    return native.sleep(waitMs)
-end
-
---- A readiness pump, as the poll and wait of a suspension source.
-export function pump(check: function(): integer): (function(): integer, function(integer): integer)
-    return native.pump(check)
-end
-
--- Immediate ABI statuses: a client refusing admission, and a query or copy
--- whose output needs more room.
-const ABI_CAPACITY = 2
-const ABI_BUFFER_TOO_SMALL = 6
-
--- What polling the headers answers.
-const HEAD_PENDING = 0
-const HEAD_FAILED = 2
-
--- What peeking at the body answers.
-const BODY_PENDING = 2
-const BODY_EOF = 3
-const BODY_FAILED = 4
-const BODY_CLOSED = 5
+const host = require("nupp.vm.http")
+const readiness = require("nupp.vm.net")
 
 -- Which of a transfer's waiters a readiness event should wake. A bit set, because one
 -- event commonly moves more than one of them.
@@ -148,83 +54,39 @@ export const BODY_FILE = 3
 const UPLOAD_BACKPRESSURE = 0
 const UPLOAD_ACCEPTED = 1
 
--- How many readiness events one poll collects.
-const READY_SLOTS = 256
-
--- A read may ask for an arbitrary upper bound. Keep the FFI scratch allocation
--- proportional to the transport's largest body segment rather than that bound.
-const BODY_READ_BYTES = 64 * 1024
-
 ----------------------------------------------------------------------------
--- Slices and dispatch
+-- The readiness pump
 ----------------------------------------------------------------------------
 
---- Fills the borrowed byte span the native transport reads its strings through.
----
---- A pointer and a length are passed when the bytes are not a Lua string; otherwise
---- the string itself is the pointer. Nothing is copied either way, so the value has to
---- outlive the call, which it does, because every caller holds it across one.
-local function slice(value: any, pointer: any?, length: integer?): any
-    local out = native.ffi.new("NuppNativeHttpSlice")
-    if pointer ~= nil then
-        out.data = pointer
-        out.length = length
-    elseif value ~= nil then
-        out.data = value
-        out.length = #(value as string)
-    end
+--- The suspension priority of every native family's readiness source.
+export const READINESS_PRIORITY = 20
 
-    return out
+--- Snapshots the readiness generation every native family shares, unless one
+--- is already waiting to be slept from.
+export function snapshot(): nil
+    readiness.snapshot()
 end
 
-local function raw(handle: any): any
-    return handle[0]
+--- Sleeps until any native family reports a change since the snapshot, or
+--- `waitMs` passes. Without a snapshot it takes one and returns at once.
+export function sleep(waitMs: integer): integer
+    readiness.sleep(waitMs)
+
+    return 0
 end
 
-local function outputHandle(): any
-    return ffi.new<uint64[1]>()
+--- A readiness pump, as the poll and wait of a suspension source.
+export function pump(check: function(): integer): (function(): integer, function(integer): integer)
+    return function(): integer
+        readiness.snapshot()
+
+        return check()
+    end, sleep
 end
 
-local function releaseTransfer(handle: any): nil
-    if handle[0] ~= 0 then
-        C.nuppNativeHttpTransferRelease(handle[0])
-        handle[0] = 0
-    end
-end
-
-local function releaseClient(handle: any): nil
-    if handle[0] ~= 0 then
-        C.nuppNativeHttpClientRelease(handle[0])
-        handle[0] = 0
-    end
-end
-
-local function lastError(): string
-    return ffi.string(C.nuppNativeLastError())
-end
-
---- Copies an error retained by a transfer or body.
-local function copiedError(call: any, handle: any, fallback: string): string
-    local length = ffi.new("size_t[1]")
-    call(raw(handle), nil, 0, length)
-    if length[0] == 0 then
-        return fallback
-    end
-    local output = ffi.new("uint8_t[?]", length[0])
-    if call(raw(handle), output, length[0], length) ~= 0 then
-        return lastError()
-    end
-    local text = ffi.string(output, length[0])
-
-    return text ~= "" and text or fallback
-end
-
-local function pending(handle: any): integer
-    local output = ffi.new("size_t[1]")
-    native.succeeded(C.nuppNativeHttpClientPending(raw(handle), output), 3)
-
-    return tonumber(output[0]) as integer
-end
+----------------------------------------------------------------------------
+-- Waiters
+----------------------------------------------------------------------------
 
 --- Wakes everything waiting on a channel.
 ---
@@ -305,8 +167,8 @@ end
 --- the back-pointer would have the two name each other.
 local record Transfer is NativeTransfer
     _client: any
-    _handle: any
-    _body: any
+    _handle: integer?
+    _body: integer?
     _closed: boolean
     _headWaiters: {function()}?
     _bodyWaiters: {function()}?
@@ -357,8 +219,9 @@ local record Transfer is NativeTransfer
         -- Arming is what tells the native transport somebody is waiting on body bytes;
         -- without it a body that is already complete never produces another readiness
         -- event.
-        if self._body ~= nil then
-            C.nuppNativeHttpBodyArm(raw(self._body))
+        const body = self._body
+        if body ~= nil then
+            host.bodyArm(body)
         end
 
         return forget
@@ -369,42 +232,12 @@ local record Transfer is NativeTransfer
     end
 
     function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
-        local out = native.ffi.new("NuppNativeHttpHead[1]")
-        local status = C.nuppNativeHttpTransferPollHead(raw(self._handle), out, nil, 0, nil, 0)
-        local state = tonumber(out[0].state) as integer
-        if status ~= 0 and status ~= ABI_BUFFER_TOO_SMALL then
-            return "failed", nil, nil, nil, nil, lastError()
+        const handle = self._handle
+        if handle == nil then
+            return "failed", nil, nil, nil, nil, "the transfer is closed"
         end
-        if state == HEAD_PENDING then
-            return "pending", nil, nil, nil, nil, nil
-        end
-        if state == HEAD_FAILED then
-            return "failed", nil, nil, nil, nil, copiedError(
-                C.nuppNativeHttpTransferError,
-                self._handle,
-                "HTTP transfer failed"
-            )
-        end
-        local head = out[0]
-        local urlLength = tonumber(head.url_length) as integer
-        local headersLength = tonumber(head.headers_length) as integer
-        local urlOutput = urlLength > 0 and ffi.new("uint8_t[?]", urlLength) or nil
-        local headersOutput = headersLength > 0 and ffi.new("uint8_t[?]", headersLength) or nil
-        status = C.nuppNativeHttpTransferPollHead(
-            raw(self._handle),
-            out,
-            urlOutput,
-            urlLength,
-            headersOutput,
-            headersLength
-        )
-        if status ~= 0 then
-            return "failed", nil, nil, nil, nil, lastError()
-        end
-        local url = urlLength > 0 and ffi.string(urlOutput, urlLength) or nil
-        local headers = headersLength > 0 and ffi.string(headersOutput, headersLength) or ""
 
-        return "ready", tonumber(head.status) as integer, tonumber(head.version) as integer, url, headers, nil
+        return host.transferHead(handle)
     end
 
     function offer(self: Transfer, value: any, count: integer?): string
@@ -413,15 +246,15 @@ local record Transfer is NativeTransfer
         if length < 0 or length > #bytes then
             error("nupp: HTTP upload offer is outside its bytes", 2)
         end
-        local answer = ffi.new<int32[1]>()
-        local status = C.nuppNativeHttpTransferOffer(raw(self._handle), bytes, length, 0, answer)
-        if status ~= 0 then
+        const handle = self._handle
+        if handle == nil then
             return "closed"
         end
-        if answer[0] == UPLOAD_ACCEPTED then
+        local answer = host.transferOffer(handle, bytes, length, false)
+        if answer == UPLOAD_ACCEPTED then
             return "accepted"
         end
-        if answer[0] == UPLOAD_BACKPRESSURE then
+        if answer == UPLOAD_BACKPRESSURE then
             return "backpressure"
         end
 
@@ -429,9 +262,8 @@ local record Transfer is NativeTransfer
     end
 
     function finishUpload(self: Transfer): string
-        local answer = ffi.new<int32[1]>()
-        local status = C.nuppNativeHttpTransferOffer(raw(self._handle), nil, 0, 1, answer)
-        if status == 0 and answer[0] == UPLOAD_ACCEPTED then
+        const handle = self._handle
+        if handle ~= nil and host.transferOffer(handle, nil, 0, true) == UPLOAD_ACCEPTED then
             return "accepted"
         end
 
@@ -440,74 +272,59 @@ local record Transfer is NativeTransfer
 
     function takeBody(self: Transfer): (boolean?, string?)
         if self._body == nil then
-            local handle = outputHandle()
-            if C.nuppNativeHttpTransferTakeBody(raw(self._handle), handle) ~= 0 then
-                return nil, lastError()
+            const handle = self._handle
+            if handle == nil then
+                return nil, "the transfer is closed"
             end
-            self._body = ffi.gc(handle, releaseTransfer)
+            local body, problem = host.transferTakeBody(handle)
+            if body == nil then
+                return nil, problem
+            end
+            self._body = body
         end
 
         return true, nil
     end
 
-    --- Reads body bytes, into a buffer when one was given and as a string otherwise.
-    ---
-    --- The versioned ABI copies and consumes only what fits in this call's buffer.
+    --- Reads body bytes as a string.
     function bodyRead(self: Transfer, count: integer): (string, any?, string?)
-        local capacity = math.min(count, BODY_READ_BYTES)
-        local data = ffi.new("uint8_t[?]", capacity)
-        local length = ffi.new("size_t[1]")
-        local state = ffi.new<uint32[1]>()
-        if C.nuppNativeHttpBodyRead(raw(self._body), data, capacity, state, length) ~= 0 then
-            return "failed", nil, lastError()
-        end
-        local kind = tonumber(state[0])
-        if kind == BODY_PENDING then
-            return "pending", nil, nil
-        end
-        if kind == BODY_EOF then
-            return "eof", nil, nil
-        end
-        if kind == BODY_FAILED then
-            return "failed", nil, copiedError(C.nuppNativeHttpBodyError, self._body, "HTTP response body failed")
-        end
-        if kind == BODY_CLOSED then
+        const body = self._body
+        if body == nil then
             return "closed", nil, "the body is closed"
         end
-        local bytes = ffi.string(data, length[0])
 
-        return "data", bytes, nil
+        return host.bodyRead(body, count)
     end
 
     function cancel(self: Transfer): nil
-        if self._handle ~= nil then
-            C.nuppNativeHttpTransferCancel(raw(self._handle))
+        const handle = self._handle
+        if handle ~= nil then
+            host.transferCancel(handle)
         end
     end
 
-    --- Releases the transfer and its body.
-    ---
-    --- The finalizer is cleared before each destroy so the collector does not free a
-    --- handle this call already freed. A transfer with no body taken is cancelled
-    --- first, because the native transport keeps producing for one that was not.
+    --- Releases the transfer and its body. A transfer with no body taken is
+    --- cancelled by its release, because the native transport keeps producing
+    --- for one that was not.
     function close(self: Transfer): nil
         if self._closed then
             return
         end
         self._closed = true
-        self._client._byHandle[tostring(raw(self._handle))] = nil
-        if self._body ~= nil then
-            local body = self._body
-            self._body = nil
-            ffi.gc(body, nil)
-            releaseTransfer(body)
-        else
-            C.nuppNativeHttpTransferCancel(raw(self._handle))
+        const handle = self._handle
+        if handle ~= nil then
+            self._client._byHandle[handle] = nil
         end
-        local handle = self._handle
+        const body = self._body
+        if body ~= nil then
+            self._body = nil
+            self._client._byHandle[body] = nil
+            host.transferRelease(body)
+        end
         self._handle = nil
-        ffi.gc(handle, nil)
-        releaseTransfer(handle)
+        if handle ~= nil then
+            host.transferRelease(handle)
+        end
     end
 end
 
@@ -517,20 +334,19 @@ end
 
 --- A connection pool, and the transfers it is carrying.
 local record Client is NativeClient
-    _handle: any
+    _handle: integer
     _closed: boolean
 
-    --- Every live transfer, keyed by its generational handle, because a readiness event
-    --- names the handle and this is what turns that back into the object.
-    _byHandle: {[string]: Transfer}
+    --- Every live transfer, keyed by every handle a readiness event may name it by:
+    --- its request, and its body once taken.
+    _byHandle: {[integer]: Transfer}
 
     _admissionWaiters: {function()}?
     _maxPending: integer
-    _ready: any
-    _more: any
+    _ready: {integer}
 
     function onAdmission(self: Client, wake: function()): function()
-        if self._closed or pending(self._handle) < self._maxPending then
+        if self._closed or host.clientPending(self._handle) < self._maxPending then
             wake()
 
             return function(): nil
@@ -541,47 +357,29 @@ local record Client is NativeClient
     end
 
     function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
-        local headers = descriptor.headers or {}
-        local count = #headers
-        local packed = count > 0 and native.ffi.new("NuppNativeHttpHeader[?]", count) or nil
-        for index = 1, count do
-            local item = headers[index]
-            packed[index - 1].name = slice(item[1])
-            packed[index - 1].value = slice(item[2])
+        local body: string? = nil
+        if descriptor.bodyKind == BODY_INLINE or descriptor.bodyKind == BODY_FILE then
+            -- Inline bytes, or the path the native transport opens for itself.
+            body = descriptor.body as string
         end
-        local bodyPointer: any = nil
-        local bodyLength: integer = 0
-        local value = descriptor.body
-        if descriptor.bodyKind == BODY_INLINE then
-            bodyPointer = value
-            bodyLength = #(value as string)
-        elseif descriptor.bodyKind == BODY_FILE then
-            -- The path, which the native transport opens for itself.
-            bodyPointer = value
-            bodyLength = #(value as string)
+        local handle, problem, capacity = host.clientSend(
+            self._handle,
+            descriptor.uri:toString(),
+            descriptor.method,
+            descriptor.headers or {},
+            body,
+            descriptor.bodyKind,
+            descriptor.bodyLength,
+            descriptor.timeoutMs,
+            descriptor.stallTimeoutMs,
+            descriptor.maxBytes,
+            descriptor.insecure and true or false
+        )
+        if handle == nil then
+            return nil, problem, capacity
         end
-        local request = native.ffi.new("NuppNativeHttpRequest")
-        request.url = slice(descriptor.uri:toString())
-        request.method = slice(descriptor.method)
-        request.headers = packed
-        request.header_count = count
-        request.body = slice(nil, bodyPointer, bodyLength)
-        request.body_kind = descriptor.bodyKind
-        request.body_length = descriptor.bodyLength or -1
-        request.timeout_ms = descriptor.timeoutMs
-        request.stall_timeout_ms = descriptor.stallTimeoutMs
-        request.max_bytes = descriptor.maxBytes
-        request.insecure = descriptor.insecure and 1 or 0
-        local handle = outputHandle()
-        local status = C.nuppNativeHttpClientSend(raw(self._handle), request, handle)
-        if status ~= 0 then
-            local why = lastError()
-
-            return nil, why, status == ABI_CAPACITY
-        end
-        handle = ffi.gc(handle, releaseTransfer)
         local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
-        self._byHandle[tostring(raw(handle))] = transfer
+        self._byHandle[handle] = transfer
 
         return transfer, nil, nil
     end
@@ -589,35 +387,32 @@ local record Client is NativeClient
     --- Collects readiness events and wakes what they moved, without blocking.
     ---
     --- A wake is run under `pcall` so that one waiter raising still lets every event
-    --- in the batch be released and its waiters woken; the native transport is
-    --- holding each transfer until its release, and leaking the rest of the batch
-    --- would outlast the error. The first raise is kept and re-raised at the end.
+    --- in the batch wake its waiters. The first raise is kept and re-raised at the end.
     --- @raises any whatever a woken waiter raised first, once the whole batch has
-    ---     been released
+    ---     been dispatched
     function poll(self: Client): integer
-        local count = ffi.new("size_t[1]")
         local moved: integer = 0
-        local status = C.nuppNativeHttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
-        if status ~= 0 then
-            error("nupp: " .. lastError(), 2)
+        local count, problem = host.clientPoll(self._handle, self._ready)
+        if count == nil then
+            error("nupp: " .. (problem or "HTTP poll failed"), 2)
         end
         local failure: any = nil
-        for index = 0, (tonumber(count[0]) as integer) - 1 do
-            local item = self._ready[index]
-            local transfer = self._byHandle[tostring(item.transfer)]
+        for index = 1, count do
+            local transfer = self._byHandle[self._ready[2 * index - 1]]
+            local tokens = self._ready[2 * index]
             if transfer ~= nil then
-                local ok, problem = pcall(function(): nil
-                    moved = moved + transfer:_ready(tonumber(item.tokens) as integer)
+                local ok, raised = pcall(function(): nil
+                    moved = moved + transfer:_ready(tokens)
                 end)
                 if not ok and failure == nil then
-                    failure = problem
+                    failure = raised
                 end
             end
         end
         if failure ~= nil then
             error(failure, 0)
         end
-        if self._admissionWaiters ~= nil and (pending(self._handle)) < self._maxPending then
+        if self._admissionWaiters ~= nil and host.clientPending(self._handle) < self._maxPending then
             moved = moved + dispatchOne(self, "_admissionWaiters")
         end
 
@@ -629,21 +424,16 @@ local record Client is NativeClient
             return 0
         end
 
-        return pending(self._handle)
+        return host.clientPending(self._handle)
     end
 
     -- A request deadline is comparable with a process deadline and with a task
-    -- deadline because all three read this one clock. It used to read a clock
-    -- exported for HTTP alone, which happened to be the same reading and promised
-    -- nothing of the sort.
+    -- deadline because all three read this one clock.
     function now(self: Client): number
         return time.now()
     end
 
     --- Closes every transfer still in flight, then the pool.
-    ---
-    --- The transfers are listed before any is closed, because closing one takes it out
-    --- of the table being walked.
     --- @raises any whatever an admission waiter raised first, after every resource
     ---     is closed
     function close(self: Client): nil
@@ -653,16 +443,17 @@ local record Client is NativeClient
         self._closed = true
         local _, failure = dispatch(self, "_admissionWaiters")
         local transfers: {Transfer} = {}
+        local seen: {[Transfer]: boolean} = {}
         for _, transfer in pairs(self._byHandle) do
-            transfers[#transfers + 1] = transfer
+            if not seen[transfer] then
+                seen[transfer] = true
+                transfers[#transfers + 1] = transfer
+            end
         end
         for index = 1, #transfers do
             transfers[index]:close()
         end
-        local handle = self._handle
-        self._handle = nil
-        ffi.gc(handle, nil)
-        releaseClient(handle)
+        host.clientRelease(self._handle)
         if failure ~= nil then
             error(failure, 0)
         end
@@ -674,32 +465,30 @@ export function newClient(options: any): (NativeClient?, string?)
     -- Three proxy modes rather than two: unset means take the environment's, and empty
     -- means deliberately none, which is not the same answer.
     local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
-    native.requireFeature(16, "HTTP support")
-    local settings = native.ffi.new("NuppNativeHttpClientOptions")
-    settings.connect_timeout_ms = options.connectTimeoutMs
-    settings.max_redirects = options.maxRedirects
-    settings.max_pending_requests = options.maxPendingRequests
-    settings.max_connections = options.maxConnections
-    settings.max_connections_per_host = options.maxConnectionsPerHost
-    settings.compressed = options.compressed and 1 or 0
-    settings.has_insecure_hosts = next(options.insecureHosts) and 1 or 0
-    settings.proxy_mode = proxyMode
-    settings.proxy = slice(options.proxy or "")
-    settings.no_proxy_set = options.noProxy ~= nil and 1 or 0
-    settings.no_proxy = slice(options.noProxy or "")
-    settings.proxy_credentials = slice(options.proxyCredentials or "")
-    local handle = outputHandle()
-    if C.nuppNativeHttpClientCreate(settings, handle) ~= 0 then
-        return nil, lastError()
+    local handle, problem = host.clientCreate(
+        options.connectTimeoutMs,
+        options.maxRedirects,
+        options.maxPendingRequests,
+        options.maxConnections,
+        options.maxConnectionsPerHost,
+        options.compressed and true or false,
+        next(options.insecureHosts) ~= nil,
+        proxyMode,
+        options.proxy or "",
+        options.noProxy ~= nil,
+        options.noProxy or "",
+        options.proxyCredentials or ""
+    )
+    if handle == nil then
+        return nil, problem
     end
 
     return new Client(
-        _handle = ffi.gc(handle, releaseClient),
+        _handle = handle,
         _closed = false,
         _byHandle = {},
         _admissionWaiters = nil,
         _maxPending = options.maxPendingRequests,
-        _ready = native.ffi.new("NuppNativeHttpReady[?]", READY_SLOTS),
-        _more = ffi.new<int32[1]>()
+        _ready = {}
     ), nil
 end

@@ -3,73 +3,25 @@
 module nupp.runtime.provider.nativepath
 
 --[[
-Native filesystem environment for `host.path` API 1.
-
-This module requires the native filesystem feature at load time. It supplies the
-host separator, process working directory, and canonicalization through the
-operating system. Canonicalization may fail for inaccessible or missing paths
-and returns `nil, message`; temporary native string results are released after
-copying their bytes into Lua strings.
-
-Lexical path operations live in [](nupp.io.path.pathtext). This provider supplies
-only environmental facts and filesystem resolution to [](nupp.io.path). It does
-not register a second Path type or retain filesystem handles in returned paths.
+The VM's native environment for `host.path` API 1: the separator, the working
+directory and canonicalization, over the VM's `nupp.vm.files` primitives.
+Lexical path operations stay in [](nupp.io.path.pathtext).
 ]]
 
-const native = require("nupp.runtime.native")
-
-cdef struct NuppNativeFilesystemSlice
-    data: cstring
-    length: uint64
-end
-
-native.ffi.cdef[[
-int32_t nuppNativeFilesCurrentDirectory(uint64_t *);
-int32_t nuppNativeFilesCanonicalize(
-    struct NuppNativeFilesystemSlice, uint64_t *);
-]]
+const host = require("nupp.vm.files")
 
 local provider = {}
-local ffi = native.ffi
-local C = native.C
-const FILESYSTEM_FEATURE = 64
-native.requireFeature(FILESYSTEM_FEATURE, "filesystem")
-
-local function slice(text: string): any
-    local value = ffi.new<NuppNativeFilesystemSlice>()
-    -- The slice points into the Lua string; every caller hands it to C and returns
-    -- while `text` is still a live argument of its own, so the string outlives the
-    -- call.
-    @unsafe do
-        value.data = text
-    end
-    value.length = #text
-
-    return value
-end
-
-local function answered(status: integer, output: any): (string?, string?)
-    if status ~= 0 then
-        return nil, ffi.string(C.nuppNativeLastError())
-    end
-
-    return native.bytes(output[0]), nil
-end
 
 function provider.separator(): string
     return package.config:sub(1, 1)
 end
 
 function provider.currentDirectory(): (string?, string?)
-    local output = ffi.new("uint64_t[1]")
-
-    return answered(C.nuppNativeFilesCurrentDirectory(output), output)
+    return host.currentDirectory()
 end
 
 function provider.canonicalize(path: string): (string?, string?)
-    local output = ffi.new("uint64_t[1]")
-
-    return answered(C.nuppNativeFilesCanonicalize(slice(path), output), output)
+    return host.canonicalize(path)
 end
 
 export = provider

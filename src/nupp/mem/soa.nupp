@@ -35,15 +35,20 @@ allocated. An escape or an opaque call materializes the same checked view.
 
 See [structure-of-arrays.md](docs/learn/runtime/data/structure-of-arrays.md) for when this layout is the one to
 reach for.
+
+On the VM the slab is one managed storage allocation and each column a typed
+view of its segment, so the slab takes part in collection, snapshots and
+worker transfer like any other storage. The compiler lowers a row, a row's
+field and a projected column to this module's checked view methods; the
+element witness is the row struct's storage descriptor.
 ]]
 
 local soa = {}
-local ffi = require("ffi")
 local span = require("nupp.mem.span")
-
-cdef function malloc(size: uint64): voidptr
-cdef function free(takes pointer: voidptr)
-local free_nosuspend = free as @nosuspend function(takes pointer: voidptr): nil
+local storage: any = assert(
+    require("nupp.mem.representation").storage,
+    "nupp.mem.soa: no storage implementation is available for the target"
+)
 
 local MAX_EXACT_INTEGER = 9007199254740991
 
@@ -69,7 +74,7 @@ record soa.FieldLayout
     --- The alignment the column starts on.
     @readonly alignment: integer
 
-    @private @readonly pointerType: any
+    @private @readonly storageType: any
 end
 
 --- A field segment for a particular element count.
@@ -144,34 +149,54 @@ record soa.Layout
     end
 end
 
-local layoutCache: {[table]: soa.Layout} = setmetatable({}, {__mode = "k"}) as any
+local layoutCache: {[any]: soa.Layout} = setmetatable({}, {__mode = "k"}) as any
 
---- Converts compiler-emitted C layout facts into the public count-independent SoA
---- descriptor. The raw layout also carries private ctype witnesses used only to build
---- typed column pointers.
+-- The slab is allocated in words of this width, which is also the widest field
+-- alignment a slab can honor.
+const SLAB_WORD = 8
+
+--- Converts the checker's declared-field specification and the row's storage
+--- descriptor into the public count-independent SoA descriptor. The descriptor
+--- measures each field; the specification names its C type.
 --- @internal
-function soa._layout(raw: table): soa.Layout
-    local prior = layoutCache[raw]
+--- @raises string when the witness is not a supported struct's storage descriptor
+function soa._layout(raw: table, element: any): soa.Layout
+    local descriptor = element as any
+    if descriptor == nil or descriptor.kind ~= "struct" then
+        error("nupp: SoA storage needs a struct with a supported storage layout", 2)
+    end
+    local prior = layoutCache[descriptor]
     if prior then
         return prior
     end
 
+    local members = descriptor.fields as {any}
     local fields: {soa.FieldLayout} = {}
     local fingerprint = {"soa1", raw.name as string}
     local alignment: integer = 1
-    for ordinal, source in ipairs(raw.fields as {any}) do
-        local fieldAlignment = source.alignment as integer
+    local ordinal: integer = 0
+    for fieldName, ctype in (raw.spec as string):gmatch("([^:,]+):([^,]+)") do
+        ordinal = ordinal + 1
+        local member = members[ordinal]
+        if member == nil or member.name ~= fieldName then
+            error("nupp: SoA layout of " .. (raw.name as string) .. " does not match its storage descriptor", 2)
+        end
+        local fieldType = member.type
+        local fieldAlignment = fieldType.alignment as integer
+        if fieldAlignment > SLAB_WORD then
+            error("nupp: SoA field " .. fieldName .. " needs more than " .. SLAB_WORD .. "-byte alignment", 2)
+        end
         if fieldAlignment > alignment then
             alignment = fieldAlignment as integer
         end
         local field = new soa.FieldLayout(
-            name = source.name as string,
-            identity = (raw.name as string) .. "." .. (source.name as string),
-            ctype = source.ctype as string,
+            name = fieldName,
+            identity = (raw.name as string) .. "." .. fieldName,
+            ctype = ctype:sub(1, 1) == "$" and ctype:sub(2) or ctype,
             ordinal = ordinal,
-            elementSize = source.size as integer,
+            elementSize = fieldType.size as integer,
             alignment = fieldAlignment,
-            pointerType = source.pointerType
+            storageType = fieldType
         )
         fields[ordinal] = field
         fingerprint[
@@ -185,9 +210,24 @@ function soa._layout(raw: table): soa.Layout
         alignment = alignment,
         fields = fields
     )
-    layoutCache[raw] = layout
+    layoutCache[descriptor] = layout
 
     return layout
+end
+
+-- A storage view `by` elements past `view`. Both operands stay dynamic so the
+-- addition is the view's own, never a numeric one.
+local function advance(view: any, by: any): any
+    return view + by
+end
+
+-- The physical row behind a checked one-based row index, raising at `level`.
+local function physicalRow(offset: integer, count: integer, index: integer, level: integer): integer
+    if index % 1 ~= 0 or index < 1 or index > count then
+        error("nupp: SoA row index out of bounds", level + 1)
+    end
+
+    return offset + index - 1
 end
 
 sealed interface soa.ArrayToken
@@ -250,21 +290,19 @@ local record SpanImpl<T> is soa.Span<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function checkedIndex(self, index: integer): integer
-        if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("nupp: SoA row index out of bounds", 2)
-        end
-        return self.offset + index - 1
-    end
-
     function get(self, index: integer): T
-        local physical = self:checkedIndex(index)
-        local value = ffi.new(self.element) as T
+        local physical = physicalRow(self.offset, self.count, index, 2)
+        local value = (self.element as any):new() as T
         for ordinal, field in ipairs(self.layout.fields) do
             (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
         end
 
         return value
+    end
+
+    function getField(self, index: integer, ordinal: integer): any
+        local physical = physicalRow(self.offset, self.count, index, 2)
+        return (self.columns[ordinal] as {[integer]: any})[physical]
     end
 
     function slice(self, first: integer, last: integer?): soa.Span<T> borrows (self)
@@ -284,7 +322,7 @@ local record SpanImpl<T> is soa.Span<T>
     end
 
     function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
-        local pointer = (self.columns[ordinal] as any) + self.offset
+        local pointer = advance(self.columns[ordinal], self.offset)
         @unsafe do
             local rooted = borrowFrom(pointer as voidptr, self)
             return span.fromCarray(rooted as any, self.count)
@@ -347,16 +385,9 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     @private @readonly offset: integer
     @readonly count: integer
 
-    function checkedIndex(self, index: integer): integer
-        if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("nupp: SoA row index out of bounds", 2)
-        end
-        return self.offset + index - 1
-    end
-
     function get(self, index: integer): T
-        local physical = self:checkedIndex(index)
-        local value = ffi.new(self.element) as T
+        local physical = physicalRow(self.offset, self.count, index, 2)
+        local value = (self.element as any):new() as T
         for ordinal, field in ipairs(self.layout.fields) do
             (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
         end
@@ -364,15 +395,25 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         return value
     end
 
+    function getField(self, index: integer, ordinal: integer): any
+        local physical = physicalRow(self.offset, self.count, index, 2)
+        return (self.columns[ordinal] as {[integer]: any})[physical]
+    end
+
     function set(exclusive self, index: integer, value: T): nil
-        local physical = self:checkedIndex(index)
+        local physical = physicalRow(self.offset, self.count, index, 2)
         for ordinal, field in ipairs(self.layout.fields) do
             (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
         end
     end
 
+    function setField(exclusive self, index: integer, ordinal: integer, value: any): nil
+        local physical = physicalRow(self.offset, self.count, index, 2);
+        (self.columns[ordinal] as {[integer]: any})[physical] = value
+    end
+
     function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)
-        local pointer = (self.columns[ordinal] as any) + self.offset
+        local pointer = advance(self.columns[ordinal], self.offset)
         @unsafe do
             local rooted = borrowFrom(pointer as voidptr, self)
             return span.writeCarray(rooted as any, self.count)
@@ -416,9 +457,9 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         end
         local other = source as any
         for ordinal, field in ipairs(self.layout.fields) do
-            local destination = (self.columns[ordinal] as any) + self.offset + targetFirst - 1
-            local input = (other.columns[ordinal] as any) + other.offset + sourceFirst - 1
-            ffi.copy(destination, input, count * field.elementSize)
+            local destination = advance(self.columns[ordinal], self.offset + targetFirst - 1)
+            local input = advance(other.columns[ordinal], other.offset + sourceFirst - 1)
+            storage.copy(destination, input, count * field.elementSize)
         end
     end
 
@@ -454,7 +495,7 @@ end
 --- An owned native slab whose top-level struct fields occupy separate segments.
 --- @export
 record soa.Array<T> is soa.ArrayToken
-    @private raw: voidptr
+    @private raw: any
     @private @readonly element: ctype<T>
     @private @readonly layout: soa.Layout
     @private @readonly columns: {any}
@@ -507,11 +548,12 @@ function soa.Array.write<T>(
     ) as(soa.WriteToken & soa.WriteSpan<T>)
 end
 
+-- The slab is managed storage: releasing the array drops its reference, and the
+-- collector reclaims the bytes once no view still reaches them.
 local function finishArray(takes self: any): nil
     @nosuspend do
         local raw = @unsafe nupp.release(self)
-        local pointer = @unsafe nupp.adopt<affine(voidptr, free_nosuspend)>(raw.raw)
-        free_nosuspend(pointer)
+        raw.raw = nil
     end
 end
 
@@ -526,31 +568,20 @@ end
 ---     fails
 --- @internal
 function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
-    local layout = soa._layout(rawLayout)
+    local layout = soa._layout(rawLayout, element)
     local instance = layout:forCount(count)
-    local bytes = instance.byteSize
-    local alignment = layout.alignment
-    local padding = alignment - 1
-    if bytes > MAX_EXACT_INTEGER - padding then
-        error("nupp: SoA aligned slab byte size is too large", 2)
+    local words = (instance.byteSize + SLAB_WORD - 1) // SLAB_WORD
+    if words == 0 then
+        words = 1
     end
-    local allocationBytes = bytes + padding
-    if allocationBytes == 0 then
-        allocationBytes = 1
-    end
-    local raw = malloc(allocationBytes as uint64)
-    if raw == nil then
-        error("nupp: SoA allocation failed", 2)
-    end
+    -- Word elements align the slab for every field `_layout` admits.
+    local raw = storage.allocateArray(storage.scalar("uint64"), words)
+    local base = storage.castWritableElements(storage.scalar("uint8"), raw)
 
     local columns: {any} = {}
     @unsafe do
-        local rawAddress = tonumber(ffi.cast<uint64>(raw)) as integer
-        local adjustment = (alignment - (rawAddress % alignment)) % alignment
-        local allocation = borrowFrom(ffi.cast<uint8*>(raw), raw)
-        local base = borrowFrom(allocation + adjustment, raw)
         for ordinal, segment in ipairs(instance.segments) do
-            columns[ordinal] = ffi.cast(segment.field.pointerType, base + segment.offset)
+            columns[ordinal] = storage.castWritableElements(segment.field.storageType, advance(base, segment.offset))
         end
         return new soa.Array(
             raw = raw,

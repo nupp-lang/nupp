@@ -157,11 +157,10 @@ function runtime.install(
         return loadPath(name, path)
     end
 
-    -- The standard library of the compiler's own checkout. LuaJIT finds its
-    -- compiled copies on `package.path`, ahead of this; the VM has no such path,
-    -- so a `nupp.` module the compiler image does not carry compiles from source,
-    -- checked as the checkout's own module rather than as the project's.
-    local standardEnv: envMod.Env? = nil
+    -- The standard library of the compiler's own checkout: a `nupp.` module the
+    -- compiler image does not carry compiles from source, checked as the
+    -- checkout's own module rather than as the project's, where the VM's
+    -- declarations resolve.
 
     local function loadStandardModule(name)
         local root = envMod.compilerRoot()
@@ -178,8 +177,7 @@ function runtime.install(
             local file = io.open(path, "rb")
             if file then
                 file:close()
-                standardEnv = standardEnv or envMod.new(root)
-                return loadPath(name, path, standardEnv)
+                return loadPath(name, path, vmModuleEnv())
             end
         end
 

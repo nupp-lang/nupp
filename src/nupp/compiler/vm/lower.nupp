@@ -3795,7 +3795,18 @@ function lower.emit(
         end
     end
 
+    -- Keyed by module name where the environment names the VM's declarations,
+    -- and by their path where it does not.
     local coroutineCleanupSuffix = "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp#__nuppCloseCoroutine"
+
+    local function closesCoroutine(cleanup): boolean
+        return cleanup.kind == "function"
+            and (
+                cleanup.key == "nupp.vm.ownedCoroutine#__nuppCloseCoroutine"
+                or cleanup.key:sub(-#coroutineCleanupSuffix) == coroutineCleanupSuffix
+            )
+    end
+
     deferCleanup = function(f: Fn, value, cleanup, guard)
         if guard and cleanup.kind ~= "field" then
             local copy = f:reg()
@@ -3809,7 +3820,7 @@ function lower.emit(
         if cleanup.kind == "method" or cleanup.kind == "closure" then
             local name = cleanup.kind == "closure" and "__nuppRelease" or cleanup.name
             f:op("DeferMethod", value, f:const("str", name))
-        elseif cleanup.kind == "function" and cleanup.key:sub(-#coroutineCleanupSuffix) == coroutineCleanupSuffix then
+        elseif closesCoroutine(cleanup) then
             local callback = f:reg()
             f:op("K", callback, f:const("builtin", "tasks.coDispose"))
             f:op("Defer", value, callback)
@@ -3868,7 +3879,7 @@ function lower.emit(
         local callback = f:reg()
         if cleanup.kind == "method" or cleanup.kind == "closure" then
             f:op("K", callback, f:const("str", cleanup.kind == "closure" and "__nuppRelease" or cleanup.name))
-        elseif cleanup.kind == "function" and cleanup.key:sub(-#coroutineCleanupSuffix) == coroutineCleanupSuffix then
+        elseif closesCoroutine(cleanup) then
             f:op("K", callback, f:const("builtin", "tasks.coDispose"))
         elseif cleanup.kind == "function" and cleanup.key == "nupp:lua.d.nupp#__nuppCloseFile" then
             f:op("K", callback, f:const("builtin", "file.close"))

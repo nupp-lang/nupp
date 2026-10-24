@@ -20,44 +20,24 @@ call from any other thread returns zero to C and raises once the native call in
 flight, or the next one, returns.
 ]]
 
+local native = require("nupp.vm.foreign")
+
 local foreign = {}
-
-local function released(...: any): any
-    error("nupp: native callback invoked after it was released", 2)
-end
-
-local slots: {[any]: {any}} = setmetatable({}, {__mode = "k"})
 
 --- Retains `f` as a C callback until `release`.
 function foreign.retain(f: any): any
-    local slot: {any} = {f}
-
-    local function forward(...: any): ...any
-        return slot[1](...)
-    end
-
-    slots[forward] = slot
-
-    return forward
+    return native.callback(nil, f)
 end
 
 --- Makes a retained callback call `f`; the pointer C holds does not change.
 --- @raises string when `callback` is not a retained callback or was released.
 function foreign.rebind(callback: any, f: any): nil
-    local slot = slots[callback]
-    if slot == nil then
-        error("nupp: native callback is closed or invalid", 2)
-    end
-    slot[1] = f
+    native.setCallback(callback, f)
 end
 
 --- Releases a retained callback. C calling it afterwards is refused.
 function foreign.release(callback: any): nil
-    local slot = slots[callback]
-    if slot ~= nil then
-        slot[1] = released
-        slots[callback] = nil
-    end
+    native.close(callback)
 end
 
 export = foreign

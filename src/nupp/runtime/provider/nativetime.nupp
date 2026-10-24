@@ -1,43 +1,7 @@
 @!internal
-
 module nupp.runtime.provider.nativetime
 
---[[
-Native implementation of [](nupp.time.spi).
-
-`now` reports monotonic milliseconds and `wallTime` reports Unix milliseconds.
-Relative sleeps and absolute deadlines must be finite and non-negative. Waiting
-uses the selected suspension implementation so an installed scheduler can park
-instead of blocking its Lua state.
-
-`wakeAt` registers a callback and returns a non-suspending cancellation function.
-The timer readiness source runs at order 20, ahead of I/O. At most 4,096 timer
-registrations may be pending; cancellation releases a registration without
-waiting for its deadline. State and callbacks are local to one Lua state.
-
-The [](nupp.time) facade retains these functions during module loading. Native
-clock support and [](nupp.suspension) must be available before it resolves.
-]]
-
-local native = require("nupp.runtime.native")
-
-native.ffi.cdef(
-    dedent[[
-    uint64_t nuppNativeMonotonicNs(void);
-    uint64_t nuppNativeWallMs(void);
-    int32_t nuppNativeSleepMs(double);
-    ]]
-)
-
-const C = native.C
-export = require("nupp.time.internal.timers").create({
-    now = function(): number
-        return assert(tonumber(C.nuppNativeMonotonicNs())) / 1.0e6
-    end,
-    wallTime = function(): number
-        return assert(tonumber(C.nuppNativeWallMs()))
-    end,
-    sleep = function(milliseconds: number): nil
-        native.succeeded(C.nuppNativeSleepMs(milliseconds), 3)
-    end,
-})
+-- The VM's clocks behind the shared timer implementation. `nupp.time` selects it
+-- through `nupp.runtime.timeprovider` like any native provider, so a program's
+-- own provider still wins.
+export = require("nupp.time.internal.timers").create(require("nupp.vm.clock"))

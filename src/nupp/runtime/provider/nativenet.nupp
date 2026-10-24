@@ -3,507 +3,270 @@
 module nupp.runtime.provider.nativenet
 
 --[[
-Native reactor implementation used as a built-in module fallback.
+The VM's native network provider for [](nupp.io.net): the same receiver-based
+protocol as the LuaJIT provider, written over the VM's `nupp.vm.net`
+primitives rather than the native library's C ABI. Handles are the primitives'
+numbers, and [](nupp.runtime.provider.nativetls) wraps the same streams.
 
-The table returned by this module implements the receiver-based protocol in
-[](nupp.io.net.spi). Listener, connection-request, stream, and datagram
-handles belong to the native runtime. The implementation retains scratch buffers
-within the current Lua state, and sleeps on the process-wide readiness
-generation every native family shares.
-
-Operations report readiness without running a private event loop. The public
-[](nupp.io.net) facade coordinates suspension and calls `run` through its `pump`
-operation. Accept and connect polling distinguish pending work from errors;
-stream reads report EOF through `ended`, and queued writes expose their pending
-byte count separately.
-
-The artifact requires native networking support. Every created handle has a
-matching release operation; closing a connect request and closing its resulting
-stream are separate responsibilities. Address values use
-[](nupp.io.net.types), and TLS implementations that consume these stream handles
-must agree with their native representation.
+Operations report readiness without running a private loop. `run(0)` takes a
+snapshot of the readiness generation every native family shares, and a later
+`run(waitMs)` sleeps from it, so a change between the facade's check and its
+sleep still wakes it.
 ]]
 
 local contract = require("nupp.io.net.spi")
 local shared = require("nupp.io.net.types")
-local ffi = require("ffi")
-local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
-const READ_SIZE = 65536
-const HOST_SIZE = 64
+const host = require("nupp.vm.net")
 
-const native = require("nupp.runtime.native")
-
-native.ffi.cdef[[
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-} NuppNativeNetSlice;
-typedef struct {
-    NuppNativeNetSlice host;
-    uint16_t port;
-    uint32_t backlog;
-    int32_t reuse_port;
-} NuppNativeNetListenOptions;
-typedef struct {
-    NuppNativeNetSlice host;
-    uint16_t port;
-    uint64_t timeout_ms;
-} NuppNativeNetConnectOptions;
-typedef struct {
-    NuppNativeNetSlice path;
-    uint32_t backlog;
-} NuppNativeNetPathListenOptions;
-typedef struct {
-    NuppNativeNetSlice path;
-    uint64_t timeout_ms;
-} NuppNativeNetPathConnectOptions;
-typedef struct {
-    NuppNativeNetSlice host;
-    uint16_t port;
-    int32_t reuse_port;
-} NuppNativeNetDatagramOptions;
-typedef struct {
-    uint32_t size;
-    uint8_t family;
-    uint16_t port;
-    uint32_t scope_id;
-    uint32_t flowinfo;
-    uint8_t address[16];
-} NuppNativeNetEndpoint;
-
-int32_t nuppNativeNetListenerCreate(const NuppNativeNetListenOptions *, uint64_t *);
-int32_t nuppNativeNetPathListenerCreate(const NuppNativeNetPathListenOptions *, uint64_t *);
-int32_t nuppNativeNetListenerPort(uint64_t, uint16_t *);
-int32_t nuppNativeNetListenerKind(uint64_t, uint32_t *);
-int32_t nuppNativeNetListenerAccept(uint64_t, uint32_t *, uint64_t *);
-int32_t nuppNativeNetListenerRelease(uint64_t);
-int32_t nuppNativeNetConnectCreate(const NuppNativeNetConnectOptions *, uint64_t *);
-int32_t nuppNativeNetPathConnectCreate(const NuppNativeNetPathConnectOptions *, uint64_t *);
-int32_t nuppNativeNetConnectPoll(uint64_t, uint32_t *, uint64_t *);
-int32_t nuppNativeNetConnectRelease(uint64_t);
-int32_t nuppNativeNetStreamRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeNetStreamWrite(uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeNetStreamPendingWrite(uint64_t, size_t *);
-int32_t nuppNativeNetStreamState(uint64_t, uint32_t *);
-int32_t nuppNativeNetStreamShutdownWrite(uint64_t);
-int32_t nuppNativeNetStreamLocalEndpoint(uint64_t, NuppNativeNetEndpoint *);
-int32_t nuppNativeNetStreamPeerEndpoint(uint64_t, NuppNativeNetEndpoint *);
-int32_t nuppNativeNetStreamSetNoDelay(uint64_t, int32_t);
-int32_t nuppNativeNetStreamSetKeepAliveMs(uint64_t, int32_t, uint64_t);
-int32_t nuppNativeNetStreamRelease(uint64_t);
-int32_t nuppNativeNetEndpointParse(NuppNativeNetSlice, uint16_t, NuppNativeNetEndpoint *);
-int32_t nuppNativeNetEndpointText(const NuppNativeNetEndpoint *, uint8_t *, size_t, size_t *);
-int32_t nuppNativeNetDatagramCreate(const NuppNativeNetDatagramOptions *, uint64_t *);
-int32_t nuppNativeNetDatagramPort(uint64_t, uint16_t *);
-int32_t nuppNativeNetDatagramReceiveEndpoint(
-    uint64_t, uint8_t *, size_t, uint32_t *, size_t *, NuppNativeNetEndpoint *, int32_t *);
-int32_t nuppNativeNetDatagramSendEndpoint(
-    uint64_t, const NuppNativeNetEndpoint *, const uint8_t *, size_t, uint32_t *, size_t *);
-int32_t nuppNativeNetDatagramSetBroadcast(uint64_t, int32_t);
-int32_t nuppNativeNetDatagramSetMulticastTtl(uint64_t, uint32_t);
-int32_t nuppNativeNetDatagramSetMulticastLoop(uint64_t, int32_t);
-int32_t nuppNativeNetDatagramMembership(
-    uint64_t, NuppNativeNetSlice, NuppNativeNetSlice, uint32_t, uint8_t, int32_t);
-int32_t nuppNativeNetDatagramRelease(uint64_t);
-]]
-
-const C = native.C
-const NET_FEATURE = 256
-const NET_ENDPOINT_FEATURE = 8192
-const PENDING = 1
-const READ_EOF = 2
-const CONNECT_READY = 1
-const CONNECT_FAILED = 2
-const LISTENER_PATH = 1
-const DATAGRAM_MESSAGE = 0
-const DATAGRAM_SENT = 0
-const STREAM_READ_EOF = 1
-const STREAM_SHUTTING_DOWN = 8
-const STREAM_READ_FAILED = 16
-const STREAM_WRITE_FAILED = 32
-
-local scratch: any = nil
-
-native.requireFeature(NET_FEATURE, "net")
-native.requireFeature(NET_ENDPOINT_FEATURE, "network endpoints")
-
-local function slice(text: string): any
-    local value = native.ffi.new("NuppNativeNetSlice")
-    -- The slice points into the Lua string; every caller hands it to C and returns
-    -- while `text` is still a live argument of its own, so the string outlives the
-    -- call.
-    @unsafe do
-        value.data = text
-    end
-    value.length = #text
-
-    return value
+local function reason(prefix: string, problem: string?): string
+    return prefix .. ": " .. (problem or "unknown error")
 end
 
-local function reason(prefix: string): string
-    return prefix .. ": " .. (native.ffi.string(C.nuppNativeLastError()) as string)
-end
-
-local function readBuffer(): any
-    if scratch == nil then
-        scratch = native.ffi.new("uint8_t[?]", READ_SIZE)
-    end
-
-    return scratch
-end
-
-local function create(): contract.Provider
-    const state = native.ffi.new("uint32_t[1]")
-    const flags = native.ffi.new("uint32_t[1]")
-    const handle = native.ffi.new("uint64_t[1]")
-    const count = native.ffi.new("size_t[1]")
-    const portOutput = native.ffi.new("uint16_t[1]")
-    const scalar = native.ffi.new("int32_t[1]")
-    -- An endpoint carries an IPv6 scope, so a link-local peer can be answered.
-    const endpoint = native.ffi.new("NuppNativeNetEndpoint[1]")
-    endpoint[0].size = native.ffi.sizeof("NuppNativeNetEndpoint")
-    const hostOutput = native.ffi.new("uint8_t[?]", HOST_SIZE)
-
-    local function streamFlags(stream: any): integer
-        if C.nuppNativeNetStreamState(stream, flags) ~= 0 then
-            return STREAM_READ_FAILED | STREAM_WRITE_FAILED
+local provider: contract.Provider = {
+    listen = function(
+        self: contract.Provider,
+        address: string,
+        port: integer,
+        backlog: integer,
+        reusePort: boolean
+    ): (any?, string?)
+        local handle, problem = host.listen(address, port, backlog, reusePort)
+        if handle == nil then
+            return nil, reason("nupp: could not listen", problem)
         end
 
-        return tonumber(flags[0]) as integer
-    end
+        return handle
+    end,
 
-    local function textAddress(value: any): (string?, integer?)
-        if value[0].family == 0 then
-            return nil
+    listenPath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
+        local handle, problem = host.listenPath(path, backlog)
+        if handle == nil then
+            return nil, reason("nupp: could not listen", problem)
         end
-        const status = C.nuppNativeNetEndpointText(value, hostOutput, HOST_SIZE, count)
-        if status ~= 0 then
+
+        return handle
+    end,
+
+    listenerPort = function(self: contract.Provider, listener: any): integer
+        return host.listenerPort(listener as integer)
+    end,
+
+    accept = function(self: contract.Provider, listener: any): (any?, string?)
+        local handle, problem = host.accept(listener as integer)
+        if problem ~= nil then
+            return nil, reason("nupp: could not accept", problem)
+        end
+
+        return handle
+    end,
+
+    closeListener = function(self: contract.Provider, listener: any): nil
+        host.closeListener(listener as integer)
+    end,
+
+    connect = function(self: contract.Provider, address: string, port: integer, timeoutMs: integer): (any?, string?)
+        local handle, problem = host.connect(address, port, timeoutMs)
+        if handle == nil then
+            return nil, reason("nupp: could not connect", problem)
+        end
+
+        return handle
+    end,
+
+    connectPath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
+        local handle, problem = host.connectPath(path, timeoutMs)
+        if handle == nil then
+            return nil, reason("nupp: could not connect", problem)
+        end
+
+        return handle
+    end,
+
+    connectPoll = function(self: contract.Provider, request: any): (any?, string?)
+        local handle, problem = host.connectPoll(request as integer)
+        if problem ~= nil then
+            return nil, reason("nupp: could not connect", problem)
+        end
+
+        return handle
+    end,
+
+    closeConnect = function(self: contract.Provider, request: any): nil
+        host.closeConnect(request as integer)
+    end,
+
+    read = function(self: contract.Provider, stream: any, wanted: integer): (string?, string?)
+        local bytes, problem = host.read(stream as integer, wanted)
+        if bytes == nil then
+            return nil, reason("nupp: could not read", problem)
+        end
+
+        return bytes
+    end,
+
+    ended = function(self: contract.Provider, stream: any): boolean
+        return host.ended(stream as integer)
+    end,
+
+    write = function(self: contract.Provider, stream: any, bytes: string): (integer?, string?)
+        local count, problem = host.write(stream as integer, bytes)
+        if count == nil then
+            return nil, reason("nupp: could not write", problem)
+        end
+
+        return count
+    end,
+
+    pending = function(self: contract.Provider, stream: any): integer
+        return host.pending(stream as integer)
+    end,
+
+    writeFailed = function(self: contract.Provider, stream: any): boolean
+        return host.writeFailed(stream as integer)
+    end,
+
+    shuttingDown = function(self: contract.Provider, stream: any): boolean
+        return host.shuttingDown(stream as integer)
+    end,
+
+    shutdownWrite = function(self: contract.Provider, stream: any): (boolean, string?)
+        local done, problem = host.shutdownWrite(stream as integer)
+        if not done then
+            return false, reason("nupp: could not end the sending half", problem)
+        end
+
+        return true
+    end,
+
+    address = function(self: contract.Provider, stream: any, peer: boolean): shared.Address?
+        const address, port = host.address(stream as integer, peer)
+        if address == nil or port == nil then
             return nil
         end
 
-        return ffiString(hostOutput, tonumber(count[0]) as integer), tonumber(value[0].port) as integer
-    end
+        return {host = address, port = port} as shared.Address
+    end,
 
-    return {
-        listen = function(
-            self: contract.Provider,
-            host: string,
-            port: integer,
-            backlog: integer,
-            reusePort: boolean
-        ): (any?, string?)
-
-            local options = native.ffi.new("NuppNativeNetListenOptions")
-            options.host = slice(host)
-            options.port = port
-            options.backlog = backlog
-            options.reuse_port = reusePort and 1 or 0
-            if C.nuppNativeNetListenerCreate(options, handle) ~= 0 then
-                return nil, reason("nupp: could not listen")
-            end
-
-            return handle[0]
-        end,
-
-        listenPath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
-
-            local options = native.ffi.new("NuppNativeNetPathListenOptions")
-            options.path = slice(path)
-            options.backlog = backlog
-            if C.nuppNativeNetPathListenerCreate(options, handle) ~= 0 then
-                return nil, reason("nupp: could not listen")
-            end
-
-            return handle[0]
-        end,
-
-        listenerPort = function(self: contract.Provider, listener: any): integer
-            if C.nuppNativeNetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
-                return -1
-            end
-            if C.nuppNativeNetListenerPort(listener, portOutput) ~= 0 then
-                return -1
-            end
-
-            return tonumber(portOutput[0]) as integer
-        end,
-
-        accept = function(self: contract.Provider, listener: any): (any?, string?)
-            if C.nuppNativeNetListenerAccept(listener, state, handle) ~= 0 then
-                return nil, reason("nupp: could not accept")
-            end
-            if state[0] == PENDING then
-                return nil
-            end
-
-            return handle[0]
-        end,
-
-        closeListener = function(self: contract.Provider, listener: any): nil
-            C.nuppNativeNetListenerRelease(listener)
-        end,
-
-        connect = function(self: contract.Provider, host: string, port: integer, timeoutMs: integer): (any?, string?)
-
-            local options = native.ffi.new("NuppNativeNetConnectOptions")
-            options.host = slice(host)
-            options.port = port
-            options.timeout_ms = timeoutMs
-            if C.nuppNativeNetConnectCreate(options, handle) ~= 0 then
-                return nil, reason("nupp: could not connect")
-            end
-
-            return handle[0]
-        end,
-
-        connectPath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
-
-            local options = native.ffi.new("NuppNativeNetPathConnectOptions")
-            options.path = slice(path)
-            options.timeout_ms = timeoutMs
-            if C.nuppNativeNetPathConnectCreate(options, handle) ~= 0 then
-                return nil, reason("nupp: could not connect")
-            end
-
-            return handle[0]
-        end,
-
-        connectPoll = function(self: contract.Provider, request: any): (any?, string?)
-            if C.nuppNativeNetConnectPoll(request, state, handle) ~= 0 then
-                return nil, reason("nupp: could not connect")
-            end
-            if state[0] == CONNECT_FAILED then
-                return nil, reason("nupp: could not connect")
-            end
-            if state[0] ~= CONNECT_READY then
-                return nil
-            end
-
-            return handle[0]
-        end,
-
-        closeConnect = function(self: contract.Provider, request: any): nil
-            C.nuppNativeNetConnectRelease(request)
-        end,
-
-        read = function(self: contract.Provider, stream: any, wanted: integer): (string?, string?)
-            const taking = wanted < READ_SIZE and wanted or READ_SIZE
-            const into = readBuffer()
-            if C.nuppNativeNetStreamRead(stream, into, taking, state, count) ~= 0 then
-                return nil, reason("nupp: could not read")
-            end
-            if state[0] == PENDING or state[0] == READ_EOF then
-                return ""
-            end
-
-            return ffiString(into, tonumber(count[0]) as integer)
-        end,
-
-        ended = function(self: contract.Provider, stream: any): boolean
-            return streamFlags(stream) & STREAM_READ_EOF ~= 0
-        end,
-
-        write = function(self: contract.Provider, stream: any, bytes: string): (integer?, string?)
-            if C.nuppNativeNetStreamWrite(stream, bytes, #bytes, state, count) ~= 0 then
-                return nil, reason("nupp: could not write")
-            end
-            if state[0] == 2 then
-                return nil, "nupp: could not write: the connection is closed"
-            end
-
-            return tonumber(count[0]) as integer
-        end,
-
-        pending = function(self: contract.Provider, stream: any): integer
-            if C.nuppNativeNetStreamPendingWrite(stream, count) ~= 0 then
-                return 0
-            end
-
-            return tonumber(count[0]) as integer
-        end,
-
-        writeFailed = function(self: contract.Provider, stream: any): boolean
-            return streamFlags(stream) & STREAM_WRITE_FAILED ~= 0
-        end,
-
-        shuttingDown = function(self: contract.Provider, stream: any): boolean
-            return streamFlags(stream) & STREAM_SHUTTING_DOWN ~= 0
-        end,
-
-        shutdownWrite = function(self: contract.Provider, stream: any): (boolean, string?)
-            if C.nuppNativeNetStreamShutdownWrite(stream) ~= 0 then
-                return false, reason("nupp: could not end the sending half")
-            end
-
-            return true
-        end,
-
-        address = function(self: contract.Provider, stream: any, peer: boolean): shared.Address?
-            const status = peer and C.nuppNativeNetStreamPeerEndpoint(stream, endpoint)
-            or C.nuppNativeNetStreamLocalEndpoint(stream, endpoint)
-            if status ~= 0 then
-                return nil
-            end
-            const host, port = textAddress(endpoint)
-            if host == nil or port == nil then
-                return nil
-            end
-
-            return {host = host, port = port} as shared.Address
-        end,
-
-        noDelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeNetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
-                return false, reason("nupp: could not set the delay option")
-            end
-
-            return true
-        end,
-
-        keepAlive = function(
-            self: contract.Provider,
-            stream: any,
-            enable: boolean,
-            delayMs: integer
-        ): (boolean, string?)
-            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delayMs) ~= 0 then
-                return false, reason("nupp: could not set the keepalive option")
-            end
-
-            return true
-        end,
-
-        broadcast = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeNetDatagramSetBroadcast(socket, enable and 1 or 0) ~= 0 then
-                return false, reason("nupp: could not set the broadcast option")
-            end
-
-            return true
-        end,
-
-        multicastTtl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
-            if C.nuppNativeNetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
-                return false, reason("nupp: could not set the multicast hop limit")
-            end
-
-            return true
-        end,
-
-        multicastLoop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
-            if C.nuppNativeNetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
-                return false, reason("nupp: could not set the multicast loop option")
-            end
-
-            return true
-        end,
-
-        membership = function(
-            self: contract.Provider,
-            socket: any,
-            group: string,
-            interfaceAddress: string,
-            join: boolean
-        ): (boolean, string?)
-            const interfaceKind = interfaceAddress == "" and 0 or 4
-            if C.nuppNativeNetDatagramMembership(
-                socket,
-                slice(group),
-                slice(interfaceAddress),
-                0,
-                interfaceKind,
-                join and 1 or 0
-            ) ~= 0 then
-                return false, reason("nupp: could not change the multicast group")
-            end
-
-            return true
-        end,
-
-        closeStream = function(self: contract.Provider, stream: any): nil
-            C.nuppNativeNetStreamRelease(stream)
-        end,
-
-        bindDatagram = function(
-            self: contract.Provider,
-            host: string,
-            port: integer,
-            reusePort: boolean
-        ): (any?, string?)
-
-            local options = native.ffi.new("NuppNativeNetDatagramOptions")
-            options.host = slice(host)
-            options.port = port
-            options.reuse_port = reusePort and 1 or 0
-            if C.nuppNativeNetDatagramCreate(options, handle) ~= 0 then
-                return nil, reason("nupp: could not bind")
-            end
-
-            return handle[0]
-        end,
-
-        datagramPort = function(self: contract.Provider, socket: any): integer
-            if C.nuppNativeNetDatagramPort(socket, portOutput) ~= 0 then
-                return -1
-            end
-
-            return tonumber(portOutput[0]) as integer
-        end,
-
-        receive = function(
-            self: contract.Provider,
-            socket: any,
-            maximum: integer
-        ): (string?, string?, integer?, boolean?, string?)
-            const taking = maximum < READ_SIZE and maximum or READ_SIZE
-            const into = readBuffer()
-            if C.nuppNativeNetDatagramReceiveEndpoint(socket, into, taking, state, count, endpoint, scalar) ~= 0 then
-                return nil, nil, nil, nil, reason("nupp: could not receive")
-            end
-            if state[0] ~= DATAGRAM_MESSAGE then
-                return nil
-            end
-            const landed = tonumber(count[0]) as integer
-            const host, port = textAddress(endpoint)
-            if host == nil or port == nil then
-                return nil, nil, nil, nil, "nupp: could not read the datagram peer"
-            end
-
-            return ffiString(into, landed), host, port, scalar[0] ~= 0
-        end,
-
-        sendTo = function(
-            self: contract.Provider,
-            socket: any,
-            host: string,
-            port: integer,
-            bytes: string
-        ): (boolean, string?)
-            if C.nuppNativeNetEndpointParse(slice(host), port, endpoint) ~= 0 then
-                return false, reason("nupp: could not address the datagram")
-            end
-            if C.nuppNativeNetDatagramSendEndpoint(socket, endpoint, bytes, #bytes, state, count) ~= 0 then
-                return false, reason("nupp: could not send")
-            end
-
-            return state[0] == DATAGRAM_SENT
-        end,
-
-        closeDatagram = function(self: contract.Provider, socket: any): nil
-            C.nuppNativeNetDatagramRelease(socket)
-        end,
-
-        run = function(self: contract.Provider, timeoutMs: integer): nil
-            -- A zero timeout is the check's half: the snapshot a later sleep waits
-            -- from. Any native family's change since then ends the sleep, so a
-            -- program waiting on a socket and a child at once wakes for either.
-            if timeoutMs == 0 then
-                native.snapshot()
-
-                return
-            end
-            native.sleep(timeoutMs)
+    noDelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
+        local done, problem = host.noDelay(stream as integer, enable)
+        if not done then
+            return false, reason("nupp: could not set the delay option", problem)
         end
-    }
-end
 
-export = create()
+        return true
+    end,
+
+    keepAlive = function(self: contract.Provider, stream: any, enable: boolean, delayMs: integer): (boolean, string?)
+        local done, problem = host.keepAlive(stream as integer, enable, delayMs)
+        if not done then
+            return false, reason("nupp: could not set the keepalive option", problem)
+        end
+
+        return true
+    end,
+
+    broadcast = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
+        local done, problem = host.broadcast(socket as integer, enable)
+        if not done then
+            return false, reason("nupp: could not set the broadcast option", problem)
+        end
+
+        return true
+    end,
+
+    multicastTtl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
+        local done, problem = host.multicastTtl(socket as integer, ttl)
+        if not done then
+            return false, reason("nupp: could not set the multicast hop limit", problem)
+        end
+
+        return true
+    end,
+
+    multicastLoop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
+        local done, problem = host.multicastLoop(socket as integer, enable)
+        if not done then
+            return false, reason("nupp: could not set the multicast loop option", problem)
+        end
+
+        return true
+    end,
+
+    membership = function(
+        self: contract.Provider,
+        socket: any,
+        group: string,
+        interfaceAddress: string,
+        join: boolean
+    ): (boolean, string?)
+        local done, problem = host.membership(socket as integer, group, interfaceAddress, join)
+        if not done then
+            return false, reason("nupp: could not change the multicast group", problem)
+        end
+
+        return true
+    end,
+
+    closeStream = function(self: contract.Provider, stream: any): nil
+        host.closeStream(stream as integer)
+    end,
+
+    bindDatagram = function(
+        self: contract.Provider,
+        address: string,
+        port: integer,
+        reusePort: boolean
+    ): (any?, string?)
+        local handle, problem = host.bindDatagram(address, port, reusePort)
+        if handle == nil then
+            return nil, reason("nupp: could not bind", problem)
+        end
+
+        return handle
+    end,
+
+    datagramPort = function(self: contract.Provider, socket: any): integer
+        return host.datagramPort(socket as integer)
+    end,
+
+    receive = function(
+        self: contract.Provider,
+        socket: any,
+        maximum: integer
+    ): (string?, string?, integer?, boolean?, string?)
+        local bytes, address, port, truncated, problem = host.receive(socket as integer, maximum)
+        if problem ~= nil then
+            return nil, nil, nil, nil, reason("nupp: could not receive", problem)
+        end
+
+        return bytes, address, port, truncated
+    end,
+
+    sendTo = function(
+        self: contract.Provider,
+        socket: any,
+        address: string,
+        port: integer,
+        bytes: string
+    ): (boolean, string?)
+        return host.sendTo(socket as integer, address, port, bytes)
+    end,
+
+    closeDatagram = function(self: contract.Provider, socket: any): nil
+        host.closeDatagram(socket as integer)
+    end,
+
+    run = function(self: contract.Provider, timeoutMs: integer): nil
+        -- A zero timeout is the check's half: the snapshot a later sleep waits
+        -- from. Any native family's change since then ends the sleep, so a
+        -- program waiting on a socket and a transfer at once wakes for either.
+        if timeoutMs == 0 then
+            host.snapshot()
+
+            return
+        end
+        host.sleep(timeoutMs)
+    end,
+}
+
+export = provider

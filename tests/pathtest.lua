@@ -235,10 +235,9 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     local provider = assert(io.open("src/nupp/runtime/provider/nativepath.nupp", "rb"))
     local providerText = provider:read("*a")
     provider:close()
-    assert(providerText:find("nupp.runtime.native", 1, true), "the native path provider loads the native ABI provider")
     assert(
-        providerText:find("nuppNativeFiles", 1, true),
-        "the native path provider declares the Rust filesystem ABI it calls"
+        providerText:find('require("nupp.vm.files")', 1, true),
+        "the native path provider calls the VM's filesystem host"
     )
 end
 

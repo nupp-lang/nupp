@@ -689,7 +689,7 @@ function M.theProviderIsSelectedOnlyByReachingIt()
     local handle = assert(io.open("src/nupp/runtime/provider/nativefiles.nupp", "rb"))
     local source = handle:read("*a")
     handle:close()
-    assert(source:find("nuppNativeFilesInfo", 1, true), "the module declares the ABI it calls")
+    assert(source:find('require("nupp.vm.files")', 1, true), "the module calls the VM's files host")
 end
 
 function M.applicationPathsAreScopedPortableAndStable()

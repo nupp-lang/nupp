@@ -1,35 +1,9 @@
 @!internal
 module nupp.checksum.internal.builtin
 
---[[Built-in Adler-32 and crc-fast algorithm descriptors.
-
-Each descriptor creates independent state. CRC updates borrow byte spans through
-crc-fast without retaining them; value reads the saved non-consuming snapshot.
-]]
-
-const provider = require("nupp.checksum.spi")
-const span = require("nupp.mem.span")
-const target = require("nupp.runtime.target")
-const ffi = require("ffi")
-
-ffi.cdef[[
-int32_t nuppCrcUpdate(uint32_t, int32_t, uint64_t *, const uint8_t *, size_t);
-const char *nuppCrcLastError(void);
-]]
-
-local C: any = do
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativecrc")
-    end
-    yield _G.require("nupp.runtime.browser.crc")
-end
-
-local function crcUpdate(id: integer, reset: integer, words: any, borrows bytes: const uint8[?], count: integer): nil
-    local update = C.nuppCrcUpdate as function(integer, integer, any, borrows input: const uint8[?], integer): integer
-    if update(id, reset, words, bytes, count) ~= 0 then
-        error("nupp: " .. ffi.string(C.nuppCrcLastError()), 2)
-    end
-end
+local provider = require("nupp.checksum.spi")
+local span = require("nupp.mem.span")
+local crc = require("nupp.vm.crc")
 
 local record AdlerState is provider.State
     @private high: integer
@@ -52,14 +26,15 @@ end
 
 local record CrcState is provider.State
     @private id: integer
-    @private words: any
+    @private state: uint64
+    @private snapshot: uint64
 
     function update(exclusive self, borrows bytes: span.ByteSpan): nil
-        crcUpdate(self.id, 0, self.words, bytes:ref(), #bytes)
+        self.state, self.snapshot = crc.update(self.id, self.state, bytes:ref(), #bytes)
     end
 
     function value(self): uint64
-        return self.words[1] as uint64
+        return self.snapshot
     end
 
     function close(takes self): nil
@@ -75,12 +50,11 @@ local record Algorithm is provider.Algorithm
         if self.id == 0 then
             return new AdlerState(high = 0, low = 1)
         end
-        local words = ffi.new("uint64_t[2]")
         const empty = ""
         local bytes = span.fromString(empty)
-        crcUpdate(self.id, 1, words, bytes:ref(), 0)
+        local state, snapshot = crc.update(self.id, nil, bytes:ref(), 0)
 
-        return new CrcState(id = self.id, words = words)
+        return new CrcState(id = self.id, state = state, snapshot = snapshot)
     end
 end
 
