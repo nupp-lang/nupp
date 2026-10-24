@@ -1153,6 +1153,38 @@ pub(crate) mod native {
         }
         bases
     }
+    /// What else a Windows process's default namespace holds. A Windows
+    /// executable exports nothing of the C library it calls, so the default
+    /// namespace is searched as LuaJIT's `ffi.C` searches it there: after the
+    /// executable, the C runtime and the system libraries every process has
+    /// loaded. Elsewhere the executable's namespace already reaches them.
+    fn default_namespace_fallback(label: &str, symbol: &std::ffi::CStr) -> Option<*mut c_void> {
+        #[cfg(windows)]
+        {
+            use std::sync::OnceLock;
+            static LIBRARIES: OnceLock<Vec<libloading::os::windows::Library>> = OnceLock::new();
+            if label != "the default native namespace" {
+                return None;
+            }
+            let libraries = LIBRARIES.get_or_init(|| {
+                ["ucrtbase.dll", "msvcrt.dll", "kernel32.dll", "user32.dll", "gdi32.dll"]
+                    .iter()
+                    .filter_map(|name| unsafe { libloading::os::windows::Library::new(name) }.ok())
+                    .collect()
+            });
+            libraries.iter().find_map(|library| {
+                unsafe { library.get::<*mut c_void>(symbol.to_bytes_with_nul()) }
+                    .ok()
+                    .map(|symbol| *symbol)
+                    .filter(|address| !address.is_null())
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (label, symbol);
+            None
+        }
+    }
     fn open_library(vm: &mut Interp, name: &[u8], global: bool) -> Rc<Native> {
         let name = std::str::from_utf8(name)
             .unwrap_or_else(|_| vm.err("a native library name must be UTF-8"))
@@ -1409,6 +1441,7 @@ pub(crate) mod native {
         .ok()
         .map(|symbol| *symbol)
         .filter(|address| !address.is_null())
+        .or_else(|| default_namespace_fallback(&library.label, &symbol))
         .unwrap_or_else(|| {
             vm.err(&format!(
                 "native symbol \"{}\" is not in {}",
