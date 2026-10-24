@@ -112,8 +112,9 @@ end
 local function isolatedArgs(argv: {string}): {string}
     if windows and tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
         local runtime, image = os.getenv("NUPP_VM_BINARY"), os.getenv("NUPP_VM_CLI_IMAGE")
-        if runtime and runtime ~= "" and image and image ~= "" then
-            local launched = {runtime, "exec", image, "nupp.tools.vm.root"}
+        local entry = os.getenv("NUPP_VM_CLI_ENTRY")
+        if runtime and runtime ~= "" and image and image ~= "" and entry and entry ~= "" then
+            local launched = {runtime, "exec", image, entry}
             for index = 2, #argv do
                 launched[#launched + 1] = argv[index]
             end

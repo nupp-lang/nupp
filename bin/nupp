@@ -245,8 +245,12 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
     # Programs `nupp run` compiles have no linked entries; a deployed no-JIT
     # host refuses their SIMD functions, the developer CLI interprets them.
     SIMD_INTERPRET=${SIMD_INTERPRET:-1}
-    export NUPP_COMPILER_ROOT SIMD_INTERPRET
-    exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" nupp.tools.vm.root "$@"
+    # What a child compiler starts on when it cannot go through this script,
+    # which a Windows process cannot run (`nupp.compiler.process`).
+    NUPP_VM_BINARY=$VM_RUNTIME
+    NUPP_VM_CLI_ENTRY=nupp.tools.vm.root
+    export NUPP_COMPILER_ROOT SIMD_INTERPRET NUPP_VM_BINARY NUPP_VM_CLI_ENTRY
+    exec "$VM_RUNTIME" exec "$NUPP_VM_CLI_IMAGE" "$NUPP_VM_CLI_ENTRY" "$@"
 fi
 # Nothing above found or built a compiler: no VM CLI is installed, and no stage
 # zero is pinned to build one from.
