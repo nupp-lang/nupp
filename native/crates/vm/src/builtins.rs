@@ -1105,6 +1105,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // What this image declares is current for those names again.
             let declared: Vec<String> = it.modules.iter().filter(|&(_, &fid)| fid >= first).map(|(name, _)| name.clone()).collect();
             for name in declared { it.spent_modules.remove(&name); it.dynamic_modules.insert(name); }
+            // A JIT's compiled code reads these tables by address: they grow in place.
+            #[cfg(feature = "jit")]
+            if it.jit.is_some() { it.extend_jit_tables(); }
             it.entries.resize(it.funcs.len(), 0);
             if it.threaded { it.prepare_threaded(); }
             return outs![Value::func(entry)];

@@ -27,7 +27,52 @@ pub(crate) fn back_edge(op: &Op) -> bool {
     matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0)
 }
 
+/// Room the JIT's tables keep for images loaded after it starts. Compiled
+/// code holds their addresses as constants, so they must never move.
+#[cfg(feature = "jit")]
+const JIT_TABLE_ROOM: usize = 1 << 16;
+
 impl Interp {
+    /// Gives the tables the JIT's code reads by address room to grow in
+    /// place. Called before the JIT records those addresses.
+    #[cfg(feature = "jit")]
+    pub fn reserve_jit_tables(&mut self) {
+        let funcs = self.funcs.len() + JIT_TABLE_ROOM;
+        let shapes = self.heap.shapes.len() + JIT_TABLE_ROOM;
+        self.entries.reserve(funcs.saturating_sub(self.entries.len()));
+        self.calltab.reserve(funcs.saturating_sub(self.calltab.len()));
+        self.shape_probe.reserve(shapes.saturating_sub(self.shape_probe.len()));
+    }
+
+    /// After an image loads into a VM with the JIT, extends the tables its
+    /// compiled code reads by address -- in place, since that code keeps the
+    /// old addresses -- and what the JIT knows of each function. An image
+    /// past the reserved room is refused rather than moving them.
+    #[cfg(feature = "jit")]
+    pub(crate) fn extend_jit_tables(&mut self) {
+        let funcs = self.funcs.len();
+        let shapes = self.heap.shapes.len();
+        if funcs > self.entries.capacity() || funcs > self.calltab.capacity() || shapes > self.shape_probe.capacity() {
+            self.err("the loaded image needs more functions or shapes than a JIT VM reserves room for");
+        }
+        self.entries.resize(funcs, 0);
+        for fid in self.calltab.len()..funcs {
+            let f = &self.funcs[fid];
+            let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg;
+            self.calltab.push(f.nparams as u64 | ((plain as u64) << 8));
+        }
+        for shape in self.shape_probe.len()..shapes {
+            let s = &self.heap.shapes[shape];
+            self.shape_probe.push((s.table.as_ptr() as u64, s.mask));
+        }
+        if let Some(jit) = self.jit.as_mut() {
+            for fid in jit.callee_info.len()..funcs {
+                let f = &self.funcs[fid];
+                jit.callee_info.push((f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg));
+            }
+        }
+    }
+
     /// What the frame driver does as a function begins, for the threaded
     /// core, which calls this when it pushed a function with a compiled frame
     /// entry or vector instructions: refuse vector code a no-JIT host may not

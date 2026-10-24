@@ -301,14 +301,19 @@ pub(crate) fn main() {
     #[cfg(feature = "jit")]
     let _jit = if std::env::var("NO_JIT").is_err() && !has_aot {
         nupp_vm::compiled::CTX.store(&mut it as *mut Interp, std::sync::atomic::Ordering::Relaxed);
+        it.reserve_jit_tables();
         let mut j = nupp_vm::jit::Jit::new();
         j.extra_addr = it.extra.as_ptr() as i64;
         j.last_nres_addr = &it.last_nres as *const usize as i64;
         j.entries_addr = it.entries.as_ptr() as i64;
         j.callee_info = it.funcs.iter().map(|f| (f.nparams, f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg)).collect();
-        it.calltab = j.callee_info.iter().map(|&(np, plain)| np as u64 | ((plain as u64) << 8)).collect();
+        // Rebuilt in place, keeping the room `reserve_jit_tables` gave them.
+        it.calltab.clear();
+        it.calltab.extend(j.callee_info.iter().map(|&(np, plain)| np as u64 | ((plain as u64) << 8)));
         j.calltab_addr = it.calltab.as_ptr() as i64;
-        it.shape_probe = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
+        let probes: Vec<(u64, u64)> = it.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
+        it.shape_probe.clear();
+        it.shape_probe.extend(probes);
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
         let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
         let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
