@@ -13,6 +13,8 @@ local NUPP = HERE .. "/../bin/nupp"
 local packaging = require("nupp.tools.build.package")
 local test = require("nupp.test")
 local EXECUTABLE = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
+-- Where the build writes it: the platform's executable name.
+local BUILT = package.config:sub(1, 1) == "\\" and "/build/app.exe" or "/build/app"
 
 local function tempProject(files)
     local dir = os.tmpname()
@@ -914,7 +916,7 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
 
     local out, ok = run(dir, "'" .. NUPP .. "' build")
     assert(ok, "the binary target builds" .. where .. ": " .. out)
-    local first = readFile(dir .. "/build/app")
+    local first = readFile(dir .. BUILT)
     assert(first, "the program was written to build/app" .. where)
 
     -- One file, runnable with no toolchain beside it.
@@ -937,7 +939,7 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
     os.execute("rm -rf '" .. dir .. "/build'")
     local rebuilt, rebuiltOk = run(dir, "'" .. NUPP .. "' build")
     assert(rebuiltOk, "the discarded output directory builds again" .. where .. ": " .. rebuilt)
-    assert(first == readFile(dir .. "/build/app"), "two cold builds produce the same program" .. where)
+    assert(first == readFile(dir .. BUILT), "two cold builds produce the same program" .. where)
 
     -- The output directory is also where native dependencies build, and their
     -- trees are full of .lua that is examples, tests and scripts, some of which is
@@ -949,7 +951,7 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
     intruder:close()
     local beside, besideOk = run(dir, "'" .. NUPP .. "' build")
     assert(besideOk, "the build still succeeds beside a foreign tree" .. where .. ": " .. beside)
-    local program = readFile(dir .. "/build/app")
+    local program = readFile(dir .. BUILT)
     assert(not program:find("not a module", 1, true), "somebody else's script is not carried as a module" .. where)
     local again, againOk = run(dir, EXECUTABLE)
     assert(againOk, "and the program still runs" .. where .. ": " .. again)
@@ -974,7 +976,7 @@ function M.oneBundleTreeCarriesRunsRebuildsAndTravelsAlone()
         reported:find("could not be bundled", 1, true),
         "and says what it could not carry" .. where .. ": " .. reported
     )
-    program = readFile(dir .. "/build/app")
+    program = readFile(dir .. BUILT)
     assert(
         not program:find("not reachable", 1, true),
         "the unreachable resource is not embedded under a name nothing reads" .. where

@@ -61,6 +61,9 @@ local function binaryManifest(fields)
         .. '   kind = "binary", stub = "nupp", entries = {"main"}, %s\n}}}}\n'):format(fields or "")
 end
 
+-- What a binary named `app` is called on this platform.
+local APP_FILE = package.config:sub(1, 1) == "\\" and "app.exe" or "app"
+
 local M = {}
 
 function M.bundleResourcesPreserveEveryByte()
@@ -87,7 +90,10 @@ function M.bundleResourcesPreserveEveryByte()
     local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
     testAssert.equal(out, "", "the resource program builds: " .. out)
     for index, payload in ipairs(payloads) do
-        local ran = captureJson(("cd '%s' && ./build/app %d"):format(dir, index))
+        -- Read back from a file rather than a pipe: a pipe is text on Windows, and
+        -- its CRLF reads as one newline there.
+        os.execute(("cd '%s' && ./build/app %d > out.bin"):format(dir, index))
+        local ran = assert(io.open(dir .. "/out.bin", "rb")):read("*a")
         testAssert.equal(ran, payload, "bundled resources preserve binary bytes and line endings")
     end
     os.execute("rm -rf '" .. dir .. "'")
@@ -104,7 +110,7 @@ function M.buildEmitsTheDependencyClosure()
     local dir = tempProject({["nupp.lua"] = binaryManifest(), ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
     local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
     testAssert.equal(out, "", "build is quiet on success: " .. out)
-    assert(exists(dir .. "/build/app"), "the program is stamped")
+    assert(exists(dir .. "/build/" .. APP_FILE), "the program is stamped")
     assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
     -- and the result runs with the module it requires, with no toolchain present
     local ran = capture(("cd '%s' && ./build/app"):format(dir))
@@ -131,7 +137,7 @@ function M.explicitBuildCreatesItsOutputDirectory()
     local dir = tempProject({["nupp.lua"] = binaryManifest(), ["main.nupp"] = "return 42\n",})
     local out = capture(("cd '%s' && '%s' build -o nested/out"):format(dir, NUPP))
     testAssert.equal(out, "", "explicit build creates its output directory: " .. out)
-    assert(exists(dir .. "/nested/out/app"), "explicit build writes beneath the requested directory")
+    assert(exists(dir .. "/nested/out/" .. APP_FILE), "explicit build writes beneath the requested directory")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
