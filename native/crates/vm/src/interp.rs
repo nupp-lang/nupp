@@ -2303,15 +2303,18 @@ impl Interp {
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
     /// Whether an interpreted step in `fid` can be where compiled code takes
-    /// over: the function has a compiled entry, or the JIT may yet give it one.
-    /// Otherwise the step stays in the dispatch loop: a runtime linked with a
-    /// few functions compiled ahead of time would else leave the loop after
-    /// every instruction of every other function, which halved its speed.
+    /// over: the function has a compiled entry, or the step is a back edge of
+    /// one the JIT has not decided on, which counts toward its heat as a call
+    /// does. Otherwise the step stays in the dispatch loop: a runtime linked
+    /// with a few functions compiled ahead of time left it after every
+    /// instruction of every other function, which halved its speed, and under
+    /// the JIT each such exit was heat, so a large function was hot within
+    /// one call.
     #[inline]
-    fn frame_entry_pending(&self, fid: u32) -> bool {
-        #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
+    fn frame_entry_pending(&self, fid: u32, back: bool) -> bool {
         #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return true; }
-        let _ = fid;
+        #[cfg(feature = "jit")] if back && self.jit.is_some() && self.frame_entries.get(fid as usize).copied().unwrap_or(0) == 0 { return true; }
+        let _ = (fid, back);
         false
     }
     fn compiled_frames_active(&self) -> bool {
@@ -2360,7 +2363,7 @@ impl Interp {
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
                 match self.step(tid, &win, pc) {
-                    Step::Next(next) => { pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid) { self.tasks[tid].note_pc(pc); break; } },
+                    Step::Next(next) => { let back = next <= pc; pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid, back) { self.tasks[tid].note_pc(pc); break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return o,
                 }

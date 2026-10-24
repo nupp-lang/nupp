@@ -313,7 +313,7 @@ pub(crate) fn main() {
         let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
         let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
         // Heap-frame entries compile once a function is warm (JIT_FRAME_THRESHOLD
-        // entries or interpreted steps, 0 for the first): compiling every
+        // entries or interpreted back edges, 0 for the first): compiling every
         // function a run reaches cost more than it saved on the compiler.
         it.frame_threshold = std::env::var("JIT_FRAME_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(200);
         if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if !executable { if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } } None } else {
