@@ -2302,19 +2302,20 @@ impl Interp {
     }
     /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
     /// reference the threaded core's results are checked against.
-    /// Whether an interpreted step in `fid` can be where compiled code takes
-    /// over: the function has a compiled entry, or the step is a back edge of
-    /// one the JIT has not decided on, which counts toward its heat as a call
-    /// does. Otherwise the step stays in the dispatch loop: a runtime linked
-    /// with a few functions compiled ahead of time left it after every
-    /// instruction of every other function, which halved its speed, and under
-    /// the JIT each such exit was heat, so a large function was hot within
-    /// one call.
+    /// Whether the interpreter, about to run `next` in `fid`, should offer the
+    /// activation to compiled code: `next` is a back edge, where compiled code
+    /// has an entry (`frame::resumes`), or the step was one in a function the
+    /// JIT has not decided on, which counts toward its heat as a call does.
+    /// A function with vector instructions offers every step, since it may
+    /// have nowhere else to run them. Anything else stays in the dispatch
+    /// loop: leaving it after every instruction halved a runtime linked with
+    /// a few functions compiled ahead of time, and under the JIT each exit was
+    /// heat, so a large function was hot within its first call.
     #[inline]
-    fn frame_entry_pending(&self, fid: u32, back: bool) -> bool {
-        #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return true; }
+    fn frame_entry_pending(&mut self, fid: u32, back: bool, next: &Op) -> bool {
+        #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return crate::frame::back_edge(next) || self.function_needs_native(fid); }
         #[cfg(feature = "jit")] if back && self.jit.is_some() && self.frame_entries.get(fid as usize).copied().unwrap_or(0) == 0 { return true; }
-        let _ = (fid, back);
+        let _ = (fid, back, next);
         false
     }
     fn compiled_frames_active(&self) -> bool {
@@ -2363,7 +2364,7 @@ impl Interp {
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
                 match self.step(tid, &win, pc) {
-                    Step::Next(next) => { let back = next <= pc; pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid, back) { self.tasks[tid].note_pc(pc); break; } },
+                    Step::Next(next) => { let back = next <= pc; pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid, back, unsafe { &*win.code.add(pc) }) { self.tasks[tid].note_pc(pc); break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return o,
                 }

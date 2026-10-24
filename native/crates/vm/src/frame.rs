@@ -2,23 +2,29 @@
 //! code; frame transfers and parks return to the driver with no native stack.
 use crate::interp::{Function, Interp, Op};
 
-/// PCs where a compiled activation can return to the driver. Other valid PCs
-/// (for example an interpreter checkpoint) execute until they reach an entry.
+/// PCs where compiled code enters an activation: its start, and each back
+/// edge, where an interpreted loop moves into compiled code.
+///
+/// Not the boundaries. A call that completes keeps its caller in native
+/// code; one that leaves for the driver -- a park, the nesting limit -- is
+/// rare (0.14% of a cold check's entries), and the interpreter finishes that
+/// activation. Making each boundary and the instruction after it an entry
+/// put a dispatch arm and a reload of every live register at every call,
+/// which grew the code with calls times live values and made a large
+/// function take seconds to compile.
 pub(crate) fn resumes(f: &Function) -> std::collections::BTreeSet<usize> {
     let mut points = std::collections::BTreeSet::from([0]);
     for (pc, op) in f.code.iter().enumerate() {
-        if boundary(op) {
-            points.insert(pc);
-            if pc + 1 < f.code.len() {
-                points.insert(pc + 1);
-            }
-        }
-        if matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0)
-        {
+        if back_edge(op) {
             points.insert(pc);
         }
     }
     points
+}
+
+/// A backward jump: a loop's back edge.
+pub(crate) fn back_edge(op: &Op) -> bool {
+    matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0)
 }
 
 impl Interp {
