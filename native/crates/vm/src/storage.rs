@@ -21,8 +21,10 @@ const META: &str = "nupp.vm.storageView";
 /// long as the struct holding it; the bytes hold the address C reads.
 const REFERENCES: &str = "nupp.vm.storageReferences";
 /// Microsoft's bitfield rule: a unit is shared only by bitfields of one size.
-/// Every other host lays bitfields out by the System V rule.
-const MSVC_BITFIELDS: bool = cfg!(target_env = "msvc");
+/// Every Windows host follows it, MinGW included (GCC's `-mms-bitfields` is
+/// its default there), as the compiler's Windows layout does; every other host
+/// lays bitfields out by the System V rule.
+const MSVC_BITFIELDS: bool = cfg!(target_os = "windows");
 pub const METHODS: &[&str] = &[
     "allocateBytes",
     "borrowString",

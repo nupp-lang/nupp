@@ -2016,11 +2016,8 @@ function lsp.run(rootDir: string?): integer
         io.stderr:write("nupp-lsp: cannot identify the current executable\n")
         return 1
     end
-    local relayArgs = {executable, "__lsp-reader"}
-    if compilerRoot and package.config:sub(1, 1) == "\\" then
-        local path = ("package.path=%q .. package.path"):format(compilerRoot .. "/build/?.lua;")
-        relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/tools/main.lua", "__lsp-reader",}
-    end
+    -- A checkout's launcher is a shell script, which Windows cannot start.
+    local relayArgs = require("nupp.compiler.process").isolatedArguments({executable, "__lsp-reader"})
     local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     -- The relay lives in a managed cell rather than in this frame, because it is
     -- read from two places: the loop below, and `pump`, which the session keeps in

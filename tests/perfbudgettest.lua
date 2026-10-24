@@ -306,12 +306,12 @@ function M.anEditRechecksOnlyWhatItCanReach()
     assert(interface == 3, "an export edit checks the module and its two importers: " .. tostring(interface))
 end
 
--- What a program stamped into a binary weighs. The host is LuaJIT and the base runtime,
--- and a hello-world payload is a few hundred bytes, so the whole is about 1.2 MB on
--- arm64 macOS. The ceiling is loose on purpose -- hosts differ by platform -- and is
--- there for the regression that matters: something large, the code generator or a
--- facility nobody selected, travelling in every binary.
-local STAMPED_BINARY_BYTES = 3 * 1024 * 1024
+-- What a program stamped into a binary weighs. The host is the VM's interpreter-only
+-- runtime, and a hello-world payload is a few kilobytes, so the whole is about 3 MB on
+-- arm64 macOS and 4 MB on x64 Windows. The ceiling is loose on purpose -- hosts differ
+-- by platform -- and is there for the regression that matters: something large, the
+-- code generator or a facility nobody selected, travelling in every binary.
+local STAMPED_BINARY_BYTES = 6 * 1024 * 1024
 
 function M.aStampedHelloWorldStaysSmall()
     local dir = temporary()

@@ -347,6 +347,9 @@ digest = lambda name: hashlib.sha256((package / name).read_bytes()).hexdigest()
 end
 
 function M.reinstallingIdenticalArtifactsRefreshesOnlyValidatedInstallProvenance()
+    if package.config:sub(1, 1) == "\\" then
+        require("assert").skip("the fixture runtime is a shell script, which Windows cannot execute")
+    end
     local dir, plant = plantedTree()
     assert(os.execute(("mkdir -p '%s/tests'"):format(dir)) == 0)
     plant("tests/run.lua", "-- original installed runner\n")

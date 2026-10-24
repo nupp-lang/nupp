@@ -236,13 +236,23 @@ impl Api {
         .unwrap();
         let main = CString::new(format!("#include \"nupp-declarations.h\"\n{probe}\n"))
             .map_err(|_| "C type contains a NUL byte")?;
-        let arguments = [
+        // A MinGW host's headers, and what its `cc` preprocesses them to, are
+        // GCC's: they define inline the MSVC intrinsics an MSVC target already
+        // has built in, which libclang's default target there refuses.
+        #[cfg(all(target_os = "windows", target_env = "gnu", target_arch = "x86_64"))]
+        const TARGET: &[*const std::ffi::c_char] = &[c"--target=x86_64-w64-windows-gnu".as_ptr()];
+        #[cfg(all(target_os = "windows", target_env = "gnu", target_arch = "aarch64"))]
+        const TARGET: &[*const std::ffi::c_char] = &[c"--target=aarch64-w64-windows-gnu".as_ptr()];
+        #[cfg(not(all(target_os = "windows", target_env = "gnu", any(target_arch = "x86_64", target_arch = "aarch64"))))]
+        const TARGET: &[*const std::ffi::c_char] = &[];
+        let mut arguments = vec![
             c"-x".as_ptr(),
             c"c".as_ptr(),
             c"-std=gnu11".as_ptr(),
             c"-fno-builtin".as_ptr(),
             c"-Wno-everything".as_ptr(),
         ];
+        arguments.extend_from_slice(TARGET);
         // Declaration locations stay in one virtual header. Anonymous probe types
         // live in distinct virtual files, so libclang's cursor identities cannot
         // alias two different layouts at the same byte offset.

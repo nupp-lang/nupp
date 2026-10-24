@@ -103,37 +103,21 @@ local function launchArgs(argv: {string}): {string}
     return launched
 end
 
-local function exists(path: string): boolean
-    local file = io.open(path, "rb")
-    if not file then
-        return false
-    end
-    file:close()
-
-    return true
-end
-
 -- MSYS cannot replace itself with a native executable, so killing a Bash-wrapped
--- worker leaves its LuaJIT child alive with the capture pipe open. The launcher
--- normally has this entry built before the compiler can reach here, so start it
--- directly and let the handle being timed out or cancelled be the worker itself.
--- A tree with no such entry has its workers started through the launcher, which
--- hands them to the VM compiler the way it hands every other command.
+-- worker leaves its VM child alive with the capture pipe open. A checkout's
+-- launcher exports the runtime and compiler image it chose, so on Windows a
+-- child is started on those directly and the handle being timed out or
+-- cancelled is the worker itself. Without them the child goes through the
+-- launcher like any other command.
 local function isolatedArgs(argv: {string}): {string}
-    if windows then
-        local executable = tostring(argv[1]):gsub("\\", "/")
-        local root = executable:match("^(.*)/bin/nupp$")
-        if root then
-            local built = root .. "/build/nupp/tools/main.lua"
-            local compiler = exists(built) and built or nil
-            if compiler then
-                local path = ("package.path=%q .. package.path"):format(root .. "/build/?.lua;")
-                local launched = {"luajit", "-e", path, compiler}
-                for index = 2, #argv do
-                    launched[#launched + 1] = argv[index]
-                end
-                return launched
+    if windows and tostring(argv[1]):gsub("\\", "/"):match("/bin/nupp$") then
+        local runtime, image = os.getenv("NUPP_VM_BINARY"), os.getenv("NUPP_VM_CLI_IMAGE")
+        if runtime and runtime ~= "" and image and image ~= "" then
+            local launched = {runtime, "exec", image, "nupp.tools.vm.root"}
+            for index = 2, #argv do
+                launched[#launched + 1] = argv[index]
             end
+            return launched
         end
     end
 
@@ -143,8 +127,8 @@ end
 --- Resolves an argv for direct use by the portable process provider.
 ---
 --- In particular, a checkout's `bin/nupp` is a shell launcher rather than a
---- Windows executable. Isolated compiler children bypass it once the built
---- compiler exists so the native provider can start them on every platform.
+--- Windows executable. Isolated compiler children bypass it for the runtime and
+--- image it selected, so the native provider can start them on every platform.
 function process.isolatedArguments(argv: {string}): {string}
     return isolatedArgs(argv)
 end
