@@ -12,8 +12,6 @@ host/notices/*.txt text eol=lf
 # one checkout spelling.
 tests/run.lua text eol=lf
 src/nupp/tools/doc/theme.css text eol=lf
-src/nupp/tools/build/stub-catalog.json text eol=lf
-src/nupp/compiler/aot/include/*.h text eol=lf
 src/nupp/runtime/vendor/lunajson/*.lua text eol=lf
 templates/** text eol=lf
 
@@ -30,3 +28,7 @@ scripts/** text eol=lf
 
 # The serde identity helper is embedded in the compiler bundle.
 src/nupp/serde/internal/identity.lua text eol=lf
+
+# The runtime's built-in opcode table, embedded with `include_str!` and held
+# byte-equal to what the compiler emits.
+native/crates/vm/src/opcodes.table text eol=lf
