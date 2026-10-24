@@ -28,6 +28,21 @@ pub(crate) fn back_edge(op: &Op) -> bool {
 }
 
 impl Interp {
+    /// What the frame driver does as a function begins, for the threaded
+    /// core, which calls this when it pushed a function with a compiled frame
+    /// entry or vector instructions: refuse vector code a no-JIT host may not
+    /// interpret, then run the compiled entry. Answers the pc the core goes
+    /// on interpreting at, as `run_compiled_frame` does.
+    pub(crate) fn enter_frame_from_core(&mut self, tid: usize, fid: u32) -> Result<usize, crate::interp::Step> {
+        if !self.simd_interpret && !self.compiled_frames_active_pub() && self.function_needs_native(fid) {
+            self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
+        }
+        #[cfg(feature = "compiled-runtime")]
+        if self.compiled_frames_active_pub() { return self.run_compiled_frame(tid, fid, 0); }
+        let _ = tid;
+        Ok(0)
+    }
+
     #[cfg(feature = "compiled-runtime")]
     #[inline]
     fn refresh_native_frame_context(&mut self) {

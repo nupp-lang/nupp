@@ -16,13 +16,37 @@ pub struct Ins { pub op: u8, pub a: u8, pub b: u8, pub c: u8, pub imm: i32, pub 
 #[repr(C)]
 /// `calls` counts the calls the core and the interpreter push until the lazy
 /// tier's threshold, when the function is compiled.
-pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub vararg: u32, pub ncode: u32, pub calls: u32 }
+/// `typed` marks a function with a float parameter, which a dynamic call
+/// unboxes on entry and the core leaves to Rust; `native` one with vector
+/// instructions, which runs only compiled or by the interpreter's policy.
+pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub vararg: u32, pub ncode: u32, pub calls: u32, pub typed: u32, pub native: u32 }
 
 #[repr(C)]
 pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64, pub mask: u64 }
 
 #[repr(C)]
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64, pub jit_threshold: u32, pub feedback: u32 }
+/// In frame mode (a scheduled task, or an image with ownership regions) the
+/// core runs as the frame driver would: `guard` is the highest frame whose
+/// return the Rust path must take (a registered cleanup or a protected call
+/// at or above it, or every frame while an unwind is in progress; `NO_GUARD`
+/// when none), `slow_calls` the builtins it hands to Rust whole, and
+/// `frame_entries` the compiled frame entry per function, entered through
+/// `rt_enter_frame`.
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64, pub jit_threshold: u32, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub frame_mode: u32, pub unavailable_fid: u32 }
+
+pub const NO_GUARD: u64 = u64::MAX;
+/// Every return goes to Rust: an unwind is driving the task's cleanups.
+const GUARD_ALL: u64 = u64::MAX - 1;
+
+/// Builtins a dynamic call must hand to Rust: the protected calls, which the
+/// frame driver runs as frames a task can suspend in, and the task API, which
+/// parks.
+fn slow_calls() -> &'static [u8] {
+    static SLOW: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    SLOW.get_or_init(|| crate::builtins::NAMES.iter().enumerate().map(|(id, name)| {
+        (id as u32 == crate::builtins::PCALL || id as u32 == crate::builtins::XPCALL || name.starts_with("tasks.")) as u8
+    }).collect())
+}
 
 pub const ST_REENTER: u32 = 0xffff_ffff;
 pub const ST_DONE: u32 = 0xffff_fffe;
@@ -148,6 +172,16 @@ fn sync(ctx: &mut Ctx, it: &mut Interp) {
     ctx.funcs = it.finfo.as_ptr(); ctx.nfuncs = it.finfo.len() as u64;
     ctx.shapes = it.shape_info.as_ptr(); ctx.nshapes = it.shape_info.len() as u64;
     ctx.entries = it.entries.as_ptr();
+    if ctx.frame_mode != 0 { ctx.guard = guard(it, tid); }
+}
+
+/// The highest frame of `tid` whose return the Rust path must take.
+fn guard(it: &mut Interp, tid: usize) -> u64 {
+    if it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) && it.unwind_state(tid) != Value::NIL { return GUARD_ALL; }
+    let t = &it.tasks[tid];
+    let cleanup = t.cleanups.last().map(|c| c.frame as u64);
+    let protected = t.protected.last().map(|p| p.frame as u64);
+    match (cleanup, protected) { (None, None) => NO_GUARD, (a, b) => a.unwrap_or(0).max(b.unwrap_or(0)) }
 }
 
 /// Executes one opcode of the context's task in Rust and answers the next
@@ -175,6 +209,32 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
         Ok(Step::Reenter) => ST_REENTER,
         Ok(Step::Return(Outcome::Done(v))) => { ctx.result = v.0; ST_DONE }
         Ok(Step::Return(Outcome::Parked(k))) => { ctx.result = k; ST_PARKED }
+        Err(p) => { let v = it.error_value(p); it.pending_error = Some(v); ctx.status = ST_ERROR; ST_ERROR }
+    };
+    sync(ctx, it);
+    r
+}
+
+/// Enters the compiled frame of the function the core just pushed, or
+/// applies the interpreter's policy for one with vector instructions and no
+/// compiled entry. Answers the pc to go on interpreting at, or a status.
+#[unsafe(no_mangle)]
+pub extern "C" fn rt_enter_frame(ctx: *mut Ctx) -> u32 {
+    let ctx = unsafe { &mut *ctx };
+    let it = unsafe { &mut *(ctx.interp as *mut Interp) };
+    let tid = ctx.tid as usize;
+    it.tasks[tid].set_cur(ctx.cur as usize);
+    it.last_nres = ctx.last_nres as usize;
+    let fid = (it.tasks[tid].stack[ctx.cur as usize] & 0xffff_ffff) as u32;
+    let mark = it.handles.len();
+    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.enter_frame_from_core(tid, fid)));
+    if entered.is_err() { it.handles.truncate(mark); }
+    let r = match entered {
+        Ok(Ok(next)) => next as u32,
+        Ok(Err(Step::Reenter)) => ST_REENTER,
+        Ok(Err(Step::Return(Outcome::Done(v)))) => { ctx.result = v.0; ST_DONE }
+        Ok(Err(Step::Return(Outcome::Parked(k)))) => { ctx.result = k; ST_PARKED }
+        Ok(Err(Step::Next(next))) => next as u32,
         Err(p) => { let v = it.error_value(p); it.pending_error = Some(v); ctx.status = ST_ERROR; ST_ERROR }
     };
     sync(ctx, it);
@@ -331,7 +391,7 @@ impl Interp {
         if !AVAILABLE || std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
         for f in &mut self.funcs { if f.ins.len() != f.code.len() { f.ins = f.code.iter().map(encode).collect(); } }
-        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0 }).collect();
+        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
         self.threaded = true;
     }
 
@@ -342,7 +402,13 @@ impl Interp {
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: self.jit_threshold, feedback: 0 };
+        let frame_mode = self.frame_mode;
+        let slow = slow_calls();
+        #[cfg(feature = "compiled-runtime")]
+        let (frame_entries, nframe_entries) = if frame_mode && !self.frame_entries.is_empty() { (self.frame_entries.as_ptr(), self.frame_entries.len() as u64) } else { (std::ptr::null(), 0) };
+        #[cfg(not(feature = "compiled-runtime"))]
+        let (frame_entries, nframe_entries): (*const u64, u64) = (std::ptr::null(), 0);
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: if frame_mode { 0 } else { self.jit_threshold }, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, frame_mode: frame_mode as u32, unavailable_fid: self.unavailable_fid };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]

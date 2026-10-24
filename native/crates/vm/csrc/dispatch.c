@@ -21,6 +21,7 @@ typedef struct {
     const Ins* code;
     const Value* consts;
     uint32_t frame_words, nregs, nparams, off_i, off_f, vararg, ncode, calls;
+    uint32_t typed, native; // a float parameter; vector instructions
 } FuncInfo;
 
 typedef struct {
@@ -40,6 +41,14 @@ typedef struct {
     const uint8_t* marking;
     const uint64_t* entries; // the typed tier's compiled entry per function, or 0
     uint32_t jit_threshold, feedback; // the lazy tier's call count, 0 when off; whether feedback is collected
+    // Frame mode (threaded.rs `Ctx`): the highest frame whose return Rust takes,
+    // the builtins Rust takes whole, the compiled frame entry per function.
+    uint64_t guard;
+    const uint8_t* slow_calls;
+    uint64_t nslow_calls;
+    const uint64_t* frame_entries;
+    uint64_t nframe_entries;
+    uint32_t frame_mode, unavailable_fid;
 } Ctx;
 
 // Rust helpers.
@@ -56,6 +65,7 @@ extern Value rt_new_record(Ctx* ctx, uint32_t shape);
 extern uint64_t rt_len(Ctx* ctx, Value v);
 extern Value rt_get_index(Ctx* ctx, Value obj, Value key);
 extern void rt_enter_compiled(Ctx* ctx, uint64_t entry, Value closure, uint64_t base, uint32_t nargs, uint32_t nparams);
+extern uint32_t rt_enter_frame(Ctx* ctx);
 // Specialization feedback (specialize.rs): a call target (kind 0) or a receiver
 // (kind 1). Only builds with a code generator have it (build.rs defines
 // NUPP_FEEDBACK for the `jit` feature); elsewhere the hooks are not compiled.
@@ -152,6 +162,20 @@ static Value reenter(ARGS) {
     frame = ctx->stack + ctx->cur;
     const FuncInfo* fi = FUNC_OF(frame);
     uint32_t pcx = (uint32_t)(frame[0] >> 32);
+    // A function starting in frame mode, with a compiled frame entry or
+    // vector instructions: Rust does what the frame driver does at a start.
+    if (ctx->frame_mode && pcx == 0) {
+        uint32_t fid = (uint32_t)frame[0];
+        uint64_t e = fid < ctx->nframe_entries ? ctx->frame_entries[fid] : 0;
+        if ((e != 0 && e != ~0ull) || fi->native) {
+            uint32_t r = rt_enter_frame(ctx);
+            if (r == ST_DONE || r == ST_PARKED || r == ST_ERROR) { ctx->status = r; return 0; }
+            if (r == ST_REENTER) { __attribute__((musttail)) return reenter(pc, regs, iregs, fregs, ctx, frame); }
+            frame = ctx->stack + ctx->cur;
+            fi = FUNC_OF(frame);
+            pcx = r;
+        }
+    }
     pc = fi->code + pcx;
     regs = (Value*)(frame + HDR);
     iregs = (int64_t*)(frame + fi->off_i);
@@ -320,6 +344,10 @@ static Value enter(ARGS) {
     NEXT;
 }
 #define ENTER __attribute__((musttail)) return enter(pc, regs, iregs, fregs, ctx, frame)
+
+// A function starting in frame mode goes through `reenter`, which offers it
+// to its compiled frame entry first.
+#define ENTER_FRAME do { if (ctx->frame_mode) { REENTER; } ENTER; } while (0)
 // A direct call to an image function (`Call`), or through a value (`CallK`,
 // `CallDyn`): a function handle of the main image or a closure object. A
 // builtin, a host service, an iterator, a vararg callee or a spread go to Rust.
@@ -329,7 +357,7 @@ static Value h_call(ARGS) {
     if (ctx->funcs[fid].vararg || pc->b >= 64) SLOW;
     COUNT_CALL(fid);
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->a), pc->b, (uint32_t)(pc - fi->code) + 1, T_NIL);
-    ENTER;
+    ENTER_FRAME;
 }
 static Value h_calldyn(ARGS) {
     const FuncInfo* fi = FUNC_OF(frame);
@@ -344,6 +372,7 @@ static Value h_calldyn(ARGS) {
         // A builtin; a host service may park, so it goes to Rust whole.
         uint32_t id = (uint32_t)callee;
         if (id >= HOST_BASE) SLOW;
+        if (id < ctx->nslow_calls && ctx->slow_calls[id]) SLOW;
  NOTE_PC;        rt_call_builtin(ctx, id, ctx->cur + HDR + pc->b, nargs); CHECK_ERR;
         fi = FUNC_OF(ctx->stack + ctx->cur);
         frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); iregs = (int64_t*)(frame + fi->off_i); fregs = (double*)(frame + fi->off_f);
@@ -355,8 +384,10 @@ static Value h_calldyn(ARGS) {
         pc++; NEXT;
     }
     else SLOW;
-    if (fid >= ctx->nfuncs || ctx->funcs[fid].vararg) SLOW;
-    uint64_t entry = ctx->entries[fid];
+    // A coroutine wrapper, and a float parameter to unbox, are the Rust call's.
+    if (fid >= ctx->nfuncs || ctx->funcs[fid].vararg || ctx->funcs[fid].typed || fid == ctx->unavailable_fid) SLOW;
+    // The typed tier's native entries are not taken in frame mode (`entry_of`).
+    uint64_t entry = ctx->frame_mode ? 0 : ctx->entries[fid];
     if (entry) {
         // The typed tier has this function: call it with the window's arguments.
  NOTE_PC;        rt_enter_compiled(ctx, entry, closure, ctx->cur + HDR + pc->b, nargs, ctx->funcs[fid].nparams); CHECK_ERR;
@@ -367,7 +398,7 @@ static Value h_calldyn(ARGS) {
     uint32_t np = ctx->funcs[fid].nparams;
     if (nargs > np) nargs = np;
     push(ctx, frame, fid, (uint32_t)(ctx->cur + HDR + pc->b), nargs, (uint32_t)(pc - fi->code) + 1, closure);
-    ENTER;
+    ENTER_FRAME;
 }
 // The return: the caller's result slot from the header, the task done when
 // there is no caller.
@@ -384,10 +415,13 @@ static Value pop(ARGS) {
     ctx->last_nres = 1;
     REENTER;
 }
-static Value h_ret(ARGS) { ctx->result = regs[pc->a]; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
+// A frame at or below the guard has cleanup to run or a protected call to
+// finish on its way out: the Rust return does both.
+#define GUARDED (ctx->guard != ~0ull && ctx->guard >= ctx->cur)
+static Value h_ret(ARGS) { if (GUARDED) SLOW; ctx->result = regs[pc->a]; __attribute__((musttail)) return pop(pc, regs, iregs, fregs, ctx, frame); }
 static Value h_retnil(ARGS) { SLOW; }
 static Value h_retn(ARGS) {
-    if (pc->b > 8) { SLOW; }
+    if (pc->b > 8 || GUARDED) { SLOW; }
     uint32_t n = pc->b;
     if (n >= 128) SLOW;
     uint64_t h1 = frame[1];
@@ -412,10 +446,11 @@ static Value h_getfield(ARGS) {
         if (obj_kind(t) == KIND_RECORD) {
             uint32_t shape = obj_aux(t);
             // The shape's slot table: (name bits, slot) pairs, open addressing, as Heap::slot_of.
-            // With a metatable of its own, only a present value is answered here.
+            // Only a present value is answered here: an empty slot may still name
+            // one of the shape's methods (`record_field`).
             const uint64_t* table = ctx->shapes[shape].table; uint64_t mask = ctx->shapes[shape].mask;
             uint64_t k = (((name >> 4) * 0x9E3779B97F4A7C15ull) >> 32) & mask;
-            for (;;) { uint64_t b = table[2 * k]; if (b == name) { Value v = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; if (v != T_NIL || !(obj_flags(t) & F_METATABLE)) { regs[pc->a] = v; pc++; NEXT; } break; } if (b == 0) break; k = (k + 1) & mask; }
+            for (;;) { uint64_t b = table[2 * k]; if (b == name) { Value v = ((Value*)obj_ptr(t))[(uint32_t)table[2 * k + 1]]; if (v != T_NIL) { regs[pc->a] = v; pc++; NEXT; } break; } if (b == 0) break; k = (k + 1) & mask; }
         } else if (obj_kind(t) == KIND_TABLE) {
             // The hash part, probed in place; a nil answer with a metatable goes to the helper.
             const uint64_t* hp = *(const uint64_t* const*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_PTR); uint64_t mask = *(const uint64_t*)((uintptr_t)(t & PAYLOAD) + OFF_T_HASH_MASK);
@@ -425,8 +460,10 @@ static Value h_getfield(ARGS) {
                 for (;;) { uint64_t b = hp[2 * k]; if (b == name) { Value v = hp[2 * k + 1]; if (v != T_NIL || meta == T_NIL) { regs[pc->a] = v; pc++; NEXT; } break; } if (b == T_NIL) { if (meta == T_NIL) { regs[pc->a] = T_NIL; pc++; NEXT; } break; } k = (k + 1) & mask; }
             } else if (meta == T_NIL) { regs[pc->a] = T_NIL; pc++; NEXT; }
         }
- NOTE_PC;        regs[pc->a] = rt_get_field(ctx, t, name); CHECK_ERR;
-        frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
+ NOTE_PC;        Value v = rt_get_field(ctx, t, name); CHECK_ERR;
+        // The helper may run code that grows (and moves) the stack: the
+        // window is re-read before the result is stored into it.
+        RELOAD_FRAME; regs[pc->a] = v;
         pc++; NEXT;
     }
     SLOW;
@@ -440,7 +477,7 @@ static Value h_getidxi(ARGS) {
         uint64_t n = obj_len(t);
         if (i >= 1 && (uint64_t)i <= n) { regs[pc->a] = ((Value*)obj_ptr(t))[i - 1]; pc++; NEXT; }
     }
-    if (is_obj(t)) { NOTE_PC; regs[pc->a] = rt_get_index_num(ctx, t, i); CHECK_ERR; pc++; NEXT; }
+    if (is_obj(t)) { NOTE_PC; Value v = rt_get_index_num(ctx, t, i); CHECK_ERR; RELOAD_FRAME; regs[pc->a] = v; pc++; NEXT; }
     SLOW;
 }
 static Value h_setidxi(ARGS) {
@@ -451,7 +488,7 @@ static Value h_setidxi(ARGS) {
         // A nil at the end shrinks the array part (the border rule): helper.
         if (i >= 1 && (uint64_t)i <= n && (v != T_NIL || (uint64_t)i < n) && (((Value*)obj_ptr(t))[i - 1] != T_NIL || *(const Value*)((uintptr_t)(t & PAYLOAD) + OFF_T_META) == T_NIL)) { if (*ctx->marking) rt_barrier(ctx, t, v); ((Value*)obj_ptr(t))[i - 1] = v; pc++; NEXT; }
     }
-    if (is_obj(t)) { NOTE_PC; rt_set_index_num(ctx, t, i, v); CHECK_ERR; frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR); pc++; NEXT; }
+    if (is_obj(t)) { NOTE_PC; rt_set_index_num(ctx, t, i, v); CHECK_ERR; RELOAD_FRAME; pc++; NEXT; }
     SLOW;
 }
 // Stores of references: the barrier's slow path only while marking (3.6).
@@ -476,8 +513,8 @@ static Value h_getidx(ARGS) {
             double d = as_num(key); uint64_t n = obj_len(t);
             if (d >= 1.0 && d <= (double)n && d == (double)(uint64_t)d) { regs[pc->a] = ((Value*)obj_ptr(t))[(uint64_t)d - 1]; pc++; NEXT; }
         }
- NOTE_PC;        regs[pc->a] = rt_get_index(ctx, t, key); CHECK_ERR;
-        frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
+ NOTE_PC;        Value v = rt_get_index(ctx, t, key); CHECK_ERR;
+        RELOAD_FRAME; regs[pc->a] = v;
         pc++; NEXT;
     }
     SLOW;
@@ -485,7 +522,7 @@ static Value h_getidx(ARGS) {
 static Value h_tagchecknum(ARGS) { Value v = regs[pc->b]; if (__builtin_expect(is_num(v), 1)) { regs[pc->a] = v; pc++; NEXT; } SLOW; }
 static Value h_newrecord(ARGS) {
  NOTE_PC;    Value v = rt_new_record(ctx, (uint32_t)pc->k); CHECK_ERR;
-    frame = ctx->stack + ctx->cur; regs = (Value*)(frame + HDR);
+    RELOAD_FRAME;
     regs[pc->a] = v; pc++; NEXT;
 }
 

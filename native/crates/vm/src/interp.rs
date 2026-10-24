@@ -2255,7 +2255,7 @@ impl Interp {
         loop {
             if let Some(outcome) = self.resume_unwind(tid) { self.frame_mode=old; return outcome; }
             let mark = self.handles.len();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && !self.frame_mode && self.execution_limit.is_none() { self.run_threaded(tid) } else { self.run_rust(tid) }}));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && self.execution_limit.is_none() && (!self.frame_mode || self.threaded_frames()) { self.run_threaded(tid) } else { self.run_rust(tid) }}));
             match result {
                 Ok(o) => { self.frame_mode = old; return o; }
                 Err(e) => {
@@ -2317,6 +2317,15 @@ impl Interp {
         #[cfg(feature = "jit")] if back && self.jit.is_some() && self.frame_entries.get(fid as usize).copied().unwrap_or(0) == 0 { return true; }
         let _ = (fid, back, next);
         false
+    }
+    pub(crate) fn compiled_frames_active_pub(&self) -> bool { self.compiled_frames_active() }
+    /// Whether the threaded core may drive a task in frame mode: not under an
+    /// instruction budget, which only the Rust loop charges, and not with the
+    /// JIT, whose heat and on-demand frame compilation live in that loop.
+    fn threaded_frames(&self) -> bool {
+        if self.instruction_budget.is_some() { return false; }
+        #[cfg(feature = "jit")] if self.jit.is_some() { return false; }
+        true
     }
     fn compiled_frames_active(&self) -> bool {
         if !self.frame_mode || self.execution_limit.is_some() { return false; }
