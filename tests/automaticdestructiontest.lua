@@ -1104,4 +1104,23 @@ function M.aSwitchArmHandsItsOwnerToTheBindingOnce()
     testAssert.equal(chunk(), "<a>a|<b>ba")
 end
 
+
+function M.genericRecordsCanCloseThemselves()
+    testAssert.equal(
+        codes(table.concat({
+            "local record Box<T> is nupp.Closeable",
+            "    value: T",
+            "    close: function(takes self: Box<T>): nil",
+            "end",
+            "local record Other is nupp.Closeable",
+            "    close: function(takes self: Other): nil",
+            "end",
+            "local record Wrong<T> is nupp.Closeable",
+            "    close: function(takes self: Other): nil",
+            "end",
+        }, "\n")),
+        "NUPP2615"
+    )
+end
+
 return M

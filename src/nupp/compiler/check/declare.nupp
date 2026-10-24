@@ -46,6 +46,18 @@ local BITFIELD_BASE: {
 
 local isA = relations.isA
 
+--- Whether a cleanup's receiver is the type being declared. A generic record names
+--- itself through an instance over its own parameters, which `isA` cannot see
+--- relates to the declaration it was instantiated from.
+local function acceptsSelf(n: T.Nominal, param: T.Type): boolean
+    if param == T.any then
+        return false
+    end
+    local receiver = T.unwrapOwnership(param)
+
+    return isA(n, receiver) or receiver.tag == "nominal" and (receiver as T.Nominal).origin == n
+end
+
 -- Inheritance rebinds `self` to the inheriting declaration and names no other
 -- binder, so an inherited member's own type parameters have to survive it.
 local substType = generics.rebind
@@ -2925,7 +2937,7 @@ function declare.install(
                                 stat.name,
                                 ("cleanup method %q must take one consuming self"):format(cleanup.name)
                             )
-                        elseif ft.params[1] == T.any or not isA(n, T.unwrapOwnership(ft.params[1])) then
+                        elseif not acceptsSelf(n, ft.params[1]) then
                             c.diag("NUPP2615", stat.name, ("cleanup method %q must accept self"):format(cleanup.name))
                         elseif #ft.rets ~= 1 or ft.retPack.tail ~= nil or ft.rets[1] ~= T.nil_ then
                             c.diag("NUPP2615", stat.name, ("cleanup method %q must return nil"):format(cleanup.name))
