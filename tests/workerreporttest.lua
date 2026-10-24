@@ -115,6 +115,11 @@ local function workerArtifactsIn(dir, suffix)
     local paths = {}
     for path in pipe:lines() do
         if path:find("/reports-", 1, true) then
+            -- Git Bash answers on Windows, in its own spelling of the drive; the
+            -- files are opened natively.
+            if package.config:sub(1, 1) == "\\" then
+                path = path:gsub("^/(%a)/", "%1:/")
+            end
             paths[#paths + 1] = path
         end
     end

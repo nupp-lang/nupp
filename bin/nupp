@@ -228,10 +228,17 @@ if [ -n "${NUPP_VM_CLI_IMAGE:-}" ]; then
     NUPP_COMPILER_ROOT=${NUPP_COMPILER_ROOT:-"$ROOT"}
     # A rock dependency runs LuaRocks, which is the pinned one: the shim
     # provisions it on first use. Windows starts tools natively and cannot run a
-    # shell script, so it keeps the PATH lookup.
+    # shell script, so there it is the installed batch file when the toolchain
+    # has one, and the PATH lookup otherwise.
     if [ -z "${NUPP_LUAROCKS:-}" ]; then
         case "$(uname -s 2>/dev/null)" in
-            MINGW*|MSYS*|CYGWIN*) ;;
+            MINGW*|MSYS*|CYGWIN*)
+                prefix=$("$ROOT/scripts/toolchain" --prefix 2>/dev/null || true)
+                if [ -n "$prefix" ] && [ -f "$prefix/luarocks/.complete" ] && [ -f "$prefix/luarocks/.executable" ]; then
+                    NUPP_LUAROCKS=$(cat "$prefix/luarocks/.executable")
+                    export NUPP_LUAROCKS
+                fi
+                ;;
             *) NUPP_LUAROCKS="$ROOT/scripts/luarocks"; export NUPP_LUAROCKS ;;
         esac
     fi
