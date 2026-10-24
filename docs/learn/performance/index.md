@@ -45,9 +45,10 @@ and with no warm-up. `nupp bc --json` returns the same listing by function.
 ## Optimization passes
 
 There are none. The optimizer rewrote the Lua the compiler used to generate,
-and went with it. `-O0`, `-O1` and `-O2`, `--remarks`, `--remarks-for`,
-`--remarks-out` and `-Zno-opt` are still accepted and change nothing, and no
-`OPT` remark is reported.
+and went with it, along with the options that drove it: `-O0`, `-O1` and `-O2`,
+`--remarks`, `--remarks-for`, `--remarks-out` and `-Zno-opt` are unknown options
+now, a manifest target takes no `optimize` key, and no `OPT` remark is
+reported.
 
 ## Measuring
 

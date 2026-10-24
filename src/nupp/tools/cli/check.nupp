@@ -47,7 +47,6 @@ local REPORT_SCHEMA = {
                 totalMs = {type = "number", description = "Wall-clock milliseconds for the whole check."},
                 compiledModules = {type = "integer"},
                 reusedModules = {type = "integer"},
-                specializedBodies = {type = "integer"},
                 parallel = require("nupp.tools.cli.report").PARALLEL,
                 phases = {
                     type = "array",
@@ -72,7 +71,7 @@ local REPORT_SCHEMA = {
                     },
                 },
             },
-            required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
+            required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest",},
         },
     },
     required = {"ok", "diagnostics"},
@@ -96,7 +95,7 @@ local function run(options: any): integer
 
     local progress = require("nupp.tools.build.progress")
     local started = progress.now()
-    local timing = {compiledModules = 0, reusedModules = 0, specializedBodies = 0, phases = {}, slowest = {}}
+    local timing = {compiledModules = 0, reusedModules = 0, phases = {}, slowest = {}}
 
     local function writeJson(ok: boolean): nil
         local total = progress.now() - started

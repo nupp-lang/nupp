@@ -142,7 +142,6 @@ type modules.Stats = {
     checkedModules: number,
     generatedModules: number,
     reusedModules: number,
-    specializedBodies: number,
     [string]: any
 }
 
@@ -155,9 +154,6 @@ type modules.Result = {
 
     materializations: {any},
     derives: {any},
-    optimizationRemarks: {any},
-    allocationSites: {any},
-    accountedModules: integer,
 
     --- Every native feature the built modules asked for, merged.
     effects: {[string]: any}?
@@ -652,9 +648,6 @@ local function copyModuleRecord(record)
         coverage = record.coverage,
         materializations = list(record.materializations),
         derives = list(record.derives),
-        optimizationRemarks = list(record.optimizationRemarks),
-        allocationSites = list(record.allocationSites),
-        optimizationAccounted = record.optimizationAccounted,
         specializationHash = record.specializationHash,
     }
 end
@@ -997,9 +990,6 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         output = join(job.root, join(job.outDir, name:gsub("%.", "/") .. ".lua"))
     end
     local artifactHash, code, coverage
-    local optimizationRemarks = jsonArray({} as {any})
-    local allocationSites = jsonArray({} as {any})
-    local optimizationAccounted = false
     local runtimeModules = jsonArray({} as {string})
     local generated = false
     local generateMs: number = 0
@@ -1038,9 +1028,7 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         effects = jsonArray(effectNames),
         output = output,
         external = external or nil,
-        -- Only what checking found. Generation runs once per artifact and a reused
-        -- module does not run it again, so its remarks belong to the run that
-        -- produced them and not to the record.
+        -- Only what checking found.
         diags = jsonArray(checkedDiags),
         aotRefusals = refusals,
         aotKey = aotKey,
@@ -1048,9 +1036,6 @@ function modules.compileChecked(job: modules.CompileJob): modules.Compiled
         coverage = coverage,
         materializations = jsonArray(materializeObserve.collect(result.result and result.result.root, path)),
         derives = jsonArray(result.result and result.result.deriveObservations or {}),
-        optimizationRemarks = optimizationRemarks,
-        allocationSites = allocationSites,
-        optimizationAccounted = optimizationAccounted,
         specializationHash = job.specializationHash,
     }
 
@@ -1483,7 +1468,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local generateMs: {[string]: number} = {}
     stats = (stats or {}) as modules.Stats
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
-    stats.specializedBodies = 0
 
     -- Everything one module had to say, by module name, rather than one list everything
     -- is appended to. A module reused early can be invalidated and recompiled later,
@@ -1571,9 +1555,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
             diags = jsonArray({} as {any}),
             materializations = jsonArray({} as {any}),
             derives = jsonArray({} as {any}),
-            optimizationRemarks = jsonArray({} as {any}),
-            allocationSites = jsonArray({} as {any}),
-            optimizationAccounted = false,
             specializationHash = emptySpecializationHash,
         }
         codeFor[name] = text
@@ -1753,9 +1734,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
                     and (previous.aotKey == nil or previous.aotKey == currentAotKey())
                     and type(previous.materializations) == "table"
                     and type(previous.derives) == "table"
-                    and type(previous.optimizationRemarks) == "table"
-                    and type(previous.allocationSites) == "table"
-                    and type(previous.optimizationAccounted) == "boolean"
                 if usable and previous then
                     for _, dependency in ipairs(previous.projectDependencies or {}) do
                         if type(dependency) ~= "table" then
@@ -2071,24 +2049,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
     local materializations = {}
     local derives = {}
-    local optimizationRemarks = {}
-    local allocationSites = {}
-    local accountedModules: integer = 0
     for _, name in ipairs(order) do
         for _, observation in ipairs(records[name].materializations or {}) do
             materializations[#materializations + 1] = observation
         end
         for _, observation in ipairs(records[name].derives or {}) do
             derives[#derives + 1] = observation
-        end
-        if records[name].optimizationAccounted then
-            accountedModules = (accountedModules + 1) as integer
-            for _, remark in ipairs(records[name].optimizationRemarks or {}) do
-                optimizationRemarks[#optimizationRemarks + 1] = remark
-            end
-            for _, site in ipairs(records[name].allocationSites or {}) do
-                allocationSites[#allocationSites + 1] = site
-            end
         end
     end
     -- A VM program's build checks rather than generates: its image is lowered
@@ -2105,15 +2071,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
-    return {
-        outputs = {},
-        effects = effects,
-        materializations = materializations,
-        derives = derives,
-        optimizationRemarks = optimizationRemarks,
-        allocationSites = allocationSites,
-        accountedModules = accountedModules
-    }
+    return {outputs = {}, effects = effects, materializations = materializations, derives = derives,}
 end
 
 --- The source files a target reaches, or nothing when it reaches the project.

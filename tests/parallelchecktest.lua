@@ -617,21 +617,17 @@ return {make = make}
 end
 
 -- A build generates in the worker that checked, so what a parallel build writes has
--- to be what the serial build writes, byte for byte, at every optimization level.
+-- to be what the serial build writes, byte for byte.
 function M.parallelBuildsWriteWhatSerialBuildsWrite()
     local directory = tempProject(false)
-    for _, level in ipairs({"-O0", "-O2"}) do
-        local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"}, {
-            level
-        })
-        testAssert.equal(serialCode, 0, level .. " serial build: " .. json.encode(serialReport.diagnostics))
-        local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"}, {level})
-        testAssert.equal(code, 0, level .. " parallel build: " .. json.encode(report.diagnostics))
-        testAssert.equal(report.timing.parallel.mode, "parallel", level .. " parallel timing mode")
-        testAssert.equal(report.timing.parallel.rechecked, 0, level .. " worker records survive validation")
-        testAssert.equal(outputs, serialOutputs, level .. " build outputs")
-        testAssert.equal(state, serialState, level .. " build state")
-    end
+    local serialCode, serialReport, serialOutputs, serialState = coldBuild(directory, {NUPP_CHECK_JOBS = "1"})
+    testAssert.equal(serialCode, 0, "serial build: " .. json.encode(serialReport.diagnostics))
+    local code, report, outputs, state = coldBuild(directory, {NUPP_CHECK_JOBS = "3"})
+    testAssert.equal(code, 0, "parallel build: " .. json.encode(report.diagnostics))
+    testAssert.equal(report.timing.parallel.mode, "parallel", "parallel timing mode")
+    testAssert.equal(report.timing.parallel.rechecked, 0, "worker records survive validation")
+    testAssert.equal(outputs, serialOutputs, "build outputs")
+    testAssert.equal(state, serialState, "build state")
 
     assert(require("nupp.io.files").remove(directory, true))
 end

@@ -3231,14 +3231,16 @@ return {build = {kind = "bundle", entries = {"main"}, reload = true}}
     assert(err:find("reload is only valid for a component target", 1, true), err)
     remove(wrongKind)
 
+    -- There is no optimization level to build at, so a target that names one names a
+    -- key nothing reads.
     local optimized = tempProject({
         ["nupp.lua"] = [[
 return {build = {kind = "component", entries = {"main"}, reload = true, optimize = 2}}
 ]]
     })
     config, err = project.loadManifest(optimized)
-    testAssert.equal(config, nil, "watch generation is development generation")
-    assert(err:find("reload builds at optimize = 0", 1, true), err)
+    testAssert.equal(config, nil, "optimize is not a target key")
+    assert(err:find('has no key "optimize"', 1, true), err)
     remove(optimized)
 
     local compiled = tempProject({

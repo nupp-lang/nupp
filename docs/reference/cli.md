@@ -96,8 +96,7 @@ A test runs each command for real and validates its output against that
 command's own `--schema`, so a schema cannot drift from what the command emits.
 
 `--format`, `--json` and `--text` share one setting, and giving two of them is
-an error. No option repeats unless it says so, and three do: `--set` on `init`,
-and `-Zno-opt` on `build` and `run`.
+an error. No option repeats unless it says so, as `--set` on `init` does.
 
 A command writes its JSON as one line with no ordering guarantee across keys,
 and only [`ast`](#ast) offers an indented form, under `--json-pretty`. The
@@ -744,9 +743,7 @@ See [fmt.md](../learn/tooling/formatter.md) for the rules the formatter applies 
 ```text [nupp build --help]
 Build a configured project target.
 
-Builds the manifest's default or selected target.
-The optimization level is part of the build key, so changing it rebuilds
-rather than mixing artifacts compiled at two levels. JSON output carries
+Builds the manifest's default or selected target. JSON output carries
 diagnostics, written artifacts, materialization facts, and timing data.
 Progress and timing stay on standard error so machine-readable standard
 output remains one document.
@@ -755,7 +752,7 @@ Examples:
 
     nupp build
     nupp build --target app
-    nupp build -O2 --remarks
+    nupp build --json
 
 Usage:
   nupp build [options]
@@ -765,13 +762,6 @@ Options:
   --platform NAME       Build one configured binary platform, or all.
   --output DIR, -o DIR  Output directory, overriding the target's.
   --host HOST           Runtime host services.
-  -O0, -O1, -O2         Optimization level.
-  --remarks             Report what the optimizer did and what it declined to
-                        do.
-  --remarks-for FILE    Only report optimizer decisions for this source file.
-  --remarks-out[=PATH]  Write the optimizer's account to a file,
-                        build/remarks.json by default.
-  -Zno-opt=CODE         Turn off one optimizer pass by stable code.
   --progress[=WHEN], -q, --quiet
                         When to report progress and timing.
   --format FORMAT, --json, --text
@@ -790,13 +780,6 @@ manifest target's output directory:
 ```bash
 nupp build --target app --output dist
 ```
-
-#### Optimization flags
-
-`-O0`, `-O1`, `-O2`, `--remarks`, `--remarks-for`, `--remarks-out` and
-`-Zno-opt` are accepted and change nothing the build produces: there are no
-optimization passes. See
-[performance.md](../learn/performance/index.md#optimization-passes).
 
 #### Progress and timing
 
@@ -1637,8 +1620,8 @@ Compile and run a Nupp or Lua program.
 
 The program path divides compiler options from arguments passed to the
 loaded chunk. Use `--` before a program path beginning with a dash.
-`--watch` is development-only, uses `-O0`, and applies valid changed-body
-patches at cooperative poll boundaries.
+`--watch` is development-only and applies valid changed-body patches at
+cooperative poll boundaries.
 
 Examples:
 
@@ -1653,20 +1636,12 @@ Arguments:
   ARG   Arguments passed to the program.
 
 Options:
-  -O0, -O1, -O2         Optimization level.
-  --remarks             Report what the optimizer did and what it declined to
-                        do.
-  --remarks-for FILE    Only report optimizer decisions for this source file.
-  --remarks-out[=PATH]  Write the optimizer's account to a file,
-                        build/remarks.json by default.
-  -Zno-opt=CODE         Turn off one optimizer pass by stable code.
-  --watch               Keep named function identities patchable at poll
-                        points.
-  --gpu-costs PATH      Write GPU operation costs and device timestamps to this
-                        JSONL file.
-  -h, --help            Show this help
-  --color[=WHEN]        When to color output: always, never, or auto
-  --no-color            Never color output
+  --watch           Keep named function identities patchable at poll points.
+  --gpu-costs PATH  Write GPU operation costs and device timestamps to this
+                    JSONL file.
+  -h, --help        Show this help
+  --color[=WHEN]    When to color output: always, never, or auto
+  --no-color        Never color output
 ```
 
 The first non-option argument is the program; everything after it goes to the
@@ -1678,9 +1653,6 @@ loaded as plain Lua. Either way it runs on the VM.
 ```text [nupp run src/main.nupp]
 Hello, world
 ```
-
-`--remarks-out` takes an attached value or none, never the next argument, so a
-program name after it is still the program.
 
 ::: seealso
 - [performance.md](../learn/performance/index.md) for what to measure before

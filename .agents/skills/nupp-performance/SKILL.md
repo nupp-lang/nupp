@@ -28,11 +28,10 @@ Establish what is expensive and which layer owns it.
 
 - Use `./bin/nupp check --json` or `./bin/nupp build --json` for compiler diagnostics, materialization facts, and timing.
 - Use `./bin/nupp bc FILE` under the VM-hosted compiler to read the VM bytecode a file lowers to.
-- Use `--remarks` while investigating optimizer decisions. Use `--remarks-out` when a machine-readable account is needed; it currently writes `build/remarks.json`.
 
 Before proposing a scalar compiler pass, read what the function lowers to today. Prefer Nupp-side work when it depends on information the backend does not see, such as Nupp representation choices, view materialization, runtime allocation, ownership-derived disjointness, specialization before emission, or GPU semantics.
 
-An artifact, profile, or optimizer remark explains where to experiment. It does not establish a speedup.
+An artifact or profile explains where to experiment. It does not establish a speedup.
 
 ## Run one-candidate experiments
 
@@ -41,7 +40,7 @@ For source changes, use a task-specific worktree and preserve the baseline. Chan
 Apply gates from cheapest to most expensive:
 
 1. Check correctness and buildability.
-2. Inspect deterministic evidence: allocations, materializations, optimizer remarks, emitted IR, C, or assembly.
+2. Inspect deterministic evidence: allocations, materializations, VM bytecode, emitted IR, C, or assembly.
 3. Reject candidates that worsen a hard ceiling or fail to affect the intended mechanism.
 4. Run a quick measurement only if it helps size or debug the experiment.
 5. Pay for the full duration verdict only for surviving candidates.
@@ -74,7 +73,7 @@ When the best remaining candidate is blocked by missing compiler information:
 3. Specify the smallest structured output or position-based lookup that would unblock the experiment.
 4. Keep candidate generation, editing, worktree management, and retention policy in this skill rather than moving them into the compiler.
 
-Examples include structured profile output, causal declined/unavailable optimization remarks, or resolving an AOT function from a source position. A new optimizer pass is a separate proposal justified by blocker frequency and backend-subtraction evidence.
+Examples include structured profile output or resolving an AOT function from a source position. A new optimizer pass is a separate proposal justified by blocker frequency and backend-subtraction evidence.
 
 ## Finish
 

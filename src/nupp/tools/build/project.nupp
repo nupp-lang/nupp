@@ -61,13 +61,6 @@ type project.BuildOptions = {
     --- entry can never satisfy a coverage run.
     coverage: boolean?,
 
-    optLevel: integer?,
-    remarks: boolean?,
-    remarksFile: string?,
-
-    --- Optimization codes to skip, keyed by the code.
-    disabled: {[string]: boolean}?,
-
     --- How many modules were checked, generated and reused.
     stats: Stats?,
 
@@ -297,17 +290,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     config._target = target
     config._platform = selectedPlatform
-    -- The optimization level belongs to the build key. It reaches the config before the
-    -- config is hashed, so changing -O invalidates every artifact built at the old
-    -- level rather than mixing the two. An explicit -O always wins; a target may
-    -- declare its own level; and a deliverable kind, which is a release artifact,
-    -- builds with every pass unless somebody says otherwise.
-    local defaultLevel = 0
-    if target.kind == "binary" then
-        defaultLevel = 2
-    end
-    config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
-    config._disabledPasses = opts.disabled or {}
     -- Coverage affects emitted Lua, therefore belongs in the configuration before the
     -- build key is calculated. A normal cache entry can never satisfy a coverage run.
     config._coverage = opts.coverage == true
@@ -667,20 +649,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
     end
     newState.targets[targetKey] = mine
-    if opts.remarks or opts.produced then
-        if opts.remarks then
-            local selected = require(
-                "nupp.tools.cli.compile"
-            ).selectRemarks(result.optimizationRemarks, opts.remarksFile)
-            if opts.diagnostics then
-                for _, note in ipairs(selected) do
-                    opts.diagnostics[#opts.diagnostics + 1] = note
-                end
-            else
-                require("nupp.compiler.diagnostics").report(selected)
-            end
-        end
-    end
     -- What the build produced, for a caller that has to report it rather than leave it
     -- on disk to be discovered. Same shape of favour as opts.diagnostics.
     if opts.produced then
@@ -691,10 +659,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
         opts.produced.spi = spiEntries
-        opts.produced.optLevel = config._optLevel
-        opts.produced.optimizationRemarks = result.optimizationRemarks
-        opts.produced.allocationSites = result.allocationSites
-        opts.produced.accountedModules = result.accountedModules
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)
@@ -750,8 +714,6 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
         aggregate.target = target.name or opts.target or "default"
         aggregate.outputs = cache.jsonArray({})
         aggregate.platforms = cache.jsonArray({})
-        aggregate.optimizationRemarks = cache.jsonArray({})
-        aggregate.allocationSites = cache.jsonArray({})
     end
     local failed = false
     for _, selected in ipairs(target.platforms) do
@@ -778,15 +740,6 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             aggregate.platforms[#aggregate.platforms + 1] = entry
             for _, output in ipairs(produced.outputs or {}) do
                 aggregate.outputs[#aggregate.outputs + 1] = output
-            end
-            -- Every selected platform compiles the same Nupp source at the same
-            -- optimization level. Keep one account rather than multiplying every site
-            -- by the number of requested platforms.
-            if aggregate.accountedModules == nil and produced.accountedModules ~= nil then
-                aggregate.optLevel = produced.optLevel
-                aggregate.optimizationRemarks = produced.optimizationRemarks
-                aggregate.allocationSites = produced.allocationSites
-                aggregate.accountedModules = produced.accountedModules
             end
         end
     end

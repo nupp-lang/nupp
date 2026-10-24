@@ -435,10 +435,7 @@ report.DIAGNOSTIC = {
     properties = {
         file = {type = "string"},
         severity = {type = "string", enum = {"error", "warning", "note"}},
-        code = {
-            type = "string",
-            description = "A stable code such as NUPP2004, or OPT-n for an " .. "optimizer remark."
-        },
+        code = {type = "string", description = "A stable code such as NUPP2004."},
         lint = {
             type = "string",
             description = "The lint name, when the diagnostic came from one. "

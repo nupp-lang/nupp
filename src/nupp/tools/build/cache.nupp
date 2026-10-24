@@ -121,14 +121,7 @@ type cache.ModuleRecord = {
     materializations: {any}?,
 
     --- Closed derive recipe observations. Reporting only; never a build key.
-    derives: {any}?,
-
-    --- Optimizer remarks and emitted allocation sites from the generation that wrote
-    --- this artifact. Reporting only, retained so a warm build reports the same
-    --- account.
-    optimizationRemarks: {any}?,
-    allocationSites: {any}?,
-    optimizationAccounted: boolean?
+    derives: {any}?
 }
 
 --- What a

@@ -87,7 +87,6 @@ type progress.Timing = {
 
     compiledModules: number,
     reusedModules: number,
-    specializedBodies: number,
     optimizerFacts: progress.OptimizerFacts?,
 
     --- Every activity that took measurable time, longest first.
@@ -192,7 +191,6 @@ record progress.Reporter
 
     compiled: number
     reused: number
-    specialized: number
 
     --- What the ahead-of-time policy did, when a build ran one.
     aotFacts: progress.AotFacts?
@@ -299,12 +297,6 @@ record progress.Reporter
         self.compiled, self.reused = compiled, reused
     end
 
-    --- Adds logical const-specialized bodies to the work count without pretending
-    --- each body was another checked module.
-    function addSpecialized(self, count: number): nil
-        self.specialized = self.specialized + count
-    end
-
     --- What the ahead-of-time policy did, once it has finished doing it.
     function aotCounted(self, facts: progress.AotFacts?): nil
         self.aotFacts = facts
@@ -356,7 +348,6 @@ record progress.Reporter
             totalMs = clock.now() - self.startedAt,
             compiledModules = self.compiled,
             reusedModules = self.reused,
-            specializedBodies = self.specialized,
             optimizerFacts = self.optimizerFacts,
             phases = phases,
             slowest = slowest,
@@ -382,9 +373,6 @@ record progress.Reporter
             counts = ("%d module%s reused"):format(measured.reusedModules, measured.reusedModules == 1 and "" or "s")
         else
             counts = ("%d compiled, %d reused"):format(measured.compiledModules, measured.reusedModules)
-        end
-        if measured.specializedBodies > 0 then
-            counts = counts .. (", %d specialized"):format(measured.specializedBodies)
         end
         if measured.parallel ~= nil then
             if measured.parallel.mode == "parallel" then
@@ -466,7 +454,6 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         done = 0,
         compiled = 0,
         reused = 0,
-        specialized = 0,
         aotFacts = nil,
         parallelFacts = nil,
         checking = "check",

@@ -64,10 +64,6 @@ type manifest.Target = {
     --- source set and needs no entry.
     entries: {string}?,
 
-    --- The optimization level this target builds at when the command line does
-    --- not say. Deliverable kinds default to 2; an explicit `-O` always wins.
-    optimize: integer?,
-
     --- Dotted module functions published by a component target.
     exports: {string}?,
     sources: {string}?,
@@ -398,7 +394,6 @@ local CONFIG_KEYS = {
 -- DOCS_KEYS instead, which spells out these same keys plus the generator's own.
 local TARGET_KEYS = {
     "kind",
-    "optimize",
     "aot",
     "aotFeatures",
     "aotTarget",
@@ -641,14 +636,6 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
-    if target.optimize ~= nil
-        and (
-            type(target.optimize) ~= "number"
-            or (target.optimize ~= 0 and target.optimize ~= 1 and target.optimize ~= 2)
-        )
-    then
-        return nil, label .. ".optimize must be 0, 1, or 2"
-    end
     if kind == "binary" and target.stub == nil then
         return nil, label
             .. ".stub is required for a binary target: it names "
@@ -666,12 +653,6 @@ local function validateTarget(target, label, dependencies)
     if target.reload then
         if kind ~= "component" then
             return nil, label .. ".reload is only valid for a component target"
-        end
-        -- Watch generation is development generation: a slot for every named
-        -- function, and no pass that moves one. Claiming an optimization level
-        -- beside it would describe a build that cannot exist.
-        if target.optimize ~= nil and target.optimize ~= 0 then
-            return nil, label .. ".reload builds at optimize = 0"
         end
         -- An `@aot` policy rewrites a body into a call to compiled machine code,
         -- and reload replaces Lua bodies. Patching the wrapper would report a

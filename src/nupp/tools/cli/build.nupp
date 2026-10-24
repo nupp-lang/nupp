@@ -9,7 +9,6 @@ and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
 
-local usageError = require("nupp.tools.cli.error").forCommand("build")
 local cliModule = require("nupp.cli")
 
 local REPORT_SCHEMA = {
@@ -139,10 +138,6 @@ local REPORT_SCHEMA = {
                 totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
                 compiledModules = {type = "integer"},
                 reusedModules = {type = "integer"},
-                specializedBodies = {
-                    type = "integer",
-                    description = "Logical const-specialized bodies emitted independently of module count.",
-                },
                 parallel = require("nupp.tools.cli.report").PARALLEL,
                 phases = {
                     type = "array",
@@ -189,7 +184,7 @@ local REPORT_SCHEMA = {
                     },
                 },
             },
-            required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
+            required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest",},
         },
         ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
@@ -201,16 +196,11 @@ local function run(options: any): integer
     -- `--output` names the manifest target's output directory.
     local projectOutDir: string? = values.output
     local target = values.target
-    if values.remarksOut == "" then
-        return usageError("--remarks-out= requires a file name")
-    end
     local reportMod = require("nupp.tools.cli.report")
     local asJson = values.format == "json"
     -- Under --json the diagnostics belong in the document rather than on stderr as they
     -- are found.
     local diagnostics: {any} = {}
-    local compile = require("nupp.tools.cli.compile")
-    local settings = compile.settings(values, asJson and diagnostics or nil)
     -- The same timing either way, and no narration when the reader is a program: it
     -- gets the numbers in the document it asked for. Naming --progress explicitly
     -- overrules that, which is how somebody watching a --json build sees it move.
@@ -220,10 +210,6 @@ local function run(options: any): integer
 
     -- Ends the command with what the build produced.
     local function finish(code: integer, produced: {[string]: any}): integer
-        -- Every way out of this command passes here, which is the point: the option is
-        -- advertised on `build`, and a build that wrote nothing because it took a
-        -- different branch is the same defect as not implementing it.
-        compile.writeRemarks(settings)
         if asJson then
             reportMod.write({
                 ok = code == 0,
@@ -252,29 +238,17 @@ local function run(options: any): integer
         target = target,
         platform = values.platform,
         host = values.host,
-        optLevel = settings.optLevel,
-        remarks = settings.remarks,
-        remarksFile = settings.remarksFile,
-        disabled = settings.disabled,
         diagnostics = asJson and diagnostics or nil,
-        produced = (asJson or settings.remarksOut ~= nil) and produced or nil,
+        produced = asJson and produced or nil,
         progress = progressMode
     })
-    if settings.remarksOut then
-        settings.optLevel = produced.optLevel or settings.optLevel
-        settings.collectedRemarks = produced.optimizationRemarks or {}
-        settings.collectedAllocationSites = produced.allocationSites or {}
-        settings.accountedModules = produced.accountedModules or 0
-    end
 
     return finish(code, produced)
 end
 
 --- Build a configured project target.
 ---
---- Builds the manifest's default or selected target.
---- The optimization level is part of the build key, so changing it rebuilds
---- rather than mixing artifacts compiled at two levels. JSON output carries
+--- Builds the manifest's default or selected target. JSON output carries
 --- diagnostics, written artifacts, materialization facts, and timing data.
 --- Progress and timing stay on standard error so machine-readable standard
 --- output remains one document.
@@ -283,7 +257,7 @@ end
 ---
 ---     nupp build
 ---     nupp build --target app
----     nupp build -O2 --remarks
+---     nupp build --json
 @cli("build")
 @derive(cliModule.Command)
 local record Build
@@ -302,39 +276,6 @@ local record Build
     --- Runtime host services.
     @cli(value = "HOST", choices = {"native", "browser"})
     host: string?
-
-    --- Optimization level.
-    @cli(
-        name = "O",
-        long = false,
-        pattern = "^%-O([0-2])$",
-        choices = {"0", "1", "2"},
-        display = "-O0, -O1, -O2",
-        value = "LEVEL"
-    )
-    optLevel: string?
-
-    --- Report what the optimizer did and what it declined to do.
-    remarks: boolean = false
-
-    --- Only report optimizer decisions for this source file.
-    @cli(value = "FILE")
-    remarksFor: string?
-
-    --- Write the optimizer's account to a file, build/remarks.json by default.
-    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
-    remarksOut: string?
-
-    --- Turn off one optimizer pass by stable code.
-    @cli(
-        name = "Zno-opt",
-        short = "Zno-opt",
-        long = false,
-        arity = "attachedOnly",
-        display = "-Zno-opt=CODE",
-        value = "CODE"
-    )
-    disabled: {[string]: boolean} = {}
 
     --- When to report progress and timing.
     @cli(
