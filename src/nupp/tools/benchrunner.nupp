@@ -27,6 +27,7 @@ local time = require("nupp.time")
 local type Bench = {
     SCHEMA: integer,
     compare: function(any, any): ({string}, {string}),
+    compilerChange: function(any, any): string?,
     decodeBaseline: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
@@ -35,14 +36,14 @@ local compare = bench.compare
 local format = bench.format
 
 --- The oldest runner document that still reads as a baseline. Three is the first
---- that held one record per fork; it reads with its deterministic counters and no
---- durations, since those were seconds under other names.
+--- that held one record per fork. Anything older than `bench.SCHEMA` reads as an
+--- inconclusive one: three kept its durations in seconds under other names, and four
+--- timed programs at an optimization level that no longer exists.
 local OLDEST_BASELINE_SCHEMA: integer = 3
 
 --- Where a child is told to write, and where the merged record goes.
 local RECORD_OUT = "build/bench-case.json"
 
-local REMARKS_OUT = "build/remarks.json"
 local MERGED_OUT = "build/bench-record.json"
 local DEFAULT_TIMEOUT_MS: integer = 120000
 
@@ -211,7 +212,7 @@ local function nuppRun(
     timeoutMs: integer,
     gpuCostsOut: string?
 ): (boolean, string?)
-    local args = {executable, "run", "-O1", "--remarks-out"}
+    local args = {executable, "run"}
     if gpuCostsOut ~= nil then
         args[#args + 1] = "--gpu-costs"
         args[#args + 1] = gpuCostsOut
@@ -477,16 +478,7 @@ local function casesFor(
     end
 
     local function argumentsFor(path: string, listing: string): {string}
-        return buildProcess.isolatedArguments({
-            executable,
-            "run",
-            "-O1",
-            "--remarks-out",
-            path,
-            "--list-cases",
-            "--cases-out",
-            listing
-        })
+        return buildProcess.isolatedArguments({executable, "run", path, "--list-cases", "--cases-out", listing})
     end
 
     local width = listingWidth(#wanted)
@@ -604,7 +596,6 @@ local function runCase(
     gpuCostsOut: string?
 ): (any?, string?)
     os.remove(RECORD_OUT)
-    os.remove(REMARKS_OUT)
     local extra = {"--case", name, "--out", RECORD_OUT, "--quiet"}
     if n then
         extra[#extra + 1] = "--n"
@@ -620,19 +611,6 @@ local function runCase(
         return nil, path .. " / " .. name .. ": wrote a record that does not parse"
     end
     decoded.gpuCosts = gpuCostsOut
-    -- Re-read after the child exited. `nupp run` writes the account again once every
-    -- module the program required has been compiled, so this is the complete one and
-    -- what the child embedded mid-run is only the entry.
-    local remarksText = readFile(REMARKS_OUT)
-    if remarksText then
-        local remarks, unreadable = json.decode(remarksText)
-        if unreadable == nil then
-            decoded.executionProfile = remarks.executionProfile
-            decoded.remarks = remarks.remarks
-            decoded.allocationSites = remarks.allocationSites
-            decoded.compiler = remarks.compiler
-        end
-    end
     if not ok then
         return decoded, path .. " / " .. name .. ": " .. (runProblem or "the case reported a failure")
     end
@@ -747,54 +725,6 @@ local function fromPerOperation(measurement: any, value: number): number
     return value
 end
 
---- A sorted, canonical representation of a fork's allocation sites.
----
---- Site records are tables, so comparing the lists directly compares table identity
---- and reports every fork after the first as a disagreement. What has to match is the
---- content, and in the same terms the gate uses: the file and kind a site is counted
---- under, which is what `bench.compare` compares a baseline on.
-local function allocationIdentities(record: any): {string}
-    local entries: {string} = {}
-    for _, site in ipairs(record and record.allocationSites or {}) do
-        entries[
-            #entries + 1
-        ] = tostring(site.file) .. "|" .. tostring(site.kind) .. "|" .. tostring(site.line) .. "|" .. tostring(site.col)
-    end
-    table.sort(entries)
-
-    return entries
-end
-
---- The same for remarks, keyed as the comparison keys them.
-local function remarkIdentities(record: any): {string}
-    local entries: {string} = {}
-    for _, entry in ipairs(record and record.remarks or {}) do
-        local at = entry.range and entry.range.start or nil
-        entries[
-            #entries + 1
-        ] = (
-            "%s|%s|%s|%s"
-        ):format(tostring(entry.code), tostring(entry.file), tostring(at and at.line or 0), tostring(entry.message))
-    end
-    table.sort(entries)
-
-    return entries
-end
-
---- Whether two canonical identity lists hold the same entries.
-local function sameList(left: {string}, right: {string}): boolean
-    if #left ~= #right then
-        return false
-    end
-    for index = 1, #left do
-        if left[index] ~= right[index] then
-            return false
-        end
-    end
-
-    return true
-end
-
 --- Builds a merged record for a benchmark from its forks.
 ---
 --- The forks themselves are kept beside the summary rather than reduced to it. A
@@ -810,27 +740,6 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         local measurement = onlyMeasurement(fork)
         if measurement then
             summaries[#summaries + 1] = perOperation(measurement)
-        end
-    end
-
-    -- Allocation sites and remarks are the compiler's account of its own output, so
-    -- every fork of one binary must agree. A disagreement is a defect in the harness
-    -- or the compiler rather than a measurement, and picking one silently would hide
-    -- it behind a number.
-    local firstAllocations = allocationIdentities(first)
-    local firstRemarks = remarkIdentities(first)
-    for index = 2, #forks do
-        if not sameList(allocationIdentities(forks[index]), firstAllocations) then
-            notes[
-                #notes + 1
-            ] = name .. ": nondeterministic compiler output: fork " .. tostring(
-                index
-            ) .. " reported different allocation sites"
-        end
-        if not sameList(remarkIdentities(forks[index]), firstRemarks) then
-            notes[
-                #notes + 1
-            ] = name .. ": nondeterministic compiler output: fork " .. tostring(index) .. " reported different remarks"
         end
     end
 
@@ -953,28 +862,14 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         forkEntries[#forkEntries + 1] = {index = index, measurement = onlyMeasurement(fork), gpuCosts = fork.gpuCosts,}
     end
 
-    return {
-        name = name,
-        case = path,
-        forks = forkEntries,
-        summary = merged,
-        executionProfile = first.executionProfile,
-        remarks = first.remarks,
-        allocationSites = first.allocationSites,
-        compiler = first.compiler,
-    }, notes
+    return {name = name, case = path, forks = forkEntries, summary = merged, compiler = first.compiler,}, notes
 end
 
---- The record shape `bench.compare` reads, assembled from a merged benchmark.
+--- The record shape `bench.compare` reads, assembled from a merged benchmark. The
+--- compiler is left out: every benchmark in a set ran under one, so the runner says
+--- once whether it changed rather than once per benchmark.
 local function comparableRecord(entry: any): any
-    return {
-        schema = bench.SCHEMA,
-        cases = {entry.summary,},
-        executionProfile = entry.executionProfile,
-        remarks = entry.remarks,
-        allocationSites = entry.allocationSites,
-        compiler = entry.compiler,
-    }
+    return {schema = bench.SCHEMA, cases = {entry.summary,}}
 end
 
 ----------------------------------------------------------------------------
@@ -1163,6 +1058,8 @@ local function formatVerdicts(verdicts: {any}, margin: number, source: string, p
             interval = "withheld (trend)"
         elseif item.withheld == "below-minimum-forks" then
             interval = "withheld (forks)"
+        elseif item.withheld == "baseline-schema" then
+            interval = "withheld (schema)"
         elseif item.interval then
             interval = ("[%s, %s]"):format(percent(item.interval.low), percent(item.interval.upper))
         end
@@ -1654,6 +1551,25 @@ function runner.run(options: runner.Options): integer
             baselineByName[tostring(entry.case) .. "\0" .. tostring(entry.name)] = entry
         end
         local sameMachine = previous.machineKey ~= nil and previous.machineKey == document.machineKey
+        -- Read rather than refused, but every verdict against an older record is
+        -- inconclusive, whatever its numbers say.
+        local olderSchema = (previous.schema or 0) < bench.SCHEMA
+        if olderSchema then
+            notes[
+                #notes + 1
+            ] = (
+                "baseline %s is schema %s, older than this record's %d; every duration verdict against it is inconclusive"
+            ):format(baselinePath, tostring(previous.schema), bench.SCHEMA)
+        end
+        local firstMerged = merged[1]
+        local firstBaseline = (previous.benchmarks or {})[1]
+        local compilerNote = bench.compilerChange(
+            firstMerged and firstMerged.compiler,
+            firstBaseline and firstBaseline.compiler
+        )
+        if compilerNote then
+            notes[#notes + 1] = compilerNote
+        end
         local pending: {any} = {}
         for _, entry in ipairs(merged) do
             local was = baselineByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
@@ -1671,7 +1587,7 @@ function runner.run(options: runner.Options): integer
                     local current = entry.summary.forkSummariesMs or {}
                     local before = was.summary and was.summary.forkSummariesMs or {}
                     local change, interval, pValue = durationChange(current, before, false)
-                    local withheld = entry.summary.intervalWithheld
+                    local withheld = entry.summary.intervalWithheld or (olderSchema and "baseline-schema" or nil)
                     if withheld then
                         interval = nil
                     end

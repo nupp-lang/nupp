@@ -22,8 +22,6 @@ Call `poll` between units of work, when no update or request is partially
 applied. Application state, registered callback values and module tables stay in
 place; only future calls enter new bodies.
 
-Watch mode refuses an `-O` level other than `-O0`.
-
 ## Start, edit, reload
 
 Save this as `app.nupp`. It prints once, waits for Enter, then polls and prints

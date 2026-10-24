@@ -1,8 +1,8 @@
 local testAssert = require("nupp.test")
 -- The nupp.bench surface: the harness conventions and the comparison rules, which
--- differences are gated and which merely annotate. The two that matter are that an
--- optimization level keys a baseline -- `-O0` and `-O1` were never comparable -- and
--- that a compiler digest never does, because a compiler change moving a counter is the
+-- baselines compare and what a comparison only reports. The two that matter are that
+-- the record's schema keys a baseline -- an older record is an inconclusive one -- and
+-- that a compiler digest never does, because a compiler change moving a number is the
 -- regression this is for rather than a reason to stop looking.
 --
 -- The Lua generator's `keep` sink intrinsic and the Lua optimizer's allocation account
@@ -66,39 +66,52 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
     end
 end
 
--- The gate compares counts per file, not positions. Identifying a site by file, line
--- and column meant inserting a comment above unchanged code reported every allocation
--- below it as newly introduced, failing the gate for a change that allocated nothing.
-function M.movingCodeDoesNotLookLikeANewAllocation()
+-- A record and a baseline of one schema compare. Records used to carry the optimizer's
+-- execution profile, and once nothing wrote one every comparison said "execution
+-- profile differs; nothing is comparable": the gate was off and read like a pass.
+function M.aBaselineOfTheSameSchemaCompares()
     local bench = require("nupp.bench")
-    local profile = {optLevel = 1, disabled = ""}
-    local before = {
-        executionProfile = profile,
-        allocationSites = {
-            {file = "a.nupp", kind = "table", line = 10, col = 5},
-            {file = "a.nupp", kind = "table", line = 20, col = 5},
-        }
+    local compiler = {version = "0.0.0", digest = "aaaaaaaaaaaaaaaaaaaa"}
+    local baseline = {schema = bench.SCHEMA, compiler = compiler, cases = {{name = "parse", kind = "case", n = 4}}}
+    local record = {
+        schema = bench.SCHEMA,
+        compiler = compiler,
+        cases = {{name = "parse", kind = "case", n = 4}, {name = "emit", kind = "case", n = 2}},
     }
-    local moved = {
-        executionProfile = profile,
-        allocationSites = {
-            {file = "a.nupp", kind = "table", line = 40, col = 9},
-            {file = "a.nupp", kind = "table", line = 50, col = 1},
-        }
-    }
-    local failures = bench.compare(moved, before)
-    testAssert.equal(#failures, 0, "the same two allocations in new positions are not a regression")
+    local failures, notes = bench.compare(record, baseline)
+    testAssert.equal(#failures, 0, "nothing is gated")
+    testAssert.equal(#notes, 1, table.concat(notes, "\n"))
+    testAssert.equal(notes[1], "emit: no baseline", "a case the baseline lacks is said to have none")
 
-    local added = {
-        executionProfile = profile,
-        allocationSites = {
-            {file = "a.nupp", kind = "table", line = 10, col = 5},
-            {file = "a.nupp", kind = "table", line = 20, col = 5},
-            {file = "a.nupp", kind = "table", line = 30, col = 5},
-        }
+    -- A compiler change is reported and never stops the comparison.
+    local moved = {schema = bench.SCHEMA, compiler = {version = "0.0.1", digest = "bbbbbbbbbbbbbbbbbbbb"}, cases = record.cases}
+    local _, movedNotes = bench.compare(moved, baseline)
+    testAssert.equal(#movedNotes, 2, table.concat(movedNotes, "\n"))
+    testAssert.equal(
+        movedNotes[1],
+        "compiler changed: 0.0.1 (bbbbbbbbbbbb) from 0.0.0 (aaaaaaaaaaaa)",
+        "the change names both compilers"
+    )
+    testAssert.equal(movedNotes[2], "emit: no baseline", "and the cases are still compared")
+    testAssert.equal(bench.compilerChange(compiler, nil), nil, "a side that does not say is no change")
+end
+
+-- An older record still reads as a baseline, and an inconclusive one. A schema four
+-- record named the optimization level it timed, which no longer exists.
+function M.anOlderSchemaBaselineIsInconclusive()
+    local bench = require("nupp.bench")
+    local older = {
+        schema = bench.SCHEMA - 1,
+        executionProfile = {optLevel = 1, disabled = ""},
+        allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
+        cases = {},
     }
-    local grew = bench.compare(added, before)
-    testAssert.equal(#grew, 1, "a third allocation in the same file is a regression")
+    local record = {schema = bench.SCHEMA, cases = {{name = "parse", kind = "case", n = 4}}}
+    local failures, notes = bench.compare(record, older)
+    testAssert.equal(#failures, 0, "an older baseline fails nothing")
+    testAssert.equal(#notes, 1, table.concat(notes, "\n"))
+    assert(notes[1]:find("inconclusive", 1, true) ~= nil, notes[1])
+    assert(notes[1]:find("schema " .. (bench.SCHEMA - 1), 1, true) ~= nil, "and names the schema: " .. notes[1])
 end
 
 function M.duplicateBenchmarkNamesAreRejected()
@@ -632,54 +645,22 @@ end
 -- What a comparison gates on, and what it only reports
 ----------------------------------------------------------------------------
 
--- A run's forks are separate processes of one binary, so they must agree about what the
--- compiler emitted. Merging must not hide a compiler that stopped being deterministic.
-function M.forksMustAgreeOnCompilerOutput()
+-- Allocation is measured once per fork, so the merged figure is the median fork's
+-- rather than the first one's presented as though it represented the run.
+function M.mergedAllocationIsTheMedianFork()
     local runner = require("nupp.tools.benchrunner")
 
-    local function fork(sites, allocated)
+    local function fork(allocated)
         return {
-            allocationSites = sites,
-            remarks = {},
+            compiler = {version = "0.0.0", digest = "aaaa"},
             cases = {{name = "x", kind = "suite", medianMs = 0.001, allocatedKb = allocated, samplesMs = {1.0},},},
         }
     end
 
-    local stable = {{file = "a.nupp", kind = "table", line = 1, col = 1}}
-
-    local merged, notes = runner.mergeForks("x", "a.nupp", {fork(stable, 1.0), fork(stable, 3.0), fork(stable, 2.0),})
+    local merged, notes = runner.mergeForks("x", "a.nupp", {fork(1.0), fork(3.0), fork(2.0),})
     testAssert.equal(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
     testAssert.equal(#notes, 0, "and needs no note")
-
-    -- Allocation sites are the compiler's account of its own output. Forks of one
-    -- binary disagreeing is a defect, not a measurement, and must not be averaged away.
-    local drifted, driftNotes = runner.mergeForks("x", "a.nupp", {
-        fork(stable, 1.0),
-        fork({{file = "a.nupp", kind = "closure", line = 9, col = 9}}, 1.0),
-    })
-    assert(
-        table.concat(driftNotes, "\n"):find("nondeterministic compiler output") ~= nil,
-        "disagreeing allocation sites are reported as a defect"
-    )
-    assert(drifted ~= nil, "and the merge still produces a record to look at")
-end
-
--- Forks that disagree about nothing must not be reported as disagreeing. The counters
--- arrive as tables, so a merge comparing them by identity would call every fork after
--- the first nondeterministic and bury the real signal in noise.
-function M.identicalForksReportNoDisagreement()
-    local runner = require("nupp.tools.benchrunner")
-
-    local function fork()
-        return {
-            allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
-            remarks = {{code = "OPT-1", file = "a.nupp", message = "m", range = {start = {line = 1}}}},
-            cases = {{name = "x", kind = "suite", medianMs = 0.001, samplesMs = {1.0}}},
-        }
-    end
-
-    local _, notes = runner.mergeForks("x", "a.nupp", {fork(), fork(), fork()})
-    testAssert.equal(#notes, 0, "three identical forks disagree about nothing")
+    testAssert.equal(merged.compiler.digest, "aaaa", "the merge carries the compiler that ran the forks")
 end
 
 -- An interval needs enough processes to support it, and a process that never settled
@@ -688,11 +669,7 @@ function M.mergeWithholdsIntervalsItCannotSupport()
     local runner = require("nupp.tools.benchrunner")
 
     local function fork(median, trend)
-        return {
-            allocationSites = {},
-            remarks = {},
-            cases = {{name = "x", kind = "suite", medianMs = median, samplesMs = {median}, trend = trend,},},
-        }
+        return {cases = {{name = "x", kind = "suite", medianMs = median, samplesMs = {median}, trend = trend,},},}
     end
 
     local few = {}
@@ -816,11 +793,7 @@ function M.mergeReportsAScatteredBenchmark()
     local runner = require("nupp.tools.benchrunner")
 
     local function fork(samples)
-        return {
-            allocationSites = {},
-            remarks = {},
-            cases = {{name = "x", kind = "suite", medianMs = 0.00008, samplesMs = samples, concentration = 0.09,},},
-        }
+        return {cases = {{name = "x", kind = "suite", medianMs = 0.00008, samplesMs = samples, concentration = 0.09,},},}
     end
 
     local samples = {}
@@ -842,15 +815,15 @@ end
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("nupp.bench")
-    testAssert.equal(bench.SCHEMA, 4, "records are written at schema 4")
-    for _, schema in ipairs({2, 3, 4}) do
+    testAssert.equal(bench.SCHEMA, 5, "records are written at schema 5")
+    for _, schema in ipairs({2, 3, 4, 5}) do
         local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
     end
     local _, older = bench.decodeBaseline('{"schema":2,"cases":[]}', "b.json", 3)
     assert(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
     for text, expected in pairs({
-        ['{"schema":5,"cases":[]}'] = "nupp: baseline b.json has schema 5; this bench reads schema 4, and 2 through 3",
+        ['{"schema":6,"cases":[]}'] = "nupp: baseline b.json has schema 6; this bench reads schema 5, and 2 through 4",
         ['{"schema":1.5}'] = "has schema 1.5",
         ['{"cases":[]}'] = "has schema none",
         ['[1, 2]'] = "nupp: baseline b.json is not a bench record",

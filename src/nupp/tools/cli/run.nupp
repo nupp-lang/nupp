@@ -5,9 +5,7 @@ module nupp.tools.cli.run
 
 The one command whose argument list has two halves. Everything up to the file
 name is the compiler's; everything after it belongs to the program, which is why
-this grammar stops at the first argument that is not an option. `--remarks-out`
-carries its value attached rather than in the next argument for the same reason:
-bare, it must not swallow the file name behind it.
+this grammar stops at the first argument that is not an option.
 ]]
 const {type Session} = require("nupp.tools.cli.watch")
 
@@ -40,9 +38,6 @@ local function run(options: any): integer
     if values.gpuCosts == "" then
         return usageError("--gpu-costs needs an output path")
     end
-    if values.remarksOut == "" then
-        return usageError("--remarks-out= requires a file name")
-    end
     local path = positional[1]
     if not path then
         return usageError("a program file is required")
@@ -51,16 +46,12 @@ local function run(options: any): integer
     if watching and not path:find("%.nupp$") then
         return usageError("--watch requires a .nupp program")
     end
-    if watching and values.optLevel and values.optLevel ~= "0" then
-        return usageError("--watch supports -O0 only; run a normal optimized build before release")
-    end
     local programArgs: {string} = {}
     for index = 2, #positional do
         programArgs[#programArgs + 1] = positional[index]
     end
 
     local compile = require("nupp.tools.cli.compile")
-    local settings = compile.settings(values)
     local projectEnv = require("nupp.compiler.project.env").new(".")
     local loadImage: (function(image: string): (any, string?))? = rawget(_G, "__nupp_load_image")
     local chunk, err
@@ -94,12 +85,6 @@ local function run(options: any): integer
         return 1
     end
 
-    -- Written before the program starts, because the program is what reads it: a
-    -- benchmark reports the optimization level and declined passes it was compiled
-    -- under alongside what it measured. At this point it accounts for the entry alone;
-    -- it is written again below, once every module the program required has been
-    -- compiled, which is the complete account a reader of the file gets.
-    compile.writeRemarks(settings)
     -- What checking the entry worked out about the project, its index above all,
     -- kept for the next run before this one starts: a program may never return.
     -- Without it every run read and parsed every file under the include roots
@@ -174,11 +159,33 @@ local function run(options: any): integer
         return (loadImage as function(image: string): (any, string?))(code)
     end or nil
     local removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain, loadCompiled)
-    -- An artifact left by an earlier run may still be present. Tell a library in this
-    -- run where this invocation writes one, if it does, without making the path
-    -- another piece of program configuration.
-    local previousRemarksOut = _G.__nuppRemarksOut
-    _G.__nuppRemarksOut = settings.remarksOut
+    -- Which compiler is running the program, for a library that records it beside
+    -- what it measured: a benchmark record says what compiled it, so a reader seeing a
+    -- number move knows whether the compiler moved under it. Its release, and a digest
+    -- that tells two builds of one release apart, since the version string alone
+    -- cannot. Published rather than configured, so it cannot disagree with the
+    -- compiler that actually ran, and as a function, so a program that never asks
+    -- does not pay for the digest; worked out under the compiler's own `arg`, as a
+    -- compile is, and once.
+    local identity: {[string]: string}? = nil
+
+    local function compilerIdentity(): {[string]: string}
+        if identity == nil then
+            local current: any = rawget(_G, "arg")
+            rawset(_G, "arg", toolArg)
+            local ok, digest = pcall(require("nupp.tools.build.cache").moduleCompilerFingerprint)
+            rawset(_G, "arg", current)
+            if not ok then
+                error(digest, 0)
+            end
+            identity = {version = require("nupp.tools.version").VERSION, digest = digest}
+        end
+
+        return identity as {[string]: string}
+    end
+
+    local previousCompiler = rawget(_G, "__nuppCompiler")
+    rawset(_G, "__nuppCompiler", compilerIdentity)
     rawset(_G, "arg", programArg)
     local ok, runErr = pcall(chunk, unpack(programArgs))
     rawset(_G, "arg", toolArg)
@@ -189,15 +196,11 @@ local function run(options: any): integer
             gpuCostsError = closeErr
         end
     end
-    _G.__nuppRemarksOut = previousRemarksOut
+    rawset(_G, "__nuppCompiler", previousCompiler)
     removeLoader()
     if watch then
         watch.finish(ok)
     end
-
-    -- Complete after lazy loading, so the artifact covers every module the program
-    -- required.
-    compile.writeRemarks(settings)
     if gpuCostsError ~= nil then
         io.stderr:write(errors.message(gpuCostsError) .. "\n")
     end
@@ -213,8 +216,8 @@ end
 ---
 --- The program path divides compiler options from arguments passed to the
 --- loaded chunk. Use `--` before a program path beginning with a dash.
---- `--watch` is development-only, uses `-O0`, and applies valid changed-body
---- patches at cooperative poll boundaries.
+--- `--watch` is development-only and applies valid changed-body patches at
+--- cooperative poll boundaries.
 ---
 --- Examples:
 ---
@@ -223,32 +226,6 @@ end
 @cli(name = "run", stopAtFirstArgument = true)
 @derive(cliModule.Command)
 local record Run
-    --- Optimization level.
-    @cli(
-        name = "O",
-        long = false,
-        pattern = "^%-O([0-2])$",
-        choices = {"0", "1", "2"},
-        display = "-O0, -O1, -O2",
-        value = "LEVEL"
-    )
-    optLevel: string?
-
-    --- Report what the optimizer did and what it declined to do.
-    remarks: boolean = false
-
-    --- Only report optimizer decisions for this source file.
-    @cli(value = "FILE")
-    remarksFor: string?
-
-    --- Write the optimizer's account to a file, build/remarks.json by default.
-    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
-    remarksOut: string?
-
-    --- Turn off one optimizer pass by stable code.
-    @cli(short = "Zno-opt", long = false, arity = "attachedOnly", value = "CODE")
-    disabled: {[string]: boolean} = {}
-
     --- Keep named function identities patchable at poll points.
     watch: boolean = false
 

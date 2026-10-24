@@ -457,10 +457,15 @@ result and a different one from a pass; a named baseline that is not there
 exits non-zero.
 
 A baseline's `schema` is checked where it is read. Records are written at
-schema 4, which keeps every duration in milliseconds under an `Ms` name. A
-schema 3 record kept them in seconds under `Sec` names, so every duration
-verdict against it is inconclusive. Any other schema is refused, naming the one
-it holds and the ones this version reads, and `--accept` replaces it.
+schema 5, which keeps every duration in milliseconds under an `Ms` name and
+names the compiler that ran each benchmark, its `version` and a `digest` that
+tells two builds of one version apart. A baseline made by another compiler is
+still compared, and the run says the compiler changed. A schema 3 or 4 record
+still reads, and every duration verdict against it is inconclusive, its interval
+withheld for the schema: schema 3 kept durations in seconds under `Sec` names,
+and schema 4 timed programs at an optimization level that no longer exists. Any
+other schema is refused, naming the one it holds and the ones this version
+reads, and `--accept` replaces it.
 
 ## Machine-readable output
 

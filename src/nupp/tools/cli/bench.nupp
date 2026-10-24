@@ -107,6 +107,12 @@ local RUN_SCHEMA = {
                         type = "object",
                         description = "The merged measurement: fork summaries and the interval or why it was withheld.",
                     },
+                    compiler = {
+                        type = "object",
+                        description = "The compiler that ran the benchmark, when nupp run said.",
+                        properties = {version = {type = "string"}, digest = {type = "string"}},
+                        required = {"version", "digest"},
+                    },
                 },
                 required = {"case", "name", "forks", "summary"},
             },

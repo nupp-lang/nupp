@@ -10,8 +10,8 @@ local testAssert = require("nupp.test")
 -- The division is by cost, not by importance, and the line is drawn so that nothing
 -- gated here is the only cover for something an ungated change can break. What stays
 -- behind is everything a compiler or library change can reach without touching bench
--- code: the `keep` intrinsic's lowering, the allocation account, the statistics, the
--- fork merge rules and the result table. What moved is the process boundary itself --
+-- code: the comparison rules, the statistics, the fork merge rules and the result
+-- table. What moved is the process boundary itself --
 -- case listing, selection, replication, the pilot -- which only bench code changes.
 --
 -- The classifier rules that select this suite are in
@@ -186,11 +186,12 @@ function M.comparisonRecordsRetainBothSidesAndVerdicts()
     os.execute(("rm -rf %q"):format(working))
 end
 
--- A baseline's schema is checked where it is read. A version three document kept
--- its durations in seconds under other names, so it still reads for the
--- deterministic counters and every duration verdict against it is inconclusive. A
--- schema this version does not read is refused, naming both, rather than decoding
--- as a baseline that matches nothing and passes.
+-- A baseline's schema is checked where it is read. A baseline of this version compares,
+-- and a slower run against it is a regression. An older one still reads and every
+-- duration verdict against it is inconclusive: version four timed programs at an
+-- optimization level that no longer exists, and version three kept its durations in
+-- seconds under other names. A schema this version does not read is refused, naming
+-- both, rather than decoding as a baseline that matches nothing and passes.
 function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local working = workspace()
     local stdout, stderr, baseline = working
@@ -229,13 +230,37 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local compared = ("--case '^fixed$' --forks 12 --baseline %q --margin 5"):format(baseline)
     testAssert.equal(run("--case '^fixed$' --forks 12"), 0, "the baseline run succeeds")
     local current = json.decode(read(stdout))
-    testAssert.equal(current.schema, 4, "a record is written at schema 4")
+    testAssert.equal(current.schema, 5, "a record is written at schema 5")
 
     write(current)
     testAssert.equal(run(compared), 0, "a current baseline compares")
     local comparison = json.decode(read(stdout)).comparisons[1]
     testAssert.equal(comparison.kind, "observational", "a current baseline is compared")
     testAssert.equal(#comparison.verdicts, 1, "a current baseline's durations are compared")
+    testAssert.equal(comparison.verdicts[1].withheld, nil, "and nothing about the baseline withholds them")
+    assert(read(stderr):find("nothing is comparable", 1, true) == nil, read(stderr))
+
+    -- Twice as fast in the baseline, so this run is a regression the comparison finds.
+    local faster = json.decode(json.encode(current))
+    local summaries = faster.benchmarks[1].summary.forkSummariesMs
+    for index = 1, #summaries do
+        summaries[index] = summaries[index] / 2
+    end
+    write(faster)
+    testAssert.equal(run(compared), 0, "a duration verdict never changes the exit status")
+    local verdict = json.decode(read(stdout)).comparisons[1].verdicts[1]
+    testAssert.equal(verdict.verdict, "regressed", "a slower run against a current baseline is a regression")
+
+    local previous = json.decode(json.encode(faster))
+    previous.schema = 4
+    write(previous)
+    testAssert.equal(run(compared), 0, "a version four baseline still reads")
+    comparison = json.decode(read(stdout)).comparisons[1]
+    testAssert.equal(comparison.kind, "observational", "a version four baseline is compared")
+    verdict = comparison.verdicts[1]
+    testAssert.equal(verdict.withheld, "baseline-schema", "the schema withholds the interval")
+    testAssert.equal(verdict.verdict, "inconclusive", "durations against a version four baseline are inconclusive")
+    assert(read(stderr):find("is schema 4", 1, true) ~= nil, read(stderr))
 
     local older = rename(current)
     older.schema = 3
@@ -243,15 +268,15 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     testAssert.equal(run(compared), 0, "a version three baseline still reads")
     comparison = json.decode(read(stdout)).comparisons[1]
     testAssert.equal(comparison.kind, "observational", "a version three baseline is compared")
-    local verdict = comparison.verdicts[1]
+    verdict = comparison.verdicts[1]
     testAssert.equal(verdict.interval, nil, "a version three baseline has no durations to compare")
     testAssert.equal(verdict.verdict, "inconclusive", "durations against a version three baseline are inconclusive")
 
-    current.schema = 5
+    current.schema = 6
     write(current)
     assert(run(compared) ~= 0, "a foreign schema is refused")
     local problem = read(stderr)
-    assert(problem:find("has schema 5; this bench reads schema 4", 1, true) ~= nil, problem)
+    assert(problem:find("has schema 6; this bench reads schema 5", 1, true) ~= nil, problem)
 
     write({benchmarks = {}})
     assert(run(compared) ~= 0, "a document without a schema is refused")
@@ -268,7 +293,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local fixture = HERE .. "/fixtures/bench_protocol.nupp"
 
     local listed = os.execute(
-        inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
+        inWorkspace(working, ("%q run %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
     testAssert.equal(listed, 0, "case listing exits successfully")
     local listing = jsonLines(casesOut)
@@ -279,7 +304,7 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     local ran = os.execute(
         inWorkspace(
             working,
-            ("%q run -O1 %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
+            ("%q run %q --case protocol --n 3 --out %q > %q"):format(NUPP, fixture, recordOut, stdout)
         )
     )
     testAssert.equal(ran, 0, "the selected case exits successfully")
@@ -304,7 +329,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     local fixture = HERE .. "/fixtures/bench_suite.nupp"
 
     local listed = os.execute(
-        inWorkspace(working, ("%q run -O1 %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
+        inWorkspace(working, ("%q run %q --list-cases --cases-out %q > %q"):format(NUPP, fixture, casesOut, stdout))
     )
     testAssert.equal(listed, 0, "suite listing exits successfully")
     local listing = jsonLines(casesOut)
@@ -330,7 +355,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
     testAssert.equal(listing[2].variant, "other", "the listing identifies its variant")
     testAssert.equal(listing[4].parameters.size, 2, "the listing carries structured parameters")
 
-    local unsafe = os.execute(inWorkspace(working, ("%q run -O1 %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr)))
+    local unsafe = os.execute(inWorkspace(working, ("%q run %q > %q 2> %q"):format(NUPP, fixture, stdout, stderr)))
     assert(unsafe ~= 0, "a direct multi-benchmark run fails")
     assert(
         read(stderr):find("defines more than one benchmark", 1, true) ~= nil,
@@ -339,7 +364,7 @@ function M.suitesExpandParametersAndRequireOneSelectedPair()
 
     local selected = "protocol.work.other:size=2"
     local ran = os.execute(
-        inWorkspace(working, ("%q run -O1 %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
+        inWorkspace(working, ("%q run %q --case %q --out %q --quiet"):format(NUPP, fixture, selected, recordOut))
     )
     testAssert.equal(ran, 0, "the selected suite pair exits successfully")
     local record = json.decode(read(recordOut))

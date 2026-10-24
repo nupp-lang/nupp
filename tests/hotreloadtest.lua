@@ -1268,17 +1268,6 @@ function M.cliWatchPatchesUnderARunningLoop()
     end)
 end
 
-function M.cliWatchRejectsOptimizedGeneration()
-    local nupp = watchCommand() or (ROOT .. "/bin/nupp")
-    withProject({["main.nupp"] = "print(1)\n"}, function(dir)
-        local output = dir .. "/output.txt"
-        local command = ("cd '%s' && '%s' run --watch -O1 main.nupp > '%s' 2>&1"):format(dir, nupp, output)
-        local status = os.execute(command)
-        assert(status ~= 0, "optimized watch command must fail")
-        assert(readFile(output):find("--watch supports -O0 only", 1, true), readFile(output))
-    end)
-end
-
 function M.cliWatchRequiresRestartForMappedNativeReplacement()
     local nupp = watchCommand()
     if not nupp then

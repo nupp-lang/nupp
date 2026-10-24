@@ -39,16 +39,17 @@ local bench = {}
 --- The schema version of a written record. Bumped when a reader would otherwise
 --- misread an older file, and checked where a baseline is read.
 ---
---- Four records every duration in milliseconds, as the rest of the runtime does, where
---- three recorded seconds. Three added per-measurement samples on the case path,
---- within-process dispersion, trend and outlier classification, and a runner-side
---- document holding one record per fork.
+--- Five drops the optimizer's account -- `executionProfile`, `remarks` and
+--- `allocationSites` -- which went with the optimizer, and takes `compiler` from the
+--- compiler that ran the program. Four recorded every duration in milliseconds, as the
+--- rest of the runtime does, where three recorded seconds. Three added
+--- per-measurement samples on the case path, within-process dispersion, trend and
+--- outlier classification, and a runner-side document holding one record per fork.
 ---
---- An older record still reads as a baseline for the deterministic counters: version
---- two and three records carry no duration in the fields this version reads, so every
---- duration verdict against one is inconclusive rather than an error. Any other schema
---- is refused.
-bench.SCHEMA = 4
+--- An older record still reads as a baseline, and an inconclusive one: nothing in it
+--- says the program it timed is the one this compiler runs, so every duration verdict
+--- against it is inconclusive rather than an error. Any other schema is refused.
+bench.SCHEMA = 5
 
 --- The oldest schema a standalone program still reads as a baseline.
 bench.OLDEST_BASELINE_SCHEMA = 2
@@ -1167,25 +1168,16 @@ end
 -- Reporting
 ----------------------------------------------------------------------------
 
---- Reads the optimizer's account of this build, when `nupp run --remarks-out` wrote
---- one: the benchrunner asks for the default `build/remarks.json`, and `run` says
---- where it wrote.
----
---- Its absence is a result rather than a failure: a case run without one carries no
---- static counters and says so, and the gate then has only the dynamic half to work
---- with.
-local function readRemarks(): any
-    local path = _G.__nuppRemarksOut
-    if type(path) ~= "string" then
+--- The compiler running this program, as `nupp run` publishes it: its release and a
+--- digest that tells two builds of one release apart. Nil for a program something
+--- else ran, which a record says by leaving the field out.
+local function compilerIdentity(): any
+    local identity = rawget(_G, "__nuppCompiler")
+    if type(identity) ~= "function" then
         return nil
     end
-    local content = readFile(path)
-    if not content then
-        return nil
-    end
-    local decoded = json.decode(content)
 
-    return decoded
+    return (identity as function(): any)()
 end
 
 local function writeFile(path: string, content: string): nil
@@ -1198,85 +1190,36 @@ local function writeFile(path: string, content: string): nil
 end
 
 local function buildRecord(): any
-    local remarks = readRemarks()
     local cases = {}
     for index = 1, #measurements do
         cases[index] = measurements[index]
     end
 
-    return {
-        schema = bench.SCHEMA,
-        cases = cases,
-        executionProfile = remarks and remarks.executionProfile or nil,
-        remarks = remarks and remarks.remarks or nil,
-        allocationSites = remarks and remarks.allocationSites or nil,
-        compiler = remarks and remarks.compiler or nil,
-    }
+    return {schema = bench.SCHEMA, cases = cases, compiler = compilerIdentity(),}
 end
 
---- Whether two execution profiles describe the same thing being measured.
+--- Says the compiler changed between a baseline and this record, or nil when it did
+--- not or either side does not say.
 ---
---- The level and the excluded passes are part of what a benchmark is measuring rather
---- than a source of drift, so a record made at another one finds a different baseline
---- rather than a failing one.
-local function sameExecution(left: any, right: any): boolean
-    if left == nil or right == nil then
-        return false
-    end
-    if left.optLevel ~= right.optLevel then
-        return false
-    end
-
-    return (left.disabled or "") == (right.disabled or "")
-end
-
---- The identities of the allocations the optimizer left standing, as the build
---- recorded them. A static account of this compiler's own output; see
---- `optimize.allocationSites` for what it does and does not say.
---- Counted per file rather than identified by position. An identity of file, line and
---- column makes inserting a comment above unchanged code look like every allocation
---- below it was newly introduced, which fails the gate for a change that allocated
---- nothing. A count moves when an allocation is added or removed and not when one is
---- moved, which is the question being asked.
-local function allocationCounts(record: any): {[string]: integer}
-    local counts: {[string]: integer} = {}
-    for _, site in ipairs(record.allocationSites or {}) do
-        local key = tostring(site.file) .. "|" .. tostring(site.kind)
-        counts[key] = ((counts[key] or 0) + 1) as integer
+--- Reported rather than gated, and never a reason to stop comparing: a compiler change
+--- moving a number is the regression a comparison is for, but a reader has to know the
+--- compiler moved under it. Exported so the runner says it once for a whole set.
+---
+--- @param now the record's `compiler`
+--- @param was the baseline's `compiler`
+function bench.compilerChange(now: any, was: any): string?
+    if type(now) ~= "table" or type(was) ~= "table" or now.digest == was.digest then
+        return nil
     end
 
-    return counts
-end
-
---- The identities of the remarks the optimizer made, as the build recorded them.
-local function remarkIdentities(record: any): {string}
-    local entries: {string} = {}
-    for _, entry in ipairs(record.remarks or {}) do
-        local at = entry.range and entry.range.start or nil
-        entries[
-            #entries + 1
-        ] = (
-            "%s|%s|%s|%s"
-        ):format(tostring(entry.code), tostring(entry.file), tostring(at and at.line or 0), tostring(entry.message))
-    end
-    table.sort(entries)
-
-    return entries
-end
-
-local function listDifference(current: {string}, previous: {string}): {string}
-    local seen: {[string]: boolean} = {}
-    for _, entry in ipairs(previous) do
-        seen[entry] = true
-    end
-    local added: {string} = {}
-    for _, entry in ipairs(current) do
-        if not seen[entry] then
-            added[#added + 1] = entry
-        end
-    end
-
-    return added
+    return (
+        "compiler changed: %s (%s) from %s (%s)"
+    ):format(
+        tostring(now.version),
+        tostring(now.digest):sub(1, 12),
+        tostring(was.version),
+        tostring(was.digest):sub(1, 12)
+    )
 end
 
 --- Compares a record against one baseline record and returns what moved.
@@ -1294,44 +1237,30 @@ end
 --- A comparison with no comparable baseline is reported as exactly that. It is a
 --- result, and a different one from a regression: the runner has to say which, or a
 --- lost baseline reads like a pass.
+---
+--- Nothing is gated at present. The one deterministic counter there was, the
+--- optimizer's count of the allocations it left standing, went with the optimizer;
+--- durations are machine-dependent, so the runner reports them as verdicts instead.
 function bench.compare(record: any, baseline: any): ({string}, {string})
     local failures: {string} = {}
     local uncompared: {string} = {}
-    if not sameExecution(record.executionProfile, baseline.executionProfile) then
-        uncompared[#uncompared + 1] = "execution profile differs; nothing is comparable"
+    local schema = baseline.schema
+    if type(schema) == "number" and schema < bench.SCHEMA then
+        uncompared[
+            #uncompared + 1
+        ] = (
+            "baseline is schema %d, older than this record's %d; every comparison against it is inconclusive"
+        ):format(schema, bench.SCHEMA)
 
         return failures, uncompared
+    end
+    local changed = bench.compilerChange(record.compiler, baseline.compiler)
+    if changed then
+        uncompared[#uncompared + 1] = changed
     end
     local previous: {[string]: any} = {}
     for _, entry in ipairs(baseline.cases or {}) do
         previous[entry.name] = entry
-    end
-    -- Static counters are properties of the compiler's output, so they compare across
-    -- hosts unchanged.
-    local currentAllocations = allocationCounts(record)
-    local previousAllocations = allocationCounts(baseline)
-    local allocationKeys: {string} = {}
-    for key in pairs(currentAllocations) do
-        allocationKeys[#allocationKeys + 1] = key
-    end
-    table.sort(allocationKeys)
-    for _, key in ipairs(allocationKeys) do
-        local now = currentAllocations[key] or 0
-        local was = previousAllocations[key] or 0
-        if now > was then
-            failures[#failures + 1] = ("allocations rose from %d to %d in %s"):format(was, now, key)
-        end
-    end
-    -- Reported rather than gated. A remark carries no field saying whether the pass
-    -- fired or declined, so a pass that started firing would add one remark and remove
-    -- another, and gating the set would call that improvement a regression.
-    local currentRemarks = remarkIdentities(record)
-    local previousRemarks = remarkIdentities(baseline)
-    for _, entry in ipairs(listDifference(currentRemarks, previousRemarks)) do
-        uncompared[#uncompared + 1] = "remark appeared: " .. entry
-    end
-    for _, entry in ipairs(listDifference(previousRemarks, currentRemarks)) do
-        uncompared[#uncompared + 1] = "remark went away: " .. entry
     end
     for _, entry in ipairs(record.cases or {}) do
         if not previous[entry.name] then
@@ -1796,7 +1725,7 @@ end
 ---
 --- Raising is how a status reaches the shell: a chunk's return value is discarded and
 --- a run that did not raise exits zero. `os.exit` would also produce one and would
---- skip what `nupp run` writes after the chunk returns, such as `--remarks-out`.
+--- skip what `nupp run` does after the chunk returns, such as closing `--gpu-costs`.
 ---
 --- @raises string when a gated counter moved, or the record cannot be written
 function bench.report(): nil

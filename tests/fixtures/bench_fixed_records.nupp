@@ -17,7 +17,6 @@ else
     local name = option("--case")
     file:write(
         json.encode({
-            executionProfile = {optLevel = 1, disabled = ""},
             cases = {
                 {
                     name = name,

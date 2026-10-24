@@ -4119,7 +4119,6 @@ local VERSION_SOURCES = {
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
     ["Bench record"] = {"src/nupp/bench/init.nupp", "bench%.SCHEMA = (%d+)"},
-    ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
 }
 

@@ -3,7 +3,7 @@
 --- The work is arbitrary; what is being exercised is that a frame session records a
 --- distribution on the monotonic clock and reports itself without a second call.
 ---
---- Run: nupp run -O1 bench/frames.bench.nupp
+--- Run: nupp run bench/frames.bench.nupp
 local bench = require("nupp.bench")
 
 local total = 0.0

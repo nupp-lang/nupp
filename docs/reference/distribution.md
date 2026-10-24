@@ -297,8 +297,7 @@ are rebuilt with the toolchain that reads them.
 | Documentation model | 3 | read by consumers | `src/nupp/tools/doc/init.nupp` `schemaVersion` |
 | Coverage report | 1 | exact | `src/nupp/tools/coverage.nupp` `SCHEMA_VERSION` |
 | Test report | 1 | exact, for `--rerun` | `src/nupp/tools/cli/test.nupp` `schemaVersion` |
-| Bench record | 4 | an older record is an inconclusive baseline | `src/nupp/bench/init.nupp` `SCHEMA` |
-| Optimizer remarks | 1 | read by consumers | `src/nupp/tools/cli/compile.nupp` `schema` |
+| Bench record | 5 | an older record is an inconclusive baseline | `src/nupp/bench/init.nupp` `SCHEMA` |
 | GPU cost records | 1 | read by consumers | `native/crates/gpu/src/costs.rs` `schemaVersion` |
 
 To bump one, change the constant and this row together; a test holds the two to
