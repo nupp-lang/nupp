@@ -219,7 +219,7 @@ impl<B, K, D> Resources<B, K, D> {
 
     fn public_handle(&mut self, reference: ResourceRef) -> Result<u64, GpuError> {
         let handle = NEXT_PUBLIC_HANDLE
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
                 next.checked_add(1)
             })
             .map_err(|_| GpuError::Capacity)?;

@@ -1244,7 +1244,7 @@ pub unsafe fn nuppHttpClientSend(
         client
             .inner
             .active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < client.inner.max_pending).then_some(active + 1)
             });
     if admitted.is_err() {

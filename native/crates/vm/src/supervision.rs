@@ -53,7 +53,7 @@ impl Game {
     }
     fn from_worker(worker: Worker) -> Result<Self> {
         let game = NEXT_GAME
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .map_err(|_| "supervisor routing identity exhausted")?;
         Ok(Self {
             inner: Rc::new(RefCell::new(Inner {
