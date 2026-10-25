@@ -1,0 +1,26 @@
+-- Private authoring declarations for the native runtime experiment. These
+-- have no guest implementation: the native compiler must consume every call.
+local record Native
+    asWord: function(value: boolean): uint64
+    layout: function(field: string): int64
+    slow: function(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    load8: function(base: voidptr, offset: int64): int64
+    load32: function(base: voidptr, offset: int64): int64
+    load64: function(base: voidptr, offset: int64): uint64
+    loadIndex: function(base: voidptr, offset: int64): int64
+    loadPointer: function(base: voidptr, offset: int64): voidptr
+    store64: function(base: voidptr, offset: int64, value: uint64): nil
+    storeIndex: function(base: voidptr, offset: int64, value: int64): nil
+    storePointer: function(base: voidptr, offset: int64, value: voidptr): nil
+    offset: function(base: voidptr, offset: int64): voidptr
+    dispatch: function(
+        pc: voidptr,
+        regs: voidptr,
+        ints: voidptr,
+        floats: voidptr,
+        context: voidptr,
+        frame: voidptr
+    ): uint64
+    helper: function(context: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, frame: voidptr): nil
+end
+return Native

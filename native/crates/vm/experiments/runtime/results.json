@@ -1,0 +1,709 @@
+{
+  "baseline_revision": "73d54b904cd014f666671407e4a1751fb8de2418",
+  "host": {
+    "architecture": "arm64",
+    "os": "26.6",
+    "cpu": "Apple M5 Pro"
+  },
+  "recorded_utc": "2026-10-25T16:19:10.698600+00:00",
+  "decision": "Reject both mixed-core candidates for rollout; keep feature disabled. No production Rust is deleted.",
+  "margin": 0.02,
+  "xbench": {
+    "20_opcodes": {
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/candidate-app",
+          "sha256": "30e2195127163faa06390d4ea8223d6bd9d265726d59f297950f480ea8a84190"
+        }
+      },
+      "scale": 2,
+      "margin": 0.02,
+      "jit": false,
+      "method": "paired independent forks; geometric mean ratios; 95% paired bootstrap; each fork reports best of three",
+      "summary": {
+        "fib": {
+          "ratio": 0.980071384912943,
+          "low95": 0.9765360758266509,
+          "high95": 0.9835869693822752,
+          "baseline_median_seconds": 0.071,
+          "candidate_median_seconds": 0.07,
+          "verdict": "inconclusive",
+          "noninferiority_pass": true
+        },
+        "loops": {
+          "ratio": 1.11159571753761,
+          "low95": 1.0837157729370293,
+          "high95": 1.139837452267515,
+          "baseline_median_seconds": 0.357,
+          "candidate_median_seconds": 0.4035,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "tables": {
+          "ratio": 1.0963065504359912,
+          "low95": 1.0784596575316074,
+          "high95": 1.1256211108992666,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.084,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 1.002303427871668,
+          "low95": 0.9870715222990397,
+          "high95": 1.0178560282883844,
+          "baseline_median_seconds": 0.1805,
+          "candidate_median_seconds": 0.182,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 1.0103258526601187,
+          "low95": 0.9954516733043568,
+          "high95": 1.0310899614019327,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.054,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "closures": {
+          "ratio": 1.127583592287123,
+          "low95": 1.114940125254189,
+          "high95": 1.1414233530195295,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.073,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "paired_forks": 12,
+      "raw_seconds": {
+        "fib": {
+          "baseline": [
+            0.07,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.072,
+            0.072
+          ],
+          "candidate": [
+            0.069,
+            0.069,
+            0.07,
+            0.069,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.069,
+            0.07,
+            0.07
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.378,
+            0.346,
+            0.346,
+            0.345,
+            0.35,
+            0.357,
+            0.369,
+            0.35,
+            0.357,
+            0.371,
+            0.395,
+            0.362
+          ],
+          "candidate": [
+            0.403,
+            0.375,
+            0.399,
+            0.409,
+            0.411,
+            0.417,
+            0.404,
+            0.39,
+            0.41,
+            0.386,
+            0.41,
+            0.393
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.077,
+            0.076,
+            0.078,
+            0.077,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077,
+            0.077,
+            0.079,
+            0.077
+          ],
+          "candidate": [
+            0.084,
+            0.084,
+            0.083,
+            0.084,
+            0.096,
+            0.083,
+            0.084,
+            0.083,
+            0.084,
+            0.084,
+            0.084,
+            0.084
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.172,
+            0.184,
+            0.184,
+            0.181,
+            0.179,
+            0.18,
+            0.179,
+            0.183,
+            0.179,
+            0.178,
+            0.188,
+            0.184
+          ],
+          "candidate": [
+            0.174,
+            0.175,
+            0.183,
+            0.182,
+            0.19,
+            0.183,
+            0.181,
+            0.18,
+            0.18,
+            0.183,
+            0.182,
+            0.183
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.054,
+            0.052,
+            0.053,
+            0.054,
+            0.055,
+            0.055,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.055,
+            0.054
+          ],
+          "candidate": [
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.061,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.065,
+            0.064,
+            0.067,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.066,
+            0.064,
+            0.064
+          ],
+          "candidate": [
+            0.073,
+            0.072,
+            0.073,
+            0.073,
+            0.076,
+            0.073,
+            0.072,
+            0.073,
+            0.072,
+            0.072,
+            0.073,
+            0.073
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208322560,
+          208240640,
+          208273408,
+          208240640,
+          208257024,
+          208257024,
+          208273408,
+          208273408,
+          208273408,
+          208273408,
+          208273408,
+          208257024
+        ],
+        "candidate": [
+          208273408,
+          208306176,
+          208289792,
+          208355328,
+          208289792,
+          208355328,
+          208289792,
+          208306176,
+          208306176,
+          208240640,
+          208355328,
+          208306176
+        ]
+      },
+      "median_rss_ratio": 1.000157331655129
+    },
+    "18_opcodes": {
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/integer-candidate-app",
+          "sha256": "22a01dc67de713794711fd4b52a91876bf6db84ff6ce016645a8edd56e6dbf6c"
+        }
+      },
+      "scale": 2,
+      "margin": 0.02,
+      "jit": false,
+      "method": "paired independent forks; geometric mean ratios; 95% paired bootstrap; each fork reports best of three",
+      "summary": {
+        "fib": {
+          "ratio": 0.9822411954019977,
+          "low95": 0.9775912857857488,
+          "high95": 0.9869304985265832,
+          "baseline_median_seconds": 0.07,
+          "candidate_median_seconds": 0.069,
+          "verdict": "inconclusive",
+          "noninferiority_pass": true
+        },
+        "loops": {
+          "ratio": 1.0955113883096799,
+          "low95": 1.0764537992735828,
+          "high95": 1.1125310690672856,
+          "baseline_median_seconds": 0.352,
+          "candidate_median_seconds": 0.3845,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "tables": {
+          "ratio": 1.067737885578714,
+          "low95": 1.0528941750572336,
+          "high95": 1.08021769949903,
+          "baseline_median_seconds": 0.076,
+          "candidate_median_seconds": 0.082,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 0.987812394320335,
+          "low95": 0.9704989038113075,
+          "high95": 1.0043380963023552,
+          "baseline_median_seconds": 0.179,
+          "candidate_median_seconds": 0.177,
+          "verdict": "inconclusive",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 1.0063972678829718,
+          "low95": 0.9955381196460036,
+          "high95": 1.0174632159090642,
+          "baseline_median_seconds": 0.053,
+          "candidate_median_seconds": 0.054,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.089564462314382,
+          "low95": 1.0817906624040148,
+          "high95": 1.0963015060394672,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.07,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "paired_forks": 12,
+      "raw_seconds": {
+        "fib": {
+          "baseline": [
+            0.069,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.071,
+            0.07,
+            0.07,
+            0.071,
+            0.071,
+            0.071,
+            0.071
+          ],
+          "candidate": [
+            0.068,
+            0.069,
+            0.069,
+            0.069,
+            0.07,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.07,
+            0.069
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.345,
+            0.352,
+            0.347,
+            0.342,
+            0.346,
+            0.339,
+            0.352,
+            0.366,
+            0.353,
+            0.374,
+            0.353,
+            0.359
+          ],
+          "candidate": [
+            0.385,
+            0.39,
+            0.356,
+            0.382,
+            0.371,
+            0.383,
+            0.384,
+            0.409,
+            0.399,
+            0.4,
+            0.395,
+            0.379
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.075,
+            0.076,
+            0.076,
+            0.074,
+            0.077,
+            0.077,
+            0.076,
+            0.077,
+            0.076,
+            0.077,
+            0.082,
+            0.076
+          ],
+          "candidate": [
+            0.08,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.082,
+            0.081
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.172,
+            0.193,
+            0.172,
+            0.18,
+            0.179,
+            0.179,
+            0.179,
+            0.178,
+            0.181,
+            0.181,
+            0.178,
+            0.184
+          ],
+          "candidate": [
+            0.174,
+            0.177,
+            0.181,
+            0.176,
+            0.175,
+            0.177,
+            0.179,
+            0.175,
+            0.18,
+            0.178,
+            0.177,
+            0.18
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.052,
+            0.053,
+            0.054,
+            0.053,
+            0.053,
+            0.052,
+            0.053,
+            0.052,
+            0.055,
+            0.054,
+            0.055,
+            0.055
+          ],
+          "candidate": [
+            0.053,
+            0.053,
+            0.055,
+            0.053,
+            0.053,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064
+          ],
+          "candidate": [
+            0.07,
+            0.07,
+            0.07,
+            0.069,
+            0.07,
+            0.069,
+            0.07,
+            0.069,
+            0.071,
+            0.071,
+            0.071,
+            0.069
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208306176,
+          208273408,
+          208273408,
+          208273408,
+          208322560,
+          208240640,
+          208257024,
+          208257024,
+          208273408,
+          208273408,
+          208257024,
+          208289792
+        ],
+        "candidate": [
+          208306176,
+          208273408,
+          208273408,
+          208175104,
+          208289792,
+          208240640,
+          208355328,
+          208371712,
+          208289792,
+          208240640,
+          208306176,
+          208224256
+        ]
+      },
+      "median_rss_ratio": 1.0000393329137822
+    }
+  },
+  "compiler": {
+    "image_sha256": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb",
+    "runtimes": {
+      "baseline": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+      "candidate": "71a0fdbc299c250e426345321f811f51d32f781fdcb30e3f29c0bb99d39267cd"
+    },
+    "source_archive_sha256": "63f1be078e1e16df5fe18e0dc1043366d143d75ffca1774a35cde09f33e6fa47",
+    "paired_forks": 3,
+    "note": "Small supporting sample, not a separate noninferiority verdict. Cold checks compile 504 modules; warm checks compile zero; all diagnostics empty.",
+    "summary": {
+      "cold": {
+        "baseline": [
+          43.402644042000006,
+          44.988792625,
+          44.71161574999999
+        ],
+        "candidate": [
+          45.670863041,
+          46.447585458999995,
+          46.29047541700001
+        ],
+        "geometric_mean_ratio": 1.0399625595616855
+      },
+      "warm": {
+        "baseline": [
+          0.6086329580000012,
+          0.6576954999999884,
+          0.624132708000019
+        ],
+        "candidate": [
+          0.6201611670000062,
+          0.6705959169999858,
+          0.6292312499999753
+        ],
+        "geometric_mean_ratio": 1.0155613379381037
+      }
+    }
+  },
+  "validation": {
+    "native_handler_execution": [
+      "macOS ARM64 JIT",
+      "macOS ARM64 AOT linked object"
+    ],
+    "object_emission_only": [
+      "x86_64-unknown-linux-gnu",
+      "x86_64-pc-windows-gnu"
+    ],
+    "crate_tests": {
+      "passed": 429,
+      "failed": 0,
+      "ignored": 4,
+      "excluded_compile_failure": "aot_relocation.rs:373 passes &String to hotpatch::apply expecting &[u8]; reproduced with feature disabled"
+    },
+    "source_and_ir_rejections": {
+      "passed": [
+        "mutation",
+        "allocation",
+        "loop",
+        "pointer-return",
+        "fallthrough",
+        "ordinary-call",
+        "non-terminating-branch",
+        "implicit-number",
+        "bad-layout",
+        "ir-format",
+        "ir-opcode",
+        "ir-arity",
+        "ir-parameter-write",
+        "ir-undefined",
+        "ir-unterminated",
+        "ir-nonleaf",
+        "ir-representation",
+        "ir-after-terminator",
+        "ir-changed-window",
+        "ir-changed-slow-pc"
+      ]
+    },
+    "full_nupp_suite": false,
+    "fixpoint": false,
+    "whole_compiler_jit_or_aot_comparison": false,
+    "minimal_runtime": "--no-default-features --features native-runtime-experiment links without Cranelift; six stamped checksums match",
+    "deterministic_object": "Current verified emitter reproduces measured slice.o byte for byte"
+  },
+  "baseline_owned_rust": 58848,
+  "milestones": {
+    "NR0": "Preserved runtime and owned Rust inventory; paired stamped interpreter and cold/warm compiler checks. Whole-program JIT/AOT comparison remains.",
+    "NR1": "Host ABI, bounded stack, JIT/AOT linking proven in synthetic pilot; Linux/Windows native execution remains.",
+    "NR2": "Private checked native-authoring subset and fail-closed whole-function bridge implemented; not a public general-purpose native language profile.",
+    "NR3": "20-opcode production-state leaf prototype correct in available tests; both split variants fail performance gate.",
+    "NR4_NR6": "Not started; production migration and Rust deletion are gated by correctness, performance and platform acceptance."
+  },
+  "profile": {
+    "workload": "BENCH_ONLY=loops BENCH_SCALE=2 NO_JIT=1 SIMD_INTERPRET=1 stamped candidate-app",
+    "method": "macOS sample, 1 second, 1 millisecond interval; separate run, not used for duration estimates",
+    "samples": 743,
+    "top_of_stack": {
+      "native_segment": 38,
+      "nupp_native_runtime_entry": 97,
+      "leave": 21,
+      "Jmp": 40,
+      "JmpIfIZero": 20
+    },
+    "boundary_sample_fraction": 0.20995962314939434,
+    "boundary_instructions": {
+      "native_segment": 25,
+      "native_entry": 17,
+      "leave": 1
+    },
+    "fixed_frame_bytes": {
+      "native_segment": 64,
+      "native_entry": 16
+    },
+    "interpretation": "Repeated host/Tail ABI transitions are substantial. Most arithmetic in this loop remains in Rust floating-point handlers. This is evidence against the mixed split, not a verdict on a complete native Nupp core."
+  },
+  "baseline_owned_rust_scope": "Tracked native/**/src/*.rs at the pinned commit, excluding tests, examples and third-party dependencies; no production Rust deleted.",
+  "native_ir_sha256": "d660ce04ae0128eec589931e3c36157d86b2e34f26c5ac68ce558e18011d5035",
+  "native_source_sha256": {
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "1ee60602f2ef27cdf325dcc209e8845845e13348945a6fb8b7e03e4a71c9bdd2",
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "f1d448eb83ee62dc4730bde18b2e7d2264c4414b9caa2f916e00c990f200d595",
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/handlers.nupp": "bddd8da925d6504f4e7f6ccaa9543e01b9c66fbfea541ab08f525d5fd2a3445c",
+    "native/crates/vm/experiments/runtime/lib/nupp/experiment/runtime.nupp": "7ef58a93cfd8630251f5024238aee55b28779137121a938b1ef0d4a29ce74d15"
+  }
+}

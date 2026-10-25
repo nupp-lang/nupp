@@ -1,0 +1,81 @@
+module nupp.runtime.internal.handlers
+
+const native = require("nupp.runtime.internal.native")
+
+local function stop(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return native.load64(regs, 0)
+end
+
+local function add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local destination = native.load8(pc, 1) * 8
+    local left = native.load64(ints, native.load8(pc, 2) * 8)
+    local right = native.load64(ints, native.load8(pc, 3) * 8)
+    native.store64(ints, destination, left + right)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function xor(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local destination = native.load8(pc, 1) * 8
+    local value = native.load64(ints, native.load8(pc, 2) * 8)
+    native.store64(ints, destination, value ~ native.load64(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function loop_back(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local destination = native.load8(pc, 1) * 8
+    local count = native.load64(ints, destination) - 1
+    native.store64(ints, destination, count)
+    if count ~= 0 then
+        return native.dispatch(native.offset(pc, native.load32(pc, 4) * 16), regs, ints, floats, context, frame)
+    else
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+local function host(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    native.helper(context, regs, ints, floats, frame)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+-- The probe checks these offsets against its repr(C) Context before execution.
+local function call(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local depth = native.loadIndex(context, 96)
+    native.storePointer(context, 32 + depth * 8, native.offset(pc, 16))
+    native.storeIndex(context, 96, depth + 1)
+    return native.dispatch(native.offset(pc, native.load32(pc, 4) * 16), regs, ints, floats, context, frame)
+end
+
+local function ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local depth = native.loadIndex(context, 96) - 1
+    native.storeIndex(context, 96, depth)
+    return native.dispatch(native.loadPointer(context, 32 + depth * 8), regs, ints, floats, context, frame)
+end

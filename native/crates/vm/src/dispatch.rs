@@ -216,6 +216,155 @@ unsafe fn entry(ctx: *mut Ctx) -> bool {
 
 type Handler = unsafe fn(*const Ins, *mut u64, *mut i64, *mut f64, *mut Ctx, *mut u64) -> u64;
 
+#[cfg(feature = "native-runtime-experiment")]
+include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
+
+#[cfg(feature = "native-runtime-experiment")]
+unsafe extern "C" {
+    fn nupp_native_runtime_entry(
+        pc: *const Ins,
+        regs: *mut u64,
+        iregs: *mut i64,
+        fregs: *mut f64,
+        ctx: *mut Ctx,
+        frame: *mut u64,
+    ) -> *const Ins;
+}
+
+/// A native leaf segment retains no managed values outside the existing
+/// register windows and calls no helpers. It returns before the first
+/// unsupported instruction or OSR edge. That instruction executes exactly
+/// once through the original handler, which owns all publication/reload rules.
+#[cfg(feature = "native-runtime-experiment")]
+unsafe fn native_segment(
+    pc: *const Ins,
+    regs: *mut u64,
+    iregs: *mut i64,
+    fregs: *mut f64,
+    ctx: *mut Ctx,
+    frame: *mut u64,
+) -> u64 {
+    let pc = nupp_native_runtime_entry(pc, regs, iregs, fregs, ctx, frame);
+    become (*RUST_DISPATCH.get_unchecked((*pc).op as usize))(pc, regs, iregs, fregs, ctx, frame)
+}
+
+#[cfg(all(test, feature = "native-runtime-experiment"))]
+mod native_tests {
+    use super::*;
+
+    #[test]
+    fn leaf_words_match_rust_at_extremes_with_aliasing() {
+        let values = [0, 1, 63, 64, 127, 0x7fff_ffff_ffff_ffff, 1 << 63, u64::MAX];
+        let operations: [(Code, fn(u64, u64) -> u64); 12] = [
+            (Code::IAdd, u64::wrapping_add),
+            (Code::ISub, u64::wrapping_sub),
+            (Code::IAnd, |a, b| a & b),
+            (Code::IOr, |a, b| a | b),
+            (Code::IShl, |a, b| a.wrapping_shl(b as u32)),
+            (Code::IShrU, |a, b| a.wrapping_shr(b as u32)),
+            (Code::ICmpSLt, |a, b| ((a as i64) < (b as i64)) as u64),
+            (Code::ICmpSLe, |a, b| ((a as i64) <= (b as i64)) as u64),
+            (Code::ICmpEq, |a, b| (a == b) as u64),
+            (Code::ICmpNe, |a, b| (a != b) as u64),
+            (Code::ICmpLt, |a, b| (a < b) as u64),
+            (Code::ICmpLe, |a, b| (a <= b) as u64),
+        ];
+        for (code, op) in operations {
+            for x in values {
+                for y in values {
+                    for dest in [0, 1, 255] {
+                        let mut ints = [0x5555_5555_5555_5555u64; 258];
+                        ints[1] = x;
+                        ints[2] = y;
+                        let mut expected = ints;
+                        expected[dest + 1] = op(x, y);
+                        let mut regs = [0xaaaa_aaaa_aaaa_aaaau64; 256];
+                        let mut floats = [1.25; 256];
+                        let mut frame = [0; 4];
+                        // All fields are integer/float/pointer types; the leaf subset
+                        // may inspect OSR flags but cannot dereference an unused field.
+                        let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+                        let program = [
+                            Ins {
+                                op: code as u8,
+                                a: dest as u8,
+                                b: 0,
+                                c: 1,
+                                ..Ins::default()
+                            },
+                            Ins::default(),
+                        ];
+                        let next = unsafe {
+                            nupp_native_runtime_entry(
+                                program.as_ptr(),
+                                regs.as_mut_ptr(),
+                                ints.as_mut_ptr().add(1).cast(),
+                                floats.as_mut_ptr(),
+                                &mut ctx,
+                                frame.as_mut_ptr(),
+                            )
+                        };
+                        assert_eq!(next, unsafe { program.as_ptr().add(1) });
+                        assert_eq!(ints, expected, "opcode {}", code as u8);
+                        assert_eq!(regs, [0xaaaa_aaaa_aaaa_aaaau64; 256]);
+                        assert_eq!(floats, [1.25; 256]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn back_edges_finish_without_native_recursion_and_yield_before_osr() {
+        let program = [
+            Ins {
+                op: Code::IAddK as u8,
+                a: 0,
+                b: 0,
+                k: -1,
+                ..Ins::default()
+            },
+            Ins {
+                op: Code::JmpIfIZero as u8,
+                a: 0,
+                imm: 1,
+                ..Ins::default()
+            },
+            Ins {
+                op: Code::Jmp as u8,
+                imm: -3,
+                ..Ins::default()
+            },
+            Ins::default(),
+        ];
+        for (jit, entries) in [(0, 0), (1, 0), (0, 1)] {
+            let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+            ctx.frame_mode = 1;
+            ctx.jit_frames = jit;
+            ctx.nframe_entries = entries;
+            let mut ints = [1_000_000];
+            let mut regs = [0];
+            let mut floats = [0.0];
+            let mut frame = [0; 4];
+            let next = unsafe {
+                nupp_native_runtime_entry(
+                    program.as_ptr(),
+                    regs.as_mut_ptr(),
+                    ints.as_mut_ptr(),
+                    floats.as_mut_ptr(),
+                    &mut ctx,
+                    frame.as_mut_ptr(),
+                )
+            };
+            let osr = jit != 0 || entries != 0;
+            assert_eq!(next, unsafe {
+                program.as_ptr().add(if osr { 2 } else { 3 })
+            });
+            assert_eq!(ints[0], if osr { 999_999 } else { 0 });
+        }
+    }
+}
+
 /// Runs the context's task from its top frame until it finishes, parks or
 /// raises; the status says which.
 pub(crate) unsafe fn run(ctx: *mut Ctx) -> u32 {
@@ -284,6 +433,15 @@ macro_rules! emit {
     ($pc:ident,$regs:ident,$iregs:ident,$fregs:ident,$ctx:ident,$frame:ident,$ins:ident; $($op:ident => $h:ident $body:block)*) => {
         /// Every handler, indexed by the opcode it handles.
         static DISPATCH: [Handler; Code::Mod as usize + 1] = {
+            let mut table: [Handler; Code::Mod as usize + 1] = [h_slow as Handler; Code::Mod as usize + 1];
+            $(table[Code::$op as usize] = $h;)*
+            #[cfg(feature = "native-runtime-experiment")]
+            { native_table(table) }
+            #[cfg(not(feature = "native-runtime-experiment"))]
+            { table }
+        };
+        #[cfg(feature = "native-runtime-experiment")]
+        static RUST_DISPATCH: [Handler; Code::Mod as usize + 1] = {
             let mut table: [Handler; Code::Mod as usize + 1] = [h_slow as Handler; Code::Mod as usize + 1];
             $(table[Code::$op as usize] = $h;)*
             table

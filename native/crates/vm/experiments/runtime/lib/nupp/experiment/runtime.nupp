@@ -1,0 +1,243 @@
+module nupp.experiment.runtime
+
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local environment = require("nupp.compiler.project.env")
+local fs = require("nupp.compiler.fs")
+local trivia = require("nupp.compiler.syntax.triviaarena")
+local provider = require("nupp.compiler.syntax.triviaarena.table")
+local json = require("nupp.codec.json")
+
+local INTRINSICS = "nupp.runtime.internal.native"
+local intrinsics = {
+    asWord = 1,
+    layout = 1,
+    slow = 6,
+    load8 = 2,
+    load32 = 2,
+    load64 = 2,
+    loadIndex = 2,
+    loadPointer = 2,
+    store64 = 3,
+    storeIndex = 3,
+    storePointer = 3,
+    offset = 2,
+    dispatch = 6,
+    helper = 5
+}
+local binary = {
+    ["<<"] = "shl",
+    [">>"] = "shr",
+    ["+"] = "add",
+    ["-"] = "sub",
+    ["*"] = "mul",
+    ["~"] = "xor",
+    ["&"] = "and",
+    ["|"] = "or",
+    ["=="] = "eq",
+    ["~="] = "ne",
+    ["<"] = "lt",
+    ["<="] = "le"
+}
+
+local function need(ok: any, message: string): any
+    assert(ok, "native runtime: " .. message)
+    return ok
+end
+
+local function tag(t: any): string
+    while t and t.tag == "literal" do
+        t = t.base
+    end
+    return t and t.tag or "missing"
+end
+
+local function nativeCall(node: any): string
+    local callee = need(node.obj, "callee")
+    need(callee.kind == "dotIndex" and callee.obj.kind == "name", "direct intrinsic call required")
+    local definition = callee.obj.token.definition
+    need(definition and definition.requiredModule == INTRINSICS, "call must resolve to the private native module")
+    local name = callee.name.text
+    need(intrinsics[name] ~= nil, "unknown intrinsic " .. name)
+    need(#node.args.exprs == intrinsics[name], "intrinsic arity")
+
+    return name
+end
+
+local function compileFunction(node: any): any
+    local body = node.body
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
+    need(#body.params == 6, "handler requires six pointer parameters")
+    need(
+        body.signatureType and #body.signatureType.rets == 1 and tag(body.signatureType.rets[1]) == "uint64",
+        "handler returns uint64"
+    )
+    local bindings, instructions = {}, {}
+    local id, label = 6, 0
+    for index, param in ipairs(body.params) do
+        need(param.type and tag(param.type.resolvedType) == "voidptr", "native pointer parameter required")
+        bindings[need(param.name, "parameter name").text] = index
+    end
+
+    local function emit(op: string, args: any, result: boolean): number
+        local target = 0
+        if result then
+            id = id + 1
+            target = id
+        end
+        instructions[#instructions + 1] = {op = op, args = args, result = target}
+
+        return target
+    end
+
+    local expression
+    expression = function(n: any): number
+        if n.kind == "paren" then
+            return expression(n.expr)
+        elseif n.kind == "name" then
+            return need(bindings[n.token.text], "capture or unknown local " .. n.token.text)
+        elseif n.kind == "number" then
+            local digits = n.token.text:gsub("[Uu]?[Ll][Ll]$", "")
+            need(digits:match("^%d+$"), "decimal integer literal required")
+            return emit("constant", {digits}, true)
+        elseif n.kind == "unop" and n.op.text == "-" and n.operand.kind == "number" then
+            need(n.operand.token.text:match("^%d+$"), "integer literal required")
+            return emit("constant", {"-" .. n.operand.token.text}, true)
+        elseif n.kind == "binop" then
+            local op = need(binary[n.op.text], "unsupported binary operator")
+            local left, right = tag(n.lhs.inferredType), tag(n.rhs.inferredType)
+            local wide = left == "int64" or left == "uint64" or right == "int64" or right == "uint64"
+            need(wide, "binary operands require established 64-bit values")
+            need(left == right or n.lhs.kind == "number" or n.rhs.kind == "number", "mixed integer representations")
+            need(
+                tag(n.inferredType) == "int64" or tag(n.inferredType) == "uint64" or tag(n.inferredType) == "boolean",
+                "native operator must preserve its checked representation"
+            )
+            if op == "lt" or op == "le" then
+                op = (left == "uint64" or right == "uint64") and "u" .. op or "s" .. op
+            end
+            return emit(op, {expression(n.lhs), expression(n.rhs)}, true)
+        elseif n.kind == "call" then
+            local name = nativeCall(n)
+            if name == "layout" then
+                local arg = n.args.exprs[1]
+                need(arg.kind == "string", "literal layout field required")
+                return emit("layout", {arg.token.value or arg.token.text:sub(2, -2)}, true)
+            end
+            need(
+                name ~= "dispatch" and name ~= "slow" and name ~= "helper" and name:sub(1, 5) ~= "store",
+                "effect or transfer used as a value"
+            )
+            local args = {}
+            for index, arg in ipairs(n.args.exprs) do
+                args[index] = expression(arg)
+            end
+            return emit(name, args, true)
+        end
+        error("native runtime: unsupported expression " .. tostring(n.kind), 0)
+    end
+
+    local statements
+    statements = function(stats: any): nil
+        local terminated = false
+        for _, stat in ipairs(stats) do
+            need(not terminated, "unreachable statement")
+            if stat.kind == "localStmt" then
+                need(#stat.names == 1 and #stat.exprs == 1, "single initialized local required")
+                local name = stat.names[1].text
+                need(not bindings[name], "shadowing outside initial native subset")
+                bindings[name] = expression(stat.exprs[1])
+            elseif stat.kind == "callStmt" then
+                local name = nativeCall(stat.expr)
+                need(
+                    name:sub(1, 5) == "store" or name == "helper",
+                    "only explicit stores and helpers may be statements"
+                )
+                local args = {}
+                for index, arg in ipairs(stat.expr.args.exprs) do
+                    args[index] = expression(arg)
+                end
+                emit(name, args, false)
+            elseif stat.kind == "returnStmt" then
+                need(#stat.exprs == 1, "single return required")
+                local value = stat.exprs[1]
+                if value.kind == "call" and (nativeCall(value) == "dispatch" or nativeCall(value) == "slow") then
+                    local args = {}
+                    for index, arg in ipairs(value.args.exprs) do
+                        args[index] = expression(arg)
+                    end
+                    emit(nativeCall(value), args, false)
+                else
+                    emit("return", {expression(value)}, false)
+                end
+                terminated = true
+            elseif stat.kind == "ifStmt" then
+                need(
+                    #stat.clauses == 1 and not stat.clauses[1].binding and stat.elseClause,
+                    "native if requires two terminating branches"
+                )
+                local condition = expression(stat.clauses[1].cond)
+                label = label + 2
+                local yes, no = label - 1, label
+                emit("branch", {condition, yes, no}, false)
+                local saved = {}
+                for name, value in pairs(bindings) do
+                    saved[name] = value
+                end
+                emit("block", {yes}, false)
+                statements(stat.clauses[1].body.stats)
+                bindings = saved
+                emit("block", {no}, false)
+                statements(stat.elseClause.body.stats)
+                terminated = true
+            elseif stat.kind ~= "emptyStmt" then
+                error("native runtime: unsupported statement " .. tostring(stat.kind), 0)
+            end
+        end
+        need(terminated, "native handler may not fall through")
+    end
+
+    statements(body.body.stats)
+
+    return {name = node.name.text, instructions = instructions, values = id}
+end
+
+export function compile(root: string, path: string): string
+    trivia.installDefault(provider)
+    local env = environment.new(root, {cache = false, config = {include = {"lib"}}})
+    local parsed = parser.parse(assert(fs.readFile(path)), path)
+    need(#parsed.errors == 0, "parse failed")
+    local diagnostics = checker.check(parsed, path, env as any, {})
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" or not diagnostic.severity then
+            error(tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg), 0)
+        end
+    end
+    local functions, names = {}, {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node: any = stat
+            if node.kind == "localFuncStmt" then
+                need(not names[node.name.text], "duplicate function")
+                names[node.name.text] = true
+                functions[#functions + 1] = compileFunction(node)
+            elseif node.kind == "localStmt" then
+                need(#node.names == 1 and #node.exprs == 1 and node.isConst, "one constant intrinsic import required")
+                local value = node.exprs[1]
+                need(
+                    value.kind == "call" and value.obj.kind == "name" and value.obj.token.text == "require",
+                    "module initialization is not native code"
+                )
+                need(
+                    node.names[1].definition and node.names[1].definition.requiredModule == INTRINSICS,
+                    "private intrinsic import required"
+                )
+            elseif node.kind ~= "moduleStmt" and node.kind ~= "emptyStmt" then
+                error("native runtime: unsupported top-level statement " .. tostring(node.kind), 0)
+            end
+        end
+    end
+    need(#functions > 0, "no handlers")
+
+    return json.encode({format = "nupp-native-runtime-1", functions = functions})
+end

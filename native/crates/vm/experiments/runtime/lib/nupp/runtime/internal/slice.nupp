@@ -1,0 +1,358 @@
+module nupp.runtime.internal.slice
+
+-- Leaf-only production-state experiment. Unsupported instructions and OSR
+-- return to the Rust core before any helper can move a frame or collect.
+const native = require("nupp.runtime.internal.native")
+
+local function Move(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(regs, a, native.load64(regs, b))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    native.store64(regs, a, 9221401712017801216ULL)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IMov(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IAddK(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b) + native.load64(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IMaskU32(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b) & 4294967295)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IAdd(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x + y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ISub(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x - y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IAnd(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x & y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IOr(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x | y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IShl(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x << y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function IShrU(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x >> y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpEq(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x == y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpNe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x ~= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpLt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x < y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x <= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpSLt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.loadIndex(ints, b)
+    local y = native.loadIndex(ints, c)
+    native.store64(ints, a, native.asWord(x < y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function ICmpSLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.loadIndex(ints, b)
+    local y = native.loadIndex(ints, c)
+    native.store64(ints, a, native.asWord(x <= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local displacement = native.load32(pc, 4)
+    if displacement < 0 then
+        local mode = native.load32(context, native.layout("frame_mode"))
+        if mode ~= 0 then
+            local frames = native.load64(context, native.layout("nframe_entries"))
+            local jit = native.load32(context, native.layout("jit_frames"))
+            if frames ~= 0 then
+                return native.slow(pc, regs, ints, floats, context, frame)
+            else
+                if jit ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    return native.dispatch(
+                        native.offset(pc, (displacement + 1) * 16),
+                        regs,
+                        ints,
+                        floats,
+                        context,
+                        frame
+                    )
+                end
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+    end
+end
+
+local function JmpIfIZero(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local value = native.load64(ints, a)
+    if value == 0 then
+        local displacement = native.load32(pc, 4)
+        if displacement < 0 then
+            local mode = native.load32(context, native.layout("frame_mode"))
+            if mode ~= 0 then
+                local frames = native.load64(context, native.layout("nframe_entries"))
+                local jit = native.load32(context, native.layout("jit_frames"))
+                if frames ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    if jit ~= 0 then
+                        return native.slow(pc, regs, ints, floats, context, frame)
+                    else
+                        return native.dispatch(
+                            native.offset(pc, (displacement + 1) * 16),
+                            regs,
+                            ints,
+                            floats,
+                            context,
+                            frame
+                        )
+                    end
+                end
+            else
+                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
