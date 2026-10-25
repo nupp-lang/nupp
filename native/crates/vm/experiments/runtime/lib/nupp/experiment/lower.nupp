@@ -437,6 +437,48 @@ local function compileFunction(node: any, functions: any, options: any): string
         return materialize(expression(n), "boolean")
     end
 
+    -- A condition in branch position: `and`, `or`, `not` and the `both` and
+    -- `either` intrinsics branch directly through their operands, so the
+    -- common path pays one compare and one branch per operand rather than
+    -- materializing every flag.
+    local branchOn
+
+    local function isIntrinsic(n: any, name: string): boolean
+        return n.kind == "call"
+            and n.obj.kind == "dotIndex"
+            and n.obj.obj.kind == "name"
+            and n.obj.obj.token.definition ~= nil
+            and n.obj.obj.token.definition.requiredModule == INTRINSICS
+            and n.obj.name.text == name
+            and #(n.args.exprs or {}) == 2
+    end
+
+    branchOn = function(n: any, yes: Block, no: Block): nil
+        if n.kind == "paren" then
+            branchOn(n.expr, yes, no)
+        elseif (n.kind == "binop" and n.op.text == "and") or isIntrinsic(n, "both") then
+            local lhs = n.kind == "binop" and n.lhs or n.args.exprs[1]
+            local rhs = n.kind == "binop" and n.rhs or n.args.exprs[2]
+            local rest = newBlock()
+            branchOn(lhs, rest, no)
+            current = rest
+            seal(rest)
+            branchOn(rhs, yes, no)
+        elseif (n.kind == "binop" and n.op.text == "or") or isIntrinsic(n, "either") then
+            local lhs = n.kind == "binop" and n.lhs or n.args.exprs[1]
+            local rhs = n.kind == "binop" and n.rhs or n.args.exprs[2]
+            local rest = newBlock()
+            branchOn(lhs, yes, rest)
+            current = rest
+            seal(rest)
+            branchOn(rhs, yes, no)
+        elseif n.kind == "unop" and n.op.text == "not" then
+            branchOn(n.operand, no, yes)
+        else
+            branch(condition(n), yes, no)
+        end
+    end
+
     local function arithmetic(n: any, op: string, kind: string, lhs: any, rhs: any): any
         local a, b = materialize(lhs, kind), materialize(rhs, kind)
         if kind == "number" then
@@ -879,9 +921,8 @@ local function compileFunction(node: any, functions: any, options: any): string
             local merge = newBlock()
             for _, clause in ipairs(stat.clauses) do
                 need(not clause.binding, "binding clauses")
-                local cond = condition(clause.cond)
                 local taken, otherwise = newBlock(), newBlock()
-                branch(cond, taken, otherwise)
+                branchOn(clause.cond, taken, otherwise)
                 current = taken
                 seal(taken)
                 block(clause.body.stats)
@@ -906,8 +947,7 @@ local function compileFunction(node: any, functions: any, options: any): string
             local header, bodyBlock, exit = newBlock(), newBlock(), newBlock()
             jump(header, {})
             current = header
-            local cond = condition(stat.cond)
-            branch(cond, bodyBlock, exit)
+            branchOn(stat.cond, bodyBlock, exit)
             loopBody(bodyBlock, header, exit, header, stat.body.stats)
             if current then
                 jump(header, {})
@@ -923,8 +963,7 @@ local function compileFunction(node: any, functions: any, options: any): string
             block(stat.body.stats)
             loops[#loops] = nil
             if current then
-                local cond = condition(stat.cond)
-                branch(cond, exit, bodyBlock)
+                branchOn(stat.cond, exit, bodyBlock)
             end
             seal(bodyBlock)
             current = exit
