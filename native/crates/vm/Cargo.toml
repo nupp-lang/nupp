@@ -47,7 +47,7 @@ compiled-runtime = []
 # Opt-in authoring experiment. Requires an explicit native-runtime object.
 native-runtime-experiment = []
 jit = ["compiled-runtime", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
-aot = ["jit", "aot-linked", "dep:cranelift-object"]
+aot = ["jit", "aot-linked", "dep:cranelift-object", "dep:cranelift-reader"]
 # Run prebuilt native objects without shipping any code generator.
 aot-linked = ["compiled-runtime"]
 # Count executed opcodes by name (OP_STATS=1 at run time); off by default
@@ -78,6 +78,7 @@ cranelift-jit = { version = "0.135", optional = true }
 cranelift-module = { version = "0.135", optional = true }
 cranelift-native = { version = "0.135", optional = true }
 cranelift-object = { version = "0.135", optional = true }
+cranelift-reader = { version = "0.135", optional = true }
 sha2 = "0.10"
 crc32fast = "1.5"
 # `nupp.text.regex`: matching beyond Lua patterns (`src/nregex.rs`).

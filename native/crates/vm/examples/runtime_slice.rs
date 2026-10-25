@@ -102,10 +102,126 @@ fn opcode(name: &str) -> u8 {
 /// opcodes at it when the source defines the first name only.
 const ALIASES: [(&str, &str); 1] = [("CallDyn", "CallK")];
 
+/// A handler ready to define: lowered from the private JSON IR, or parsed
+/// from the CLIF text the Nupp producer prints.
+enum Source {
+    Ir(runtime_ir::Function),
+    Clif(cranelift_codegen::ir::Function),
+}
+
+impl Source {
+    fn name(&self) -> String {
+        match self {
+            Source::Ir(f) => f.name.clone(),
+            Source::Clif(f) => f.name.to_string().trim_start_matches('%').to_string(),
+        }
+    }
+    fn require_leaf(&self, tail: &Signature) -> Result<(), String> {
+        match self {
+            Source::Ir(f) => f.require_leaf(),
+            Source::Clif(f) => require_leaf_clif(f, tail),
+        }
+    }
+    fn changes_frame(&self) -> bool {
+        match self {
+            Source::Ir(f) => f.changes_frame(),
+            Source::Clif(f) => changes_frame_clif(f),
+        }
+    }
+}
+
+/// The CLIF spelling of `Function::require_leaf`: no call, no symbol, the
+/// handler signature, `return` only of the entry pc or the reenter code, and
+/// every tail dispatch preserving the context.
+fn require_leaf_clif(f: &cranelift_codegen::ir::Function, tail: &Signature) -> Result<(), String> {
+    use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
+    if f.signature != *tail {
+        return Err(format!("{}: handler signature required", f.name));
+    }
+    if !f.dfg.ext_funcs.is_empty() || !f.global_values.is_empty() || !f.sized_stack_slots.is_empty() {
+        return Err(format!("{}: handlers reference no symbols or stack", f.name));
+    }
+    let entry = f.layout.entry_block().ok_or("entry block required")?;
+    let params = f.dfg.block_params(entry).to_vec();
+    if params.len() != 6 {
+        return Err("six handler parameters required".into());
+    }
+    for block in f.layout.blocks() {
+        for inst in f.layout.block_insts(block) {
+            let data = &f.dfg.insts[inst];
+            match data.opcode() {
+                Opcode::Call | Opcode::CallIndirect | Opcode::ReturnCall => {
+                    return Err("VM slice may only dispatch or leave before executing a helper".into());
+                }
+                Opcode::ReturnCallIndirect => {
+                    let args = f.dfg.inst_args(inst);
+                    if args.len() != 7 || args[5] != params[4] {
+                        return Err("dispatch must preserve the context".into());
+                    }
+                }
+                Opcode::Return => {
+                    let args = f.dfg.inst_args(inst);
+                    let reenter = args.len() == 1
+                        && matches!(f.dfg.value_def(args[0]), ValueDef::Result(i, 0)
+                            if matches!(f.dfg.insts[i], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } if imm.bits() == runtime_ir::EXIT_REENTER));
+                    if args.len() != 1 || (args[0] != params[0] && !reenter) {
+                        return Err("leaf transfer must preserve its VM windows and context; slow must preserve pc".into());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn changes_frame_clif(f: &cranelift_codegen::ir::Function) -> bool {
+    use cranelift_codegen::ir::Opcode;
+    let Some(entry) = f.layout.entry_block() else { return false };
+    let params = f.dfg.block_params(entry).to_vec();
+    f.layout.blocks().any(|block| {
+        f.layout.block_insts(block).any(|inst| {
+            let data = &f.dfg.insts[inst];
+            match data.opcode() {
+                Opcode::ReturnCallIndirect => {
+                    let args = f.dfg.inst_args(inst);
+                    (1..4).any(|p| args[p + 1] != params[p])
+                }
+                Opcode::Return => f.dfg.inst_args(inst)[0] != params[0],
+                _ => false,
+            }
+        })
+    })
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
-    let mut program =
-        runtime_ir::Program::read(Path::new(args.get(1).ok_or("source IR required")?))?;
+    if args.get(1).map(String::as_str) == Some("--layouts") {
+        let path = args.get(2).ok_or("layout output path required")?;
+        let mut text = String::from("{\n");
+        for (i, field) in runtime_ir::LAYOUT_FIELDS.iter().enumerate() {
+            text.push_str(&format!("  \"{field}\": {}{}\n", runtime_ir::layout(field)?,
+                if i + 1 < runtime_ir::LAYOUT_FIELDS.len() { "," } else { "" }));
+        }
+        text.push_str("}\n");
+        std::fs::write(path, text).map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    let input = Path::new(args.get(1).ok_or("source IR required")?);
+    let mut sources: Vec<Source> = if input.extension().is_some_and(|e| e == "clif") {
+        let text = std::fs::read_to_string(input).map_err(|e| e.to_string())?;
+        cranelift_reader::parse_functions(&text)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(Source::Clif)
+            .collect()
+    } else {
+        runtime_ir::Program::read(input)?
+            .functions
+            .into_iter()
+            .map(Source::Ir)
+            .collect()
+    };
     let packed_state = args
         .get(3..)
         .unwrap_or(&[])
@@ -121,21 +237,26 @@ fn main() -> Result<(), String> {
     }
     for option in args.get(3..).unwrap_or(&[]) {
         match option.as_str() {
-            "--integers-only" => program.functions.retain(|f| {
-                (f.name.starts_with('I') && f.name != "IToF")
-                    || f.name == "Jmp"
-                    || f.name == "JmpIfIZero"
+            "--integers-only" => sources.retain(|f| {
+                let name = f.name();
+                (name.starts_with('I') && name != "IToF") || name == "Jmp" || name == "JmpIfIZero"
             }),
             "--packed-state" | "--derived-frame" => {}
             _ if option.starts_with("--without=") => {
                 let names: Vec<&str> = option["--without=".len()..].split(',').collect();
-                program.functions.retain(|f| !names.contains(&f.name.as_str()));
+                sources.retain(|f| !names.contains(&f.name().as_str()));
             }
             _ => return Err(format!("unknown option {option}")),
         }
     }
-    if packed_state && program.functions.iter().any(|f| f.changes_frame()) {
+    if packed_state && sources.iter().any(|f| f.changes_frame()) {
         return Err("frame-changing handlers need the frame derived from the window".into());
+    }
+    if sources.iter().any(|f| matches!(f, Source::Clif(_))) && !derived_frame {
+        return Err("CLIF handlers are printed for the derived-frame layout".into());
+    }
+    if sources.is_empty() {
+        return Err("no handlers".into());
     }
     let path = args.get(2).ok_or("output object required")?;
     let mut flags = settings::builder();
@@ -263,20 +384,21 @@ fn main() -> Result<(), String> {
     ));
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
-    for function in &program.functions {
-        function.require_leaf()?;
-        let op = opcode(&function.name);
+    let names: Vec<String> = sources.iter().map(Source::name).collect();
+    for function in &sources {
+        function.require_leaf(&tail)?;
+        let name = function.name();
+        let op = opcode(&name);
         let id = module
-            .declare_function(&function.name, Linkage::Local, &tail)
+            .declare_function(&name, Linkage::Local, &tail)
             .unwrap();
         ids.push((op, id));
         function_ids.push(id);
         metadata.push_str(&format!(
-            "assert!(Code::{} as u8 == {op}); table[Code::{} as usize] = native_segment;\n",
-            function.name, function.name
+            "assert!(Code::{name} as u8 == {op}); table[Code::{name} as usize] = native_segment;\n"
         ));
         for (alias, target) in ALIASES {
-            if function.name == target && !program.functions.iter().any(|f| f.name == alias) {
+            if name == target && !names.iter().any(|f| f == alias) {
                 let op = opcode(alias);
                 ids.push((op, id));
                 metadata.push_str(&format!(
@@ -287,11 +409,21 @@ fn main() -> Result<(), String> {
     }
     metadata.push_str("table }\n");
     let mut listings = String::new();
-    for index in 0..program.functions.len() + 2 {
+    for index in 0..sources.len() + 2 {
         let mut ctx = module.make_context();
         ctx.want_disasm = true;
-        let is_entry = index == program.functions.len();
-        let is_leave = index == program.functions.len() + 1;
+        let is_entry = index == sources.len();
+        let is_leave = index == sources.len() + 1;
+        if let Some(Source::Clif(function)) = sources.get(index) {
+            // The producer decided the IR; the shim compiles it as printed.
+            ctx.func = function.clone();
+            listings.push_str(&format!("\n{}\n", ctx.func.display()));
+            module
+                .define_function(function_ids[index], &mut ctx)
+                .map_err(|e| format!("{}: {e}", function.name))?;
+            listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
+            continue;
+        }
         ctx.func.signature = if is_entry {
             entry_sig.clone()
         } else {
@@ -369,8 +501,9 @@ fn main() -> Result<(), String> {
                 if derived_frame {
                     logical[5] = b.ins().iadd_imm_s(params[1], -32);
                 }
+                let Source::Ir(function) = &sources[index] else { unreachable!() };
                 runtime_ir::emit(
-                    &program.functions[index],
+                    function,
                     &mut b,
                     &logical,
                     sig,

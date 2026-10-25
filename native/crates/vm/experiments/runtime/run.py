@@ -63,6 +63,8 @@ def main():
     layout.add_argument('--packed-state', action='store_true')
     layout.add_argument('--derived-frame', action='store_true')
     parser.add_argument('--eager-conditions', action='store_true')
+    parser.add_argument('--json-ir', dest='clif', action='store_false',
+                        help='lower the private JSON IR in Rust instead of compiling the CLIF the Nupp producer prints')
     parser.add_argument('--compiler-image', action='store_true',
                         help='also emit the pinned-source root CLI for checks.py; requires --seed')
     args = parser.parse_args()
@@ -97,6 +99,15 @@ def main():
     run('compile-slice', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
                          HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp',
                          *(['eager'] if args.eager_conditions else []), '--output', OUT / 'slice.json'])
+    if args.clif:
+        target = ROOT / 'build/rust/target/release'
+        run('build-probe', ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
+                           '--features', FEATURES, '--example', 'runtime_tail',
+                           '--example', 'runtime_slice', '-j', '4'])
+        run('layouts', [target / 'examples/runtime_slice', '--layouts', OUT / 'layouts.json'])
+        run('compile-clif', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
+                            HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp', 'clif',
+                            OUT / 'layouts.json', '--output', OUT / 'slice.clif'])
     if not args.emit_only:
         target = ROOT / 'build/rust/target/release'
         run('build-probe', ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
@@ -121,7 +132,8 @@ def main():
             options.append('--packed-state')
         if args.derived_frame:
             options.append('--derived-frame')
-        run('emit-' + name, [target / 'examples/runtime_slice', OUT / 'slice.json', object_path, *options])
+        source = OUT / ('slice.clif' if args.clif else 'slice.json')
+        run('emit-' + name, [target / 'examples/runtime_slice', source, object_path, *options])
         run('rejections', ['python3', HERE / 'reject.py'])
         run('build-' + name, ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
                             '--features', 'aot,native-runtime-experiment', '-j', '4'],
@@ -133,6 +145,7 @@ def main():
                           *sorted((HERE / 'lib').rglob('*.nupp'))]}
     manifest['derived_frame'] = args.derived_frame
     manifest['leaf_only'] = args.leaf_only
+    manifest['clif'] = args.clif
     manifest['packed_state'] = args.packed_state
     manifest['eager_conditions'] = args.eager_conditions
     manifest['baseline_revision'] = '73d54b904cd014f666671407e4a1751fb8de2418'

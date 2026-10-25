@@ -116,6 +116,31 @@ def main():
         subprocess.run(list(map(str, [ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'calls.o',
                                       '--derived-frame'])), check=True, capture_output=True, timeout=60)
         passed.append('ir-frame-change-packed')
+        # The CLIF the producer prints is checked the same way once parsed.
+        clif = (OUT / 'slice.clif').read_text()
+        functions = ['function ' + f for f in clif.split('function ')[1:]]
+        iadd = next(f for f in functions if f.startswith('function %IAdd('))
+        ret = next(f for f in functions if f.startswith('function %Ret('))
+        clif_cases = {
+            'call': (iadd.replace('    return_call_indirect sig0, ', '    v99 = call_indirect sig0, ', 1)
+                     .replace(')\n}', ')\n    return v99\n}'), 'only dispatch or leave'),
+            'changed-context': (iadd.replace(', v4, v5)', ', v1, v5)'), 'dispatch must preserve the context'),
+            'foreign-return': (iadd.replace('    return_call_indirect', '    return v1\n    return_call_indirect', 1), None),
+            'signature': (iadd.replace(') -> i64 tail {', ') -> i64 apple_aarch64 {', 1), 'handler signature required'),
+            'symbol': (iadd.replace('    sig0 =', '    gv0 = symbol colocated %native_runtime_table\n    sig0 =', 1), 'reference no symbols'),
+            'syntax': (iadd.replace('uload8.i64', 'uload8.i65', 1), 'expected'),
+        }
+        for name, (text, expected) in clif_cases.items():
+            path = root / 'bad.clif'; path.write_text(text)
+            rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'bad.o', '--derived-frame'],
+                    expected or '')
+            passed.append('clif-' + name)
+        path = root / 'ret.clif'; path.write_text(ret)
+        rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'ret.o', '--packed-state'],
+                'frame derived from the window')
+        rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'ret.o'],
+                'printed for the derived-frame layout')
+        passed.append('clif-layout')
     (OUT / 'rejection-tests.json').write_text(json.dumps({'passed': passed}, indent=2) + '\n')
     print(f'{len(passed)} rejection checks passed')
 

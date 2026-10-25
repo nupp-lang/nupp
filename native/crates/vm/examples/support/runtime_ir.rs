@@ -12,6 +12,66 @@ use std::{
     path::Path,
 };
 
+/// Every structure offset a handler may name, as the linked Rust layouts
+/// measure it. The Nupp producer reads these (`runtime_slice --layouts`), and
+/// the generated sidecar asserts the same values at build time.
+pub const LAYOUT_FIELDS: [&str; 39] = [
+    "funcs", "FuncInfo.size", "FuncInfo.consts", "frame_mode", "jit_frames", "nframe_entries",
+    "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres", "entries",
+    "jit_threshold", "feedback", "guard", "unavailable_fid", "FuncInfo.code",
+    "FuncInfo.frame_words", "FuncInfo.nparams", "FuncInfo.off_i", "FuncInfo.off_f",
+    "FuncInfo.vararg", "FuncInfo.calls", "FuncInfo.typed", "FuncInfo.native", "Header.aux_len",
+    "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
+    "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k",
+];
+
+pub fn layout(field: &str) -> Result<usize, String> {
+    use nupp_vm::threaded::{Ctx, FuncInfo, Ins};
+    use nupp_vm::heap::Header;
+    Ok(match field {
+        "funcs" => std::mem::offset_of!(Ctx, funcs),
+        "FuncInfo.size" => std::mem::size_of::<FuncInfo>(),
+        "FuncInfo.consts" => std::mem::offset_of!(FuncInfo, consts),
+        "frame_mode" => std::mem::offset_of!(Ctx, frame_mode),
+        "jit_frames" => std::mem::offset_of!(Ctx, jit_frames),
+        "nframe_entries" => std::mem::offset_of!(Ctx, nframe_entries),
+        "frame_entries" => std::mem::offset_of!(Ctx, frame_entries),
+        "stack" => std::mem::offset_of!(Ctx, stack),
+        "cap" => std::mem::offset_of!(Ctx, cap),
+        "cur" => std::mem::offset_of!(Ctx, cur),
+        "nfuncs" => std::mem::offset_of!(Ctx, nfuncs),
+        "result" => std::mem::offset_of!(Ctx, result),
+        "last_nres" => std::mem::offset_of!(Ctx, last_nres),
+        "entries" => std::mem::offset_of!(Ctx, entries),
+        "jit_threshold" => std::mem::offset_of!(Ctx, jit_threshold),
+        "feedback" => std::mem::offset_of!(Ctx, feedback),
+        "guard" => std::mem::offset_of!(Ctx, guard),
+        "unavailable_fid" => std::mem::offset_of!(Ctx, unavailable_fid),
+        "FuncInfo.code" => std::mem::offset_of!(FuncInfo, code),
+        "FuncInfo.frame_words" => std::mem::offset_of!(FuncInfo, frame_words),
+        "FuncInfo.nparams" => std::mem::offset_of!(FuncInfo, nparams),
+        "FuncInfo.off_i" => std::mem::offset_of!(FuncInfo, off_i),
+        "FuncInfo.off_f" => std::mem::offset_of!(FuncInfo, off_f),
+        "FuncInfo.vararg" => std::mem::offset_of!(FuncInfo, vararg),
+        "FuncInfo.calls" => std::mem::offset_of!(FuncInfo, calls),
+        "FuncInfo.typed" => std::mem::offset_of!(FuncInfo, typed),
+        "FuncInfo.native" => std::mem::offset_of!(FuncInfo, native),
+        "Header.aux_len" => std::mem::offset_of!(Header, aux_len),
+        "Header.aux" => std::mem::offset_of!(Header, aux),
+        "Header.flags" => std::mem::offset_of!(Header, flags),
+        "Table.meta" => nupp_vm::heap::OFF_T_META as usize,
+        "Header.kind" => std::mem::offset_of!(Header, kind),
+        "Header.aux_ptr" => std::mem::offset_of!(Header, aux_ptr),
+        "Ins.op" => std::mem::offset_of!(Ins, op),
+        "Ins.a" => std::mem::offset_of!(Ins, a),
+        "Ins.b" => std::mem::offset_of!(Ins, b),
+        "Ins.c" => std::mem::offset_of!(Ins, c),
+        "Ins.imm" => std::mem::offset_of!(Ins, imm),
+        "Ins.k" => std::mem::offset_of!(Ins, k),
+        _ => return Err("unknown context field".into()),
+    })
+}
+
 /// The native chain's exit words. A pointer-aligned instruction address
 /// resumes Rust at that instruction, in whatever frame the context now
 /// names; the small codes below are not addresses.
@@ -225,45 +285,7 @@ pub fn emit(
                 None
             }
             "layout" => {
-                use nupp_vm::threaded::Ctx;
-                let offset = match ins.args[0].as_str().ok_or("layout field required")? {
-                    "funcs" => std::mem::offset_of!(Ctx, funcs),
-                    "FuncInfo.size" => std::mem::size_of::<nupp_vm::threaded::FuncInfo>(),
-                    "FuncInfo.consts" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, consts),
-                    "frame_mode" => std::mem::offset_of!(Ctx, frame_mode),
-                    "jit_frames" => std::mem::offset_of!(Ctx, jit_frames),
-                    "nframe_entries" => std::mem::offset_of!(Ctx, nframe_entries),
-                    "frame_entries" => std::mem::offset_of!(Ctx, frame_entries),
-                    "stack" => std::mem::offset_of!(Ctx, stack),
-                    "cap" => std::mem::offset_of!(Ctx, cap),
-                    "cur" => std::mem::offset_of!(Ctx, cur),
-                    "nfuncs" => std::mem::offset_of!(Ctx, nfuncs),
-                    "result" => std::mem::offset_of!(Ctx, result),
-                    "last_nres" => std::mem::offset_of!(Ctx, last_nres),
-                    "entries" => std::mem::offset_of!(Ctx, entries),
-                    "jit_threshold" => std::mem::offset_of!(Ctx, jit_threshold),
-                    "feedback" => std::mem::offset_of!(Ctx, feedback),
-                    "guard" => std::mem::offset_of!(Ctx, guard),
-                    "unavailable_fid" => std::mem::offset_of!(Ctx, unavailable_fid),
-                    "FuncInfo.code" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, code),
-                    "FuncInfo.frame_words" => {
-                        std::mem::offset_of!(nupp_vm::threaded::FuncInfo, frame_words)
-                    }
-                    "FuncInfo.nparams" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, nparams),
-                    "FuncInfo.off_i" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, off_i),
-                    "FuncInfo.off_f" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, off_f),
-                    "FuncInfo.vararg" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, vararg),
-                    "FuncInfo.calls" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, calls),
-                    "FuncInfo.typed" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, typed),
-                    "FuncInfo.native" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, native),
-                    "Header.aux_len" => std::mem::offset_of!(nupp_vm::heap::Header, aux_len),
-                    "Header.aux" => std::mem::offset_of!(nupp_vm::heap::Header, aux),
-                    "Header.flags" => std::mem::offset_of!(nupp_vm::heap::Header, flags),
-                    "Table.meta" => nupp_vm::heap::OFF_T_META as usize,
-                    "Header.kind" => std::mem::offset_of!(nupp_vm::heap::Header, kind),
-                    "Header.aux_ptr" => std::mem::offset_of!(nupp_vm::heap::Header, aux_ptr),
-                    _ => return Err("unknown context field".into()),
-                };
+                let offset = layout(ins.args[0].as_str().ok_or("layout field required")?)?;
                 Some(b.ins().iconst(types::I64, offset as i64))
             }
             "constant" => {

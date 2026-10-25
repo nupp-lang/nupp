@@ -38,6 +38,18 @@ function is a helper, inlined where a handler tail-calls it. The Rust core's
 dispatch stays a tail transfer. Bounded word loops (`copyWords`, `fillWords`)
 are the only loops: parameter copies, nil fills and result copies.
 
+The producer prints each handler as Cranelift's textual IR (CLIF), with the
+structure offsets it names read from `runtime_slice --layouts`, which measures
+the Rust layouts the object links against. The shim parses the text with
+`cranelift-reader`, checks the handler contract on the parsed function (the
+tail signature, no call or symbol, `return` only of the entry pc or the reenter
+code, every dispatch preserving the context), and compiles it as printed. The
+object this produces is byte-identical to the one the earlier Rust lowering of
+the private JSON IR produced, so the measurements below hold for both; the JSON
+path stays reachable through `--json-ir` until it is retired. Deciding the IR in
+Nupp is the shape the rest of the migration takes: Nupp emits CLIF, and Rust
+parses, compiles and links.
+
 The native IR and object are trusted build inputs, not guest formats. The
 generated sidecar checks opcode values, value tags, and all accessed structure
 offsets at compile time.
@@ -59,6 +71,9 @@ python3 native/crates/vm/experiments/runtime/run.py \
   --seed /absolute/path/to/pinned/compiler.image \
   --compiler-image --derived-frame
 ```
+
+The seed is the pinned stage-zero image, cached by `scripts/toolchain
+stage0-image` as `compiler.image` under the toolchain cache.
 
 The script refuses to overwrite a different baseline. It builds and checks the
 Nupp producer, exercises JIT and host AOT ABI paths, emits the production slice,
