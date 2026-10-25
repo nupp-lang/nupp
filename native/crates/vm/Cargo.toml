@@ -27,6 +27,10 @@ required-features = ["aot", "c-headers"]
 name = "runtime_slice"
 required-features = ["aot", "c-headers"]
 
+[[example]]
+name = "clif_run"
+required-features = ["aot"]
+
 [features]
 default = ["jit", "c-headers", "native-ffi", "compression", "net", "http", "regex", "markdown"]
 # The native facilities a program may reach. A program binary's runtime links

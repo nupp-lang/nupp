@@ -23,6 +23,7 @@ EXTRAS = ','.join([
     'nupp.compiler.project.fingerprint', 'nupp.compiler.hash',
     'nupp.compiler.project.preludecache', 'nupp.runtime.provider.nativeprocess',
     'nupp.runtime.provider.nativepath', 'nupp.runtime.provider.nativefiles',
+    'nupp.experiment.lower',
 ])
 
 

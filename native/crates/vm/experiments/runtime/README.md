@@ -138,6 +138,30 @@ or Linux/Windows native execution is claimed. Cross-target object generation cov
 does not establish native execution, stack walking, or exception correctness
 on those platforms.
 
+## Ordinary Nupp to CLIF
+
+`nupp.experiment.lower` compiles ordinary typed Nupp, checked by the ordinary
+checker, to CLIF with nothing managed underneath: `int64`, `uint64`, `number`
+and `boolean` values, `voidptr`, mutable locals, `if`/`elseif`/`else`, `while`,
+`repeat`, numeric `for` with a literal step, `break`, `continue`, compound
+assignment, `and`/`or`/`not` with short circuits, the arithmetic, bitwise and
+comparison operators (floored `//` and `%` on `int64`, as the language
+defines them), and direct calls between a module's functions, recursion
+included. It builds SSA form itself, placing block parameters by the
+sealed-block algorithm, and prints blocks in reverse postorder so every
+definition precedes its uses. `clif_run` parses a CLIF file, resolves `%name`
+calls between its functions, compiles it just in time and calls one function
+through a one-shape trampoline, so a test needs no Rust.
+`lower-check.py` compiles `lib/nupp/experiment/samples/scalars.nupp` and runs
+fifty cases against answers computed in Python.
+
+Three things the sample had to work around are findings about today's
+language, not the lowering: a recursive local function's result needs its
+declared type restated (`local a: int64 = fib(n - 1)`), numeric `for` ranges
+over numbers rather than the fixed-width integers, and compound assignment
+answers a number. A runtime written in this profile needs first-class
+fixed-width integers.
+
 ## Frame transitions
 
 The exit word a native chain answers is the address of the instruction Rust

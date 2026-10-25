@@ -1,0 +1,797 @@
+module nupp.experiment.lower
+
+-- Lowers ordinary typed Nupp to Cranelift's textual IR: the scalar types,
+-- mutable locals, branches, loops and direct calls, with nothing managed
+-- underneath. The ordinary parser and checker validate the source; this module
+-- turns the checked tree into CLIF, building SSA form itself (block parameters
+-- stand for the phis, placed by the sealed-block algorithm), and a Rust shim
+-- parses and compiles the text.
+
+local parser = require("nupp.compiler.syntax.parser")
+local checker = require("nupp.compiler.check")
+local environment = require("nupp.compiler.project.env")
+local fs = require("nupp.compiler.fs")
+local trivia = require("nupp.compiler.syntax.triviaarena")
+local provider = require("nupp.compiler.syntax.triviaarena.table")
+
+local function need(ok: any, message: string): any
+    assert(ok, "lower: " .. message)
+    return ok
+end
+
+local function tag(t: any): string
+    while t and t.tag == "literal" do
+        t = t.base
+    end
+    local kind = t and t.tag or "missing"
+    -- An integer-valued number is a number here: the refinement changes no
+    -- representation.
+
+    return kind == "integer" and "number" or kind
+end
+
+-- The machine type of a scalar Nupp type.
+local function machine(kind: string): string
+    if kind == "int64" or kind == "uint64" or kind == "voidptr" then
+        return "i64"
+    elseif kind == "number" then
+        return "f64"
+    elseif kind == "boolean" then
+        return "i8"
+    end
+    error("lower: unsupported type " .. kind, 0)
+end
+
+-- A double as CLIF spells it: a hexadecimal significand and a binary exponent.
+local function hexFloat(x: number): string
+    if x ~= x then
+        return "NaN"
+    elseif x == math.huge then
+        return "Inf"
+    elseif x == -math.huge then
+        return "-Inf"
+    elseif x == 0 then
+        return (1 / x < 0) and "-0.0" or "0.0"
+    end
+    local sign = ""
+    if x < 0 then
+        sign = "-"
+        x = -x
+    end
+    local m, e = math.frexp(x)
+    local significand = m * 9007199254740992 -- 2^53, exact
+    local digits = {}
+    for _ = 1, 14 do
+        local digit = significand % 16
+        digits[#digits + 1] = ("0123456789abcdef"):sub(digit + 1, digit + 1)
+        significand = (significand - digit) / 16
+    end
+    -- The leading digit of a normalized significand is 1; the radix point
+    -- after it is what makes the text a float to the reader.
+    local text = {}
+    for index = #digits - 1, 1, -1 do
+        text[#text + 1] = digits[index]
+    end
+
+    return sign .. "0x" .. digits[#digits] .. "." .. table.concat(text) .. "p" .. tostring(e - 1)
+end
+
+local compareSigned = {["<"] = "slt", ["<="] = "sle", [">"] = "sgt", [">="] = "sge", ["=="] = "eq", ["~="] = "ne"}
+local compareUnsigned = {["<"] = "ult", ["<="] = "ule", [">"] = "ugt", [">="] = "uge", ["=="] = "eq", ["~="] = "ne"}
+local compareFloat = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne"}
+local integerOps = {
+    ["+"] = "iadd",
+    ["-"] = "isub",
+    ["*"] = "imul",
+    ["&"] = "band",
+    ["|"] = "bor",
+    ["~"] = "bxor",
+    ["<<"] = "ishl"
+}
+local floatOps = {["+"] = "fadd", ["-"] = "fsub", ["*"] = "fmul", ["/"] = "fdiv"}
+
+-- One function under construction.
+local record Block
+    id: number
+    params: {string}
+    paramTypes: {string}
+    lines: {string}
+    term: any
+    preds: {Block}
+    sealed: boolean
+    defs: any
+    incomplete: any
+end
+
+local function compileFunction(node: any, functions: any): string
+    local body = node.body
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
+    local name = node.name.text
+    local paramKinds, paramTypes = {}, {}
+    for index, param in ipairs(body.params) do
+        local kind = tag(param.type and param.type.resolvedType)
+        paramKinds[index] = kind
+        paramTypes[index] = machine(kind)
+    end
+    local rets = body.signatureType and body.signatureType.rets or {}
+    need(#rets <= 1, "at most one result")
+    local resultKind = #rets == 1 and tag(rets[1]) or nil
+    local resultType = resultKind and machine(resultKind) or nil
+
+    local blocks: {Block} = {}
+    local counter = 0
+
+    local function fresh(): string
+        local value = "v" .. tostring(counter)
+        counter = counter + 1
+        return value
+    end
+
+    local function newBlock(): Block
+        local block = new Block(
+            id = #blocks,
+            params = {},
+            paramTypes = {},
+            lines = {},
+            term = nil,
+            preds = {},
+            sealed = false,
+            defs = {},
+            incomplete = {}
+        )
+        blocks[#blocks + 1] = block
+
+        return block
+    end
+
+    local function addParam(block: Block, kind: string): string
+        local value = fresh()
+        block.params[#block.params + 1] = value
+        block.paramTypes[#block.paramTypes + 1] = kind
+        return value
+    end
+
+    local current: Block? = nil
+
+    local function emit(text: string): string
+        local value = fresh()
+        local block = need(current, "emission outside a block") as Block
+        block.lines[#block.lines + 1] = value .. " = " .. text
+        return value
+    end
+
+    local function effect(text: string): nil
+        local block = need(current, "emission outside a block") as Block
+        block.lines[#block.lines + 1] = text
+    end
+
+    local function constant(kind: string, text: string): string
+        return emit("iconst." .. kind .. " " .. text)
+    end
+
+    local function link(from: Block, to: Block): nil
+        to.preds[#to.preds + 1] = from
+    end
+
+    local function jump(to: Block, args: {string}): nil
+        local block = current as Block
+        block.term = {kind = "jump", targets = {{block = to, args = args}}}
+        link(block, to)
+        current = nil
+    end
+
+    local function branch(cond: string, yes: Block, no: Block): nil
+        local block = current as Block
+        block.term = {kind = "brif", cond = cond, targets = {{block = yes, args = {}}, {block = no, args = {}}}}
+        link(block, yes)
+        link(block, no)
+        current = nil
+    end
+
+    local function finish(values: {string}): nil
+        local block = current as Block
+        block.term = {kind = "return", values = values}
+        current = nil
+    end
+
+    -- SSA construction over mutable locals: a variable is its declaration, a
+    -- definition is the block that last assigned it, and a read that finds no
+    -- definition in its block becomes a block parameter filled from the
+    -- predecessors once they are all known.
+    local varTypes = {}
+    local readVariable
+
+    local function writeVariable(variable: any, block: Block, value: string): nil
+        block.defs[variable] = value
+    end
+
+    local function addOperands(variable: any, block: Block, param: string): nil
+        for _, pred in ipairs(block.preds) do
+            local value = readVariable(variable, pred)
+            for _, target in ipairs(pred.term.targets) do
+                if target.block == block then
+                    target.args[#target.args + 1] = value
+                end
+            end
+        end
+    end
+
+    readVariable = function(variable: any, block: Block): string
+        local known = block.defs[variable]
+        if known then
+            return known
+        end
+        local value: string
+        if not block.sealed then
+            value = addParam(block, varTypes[variable])
+            block.incomplete[variable] = value
+        elseif #block.preds == 1 then
+            value = readVariable(variable, block.preds[1])
+        else
+            need(#block.preds > 0, "read of an unassigned variable")
+            value = addParam(block, varTypes[variable])
+            writeVariable(variable, block, value)
+            addOperands(variable, block, value)
+        end
+        writeVariable(variable, block, value)
+
+        return value
+    end
+
+    local function seal(block: Block): nil
+        for variable, param in pairs(block.incomplete) do
+            addOperands(variable, block, param)
+        end
+        block.incomplete = {}
+        block.sealed = true
+    end
+
+    local function declare(token: any, kind: string): any
+        local variable = token.definition or token.text
+        varTypes[variable] = machine(kind)
+        return variable
+    end
+
+    local function variableOf(token: any): any
+        local variable = token.definition or token.text
+        need(varTypes[variable], "unknown variable " .. tostring(token.text))
+        return variable
+    end
+
+    -- Callees are declared once per function in the preamble.
+    local callees, preamble = {}, {}
+
+    local function callee(fnName: string): any
+        local known = callees[fnName]
+        if known then
+            return known
+        end
+        local target = need(functions[fnName], "unknown function " .. fnName)
+        local index = #preamble / 2
+        local sig = "sig" .. tostring(index)
+        local ref = "fn" .. tostring(index)
+        local signature = "(" .. table.concat(target.paramTypes, ", ") .. ")"
+        if target.resultType then
+            signature = signature .. " -> " .. target.resultType
+        end
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. fnName .. " " .. sig
+        known = {ref = ref, target = target}
+        callees[fnName] = known
+
+        return known
+    end
+
+    -- Expressions answer a typed value, or a literal still free to take the
+    -- type its context asks for.
+    local expression
+
+    local function literalText(n: any): string
+        return (n.token.text:gsub("[Uu]?[Ll][Ll]$", ""))
+    end
+
+    local function materialize(e: any, kind: string): string
+        if e.literal then
+            if kind == "number" then
+                return emit("f64const " .. hexFloat(tonumber(e.literal) as number))
+            elseif kind == "boolean" then
+                error("lower: a number is not a boolean", 0)
+            end
+            return constant("i64", e.literal)
+        end
+        need(e.kind == kind or (machine(e.kind) == machine(kind)), "expected " .. kind .. ", found " .. e.kind)
+
+        return e.value
+    end
+
+    local function kindOf(n: any, e: any, other: any): string
+        if not e.literal then
+            return e.kind
+        elseif other and not other.literal then
+            return other.kind
+        end
+        local inferred = tag(n.inferredType)
+
+        return inferred == "missing" and "number" or inferred
+    end
+
+    local function condition(n: any): string
+        return materialize(expression(n), "boolean")
+    end
+
+    local function arithmetic(n: any, op: string, kind: string, lhs: any, rhs: any): any
+        local a, b = materialize(lhs, kind), materialize(rhs, kind)
+        if kind == "number" then
+            if op == "%" then
+                local quotient = emit("fdiv " .. a .. ", " .. b)
+                local floored = emit("floor " .. quotient)
+                local product = emit("fmul " .. floored .. ", " .. b)
+                return {kind = kind, value = emit("fsub " .. a .. ", " .. product)}
+            end
+            local name = need(floatOps[op], "unsupported float operator " .. op)
+            return {kind = kind, value = emit(name .. " " .. a .. ", " .. b)}
+        end
+        local unsigned = kind == "uint64"
+        if op == ">>" then
+            return {kind = kind, value = emit("ushr " .. a .. ", " .. b)}
+        elseif op == "~>>" then
+            return {kind = kind, value = emit("sshr " .. a .. ", " .. b)}
+        elseif op == "//" then
+            if unsigned then
+                return {kind = kind, value = emit("udiv " .. a .. ", " .. b)}
+            end
+            -- Floored division: the truncated quotient, less one when the
+            -- remainder is nonzero and disagrees in sign with the divisor.
+            local quotient = emit("sdiv " .. a .. ", " .. b)
+            local remainder = emit("srem " .. a .. ", " .. b)
+            local zero = constant("i64", "0")
+            local nonzero = emit("icmp ne " .. remainder .. ", " .. zero)
+            local mixed = emit("bxor " .. remainder .. ", " .. b)
+            local negative = emit("icmp slt " .. mixed .. ", " .. zero)
+            local adjust = emit("band " .. nonzero .. ", " .. negative)
+            local wide = emit("uextend.i64 " .. adjust)
+            return {kind = kind, value = emit("isub " .. quotient .. ", " .. wide)}
+        elseif op == "%" then
+            if unsigned then
+                return {kind = kind, value = emit("urem " .. a .. ", " .. b)}
+            end
+            local remainder = emit("srem " .. a .. ", " .. b)
+            local zero = constant("i64", "0")
+            local nonzero = emit("icmp ne " .. remainder .. ", " .. zero)
+            local mixed = emit("bxor " .. remainder .. ", " .. b)
+            local negative = emit("icmp slt " .. mixed .. ", " .. zero)
+            local adjust = emit("band " .. nonzero .. ", " .. negative)
+            local wide = emit("uextend.i64 " .. adjust)
+            local mask = emit("ineg " .. wide)
+            local addend = emit("band " .. b .. ", " .. mask)
+            return {kind = kind, value = emit("iadd " .. remainder .. ", " .. addend)}
+        end
+        local name = need(integerOps[op], "unsupported integer operator " .. op)
+
+        return {kind = kind, value = emit(name .. " " .. a .. ", " .. b)}
+    end
+
+    local function compare(n: any, op: string, lhs: any, rhs: any): any
+        local kind = kindOf(n.lhs, lhs, rhs)
+        local a, b = materialize(lhs, kind), materialize(rhs, kind)
+        local text: string
+        if kind == "number" then
+            text = "fcmp " .. compareFloat[op]
+        elseif kind == "uint64" or kind == "voidptr" then
+            text = "icmp " .. compareUnsigned[op]
+        elseif kind == "boolean" then
+            need(op == "==" or op == "~=", "ordered comparison of booleans")
+            text = "icmp " .. compareSigned[op]
+        else
+            text = "icmp " .. compareSigned[op]
+        end
+
+        return {kind = "boolean", value = emit(text .. " " .. a .. ", " .. b)}
+    end
+
+    local function shortCircuit(n: any, isAnd: boolean): any
+        local left = condition(n.lhs)
+        local rest, join = newBlock(), newBlock()
+        local result = addParam(join, "i8")
+        local from = current as Block
+        if isAnd then
+            branch(left, rest, join)
+        else
+            branch(left, join, rest)
+        end
+        -- The short-circuit edge carries the left operand.
+        for _, target in ipairs(from.term.targets) do
+            if target.block == join then
+                target.args[1] = left
+            end
+        end
+        current = rest
+        seal(rest)
+        local right = condition(n.rhs)
+        jump(join, {right})
+        current = join
+        seal(join)
+
+        return {kind = "boolean", value = result}
+    end
+
+    expression = function(n: any): any
+        if n.kind == "paren" then
+            return expression(n.expr)
+        elseif n.kind == "number" then
+            return {literal = literalText(n)}
+        elseif n.kind == "trueExpr" then
+            return {kind = "boolean", value = constant("i8", "1")}
+        elseif n.kind == "falseExpr" then
+            return {kind = "boolean", value = constant("i8", "0")}
+        elseif n.kind == "name" then
+            local variable = variableOf(n.token)
+            local value = readVariable(variable, current as Block)
+            local kind = tag(n.inferredType)
+            if kind == "missing" or machine(kind) ~= varTypes[variable] then
+                kind = varTypes[variable] == "f64" and "number" or (varTypes[variable] == "i8" and "boolean" or "int64")
+            end
+            return {kind = kind, value = value}
+        elseif n.kind == "unop" then
+            local op = n.op.text
+            if op == "-" then
+                local operand = expression(n.operand)
+                if operand.literal then
+                    return {literal = "-" .. operand.literal}
+                end
+                local name = operand.kind == "number" and "fneg" or "ineg"
+                return {kind = operand.kind, value = emit(name .. " " .. operand.value)}
+            elseif op == "not" then
+                local value = condition(n.operand)
+                local zero = constant("i8", "0")
+                return {kind = "boolean", value = emit("icmp eq " .. value .. ", " .. zero)}
+            elseif op == "~" then
+                local operand = expression(n.operand)
+                local kind = kindOf(n.operand, operand, nil)
+                return {kind = kind, value = emit("bnot " .. materialize(operand, kind))}
+            end
+            error("lower: unsupported unary operator " .. op, 0)
+        elseif n.kind == "binop" then
+            local op = n.op.text
+            if op == "and" or op == "or" then
+                return shortCircuit(n, op == "and")
+            end
+            local lhs = expression(n.lhs)
+            local rhs = expression(n.rhs)
+            if compareSigned[op] then
+                return compare(n, op, lhs, rhs)
+            end
+            local kind = kindOf(n, lhs, rhs)
+            if lhs.literal and rhs.literal then
+                kind = tag(n.inferredType) == "missing" and "number" or tag(n.inferredType)
+            end
+            return arithmetic(n, op, kind, lhs, rhs)
+        elseif n.kind == "call" then
+            need(n.obj.kind == "name", "only direct calls to module functions")
+            local target = callee(n.obj.token.text)
+            local args = {}
+            local exprs = n.args.exprs or {}
+            need(#exprs == #target.target.paramKinds, "argument count")
+            for index, arg in ipairs(exprs) do
+                args[index] = materialize(expression(arg), target.target.paramKinds[index])
+            end
+            local text = "call " .. target.ref .. "(" .. table.concat(args, ", ") .. ")"
+            if target.target.resultKind then
+                return {kind = target.target.resultKind, value = emit(text)}
+            end
+            effect(text)
+            return {kind = "nil", value = ""}
+        end
+        error("lower: unsupported expression " .. tostring(n.kind), 0)
+    end
+
+    -- Statements. `current` is nil after a terminator; code after it in the
+    -- same block is unreachable and is refused.
+    local loops = {}
+    local statements
+
+    local function block(stats: any): nil
+        for _, stat in ipairs(stats) do
+            if stat.kind ~= "emptyStmt" then
+                need(current ~= nil, "unreachable statement")
+                statements(stat)
+            end
+        end
+    end
+
+    local function assign(token: any, e: any): nil
+        local variable = variableOf(token)
+        local kind = varTypes[variable] == "f64" and "number" or (varTypes[variable] == "i8" and "boolean" or "int64")
+        if not e.literal then
+            need(machine(e.kind) == varTypes[variable], "assignment changes representation")
+            kind = e.kind
+        end
+        writeVariable(variable, current as Block, materialize(e, kind))
+    end
+
+    local function loopBody(bodyBlock: Block, header: Block, exit: Block, continueTo: Block, stats: any): nil
+        loops[#loops + 1] = {exit = exit, continueTo = continueTo}
+        current = bodyBlock
+        seal(bodyBlock)
+        block(stats)
+        loops[#loops] = nil
+    end
+
+    statements = function(stat: any): nil
+        local kind = stat.kind
+        if kind == "localStmt" then
+            local exprs = stat.exprs or {}
+            for index, token in ipairs(stat.names) do
+                local e = expression(need(exprs[index], "local needs an initializer"))
+                local declared = tag(token.inferredType)
+                if declared == "missing" then
+                    declared = e.literal and "number" or e.kind
+                end
+                local variable = declare(token, declared)
+                writeVariable(variable, current as Block, materialize(e, declared))
+            end
+        elseif kind == "assignStmt" then
+            local values = {}
+            for index, e in ipairs(stat.exprs) do
+                values[index] = expression(e)
+            end
+            for index, target in ipairs(stat.targets) do
+                need(target.kind == "name", "assignment to a local")
+                assign(target.token, need(values[index], "assignment needs a value"))
+            end
+        elseif kind == "compoundAssign" then
+            need(stat.target.kind == "name", "compound assignment to a local")
+            local op = stat.op.text:sub(1, -2)
+            local lhs = expression(stat.target)
+            local rhs = expression(stat.value)
+            assign(stat.target.token, arithmetic(stat, op, kindOf(stat.target, lhs, rhs), lhs, rhs))
+        elseif kind == "callStmt" then
+            expression(stat.expr)
+        elseif kind == "returnStmt" then
+            if #stat.exprs == 0 then
+                need(resultKind == nil, "result required")
+                finish({})
+            else
+                need(#stat.exprs == 1 and resultKind ~= nil, "one result")
+                finish({materialize(expression(stat.exprs[1]), resultKind as string)})
+            end
+        elseif kind == "doStmt" then
+            block(stat.body.stats)
+        elseif kind == "ifStmt" then
+            local merge = newBlock()
+            for _, clause in ipairs(stat.clauses) do
+                need(not clause.binding, "binding clauses")
+                local cond = condition(clause.cond)
+                local taken, otherwise = newBlock(), newBlock()
+                branch(cond, taken, otherwise)
+                current = taken
+                seal(taken)
+                block(clause.body.stats)
+                if current then
+                    jump(merge, {})
+                end
+                current = otherwise
+                seal(otherwise)
+            end
+            if stat.elseClause then
+                block(stat.elseClause.body.stats)
+            end
+            if current then
+                jump(merge, {})
+            end
+            current = merge
+            seal(merge)
+            if #merge.preds == 0 then
+                current = nil
+            end
+        elseif kind == "whileStmt" then
+            local header, bodyBlock, exit = newBlock(), newBlock(), newBlock()
+            jump(header, {})
+            current = header
+            local cond = condition(stat.cond)
+            branch(cond, bodyBlock, exit)
+            loopBody(bodyBlock, header, exit, header, stat.body.stats)
+            if current then
+                jump(header, {})
+            end
+            seal(header)
+            current = exit
+            seal(exit)
+        elseif kind == "repeatStmt" then
+            local bodyBlock, exit = newBlock(), newBlock()
+            jump(bodyBlock, {})
+            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock}
+            current = bodyBlock
+            block(stat.body.stats)
+            loops[#loops] = nil
+            if current then
+                local cond = condition(stat.cond)
+                branch(cond, exit, bodyBlock)
+            end
+            seal(bodyBlock)
+            current = exit
+            seal(exit)
+        elseif kind == "fornumStmt" then
+            local var = stat.var
+            local kind = tag(var.inferredType)
+            local start = expression(stat.start)
+            local stop = expression(stat.stop)
+            if kind == "missing" then
+                kind = kindOf(stat.start, start, stop)
+            end
+            local step = "1"
+            local descending = false
+            if stat.step then
+                local s = expression(stat.step)
+                need(s.literal, "loop step must be a literal")
+                step = s.literal
+                descending = step:sub(1, 1) == "-"
+            end
+            local counter = {}
+            varTypes[counter] = machine(kind)
+            varTypes[var.definition or var.text] = machine(kind)
+            writeVariable(counter, current as Block, materialize(start, kind))
+            local limit = materialize(stop, kind)
+            local header, bodyBlock, advance, exit = newBlock(), newBlock(), newBlock(), newBlock()
+            jump(header, {})
+            current = header
+            local value = readVariable(counter, header)
+            local op = descending and ">=" or "<="
+            local cond = compare({lhs = stat.start}, op, {kind = kind, value = value}, {kind = kind, value = limit})
+            branch(cond.value, bodyBlock, exit)
+            current = bodyBlock
+            seal(bodyBlock)
+            writeVariable(var.definition or var.text, bodyBlock, readVariable(counter, bodyBlock))
+            loops[#loops + 1] = {exit = exit, continueTo = advance}
+            block(stat.body.stats)
+            loops[#loops] = nil
+            if current then
+                jump(advance, {})
+            end
+            current = advance
+            seal(advance)
+            local next = arithmetic(stat, "+", kind, {kind = kind, value = readVariable(counter, advance)}, {
+                literal = step
+            })
+            writeVariable(counter, advance, next.value)
+            jump(header, {})
+            seal(header)
+            current = exit
+            seal(exit)
+        elseif kind == "breakStmt" then
+            local loop = need(loops[#loops], "break outside a loop")
+            jump(loop.exit, {})
+        elseif kind == "continueStmt" then
+            local loop = need(loops[#loops], "continue outside a loop")
+            jump(loop.continueTo, {})
+        else
+            error("lower: unsupported statement " .. tostring(kind), 0)
+        end
+    end
+
+    local entry = newBlock()
+    entry.sealed = true
+    current = entry
+    for index, param in ipairs(body.params) do
+        local value = addParam(entry, paramTypes[index])
+        local variable = declare(param.name, paramKinds[index])
+        writeVariable(variable, entry, value)
+    end
+    block(body.body.stats)
+    if current then
+        need(resultKind == nil, "function " .. name .. " may fall through without a result")
+        finish({})
+    end
+
+    -- Print.
+    local out = {}
+    local signature = "(" .. table.concat(paramTypes, ", ") .. ")"
+    if resultType then
+        signature = signature .. " -> " .. resultType
+    end
+    out[#out + 1] = "function %" .. name .. signature .. " {"
+    for _, text in ipairs(preamble) do
+        out[#out + 1] = "    " .. text
+    end
+    -- Reverse postorder: every block's dominators print before it, so the
+    -- reader sees each value's definition before its uses, and unreachable
+    -- blocks never print.
+    local order, visited = {}, {}
+
+    local function visit(b: Block): nil
+        if visited[b] then
+            return
+        end
+        visited[b] = true
+        if b.term then
+            for _, t in ipairs(b.term.targets or {}) do
+                visit(t.block)
+            end
+        end
+        order[#order + 1] = b
+    end
+
+    visit(entry)
+    for index = #order, 1, -1 do
+        local b = order[index]
+        do
+            local params = {}
+            for index, value in ipairs(b.params) do
+                params[index] = value .. ": " .. b.paramTypes[index]
+            end
+            out[#out + 1] = ""
+            out[#out + 1] = "block" .. tostring(b.id) .. "(" .. table.concat(params, ", ") .. "):"
+            for _, text in ipairs(b.lines) do
+                out[#out + 1] = "    " .. text
+            end
+            local term = need(b.term, "block without a terminator in " .. name)
+
+            local function target(t: any): string
+                return "block" .. tostring(t.block.id) .. "(" .. table.concat(t.args, ", ") .. ")"
+            end
+
+            if term.kind == "jump" then
+                out[#out + 1] = "    jump " .. target(term.targets[1])
+            elseif term.kind == "brif" then
+                out[
+                    #out + 1
+                ] = "    brif " .. term.cond .. ", " .. target(term.targets[1]) .. ", " .. target(term.targets[2])
+            else
+                out[#out + 1] = "    return " .. table.concat(term.values, ", ")
+            end
+        end
+    end
+    out[#out + 1] = "}"
+    out[#out + 1] = ""
+
+    return table.concat(out, "\n")
+end
+
+export function compile(root: string, path: string): string
+    trivia.installDefault(provider)
+    local env = environment.new(root, {cache = false, config = {include = {"lib"}}})
+    local parsed = parser.parse(assert(fs.readFile(path)), path)
+    need(#parsed.errors == 0, "parse failed")
+    local diagnostics = checker.check(parsed, path, env as any, {})
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" or not diagnostic.severity then
+            error(tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg), 0)
+        end
+    end
+    -- Every function's signature first, so calls may name any of them.
+    local functions, order = {}, {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node: any = stat
+            if node.kind == "localFuncStmt" then
+                local body = node.body
+                local paramKinds, paramTypes = {}, {}
+                for index, param in ipairs(body.params) do
+                    paramKinds[index] = tag(param.type and param.type.resolvedType)
+                    paramTypes[index] = machine(paramKinds[index])
+                end
+                local rets = body.signatureType and body.signatureType.rets or {}
+                local resultKind = #rets == 1 and tag(rets[1]) or nil
+                functions[
+                    node.name.text
+                ] = {
+                    node = node,
+                    paramKinds = paramKinds,
+                    paramTypes = paramTypes,
+                    resultKind = resultKind,
+                    resultType = resultKind and machine(resultKind) or nil
+                }
+                order[#order + 1] = node.name.text
+            elseif node.kind ~= "moduleStmt" and node.kind ~= "emptyStmt" then
+                error("lower: unsupported top-level statement " .. tostring(node.kind), 0)
+            end
+        end
+    end
+    need(#order > 0, "no functions")
+    local text = {}
+    for index, fnName in ipairs(order) do
+        text[index] = compileFunction(functions[fnName].node, functions)
+    end
+
+    return table.concat(text, "\n")
+end
