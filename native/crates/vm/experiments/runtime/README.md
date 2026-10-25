@@ -6,13 +6,14 @@ return candidate passes the 2% noninferiority gate on every workload; the full
 compiler check still regresses cold, so every candidate remains disabled.
 This is an isolated experiment, not a completed Rust-removal migration.
 
-The ordinary Nupp parser and checker validate private handler source. A small
-Nupp compiler then emits a whole-function native IR, which a Rust bridge lowers
-to Cranelift. The profile supports exact integer words, IEEE double operations and bitcasts,
-raw pointer accesses, immutable locals, terminating branches, and guaranteed
-tail dispatch. Anything
-outside that profile is rejected. There is no interpretation fallback inside a
-compiled handler, and no new C or handwritten assembly.
+The handlers are ordinary Nupp, validated by the ordinary parser and checker
+and compiled to CLIF by `nupp.experiment.lower` in handler mode (below); a
+Rust shim parses the text and compiles it with Cranelift. A handler module's
+functions are either handlers, with the six-pointer signature, or helpers,
+inlined where a handler tail-calls them, so every handler is one frameless
+function. There is no interpretation fallback inside a compiled handler, and
+no new C or handwritten assembly. The restricted whole-function IR the first
+candidates were authored in survives only for the synthetic ABI pilot.
 
 Two executables exercise different contracts:
 
@@ -32,23 +33,22 @@ Two executables exercise different contracts:
   rules. No helper or allocation can run inside this native slice. Growth,
   GC, scheduler policy, and the remaining handlers retain their existing code.
 
-A local function with the handler signature is a handler; any other local
-function is a helper, inlined where a handler tail-calls it. The Rust core's
-`push` and `dynamic_call!` have one Nupp spelling each this way, and the
-dispatch stays a tail transfer. Bounded word loops (`copyWords`, `fillWords`)
-are the only loops: parameter copies, nil fills and result copies.
-
-The producer prints each handler as Cranelift's textual IR (CLIF), with the
+The lowering prints each handler as Cranelift's textual IR (CLIF), with the
 structure offsets it names read from `runtime_slice --layouts`, which measures
 the Rust layouts the object links against. The shim parses the text with
 `cranelift-reader`, checks the handler contract on the parsed function (the
 tail signature, no call or symbol, `return` only of the entry pc or the reenter
-code, every dispatch preserving the context), and compiles it as printed. The
-object this produces is byte-identical to the one the earlier Rust lowering of
-the private JSON IR produced, so the measurements below hold for both; the JSON
-path stays reachable through `--json-ir` until it is retired. Deciding the IR in
-Nupp is the shape the rest of the migration takes: Nupp emits CLIF, and Rust
-parses, compiles and links.
+code, every dispatch preserving the context), and compiles it as printed.
+Deciding the IR in Nupp is the shape the rest of the migration takes: Nupp
+emits CLIF, and Rust parses, compiles and links.
+
+In handler mode a handler's sixth register is the dispatch table and its frame
+is derived from the boxed window; `native.dispatch` is a tail call through
+the table, `native.slow` returns the instruction's own address, and
+`native.reenter` the frame-driver code. The Rust core's `push` and
+`dynamic_call!` have one Nupp spelling each as helpers; the parameter copies,
+nil fills and result copies are `while` loops over mutable locals, the way
+anyone would write them.
 
 The native IR and object are trusted build inputs, not guest formats. The
 generated sidecar checks opcode values, value tags, and all accessed structure
@@ -141,15 +141,17 @@ on those platforms.
 ## Ordinary Nupp to CLIF
 
 `nupp.experiment.lower` compiles ordinary typed Nupp, checked by the ordinary
-checker, to CLIF with nothing managed underneath: `int64`, `uint64`, `number`
+checker, to CLIF with nothing managed underneath, and is what the handler slice
+above is compiled with: `int64`, `uint64`, `number`
 and `boolean` values, `voidptr`, mutable locals, `if`/`elseif`/`else`, `while`,
 `repeat`, numeric `for` with a literal step, `break`, `continue`, compound
 assignment, `and`/`or`/`not` with short circuits, the arithmetic, bitwise and
 comparison operators (floored `//` and `%` on `int64`, as the language
 defines them), and direct calls between a module's functions, recursion
 included. It builds SSA form itself, placing block parameters by the
-sealed-block algorithm, and prints blocks in reverse postorder so every
-definition precedes its uses. `clif_run` parses a CLIF file, resolves `%name`
+sealed-block algorithm, removes the parameters every edge feeds the same
+value, and prints blocks in reverse postorder so every definition precedes
+its uses. `clif_run` parses a CLIF file, resolves `%name`
 calls between its functions, compiles it just in time and calls one function
 through a one-shape trampoline, so a test needs no Rust.
 Structs declared in Nupp are reached through raw pointers: a field read or
@@ -162,12 +164,13 @@ profile is a subset of this one. `lower-check.py` compiles
 fifty-six cases against answers computed in Python; `clif_run` passes
 `buffer:N` arguments as the address of N zeroed bytes.
 
-Three things the sample had to work around are findings about today's
-language, not the lowering: a recursive local function's result needs its
-declared type restated (`local a: int64 = fib(n - 1)`), numeric `for` ranges
-over numbers rather than the fixed-width integers, and compound assignment
-answers a number. A runtime written in this profile needs first-class
-fixed-width integers.
+Writing the sample surfaced three gaps in how the language treated `int64`
+and `uint64`, fixed in the checker and the VM alongside this work: a recursive
+local function now sees its declared signature while its body is checked,
+numeric `for` counts in a 64-bit box when a bound is one (the other bound and
+the step must be the same box or an exact literal), and compound assignment on
+a box answers the box, as the operators do. `tests/fixedwidthtest.lua` covers
+the three, including the VM running an `int64` loop in both directions.
 
 ## Frame transitions
 
@@ -229,10 +232,20 @@ gate is the one that governs promotion, so the experiment stays disabled: the
 compiler's time is in field and index lookup, the helpers they call, and the
 remaining boundary crossings around them, not in calls and returns.
 
-With the final object, 446 Rust tests pass across 66 targets with four ignored
+Compiled from the ordinary-Nupp spelling of the same handlers, the paired
+ratios are 0.697 for fib (interval 0.693-0.700), 0.901 for closures,
+0.805 for records, 0.966 for tables, 0.972 for loops and 0.996 for
+strings, every workload again passing the gate; the cold compiler check is
+43.68 s against 46.07 s and warm 0.605 s against 0.607 s. The
+loops and inlined helpers give the call handlers a slightly different shape
+from the hand-written IR, which is where the closures difference comes from;
+`candidates.handlers` records it beside `candidates.calls`.
+
+With that object, 446 Rust tests pass across 66 targets with four ignored
 and the pre-existing `aot_relocation` compile failure excluded; the
 specialization suite, whose `shapes` program caught the frame-identity exit
-bug, passes; 18 native contract tests and 30 rejection checks pass.
+bug, passes; 18 native contract tests, 17 rejection checks and 56 lowering
+cases pass.
 
 ## Initial slice
 

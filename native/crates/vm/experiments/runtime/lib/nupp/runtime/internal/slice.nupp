@@ -1,6 +1,7 @@
 module nupp.runtime.internal.slice
 
--- Leaf-only production-state experiment. Unsupported instructions and OSR
+-- The native handler slice, written as ordinary Nupp and compiled through
+-- `nupp.experiment.lower` in handler mode. Unsupported instructions and OSR
 -- return to the Rust core before any helper can move a frame or collect.
 const native = require("nupp.runtime.internal.native")
 
@@ -1293,8 +1294,20 @@ local function pushFrame(
             native.store64(pushed, 8, current | (arguments << 32))
             native.store64(pushed, 16, closure)
             native.store64(pushed, 24, words << 33)
-            native.copyWords(pushed, 40, stack, native.index((arguments + 1) * 8), supplied)
-            native.fillWords(pushed, (5 + supplied) * 8, nparams - supplied, 9221401712017801216ULL)
+            local copied: int64 = 0
+            while copied < supplied do
+                native.store64(
+                    pushed,
+                    40 + copied * 8,
+                    native.load64(stack, native.index((arguments + 1) * 8) + copied * 8)
+                )
+                copied = copied + 1
+            end
+            local filled: int64 = supplied
+            while filled < nparams do
+                native.store64(pushed, 40 + filled * 8, 9221401712017801216ULL)
+                filled = filled + 1
+            end
             native.store64(context, native.layout("cur"), next)
             return enterPushed(pc, regs, ints, floats, context, pushed, callee, fid)
         end
@@ -1538,8 +1551,15 @@ local function RetN(
     else
         local stack = native.loadPointer(context, native.layout("stack"))
         local results = native.index((link >> 32) * 8)
-        native.copyWords(stack, results, regs, native.load8(pc, 1) * 8, count)
-        native.fillWords(stack, results, native.chooseIndex(count == 0, 1, 0), 9221401712017801216ULL)
+        local from = native.load8(pc, 1) * 8
+        local copied: int64 = 0
+        while copied < count do
+            native.store64(stack, results + copied * 8, native.load64(regs, from + copied * 8))
+            copied = copied + 1
+        end
+        if count == 0 then
+            native.store64(stack, results, 9221401712017801216ULL)
+        end
         native.store64(context, native.layout("cur"), caller)
         native.store64(context, native.layout("last_nres"), native.word(count))
         return resumeCaller(pc, regs, ints, floats, context, frame, caller)
@@ -1558,8 +1578,12 @@ local function PadResults(
     if wanted > 8 then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local delivered = native.loadIndex(context, native.layout("last_nres"))
-        native.fillWords(regs, (native.load8(pc, 1) + delivered) * 8, wanted - delivered, 9221401712017801216ULL)
+        local base = native.load8(pc, 1)
+        local filled: int64 = native.loadIndex(context, native.layout("last_nres"))
+        while filled < wanted do
+            native.store64(regs, (base + filled) * 8, 9221401712017801216ULL)
+            filled = filled + 1
+        end
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     end
 end

@@ -32,8 +32,6 @@ local record Native
     store64: function(base: voidptr, offset: int64, value: uint64): nil
     storeIndex: function(base: voidptr, offset: int64, value: int64): nil
     storePointer: function(base: voidptr, offset: int64, value: voidptr): nil
-    fillWords: function(base: voidptr, offset: int64, count: int64, value: uint64): nil
-    copyWords: function(target: voidptr, targetOffset: int64, source: voidptr, sourceOffset: int64, count: int64): nil
     offset: function(base: voidptr, offset: int64): voidptr
     dispatch: function(
         pc: voidptr,

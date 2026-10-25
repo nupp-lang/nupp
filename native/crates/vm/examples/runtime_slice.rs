@@ -16,6 +16,9 @@ use nupp_vm::{
 };
 use std::{mem::offset_of, path::Path};
 
+// Shared with the synthetic ABI pilot, which still lowers its private JSON IR
+// through it; the slice uses only the layout table and the exit code.
+#[allow(dead_code)]
 #[path = "support/runtime_ir.rs"]
 mod runtime_ir;
 
@@ -102,37 +105,9 @@ fn opcode(name: &str) -> u8 {
 /// opcodes at it when the source defines the first name only.
 const ALIASES: [(&str, &str); 1] = [("CallDyn", "CallK")];
 
-/// A handler ready to define: lowered from the private JSON IR, or parsed
-/// from the CLIF text the Nupp producer prints.
-enum Source {
-    Ir(runtime_ir::Function),
-    Clif(cranelift_codegen::ir::Function),
-}
-
-impl Source {
-    fn name(&self) -> String {
-        match self {
-            Source::Ir(f) => f.name.clone(),
-            Source::Clif(f) => f.name.to_string().trim_start_matches('%').to_string(),
-        }
-    }
-    fn require_leaf(&self, tail: &Signature) -> Result<(), String> {
-        match self {
-            Source::Ir(f) => f.require_leaf(),
-            Source::Clif(f) => require_leaf_clif(f, tail),
-        }
-    }
-    fn changes_frame(&self) -> bool {
-        match self {
-            Source::Ir(f) => f.changes_frame(),
-            Source::Clif(f) => changes_frame_clif(f),
-        }
-    }
-}
-
-/// The CLIF spelling of `Function::require_leaf`: no call, no symbol, the
-/// handler signature, `return` only of the entry pc or the reenter code, and
-/// every tail dispatch preserving the context.
+/// The handler contract on a parsed function: no call, no symbol, the handler
+/// signature, `return` only of the entry pc or the reenter code, and every
+/// tail dispatch preserving the context.
 fn require_leaf_clif(f: &cranelift_codegen::ir::Function, tail: &Signature) -> Result<(), String> {
     use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
     if f.signature != *tail {
@@ -207,21 +182,11 @@ fn main() -> Result<(), String> {
         std::fs::write(path, text).map_err(|e| e.to_string())?;
         return Ok(());
     }
-    let input = Path::new(args.get(1).ok_or("source IR required")?);
-    let mut sources: Vec<Source> = if input.extension().is_some_and(|e| e == "clif") {
-        let text = std::fs::read_to_string(input).map_err(|e| e.to_string())?;
-        cranelift_reader::parse_functions(&text)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(Source::Clif)
-            .collect()
-    } else {
-        runtime_ir::Program::read(input)?
-            .functions
-            .into_iter()
-            .map(Source::Ir)
-            .collect()
-    };
+    let input = Path::new(args.get(1).ok_or("handler CLIF required")?);
+    let text = std::fs::read_to_string(input).map_err(|e| e.to_string())?;
+    let mut sources: Vec<cranelift_codegen::ir::Function> =
+        cranelift_reader::parse_functions(&text).map_err(|e| e.to_string())?;
+    let name_of = |f: &cranelift_codegen::ir::Function| f.name.to_string().trim_start_matches('%').to_string();
     let packed_state = args
         .get(3..)
         .unwrap_or(&[])
@@ -238,21 +203,21 @@ fn main() -> Result<(), String> {
     for option in args.get(3..).unwrap_or(&[]) {
         match option.as_str() {
             "--integers-only" => sources.retain(|f| {
-                let name = f.name();
+                let name = name_of(f);
                 (name.starts_with('I') && name != "IToF") || name == "Jmp" || name == "JmpIfIZero"
             }),
             "--packed-state" | "--derived-frame" => {}
             _ if option.starts_with("--without=") => {
                 let names: Vec<&str> = option["--without=".len()..].split(',').collect();
-                sources.retain(|f| !names.contains(&f.name().as_str()));
+                sources.retain(|f| !names.contains(&name_of(f).as_str()));
             }
             _ => return Err(format!("unknown option {option}")),
         }
     }
-    if packed_state && sources.iter().any(|f| f.changes_frame()) {
+    if packed_state && sources.iter().any(changes_frame_clif) {
         return Err("frame-changing handlers need the frame derived from the window".into());
     }
-    if sources.iter().any(|f| matches!(f, Source::Clif(_))) && !derived_frame {
+    if !derived_frame {
         return Err("CLIF handlers are printed for the derived-frame layout".into());
     }
     if sources.is_empty() {
@@ -294,13 +259,6 @@ fn main() -> Result<(), String> {
         .unwrap();
     let table_id = module
         .declare_data("native_runtime_table", Linkage::Local, false, false)
-        .unwrap();
-    // The producer rejects helper calls here; this unused declaration only
-    // keeps the generic whole-function bridge's signature uniform.
-    let mut helper_sig = module.make_signature();
-    helper_sig.params = vec![AbiParam::new(types::I64); 5];
-    let helper = module
-        .declare_function("forbidden_runtime_helper", Linkage::Import, &helper_sig)
         .unwrap();
     let mut ids = Vec::new();
     let mut function_ids = Vec::new();
@@ -384,10 +342,10 @@ fn main() -> Result<(), String> {
     ));
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
-    let names: Vec<String> = sources.iter().map(Source::name).collect();
+    let names: Vec<String> = sources.iter().map(name_of).collect();
     for function in &sources {
-        function.require_leaf(&tail)?;
-        let name = function.name();
+        require_leaf_clif(function, &tail)?;
+        let name = name_of(function);
         let op = opcode(&name);
         let id = module
             .declare_function(&name, Linkage::Local, &tail)
@@ -414,7 +372,7 @@ fn main() -> Result<(), String> {
         ctx.want_disasm = true;
         let is_entry = index == sources.len();
         let is_leave = index == sources.len() + 1;
-        if let Some(Source::Clif(function)) = sources.get(index) {
+        if let Some(function) = sources.get(index) {
             // The producer decided the IR; the shim compiles it as printed.
             ctx.func = function.clone();
             listings.push_str(&format!("\n{}\n", ctx.func.display()));
@@ -487,31 +445,6 @@ fn main() -> Result<(), String> {
                 let call = b.ins().call_indirect(sig, target, &arguments);
                 let value = b.inst_results(call)[0];
                 b.ins().return_(&[value]);
-            } else {
-                let helper = module.declare_func_in_func(helper, b.func);
-                let mut logical = params.clone();
-                let state = if packed_state {
-                    let flags = MemFlagsData::new().with_notrap();
-                    logical[4] = b.ins().load(types::I64, flags, params[4], 0);
-                    logical[5] = b.ins().load(types::I64, flags, params[4], 8);
-                    Some(params[4])
-                } else {
-                    None
-                };
-                if derived_frame {
-                    logical[5] = b.ins().iadd_imm_s(params[1], -32);
-                }
-                let Source::Ir(function) = &sources[index] else { unreachable!() };
-                runtime_ir::emit(
-                    function,
-                    &mut b,
-                    &logical,
-                    sig,
-                    helper,
-                    Some(table),
-                    state,
-                    derived_frame,
-                )?;
             }
             b.seal_all_blocks();
             b.finalize(module.target_config());

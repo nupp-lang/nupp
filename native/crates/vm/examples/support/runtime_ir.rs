@@ -15,6 +15,7 @@ use std::{
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`runtime_slice --layouts`), and
 /// the generated sidecar asserts the same values at build time.
+#[allow(dead_code)] // The pilot does not export layouts.
 pub const LAYOUT_FIELDS: [&str; 39] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "frame_mode", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres", "entries",

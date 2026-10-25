@@ -97,17 +97,14 @@ def main():
     run('compile-handlers', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
                             HERE, HERE / 'lib/nupp/runtime/internal/handlers.nupp',
                             '--output', OUT / 'handlers.json'])
-    run('compile-slice', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
-                         HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp',
-                         *(['eager'] if args.eager_conditions else []), '--output', OUT / 'slice.json'])
     if args.clif:
         target = ROOT / 'build/rust/target/release'
         run('build-probe', ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
                            '--features', FEATURES, '--example', 'runtime_tail',
                            '--example', 'runtime_slice', '-j', '4'])
         run('layouts', [target / 'examples/runtime_slice', '--layouts', OUT / 'layouts.json'])
-        run('compile-clif', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
-                            HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp', 'clif',
+        run('compile-clif', [BASE, 'run', DRIVER, 'nupp.experiment.lower', 'compile',
+                            HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp', 'handlers',
                             OUT / 'layouts.json', '--output', OUT / 'slice.clif'])
     if not args.emit_only:
         target = ROOT / 'build/rust/target/release'

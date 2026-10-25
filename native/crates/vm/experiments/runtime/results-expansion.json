@@ -1,13 +1,13 @@
 {
  "baseline_revision": "73d54b904cd014f666671407e4a1751fb8de2418",
  "experiment_parent": "aa79357c0",
- "recorded_utc": "2026-10-25T21:07:17.505163+00:00",
+ "recorded_utc": "2026-10-25T23:29:45.257324+00:00",
  "host": {
   "architecture": "arm64",
   "os": "26.6",
   "cpu": "Apple M5 Pro"
  },
- "decision": "Keep disabled. The call/return candidate passes the 2% gate on all six workloads (fib 0.678, closures 0.860, records 0.797, tables 0.984, loops 0.942, strings 0.989) but the cold compiler check still regresses (43.79 s to 46.55 s median of three; warm 0.608 s to 0.616 s). Lookup and helper paths are next; promotion needs the compiler regression gone and broader coverage.",
+ "decision": "Keep disabled. The handler slice written as ordinary Nupp passes the 2% gate on all six workloads (fib 0.697, closures 0.901, records 0.805, tables 0.966, loops 0.972, strings 0.996) but the cold compiler check still regresses (43.68 s to 46.07 s median of three; warm 0.605 s to 0.607 s). Lookup and helper paths are next; promotion needs the compiler regression gone and broader coverage.",
  "margin": 0.02,
  "method": "12 paired independent processes per xbench candidate; alternating AB/BA; best-of-three inside each process; geometric mean paired ratio and 10000 paired bootstrap draws, 95% interval. Timing candidates and compiler checks ran serially.",
  "candidates": {
@@ -2793,6 +2793,154 @@
     "baseline": 208404480.0,
     "candidate": 208437248.0
    }
+  },
+  "handlers": {
+   "layout": "derived",
+   "source": "ordinary Nupp through nupp.experiment.lower in handler mode; helpers inlined at tail calls; loops over mutable locals",
+   "handlers": [
+    "Move",
+    "Nil",
+    "IK",
+    "IMov",
+    "IAddK",
+    "IMaskU32",
+    "IAdd",
+    "ISub",
+    "IAnd",
+    "IOr",
+    "IShl",
+    "IShrU",
+    "ICmpEq",
+    "ICmpNe",
+    "ICmpLt",
+    "ICmpLe",
+    "ICmpSLt",
+    "ICmpSLe",
+    "Jmp",
+    "JmpIfIZero",
+    "FAdd",
+    "FSub",
+    "FMul",
+    "FDiv",
+    "FMod",
+    "FK",
+    "FMov",
+    "FNeg",
+    "IToF",
+    "FToI",
+    "FCmpEq",
+    "FCmpNe",
+    "FCmpLt",
+    "FCmpLe",
+    "FBox",
+    "FUnbox",
+    "GetCell",
+    "Add",
+    "Sub",
+    "Mul",
+    "Mod",
+    "Lt",
+    "Le",
+    "Neg",
+    "Not",
+    "Truthy",
+    "BoolFromI",
+    "GetUpval",
+    "K",
+    "JmpIf",
+    "JmpIfNot",
+    "GetSlot",
+    "GetSlotF",
+    "Len",
+    "LenF",
+    "GetIdxF",
+    "GetIdxI",
+    "Call",
+    "CallK",
+    "Ret",
+    "RetNil",
+    "RetN",
+    "PadResults"
+   ],
+   "table_aliases": {
+    "CallDyn": "CallK"
+   },
+   "clif_sha256": "034e4e00f91b2257f154dca29e759da5a19e66758e12c467daca2e0a0fa8b946",
+   "object_sha256": "a05d90c47e1af0237803a85e4669b275cef2f2cd1185ae3332259aa250525823",
+   "runtime_sha256": "ca1351301af952bb83d4c95e360153a3c371eb70aeb7805d988b78b63ec5d945",
+   "binaries": {
+    "baseline": {
+     "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+     "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+    },
+    "candidate": {
+     "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/calls-app",
+     "sha256": "a4ea80728d7ffc27b9b1aea2d2d4bb1597a983c6b2b6013ffe2cccc19b4fab75"
+    }
+   },
+   "scale": 2,
+   "forks": 12,
+   "summary": {
+    "fib": {
+     "ratio": 0.6965159457765577,
+     "low95": 0.692558373861647,
+     "high95": 0.7001333427505223,
+     "baseline_median_seconds": 0.072,
+     "candidate_median_seconds": 0.05,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "loops": {
+     "ratio": 0.9720836947720632,
+     "low95": 0.9470910609617115,
+     "high95": 0.9942412315704628,
+     "baseline_median_seconds": 0.3715,
+     "candidate_median_seconds": 0.361,
+     "verdict": "inconclusive",
+     "noninferiority_pass": true
+    },
+    "tables": {
+     "ratio": 0.9656505025428176,
+     "low95": 0.955158302901981,
+     "high95": 0.9763395821427019,
+     "baseline_median_seconds": 0.078,
+     "candidate_median_seconds": 0.075,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "strings": {
+     "ratio": 0.9963988492042211,
+     "low95": 0.9796344846883875,
+     "high95": 1.011385497025369,
+     "baseline_median_seconds": 0.161,
+     "candidate_median_seconds": 0.161,
+     "verdict": "inconclusive",
+     "noninferiority_pass": true
+    },
+    "records": {
+     "ratio": 0.8052404186841694,
+     "low95": 0.79601660518185,
+     "high95": 0.8154464194833649,
+     "baseline_median_seconds": 0.0545,
+     "candidate_median_seconds": 0.044,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "closures": {
+     "ratio": 0.901153180621242,
+     "low95": 0.8972435301694273,
+     "high95": 0.9049375124289442,
+     "baseline_median_seconds": 0.064,
+     "candidate_median_seconds": 0.058,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    }
+   },
+   "noninferiority_pass": true,
+   "max_rss_bytes": {
+    "baseline": 208388096.0,
+    "candidate": 208289792.0
+   }
   }
  },
  "validation": {
@@ -2803,40 +2951,25 @@
   "excluded_baseline_failure": "aot_relocation: pre-existing &String versus &[u8] compile error, reproduced without experiment in previous commit",
   "native_contract_tests": 18,
   "rejection_cases": [
-   "mutation",
    "allocation",
-   "loop",
    "pointer-return",
    "fallthrough",
    "ordinary-call",
-   "non-terminating-branch",
-   "implicit-number",
    "bad-layout",
-   "ir-format",
-   "ir-opcode",
-   "ir-arity",
-   "ir-parameter-write",
-   "ir-undefined",
-   "ir-unterminated",
-   "ir-nonleaf",
-   "ir-representation",
-   "ir-after-terminator",
-   "ir-changed-slow-pc",
-   "ir-float-as-word",
-   "ir-word-as-float",
-   "ir-word-as-condition",
-   "ir-nonboolean-select",
-   "effect-as-value",
+   "transfer-as-value",
    "helper-as-value",
    "recursive-helper",
-   "helper-parameter",
-   "ir-changed-context",
-   "ir-reenter-operands",
-   "ir-frame-change-packed"
+   "helper-fallthrough",
+   "changed-representation",
+   "clif-call",
+   "clif-changed-context",
+   "clif-foreign-return",
+   "clif-signature",
+   "clif-symbol",
+   "clif-syntax",
+   "clif-layout"
   ],
   "rejection_layouts": [
-   "static",
-   "packed",
    "derived"
   ],
   "synthetic_abi": "JIT and linked host AOT probes pass; Linux x64 and Windows GNU x64 object emission covers the synthetic ABI pilot, not the expanded production slice.",
@@ -2856,7 +2989,9 @@
    "performance_claim": false,
    "cranelift_normal_dependencies": []
   },
-  "specialization_suite": "passes with the native object; its shapes program caught the frame-identity exit bug fixed before this record"
+  "specialization_suite": "passes with the native object; its shapes program caught the frame-identity exit bug fixed before this record",
+  "lowering_cases": 56,
+  "producer": "the handler slice is ordinary Nupp compiled by nupp.experiment.lower in handler mode; the restricted JSON IR remains only for the synthetic ABI pilot"
  },
  "compiler": {
   "expanded": {
@@ -2986,6 +3121,48 @@
     0
    ],
    "diagnostics": "none in any run"
+  },
+  "handlers": {
+   "runtimes": {
+    "baseline": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+    "candidate": "ca1351301af952bb83d4c95e360153a3c371eb70aeb7805d988b78b63ec5d945"
+   },
+   "image_sha256": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb",
+   "forks": 3,
+   "median_seconds": {
+    "baseline_cold": 43.680662874999996,
+    "baseline_warm": 0.6048451250000255,
+    "candidate_cold": 46.068833749999996,
+    "candidate_warm": 0.6067927910000037
+   },
+   "seconds": {
+    "baseline_cold": [
+     43.940189000000004,
+     43.643951749999985,
+     43.680662874999996
+    ],
+    "baseline_warm": [
+     0.6056007090000008,
+     0.5906266670000093,
+     0.6048451250000255
+    ],
+    "candidate_cold": [
+     46.373203542000006,
+     46.068833749999996,
+     45.63212225000001
+    ],
+    "candidate_warm": [
+     0.6082953340000046,
+     0.6067927910000037,
+     0.6057096250000313
+    ]
+   },
+   "cold_compiled_modules": [
+    504
+   ],
+   "warm_compiled_modules": [
+    0
+   ]
   }
  },
  "deterministic": {
@@ -3006,14 +3183,16 @@
  },
  "xbench_payload_sha256": "09cc26e1d5169e0632f6cfc8833cedc21d9af6b9803d2020de63448cc75a9606",
  "source_sha256": {
-  "native/crates/vm/examples/runtime_slice.rs": "3914ee23d9af098c6d3c735b205ce519e6c690576d0e1d7183b518fc3777f360",
-  "native/crates/vm/examples/support/runtime_ir.rs": "d551b36a5b926ff5bf289bc26d5356bb7ac4920a3dbd26eebeece69c410c1035",
+  "native/crates/vm/examples/runtime_slice.rs": "095d59e4a900ecaf7462417e37297b129209b546fd72472d988d723270659e15",
+  "native/crates/vm/examples/support/runtime_ir.rs": "a7737283e158e1473579771da73f78f10f729f0a16e1461ed22c57ca14023509",
+  "native/crates/vm/examples/clif_run.rs": "bf24e8073d9d4818b854cffbbc830082b1424cd99712dca4c1cd88ab692efed6",
   "native/crates/vm/src/dispatch.rs": "1d0d5ba91614f306b5ca2cc7b9f0e685e2f497d5e2f8637423179f93a625a710",
   "native/crates/vm/experiments/runtime/tests.rs": "4869d92edde203bdef71790ec7c04e261f5a6acc19b3cde930707ff670752d0f",
-  "native/crates/vm/experiments/runtime/lib/nupp/experiment/runtime.nupp": "77ae102a8ef6ce47c921d624ac80d083230aa5caabb2b065f2a8d9c4c0cc0977",
+  "native/crates/vm/experiments/runtime/lib/nupp/experiment/lower.nupp": "45ffa8772301c486883efa530ce1c9bd4ab1d4f3b3e8d3befa6bfcffd877adcf",
+  "native/crates/vm/experiments/runtime/lib/nupp/experiment/runtime.nupp": "72f550045919b638f192307d0ff8536e68bb48fab279c0924e8ee74a0fc2bf99",
   "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/handlers.nupp": "bddd8da925d6504f4e7f6ccaa9543e01b9c66fbfea541ab08f525d5fd2a3445c",
-  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "6dd6d797b9fb4afa4d33c487476a1608bccbe70f83b154d3b42698a7f65b9133",
-  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "d4ce68a48dca515fce90e99d7925fe91b7957245eaff54def020fec638312f7e"
+  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "e90fd199d261c89c84c5bd55bf7e7213defbe83567cf7de6f089b8af42f77112",
+  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "a19cc9987a0e0e43f40c851a4432a5b9a6cf86335f7ac3f68b6d132c64842a45"
  },
  "toolchain": "rustc 1.101.0-nightly (5c543b0b8 2026-09-29)\nbinary: rustc\ncommit-hash: 5c543b0b8c73c7b72bc8284ced4fb22ead15734d\ncommit-date: 2026-09-29\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1\n",
  "fib_profile": {
