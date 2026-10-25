@@ -113,10 +113,17 @@ fn main() -> Result<(), String> {
     if given.len() != target.params.len() {
         return Err(format!("{entry} takes {} arguments", target.params.len()));
     }
+    // `buffer:N` passes the address of N zeroed bytes that live for the call.
+    let mut buffers: Vec<Vec<u64>> = Vec::new();
     let words: Vec<u64> = given
         .iter()
         .zip(&target.params)
         .map(|(text, param)| match param.value_type {
+            _ if text.starts_with("buffer:") => {
+                let bytes: usize = text["buffer:".len()..].parse().map_err(|_| "buffer size".parse::<f64>().unwrap_err())?;
+                buffers.push(vec![0u64; bytes.div_ceil(8).max(1)]);
+                Ok(buffers.last().unwrap().as_ptr() as u64)
+            }
             types::F64 => text.parse::<f64>().map(f64::to_bits),
             types::I8 => match text.as_str() {
                 "true" => Ok(1),

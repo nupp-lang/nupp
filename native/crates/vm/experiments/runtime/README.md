@@ -152,8 +152,15 @@ sealed-block algorithm, and prints blocks in reverse postorder so every
 definition precedes its uses. `clif_run` parses a CLIF file, resolves `%name`
 calls between its functions, compiles it just in time and calls one function
 through a one-shape trampoline, so a test needs no Rust.
-`lower-check.py` compiles `lib/nupp/experiment/samples/scalars.nupp` and runs
-fifty cases against answers computed in Python.
+Structs declared in Nupp are reached through raw pointers: a field read or
+`@unsafe` write lowers to a load or store at the offset the compiler's own
+layout model (`nupp.compiler.targetlayout`) gives the field, `nil` is the null
+pointer, `as` between types of one representation is free, and the private
+memory intrinsics the handler slice is written against are accepted, so that
+profile is a subset of this one. `lower-check.py` compiles
+`lib/nupp/experiment/samples/scalars.nupp` and `structs.nupp` and runs
+fifty-six cases against answers computed in Python; `clif_run` passes
+`buffer:N` arguments as the address of N zeroed bytes.
 
 Three things the sample had to work around are findings about today's
 language, not the lowering: a recursive local function's result needs its

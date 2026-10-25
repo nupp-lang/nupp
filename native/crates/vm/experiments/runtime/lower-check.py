@@ -47,15 +47,37 @@ CASES = [
 ]
 
 
-def main():
-    clif = OUT / 'scalars.clif'
-    sample = HERE / 'lib/nupp/experiment/samples/scalars.nupp'
+STRUCT_CASES = [
+    ('total', ['buffer:320', 10], sum(10 * i for i in range(10))), ('total', ['buffer:32', 0], 0),
+    ('weight', ['buffer:320', 10], 2.5), ('weight', ['buffer:320', 3], 1.0),
+    ('counts', ['buffer:320', 10], 70),
+    ('words', ['buffer:64', 8], 24),
+]
+
+
+def compile_sample(name):
+    clif = OUT / f'{name}.clif'
+    sample = HERE / f'lib/nupp/experiment/samples/{name}.nupp'
     result = subprocess.run(list(map(str, [BASE, 'run', DRIVER, 'nupp.experiment.lower', 'compile', HERE, sample,
                                            '--output', clif])), cwd=ROOT, env=environment(), capture_output=True, text=True)
     if result.returncode:
         sys.exit(result.stdout + result.stderr)
+    return clif
+
+
+def main():
     failures = 0
-    for name, args, expected in CASES:
+    for sample, cases in [('scalars', CASES), ('structs', STRUCT_CASES)]:
+        clif = compile_sample(sample)
+        failures += run_cases(clif, cases)
+    total = len(CASES) + len(STRUCT_CASES)
+    print(f'{total - failures} of {total} lowering cases pass')
+    sys.exit(1 if failures else 0)
+
+
+def run_cases(clif, cases):
+    failures = 0
+    for name, args, expected in cases:
         result = subprocess.run([str(RUN), str(clif), name, *map(str, args)], capture_output=True, text=True)
         if result.returncode:
             print(f'{name}{args}: {result.stdout}{result.stderr}'.strip()); failures += 1; continue
@@ -69,8 +91,7 @@ def main():
             if got < 0 and expected >= 2**63: got += 2**64
         if got != expected:
             print(f'{name}{args}: expected {expected}, got {text}'); failures += 1
-    print(f'{len(CASES) - failures} of {len(CASES)} lowering cases pass')
-    sys.exit(1 if failures else 0)
+    return failures
 
 
 if __name__ == '__main__':
