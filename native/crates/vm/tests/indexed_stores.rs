@@ -114,7 +114,6 @@ fn runtime(op: &str, mode: Mode) -> (Box<Interp>, Value, Value) {
     }
     vm.entries.resize(vm.funcs.len(), 0);
     if matches!(mode, Mode::Threaded) {
-        assert!(nupp_vm::threaded::AVAILABLE);
         vm.prepare_threaded();
         vm.threaded = true;
     }

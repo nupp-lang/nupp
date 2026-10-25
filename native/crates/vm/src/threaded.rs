@@ -1,8 +1,8 @@
-//! The Rust side of the tail-call-threaded core in `csrc/dispatch.c`
-//! (contracts 5.2): the instruction encoding it reads, the per-function table
-//! it walks, the context it runs in, and the helpers it calls for anything it
-//! does not do itself. Built only when the C compiler takes `musttail`
-//! (`cfg(threaded)` from build.rs); otherwise `Interp::run` is the Rust loop.
+//! The tail-call-threaded core's contract (contracts 5.2): the instruction
+//! encoding it reads, the per-function table it walks, the context it runs in,
+//! and the helpers it calls for anything it does not do itself. The handlers
+//! are in `dispatch`; `Interp::run_rust` remains the loop for what the core
+//! leaves to it (instruction budgets, execution limits, `NO_THREADED=1`).
 
 use crate::interp::{Function, Interp, Op, Outcome, State, Step};
 use crate::value::Value;
@@ -54,10 +54,11 @@ pub const ST_PARKED: u32 = 0xffff_fffd;
 /// A raise is propagating: `Interp::pending_error` holds the value.
 pub const ST_ERROR: u32 = 0xffff_fffc;
 
-// The opcode numbers of `dispatch.c`, in its enum's order.
+// The core's opcode numbers: one handler each in `dispatch`, in this order.
 #[allow(dead_code)]
 #[repr(u8)]
-enum C {
+#[derive(Clone, Copy)]
+pub(crate) enum Code {
     Slow = 0, Move, K, Nil, Add, Sub, Mul, Lt, Le, Eq, Ne, Not, Neg,
     Jmp, JmpIf, JmpIfNot, JmpIfIZero,
     IK, IAdd, ISub, IAnd, IOr, IShl, IShrU, ICmpSLt, ICmpSLe, ICmpEq, ICmpNe, ICmpLt, ICmpLe,
@@ -66,100 +67,96 @@ enum C {
     GetUpval, GetCell, GetSlot, GetSlotF, SetSlotF, Len, LenF, StrByte,
     Call, CallK, CallDyn, Ret, RetNil, RetN,
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
-    PadResults, IBox,
+    PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
 }
 
 /// The core's encoding of one opcode; anything it does not handle is `Slow`,
 /// which hands the instruction to the Rust interpreter.
 pub fn encode(op: &Op) -> Ins {
-    let i = |op: C, a: u8, b: u8, c: u8| Ins { op: op as u8, a, b, c, imm: 0, k: 0 };
+    let i = |op: Code, a: u8, b: u8, c: u8| Ins { op: op as u8, a, b, c, imm: 0, k: 0 };
     match *op {
-        Op::Move(d, s) => i(C::Move, d, s, 0),
-        Op::K(d, k) => Ins { imm: k as i32, ..i(C::K, d, 0, 0) },
-        Op::Nil(d) => i(C::Nil, d, 0, 0),
-        Op::Add(d, a, b) => i(C::Add, d, a, b),
-        Op::Sub(d, a, b) => i(C::Sub, d, a, b),
-        Op::Mul(d, a, b) => i(C::Mul, d, a, b),
-        Op::Lt(d, a, b) => i(C::Lt, d, a, b),
-        Op::Le(d, a, b) => i(C::Le, d, a, b),
-        Op::Eq(d, a, b) => i(C::Eq, d, a, b),
-        Op::Ne(d, a, b) => i(C::Ne, d, a, b),
-        Op::Not(d, s) => i(C::Not, d, s, 0),
-        Op::Neg(d, s) => i(C::Neg, d, s, 0),
-        Op::Jmp(off) => Ins { imm: off, ..i(C::Jmp, 0, 0, 0) },
-        Op::JmpIf(c, off) => Ins { imm: off, ..i(C::JmpIf, c, 0, 0) },
-        Op::JmpIfNot(c, off) => Ins { imm: off, ..i(C::JmpIfNot, c, 0, 0) },
-        Op::JmpIfIZero(c, off) => Ins { imm: off, ..i(C::JmpIfIZero, c, 0, 0) },
-        Op::IK(d, k) => Ins { k, ..i(C::IK, d, 0, 0) },
-        Op::IAdd(d, a, b) => i(C::IAdd, d, a, b),
-        Op::ISub(d, a, b) => i(C::ISub, d, a, b),
-        Op::IAnd(d, a, b) => i(C::IAnd, d, a, b),
-        Op::IOr(d, a, b) => i(C::IOr, d, a, b),
-        Op::IShl(d, a, b) => i(C::IShl, d, a, b),
-        Op::IShrU(d, a, b) => i(C::IShrU, d, a, b),
-        Op::ICmpSLt(d, a, b) => i(C::ICmpSLt, d, a, b),
-        Op::ICmpSLe(d, a, b) => i(C::ICmpSLe, d, a, b),
-        Op::ICmpEq(d, a, b) => i(C::ICmpEq, d, a, b),
-        Op::ICmpNe(d, a, b) => i(C::ICmpNe, d, a, b),
-        Op::ICmpLt(d, a, b) => i(C::ICmpLt, d, a, b),
-        Op::ICmpLe(d, a, b) => i(C::ICmpLe, d, a, b),
-        Op::IMov(d, a) => i(C::IMov, d, a, 0),
-        Op::IAddK(d, a, k) => Ins { k, ..i(C::IAddK, d, a, 0) },
-        Op::IMaskU32(d, a) => i(C::IMaskU32, d, a, 0),
-        Op::IUnbox(d, v) => i(C::IUnbox, d, v, 0),
-        Op::IToF(d, a) => i(C::IToF, d, a, 0),
-        Op::FToI(d, a) => i(C::FToI, d, a, 0),
-        Op::Truthy(d, v) => i(C::Truthy, d, v, 0),
-        Op::BoolFromI(d, a) => i(C::BoolFromI, d, a, 0),
-        Op::FK(d, f) => Ins { k: f.to_bits() as i64, ..i(C::FK, d, 0, 0) },
-        Op::FMov(d, a) => i(C::FMov, d, a, 0),
-        Op::FAdd(d, a, b) => i(C::FAdd, d, a, b),
-        Op::FSub(d, a, b) => i(C::FSub, d, a, b),
-        Op::FMul(d, a, b) => i(C::FMul, d, a, b),
-        Op::FDiv(d, a, b) => i(C::FDiv, d, a, b),
-        Op::FMod(d, a, b) => i(C::FMod, d, a, b),
-        Op::FNeg(d, a) => i(C::FNeg, d, a, 0),
-        Op::FUnbox(d, r) => i(C::FUnbox, d, r, 0),
-        Op::IBox(d, a) => i(C::IBox, d, a, 0),
-        Op::FBox(d, a) => i(C::FBox, d, a, 0),
-        Op::FCmpEq(d, a, b) => i(C::FCmpEq, d, a, b),
-        Op::FCmpNe(d, a, b) => i(C::FCmpNe, d, a, b),
-        Op::FCmpLe(d, a, b) => i(C::FCmpLe, d, a, b),
-        Op::FCmpLt(d, a, b) => i(C::FCmpLt, d, a, b),
-        Op::GetUpval(d, u) => i(C::GetUpval, d, u, 0),
-        Op::GetCell(d, c) => i(C::GetCell, d, c, 0),
-        Op::GetSlot(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::GetSlot, d, t, s as u8) },
-        Op::GetSlotF(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::GetSlotF, d, t, s as u8) },
-        Op::SetSlotF(t, s, a, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::SetSlotF, t, s as u8, a) },
-        Op::Len(d, a) => i(C::Len, d, a, 0),
-        Op::LenF(d, a) => i(C::LenF, d, a, 0),
-        Op::StrByte(d, s, ix) => i(C::StrByte, d, s, ix),
-        Op::Call(fid, base, nargs) => Ins { k: fid as i64, ..i(C::Call, base, nargs, 0) },
-        Op::CallK(fid, fr, base, nargs, nres) => Ins { imm: nres as i32, k: fid as i64, ..i(C::CallK, fr, base, nargs) },
-        Op::CallDyn(fr, base, nargs) => i(C::CallDyn, fr, base, nargs),
-        Op::Ret(s) => i(C::Ret, s, 0, 0),
-        Op::RetNil => i(C::RetNil, 0, 0, 0),
-        Op::RetN(start, n) => i(C::RetN, start, n, 0),
-        Op::GetField(d, t, k) => Ins { imm: k as i32, ..i(C::GetField, d, t, 0) },
-        Op::GetIdxI(d, t, ix) => i(C::GetIdxI, d, t, ix),
-        Op::SetIdxI(t, ix, v) => i(C::SetIdxI, t, ix, v),
-        Op::SetCell(c, v) => i(C::SetCell, c, v, 0),
-        Op::SetSlot(t, s, v, sh) if s < 256 => Ins { imm: sh as i32, ..i(C::SetSlot, t, s as u8, v) },
-        Op::PadResults(base, n) => i(C::PadResults, base, n, 0),
-        Op::TagCheckNum(d, a) => i(C::TagCheckNum, d, a, 0),
-        Op::NewRecord(d, shape) => Ins { k: shape as i64, ..i(C::NewRecord, d, 0, 0) },
-        Op::GetIdx(d, t, key) => i(C::GetIdx, d, t, key),
-        _ => i(C::Slow, 0, 0, 0),
+        Op::Move(d, s) => i(Code::Move, d, s, 0),
+        Op::K(d, k) => Ins { imm: k as i32, ..i(Code::K, d, 0, 0) },
+        Op::Nil(d) => i(Code::Nil, d, 0, 0),
+        Op::Add(d, a, b) => i(Code::Add, d, a, b),
+        Op::Sub(d, a, b) => i(Code::Sub, d, a, b),
+        Op::Mul(d, a, b) => i(Code::Mul, d, a, b),
+        Op::Lt(d, a, b) => i(Code::Lt, d, a, b),
+        Op::Le(d, a, b) => i(Code::Le, d, a, b),
+        Op::Eq(d, a, b) => i(Code::Eq, d, a, b),
+        Op::Ne(d, a, b) => i(Code::Ne, d, a, b),
+        Op::Not(d, s) => i(Code::Not, d, s, 0),
+        Op::Neg(d, s) => i(Code::Neg, d, s, 0),
+        Op::Jmp(off) => Ins { imm: off, ..i(Code::Jmp, 0, 0, 0) },
+        Op::JmpIf(c, off) => Ins { imm: off, ..i(Code::JmpIf, c, 0, 0) },
+        Op::JmpIfNot(c, off) => Ins { imm: off, ..i(Code::JmpIfNot, c, 0, 0) },
+        Op::JmpIfIZero(c, off) => Ins { imm: off, ..i(Code::JmpIfIZero, c, 0, 0) },
+        Op::IK(d, k) => Ins { k, ..i(Code::IK, d, 0, 0) },
+        Op::IAdd(d, a, b) => i(Code::IAdd, d, a, b),
+        Op::ISub(d, a, b) => i(Code::ISub, d, a, b),
+        Op::IAnd(d, a, b) => i(Code::IAnd, d, a, b),
+        Op::IOr(d, a, b) => i(Code::IOr, d, a, b),
+        Op::IShl(d, a, b) => i(Code::IShl, d, a, b),
+        Op::IShrU(d, a, b) => i(Code::IShrU, d, a, b),
+        Op::ICmpSLt(d, a, b) => i(Code::ICmpSLt, d, a, b),
+        Op::ICmpSLe(d, a, b) => i(Code::ICmpSLe, d, a, b),
+        Op::ICmpEq(d, a, b) => i(Code::ICmpEq, d, a, b),
+        Op::ICmpNe(d, a, b) => i(Code::ICmpNe, d, a, b),
+        Op::ICmpLt(d, a, b) => i(Code::ICmpLt, d, a, b),
+        Op::ICmpLe(d, a, b) => i(Code::ICmpLe, d, a, b),
+        Op::IMov(d, a) => i(Code::IMov, d, a, 0),
+        Op::IAddK(d, a, k) => Ins { k, ..i(Code::IAddK, d, a, 0) },
+        Op::IMaskU32(d, a) => i(Code::IMaskU32, d, a, 0),
+        Op::IUnbox(d, v) => i(Code::IUnbox, d, v, 0),
+        Op::IToF(d, a) => i(Code::IToF, d, a, 0),
+        Op::FToI(d, a) => i(Code::FToI, d, a, 0),
+        Op::Truthy(d, v) => i(Code::Truthy, d, v, 0),
+        Op::BoolFromI(d, a) => i(Code::BoolFromI, d, a, 0),
+        Op::FK(d, f) => Ins { k: f.to_bits() as i64, ..i(Code::FK, d, 0, 0) },
+        Op::FMov(d, a) => i(Code::FMov, d, a, 0),
+        Op::FAdd(d, a, b) => i(Code::FAdd, d, a, b),
+        Op::FSub(d, a, b) => i(Code::FSub, d, a, b),
+        Op::FMul(d, a, b) => i(Code::FMul, d, a, b),
+        Op::FDiv(d, a, b) => i(Code::FDiv, d, a, b),
+        Op::FMod(d, a, b) => i(Code::FMod, d, a, b),
+        Op::FNeg(d, a) => i(Code::FNeg, d, a, 0),
+        Op::FUnbox(d, r) => i(Code::FUnbox, d, r, 0),
+        Op::IBox(d, a) => i(Code::IBox, d, a, 0),
+        Op::FBox(d, a) => i(Code::FBox, d, a, 0),
+        Op::FCmpEq(d, a, b) => i(Code::FCmpEq, d, a, b),
+        Op::FCmpNe(d, a, b) => i(Code::FCmpNe, d, a, b),
+        Op::FCmpLe(d, a, b) => i(Code::FCmpLe, d, a, b),
+        Op::FCmpLt(d, a, b) => i(Code::FCmpLt, d, a, b),
+        Op::GetUpval(d, u) => i(Code::GetUpval, d, u, 0),
+        Op::GetCell(d, c) => i(Code::GetCell, d, c, 0),
+        Op::GetSlot(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::GetSlot, d, t, s as u8) },
+        Op::GetSlotF(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::GetSlotF, d, t, s as u8) },
+        Op::SetSlotF(t, s, a, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::SetSlotF, t, s as u8, a) },
+        Op::Len(d, a) => i(Code::Len, d, a, 0),
+        Op::LenF(d, a) => i(Code::LenF, d, a, 0),
+        Op::StrByte(d, s, ix) => i(Code::StrByte, d, s, ix),
+        Op::Call(fid, base, nargs) => Ins { k: fid as i64, ..i(Code::Call, base, nargs, 0) },
+        Op::CallK(fid, fr, base, nargs, nres) => Ins { imm: nres as i32, k: fid as i64, ..i(Code::CallK, fr, base, nargs) },
+        Op::CallDyn(fr, base, nargs) => i(Code::CallDyn, fr, base, nargs),
+        Op::Ret(s) => i(Code::Ret, s, 0, 0),
+        Op::RetNil => i(Code::RetNil, 0, 0, 0),
+        Op::RetN(start, n) => i(Code::RetN, start, n, 0),
+        Op::GetField(d, t, k) => Ins { imm: k as i32, ..i(Code::GetField, d, t, 0) },
+        Op::GetIdxI(d, t, ix) => i(Code::GetIdxI, d, t, ix),
+        Op::SetIdxI(t, ix, v) => i(Code::SetIdxI, t, ix, v),
+        Op::SetCell(c, v) => i(Code::SetCell, c, v, 0),
+        Op::SetSlot(t, s, v, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::SetSlot, t, s as u8, v) },
+        Op::PadResults(base, n) => i(Code::PadResults, base, n, 0),
+        Op::TagCheckNum(d, a) => i(Code::TagCheckNum, d, a, 0),
+        Op::NewRecord(d, shape) => Ins { k: shape as i64, ..i(Code::NewRecord, d, 0, 0) },
+        Op::GetIdx(d, t, key) => i(Code::GetIdx, d, t, key),
+        Op::GetIdxF(d, t, k) => i(Code::GetIdxF, d, t, k),
+        Op::SetIdxF(t, k, v) => i(Code::SetIdxF, t, k, v),
+        Op::SetIdx(t, k, v) => i(Code::SetIdx, t, k, v),
+        Op::Mod(d, a, b) => i(Code::Mod, d, a, b),
+        _ => i(Code::Slow, 0, 0, 0),
     }
 }
-
-#[cfg(threaded)]
-unsafe extern "C" { fn vm_run(ctx: *mut Ctx) -> u32; }
-
-#[cfg(threaded)]
-pub const AVAILABLE: bool = true;
-#[cfg(not(threaded))]
-pub const AVAILABLE: bool = false;
 
 #[inline]
 fn sync(ctx: &mut Ctx, it: &mut Interp) {
@@ -191,8 +188,7 @@ fn guard(it: &mut Interp, tid: usize) -> u64 {
 
 /// Executes one opcode of the context's task in Rust and answers the next
 /// pc, or a status when the frame changed or the task finished.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
+pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
@@ -224,8 +220,7 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
 /// a back edge -- compiling it first when the core counted it `hot`, or
 /// applies the interpreter's policy for one with vector instructions and no
 /// compiled entry. Answers the pc to go on interpreting at, or a status.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
+pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
@@ -248,8 +243,7 @@ pub extern "C" fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
 }
 
 /// Grows the task's stack to hold `needed` words and re-points the context.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_grow(ctx: *mut Ctx, needed: u64) {
+pub(crate) fn rt_grow(ctx: *mut Ctx, needed: u64) {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let t = &mut it.tasks[ctx.tid as usize];
@@ -270,8 +264,7 @@ fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
 }
 /// A field read by name the core could not resolve from the shape: a table's
 /// hash part, a structural record's overflow, or an absent field (nil).
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
+pub(crate) fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.field(Value(obj), Value(name)));
@@ -281,8 +274,7 @@ pub extern "C" fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
 }
 /// A read by any value key outside the core's array fast path: hash part,
 /// record, or a key that is a slice or an uninterned string.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
+pub(crate) fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.index_any(Value(obj), Value(key)));
@@ -291,8 +283,7 @@ pub extern "C" fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
     v.0
 }
 /// A table or record read by integer index outside the core's array fast path.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
+pub(crate) fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.index(Value(obj), Value::num(i as f64)));
@@ -301,8 +292,7 @@ pub extern "C" fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
     v.0
 }
 /// A store by integer index: the array part's growth, the hash part, a record's children.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
+pub(crate) fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
     let r = it.guarded(|it| { it.newindex(Value(obj), Value::num(i as f64), Value(v)); Value::NIL });
@@ -310,15 +300,13 @@ pub extern "C" fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
     sync(ctx, it);
 }
 /// The insertion barrier (4.2) for a store the core makes while marking.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
+pub(crate) fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
     let (it, _) = enter_rust(unsafe { &mut *ctx });
     if let Some(p) = Value(parent).as_obj() { it.heap.barrier(p, Value(child)); }
 }
 /// A compiled function called from the core: arguments from the window at
 /// `base + 1`, results delivered from `base`.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, base: u64, nargs: u32, nparams: u32) {
+pub(crate) fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, base: u64, nargs: u32, nparams: u32) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
     let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8);
@@ -335,8 +323,7 @@ pub extern "C" fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, bas
 /// A builtin called from the core: arguments in the window from `base + 1`,
 /// results delivered from `base`. Host services, which may park, are not
 /// taken here: the core hands those to `rt_exec_op`.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32) {
+pub(crate) fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
     let args = it.call_args(tid, base as usize + 1, nargs as u8);
@@ -350,8 +337,7 @@ pub extern "C" fn rt_call_builtin(ctx: *mut Ctx, id: u32, base: u64, nargs: u32)
     sync(ctx, it);
 }
 /// One step of an iterator object called as a function.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
+pub(crate) fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
     let mut outs = crate::builtins::Outs::new();
@@ -363,8 +349,7 @@ pub extern "C" fn rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
     for (i, v) in outs.iter().take(8).enumerate() { t.stack[base as usize + i] = v.0; }
     sync(ctx, it);
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_new_record(ctx: *mut Ctx, shape: u32) -> u64 {
+pub(crate) fn rt_new_record(ctx: *mut Ctx, shape: u32) -> u64 {
     let ctx = unsafe { &mut *ctx };
     let (it, _) = enter_rust(ctx);
     let v = it.guarded(|it| it.new_record(shape));
@@ -372,17 +357,8 @@ pub extern "C" fn rt_new_record(ctx: *mut Ctx, shape: u32) -> u64 {
     sync(ctx, it);
     v.0
 }
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_len(ctx: *mut Ctx, v: u64) -> u64 {
-    let ctx = unsafe { &mut *ctx };
-    let (it, _) = enter_rust(ctx);
-    let r = it.guarded(|it| Value::num(match it.kind_of(Value(v)) { Some(crate::heap::KIND_RECORD) | Some(crate::heap::KIND_TABLE) => it.array_len(Value(v)) as f64, _ => it.bytes_of(Value(v)).len() as f64 }));
-    if r == Value::ERROR { ctx.status = ST_ERROR; return 0; }
-    r.as_num() as u64
-}
 /// Equality past the word compare: two objects by content when string-like.
-#[unsafe(no_mangle)]
-pub extern "C" fn rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u32 {
+pub(crate) fn rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let r = it.guarded(|it| Value::boolean(it.equals(Value(x), Value(y))));
@@ -394,7 +370,7 @@ impl Interp {
     /// Encodes every function for the core and builds its table. Called once
     /// after loading; a later load must call it again.
     pub fn prepare_threaded(&mut self) {
-        if !AVAILABLE || std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
+        if std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
         for f in &mut self.funcs { if f.ins.len() != f.code.len() { f.ins = f.code.iter().map(encode).collect(); } }
         self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
@@ -402,7 +378,6 @@ impl Interp {
     }
 
     /// Runs the task on the threaded core until it finishes or parks.
-    #[cfg(threaded)]
     pub fn run_threaded(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(crate::interp::Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
@@ -427,7 +402,7 @@ impl Interp {
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]
         { ctx.feedback = self.spec.feedback as u32; }
-        let status = unsafe { vm_run(&mut ctx) };
+        let status = unsafe { crate::dispatch::run(&mut ctx) };
         // The core's pops do not touch the task record; its state and last
         // result count are brought over here.
         self.last_nres = ctx.last_nres as usize;
@@ -439,6 +414,19 @@ impl Interp {
             s => panic!("threaded core returned status {s:#x}"),
         }
     }
-    #[cfg(not(threaded))]
-    pub fn run_threaded(&mut self, tid: usize) -> Outcome { self.run_rust(tid) }
+}
+
+/// A value-key store the core's array path did not take: the key normalized
+/// first, so an existing long-string key finds its entry before `__newindex`
+/// is considered.
+pub(crate) unsafe fn store_index(ctx: *mut Ctx, obj: u64, key: u64, value: u64) {
+    let ctx = &mut *ctx;
+    let (it, _) = enter_rust(ctx);
+    let r = it.guarded(|it| {
+        let key = it.key_for_store(Value(key));
+        it.newindex(Value(obj), key, Value(value));
+        Value::NIL
+    });
+    if r == Value::ERROR { ctx.status = ST_ERROR; }
+    sync(ctx, it);
 }

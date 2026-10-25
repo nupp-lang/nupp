@@ -21,7 +21,7 @@ the image loader and verifier, and the host services on the parking surface.
 | `host` | a pool of host threads serving file, process and directory requests as plain data; legacy unscheduled sleep |
 | `scheduler` | runnable queues, task generations, logical timers, cancellation, deadlines and host completion batches |
 | `persist` | versioned binary value graphs, shape policies, resource hooks and VM checkpoints |
-| `threaded` and `csrc/dispatch.c` | the tail-call-threaded core and its helpers |
+| `dispatch` and `threaded` | the tail-call-threaded core (`become` handlers) and its helpers |
 | `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
 | `compiled` | runtime helpers, runtime address table and stack-map root walk, without Cranelift |
 | `src/nupp/compiler/vm/lower.nupp` | checked-tree lowering and image writing, with project resolution/checking supplied as callbacks |
@@ -127,12 +127,17 @@ oracle and quarantine, on both dispatch loops.
 
 **Dispatch.** The Rust `match` loop spent 60% of the parse in dispatch at
 2.4 ns per opcode (27.9M opcodes for parser.nupp). The tail-call-threaded
-core in `csrc/dispatch.c` (contracts 5.2) handles the hot opcodes and the
-call and return path in C, with specialized helpers for field reads,
-indexed stores, builtin calls and allocation and a generic one-opcode
-fallback into the Rust interpreter for the rest (0.7% of opcodes). It
-takes the interpreter from 2.6x to 1.7x LuaJIT's interpreter. The profile
-on it is flat across handlers.
+core (contracts 5.2) handles the hot opcodes and the call and return path
+itself, with specialized helpers for field reads, indexed stores, builtin
+calls and allocation and a generic one-opcode fallback into the Rust
+interpreter for the rest. It took the interpreter from 2.6x to 1.7x
+LuaJIT's interpreter. It began as C (`csrc/dispatch.c`); since 2026-10-25
+it is Rust (`dispatch.rs`), each handler ending in a guaranteed tail call
+(`become`, on the pinned nightly), with guarded paths for float and value
+indexes, numeric `Mod`, dense appends and nested empty returns, which the
+C core left to the fallback. Most of what the move gained came from that
+coverage, not from the language: at equal coverage the Rust core measured
+a little slower than C on calls.
 
 **Opcode count.** The emitter then learned to land results where they are
 needed (the destination is passed down to kinds that write it last, and a

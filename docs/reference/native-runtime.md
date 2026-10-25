@@ -16,7 +16,7 @@ The boundary is deliberately narrow:
 | Layer | Owner | Responsibilities |
 | --- | --- | --- |
 | language and compiler | Nupp | types, effects, ownership, suspension policy, facility selection, lowering to VM images |
-| VM runtime | Rust, with a C dispatch core | image loading and verification, the interpreter, the heap and collector, tasks and scheduling, native C calls |
+| VM runtime | Rust | image loading and verification, the interpreter, the heap and collector, tasks and scheduling, native C calls |
 | native facilities | Rust | files, paths, clocks, UUIDs, URI, HTTP, TCP, UDP, path sockets, TLS, processes, compression |
 
 Native resources cross into Nupp as plain values and handles. Nupp code never
@@ -74,8 +74,6 @@ contracts and may intentionally expose less than the underlying crate.
 Rust is the default language for repository-owned native mechanisms, not a
 claim that every executable byte is Rust. Native builds still retain:
 
-- `native/crates/vm/csrc/dispatch.c`, the VM's tail-call-threaded interpreter
-  core and its helpers;
 - libffi's C and assembly, built and linked through the `libffi-sys` crate;
 - `ring`'s bounded C and assembly implementation under its Rust API;
 - operating-system libraries and platform SDKs selected by Rust crates and the

@@ -1403,7 +1403,6 @@ dependencies = [
 name = "nupp-vm"
 version = "0.1.0"
 dependencies = [
- "cc",
  "cranelift-codegen",
  "cranelift-frontend",
  "cranelift-jit",

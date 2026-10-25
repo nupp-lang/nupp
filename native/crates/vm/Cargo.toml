@@ -95,8 +95,5 @@ libffi = { version = "5.1.1", optional = true }
 [dev-dependencies]
 nupp-counter-extension = { path = "../counter-extension" }
 
-[build-dependencies]
-cc = "1"
-
 [lints.rust]
 unsafe_op_in_unsafe_fn = "allow"
