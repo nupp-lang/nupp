@@ -4467,6 +4467,58 @@ function lower.emit(
             f:pop()
             f:branch("JmpIfNot", c, top)
             loopEnd(f)
+        elseif k == "fornumStmt" and wideKind(node.var.inferredType) then
+            -- A loop over a 64-bit box counts in the box: the counter is a value
+            -- register and the wide helpers compare and advance it. The checker
+            -- holds the step to a literal, whose sign chooses the exit test.
+            local family = wideKind(node.var.inferredType)
+            f:push()
+            local varName = tokText(node.var)
+            local varCell = f.captured[varName]
+            local var = f:declare(varCell and "\0for" or varName, "v")
+            exprAs(f, node.start, "v", var)
+            local limit = f:reg()
+            exprAs(f, node.stop, "v", limit)
+            local step = f:reg()
+            local descending = false
+            if node.step then
+                exprAs(f, node.step, "v", step)
+                local text = node.step.kind == "unop"
+                    and tokText(node.step.op) == "-"
+                    and "-"
+                    or node.step.kind == "number"
+                    and tokText(node.step.token):sub(1, 1)
+                    or ""
+                descending = text == "-"
+            else
+                f:op("K", step, f:const(family == "u64" and "uint64" or "int64", "1"))
+            end
+            local counter = {kind = "vmRegister", reg = var}
+            local bound = {kind = "vmRegister", reg = limit}
+            local top, finished = f:label(), f:label()
+            f:place(top)
+            local continuing = wideOperation(
+                f,
+                "wide." .. family .. ".le",
+                descending and {bound, counter} or {counter, bound}
+            )
+            f:branch("JmpIfNot", continuing, finished)
+            loopBegin(f)
+            if varCell then
+                f:push()
+                local cr = f:declare(varName, "v")
+                f:op("NewCell", cr, var)
+            end
+            block(f, node.body)
+            if varCell then
+                f:pop()
+            end
+            loopContinue(f)
+            wideOperation(f, "wide." .. family .. ".add", {counter, {kind = "vmRegister", reg = step}}, var)
+            f:jump(top)
+            f:place(finished)
+            loopEnd(f)
+            f:pop()
         elseif k == "fornumStmt" then
             f:push()
             local varName = tokText(node.var)

@@ -1802,17 +1802,68 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         local st = c.infer(from)
         local et = c.infer(to)
-        if stat.step then
-            c.infer(stat.step)
-        end
+        local stepT = stat.step and c.infer(stat.step) or nil
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
+
+        -- A bound that is a 64-bit box makes the loop count in that box: the
+        -- other bound and the step must be the same box or an exact literal,
+        -- since a Lua number and a box do not mix silently anywhere else.
+        local function wideOf(t)
+            local raw = T.unwrapOwnership(t)
+            return (raw.tag == "int64" or raw.tag == "uint64") and raw or nil
+        end
+
+        -- The value of an exact literal operand: a number, possibly negated
+        -- or parenthesized; nil for anything computed.
+        local function literalValue(node: any): number?
+            if not node then
+                return nil
+            elseif node.kind == "paren" then
+                return literalValue(node.expr)
+            elseif node.kind == "unop" and node.op and node.op.text == "-" then
+                local inner = literalValue(node.operand)
+                return inner and -inner or nil
+            elseif node.kind == "number" and node.token then
+                return tonumber((node.token.text:gsub("[uUlL]+$", "")))
+            end
+
+            return nil
+        end
+
+        local wide = wideOf(st) or wideOf(et) or (stepT and wideOf(stepT)) or nil
+        if wide then
+            local operands: {{any}} = {{st, from}, {et, to}, {stepT, stat.step}}
+            for _, pair in ipairs(operands) do
+                local t: any, at: any = pair[1], pair[2]
+                if t and at then
+                    local other = wideOf(t)
+                    local value = literalValue(at)
+                    local exact = not other and value ~= nil and fixedWidth.literalFits(value as number, wide)
+                    if other and other ~= wide then
+                        c.diag(
+                            "NUPP2001",
+                            at,
+                            ("a %s loop cannot count with %s"):format(T.tostring(wide), T.tostring(other))
+                        )
+                    elseif not other and not exact then
+                        c.diag(
+                            "NUPP2001",
+                            at,
+                            (
+                                "a %s loop counts with %s values or exact literals"
+                            ):format(T.tostring(wide), T.tostring(wide))
+                        )
+                    end
+                end
+            end
+        end
         local ownershipBefore = ownershipSnapshot()
         local unassignedBefore = unassignedSnapshot()
         c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
-        c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
+        c.bindVar(var.text, wide or (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
 
         -- A range witness dominates this loop only when both bounds name the same
         -- const range and the loop uses the ordinary ascending unit step.

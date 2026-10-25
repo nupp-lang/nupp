@@ -1696,8 +1696,27 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not nameTok or not body then
             return
         end
-        -- bind the name before checking for recursion; refine after
-        c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
+        -- Bind the name before checking the body, so a recursive call resolves.
+        -- A fully declared plain signature is known before the body is: a call
+        -- the body makes to itself is typed by it rather than left unknown.
+        -- Generics, modes, varargs and packs keep the refining bind below.
+        local provisional = T.any
+        local declared: any = body
+        if declared.returnPack and not declared.generics and not declared.varargParam then
+            local params, plain = {}, true
+            for _, p in ipairs(declared.params or {}) do
+                if p.vararg or p.namedVararg or not p.type or p.modeTok or p.type.kind == "tpack" then
+                    plain = false
+                    break
+                end
+                params[#params + 1] = c.resolveType(p.type)
+            end
+            local results = plain and c.resolvePack(declared.returnPack) or nil
+            if results and not results.tail and not results.alternatives then
+                provisional = T.func(params, results.head, false)
+            end
+        end
+        c.bindVar(nameTok.text, provisional, false, nameTok, "function", stat.isConst)
         if stat.comptimeFunction then
             local entry = c.scope.vars[nameTok.text]
             if entry and entry.definition then

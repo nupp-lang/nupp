@@ -793,7 +793,8 @@ function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
         ""
     )
     testAssert.equal(errorCodes("local a: int64 = 1LL + 1ULL"), "NUPP2001")
-    testAssert.equal(errorCodes("for i = 1LL, 3LL do end"), "NUPP2003,NUPP2003")
+    -- a numeric for counts in the box its bounds are
+    testAssert.equal(errorCodes("for i = 1LL, 3LL do end"), "")
     -- a physical slot converts on the store and loads the box back
     testAssert.equal(
         errorCodes(
@@ -995,6 +996,57 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     end
     walk(result, {})
     testAssert.equal(adds, 1, "the operator is annotated as the signed wrapping add")
+end
+
+function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
+    -- A numeric `for` counts in the box its bounds are, mixing nothing else in.
+    testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do end"), "")
+    testAssert.equal(errorCodes("local n: uint64 = 3\nfor i = 1ULL, n, 1 do end"), "")
+    testAssert.equal(errorCodes("local n: int64 = 3\nlocal m: number = 2\nfor i = m, n do end"), "NUPP2001")
+    testAssert.equal(errorCodes("local n: int64 = 3\nlocal u: uint64 = 1\nfor i = u, n do end"), "NUPP2001")
+    testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: int64 = i end"), "")
+    testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: number = i end"), "NUPP2001")
+    -- A compound assignment on a box is the box's operator and a store.
+    testAssert.equal(errorCodes("local x: int64 = 1\nx += 10\nx *= 2"), "")
+    testAssert.equal(errorCodes("local x: uint64 = 1\nx <<= 3\nx += 1ULL"), "")
+    -- A number beside a box converts to the box, as it does under the operators.
+    testAssert.equal(errorCodes("local x: int64 = 1\nlocal n: number = 2\nx += n"), "")
+    -- A recursive local function's result is its declared result.
+    testAssert.equal(
+        errorCodes(table.concat({
+            "local function fib(n: int64): int64",
+            "    if n < 2 then return n end",
+            "    return fib(n - 1) + fib(n - 2)",
+            "end",
+            "return fib(10)",
+        }, "\n")),
+        ""
+    )
+    -- And the VM counts, stores and recurses in the box.
+    local total, fib, descending, product = run(table.concat({
+        "local n: int64 = 5",
+        "local total: int64 = 0",
+        "for i = 1, n do",
+        "    total += i",
+        "end",
+        "local function fib(k: int64): int64",
+        "    if k < 2 then return k end",
+        "    return fib(k - 1) + fib(k - 2)",
+        "end",
+        "local steps: int64 = 0",
+        "for i = n, 1, -1 do",
+        "    steps = steps + 1",
+        "end",
+        "local product: uint64 = 1",
+        "for i = 1ULL, 20ULL do",
+        "    product *= i",
+        "end",
+        "return total == 15LL, fib(20) == 6765LL, steps == 5LL, product == 2432902008176640000ULL",
+    }, "\n"), "fixed-width-boxed-loops.nupp")
+    testAssert.equal(total, true)
+    testAssert.equal(fib, true)
+    testAssert.equal(descending, true)
+    testAssert.equal(product, true)
 end
 
 return M

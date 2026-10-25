@@ -28,8 +28,8 @@ CASES = [
     ('sum', [0], 0), ('sum', [100], 5050),
     ('gcd', [48, 18], 6), ('gcd', [17, 5], 1), ('gcd', [2**63 + 6, 9], math.gcd(2**63 + 6, 9)),
     ('clamp', [0.5, 0.0, 1.0], 0.5), ('clamp', [-3.25, 0.0, 1.0], 0.0), ('clamp', [7.0, 0.0, 1.0], 1.0),
-    ('triangle', [10.0], 55.0), ('triangle', [0.0], 0.0),
-    ('countdown', [5.0], 5.0), ('countdown', [0.0], 0.0),
+    ('triangle', [10], 55), ('triangle', [0], 0),
+    ('countdown', [5], 5), ('countdown', [0], 0),
     ('collatz', [27], collatz(27)), ('collatz', [1], 0),
     ('firstSquareAbove', [50], 8), ('firstSquareAbove', [0], 1),
     ('findBreak', [100.0], float(find_break(100))), ('findBreak', [1e12], -1.0),
@@ -42,8 +42,8 @@ CASES = [
     ('mean', [1.0, 2.0], 1.5), ('mean', [-1.0, 0.0], -0.5),
     ('scaled', [2.0], 2.75), ('scaled', [0.0], -0.25),
     ('negate', [5], -5), ('negate', [-(2**63)], -(2**63)),
-    ('compound', [1.0], 18.0), ('compound', [-5.0], 6.0),
-    ('nestedLoops', [10.0], float(nested(10))), ('nestedLoops', [0.0], 0.0),
+    ('compound', [1], 18), ('compound', [-5], 6),
+    ('nestedLoops', [10], nested(10)), ('nestedLoops', [0], 0),
 ]
 
 

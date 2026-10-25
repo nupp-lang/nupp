@@ -1515,10 +1515,17 @@ function bindings.install(c: state.Checker): state.StatHandlers
         -- capability. Ordinary fixed-width values therefore reject arithmetic's
         -- widened `number`; a real C slot accepts it because that store narrows.
         local resultT = T.number
+        -- The operators answer the wider box when either operand is one; a
+        -- compound assignment is those operators and a store.
+        local wide = (targetT.tag == "uint64" or valueT.tag == "uint64") and T.uint64
+            or (targetT.tag == "int64" or valueT.tag == "int64") and T.int64
+            or nil
         if op == ".." then
             resultT = T.string
         elseif op == "??" then
             resultT = valueT
+        elseif wide then
+            resultT = wide
         elseif op == "&" or op == "|" or op == "~" or op == "<<" or op == ">>" or op == "~>>" then
             resultT = T.integer
         elseif not fixedWidth.isValue(targetT)
