@@ -246,7 +246,7 @@ fn generate<M: Module>(
                 .filter(|_| which < COUNT)
             {
                 let helper = module.declare_func_in_func(hid, b.func);
-                runtime_ir::emit(function, &mut b, &args, ts, helper, None)?;
+                runtime_ir::emit(function, &mut b, &args, ts, helper, None, None, false)?;
             } else if which == COUNT {
                 let table = b.ins().load(
                     types::I64,

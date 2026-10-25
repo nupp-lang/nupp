@@ -56,6 +56,10 @@ def main():
     parser.add_argument('--emit-only', action='store_true')
     parser.add_argument('--skip-abi', action='store_true')
     parser.add_argument('--integers-only', action='store_true')
+    layout = parser.add_mutually_exclusive_group()
+    layout.add_argument('--packed-state', action='store_true')
+    layout.add_argument('--derived-frame', action='store_true')
+    parser.add_argument('--eager-conditions', action='store_true')
     parser.add_argument('--compiler-image', action='store_true',
                         help='also emit the pinned-source root CLI for checks.py; requires --seed')
     args = parser.parse_args()
@@ -89,7 +93,7 @@ def main():
                             '--output', OUT / 'handlers.json'])
     run('compile-slice', [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile',
                          HERE, HERE / 'lib/nupp/runtime/internal/slice.nupp',
-                         '--output', OUT / 'slice.json'])
+                         *(['eager'] if args.eager_conditions else []), '--output', OUT / 'slice.json'])
     if not args.emit_only:
         target = ROOT / 'build/rust/target/release'
         run('build-probe', ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
@@ -108,6 +112,10 @@ def main():
         name = 'integer-slice' if args.integers_only else 'slice'
         object_path = OUT / (name + '.o')
         options = ['--integers-only'] if args.integers_only else []
+        if args.packed_state:
+            options.append('--packed-state')
+        if args.derived_frame:
+            options.append('--derived-frame')
         run('emit-' + name, [target / 'examples/runtime_slice', OUT / 'slice.json', object_path, *options])
         run('rejections', ['python3', HERE / 'reject.py'])
         run('build-' + name, ['cargo', 'build', '--locked', '--release', '-p', 'nupp-vm',
@@ -118,6 +126,9 @@ def main():
                 for p in [BASE, DRIVER, OUT / 'handlers.json',
                           OUT / 'slice.json',
                           *sorted((HERE / 'lib').rglob('*.nupp'))]}
+    manifest['derived_frame'] = args.derived_frame
+    manifest['packed_state'] = args.packed_state
+    manifest['eager_conditions'] = args.eager_conditions
     manifest['baseline_revision'] = '73d54b904cd014f666671407e4a1751fb8de2418'
     manifest['rustc'] = subprocess.check_output(['rustc', '-vV'], text=True)
     (OUT / 'pilot-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

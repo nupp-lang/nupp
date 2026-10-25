@@ -73,9 +73,21 @@ def main():
         bad = copy.deepcopy(original)
         bad['functions'][0]['instructions'][-1]['op'] = 'slow'
         variants['changed-slow-pc'] = (bad, 'slow must preserve pc')
+        for name, opcode in [('float-as-word', 'fadd'), ('word-as-float', 'floor'),
+                             ('word-as-condition', 'both')]:
+            bad = copy.deepcopy(original)
+            instruction = next(i for i in bad['functions'][0]['instructions'] if i['op'] == 'add')
+            instruction['op'] = opcode
+            if opcode == 'floor': instruction['args'] = instruction['args'][:1]
+            variants[name] = (bad, 'wrong native representation')
+        bad = copy.deepcopy(original)
+        instruction = next(i for i in bad['functions'][0]['instructions'] if i['op'] == 'add')
+        instruction['op'] = 'chooseWord'; instruction['args'].append(instruction['args'][1])
+        variants['nonboolean-select'] = (bad, 'wrong native representation')
         for name, (bad, expected) in variants.items():
             path = root / 'bad.json'; path.write_text(json.dumps(bad))
-            rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'bad.o'], expected)
+            for options in ([], ['--packed-state'], ['--derived-frame']):
+                rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'bad.o', *options], expected)
             passed.append('ir-' + name)
     (OUT / 'rejection-tests.json').write_text(json.dumps({'passed': passed}, indent=2) + '\n')
     print(f'{len(passed)} rejection checks passed')

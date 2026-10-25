@@ -10,6 +10,21 @@ local json = require("nupp.codec.json")
 
 local INTRINSICS = "nupp.runtime.internal.native"
 local intrinsics = {
+    loadFloat = 2,
+    storeFloat = 3,
+    bits = 1,
+    fromBits = 1,
+    pointer = 1,
+    floor = 1,
+    neg = 1,
+    toFloat = 1,
+    toInt = 1,
+    both = 2,
+    either = 2,
+    chooseWord = 3,
+    unsignedFloat = 1,
+    unsignedInt = 1,
+    index = 1,
     asWord = 1,
     layout = 1,
     slow = 6,
@@ -31,6 +46,7 @@ local binary = {
     ["+"] = "add",
     ["-"] = "sub",
     ["*"] = "mul",
+    ["/"] = "div",
     ["~"] = "xor",
     ["&"] = "and",
     ["|"] = "or",
@@ -64,7 +80,7 @@ local function nativeCall(node: any): string
     return name
 end
 
-local function compileFunction(node: any): any
+local function compileFunction(node: any, eager: boolean): any
     local body = node.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
     need(#body.params == 6, "handler requires six pointer parameters")
@@ -106,6 +122,21 @@ local function compileFunction(node: any): any
         elseif n.kind == "binop" then
             local op = need(binary[n.op.text], "unsupported binary operator")
             local left, right = tag(n.lhs.inferredType), tag(n.rhs.inferredType)
+            if left == "number" and right == "number" and not (n.lhs.kind == "number" and n.rhs.kind == "number") then
+                need(
+                    op == "add"
+                    or op == "sub"
+                    or op == "mul"
+                    or op == "div"
+                    or op == "eq"
+                    or op == "ne"
+                    or op == "lt"
+                    or op == "le",
+                    "unsupported float operator"
+                )
+                return emit("f" .. op, {expression(n.lhs), expression(n.rhs)}, true)
+            end
+            need(op ~= "div", "integer division outside native subset")
             local wide = left == "int64" or left == "uint64" or right == "int64" or right == "uint64"
             need(wide, "binary operands require established 64-bit values")
             need(left == right or n.lhs.kind == "number" or n.rhs.kind == "number", "mixed integer representations")
@@ -135,6 +166,29 @@ local function compileFunction(node: any): any
             return emit(name, args, true)
         end
         error("native runtime: unsupported expression " .. tostring(n.kind), 0)
+    end
+
+    -- Conditions contain only pure native expressions and nontrapping loads.
+    -- Branch directly through conjunctions instead of materializing booleans
+    -- that are immediately consumed by a branch. Value uses remain eager.
+    local condition
+    condition = function(n: any, yes: number, no: number): nil
+        if n.kind == "paren" then
+            condition(n.expr, yes, no)
+        elseif not eager and n.kind == "call" and (nativeCall(n) == "both" or nativeCall(n) == "either") then
+            local conjunction = nativeCall(n) == "both"
+            label = label + 1
+            local nextLabel = label
+            if conjunction then
+                condition(n.args.exprs[1], nextLabel, no)
+            else
+                condition(n.args.exprs[1], yes, nextLabel)
+            end
+            emit("block", {nextLabel}, false)
+            condition(n.args.exprs[2], yes, no)
+        else
+            emit("branch", {expression(n), yes, no}, false)
+        end
     end
 
     local statements
@@ -176,10 +230,9 @@ local function compileFunction(node: any): any
                     #stat.clauses == 1 and not stat.clauses[1].binding and stat.elseClause,
                     "native if requires two terminating branches"
                 )
-                local condition = expression(stat.clauses[1].cond)
                 label = label + 2
                 local yes, no = label - 1, label
-                emit("branch", {condition, yes, no}, false)
+                condition(stat.clauses[1].cond, yes, no)
                 local saved = {}
                 for name, value in pairs(bindings) do
                     saved[name] = value
@@ -202,7 +255,8 @@ local function compileFunction(node: any): any
     return {name = node.name.text, instructions = instructions, values = id}
 end
 
-export function compile(root: string, path: string): string
+export function compile(root: string, path: string, mode: string?): string
+    need(mode == nil or mode == "eager", "unknown condition mode")
     trivia.installDefault(provider)
     local env = environment.new(root, {cache = false, config = {include = {"lib"}}})
     local parsed = parser.parse(assert(fs.readFile(path)), path)
@@ -220,7 +274,7 @@ export function compile(root: string, path: string): string
             if node.kind == "localFuncStmt" then
                 need(not names[node.name.text], "duplicate function")
                 names[node.name.text] = true
-                functions[#functions + 1] = compileFunction(node)
+                functions[#functions + 1] = compileFunction(node, mode == "eager")
             elseif node.kind == "localStmt" then
                 need(#node.names == 1 and #node.exprs == 1 and node.isConst, "one constant intrinsic import required")
                 local value = node.exprs[1]

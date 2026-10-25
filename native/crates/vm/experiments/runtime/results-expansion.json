@@ -1,0 +1,2927 @@
+{
+  "baseline_revision": "73d54b904cd014f666671407e4a1751fb8de2418",
+  "experiment_parent": "aa79357c0",
+  "recorded_utc": "2026-10-25T19:16:12.490905+00:00",
+  "host": {
+    "architecture": "arm64",
+    "os": "26.6",
+    "cpu": "Apple M5 Pro"
+  },
+  "decision": "Keep disabled. The derived-frame candidate improves three workloads but regresses recursive calls; full-compiler and per-workload gates govern migration.",
+  "margin": 0.02,
+  "method": "12 paired independent processes per xbench candidate; alternating AB/BA; best-of-three inside each process; geometric mean paired ratio and 10000 paired bootstrap draws, 95% interval. Timing candidates and compiler checks ran serially.",
+  "candidates": {
+    "float": {
+      "layout": "static",
+      "eager_conditions": true,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell"
+      ],
+      "ir_sha256": "1b6d42fa19031a8cb1f1a893b4ed1ea1acae71d7dfb6241a98a2f594f6fd7cf8",
+      "object_sha256": null,
+      "runtime_sha256": "93aa3c7c6d8a0d0fb35eaeb5bed548f1f5d74a2db08f709c15257aeb04d75fd1",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/float-app",
+          "sha256": "230ec3a8bd32774658b39c3dc86ff4f1b2693b2052e91d8ec6be20b79dcb5b5d"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.037259698190857,
+          "low95": 1.0324836233578065,
+          "high95": 1.0420578662467879,
+          "baseline_median_seconds": 0.072,
+          "candidate_median_seconds": 0.074,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 1.0165022729292656,
+          "low95": 0.9794608167331672,
+          "high95": 1.0589987230503461,
+          "baseline_median_seconds": 0.362,
+          "candidate_median_seconds": 0.3645,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "tables": {
+          "ratio": 0.9866006506167082,
+          "low95": 0.9678021386637152,
+          "high95": 1.0100206717197584,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.075,
+          "verdict": "inconclusive",
+          "noninferiority_pass": true
+        },
+        "strings": {
+          "ratio": 1.0151937259233144,
+          "low95": 1.0041121047704862,
+          "high95": 1.0256722748517153,
+          "baseline_median_seconds": 0.181,
+          "candidate_median_seconds": 0.1835,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "records": {
+          "ratio": 1.001644777502143,
+          "low95": 0.9908673886137246,
+          "high95": 1.0109923033679362,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.054,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.1192890157637596,
+          "low95": 1.1139952669742843,
+          "high95": 1.124661669739229,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.072,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.071,
+            0.071,
+            0.071,
+            0.072,
+            0.071,
+            0.072,
+            0.072,
+            0.071,
+            0.072,
+            0.072,
+            0.072,
+            0.072
+          ],
+          "candidate": [
+            0.075,
+            0.074,
+            0.074,
+            0.074,
+            0.074,
+            0.075,
+            0.074,
+            0.074,
+            0.075,
+            0.074,
+            0.074,
+            0.074
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.354,
+            0.385,
+            0.392,
+            0.363,
+            0.351,
+            0.346,
+            0.363,
+            0.379,
+            0.354,
+            0.373,
+            0.361,
+            0.344
+          ],
+          "candidate": [
+            0.356,
+            0.383,
+            0.361,
+            0.35,
+            0.378,
+            0.365,
+            0.431,
+            0.353,
+            0.355,
+            0.364,
+            0.37,
+            0.374
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.077,
+            0.077,
+            0.078,
+            0.078,
+            0.076,
+            0.077,
+            0.079,
+            0.079,
+            0.075,
+            0.076,
+            0.078,
+            0.077
+          ],
+          "candidate": [
+            0.074,
+            0.08,
+            0.075,
+            0.075,
+            0.075,
+            0.075,
+            0.075,
+            0.08,
+            0.075,
+            0.082,
+            0.075,
+            0.074
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.177,
+            0.181,
+            0.182,
+            0.183,
+            0.178,
+            0.177,
+            0.181,
+            0.184,
+            0.182,
+            0.182,
+            0.18,
+            0.18
+          ],
+          "candidate": [
+            0.183,
+            0.188,
+            0.188,
+            0.184,
+            0.184,
+            0.182,
+            0.185,
+            0.18,
+            0.181,
+            0.182,
+            0.184,
+            0.179
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.053,
+            0.055,
+            0.053,
+            0.054,
+            0.054,
+            0.054,
+            0.055,
+            0.053,
+            0.053,
+            0.054,
+            0.055,
+            0.053
+          ],
+          "candidate": [
+            0.054,
+            0.053,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.054
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.064
+          ],
+          "candidate": [
+            0.072,
+            0.071,
+            0.072,
+            0.072,
+            0.072,
+            0.074,
+            0.071,
+            0.071,
+            0.072,
+            0.072,
+            0.072,
+            0.072
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208306176,
+          208322560,
+          208257024,
+          208289792,
+          208322560,
+          208273408,
+          208191488,
+          208306176,
+          208273408,
+          208240640,
+          208240640,
+          208273408
+        ],
+        "candidate": [
+          208207872,
+          208191488,
+          208191488,
+          208175104,
+          208142336,
+          208142336,
+          208191488,
+          208207872,
+          208191488,
+          208224256,
+          208191488,
+          208175104
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.532452333,
+          2.636788041000001,
+          2.679324709000001,
+          2.5903360840000005,
+          2.525490083000001,
+          2.5174307500000026,
+          2.5613192919999968,
+          2.6350878749999964,
+          2.535551500000004,
+          2.593178917000003,
+          2.560184917000001,
+          2.5132460829999985
+        ],
+        "candidate": [
+          2.84706875,
+          2.6592513339999995,
+          2.5985168749999996,
+          2.5388265000000008,
+          2.6361235,
+          2.600759499999999,
+          2.795948250000002,
+          2.5676390409999996,
+          2.5447552500000015,
+          2.6100945830000057,
+          2.6210154170000024,
+          2.6159170829999994
+        ]
+      }
+    },
+    "packed": {
+      "layout": "packed",
+      "eager_conditions": true,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell"
+      ],
+      "ir_sha256": "1b6d42fa19031a8cb1f1a893b4ed1ea1acae71d7dfb6241a98a2f594f6fd7cf8",
+      "object_sha256": "b747829c7517f8ccc15f04d09c69b4925dd13266d13f76c935c75c5b5507a092",
+      "runtime_sha256": "ede8a726e07e08249e77249bc5df77edf98c1bd60b6ddec8d560f3f2ae0f807d",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/packed-app",
+          "sha256": "ac22dd3c13da2d084840df9b8c074f9ded738efdea2eb7bab42234803c763834"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.0466830260467135,
+          "low95": 1.0407476821563355,
+          "high95": 1.0526704691485491,
+          "baseline_median_seconds": 0.071,
+          "candidate_median_seconds": 0.075,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 0.9298019071678165,
+          "low95": 0.9092918005874728,
+          "high95": 0.9476087825355127,
+          "baseline_median_seconds": 0.357,
+          "candidate_median_seconds": 0.3365,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "tables": {
+          "ratio": 1.0355917855957864,
+          "low95": 1.0224774670091041,
+          "high95": 1.0465116204787064,
+          "baseline_median_seconds": 0.0775,
+          "candidate_median_seconds": 0.08,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 1.0021338013586196,
+          "low95": 0.9899608308560788,
+          "high95": 1.0152292979018664,
+          "baseline_median_seconds": 0.182,
+          "candidate_median_seconds": 0.1815,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 1.1183827499918313,
+          "low95": 1.1053866702792607,
+          "high95": 1.1319841627059886,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.061,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "closures": {
+          "ratio": 1.1314811971340297,
+          "low95": 1.1269257054354422,
+          "high95": 1.1362124414738404,
+          "baseline_median_seconds": 0.065,
+          "candidate_median_seconds": 0.073,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.071,
+            0.071,
+            0.072,
+            0.071,
+            0.071,
+            0.072,
+            0.073,
+            0.071,
+            0.071,
+            0.072,
+            0.071,
+            0.071
+          ],
+          "candidate": [
+            0.076,
+            0.075,
+            0.075,
+            0.074,
+            0.074,
+            0.075,
+            0.075,
+            0.074,
+            0.075,
+            0.075,
+            0.074,
+            0.075
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.365,
+            0.383,
+            0.396,
+            0.357,
+            0.351,
+            0.35,
+            0.349,
+            0.357,
+            0.35,
+            0.359,
+            0.376,
+            0.352
+          ],
+          "candidate": [
+            0.339,
+            0.342,
+            0.337,
+            0.333,
+            0.333,
+            0.335,
+            0.338,
+            0.341,
+            0.335,
+            0.331,
+            0.337,
+            0.336
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.078,
+            0.078,
+            0.082,
+            0.077,
+            0.078,
+            0.078,
+            0.076,
+            0.077,
+            0.076,
+            0.076,
+            0.078,
+            0.077
+          ],
+          "candidate": [
+            0.081,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.08,
+            0.083,
+            0.08
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.177,
+            0.183,
+            0.179,
+            0.186,
+            0.181,
+            0.184,
+            0.182,
+            0.183,
+            0.182,
+            0.177,
+            0.186,
+            0.182
+          ],
+          "candidate": [
+            0.18,
+            0.182,
+            0.185,
+            0.195,
+            0.183,
+            0.182,
+            0.181,
+            0.178,
+            0.177,
+            0.18,
+            0.183,
+            0.181
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.055,
+            0.054,
+            0.053,
+            0.055,
+            0.053,
+            0.054,
+            0.055,
+            0.056,
+            0.054,
+            0.055,
+            0.053,
+            0.054
+          ],
+          "candidate": [
+            0.06,
+            0.061,
+            0.06,
+            0.061,
+            0.061,
+            0.06,
+            0.06,
+            0.061,
+            0.06,
+            0.061,
+            0.062,
+            0.061
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.065,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.065,
+            0.066,
+            0.065
+          ],
+          "candidate": [
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.073,
+            0.074,
+            0.074,
+            0.073
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208273408,
+          208273408,
+          208240640,
+          208273408,
+          208273408,
+          208273408,
+          208273408,
+          208322560,
+          208322560,
+          208207872,
+          208289792,
+          208240640
+        ],
+        "candidate": [
+          208338944,
+          208322560,
+          208289792,
+          208289792,
+          208289792,
+          208306176,
+          208322560,
+          208306176,
+          208322560,
+          208289792,
+          208322560,
+          208338944
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.547458375,
+          2.628851042,
+          2.691832208000001,
+          2.5414003749999985,
+          2.5274354579999994,
+          2.533611791000002,
+          2.529519500000003,
+          2.548996041999999,
+          2.5160997919999986,
+          2.5710723330000036,
+          2.6230266250000014,
+          2.528577042000002
+        ],
+        "candidate": [
+          2.808397625,
+          2.5606321249999997,
+          2.543764166999999,
+          2.5294822910000008,
+          2.5236375419999995,
+          2.533517290999999,
+          2.5310520840000024,
+          2.5451368340000045,
+          2.514387874999997,
+          2.5249124159999994,
+          2.5518433339999973,
+          2.5254902090000044
+        ]
+      }
+    },
+    "boxed": {
+      "layout": "packed",
+      "eager_conditions": true,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell",
+        "Add",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Lt",
+        "Le",
+        "Neg",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "GetUpval",
+        "K",
+        "JmpIf",
+        "JmpIfNot"
+      ],
+      "ir_sha256": "4e6f3a4ca61f1d6e56f8377646d010c0d9dd66b79dea143e5362f84bc6519f16",
+      "object_sha256": "6abbf100f95edc9984c17c87e2847f5d9b533316ab3a0e8d80fc6c2749d4e59a",
+      "runtime_sha256": "5e690314ff63c667847b118e507cc9afb6e59bc60c51a0f8f0b2e92cb60e468a",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/boxed-app",
+          "sha256": "bd490298ca63bf0a54dfa441992353e22aea14de0ddc37342090aa944fd69e5b"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.1172091797293453,
+          "low95": 1.108762698618187,
+          "high95": 1.1245073734016409,
+          "baseline_median_seconds": 0.071,
+          "candidate_median_seconds": 0.079,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 0.9387872379077747,
+          "low95": 0.9127631112741816,
+          "high95": 0.9613538612476991,
+          "baseline_median_seconds": 0.35,
+          "candidate_median_seconds": 0.335,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "tables": {
+          "ratio": 1.0487030966076052,
+          "low95": 1.041873265070815,
+          "high95": 1.0555353999044808,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.081,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 1.0055128278609906,
+          "low95": 0.9905374578838834,
+          "high95": 1.019815512958251,
+          "baseline_median_seconds": 0.181,
+          "candidate_median_seconds": 0.182,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 1.125743033804759,
+          "low95": 1.110765658267103,
+          "high95": 1.14098758524822,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.0605,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "closures": {
+          "ratio": 1.1203283869384393,
+          "low95": 1.1147123112569424,
+          "high95": 1.12597275719042,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.072,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.072,
+            0.071,
+            0.07,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.072
+          ],
+          "candidate": [
+            0.08,
+            0.079,
+            0.079,
+            0.081,
+            0.079,
+            0.08,
+            0.08,
+            0.079,
+            0.079,
+            0.079,
+            0.08,
+            0.078
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.374,
+            0.347,
+            0.369,
+            0.352,
+            0.35,
+            0.361,
+            0.399,
+            0.347,
+            0.348,
+            0.348,
+            0.347,
+            0.35
+          ],
+          "candidate": [
+            0.33,
+            0.345,
+            0.336,
+            0.334,
+            0.333,
+            0.336,
+            0.335,
+            0.335,
+            0.332,
+            0.338,
+            0.338,
+            0.334
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.078,
+            0.076,
+            0.078,
+            0.076,
+            0.077,
+            0.078,
+            0.078,
+            0.076,
+            0.076,
+            0.077,
+            0.077,
+            0.078
+          ],
+          "candidate": [
+            0.081,
+            0.081,
+            0.08,
+            0.08,
+            0.081,
+            0.081,
+            0.081,
+            0.081,
+            0.081,
+            0.081,
+            0.081,
+            0.081
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.177,
+            0.181,
+            0.181,
+            0.181,
+            0.181,
+            0.184,
+            0.179,
+            0.18,
+            0.177,
+            0.188,
+            0.185,
+            0.18
+          ],
+          "candidate": [
+            0.181,
+            0.184,
+            0.185,
+            0.186,
+            0.178,
+            0.183,
+            0.188,
+            0.182,
+            0.181,
+            0.182,
+            0.177,
+            0.179
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.052,
+            0.053,
+            0.054,
+            0.054,
+            0.055,
+            0.054,
+            0.054,
+            0.055,
+            0.054,
+            0.053,
+            0.052,
+            0.055
+          ],
+          "candidate": [
+            0.06,
+            0.061,
+            0.061,
+            0.06,
+            0.06,
+            0.06,
+            0.061,
+            0.06,
+            0.061,
+            0.061,
+            0.061,
+            0.06
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.064
+          ],
+          "candidate": [
+            0.072,
+            0.073,
+            0.072,
+            0.072,
+            0.072,
+            0.072,
+            0.072,
+            0.072,
+            0.072,
+            0.073,
+            0.072,
+            0.072
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208306176,
+          208240640,
+          208273408,
+          208273408,
+          208273408,
+          208322560,
+          208257024,
+          208273408,
+          208289792,
+          208240640,
+          208273408,
+          208257024
+        ],
+        "candidate": [
+          208257024,
+          208207872,
+          208224256,
+          208306176,
+          208289792,
+          208142336,
+          208257024,
+          208207872,
+          208322560,
+          208306176,
+          208240640,
+          208306176
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.619131709,
+          2.5244785420000007,
+          2.5700411249999995,
+          2.5064617499999997,
+          2.5112820829999976,
+          2.5762295,
+          2.6504912500000017,
+          2.5097528749999967,
+          2.5017694580000054,
+          2.536229624999997,
+          2.520410417000001,
+          2.5267625410000036
+        ],
+        "candidate": [
+          2.7938546669999997,
+          2.5757956250000005,
+          2.555437584,
+          2.5522530420000002,
+          2.5260521249999996,
+          2.549020500000001,
+          2.548152375000001,
+          2.550815749999998,
+          2.528555583999996,
+          2.553444083999999,
+          2.5376531660000055,
+          2.5325052920000033
+        ]
+      }
+    },
+    "read": {
+      "layout": "packed",
+      "eager_conditions": true,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell",
+        "Add",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Lt",
+        "Le",
+        "Neg",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "GetUpval",
+        "K",
+        "JmpIf",
+        "JmpIfNot",
+        "GetSlot",
+        "GetSlotF",
+        "Len",
+        "LenF",
+        "GetIdxF",
+        "GetIdxI"
+      ],
+      "ir_sha256": "d96857a92aa6fb7a74a0a23b0f45a7a846c39ff5a47f9e58574b994bc31e0f16",
+      "object_sha256": "662c5c8a23a1d1c8c04026bd621465edb0f1fa51e66a396648414002e703b6d0",
+      "runtime_sha256": "68d9fc00b293ba0b463fa447fcacb0e49448ce6a07fa668e5b0cd3e032ac9133",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/read-app",
+          "sha256": "6037a833963ed22b4222fd71848455beb235d80e9afab1c1329fabaa5fdf25d0"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.1183535838916037,
+          "low95": 1.1145290043885308,
+          "high95": 1.1223264833391846,
+          "baseline_median_seconds": 0.07,
+          "candidate_median_seconds": 0.079,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 0.9191091008915402,
+          "low95": 0.8930514560382967,
+          "high95": 0.9417283552758307,
+          "baseline_median_seconds": 0.353,
+          "candidate_median_seconds": 0.3305,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "tables": {
+          "ratio": 1.0184894793195705,
+          "low95": 1.0088294161416498,
+          "high95": 1.0261164135992862,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.0785,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 1.0051285774559406,
+          "low95": 0.9948589141636347,
+          "high95": 1.0154718898127464,
+          "baseline_median_seconds": 0.178,
+          "candidate_median_seconds": 0.179,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 0.9613974797088805,
+          "low95": 0.9476435480141536,
+          "high95": 0.9751225419177615,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.052,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.0794246497117597,
+          "low95": 1.0712665443869653,
+          "high95": 1.08793255433562,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.069,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.07,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071
+          ],
+          "candidate": [
+            0.078,
+            0.078,
+            0.079,
+            0.079,
+            0.079,
+            0.079,
+            0.078,
+            0.079,
+            0.079,
+            0.079,
+            0.079,
+            0.079
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.359,
+            0.357,
+            0.349,
+            0.351,
+            0.393,
+            0.348,
+            0.37,
+            0.345,
+            0.382,
+            0.344,
+            0.348,
+            0.355
+          ],
+          "candidate": [
+            0.327,
+            0.326,
+            0.331,
+            0.33,
+            0.324,
+            0.327,
+            0.331,
+            0.332,
+            0.324,
+            0.331,
+            0.332,
+            0.335
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.077,
+            0.077,
+            0.076,
+            0.077,
+            0.077,
+            0.077,
+            0.076,
+            0.076,
+            0.077,
+            0.081,
+            0.077,
+            0.077
+          ],
+          "candidate": [
+            0.078,
+            0.078,
+            0.078,
+            0.078,
+            0.079,
+            0.078,
+            0.079,
+            0.078,
+            0.079,
+            0.079,
+            0.079,
+            0.079
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.173,
+            0.179,
+            0.176,
+            0.181,
+            0.177,
+            0.181,
+            0.179,
+            0.176,
+            0.177,
+            0.181,
+            0.179,
+            0.177
+          ],
+          "candidate": [
+            0.174,
+            0.182,
+            0.178,
+            0.179,
+            0.179,
+            0.175,
+            0.177,
+            0.183,
+            0.182,
+            0.18,
+            0.18,
+            0.178
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.054,
+            0.053,
+            0.054,
+            0.055,
+            0.054,
+            0.056,
+            0.052,
+            0.054,
+            0.054,
+            0.054,
+            0.052,
+            0.053
+          ],
+          "candidate": [
+            0.051,
+            0.052,
+            0.051,
+            0.052,
+            0.052,
+            0.051,
+            0.052,
+            0.052,
+            0.052,
+            0.051,
+            0.052,
+            0.052
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.063,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.063
+          ],
+          "candidate": [
+            0.068,
+            0.068,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.07,
+            0.07,
+            0.07
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208273408,
+          208257024,
+          208273408,
+          208322560,
+          208257024,
+          208273408,
+          208273408,
+          208273408,
+          208273408,
+          208273408,
+          208207872,
+          208240640
+        ],
+        "candidate": [
+          208257024,
+          208224256,
+          208322560,
+          208322560,
+          208240640,
+          208257024,
+          208224256,
+          208322560,
+          208322560,
+          208306176,
+          208306176,
+          208306176
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.512603583,
+          2.548928666,
+          2.506753332999999,
+          2.5134549160000006,
+          2.6307937080000023,
+          2.5029823749999984,
+          2.5972229579999997,
+          2.4887796249999994,
+          2.600312916,
+          2.551592624999998,
+          2.5114196670000055,
+          2.5059917499999997
+        ],
+        "candidate": [
+          2.726708333,
+          2.455287125,
+          2.4674548750000014,
+          2.471890583000002,
+          2.4638984169999993,
+          2.4628163750000027,
+          2.4707946250000035,
+          2.4912863750000014,
+          2.471198375,
+          2.4837507499999987,
+          2.4900227089999944,
+          2.5045734999999993
+        ]
+      }
+    },
+    "guards": {
+      "layout": "packed",
+      "eager_conditions": false,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell",
+        "Add",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Lt",
+        "Le",
+        "Neg",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "GetUpval",
+        "K",
+        "JmpIf",
+        "JmpIfNot",
+        "GetSlot",
+        "GetSlotF",
+        "Len",
+        "LenF",
+        "GetIdxF",
+        "GetIdxI"
+      ],
+      "ir_sha256": "7ad2ba1b1f46676de2e47b0a241e12b434e6988d71f6ecb9c6186d8f8d824645",
+      "object_sha256": "eb1378ea9664c88e8c51590ec5fb037eecd1d2161bc9eceaf1021e05c8ce3da0",
+      "runtime_sha256": "4ace48423b9a8ed34abc64c872610b34ec8b8576633b61afd2e27d0c8ab5a32b",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/guards-app",
+          "sha256": "f066f65e15c76fff116601b82a6c406dc4c4d854235a18f0b7ffb39271d866a6"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.0982377358410034,
+          "low95": 1.0919652403742643,
+          "high95": 1.1047634895254224,
+          "baseline_median_seconds": 0.07,
+          "candidate_median_seconds": 0.077,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 0.9372757774131729,
+          "low95": 0.9184763390743707,
+          "high95": 0.9573878627138354,
+          "baseline_median_seconds": 0.3555,
+          "candidate_median_seconds": 0.3305,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "tables": {
+          "ratio": 1.0174546195839411,
+          "low95": 1.0119417610024943,
+          "high95": 1.0230557932833824,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.078,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "strings": {
+          "ratio": 1.0120568358447821,
+          "low95": 0.9899884028192297,
+          "high95": 1.0328617371303315,
+          "baseline_median_seconds": 0.1765,
+          "candidate_median_seconds": 0.179,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "records": {
+          "ratio": 0.9459620110671981,
+          "low95": 0.9351628377049611,
+          "high95": 0.9582362563777923,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.051,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.0847194128467847,
+          "low95": 1.0725006176895113,
+          "high95": 1.0941899738173777,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.069,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.069,
+            0.07,
+            0.07,
+            0.071,
+            0.072,
+            0.07,
+            0.071,
+            0.07,
+            0.07,
+            0.071,
+            0.07,
+            0.071
+          ],
+          "candidate": [
+            0.077,
+            0.077,
+            0.076,
+            0.077,
+            0.079,
+            0.078,
+            0.077,
+            0.077,
+            0.078,
+            0.078,
+            0.077,
+            0.077
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.354,
+            0.342,
+            0.355,
+            0.356,
+            0.335,
+            0.359,
+            0.346,
+            0.367,
+            0.366,
+            0.342,
+            0.37,
+            0.359
+          ],
+          "candidate": [
+            0.329,
+            0.346,
+            0.33,
+            0.331,
+            0.328,
+            0.334,
+            0.332,
+            0.328,
+            0.331,
+            0.33,
+            0.328,
+            0.336
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.076,
+            0.075,
+            0.077,
+            0.077,
+            0.076,
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.075,
+            0.077,
+            0.077
+          ],
+          "candidate": [
+            0.077,
+            0.077,
+            0.077,
+            0.078,
+            0.078,
+            0.078,
+            0.078,
+            0.079,
+            0.078,
+            0.078,
+            0.078,
+            0.078
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.178,
+            0.178,
+            0.175,
+            0.176,
+            0.177,
+            0.188,
+            0.176,
+            0.18,
+            0.18,
+            0.176,
+            0.174,
+            0.176
+          ],
+          "candidate": [
+            0.175,
+            0.184,
+            0.181,
+            0.19,
+            0.175,
+            0.174,
+            0.178,
+            0.178,
+            0.181,
+            0.186,
+            0.179,
+            0.179
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.054,
+            0.054,
+            0.052,
+            0.053,
+            0.055,
+            0.055,
+            0.055,
+            0.054,
+            0.053,
+            0.053,
+            0.055,
+            0.054
+          ],
+          "candidate": [
+            0.05,
+            0.05,
+            0.051,
+            0.05,
+            0.051,
+            0.051,
+            0.051,
+            0.051,
+            0.052,
+            0.052,
+            0.052,
+            0.051
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.063,
+            0.063,
+            0.064,
+            0.064,
+            0.067,
+            0.064,
+            0.064,
+            0.063,
+            0.064,
+            0.064,
+            0.064,
+            0.064
+          ],
+          "candidate": [
+            0.069,
+            0.069,
+            0.069,
+            0.071,
+            0.069,
+            0.069,
+            0.069,
+            0.069,
+            0.07,
+            0.07,
+            0.07,
+            0.069
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208322560,
+          208273408,
+          208240640,
+          208289792,
+          208273408,
+          209240064,
+          208207872,
+          208273408,
+          208289792,
+          208257024,
+          208273408,
+          208257024
+        ],
+        "candidate": [
+          208273408,
+          208273408,
+          208224256,
+          208289792,
+          208273408,
+          208322560,
+          208306176,
+          208224256,
+          208289792,
+          208240640,
+          208289792,
+          208404480
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.496403542,
+          2.4698325420000007,
+          2.5004597079999993,
+          2.514168208000001,
+          2.5002399590000017,
+          2.591111791000003,
+          2.507634333000002,
+          2.5681639169999997,
+          2.5803679580000036,
+          2.478318291000001,
+          2.553549709000002,
+          2.5402510410000048
+        ],
+        "candidate": [
+          2.7145622080000003,
+          2.528404375,
+          2.4647531249999997,
+          2.5025397499999986,
+          2.4554332499999987,
+          2.466768791,
+          2.465572083000005,
+          2.463761583,
+          2.472679042000003,
+          2.486289499999998,
+          2.4714767500000008,
+          2.485898208000002
+        ]
+      }
+    },
+    "static": {
+      "layout": "static",
+      "eager_conditions": false,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell",
+        "Add",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Lt",
+        "Le",
+        "Neg",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "GetUpval",
+        "K",
+        "JmpIf",
+        "JmpIfNot",
+        "GetSlot",
+        "GetSlotF",
+        "Len",
+        "LenF",
+        "GetIdxF",
+        "GetIdxI"
+      ],
+      "ir_sha256": "7ad2ba1b1f46676de2e47b0a241e12b434e6988d71f6ecb9c6186d8f8d824645",
+      "object_sha256": "5abf00868977d97f2ff749c4ddfd6934074fdafa47f81bf791d2b25bf7dde0d4",
+      "runtime_sha256": "aaa48882583fd552af509d06c0ba3c07611227b3d91a8a356ded4e42bb1bf741",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/static-app",
+          "sha256": "e9946bf89cbfc86dc21aa34c16f708c9df04585ed5110c3077f323a39d4b8be9"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.080136655227133,
+          "low95": 1.074151098933615,
+          "high95": 1.0862535804142293,
+          "baseline_median_seconds": 0.072,
+          "candidate_median_seconds": 0.0775,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 1.018416888120882,
+          "low95": 0.996194464871483,
+          "high95": 1.0497119957239172,
+          "baseline_median_seconds": 0.3635,
+          "candidate_median_seconds": 0.366,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "tables": {
+          "ratio": 0.9341966776453651,
+          "low95": 0.9288690066753205,
+          "high95": 0.9404940881685903,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.072,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "strings": {
+          "ratio": 1.0108895469054153,
+          "low95": 0.9981423612109555,
+          "high95": 1.0253633198722516,
+          "baseline_median_seconds": 0.183,
+          "candidate_median_seconds": 0.185,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        },
+        "records": {
+          "ratio": 0.803718725712309,
+          "low95": 0.7978602225974901,
+          "high95": 0.8092984193068513,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.043,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.0064412817225594,
+          "low95": 1.001292850556325,
+          "high95": 1.0129040726095206,
+          "baseline_median_seconds": 0.065,
+          "candidate_median_seconds": 0.065,
+          "verdict": "unchanged",
+          "noninferiority_pass": true
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.072,
+            0.072,
+            0.072,
+            0.071,
+            0.072,
+            0.072,
+            0.072,
+            0.072,
+            0.071,
+            0.071,
+            0.072,
+            0.072
+          ],
+          "candidate": [
+            0.078,
+            0.078,
+            0.078,
+            0.078,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.36,
+            0.364,
+            0.361,
+            0.351,
+            0.367,
+            0.363,
+            0.371,
+            0.358,
+            0.372,
+            0.362,
+            0.372,
+            0.372
+          ],
+          "candidate": [
+            0.364,
+            0.374,
+            0.376,
+            0.365,
+            0.371,
+            0.424,
+            0.369,
+            0.36,
+            0.362,
+            0.365,
+            0.36,
+            0.367
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.077,
+            0.078,
+            0.078,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077,
+            0.076,
+            0.077,
+            0.077,
+            0.078
+          ],
+          "candidate": [
+            0.072,
+            0.072,
+            0.072,
+            0.073,
+            0.072,
+            0.073,
+            0.072,
+            0.071,
+            0.073,
+            0.072,
+            0.072,
+            0.072
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.179,
+            0.187,
+            0.185,
+            0.18,
+            0.178,
+            0.18,
+            0.184,
+            0.186,
+            0.183,
+            0.183,
+            0.183,
+            0.181
+          ],
+          "candidate": [
+            0.178,
+            0.184,
+            0.185,
+            0.183,
+            0.187,
+            0.186,
+            0.185,
+            0.186,
+            0.179,
+            0.186,
+            0.182,
+            0.192
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.054,
+            0.055,
+            0.053,
+            0.054,
+            0.054,
+            0.054,
+            0.054,
+            0.053,
+            0.055,
+            0.054,
+            0.054,
+            0.053
+          ],
+          "candidate": [
+            0.043,
+            0.043,
+            0.043,
+            0.044,
+            0.044,
+            0.043,
+            0.044,
+            0.043,
+            0.044,
+            0.043,
+            0.043,
+            0.043
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.065,
+            0.065,
+            0.065,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.065
+          ],
+          "candidate": [
+            0.066,
+            0.065,
+            0.065,
+            0.064,
+            0.065,
+            0.065,
+            0.065,
+            0.065,
+            0.065,
+            0.065,
+            0.066,
+            0.065
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208257024,
+          208207872,
+          208240640,
+          208273408,
+          208289792,
+          208273408,
+          208240640,
+          208289792,
+          208257024,
+          208240640,
+          208273408,
+          208322560
+        ],
+        "candidate": [
+          208388096,
+          208322560,
+          208355328,
+          208322560,
+          208338944,
+          208371712,
+          208224256,
+          208224256,
+          208338944,
+          208371712,
+          208338944,
+          208322560
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.5464841249999997,
+          2.596795167,
+          2.5769618340000005,
+          2.519184292000002,
+          2.5731599170000017,
+          2.576450957999999,
+          2.624246375000002,
+          2.5759770000000017,
+          2.5883065000000016,
+          2.5647513340000003,
+          2.5948189160000013,
+          2.6111010839999977
+        ],
+        "candidate": [
+          2.818099458,
+          2.574590625,
+          2.5855004170000004,
+          2.562147916999999,
+          2.558002541999997,
+          2.762955708,
+          2.561748332999997,
+          2.5202496670000016,
+          2.5349620420000036,
+          2.554120791999999,
+          2.5223132499999963,
+          2.5854831669999996
+        ]
+      }
+    },
+    "derived": {
+      "layout": "derived",
+      "eager_conditions": false,
+      "handlers": [
+        "Move",
+        "Nil",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "Jmp",
+        "JmpIfIZero",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox",
+        "FUnbox",
+        "GetCell",
+        "Add",
+        "Sub",
+        "Mul",
+        "Mod",
+        "Lt",
+        "Le",
+        "Neg",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "GetUpval",
+        "K",
+        "JmpIf",
+        "JmpIfNot",
+        "GetSlot",
+        "GetSlotF",
+        "Len",
+        "LenF",
+        "GetIdxF",
+        "GetIdxI"
+      ],
+      "ir_sha256": "7ad2ba1b1f46676de2e47b0a241e12b434e6988d71f6ecb9c6186d8f8d824645",
+      "object_sha256": "8f21200f303a8cfb85f3c75f809bebdff34cf562ea41c05b80c4c6ba7a276e94",
+      "runtime_sha256": "79590b79ee7cdc64abd34bccf7e631d2f573c4017eeb1229c4d489d702a1d6ce",
+      "binaries": {
+        "baseline": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+          "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+        },
+        "candidate": {
+          "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/derived-app",
+          "sha256": "cae61eb48752f65b941fa918ca9c5d6312ea8a7cf0f9a359cebab2611e38db12"
+        }
+      },
+      "summary": {
+        "fib": {
+          "ratio": 1.0806241035517257,
+          "low95": 1.0768522341304112,
+          "high95": 1.0843113358301215,
+          "baseline_median_seconds": 0.071,
+          "candidate_median_seconds": 0.077,
+          "verdict": "regressed",
+          "noninferiority_pass": false
+        },
+        "loops": {
+          "ratio": 0.9486390169143876,
+          "low95": 0.9305484554434509,
+          "high95": 0.9669477212612554,
+          "baseline_median_seconds": 0.357,
+          "candidate_median_seconds": 0.3345,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "tables": {
+          "ratio": 0.9472054562640387,
+          "low95": 0.9396618099068333,
+          "high95": 0.9538516104574774,
+          "baseline_median_seconds": 0.077,
+          "candidate_median_seconds": 0.0735,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "strings": {
+          "ratio": 0.9895253419063179,
+          "low95": 0.9773882361332121,
+          "high95": 1.0009290256871697,
+          "baseline_median_seconds": 0.1815,
+          "candidate_median_seconds": 0.179,
+          "verdict": "inconclusive",
+          "noninferiority_pass": true
+        },
+        "records": {
+          "ratio": 0.7869165811864786,
+          "low95": 0.775196947671088,
+          "high95": 0.7981238698745653,
+          "baseline_median_seconds": 0.054,
+          "candidate_median_seconds": 0.043,
+          "verdict": "improved",
+          "noninferiority_pass": true
+        },
+        "closures": {
+          "ratio": 1.0062883073442666,
+          "low95": 0.994845269278865,
+          "high95": 1.021620289854327,
+          "baseline_median_seconds": 0.064,
+          "candidate_median_seconds": 0.064,
+          "verdict": "inconclusive",
+          "noninferiority_pass": false
+        }
+      },
+      "noninferiority_pass": false,
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "paired_seconds": {
+        "fib": {
+          "baseline": [
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.071,
+            0.072,
+            0.072,
+            0.072,
+            0.072
+          ],
+          "candidate": [
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077,
+            0.077
+          ]
+        },
+        "loops": {
+          "baseline": [
+            0.343,
+            0.351,
+            0.362,
+            0.349,
+            0.36,
+            0.357,
+            0.363,
+            0.378,
+            0.371,
+            0.346,
+            0.357,
+            0.349
+          ],
+          "candidate": [
+            0.334,
+            0.332,
+            0.338,
+            0.33,
+            0.343,
+            0.36,
+            0.331,
+            0.342,
+            0.335,
+            0.331,
+            0.358,
+            0.332
+          ]
+        },
+        "tables": {
+          "baseline": [
+            0.077,
+            0.077,
+            0.077,
+            0.078,
+            0.077,
+            0.077,
+            0.078,
+            0.078,
+            0.078,
+            0.079,
+            0.077,
+            0.077
+          ],
+          "candidate": [
+            0.071,
+            0.073,
+            0.073,
+            0.073,
+            0.072,
+            0.072,
+            0.074,
+            0.075,
+            0.075,
+            0.075,
+            0.074,
+            0.074
+          ]
+        },
+        "strings": {
+          "baseline": [
+            0.179,
+            0.177,
+            0.178,
+            0.179,
+            0.189,
+            0.177,
+            0.183,
+            0.181,
+            0.184,
+            0.182,
+            0.184,
+            0.182
+          ],
+          "candidate": [
+            0.177,
+            0.179,
+            0.179,
+            0.179,
+            0.179,
+            0.179,
+            0.178,
+            0.183,
+            0.179,
+            0.184,
+            0.18,
+            0.176
+          ]
+        },
+        "records": {
+          "baseline": [
+            0.053,
+            0.054,
+            0.054,
+            0.053,
+            0.054,
+            0.055,
+            0.054,
+            0.054,
+            0.056,
+            0.053,
+            0.055,
+            0.057
+          ],
+          "candidate": [
+            0.042,
+            0.043,
+            0.042,
+            0.043,
+            0.044,
+            0.043,
+            0.042,
+            0.043,
+            0.042,
+            0.043,
+            0.043,
+            0.043
+          ]
+        },
+        "closures": {
+          "baseline": [
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.064,
+            0.064
+          ],
+          "candidate": [
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.064,
+            0.065,
+            0.065,
+            0.069,
+            0.064,
+            0.065,
+            0.064
+          ]
+        }
+      },
+      "rss_bytes": {
+        "baseline": [
+          208257024,
+          208257024,
+          208289792,
+          208289792,
+          208338944,
+          208273408,
+          208240640,
+          208306176,
+          208273408,
+          208273408,
+          208289792,
+          208257024
+        ],
+        "candidate": [
+          208404480,
+          208388096,
+          208388096,
+          208306176,
+          208338944,
+          208306176,
+          208388096,
+          208371712,
+          208338944,
+          208355328,
+          208338944,
+          208322560
+        ]
+      },
+      "wall_seconds": {
+        "baseline": [
+          2.4859205,
+          2.52334225,
+          2.5326118750000006,
+          2.509784291999999,
+          2.5651968330000017,
+          2.529347916999999,
+          2.5556215419999972,
+          2.624807541999999,
+          2.6039662920000026,
+          2.521185457999998,
+          2.5513574159999948,
+          2.5381541249999984
+        ],
+        "candidate": [
+          2.691748917,
+          2.4220495,
+          2.4479986670000002,
+          2.4266201659999993,
+          2.470198416999999,
+          2.5116372499999997,
+          2.4230883330000026,
+          2.4775702909999993,
+          2.4759396669999987,
+          2.429350833000001,
+          2.5121795419999984,
+          2.4262648329999976
+        ]
+      }
+    }
+  },
+  "validation": {
+    "rust_targets": 65,
+    "rust_passed": 440,
+    "rust_failed": 0,
+    "rust_ignored": 4,
+    "excluded_baseline_failure": "aot_relocation: pre-existing &String versus &[u8] compile error, reproduced without experiment in previous commit",
+    "native_contract_tests": 13,
+    "rejection_cases": [
+      "mutation",
+      "allocation",
+      "loop",
+      "pointer-return",
+      "fallthrough",
+      "ordinary-call",
+      "non-terminating-branch",
+      "implicit-number",
+      "bad-layout",
+      "ir-format",
+      "ir-opcode",
+      "ir-arity",
+      "ir-parameter-write",
+      "ir-undefined",
+      "ir-unterminated",
+      "ir-nonleaf",
+      "ir-representation",
+      "ir-after-terminator",
+      "ir-changed-window",
+      "ir-changed-slow-pc",
+      "ir-float-as-word",
+      "ir-word-as-float",
+      "ir-word-as-condition",
+      "ir-nonboolean-select"
+    ],
+    "rejection_layouts": [
+      "static",
+      "packed",
+      "derived"
+    ],
+    "synthetic_abi": "JIT and linked host AOT probes pass; Linux x64 and Windows GNU x64 object emission covers the synthetic ABI pilot, not the expanded production slice.",
+    "platform_limits": "Real production-slice execution is macOS ARM64 only. No fixpoint or full Rust deletion claimed. The full Nupp suite was not run; the broad validation is the Rust VM suite and pinned compiler checks.",
+    "gc_helper_limit": "No allocating or reentrant helper inside any native segment. Unsupported instructions and OSR leave to Rust.",
+    "minimal_runtime": {
+      "features": "--no-default-features --features native-runtime-experiment",
+      "runtime_sha256": "ea839aca4a5ecb996122fa53c4be62d383eadf9405b44df24c3111cc22522d26",
+      "checksums": {
+        "fib": "1346269",
+        "loops": "522073",
+        "tables": "487986259",
+        "strings": "5433712",
+        "records": "199997",
+        "closures": "999754"
+      },
+      "performance_claim": false,
+      "cranelift_normal_dependencies": []
+    }
+  },
+  "compiler": {
+    "expanded": {
+      "layout": "packed",
+      "method": "serial cold then warm check per independent cache; alternating runtime order; three pairs are supporting evidence, not a formal noninferiority verdict",
+      "image_sha256": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb",
+      "runtimes": {
+        "baseline": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+        "candidate": "4ace48423b9a8ed34abc64c872610b34ec8b8576633b61afd2e27d0c8ab5a32b"
+      },
+      "source_archive_sha256": "63f1be078e1e16df5fe18e0dc1043366d143d75ffca1774a35cde09f33e6fa47",
+      "timings": {
+        "cold": {
+          "baseline": [
+            44.005073584,
+            44.372919792000005,
+            44.48784070899998
+          ],
+          "candidate": [
+            47.953384459000006,
+            48.00793441600001,
+            47.670135415999965
+          ],
+          "ratio_geomean": 1.081032776177406,
+          "checked_modules": 504,
+          "diagnostics": []
+        },
+        "warm": {
+          "baseline": [
+            0.6110306670000014,
+            0.6149989999999832,
+            0.6075345000000141
+          ],
+          "candidate": [
+            0.6334990000000005,
+            0.6343302080000228,
+            0.6407929579999632
+          ],
+          "ratio_geomean": 1.0409348893522672,
+          "checked_modules": 0,
+          "diagnostics": []
+        }
+      }
+    },
+    "derived": {
+      "layout": "derived",
+      "method": "serial cold then warm check per independent cache; alternating runtime order; three pairs are supporting evidence, not a formal noninferiority verdict",
+      "image_sha256": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb",
+      "runtimes": {
+        "baseline": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+        "candidate": "79590b79ee7cdc64abd34bccf7e631d2f573c4017eeb1229c4d489d702a1d6ce"
+      },
+      "source_archive_sha256": "63f1be078e1e16df5fe18e0dc1043366d143d75ffca1774a35cde09f33e6fa47",
+      "timings": {
+        "cold": {
+          "baseline": [
+            43.471711125000006,
+            44.225973208,
+            44.166700042
+          ],
+          "candidate": [
+            47.441820459000006,
+            47.323268707999986,
+            47.54444395799999
+          ],
+          "ratio_geomean": 1.079242209686345,
+          "checked_modules": 504,
+          "diagnostics": []
+        },
+        "warm": {
+          "baseline": [
+            0.6162651249999982,
+            0.6125196659999972,
+            0.611812666999981
+          ],
+          "candidate": [
+            0.6354924590000053,
+            0.6308707919999961,
+            0.6369729580000012
+          ],
+          "ratio_geomean": 1.0340826263934184,
+          "checked_modules": 0,
+          "diagnostics": []
+        }
+      }
+    }
+  },
+  "deterministic": {
+    "derived_handler_count": 57,
+    "derived_table_materializations": 1,
+    "derived_frame_prologues_including_entry": 1,
+    "frame_contract": "entry verifies frame == regs - 32; derived frame-header loads use offsets -32 and -16 from regs; mismatches return the original pc without writes",
+    "physical_tail_arguments": [
+      "pc",
+      "regs",
+      "iregs",
+      "fregs",
+      "ctx",
+      "dispatch_table"
+    ],
+    "seventh_argument_rejected": "ARM64 Tail reserves x0/x1; seventh integer argument goes on stack and adds a frame and argument traffic to every handler. Rejected before duration measurement.",
+    "reproducibility": "Eager IRs for the 37/51/57 handler candidates exactly reproduce from final source with mode eager and their recorded handler subsets; formatted direct-condition IR and measured packed runtime were byte-identical."
+  },
+  "xbench_payload_sha256": "09cc26e1d5169e0632f6cfc8833cedc21d9af6b9803d2020de63448cc75a9606",
+  "source_sha256": {
+    "native/crates/vm/examples/runtime_slice.rs": "937bcafc055597d8216faf18b28ecd136a926857fade4a784c0c70f5b95fcbd2",
+    "native/crates/vm/examples/support/runtime_ir.rs": "b4fb2316c6c68dd7d6565fdc148351e29aa1a5609ab92837ab5fe7516ff2244b",
+    "native/crates/vm/src/dispatch.rs": "ca4bb2fb5cb5c173d4e3dccb3112f162739cd77dddc2c8ef0096b325349793be",
+    "native/crates/vm/experiments/runtime/tests.rs": "1549a9e429b03d76a8a262e47d28e85f9796867c56bbe0950966dba9ca63d9df",
+    "native/crates/vm/experiments/runtime/lib/nupp/experiment/runtime.nupp": "cb84d470023260fe125d4aebb67d640bfe8c5999e2a8f9d9b93012badf878906",
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/handlers.nupp": "bddd8da925d6504f4e7f6ccaa9543e01b9c66fbfea541ab08f525d5fd2a3445c",
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "17b86ee85af281c41691f6f3c710a54c4a04e92b6e225a570e8ff44b815ab055",
+    "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "19635426d2b3234ad9ab408b38dbc818c60e6b9e1862fbd2f8e005f9699f2c55"
+  },
+  "toolchain": "rustc 1.101.0-nightly (5c543b0b8 2026-09-29)\nbinary: rustc\ncommit-hash: 5c543b0b8c73c7b72bc8284ced4fb22ead15734d\ncommit-date: 2026-09-29\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1\n",
+  "fib_profile": {
+    "method": "Separate 1-second /usr/bin/sample run, 1 ms interval; BENCH_ONLY=fib BENCH_SCALE=10 NO_JIT=1; diagnostic only, excluded from paired timing results.",
+    "samples": 747,
+    "exclusive_top_of_stack": {
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch10tail_entry": 129,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch7h_callk": 119,
+      "Add": 96,
+      "JmpIfNot": 96,
+      "nupp_native_runtime_entry": 74,
+      "K": 45,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch12h_padresults": 37,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch14native_segment": 33,
+      "leave": 24,
+      "Lt": 23,
+      "Sub": 20,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch5h_ret": 20,
+      "GetCell": 16,
+      "GetUpval": 15
+    },
+    "categories": {
+      "boundary": 131,
+      "rust_call_frame_return": 268,
+      "rust_result_padding": 37,
+      "native_handlers": 311
+    },
+    "sample_sha256": "ca5c95c89b5052efee1d8475bb9341301b51b2e7f0ea6aa066829600107b16e1",
+    "runtime_sha256": "79590b79ee7cdc64abd34bccf7e631d2f573c4017eeb1229c4d489d702a1d6ce",
+    "checksum": "63245986"
+  },
+  "compiler_profile": {
+    "method": "Separate cold check in a fresh pinned source archive; 5-second /usr/bin/sample window at 2 ms intervals, starting 10 seconds after launch. Diagnostic only; excluded from paired timings.",
+    "thread_samples": [
+      1947
+    ],
+    "top_counts_at_least_five": {
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp9get_index (derived-runtime)": 188,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch10h_getfield (derived-runtime)": 146,
+      "nupp_native_runtime_entry (derived-runtime)": 119,
+      "Move (derived-runtime)": 78,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch14native_segment (derived-runtime)": 67,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded4sync (derived-runtime)": 66,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch7h_callk (derived-runtime)": 64,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch4h_eq (derived-runtime)": 63,
+      "JmpIfNot (derived-runtime)": 58,
+      "leave (derived-runtime)": 54,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch10tail_entry (derived-runtime)": 45,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp5index (derived-runtime)": 42,
+      "GetCell (derived-runtime)": 39,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded12rt_call_iter (derived-runtime)": 37,
+      "K (derived-runtime)": 35,
+      "_platform_memmove (libsystem_platform.dylib)": 35,
+      "GetUpval (derived-runtime)": 30,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8builtins4call (derived-runtime)": 29,
+      "JmpIf (derived-runtime)": 28,
+      "_platform_memset_pattern16 (libsystem_platform.dylib)": 27,
+      "_xzm_free (libsystem_malloc.dylib)": 26,
+      "_RNvMs_NtCs5NE3RmVEFwL_7nupp_vm11metamethodsNtNtB6_6interp6Interp10metamethod (derived-runtime)": 25,
+      "Not (derived-runtime)": 21,
+      "_RNCNvNtCs5NE3RmVEFwL_7nupp_vm8threaded10rt_exec_op0B5_ (derived-runtime)": 21,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp12record_field (derived-runtime)": 18,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp9call_args (derived-runtime)": 18,
+      "_RNvMs_NtCs5NE3RmVEFwL_7nupp_vm11metamethodsNtNtB6_6interp6Interp23index_through_metatable (derived-runtime)": 18,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap10each_child (derived-runtime)": 18,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded10rt_exec_op (derived-runtime)": 18,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch12h_padresults (derived-runtime)": 17,
+      "_xzm_xzone_malloc_tiny (libsystem_malloc.dylib)": 17,
+      "_RNvMs_NtCs5NE3RmVEFwL_7nupp_vm11metamethodsNtNtB6_6interp6Interp8shape_mm (derived-runtime)": 16,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap9sweep_one (derived-runtime)": 16,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch4h_ne (derived-runtime)": 16,
+      "GetSlot (derived-runtime)": 15,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap19intern_lookup_bytes (derived-runtime)": 15,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8builtins9iter_next (derived-runtime)": 15,
+      "DYLD-STUB$$memset_pattern16 (derived-runtime)": 14,
+      "_RNvMs_NtCs5NE3RmVEFwL_7nupp_vm7cleanupNtNtB6_6interp6Interp12unwind_state (derived-runtime)": 13,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap5alloc (derived-runtime)": 13,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch8h_getidx (derived-runtime)": 12,
+      "<deduplicated_symbol> (libsystem_malloc.dylib)": 11,
+      "_RNvMs_NtCs5NE3RmVEFwL_7nupp_vm11metamethodsNtNtB6_6interp6Interp17shape_declaration (derived-runtime)": 11,
+      "_RNvMNtCs5NE3RmVEFwL_7nupp_vm8builtinsNtB2_4Outs4push (derived-runtime)": 10,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch8h_setidx (derived-runtime)": 10,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded15rt_call_builtin (derived-runtime)": 10,
+      "Jmp (derived-runtime)": 9,
+      "_RNvMs1_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_10ValueTable6insert (derived-runtime)": 9,
+      "_RNCNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB7_4Heap4scan0B9_ (derived-runtime)": 8,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap15new_table_sized (derived-runtime)": 8,
+      "_RNvMs1_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_10ValueTable3get (derived-runtime)": 7,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp9index_any (derived-runtime)": 7,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp9set_index (derived-runtime)": 7,
+      "Len (derived-runtime)": 6,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp13key_for_store (derived-runtime)": 6,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap9safepoint (derived-runtime)": 6,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch6h_slow (derived-runtime)": 6,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded12rt_get_field (derived-runtime)": 6,
+      "__bzero (libsystem_platform.dylib)": 6,
+      "Nil (derived-runtime)": 5,
+      "_RNvMs5_NtCs5NE3RmVEFwL_7nupp_vm6interpNtB5_6Interp10call_value (derived-runtime)": 5,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap4step (derived-runtime)": 5,
+      "_RNvMse_NtCs5NE3RmVEFwL_7nupp_vm4heapNtB5_4Heap8new_iter (derived-runtime)": 5,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8dispatch9h_setcell (derived-runtime)": 5,
+      "_RNvNtCs5NE3RmVEFwL_7nupp_vm8threaded12rt_get_index (derived-runtime)": 5,
+      "_xzm_xzone_malloc (libsystem_malloc.dylib)": 5
+    },
+    "boundary_exclusive_samples": 240,
+    "sample_sha256": "4f177d37a2dfc6587a04cd6e08484b7d22a07f7fdb8ec14052c31fd634c50c8f",
+    "checked_modules": 504,
+    "diagnostics": []
+  }
+}

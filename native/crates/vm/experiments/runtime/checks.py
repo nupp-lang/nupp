@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--image', type=Path, default=OUT / 'root.image')
     parser.add_argument('--candidate', type=Path, default=OUT / 'slice-runtime')
     parser.add_argument('--forks', type=int, default=3)
+    parser.add_argument('--output', type=Path, default=OUT / 'compiler-comparison.json')
     args = parser.parse_args()
     assert args.forks > 0
     binaries = {'baseline': BASE, 'candidate': args.candidate}
@@ -60,7 +61,7 @@ def main():
                        'timing': output.get('timing'), 'diagnostics': output['diagnostics']}
                 report['rows'].append(row)
                 print(json.dumps(row), flush=True)
-                (OUT / 'compiler-comparison.json').write_text(json.dumps(report, indent=2) + '\n')
+                args.output.write_text(json.dumps(report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

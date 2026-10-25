@@ -1,6 +1,9 @@
 //! Emit the opt-in leaf-handler slice against the actual VM ABI.
 use cranelift_codegen::{
-    ir::{AbiParam, InstBuilder, MemFlagsData, Signature, types},
+    ir::{
+        AbiParam, InstBuilder, MemFlagsData, Signature, StackSlotData, StackSlotKind,
+        condcodes::IntCC, types,
+    },
     isa::CallConv,
     settings::{self, Configurable},
 };
@@ -25,6 +28,43 @@ fn signature(cc: CallConv) -> Signature {
 
 fn opcode(name: &str) -> u8 {
     encode(&match name {
+        "FAdd" => Op::FAdd(0, 0, 0),
+        "FSub" => Op::FSub(0, 0, 0),
+        "FMul" => Op::FMul(0, 0, 0),
+        "FDiv" => Op::FDiv(0, 0, 0),
+        "FMod" => Op::FMod(0, 0, 0),
+        "FK" => Op::FK(0, 0.0),
+        "FMov" => Op::FMov(0, 0),
+        "FNeg" => Op::FNeg(0, 0),
+        "IToF" => Op::IToF(0, 0),
+        "FToI" => Op::FToI(0, 0),
+        "FCmpEq" => Op::FCmpEq(0, 0, 0),
+        "FCmpNe" => Op::FCmpNe(0, 0, 0),
+        "FCmpLt" => Op::FCmpLt(0, 0, 0),
+        "FCmpLe" => Op::FCmpLe(0, 0, 0),
+        "FBox" => Op::FBox(0, 0),
+        "FUnbox" => Op::FUnbox(0, 0),
+        "GetCell" => Op::GetCell(0, 0),
+        "Add" => Op::Add(0, 0, 0),
+        "Sub" => Op::Sub(0, 0, 0),
+        "Mul" => Op::Mul(0, 0, 0),
+        "Mod" => Op::Mod(0, 0, 0),
+        "Lt" => Op::Lt(0, 0, 0),
+        "Le" => Op::Le(0, 0, 0),
+        "Neg" => Op::Neg(0, 0),
+        "Not" => Op::Not(0, 0),
+        "Truthy" => Op::Truthy(0, 0),
+        "BoolFromI" => Op::BoolFromI(0, 0),
+        "GetUpval" => Op::GetUpval(0, 0),
+        "K" => Op::K(0, 0),
+        "JmpIf" => Op::JmpIf(0, 0),
+        "JmpIfNot" => Op::JmpIfNot(0, 0),
+        "GetSlot" => Op::GetSlot(0, 0, 0, 0),
+        "GetSlotF" => Op::GetSlotF(0, 0, 0, 0),
+        "Len" => Op::Len(0, 0),
+        "LenF" => Op::LenF(0, 0),
+        "GetIdxF" => Op::GetIdxF(0, 0, 0),
+        "GetIdxI" => Op::GetIdxI(0, 0, 0),
         "Move" => Op::Move(0, 0),
         "Nil" => Op::Nil(0),
         "IK" => Op::IK(0, 0),
@@ -54,12 +94,29 @@ fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     let mut program =
         runtime_ir::Program::read(Path::new(args.get(1).ok_or("source IR required")?))?;
-    if args.get(3).is_some_and(|s| s == "--integers-only") {
-        program
-            .functions
-            .retain(|f| f.name != "Move" && f.name != "Nil");
-    } else if args.len() > 3 {
-        return Err("only --integers-only is supported".into());
+    let packed_state = args
+        .get(3..)
+        .unwrap_or(&[])
+        .iter()
+        .any(|s| s == "--packed-state");
+    let derived_frame = args
+        .get(3..)
+        .unwrap_or(&[])
+        .iter()
+        .any(|s| s == "--derived-frame");
+    if packed_state && derived_frame {
+        return Err("choose one native state layout".into());
+    }
+    for option in args.get(3..).unwrap_or(&[]) {
+        match option.as_str() {
+            "--integers-only" => program.functions.retain(|f| {
+                (f.name.starts_with('I') && f.name != "IToF")
+                    || f.name == "Jmp"
+                    || f.name == "JmpIfIZero"
+            }),
+            "--packed-state" | "--derived-frame" => {}
+            _ => return Err(format!("unknown option {option}")),
+        }
     }
     let path = args.get(2).ok_or("output object required")?;
     let mut flags = settings::builder();
@@ -108,8 +165,26 @@ fn main() -> Result<(), String> {
     let mut ids = Vec::new();
     let mut metadata =
         String::from("// Generated with the native object. Private experimental ABI.\n");
-    metadata.push_str("const _: () = { assert!(std::mem::size_of::<Ins>() == 16);\n");
+    metadata.push_str(&format!(
+        "#[cfg(test)] const NATIVE_DERIVED_FRAME: bool = {derived_frame};\n"
+    ));
+    metadata.push_str(
+        "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16);\n",
+    );
     for (field, offset) in [
+        ("op", 0),
+        ("a", 1),
+        ("b", 2),
+        ("c", 3),
+        ("imm", 4),
+        ("k", 8),
+    ] {
+        metadata.push_str(&format!(
+            "assert!(std::mem::offset_of!(Ins, {field}) == {offset});\n"
+        ));
+    }
+    for (field, offset) in [
+        ("funcs", offset_of!(Ctx, funcs)),
         ("frame_mode", offset_of!(Ctx, frame_mode)),
         ("jit_frames", offset_of!(Ctx, jit_frames)),
         ("nframe_entries", offset_of!(Ctx, nframe_entries)),
@@ -118,6 +193,24 @@ fn main() -> Result<(), String> {
             "assert!(std::mem::offset_of!(Ctx, {field}) == {offset});\n"
         ));
     }
+    for (field, offset) in [
+        ("kind", offset_of!(nupp_vm::heap::Header, kind)),
+        ("aux_len", offset_of!(nupp_vm::heap::Header, aux_len)),
+        ("aux", offset_of!(nupp_vm::heap::Header, aux)),
+        ("flags", offset_of!(nupp_vm::heap::Header, flags)),
+        ("aux_ptr", offset_of!(nupp_vm::heap::Header, aux_ptr)),
+    ] {
+        metadata.push_str(&format!(
+            "assert!(std::mem::offset_of!(crate::heap::Header, {field}) == {offset});\n"
+        ));
+    }
+    metadata.push_str("assert!(crate::heap::KIND_CELL == 6);\nassert!(crate::heap::KIND_STR == 1 && crate::heap::KIND_SLICE == 9 && crate::heap::KIND_TABLE == 2 && crate::heap::KIND_RECORD == 3 && crate::heap::F_METATABLE == 4);\n");
+    metadata.push_str(&format!(
+        "assert!(crate::heap::OFF_T_META == {});\n",
+        nupp_vm::heap::OFF_T_META
+    ));
+    metadata.push_str(&format!("assert!(std::mem::size_of::<FuncInfo>() == {});\nassert!(std::mem::offset_of!(FuncInfo, consts) == {});\n", std::mem::size_of::<nupp_vm::threaded::FuncInfo>(), offset_of!(nupp_vm::threaded::FuncInfo, consts)));
+    metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
     for function in &program.functions {
         function.require_leaf()?;
@@ -152,27 +245,78 @@ fn main() -> Result<(), String> {
             let params = b.block_params(start).to_vec();
             let sig = b.import_signature(tail.clone());
             let data = module.declare_data_in_func(table_id, b.func);
-            let table = b.ins().symbol_value(types::I64, data);
+            let table = if (packed_state || derived_frame) && !is_entry {
+                params[5]
+            } else {
+                b.ins().symbol_value(types::I64, data)
+            };
             if is_leave {
                 b.ins().return_(&[params[0]]);
             } else if is_entry {
                 let flags = MemFlagsData::new().with_notrap();
+                if derived_frame {
+                    // A VM register window begins immediately after its four
+                    // frame-header words. Check the contract before any handler
+                    // executes; a foreign caller with independent windows leaves
+                    // unchanged through the ordinary Rust fallback.
+                    let frame = b.ins().iadd_imm_s(params[1], -32);
+                    let valid = b.ins().icmp(IntCC::Equal, frame, params[5]);
+                    let enter = b.create_block();
+                    let reject = b.create_block();
+                    b.ins().brif(valid, enter, &[], reject, &[]);
+                    b.switch_to_block(reject);
+                    b.ins().return_(&[params[0]]);
+                    b.switch_to_block(enter);
+                }
                 let op = b.ins().uload8(types::I64, flags, params[0], 0);
                 let offset = b.ins().ishl_imm_u(op, 3);
                 let slot = b.ins().iadd(table, offset);
                 let target = b.ins().load(types::I64, flags, slot, 0);
-                let call = b.ins().call_indirect(sig, target, &params);
+                let mut arguments = params.clone();
+                if packed_state {
+                    // The entry owns this nonmoving pair for the entire leaf
+                    // segment. Helpers and changed windows are rejected before
+                    // emission, so no managed roots are hidden here.
+                    let slot = b.create_sized_stack_slot(StackSlotData::new(
+                        StackSlotKind::ExplicitSlot,
+                        16,
+                        3,
+                    ));
+                    let state = b.ins().stack_addr(types::I64, slot, 0);
+                    b.ins().store(flags, params[4], state, 0);
+                    b.ins().store(flags, params[5], state, 8);
+                    arguments[4] = state;
+                    arguments[5] = table;
+                }
+                if derived_frame {
+                    arguments[5] = table;
+                }
+                let call = b.ins().call_indirect(sig, target, &arguments);
                 let value = b.inst_results(call)[0];
                 b.ins().return_(&[value]);
             } else {
                 let helper = module.declare_func_in_func(helper, b.func);
+                let mut logical = params.clone();
+                let state = if packed_state {
+                    let flags = MemFlagsData::new().with_notrap();
+                    logical[4] = b.ins().load(types::I64, flags, params[4], 0);
+                    logical[5] = b.ins().load(types::I64, flags, params[4], 8);
+                    Some(params[4])
+                } else {
+                    None
+                };
+                if derived_frame {
+                    logical[5] = b.ins().iadd_imm_s(params[1], -32);
+                }
                 runtime_ir::emit(
                     &program.functions[index],
                     &mut b,
-                    &params,
+                    &logical,
                     sig,
                     helper,
                     Some(table),
+                    state,
+                    derived_frame,
                 )?;
             }
             b.seal_all_blocks();
