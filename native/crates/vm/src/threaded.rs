@@ -32,7 +32,7 @@ pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64,
 /// when none), `slow_calls` the builtins it hands to Rust whole, and
 /// `frame_entries` the compiled frame entry per function, entered through
 /// `rt_enter_frame`.
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64, pub jit_threshold: u32, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub frame_mode: u32, pub unavailable_fid: u32 }
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64, pub jit_threshold: u32, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub frame_mode: u32, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32 }
 
 pub const NO_GUARD: u64 = u64::MAX;
 /// Every return goes to Rust: an unwind is driving the task's cleanups.
@@ -172,7 +172,12 @@ fn sync(ctx: &mut Ctx, it: &mut Interp) {
     ctx.funcs = it.finfo.as_ptr(); ctx.nfuncs = it.finfo.len() as u64;
     ctx.shapes = it.shape_info.as_ptr(); ctx.nshapes = it.shape_info.len() as u64;
     ctx.entries = it.entries.as_ptr();
-    if ctx.frame_mode != 0 { ctx.guard = guard(it, tid); }
+    if ctx.frame_mode != 0 {
+        ctx.guard = guard(it, tid);
+        // Compiling a frame entry may grow (and move) the table.
+        #[cfg(feature = "compiled-runtime")]
+        { ctx.frame_entries = it.frame_entries.as_ptr(); ctx.nframe_entries = it.frame_entries.len() as u64; }
+    }
 }
 
 /// The highest frame of `tid` whose return the Rust path must take.
@@ -215,11 +220,12 @@ pub extern "C" fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     r
 }
 
-/// Enters the compiled frame of the function the core just pushed, or
+/// Enters the compiled frame of the function on top at `pc` -- its start, or
+/// a back edge -- compiling it first when the core counted it `hot`, or
 /// applies the interpreter's policy for one with vector instructions and no
 /// compiled entry. Answers the pc to go on interpreting at, or a status.
 #[unsafe(no_mangle)]
-pub extern "C" fn rt_enter_frame(ctx: *mut Ctx) -> u32 {
+pub extern "C" fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
@@ -227,7 +233,7 @@ pub extern "C" fn rt_enter_frame(ctx: *mut Ctx) -> u32 {
     it.last_nres = ctx.last_nres as usize;
     let fid = (it.tasks[tid].stack[ctx.cur as usize] & 0xffff_ffff) as u32;
     let mark = it.handles.len();
-    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.enter_frame_from_core(tid, fid)));
+    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.enter_frame_from_core(tid, fid, pc as usize, hot != 0)));
     if entered.is_err() { it.handles.truncate(mark); }
     let r = match entered {
         Ok(Ok(next)) => next as u32,
@@ -408,7 +414,15 @@ impl Interp {
         let (frame_entries, nframe_entries) = if frame_mode && !self.frame_entries.is_empty() { (self.frame_entries.as_ptr(), self.frame_entries.len() as u64) } else { (std::ptr::null(), 0) };
         #[cfg(not(feature = "compiled-runtime"))]
         let (frame_entries, nframe_entries): (*const u64, u64) = (std::ptr::null(), 0);
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: if frame_mode { 0 } else { self.jit_threshold }, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, frame_mode: frame_mode as u32, unavailable_fid: self.unavailable_fid };
+        #[cfg(feature = "jit")]
+        let jit_frames = frame_mode && self.jit.is_some();
+        #[cfg(not(feature = "jit"))]
+        let jit_frames = false;
+        #[cfg(feature = "compiled-runtime")]
+        let frame_threshold = self.frame_threshold;
+        #[cfg(not(feature = "compiled-runtime"))]
+        let frame_threshold = 0;
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: if frame_mode { 0 } else { self.jit_threshold }, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, frame_mode: frame_mode as u32, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]

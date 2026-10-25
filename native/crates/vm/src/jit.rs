@@ -76,8 +76,9 @@ pub struct Compiler<M: Module> {
     /// result are plain values, which a known-callee call needs to go direct.
     pub callee_info: Vec<(u8, bool)>,
     runtime_data: Option<FuncId>,
-    /// Exercise the object lowering with the in-process collector oracle.
-    #[cfg(test)]
+    /// Frame code calls compiled callees directly, as linked AOT code does,
+    /// rather than through the boundary driver. On unless
+    /// `JIT_NATIVE_CALLS=0`.
     pub(crate) native_frame_calls: bool,
     pub object_maps: Vec<(u32, usize, Vec<(u32, u32, Vec<u32>)>)>,
     /// What the next compile specializes on or instruments (`specialize`);
@@ -90,6 +91,58 @@ pub struct Compiler<M: Module> {
 }
 
 pub type Jit = Compiler<JITModule>;
+
+/// One frame compile for the background compiler: the function, the table
+/// addresses its code will hold (the main thread's, since the closure slot is
+/// thread-local), and what is known of each callee.
+pub struct Job { pub fid: u32, pub func: Function, pub closure: i64, pub extra: i64, pub last_nres: i64, pub entries: i64, pub calltab: i64, pub probe: i64, pub callee_info: Vec<(u8, bool)> }
+
+/// A compiler thread with a Cranelift module of its own. Hot functions are
+/// queued here and keep running interpreted until their entry is installed,
+/// so no run waits on a compile it may not live to use.
+pub struct Worker {
+    jobs: std::sync::mpsc::Sender<Job>,
+    done: std::sync::mpsc::Receiver<(u32, Result<u64, String>)>,
+    pub pending: Vec<bool>,
+}
+
+impl Worker {
+    pub fn start() -> Worker {
+        let (jobs, inbox) = std::sync::mpsc::channel::<Job>();
+        let (outbox, done) = std::sync::mpsc::channel();
+        std::thread::Builder::new().name("nupp-jit".into()).stack_size(64 << 20).spawn(move || {
+            let mut jit = Jit::new();
+            for job in inbox {
+                jit.cur_closure_addr = job.closure;
+                jit.extra_addr = job.extra;
+                jit.last_nres_addr = job.last_nres;
+                jit.entries_addr = job.entries;
+                jit.calltab_addr = job.calltab;
+                jit.probe_addr = job.probe;
+                jit.callee_info = job.callee_info;
+                let result = jit.compile_frame(&job.func, job.fid).map(|p| p as u64);
+                if outbox.send((job.fid, result)).is_err() { break; }
+            }
+        }).expect("cannot start the JIT compiler thread");
+        Worker { jobs, done, pending: Vec::new() }
+    }
+    /// Whether `fid` is queued or compiling.
+    pub fn queued(&self, fid: u32) -> bool { self.pending.get(fid as usize).copied().unwrap_or(false) }
+    /// Queues `fid` unless it is already queued; false when the thread is gone.
+    pub fn submit(&mut self, job: Job) -> bool {
+        let fid = job.fid as usize;
+        if self.pending.len() <= fid { self.pending.resize(fid + 1, false); }
+        if self.pending[fid] { return true; }
+        self.pending[fid] = true;
+        self.jobs.send(job).is_ok()
+    }
+    /// The compiles that finished since the last call.
+    pub fn finished(&mut self) -> Vec<(u32, Result<u64, String>)> {
+        let mut out = Vec::new();
+        while let Ok(done) = self.done.try_recv() { self.pending[done.0 as usize] = false; out.push(done); }
+        out
+    }
+}
 
 fn runtime_addr(b: &mut FunctionBuilder, table: Option<FuncRef>, slot: i32, jit_addr: i64) -> Value {
     if let Some(table) = table {
@@ -286,11 +339,8 @@ impl Compiler<JITModule> {
     /// its recovery points and fact uses are left in `last_recovery` and
     /// `last_fact_uses`.
     pub fn compile_version(&mut self, f: &Function, fid: u32, frame: bool) -> Result<crate::specialize::versions::CompiledCode, String> {
-        #[cfg(test)]
         let code = if self.native_frame_calls { self.compile_function::<true>(f, fid, frame) }
             else { self.compile_function::<false>(f, fid, frame) };
-        #[cfg(not(test))]
-        let code = self.compile_function::<false>(f, fid, frame);
         let (id, primary, code_len, maps) = code?;
         self.module.finalize_definitions().unwrap();
         let start = self.module.get_finalized_function(primary) as usize;
@@ -409,7 +459,7 @@ impl<M: Module> Compiler<M> {
             module.declare_function(name, Linkage::Import, &sig).unwrap()
         });
         let ctx = module.make_context();
-        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, #[cfg(test)] native_frame_calls: false, object_maps: Vec::new(), plan: None, last_recovery: Vec::new(), last_fact_uses: Vec::new() }
+        Compiler { registered: RegisteredCode::default(), module, ctx, fbc: FunctionBuilderContext::new(), helpers, funcs: HashMap::new(), compile_micros: Vec::new(), cur_closure_addr: crate::compiled::closure_address() as i64, extra_addr: 0, last_nres_addr: 0, entries_addr: 0, calltab_addr: 0, probe_addr: 0, stubs: None, callee_info: Vec::new(), runtime_data, native_frame_calls: std::env::var("JIT_NATIVE_CALLS").map_or(true, |v| v != "0"), object_maps: Vec::new(), plan: None, last_recovery: Vec::new(), last_fact_uses: Vec::new() }
     }
 
     /// Compiles `f` under function id `fid`, or says which opcode stopped it.

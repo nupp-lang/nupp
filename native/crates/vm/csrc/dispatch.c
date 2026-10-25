@@ -49,6 +49,9 @@ typedef struct {
     const uint64_t* frame_entries;
     uint64_t nframe_entries;
     uint32_t frame_mode, unavailable_fid;
+    // The JIT: whether it may compile frames, and the heat (calls and taken
+    // back edges, in FuncInfo.calls) at which a function is compiled.
+    uint32_t jit_frames, frame_threshold;
 } Ctx;
 
 // Rust helpers.
@@ -65,7 +68,7 @@ extern Value rt_new_record(Ctx* ctx, uint32_t shape);
 extern uint64_t rt_len(Ctx* ctx, Value v);
 extern Value rt_get_index(Ctx* ctx, Value obj, Value key);
 extern void rt_enter_compiled(Ctx* ctx, uint64_t entry, Value closure, uint64_t base, uint32_t nargs, uint32_t nparams);
-extern uint32_t rt_enter_frame(Ctx* ctx);
+extern uint32_t rt_enter_frame(Ctx* ctx, uint32_t pc, uint32_t hot);
 // Specialization feedback (specialize.rs): a call target (kind 0) or a receiver
 // (kind 1). Only builds with a code generator have it (build.rs defines
 // NUPP_FEEDBACK for the `jit` feature); elsewhere the hooks are not compiled.
@@ -158,17 +161,28 @@ static const Handler dispatch[OP_COUNT];
 // Re-derives the windows from the context after a frame change, then
 // continues. Every function a handler tail-calls shares the handler
 // signature, as `musttail` requires; unused parameters are just that.
+// One more call or taken back edge of a function the JIT has not decided on:
+// true when that makes it hot, which restarts the count.
+static inline uint32_t heat(FuncInfo* fi, Ctx* ctx) {
+    if (++fi->calls < ctx->frame_threshold) return 0;
+    fi->calls = 0;
+    return 1;
+}
+
 static Value reenter(ARGS) {
     frame = ctx->stack + ctx->cur;
     const FuncInfo* fi = FUNC_OF(frame);
     uint32_t pcx = (uint32_t)(frame[0] >> 32);
     // A function starting in frame mode, with a compiled frame entry or
     // vector instructions: Rust does what the frame driver does at a start.
-    if (ctx->frame_mode && pcx == 0) {
+    // A function with vector instructions is offered wherever it resumes:
+    // its compiled entries revalidate what the interpreter cannot.
+    if (ctx->frame_mode && (pcx == 0 || fi->native)) {
         uint32_t fid = (uint32_t)frame[0];
         uint64_t e = fid < ctx->nframe_entries ? ctx->frame_entries[fid] : 0;
-        if ((e != 0 && e != ~0ull) || fi->native) {
-            uint32_t r = rt_enter_frame(ctx);
+        uint32_t hot = pcx == 0 && e == 0 && ctx->jit_frames && heat((FuncInfo*)fi, ctx);
+        if ((e != 0 && e != ~0ull) || fi->native || hot) {
+            uint32_t r = rt_enter_frame(ctx, pcx, hot);
             if (r == ST_DONE || r == ST_PARKED || r == ST_ERROR) { ctx->status = r; return 0; }
             if (r == ST_REENTER) { __attribute__((musttail)) return reenter(pc, regs, iregs, fregs, ctx, frame); }
             frame = ctx->stack + ctx->cur;
@@ -183,6 +197,35 @@ static Value reenter(ARGS) {
     NEXT;
 }
 #define REENTER __attribute__((musttail)) return reenter(pc, regs, iregs, fregs, ctx, frame)
+
+// A taken back edge in frame mode, before it is taken: the loop moves into
+// compiled code when its function has a frame entry there, or is compiled
+// when this edge makes it hot. Compiled code resumes at the jump itself.
+static Value back_edge(ARGS) {
+    const FuncInfo* fi = FUNC_OF(frame);
+    uint32_t fid = (uint32_t)frame[0];
+    uint32_t pcx = (uint32_t)(pc - fi->code);
+    uint64_t e = fid < ctx->nframe_entries ? ctx->frame_entries[fid] : 0;
+    uint32_t hot = e == 0 && ctx->jit_frames && heat((FuncInfo*)fi, ctx);
+    if ((e != 0 && e != ~0ull) || hot) {
+        frame[0] = (frame[0] & 0xffffffffull) | ((uint64_t)pcx << 32);
+        uint32_t r = rt_enter_frame(ctx, pcx, hot);
+        if (r == ST_DONE || r == ST_PARKED || r == ST_ERROR) { ctx->status = r; return 0; }
+        if (r == ST_REENTER) { REENTER; }
+        frame = ctx->stack + ctx->cur;
+        fi = FUNC_OF(frame);
+        regs = (Value*)(frame + HDR);
+        iregs = (int64_t*)(frame + fi->off_i);
+        fregs = (double*)(frame + fi->off_f);
+        // Still at the jump when nothing compiled took it: take it here.
+        pc = fi->code + r;
+        if (r != pcx) { NEXT; }
+    }
+    pc = pc + 1 + pc->imm;
+    NEXT;
+}
+// Frame mode with compiled frames possible: back edges are entry points.
+#define OSR (ctx->frame_mode && (ctx->jit_frames || ctx->nframe_entries))
 
 // Hands one instruction to the Rust interpreter.
 static Value slow(ARGS) {
@@ -232,10 +275,11 @@ static Value h_ne(ARGS) {
 }
 static Value h_not(ARGS) { regs[pc->a] = boolean(!truthy(regs[pc->b])); pc++; NEXT; }
 static Value h_neg(ARGS) { Value x = regs[pc->b]; if (__builtin_expect(is_num(x), 1)) { regs[pc->a] = num(-as_num(x)); pc++; NEXT; } SLOW; }
-static Value h_jmp(ARGS) { pc = pc + 1 + pc->imm; NEXT; }
-static Value h_jmpif(ARGS) { int32_t off = pc->imm; Value c = regs[pc->a]; pc++; if (truthy(c)) pc += off; NEXT; }
-static Value h_jmpifnot(ARGS) { int32_t off = pc->imm; Value c = regs[pc->a]; pc++; if (!truthy(c)) pc += off; NEXT; }
-static Value h_jmpifizero(ARGS) { int32_t off = pc->imm; int64_t c = iregs[pc->a]; pc++; if (c == 0) pc += off; NEXT; }
+#define BACK_EDGE if (__builtin_expect(off < 0 && OSR, 0)) { __attribute__((musttail)) return back_edge(pc, regs, iregs, fregs, ctx, frame); }
+static Value h_jmp(ARGS) { int32_t off = pc->imm; BACK_EDGE; pc = pc + 1 + off; NEXT; }
+static Value h_jmpif(ARGS) { int32_t off = pc->imm; Value c = regs[pc->a]; if (truthy(c)) { BACK_EDGE; pc += off; } pc++; NEXT; }
+static Value h_jmpifnot(ARGS) { int32_t off = pc->imm; Value c = regs[pc->a]; if (!truthy(c)) { BACK_EDGE; pc += off; } pc++; NEXT; }
+static Value h_jmpifizero(ARGS) { int32_t off = pc->imm; int64_t c = iregs[pc->a]; if (c == 0) { BACK_EDGE; pc += off; } pc++; NEXT; }
 
 static Value h_ik(ARGS) { iregs[pc->a] = pc->k; pc++; NEXT; }
 #define IBIN(name, expr) static Value name(ARGS) { int64_t p = iregs[pc->b], q = iregs[pc->c]; iregs[pc->a] = (expr); pc++; NEXT; }

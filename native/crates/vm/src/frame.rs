@@ -78,14 +78,21 @@ impl Interp {
     /// entry or vector instructions: refuse vector code a no-JIT host may not
     /// interpret, then run the compiled entry. Answers the pc the core goes
     /// on interpreting at, as `run_compiled_frame` does.
-    pub(crate) fn enter_frame_from_core(&mut self, tid: usize, fid: u32) -> Result<usize, crate::interp::Step> {
-        if !self.simd_interpret && !self.compiled_frames_active_pub() && self.function_needs_native(fid) {
+    pub(crate) fn enter_frame_from_core(&mut self, tid: usize, fid: u32, pc: usize, hot: bool) -> Result<usize, crate::interp::Step> {
+        if pc == 0 && !self.simd_interpret && !self.compiled_frames_active_pub() && self.function_needs_native(fid) {
             self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
         }
+        // The core counted this function's heat itself: it is due now.
+        #[cfg(feature = "jit")]
+        if hot && self.frame_threshold > 0 {
+            self.frame_heat.resize(self.funcs.len(), 0);
+            self.frame_heat[fid as usize] = self.frame_threshold - 1;
+        }
+        let _ = hot;
         #[cfg(feature = "compiled-runtime")]
-        if self.compiled_frames_active_pub() { return self.run_compiled_frame(tid, fid, 0); }
+        if self.compiled_frames_active_pub() { return self.run_compiled_frame(tid, fid, pc); }
         let _ = tid;
-        Ok(0)
+        Ok(pc)
     }
 
     #[cfg(feature = "compiled-runtime")]
@@ -93,9 +100,7 @@ impl Interp {
     fn refresh_native_frame_context(&mut self) {
         #[cfg(feature = "jit")]
         {
-            let needed = !self.linked_frames.is_empty();
-            #[cfg(test)]
-            let needed = needed || self.jit.as_ref().is_some_and(|jit| jit.native_frame_calls);
+            let needed = !self.linked_frames.is_empty() || self.jit.as_ref().is_some_and(|jit| jit.native_frame_calls);
             if !needed { return; }
         }
         crate::compiled::j_frame_refresh();
@@ -122,6 +127,31 @@ impl Interp {
                         return 0;
                     }
                 }
+                // Off the main thread: the function keeps running interpreted,
+                // and its entry is installed when the compile comes back.
+                // Vector code compiles here, since it may have nowhere else to
+                // run, as does whatever specialization compiles.
+                // A zero threshold asks for every function compiled as it is
+                // first entered; that stays here too.
+                if self.jit_background && self.frame_threshold > 0 && !self.spec.frames && !self.function_needs_native(fid) && self.jit.is_some() {
+                    self.install_finished_frames();
+                    if self.frame_entries[fid as usize] != 0 { return self.frame_entries[fid as usize]; }
+                    if self.jit_worker.as_ref().is_some_and(|w| w.queued(fid)) { return 0; }
+                    let job = crate::jit::Job {
+                        fid,
+                        func: self.funcs[fid as usize].clone(),
+                        closure: crate::compiled::closure_address() as i64,
+                        extra: self.extra.as_ptr() as i64,
+                        last_nres: &self.last_nres as *const _ as i64,
+                        entries: self.entries.as_ptr() as i64,
+                        calltab: self.calltab.as_ptr() as i64,
+                        probe: if self.linked_frames.is_empty() { self.shape_probe.as_ptr() as i64 } else { 0 },
+                        callee_info: self.jit.as_ref().map(|j| j.callee_info.clone()).unwrap_or_default(),
+                    };
+                    let worker = self.jit_worker.get_or_insert_with(|| Box::new(crate::jit::Worker::start()));
+                    if worker.submit(job) { return 0; }
+                    self.jit_background = false;
+                }
                 let Some(mut jit) = self.jit.take() else {
                     return 0;
                 };
@@ -144,13 +174,36 @@ impl Interp {
         self.frame_entries[fid as usize]
     }
 
+    /// Installs the frame entries the background compiler finished: a
+    /// refused function stays interpreted, as a refused synchronous compile
+    /// leaves it.
+    #[cfg(feature = "jit")]
+    pub(crate) fn install_finished_frames(&mut self) {
+        let Some(worker) = self.jit_worker.as_mut() else { return };
+        let finished = worker.finished();
+        if finished.is_empty() { return; }
+        if self.frame_entries.len() != self.funcs.len() {
+            self.invalidate_frame_context();
+            self.frame_entries.resize(self.funcs.len(), 0);
+        }
+        for (fid, result) in finished {
+            if let Some(slot) = self.frame_entries.get_mut(fid as usize) {
+                if *slot == 0 { *slot = result.unwrap_or(u64::MAX); }
+            }
+        }
+    }
+
     /// Compile before entering a timed workload, using the same entries as
     /// on-demand compilation. Refused functions retain the interpreter fallback.
     #[cfg(feature = "jit")]
     pub fn precompile_frames(&mut self) -> usize {
-        (0..self.funcs.len() as u32)
+        // Compiled before it returns, not queued.
+        let background = std::mem::replace(&mut self.jit_background, false);
+        let compiled = (0..self.funcs.len() as u32)
             .filter(|&fid| !matches!(self.prepare_frame_entry(fid), 0 | u64::MAX))
-            .count()
+            .count();
+        self.jit_background = background;
+        compiled
     }
 
     #[cfg(feature = "compiled-runtime")]
@@ -633,8 +686,14 @@ entry 0
             persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
         restored.jit = Some(Box::new(crate::jit::Jit::new()));
         restored.instruction_budget = None;
+        // The resumed activation is past the function's only entry, at its
+        // start: the interpreter finishes it.
         assert_eq!(restored.run_ready(1).unwrap()[0].status, Status::Completed);
         assert_eq!(restored.tasks[task.index].result, Value::num(42.0));
+        // The next call enters compiled code from the start.
+        let again = restored.schedule(Value::func(0), &[], None).unwrap();
+        assert_eq!(restored.run_ready(1).unwrap()[0].status, Status::Completed);
+        assert_eq!(restored.tasks[again.index].result, Value::num(42.0));
         assert!(restored.compiled_frame_entries > 0);
     }
 }
