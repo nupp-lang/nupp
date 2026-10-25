@@ -16,6 +16,7 @@ OUT = ROOT / 'build/native-runtime'
 BASE = OUT / 'baseline/nupp-vm'
 DRIVER = OUT / 'compiler.image'
 FEATURES = 'aot,cranelift-codegen/x86,cranelift-codegen/arm64'
+FRAME_HANDLERS = ['Call', 'CallK', 'Ret', 'RetNil', 'RetN', 'PadResults']
 EXTRAS = ','.join([
     'nupp.compiler.hostservices', 'nupp.compiler.fs',
     'nupp.compiler.project.projectconfig', 'nupp.compiler.project.store',
@@ -56,6 +57,8 @@ def main():
     parser.add_argument('--emit-only', action='store_true')
     parser.add_argument('--skip-abi', action='store_true')
     parser.add_argument('--integers-only', action='store_true')
+    parser.add_argument('--leaf-only', action='store_true',
+                        help='the 57 leaf handlers alone, without calls and returns')
     layout = parser.add_mutually_exclusive_group()
     layout.add_argument('--packed-state', action='store_true')
     layout.add_argument('--derived-frame', action='store_true')
@@ -109,9 +112,11 @@ def main():
                               f'link-arg={OUT / "nupp-probe" / (triple + ".o")}'])
             run('aot-probe', [target / 'examples/runtime_tail', OUT / 'aot-probe',
                              args.iterations, OUT / 'handlers.json'])
-        name = 'integer-slice' if args.integers_only else 'slice'
+        name = 'integer-slice' if args.integers_only else 'leaf-slice' if args.leaf_only else 'slice'
         object_path = OUT / (name + '.o')
         options = ['--integers-only'] if args.integers_only else []
+        if args.leaf_only:
+            options.append('--without=' + ','.join(FRAME_HANDLERS))
         if args.packed_state:
             options.append('--packed-state')
         if args.derived_frame:
@@ -127,6 +132,7 @@ def main():
                           OUT / 'slice.json',
                           *sorted((HERE / 'lib').rglob('*.nupp'))]}
     manifest['derived_frame'] = args.derived_frame
+    manifest['leaf_only'] = args.leaf_only
     manifest['packed_state'] = args.packed_state
     manifest['eager_conditions'] = args.eager_conditions
     manifest['baseline_revision'] = '73d54b904cd014f666671407e4a1751fb8de2418'

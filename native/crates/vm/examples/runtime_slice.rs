@@ -85,10 +85,22 @@ fn opcode(name: &str) -> u8 {
         "ICmpLe" => Op::ICmpLe(0, 0, 0),
         "Jmp" => Op::Jmp(0),
         "JmpIfIZero" => Op::JmpIfIZero(0, 0),
+        "Call" => Op::Call(0, 0, 0),
+        "CallK" => Op::CallK(0, 0, 0, 0, 0),
+        "CallDyn" => Op::CallDyn(0, 0, 0),
+        "Ret" => Op::Ret(0),
+        "RetNil" => Op::RetNil,
+        "RetN" => Op::RetN(0, 0),
+        "PadResults" => Op::PadResults(0, 0),
         _ => panic!("unsupported leaf handler {name}"),
     })
     .op
 }
+
+/// Opcodes whose Rust handlers share one body (`dynamic_call!`) and whose
+/// native handler is the one source function: the table points both
+/// opcodes at it when the source defines the first name only.
+const ALIASES: [(&str, &str); 1] = [("CallDyn", "CallK")];
 
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
@@ -115,8 +127,15 @@ fn main() -> Result<(), String> {
                     || f.name == "JmpIfIZero"
             }),
             "--packed-state" | "--derived-frame" => {}
+            _ if option.starts_with("--without=") => {
+                let names: Vec<&str> = option["--without=".len()..].split(',').collect();
+                program.functions.retain(|f| !names.contains(&f.name.as_str()));
+            }
             _ => return Err(format!("unknown option {option}")),
         }
+    }
+    if packed_state && program.functions.iter().any(|f| f.changes_frame()) {
+        return Err("frame-changing handlers need the frame derived from the window".into());
     }
     let path = args.get(2).ok_or("output object required")?;
     let mut flags = settings::builder();
@@ -163,6 +182,7 @@ fn main() -> Result<(), String> {
         .declare_function("forbidden_runtime_helper", Linkage::Import, &helper_sig)
         .unwrap();
     let mut ids = Vec::new();
+    let mut function_ids = Vec::new();
     let mut metadata =
         String::from("// Generated with the native object. Private experimental ABI.\n");
     metadata.push_str(&format!(
@@ -188,6 +208,18 @@ fn main() -> Result<(), String> {
         ("frame_mode", offset_of!(Ctx, frame_mode)),
         ("jit_frames", offset_of!(Ctx, jit_frames)),
         ("nframe_entries", offset_of!(Ctx, nframe_entries)),
+        ("frame_entries", offset_of!(Ctx, frame_entries)),
+        ("stack", offset_of!(Ctx, stack)),
+        ("cap", offset_of!(Ctx, cap)),
+        ("cur", offset_of!(Ctx, cur)),
+        ("nfuncs", offset_of!(Ctx, nfuncs)),
+        ("result", offset_of!(Ctx, result)),
+        ("last_nres", offset_of!(Ctx, last_nres)),
+        ("entries", offset_of!(Ctx, entries)),
+        ("jit_threshold", offset_of!(Ctx, jit_threshold)),
+        ("feedback", offset_of!(Ctx, feedback)),
+        ("guard", offset_of!(Ctx, guard)),
+        ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),
     ] {
         metadata.push_str(&format!(
             "assert!(std::mem::offset_of!(Ctx, {field}) == {offset});\n"
@@ -210,6 +242,25 @@ fn main() -> Result<(), String> {
         nupp_vm::heap::OFF_T_META
     ));
     metadata.push_str(&format!("assert!(std::mem::size_of::<FuncInfo>() == {});\nassert!(std::mem::offset_of!(FuncInfo, consts) == {});\n", std::mem::size_of::<nupp_vm::threaded::FuncInfo>(), offset_of!(nupp_vm::threaded::FuncInfo, consts)));
+    for (field, offset) in [
+        ("code", offset_of!(nupp_vm::threaded::FuncInfo, code)),
+        ("frame_words", offset_of!(nupp_vm::threaded::FuncInfo, frame_words)),
+        ("nparams", offset_of!(nupp_vm::threaded::FuncInfo, nparams)),
+        ("off_i", offset_of!(nupp_vm::threaded::FuncInfo, off_i)),
+        ("off_f", offset_of!(nupp_vm::threaded::FuncInfo, off_f)),
+        ("vararg", offset_of!(nupp_vm::threaded::FuncInfo, vararg)),
+        ("calls", offset_of!(nupp_vm::threaded::FuncInfo, calls)),
+        ("typed", offset_of!(nupp_vm::threaded::FuncInfo, typed)),
+        ("native", offset_of!(nupp_vm::threaded::FuncInfo, native)),
+    ] {
+        metadata.push_str(&format!(
+            "assert!(std::mem::offset_of!(FuncInfo, {field}) == {offset});\n"
+        ));
+    }
+    metadata.push_str(&format!(
+        "assert!(crate::heap::KIND_CLOSURE == 5 && crate::value::T_FUNC == 0x0004_0000_0000_0000 && NO_GUARD == u64::MAX && EXIT_REENTER == {});\n",
+        runtime_ir::EXIT_REENTER
+    ));
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
     for function in &program.functions {
@@ -219,10 +270,20 @@ fn main() -> Result<(), String> {
             .declare_function(&function.name, Linkage::Local, &tail)
             .unwrap();
         ids.push((op, id));
+        function_ids.push(id);
         metadata.push_str(&format!(
             "assert!(Code::{} as u8 == {op}); table[Code::{} as usize] = native_segment;\n",
             function.name, function.name
         ));
+        for (alias, target) in ALIASES {
+            if function.name == target && !program.functions.iter().any(|f| f.name == alias) {
+                let op = opcode(alias);
+                ids.push((op, id));
+                metadata.push_str(&format!(
+                    "assert!(Code::{alias} as u8 == {op}); table[Code::{alias} as usize] = native_segment;\n"
+                ));
+            }
+        }
     }
     metadata.push_str("table }\n");
     let mut listings = String::new();
@@ -330,7 +391,7 @@ fn main() -> Result<(), String> {
                 } else if is_leave {
                     leave
                 } else {
-                    ids[index].1
+                    function_ids[index]
                 },
                 &mut ctx,
             )

@@ -25,21 +25,31 @@ local intrinsics = {
     unsignedFloat = 1,
     unsignedInt = 1,
     index = 1,
+    word = 1,
+    address = 1,
+    chooseIndex = 3,
     asWord = 1,
     layout = 1,
     slow = 6,
+    reenter = 0,
     load8 = 2,
     load32 = 2,
     load64 = 2,
     loadIndex = 2,
     loadPointer = 2,
+    store32 = 3,
     store64 = 3,
     storeIndex = 3,
     storePointer = 3,
+    fillWords = 4,
+    copyWords = 5,
     offset = 2,
     dispatch = 6,
     helper = 5
 }
+-- Intrinsics with an effect or a transfer: statements, never operands.
+local effects = {dispatch = true, slow = true, reenter = true, helper = true, fillWords = true, copyWords = true}
+local transfers = {dispatch = true, slow = true, reenter = true}
 local binary = {
     ["<<"] = "shl",
     [">>"] = "shr",
@@ -53,8 +63,12 @@ local binary = {
     ["=="] = "eq",
     ["~="] = "ne",
     ["<"] = "lt",
-    ["<="] = "le"
+    ["<="] = "le",
+    [">"] = "lt",
+    [">="] = "le"
 }
+-- The greater-than forms are the less-than forms with their operands swapped.
+local swapped = {[">"] = true, [">="] = true}
 
 local function need(ok: any, message: string): any
     assert(ok, "native runtime: " .. message)
@@ -80,16 +94,40 @@ local function nativeCall(node: any): string
     return name
 end
 
-local function compileFunction(node: any, eager: boolean): any
-    local body = node.body
-    need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
-    need(#body.params == 6, "handler requires six pointer parameters")
+-- A local function with the handler signature, six pointer parameters, is a
+-- handler. Any other local function is a helper: never emitted on its own,
+-- reached only as `return helper(...)`, where its body is inlined with the
+-- arguments bound to its parameters. The dispatch stays a tail transfer; the
+-- checker types the call as any other.
+local function isHelper(node: any): boolean
+    local params = node.body.params
+    if #params ~= 6 then
+        return true
+    end
+    for _, param in ipairs(params) do
+        if not param.type or tag(param.type.resolvedType) ~= "voidptr" then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function plainFunction(body: any, what: string): nil
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain " .. what .. " required")
     need(
         body.signatureType and #body.signatureType.rets == 1 and tag(body.signatureType.rets[1]) == "uint64",
-        "handler returns uint64"
+        what .. " returns uint64"
     )
+end
+
+local function compileFunction(node: any, eager: boolean, helpers: any): any
+    local body = node.body
+    plainFunction(body, "function")
+    need(#body.params == 6, "handler requires six pointer parameters")
     local bindings, instructions = {}, {}
     local id, label = 6, 0
+    local inlining = {}
     for index, param in ipairs(body.params) do
         need(param.type and tag(param.type.resolvedType) == "voidptr", "native pointer parameter required")
         bindings[need(param.name, "parameter name").text] = index
@@ -121,8 +159,12 @@ local function compileFunction(node: any, eager: boolean): any
             return emit("constant", {"-" .. n.operand.token.text}, true)
         elseif n.kind == "binop" then
             local op = need(binary[n.op.text], "unsupported binary operator")
-            local left, right = tag(n.lhs.inferredType), tag(n.rhs.inferredType)
-            if left == "number" and right == "number" and not (n.lhs.kind == "number" and n.rhs.kind == "number") then
+            local lhs, rhs = n.lhs, n.rhs
+            if swapped[n.op.text] then
+                lhs, rhs = rhs, lhs
+            end
+            local left, right = tag(lhs.inferredType), tag(rhs.inferredType)
+            if left == "number" and right == "number" and not (lhs.kind == "number" and rhs.kind == "number") then
                 need(
                     op == "add"
                     or op == "sub"
@@ -134,12 +176,12 @@ local function compileFunction(node: any, eager: boolean): any
                     or op == "le",
                     "unsupported float operator"
                 )
-                return emit("f" .. op, {expression(n.lhs), expression(n.rhs)}, true)
+                return emit("f" .. op, {expression(lhs), expression(rhs)}, true)
             end
             need(op ~= "div", "integer division outside native subset")
             local wide = left == "int64" or left == "uint64" or right == "int64" or right == "uint64"
             need(wide, "binary operands require established 64-bit values")
-            need(left == right or n.lhs.kind == "number" or n.rhs.kind == "number", "mixed integer representations")
+            need(left == right or lhs.kind == "number" or rhs.kind == "number", "mixed integer representations")
             need(
                 tag(n.inferredType) == "int64" or tag(n.inferredType) == "uint64" or tag(n.inferredType) == "boolean",
                 "native operator must preserve its checked representation"
@@ -147,7 +189,7 @@ local function compileFunction(node: any, eager: boolean): any
             if op == "lt" or op == "le" then
                 op = (left == "uint64" or right == "uint64") and "u" .. op or "s" .. op
             end
-            return emit(op, {expression(n.lhs), expression(n.rhs)}, true)
+            return emit(op, {expression(lhs), expression(rhs)}, true)
         elseif n.kind == "call" then
             local name = nativeCall(n)
             if name == "layout" then
@@ -155,10 +197,7 @@ local function compileFunction(node: any, eager: boolean): any
                 need(arg.kind == "string", "literal layout field required")
                 return emit("layout", {arg.token.value or arg.token.text:sub(2, -2)}, true)
             end
-            need(
-                name ~= "dispatch" and name ~= "slow" and name ~= "helper" and name:sub(1, 5) ~= "store",
-                "effect or transfer used as a value"
-            )
+            need(not effects[name] and name:sub(1, 5) ~= "store", "effect or transfer used as a value")
             local args = {}
             for index, arg in ipairs(n.args.exprs) do
                 args[index] = expression(arg)
@@ -192,6 +231,29 @@ local function compileFunction(node: any, eager: boolean): any
     end
 
     local statements
+    local inlineHelper
+    inlineHelper = function(helper: any, call: any): nil
+        local name = helper.name.text
+        need(not inlining[name], "recursive helper " .. name)
+        local helperBody = helper.body
+        plainFunction(helperBody, "helper")
+        need(#call.args.exprs == #helperBody.params, "helper arity")
+        local values = {}
+        for index, arg in ipairs(call.args.exprs) do
+            values[index] = expression(arg)
+        end
+        local saved = bindings
+        bindings = {}
+        for index, param in ipairs(helperBody.params) do
+            local kind = tag(param.type and param.type.resolvedType)
+            need(kind == "voidptr" or kind == "int64" or kind == "uint64", "helper parameter must be a native word")
+            bindings[need(param.name, "helper parameter name").text] = values[index]
+        end
+        inlining[name] = true
+        statements(helperBody.body.stats)
+        inlining[name] = nil
+        bindings = saved
+    end
     statements = function(stats: any): nil
         local terminated = false
         for _, stat in ipairs(stats) do
@@ -204,7 +266,7 @@ local function compileFunction(node: any, eager: boolean): any
             elseif stat.kind == "callStmt" then
                 local name = nativeCall(stat.expr)
                 need(
-                    name:sub(1, 5) == "store" or name == "helper",
+                    name:sub(1, 5) == "store" or (effects[name] and not transfers[name]),
                     "only explicit stores and helpers may be statements"
                 )
                 local args = {}
@@ -215,7 +277,10 @@ local function compileFunction(node: any, eager: boolean): any
             elseif stat.kind == "returnStmt" then
                 need(#stat.exprs == 1, "single return required")
                 local value = stat.exprs[1]
-                if value.kind == "call" and (nativeCall(value) == "dispatch" or nativeCall(value) == "slow") then
+                local callee = value.kind == "call" and value.obj.kind == "name" and helpers[value.obj.token.text]
+                if callee then
+                    inlineHelper(callee, value)
+                elseif value.kind == "call" and transfers[nativeCall(value)] then
                     local args = {}
                     for index, arg in ipairs(value.args.exprs) do
                         args[index] = expression(arg)
@@ -267,14 +332,18 @@ export function compile(root: string, path: string, mode: string?): string
             error(tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg), 0)
         end
     end
-    local functions, names = {}, {}
+    local functions, names, helpers = {}, {}, {}
     for _, block in ipairs(parsed.root.blocks) do
         for _, stat in ipairs(block.stats) do
             local node: any = stat
             if node.kind == "localFuncStmt" then
                 need(not names[node.name.text], "duplicate function")
                 names[node.name.text] = true
-                functions[#functions + 1] = compileFunction(node, mode == "eager")
+                if isHelper(node) then
+                    helpers[node.name.text] = node
+                else
+                    functions[#functions + 1] = compileFunction(node, mode == "eager", helpers)
+                end
             elseif node.kind == "localStmt" then
                 need(#node.names == 1 and #node.exprs == 1 and node.isConst, "one constant intrinsic import required")
                 local value = node.exprs[1]

@@ -12,6 +12,11 @@ use std::{
     path::Path,
 };
 
+/// The native chain's exit words. A pointer-aligned instruction address
+/// resumes Rust at that instruction, in whatever frame the context now
+/// names; the small codes below are not addresses.
+pub const EXIT_REENTER: i64 = 1;
+
 pub struct Program {
     pub functions: Vec<Function>,
 }
@@ -26,6 +31,10 @@ struct Instruction {
 }
 
 impl Function {
+    /// A VM slice handler calls no helper and leaves only through `slow` or
+    /// `reenter`. A `slow` exit hands the unchanged instruction and windows
+    /// back; a `dispatch` may move to another frame's windows but never
+    /// changes the context.
     #[allow(dead_code)] // Used by runtime_slice; the synthetic ABI pilot permits helpers.
     pub fn require_leaf(&self) -> Result<(), String> {
         if self
@@ -36,16 +45,28 @@ impl Function {
             return Err("VM slice may only dispatch or leave before executing a helper".into());
         }
         for instruction in &self.instructions {
-            if instruction.op == "dispatch" || instruction.op == "slow" {
-                let first = if instruction.op == "slow" { 0 } else { 1 };
-                for parameter in first..6 {
+            if instruction.op == "slow" {
+                for parameter in 0..6 {
                     if instruction.args[parameter].as_u64() != Some(parameter as u64 + 1) {
                         return Err("leaf transfer must preserve its VM windows and context; slow must preserve pc".into());
                     }
                 }
             }
+            if instruction.op == "dispatch" && instruction.args[4].as_u64() != Some(5) {
+                return Err("dispatch must preserve the context".into());
+            }
         }
         Ok(())
+    }
+
+    /// True when a dispatch leaves through other windows than it entered
+    /// with: a call or return. Such a function needs the frame derived from
+    /// the boxed window, not carried in an entry-owned state pair.
+    #[allow(dead_code)]
+    pub fn changes_frame(&self) -> bool {
+        self.instructions.iter().any(|i| {
+            i.op == "dispatch" && (1..4).any(|p| i.args[p].as_u64() != Some(p as u64 + 1))
+        }) || self.instructions.iter().any(|i| i.op == "reenter")
     }
 }
 
@@ -86,25 +107,29 @@ impl Program {
                 let op = row["op"].as_str().ok_or("opcode required")?.to_string();
                 let (arity, result) = match op.as_str() {
                     "constant" | "layout" | "asWord" | "bits" | "fromBits" | "pointer"
-                    | "floor" | "neg" | "toFloat" | "toInt" | "unsignedFloat" | "unsignedInt"
-                    | "index" => (1, true),
+                    | "address" | "word" | "floor" | "neg" | "toFloat" | "toInt"
+                    | "unsignedFloat" | "unsignedInt" | "index" => (1, true),
                     "both" | "either" | "loadFloat" | "fadd" | "fsub" | "fmul" | "fdiv" | "feq"
                     | "fne" | "flt" | "fle" | "load8" | "load32" | "load64" | "loadIndex"
                     | "loadPointer" | "shl" | "shr" | "offset" | "add" | "sub" | "mul" | "xor"
                     | "and" | "or" | "eq" | "ne" | "slt" | "sle" | "ult" | "ule" => (2, true),
-                    "chooseWord" => (3, true),
-                    "storeFloat" | "store64" | "storeIndex" | "storePointer" | "branch" => {
-                        (3, false)
-                    }
+                    "chooseWord" | "chooseIndex" => (3, true),
+                    "storeFloat" | "store64" | "storeIndex" | "storePointer" | "store32"
+                    | "branch" => (3, false),
+                    "fillWords" => (4, false),
+                    "copyWords" => (5, false),
                     "block" | "return" => (1, false),
+                    "reenter" => (0, false),
                     "dispatch" | "slow" => (6, false),
                     "helper" => (5, false),
                     _ => return Err(format!("unknown native opcode {op}")),
                 };
-                let args = row["args"]
-                    .as_array()
-                    .ok_or("operand array required")?
-                    .clone();
+                // The producer's JSON writes an empty operand list as `{}`.
+                let args = match &row["args"] {
+                    Json::Array(args) => args.clone(),
+                    Json::Object(none) if none.is_empty() => Vec::new(),
+                    _ => return Err("operand array required".into()),
+                };
                 if args.len() != arity {
                     return Err(format!("{op}: expected {arity} operands"));
                 }
@@ -177,7 +202,7 @@ pub fn emit(
         for index in 0..operands {
             let expected = match ins.op.as_str() {
                 "branch" | "asWord" | "both" | "either" => types::I8,
-                "chooseWord" if index == 0 => types::I8,
+                "chooseWord" | "chooseIndex" if index == 0 => types::I8,
                 "fadd" | "fsub" | "fmul" | "fdiv" | "feq" | "fne" | "flt" | "fle" | "bits"
                 | "floor" | "neg" | "toInt" | "unsignedInt" => types::F64,
                 "storeFloat" if index == 2 => types::F64,
@@ -208,6 +233,29 @@ pub fn emit(
                     "frame_mode" => std::mem::offset_of!(Ctx, frame_mode),
                     "jit_frames" => std::mem::offset_of!(Ctx, jit_frames),
                     "nframe_entries" => std::mem::offset_of!(Ctx, nframe_entries),
+                    "frame_entries" => std::mem::offset_of!(Ctx, frame_entries),
+                    "stack" => std::mem::offset_of!(Ctx, stack),
+                    "cap" => std::mem::offset_of!(Ctx, cap),
+                    "cur" => std::mem::offset_of!(Ctx, cur),
+                    "nfuncs" => std::mem::offset_of!(Ctx, nfuncs),
+                    "result" => std::mem::offset_of!(Ctx, result),
+                    "last_nres" => std::mem::offset_of!(Ctx, last_nres),
+                    "entries" => std::mem::offset_of!(Ctx, entries),
+                    "jit_threshold" => std::mem::offset_of!(Ctx, jit_threshold),
+                    "feedback" => std::mem::offset_of!(Ctx, feedback),
+                    "guard" => std::mem::offset_of!(Ctx, guard),
+                    "unavailable_fid" => std::mem::offset_of!(Ctx, unavailable_fid),
+                    "FuncInfo.code" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, code),
+                    "FuncInfo.frame_words" => {
+                        std::mem::offset_of!(nupp_vm::threaded::FuncInfo, frame_words)
+                    }
+                    "FuncInfo.nparams" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, nparams),
+                    "FuncInfo.off_i" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, off_i),
+                    "FuncInfo.off_f" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, off_f),
+                    "FuncInfo.vararg" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, vararg),
+                    "FuncInfo.calls" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, calls),
+                    "FuncInfo.typed" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, typed),
+                    "FuncInfo.native" => std::mem::offset_of!(nupp_vm::threaded::FuncInfo, native),
                     "Header.aux_len" => std::mem::offset_of!(nupp_vm::heap::Header, aux_len),
                     "Header.aux" => std::mem::offset_of!(nupp_vm::heap::Header, aux),
                     "Header.flags" => std::mem::offset_of!(nupp_vm::heap::Header, flags),
@@ -242,12 +290,55 @@ pub fn emit(
                 b.ins().store(flags, value(2)?, addr, 0);
                 None
             }
+            "store32" => {
+                let addr = b.ins().iadd(value(0)?, value(1)?);
+                b.ins().istore32(flags, value(2)?, addr, 0);
+                None
+            }
+            // Bounded word loops over VM stack memory: a frame's parameter
+            // copy and nil fill, a return's result copy. The count is a
+            // handler-checked small signed operand; zero or fewer stores
+            // nothing, as the Rust ranges they mirror are empty.
+            "fillWords" | "copyWords" => {
+                let copy = ins.op == "copyWords";
+                let dst = b.ins().iadd(value(0)?, value(1)?);
+                let (src, count, fill) = if copy {
+                    (Some(b.ins().iadd(value(2)?, value(3)?)), value(4)?, None)
+                } else {
+                    (None, value(2)?, Some(value(3)?))
+                };
+                let header = b.create_block();
+                let body = b.create_block();
+                let exit = b.create_block();
+                b.append_block_param(header, types::I64);
+                let zero = b.ins().iconst(types::I64, 0);
+                b.ins().jump(header, &[zero.into()]);
+                b.switch_to_block(header);
+                let i = b.block_params(header)[0];
+                let done = b.ins().icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+                b.ins().brif(done, exit, &[], body, &[]);
+                b.switch_to_block(body);
+                let offset = b.ins().ishl_imm_u(i, 3);
+                let word = match src {
+                    Some(src) => {
+                        let from = b.ins().iadd(src, offset);
+                        b.ins().load(types::I64, flags, from, 0)
+                    }
+                    None => fill.unwrap(),
+                };
+                let to = b.ins().iadd(dst, offset);
+                b.ins().store(flags, word, to, 0);
+                let next = b.ins().iadd_imm_s(i, 1);
+                b.ins().jump(header, &[next.into()]);
+                b.switch_to_block(exit);
+                None
+            }
             "both" => Some(b.ins().band(value(0)?, value(1)?)),
             "either" => Some(b.ins().bor(value(0)?, value(1)?)),
-            "chooseWord" => Some(b.ins().select(value(0)?, value(1)?, value(2)?)),
+            "chooseWord" | "chooseIndex" => Some(b.ins().select(value(0)?, value(1)?, value(2)?)),
             "bits" => Some(b.ins().bitcast(types::I64, MemFlagsData::new(), value(0)?)),
             "fromBits" => Some(b.ins().bitcast(types::F64, MemFlagsData::new(), value(0)?)),
-            "pointer" | "index" => Some(value(0)?),
+            "pointer" | "address" | "word" | "index" => Some(value(0)?),
             "unsignedFloat" => Some(b.ins().fcvt_from_uint(types::F64, value(0)?)),
             "unsignedInt" => Some(b.ins().fcvt_to_uint_sat(types::I64, value(0)?)),
             "floor" => Some(b.ins().floor(value(0)?)),
@@ -310,6 +401,14 @@ pub fn emit(
             }
             "slow" => {
                 b.ins().return_(&[value(0)?]);
+                ended = true;
+                None
+            }
+            // Exit code 1: the frame changed and Rust's `tail_entry` must
+            // apply the frame driver's policy before the next instruction.
+            "reenter" => {
+                let code = b.ins().iconst(types::I64, EXIT_REENTER);
+                b.ins().return_(&[code]);
                 ended = true;
                 None
             }

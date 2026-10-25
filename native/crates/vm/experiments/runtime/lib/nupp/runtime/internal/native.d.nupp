@@ -16,17 +16,24 @@ local record Native
     unsignedFloat: function(value: uint64): number
     unsignedInt: function(value: number): uint64
     index: function(value: uint64): int64
+    word: function(value: int64): uint64
+    address: function(value: voidptr): uint64
+    chooseIndex: function(condition: boolean, yes: int64, no: int64): int64
     asWord: function(value: boolean): uint64
     layout: function(field: string): int64
     slow: function(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    reenter: function(): uint64
     load8: function(base: voidptr, offset: int64): int64
     load32: function(base: voidptr, offset: int64): int64
     load64: function(base: voidptr, offset: int64): uint64
     loadIndex: function(base: voidptr, offset: int64): int64
     loadPointer: function(base: voidptr, offset: int64): voidptr
+    store32: function(base: voidptr, offset: int64, value: int64): nil
     store64: function(base: voidptr, offset: int64, value: uint64): nil
     storeIndex: function(base: voidptr, offset: int64, value: int64): nil
     storePointer: function(base: voidptr, offset: int64, value: voidptr): nil
+    fillWords: function(base: voidptr, offset: int64, count: int64, value: uint64): nil
+    copyWords: function(target: voidptr, targetOffset: int64, source: voidptr, sourceOffset: int64, count: int64): nil
     offset: function(base: voidptr, offset: int64): voidptr
     dispatch: function(
         pc: voidptr,

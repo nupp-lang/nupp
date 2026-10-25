@@ -1,8 +1,9 @@
 # Native runtime authoring experiment
 
 This implements a native-authoring experiment against
-`codegen-experiment@73d54b904cd014f666671407e4a1751fb8de2418`. The measured
-mixed-core candidates fail the 2% noninferiority gate and remain disabled.
+`codegen-experiment@73d54b904cd014f666671407e4a1751fb8de2418`. The call and
+return candidate passes the 2% noninferiority gate on every workload; the full
+compiler check still regresses cold, so every candidate remains disabled.
 This is an isolated experiment, not a completed Rust-removal migration.
 
 The ordinary Nupp parser and checker validate private handler source. A small
@@ -20,15 +21,22 @@ Two executables exercise different contracts:
   helper ABI preservation and bounded native stacks, emits objects for macOS
   ARM64, Linux x64, and Windows GNU x64, and can link the host object. Its call
   frames and helper are synthetic; it does not test the collector.
-- `runtime_slice` emits 57 leaf handlers against the real instruction, context,
+- `runtime_slice` emits 63 handlers against the real instruction, context,
   function, and heap layouts. `--integers-only` selects the original 18 integer
-  and branch handlers. Float arithmetic, tagged numeric operations, closure
-  captures, constants, array reads, record reads, and lengths are now authored
-  in Nupp. The native
-  chain returns before unsupported instructions or OSR transitions; the Rust
-  core then executes that instruction once with its existing root/frame rules.
-  No helper or allocation can run inside this native slice. Calls, returns,
+  and branch handlers; `--without=NAME,...` drops named handlers, which is how
+  the 57-handler leaf slice reproduces. Float arithmetic, tagged numeric
+  operations, closure captures, constants, array reads, record reads, lengths,
+  and now ordinary calls, returns and result padding are authored in Nupp. The
+  native chain returns before unsupported instructions or OSR transitions; the
+  Rust core then executes that instruction once with its existing root/frame
+  rules. No helper or allocation can run inside this native slice. Growth,
   GC, scheduler policy, and the remaining handlers retain their existing code.
+
+A local function with the handler signature is a handler; any other local
+function is a helper, inlined where a handler tail-calls it. The Rust core's
+`push` and `dynamic_call!` have one Nupp spelling each this way, and the
+dispatch stays a tail transfer. Bounded word loops (`copyWords`, `fillWords`)
+are the only loops: parameter copies, nil fills and result copies.
 
 The native IR and object are trusted build inputs, not guest formats. The
 generated sidecar checks opcode values, value tags, and all accessed structure
@@ -115,6 +123,71 @@ or Linux/Windows native execution is claimed. Cross-target object generation cov
 does not establish native execution, stack walking, or exception correctness
 on those platforms.
 
+## Frame transitions
+
+The exit word a native chain answers is the address of the instruction Rust
+resumes at, or `EXIT_REENTER` (1). Nothing inside a chain moves the stack, so
+`ctx.cur` names the current frame at every instruction, as the Rust handlers
+keep it; `native_segment` reads it back on exit and re-derives the windows when
+the frame differs from the one the chain entered with, by address or by
+function: a return followed by a call inside one chain puts another function's
+frame at the same index, and its integer and float windows sit elsewhere. The
+instruction named then runs exactly once through its Rust handler. `EXIT_REENTER` is taken when a
+frame was pushed or popped in frame mode and the frame driver has a say over
+it -- a compiled frame entry, a function with vector instructions, or JIT
+frames -- and goes through `tail_entry` as the Rust call and return handlers
+do, on the frame the chain already pushed or popped. Outside those cases the
+chain continues into the callee's or caller's frame without leaving.
+
+`Call`, `CallK`, `CallDyn` (the Rust handlers share one body; the table points
+both opcodes at the one source function), `Ret`, `RetNil`, `RetN` and
+`PadResults` are native. Everything the Rust handlers hand to Rust still goes
+there, and before any state changes: stack growth, varargs, typed parameters,
+the unavailable function, compiled entries, builtins, iterators, non-callable
+values, feedback, the JIT's call threshold (counted as `count_call` counts,
+with the hot call itself going to Rust), guarded returns, wide returns, and the
+task's final return. A call that needs growth leaves before the count moves, so
+it counts once.
+
+The contract tests build real stacks and function tables, compare the native
+push with the Rust core's own `push` word for word over argument and parameter
+counts, every call opcode, closures and plain functions, and the frame-mode
+policies; exercise each fallback and check that nothing changed; deliver
+direct and indirect results; and run whole programs (recursion through dynamic
+and static calls, three results padded to four, recursion past the initial
+stack so growth happens in Rust under native frames, nil returns, and a return
+and call that put two register layouts at one frame index) in both frame
+modes. The last of these is the shape the specialization suite's `shapes`
+program first caught: a field count of 4 for 340000.
+
+On ARM64 the call handlers carry a stack frame of six callee-saved registers;
+the return and padding handlers have none. The frame derived from the window
+is required: a frame-changing handler is refused under `--packed-state`, whose
+entry-owned pair would name the frame the chain entered with.
+
+With all 63 handlers, the paired ratios against the pinned Rust runtime are
+0.678 for fib (95% interval 0.673-0.684), 0.860 for closures, 0.797 for
+records, 0.984 for tables (interval 0.971-0.996), 0.942 for loops (interval
+0.904-0.982) and 0.989 for strings (interval 0.969-1.011). Every
+workload passes the 2% noninferiority gate; this is the first candidate to do
+so. Median maximum resident set is within 0.1% of the baseline.
+`results-expansion.json` under `candidates.calls` and `compiler.calls` holds
+the pairs, hashes and intervals; the recorded object and runtime reproduce from
+the formatted source.
+
+Three paired full compiler checks still regress cold: median 43.79 s for Rust
+and 46.55 s for the candidate, a 6.3% gap against the leaf slice's
+7.4%, but not gone. Warm medians are 0.608 s and 0.616 s. Every cold run
+checks 504 modules without diagnostics; warm runs check none. The whole-program
+gate is the one that governs promotion, so the experiment stays disabled: the
+compiler's time is in field and index lookup, the helpers they call, and the
+remaining boundary crossings around them, not in calls and returns.
+
+With the final object, 446 Rust tests pass across 66 targets with four ignored
+and the pre-existing `aot_relocation` compile failure excluded; the
+specialization suite, whose `shapes` program caught the frame-identity exit
+bug, passes; 18 native contract tests and 30 rejection checks pass.
+
 ## Initial slice
 
 The 20-opcode candidate regresses loops, tables, and closures; excluding Move
@@ -169,9 +242,11 @@ window during a cold compiler check records 240 exclusive boundary samples;
 field/index lookup is prominent as well. The next work must address the
 compiler's lookup/helper paths alongside ordinary calls.
 
-The expanded slice remains a disabled authoring and ABI experiment. Calls,
-returns, allocations, and writes that require barriers still cross to Rust.
-The next migration needs a real call/return and helper protocol with frame
-publication, reload, guard, JIT-entry, suspension, and GC behavior preserved.
-Passing a numeric loop benchmark is insufficient to remove the Rust core.
-The remaining work is tracked in https://github.com/nupp-lang/nupp/issues/75.
+The slice remains a disabled authoring and ABI experiment. Allocations,
+writes that require barriers, growth and every helper still cross to Rust.
+The next migration needs the helper protocol -- explicit effects per helper,
+roots and execution state published before an allocating or reentrant call
+and reloaded after -- and the field and index fast paths the compiler profile
+names. Passing the six workloads is necessary and not sufficient to remove
+the Rust core. The remaining work is tracked in
+https://github.com/nupp-lang/nupp/issues/75.

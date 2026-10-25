@@ -221,6 +221,8 @@ include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
 
 #[cfg(feature = "native-runtime-experiment")]
 unsafe extern "C" {
+    /// Answers an exit word: the address of the instruction Rust resumes at,
+    /// or `EXIT_REENTER`.
     fn nupp_native_runtime_entry(
         pc: *const Ins,
         regs: *mut u64,
@@ -228,23 +230,49 @@ unsafe extern "C" {
         fregs: *mut f64,
         ctx: *mut Ctx,
         frame: *mut u64,
-    ) -> *const Ins;
+    ) -> u64;
 }
 
-/// A native leaf segment retains no managed values outside the existing
-/// register windows and calls no helpers. It returns before the first
-/// unsupported instruction or OSR edge. That instruction executes exactly
-/// once through the original handler, which owns all publication/reload rules.
+/// The native chain's only non-address exit: a frame changed under the
+/// frame driver's policy, which `tail_entry` applies before going on.
 #[cfg(feature = "native-runtime-experiment")]
+const EXIT_REENTER: u64 = 1;
+
+/// A native segment retains no managed values outside the VM stack and
+/// calls no helpers, so nothing moves the stack while it runs: `ctx.cur`
+/// names the frame it is in at every instruction, exactly as the Rust
+/// handlers keep it. It returns before the first unsupported instruction or
+/// OSR edge, naming that instruction; the frame it is in is read back from
+/// the context, and the windows are re-derived when it is not the one the
+/// segment entered with -- by address and by function, since a return and a
+/// call inside the segment can put another function's frame at the same
+/// index. That instruction then executes exactly once through
+/// the original handler, which owns all publication/reload rules. A frame
+/// the segment pushed or popped in frame mode, where the frame driver has a
+/// say, exits with `EXIT_REENTER` instead and takes `tail_entry` as the Rust
+/// call and return handlers do.
+#[cfg(feature = "native-runtime-experiment")]
+#[allow(unused_assignments)]
 unsafe fn native_segment(
-    pc: *const Ins,
-    regs: *mut u64,
-    iregs: *mut i64,
-    fregs: *mut f64,
+    mut pc: *const Ins,
+    mut regs: *mut u64,
+    mut iregs: *mut i64,
+    mut fregs: *mut f64,
     ctx: *mut Ctx,
-    frame: *mut u64,
+    mut frame: *mut u64,
 ) -> u64 {
-    let pc = nupp_native_runtime_entry(pc, regs, iregs, fregs, ctx, frame);
+    // A popped frame and a different function pushed at the same index
+    // share the frame address: the function decides the windows.
+    let entered = *frame as u32;
+    let exit = nupp_native_runtime_entry(pc, regs, iregs, fregs, ctx, frame);
+    if exit == EXIT_REENTER {
+        become tail_entry(pc, regs, iregs, fregs, ctx, frame);
+    }
+    pc = exit as *const Ins;
+    let top = (*ctx).stack.add((*ctx).cur as usize);
+    if top != frame || *top as u32 != entered {
+        reload!(pc, regs, iregs, fregs, ctx, frame);
+    }
     become (*RUST_DISPATCH.get_unchecked((*pc).op as usize))(pc, regs, iregs, fregs, ctx, frame)
 }
 

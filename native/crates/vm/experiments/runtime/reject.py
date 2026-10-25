@@ -20,6 +20,11 @@ def rejects(args, expected):
 def main():
     params = 'pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr'
     prefix = 'module nupp.runtime.internal.negative\nconst native = require("nupp.runtime.internal.native")\n'
+    # Helpers: a seventh parameter makes a local function a helper, inlined
+    # only at a tail call from a handler.
+    HELPER = f'local function leave({params}, extra: int64): uint64\nreturn native.slow(pc, regs, ints, floats, context, frame)\nend\n'
+    RECURSIVE = f'local function again({params}, extra: int64): uint64\nreturn again(pc, regs, ints, floats, context, frame, extra)\nend\n'
+    BOXED = f'local function boxed({params}, extra: number): uint64\nreturn native.slow(pc, regs, ints, floats, context, frame)\nend\n'
     cases = {
         'mutation': ('local x = native.load64(ints, 0)\nx = x + 1\nreturn x', 'unsupported statement'),
         'allocation': ('local x = {}\nreturn native.load64(regs, 0)', 'unsupported expression'),
@@ -30,6 +35,12 @@ def main():
         'non-terminating-branch': ('if native.load64(regs, 0) == 0 then return native.load64(regs, 0) end\nreturn native.load64(regs, 8)', 'two terminating branches'),
         'implicit-number': ('local x = 1 + 2\nreturn native.load64(regs, 0)', 'established 64-bit'),
         'bad-layout': ('local x = native.layout("unknown")\nreturn native.dispatch(native.offset(pc, x), regs, ints, floats, context, frame)', None),
+        'effect-as-value': ('return native.reenter() + 1', 'effect or transfer used as a value'),
+        'helper-as-value': ('local x = leave(pc, regs, ints, floats, context, frame, 1)\nreturn x',
+                            'direct intrinsic call required', HELPER),
+        'recursive-helper': ('return again(pc, regs, ints, floats, context, frame, 1)', 'recursive helper', RECURSIVE),
+        'helper-parameter': ('return boxed(pc, regs, ints, floats, context, frame, 1)',
+                             'helper parameter must be a native word', BOXED),
     }
     passed = []
     with tempfile.TemporaryDirectory(prefix='native-rejections-', dir=OUT) as temporary:
@@ -38,8 +49,10 @@ def main():
         lib.mkdir(parents=True)
         shutil.copy(HERE / 'lib/nupp/runtime/internal/native.d.nupp', lib / 'native.d.nupp')
         source = lib / 'negative.nupp'
-        for name, (body, expected) in cases.items():
-            source.write_text(prefix + f'local function IAdd({params}): uint64\n{body}\nend\n')
+        for name, case in cases.items():
+            body, expected = case[0], case[1]
+            preamble = case[2] if len(case) > 2 else ''
+            source.write_text(prefix + preamble + f'local function IAdd({params}): uint64\n{body}\nend\n')
             command = [BASE, 'run', DRIVER, 'nupp.experiment.runtime', 'compile', root, source,
                        '--output', root / 'result.json']
             if expected:
@@ -68,8 +81,11 @@ def main():
         bad['functions'][0]['instructions'].append({'op':'constant','args':['0'],'result':999})
         variants['after-terminator'] = (bad, 'after native terminator')
         bad = copy.deepcopy(original)
-        bad['functions'][0]['instructions'][-1]['args'][1] = 1
-        variants['changed-window'] = (bad, 'preserve its VM windows')
+        bad['functions'][0]['instructions'][-1]['args'][4] = 1
+        variants['changed-context'] = (bad, 'dispatch must preserve the context')
+        bad = copy.deepcopy(original)
+        bad['functions'][0]['instructions'][-1] = {'op': 'reenter', 'args': [1], 'result': 0}
+        variants['reenter-operands'] = (bad, 'expected 0 operands')
         bad = copy.deepcopy(original)
         bad['functions'][0]['instructions'][-1]['op'] = 'slow'
         variants['changed-slow-pc'] = (bad, 'slow must preserve pc')
@@ -89,6 +105,17 @@ def main():
             for options in ([], ['--packed-state'], ['--derived-frame']):
                 rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'bad.o', *options], expected)
             passed.append('ir-' + name)
+        # A frame-changing handler needs the frame derived from its window:
+        # the entry-owned state pair would name the frame it entered with.
+        calls = json.loads((OUT / 'slice.json').read_text())
+        calls['functions'] = [f for f in calls['functions'] if f['name'] == 'Ret']
+        assert calls['functions'], 'the slice defines Ret'
+        path = root / 'calls.json'; path.write_text(json.dumps(calls))
+        rejects([ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'calls.o', '--packed-state'],
+                'frame derived from the window')
+        subprocess.run(list(map(str, [ROOT / 'build/rust/target/release/examples/runtime_slice', path, root / 'calls.o',
+                                      '--derived-frame'])), check=True, capture_output=True, timeout=60)
+        passed.append('ir-frame-change-packed')
     (OUT / 'rejection-tests.json').write_text(json.dumps({'passed': passed}, indent=2) + '\n')
     print(f'{len(passed)} rejection checks passed')
 
