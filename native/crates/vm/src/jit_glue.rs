@@ -246,7 +246,9 @@ impl Emitter {
         let layouts = vm.heap_new_string(&layouts_json());
         vm.registered.push(layouts);
         let mut flags = settings::builder();
-        flags.set("opt_level", "none").unwrap();
+        // The optimizer is off (jit-compile-cost.md); `JIT_GUEST_OPT` names
+        // another level for measuring what it would buy.
+        flags.set("opt_level", &std::env::var("JIT_GUEST_OPT").unwrap_or_else(|_| "none".to_string())).unwrap();
         flags.set("enable_verifier", if std::env::var_os("JIT_VERIFY").is_some() { "true" } else { "false" }).unwrap();
         flags.set("use_colocated_libcalls", "false").unwrap();
         flags.set("is_pic", "false").unwrap();
