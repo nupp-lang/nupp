@@ -8,11 +8,9 @@ nothing managed underneath. The ordinary parser and checker validate the
 source; this module turns the checked tree into CLIF, building SSA form through
 `nupp.compiler.clif.ssa`, and the runtime's glue parses and compiles the text.
 
-A set of modules compiles to one CLIF file. A module exports functions the
-others call through a table it declares (`local protocol = {}`,
-`function protocol.publishPc(...)`, `export = protocol`); a `const` require of
-another module of the set, or of the intrinsics declaration, is the only other
-module-level statement.
+A set of modules compiles to one CLIF file. A module's `export function`s
+are what the others call, through a `const` require of it; a require of the
+intrinsics declaration is the only other module-level statement.
 
 Handler mode compiles the native interpreter core. A handler takes six pointer
 registers and answers a word; its sixth register is the dispatch table and its
@@ -280,13 +278,12 @@ local record Fn
     isSupport: boolean
 end
 
--- A module of the set: its functions by local name, its exports by member.
+-- A module of the set: its functions by name, the exported ones by member.
 local record Scope
     name: string
     path: string
     functions: {[string]: Fn}
     exports: {[string]: Fn}
-    exportName: string?
     order: {string}
 end
 
@@ -1135,24 +1132,6 @@ local function layouts(path: string): function(string): number
     end
 end
 
--- The member a `function table.member(...)` statement defines.
-local function memberName(funcname: any): string?
-    if funcname.method then
-        return nil
-    end
-    local names = {}
-    for _, child in ipairs(funcname) do
-        if type(child) == "table" and child.kind == "name" then
-            names[#names + 1] = child.text
-        end
-    end
-    if #names ~= 2 then
-        return nil
-    end
-
-    return names[2]
-end
-
 -- The function record of one `local function` or exported function.
 local function describe(fnName: string, node: any, body: any, scope: Scope, handlers: boolean): Fn
     local paramKinds, paramTypes = {}, {}
@@ -1203,7 +1182,7 @@ end
 -- One module's functions, from its checked tree. Requires are validated once
 -- every module of the set is known.
 local function describeModule(parsed: any, path: string, handlers: boolean): (Scope, {any})
-    local scope = new Scope(name = "", path = path, functions = {}, exports = {}, exportName = nil, order = {})
+    local scope = new Scope(name = "", path = path, functions = {}, exports = {}, order = {})
     local requires = {}
     for _, block in ipairs(parsed.root.blocks) do
         for _, stat in ipairs(block.stats) do
@@ -1214,41 +1193,33 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
                     names[index] = token.text
                 end
                 scope.name = table.concat(names, ".")
-            elseif node.kind == "localFuncStmt" then
-                local fnName = node.name.text
-                need(scope.functions[fnName] == nil, "function " .. fnName .. " defined twice")
-                scope.functions[fnName] = describe(fnName, node, node.body, scope, handlers)
-                scope.order[#scope.order + 1] = fnName
-            elseif node.kind == "funcStmt" then
-                local base = node.name.base
-                local member = memberName(node.name)
+            elseif node.kind == "localFuncStmt" or node.kind == "exportStmt" then
+                local declared = node.kind == "exportStmt" and node.stat or node
+                local exported = node.kind == "exportStmt"
                 need(
-                    base ~= nil and member ~= nil and scope.exportName ~= nil and base.text == scope.exportName,
-                    "a module function is `local` or a member of the module's export table"
+                    declared ~= nil
+                    and (
+                        declared.kind == "localFuncStmt"
+                        or (declared.kind == "funcStmt" and declared.name.base ~= nil and #declared.name == 1)
+                    ),
+                    "a module-level declaration is a function"
                 )
-                local fnName = member as string
+                local fnName: string = declared.kind == "funcStmt" and declared.name.base.text or declared.name.text
                 need(scope.functions[fnName] == nil, "function " .. fnName .. " defined twice")
-                local fn = describe(fnName, node, node.body, scope, handlers)
+                local fn = describe(fnName, declared, declared.body, scope, handlers)
                 scope.functions[fnName] = fn
-                scope.exports[fnName] = fn
+                if exported then
+                    scope.exports[fnName] = fn
+                end
                 scope.order[#scope.order + 1] = fnName
             elseif node.kind == "localStmt" then
-                need(#node.names == 1 and #node.exprs == 1, "one module-level local")
-                local init = node.exprs[1]
-                if init.kind == "tableExpr" then
-                    need(#init.fields == 0 and scope.exportName == nil, "one empty export table")
-                    scope.exportName = node.names[1].text
-                else
-                    need(node.isConst, "a module-level local is the export table or a `const` require")
-                    local definition = node.names[1].definition
-                    need(definition and definition.requiredModule, "module initialization is not native code")
-                    requires[#requires + 1] = definition.requiredModule
-                end
-            elseif node.kind == "exportStmt" then
                 need(
-                    node.value and node.value.kind == "name" and node.value.token.text == scope.exportName,
-                    "`export = ` names the module's export table"
+                    #node.names == 1 and #node.exprs == 1 and node.isConst,
+                    "a module-level local is a `const` require"
                 )
+                local definition = node.names[1].definition
+                need(definition and definition.requiredModule, "module initialization is not native code")
+                requires[#requires + 1] = definition.requiredModule
             elseif node.kind ~= "emptyStmt" and node.kind ~= "recordDecl" then
                 error("lower: unsupported top-level statement " .. tostring(node.kind), 0)
             end

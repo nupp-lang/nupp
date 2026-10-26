@@ -5,9 +5,7 @@ module nupp.runtime.vm.protocol
 -- the context, since the stack may have moved.
 const native = require("nupp.runtime.vm.intrinsics")
 
-local protocol = {}
-
-function protocol.publishPc(pc: voidptr, context: voidptr): nil
+export function publishPc(pc: voidptr, context: voidptr): nil
     local frame = native.offset(
         native.loadPointer(context, native.layout("stack")),
         native.index(native.load64(context, native.layout("cur")) * 8)
@@ -23,7 +21,7 @@ end
 
 -- After a helper: a raise ends the chain; otherwise the windows are derived
 -- again and the result, when there is one, lands in register `slot`.
-function protocol.continueAfter(pc: voidptr, context: voidptr, slot: int64, value: uint64, storing: boolean): uint64
+export function continueAfter(pc: voidptr, context: voidptr, slot: int64, value: uint64, storing: boolean): uint64
     if native.load32(context, native.layout("status")) == -4 then
         return native.fail()
     else
@@ -42,5 +40,3 @@ function protocol.continueAfter(pc: voidptr, context: voidptr, slot: int64, valu
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     end
 end
-
-export = protocol

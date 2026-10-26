@@ -4,9 +4,7 @@ module nupp.runtime.vm.boxing
 const native = require("nupp.runtime.vm.intrinsics")
 const protocol = require("nupp.runtime.vm.protocol")
 
-local boxing = {}
-
-function boxing.TagCheckNum(
+export function TagCheckNum(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -23,7 +21,7 @@ function boxing.TagCheckNum(
     end
 end
 
-function boxing.IBox(
+export function IBox(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -40,7 +38,7 @@ function boxing.IBox(
     end
 end
 
-function boxing.IUnbox(
+export function IUnbox(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -62,7 +60,7 @@ function boxing.IUnbox(
     end
 end
 
-function boxing.StrByte(
+export function StrByte(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -97,7 +95,7 @@ end
 
 -- A record allocation: the collector may run, so the frame is published
 -- before and the windows derived again after.
-function boxing.NewRecord(
+export function NewRecord(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -109,5 +107,3 @@ function boxing.NewRecord(
     local value = native.newRecord(context, native.loadIndex(pc, 8))
     return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
 end
-
-export = boxing

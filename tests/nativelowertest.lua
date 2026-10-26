@@ -171,8 +171,8 @@ end
 -- Handler modules written against a temporary include root beside `src`, so
 -- the intrinsics declaration resolves as it does for the runtime sources.
 local PARAMS = "pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr"
-local PREFIX = 'module nupp.runtime.vm.negative\nconst native = require("nupp.runtime.vm.intrinsics")\nlocal negative = {}\n'
-local SUFFIX = "\nexport = negative\n"
+local PREFIX = 'module nupp.runtime.vm.negative\nconst native = require("nupp.runtime.vm.intrinsics")\n'
+local SUFFIX = "\n"
 local HELPER = ("local function leave(%s, extra: int64): uint64\nreturn native.slow(pc, regs, ints, floats, context, frame)\nend\n"):format(PARAMS)
 local RECURSIVE = ("local function again(%s, extra: int64): uint64\nreturn again(pc, regs, ints, floats, context, frame, extra)\nend\n"):format(PARAMS)
 local FALLING = ("local function fall(%s, extra: int64): uint64\nnative.store64(regs, 0, 1ULL)\nend\n"):format(PARAMS)
@@ -191,7 +191,7 @@ end
 local function handlerModule(body, preamble)
     local dir = tempDirectory()
     local path = dir .. "/nupp/runtime/vm/negative.nupp"
-    write(path, PREFIX .. (preamble or "") .. ("function negative.IAdd(%s): uint64\n%s\nend\n"):format(PARAMS, body) .. SUFFIX)
+    write(path, PREFIX .. (preamble or "") .. ("export function IAdd(%s): uint64\n%s\nend\n"):format(PARAMS, body) .. SUFFIX)
     return dir, path
 end
 

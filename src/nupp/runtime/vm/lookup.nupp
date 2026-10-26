@@ -5,8 +5,6 @@ module nupp.runtime.vm.lookup
 const native = require("nupp.runtime.vm.intrinsics")
 const protocol = require("nupp.runtime.vm.protocol")
 
-local lookup = {}
-
 local function getFieldSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
     local value = native.getField(context, object, name)
@@ -15,7 +13,7 @@ end
 
 -- A field read by an interned name: a record's shape table, a table's hash
 -- part, or the helper for anything else.
-function lookup.GetField(
+export function GetField(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -158,11 +156,11 @@ local function equality(
     end
 end
 
-function lookup.Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     return equality(pc, regs, ints, floats, context, frame, 0)
 end
 
-function lookup.Ne(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+export function Ne(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     return equality(pc, regs, ints, floats, context, frame, 1)
 end
 
@@ -174,7 +172,7 @@ end
 
 -- A read by any key: the array part when the key is an integral number in
 -- range, the helper otherwise.
-function lookup.GetIdx(
+export function GetIdx(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -237,7 +235,7 @@ local function setIndexNumSlow(pc: voidptr, context: voidptr, object: uint64, po
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
-function lookup.SetIdxI(
+export function SetIdxI(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -284,7 +282,7 @@ function lookup.SetIdxI(
     end
 end
 
-function lookup.SetCell(
+export function SetCell(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -314,7 +312,7 @@ end
 
 -- A record slot store under the same guards as its read, plus the storage
 -- flags that make a record something other than plain slots.
-function lookup.SetSlot(
+export function SetSlot(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -349,7 +347,7 @@ function lookup.SetSlot(
     end
 end
 
-function lookup.SetSlotF(
+export function SetSlotF(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -387,5 +385,3 @@ function lookup.SetSlotF(
         end
     end
 end
-
-export = lookup

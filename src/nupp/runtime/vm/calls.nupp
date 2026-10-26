@@ -5,8 +5,6 @@ module nupp.runtime.vm.calls
 -- `reenter`; otherwise the chain continues in the new frame's windows.
 const native = require("nupp.runtime.vm.intrinsics")
 
-local calls = {}
-
 -- The callee's frame is in place and the context names it: continue there,
 -- or hand it to the frame driver.
 local function enterPushed(
@@ -170,7 +168,7 @@ local function dynamicCall(
 end
 
 -- A static call copies every argument word, as its Rust handler does.
-function calls.Call(
+export function Call(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -204,7 +202,7 @@ function calls.Call(
 end
 
 -- CallK and CallDyn share this body, as their Rust handlers share one.
-function calls.CallK(
+export function CallK(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -277,7 +275,14 @@ end
 
 -- A return the Rust path must take: a cleanup or protected call at or above
 -- this frame, an unwind in progress, or the task's own end.
-function calls.Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+export function Ret(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
     local guard = native.load64(context, native.layout("guard"))
     local current = native.load64(context, native.layout("cur"))
     local link = native.load64(frame, 8)
@@ -296,7 +301,7 @@ function calls.Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
 end
 
-function calls.RetNil(
+export function RetNil(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -322,7 +327,7 @@ function calls.RetNil(
     end
 end
 
-function calls.RetN(
+export function RetN(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -358,7 +363,7 @@ function calls.RetN(
     end
 end
 
-function calls.PadResults(
+export function PadResults(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -389,7 +394,7 @@ end
 
 -- A dynamic call through a register is the same path as `CallK`; the Rust
 -- core shares one body between the two opcodes and so does this one.
-function calls.CallDyn(
+export function CallDyn(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
@@ -425,5 +430,3 @@ function calls.CallDyn(
 
     end
 end
-
-export = calls
