@@ -1,0 +1,375 @@
+module allocator
+
+-- The allocator alone (`nupp.runtime.vm.heap`): the header at `heap.rs`'s
+-- offsets, size classes, chunks touched as they are used, large objects on
+-- mappings of their own, the live-slot check the root walk relies on, reuse
+-- through the free lists, tombstones under quarantine, and the accounting.
+-- Each function opens the arena the heap's own state lives in and answers a
+-- count the suite compares with what it computes.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const os = require("nupp.runtime.vm.os")
+
+-- One header written through its fields and read back at `heap.rs`'s byte
+-- offsets: the number of fields that disagree.
+local function headerLayout(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local o = heap.allocRaw(h, heap.KIND_CLOSURE, 16)
+            local base = native.address(o as voidptr)
+            local p = o as voidptr
+            local wrong: int64 = 0
+            o.color = 2
+            o.flags = 5
+            o.epoch = 70000
+            o.aux = 123456
+            o.auxLen = 0x1122334455667788ULL
+            if native.load8(p, 0) ~= 5 then
+                wrong = wrong + 1
+            end
+            if native.load8(p, 1) ~= 2 then
+                wrong = wrong + 1
+            end
+            if native.load8(p, 2) ~= 1 then
+                wrong = wrong + 1
+            end
+            if native.load8(p, 3) ~= 5 then
+                wrong = wrong + 1
+            end
+            if native.load32(p, 4) ~= 70000 then
+                wrong = wrong + 1
+            end
+            if native.load32(p, 8) ~= 48 then
+                wrong = wrong + 1
+            end
+            if native.load32(p, 12) ~= 123456 then
+                wrong = wrong + 1
+            end
+            if native.load64(p, 16) ~= base + 32 then
+                wrong = wrong + 1
+            end
+            if native.load64(p, 24) ~= 0x1122334455667788ULL then
+                wrong = wrong + 1
+            end
+            -- The chunk header's first four fields at `ChunkHeader`'s offsets.
+            local chunk = native.pointer(base & ~heap.CHUNK_MASK)
+            if native.load8(chunk, 0) ~= 1 or native.load32(chunk, 4) ~= 48 or native.load32(chunk, 8) ~= 5460 then
+                wrong = wrong + 1
+            end
+            if native.load32(chunk, 12) ~= 0 then
+                wrong = wrong + 1
+            end
+            heap.destroy(h)
+
+            return wrong
+        end
+    end
+end
+
+-- The class of every size from 1 to the largest slot, summed with weights so
+-- a class off by one anywhere changes the answer.
+local function classSum(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local total: uint64 = 0
+            local size: uint64 = 1
+            while size <= heap.LARGEST_SLOT do
+                total = total + heap.classFor(h, size) * (size % 7 + 1)
+                size = size + 1
+            end
+            total = total + heap.classFor(h, heap.LARGEST_SLOT + 1)
+            heap.destroy(h)
+
+            return total
+        end
+    end
+end
+
+-- Chunks mapped for `count` objects of one class.
+local function chunksFor(count: int64, inline: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local i: int64 = 0
+            while i < count do
+                heap.allocRaw(h, heap.KIND_STR, inline)
+                i = i + 1
+            end
+            local chunks = h.stats.chunks
+            heap.destroy(h)
+
+            return chunks
+        end
+    end
+end
+
+-- Every object allocated is a live slot at a distinct address; a word inside
+-- one is not. Answers live slots found less interior words wrongly accepted.
+local function liveSlots(count: int64, inline: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local seen = h.oracleStack
+            local i: int64 = 0
+            while i < count do
+                local o = heap.allocRaw(h, heap.KIND_STR, inline)
+                heap.wordsPush(seen, native.address(o as voidptr))
+                i = i + 1
+            end
+            local live: int64 = 0
+            local j: uint64 = 0
+            while j < seen.count do
+                local address = heap.wordAt(seen, j)
+                if heap.isLiveSlot(h, address) then
+                    live = live + 1
+                end
+                if heap.isLiveSlot(h, address + 8) then
+                    live = live - 1000000
+                end
+                if j > 0 and heap.wordAt(seen, j - 1) == address then
+                    live = live - 1000000
+                end
+                j = j + 1
+            end
+            heap.destroy(h)
+
+            return live
+        end
+    end
+end
+
+-- Addresses that are not objects: a chunk's header, the untouched tail of the
+-- current chunk, the arena, a freed slot, and nothing at all. Answers how
+-- many were wrongly accepted.
+local function notSlots(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local first = native.address(heap.allocRaw(h, heap.KIND_STR, 16) as voidptr)
+            local second = heap.allocRaw(h, heap.KIND_STR, 16)
+            heap.reclaim(h, second)
+            local wrong: int64 = 0
+            local chunk = first & ~heap.CHUNK_MASK
+            if heap.isLiveSlot(h, chunk) or heap.isLiveSlot(h, chunk + 32) then
+                wrong = wrong + 1
+            end
+            if heap.isLiveSlot(h, first + 96) then
+                wrong = wrong + 1
+            end
+            if heap.isLiveSlot(h, native.address(h as voidptr)) then
+                wrong = wrong + 1
+            end
+            if heap.isLiveSlot(h, native.address(second as voidptr)) then
+                wrong = wrong + 1
+            end
+            if heap.isLiveSlot(h, 4096) or heap.isLiveSlot(h, 0) then
+                wrong = wrong + 1
+            end
+            if not heap.isLiveSlot(h, first) then
+                wrong = wrong + 1
+            end
+            heap.destroy(h)
+
+            return wrong
+        end
+    end
+end
+
+-- Frees every other object of `count` and allocates as many again: answers
+-- how many of the new objects landed on freed slots, plus a million per
+-- chunk mapped past the first.
+local function reuse(count: int64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local made = h.oracleStack
+            local i: int64 = 0
+            while i < count do
+                heap.wordsPush(made, native.address(heap.allocRaw(h, heap.KIND_STR, 16) as voidptr))
+                i = i + 1
+            end
+            local freed = h.seen
+            local j: uint64 = 0
+            while j < made.count do
+                local address = heap.wordAt(made, j)
+                heap.reclaim(h, native.pointer(address) as heap.Header*)
+                heap.setAdd(freed, address)
+                j = j + 2
+            end
+            local landed: int64 = 0
+            local k: int64 = 0
+            while k < (count + 1) // 2 do
+                local address = native.address(heap.allocRaw(h, heap.KIND_STR, 16) as voidptr)
+                if heap.setHas(freed, address) then
+                    landed = landed + 1
+                end
+                k = k + 1
+            end
+            local extra = native.index(h.stats.chunks) - 1
+            heap.destroy(h)
+
+            return landed + extra * 1000000
+        end
+    end
+end
+
+-- Under quarantine a freed slot is a tombstone and never handed out again.
+local function quarantined(count: int64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.quarantine = true
+            local made = h.oracleStack
+            local i: int64 = 0
+            while i < count do
+                local o = heap.allocRaw(h, heap.KIND_STR, 16)
+                heap.wordsPush(made, native.address(o as voidptr))
+                heap.reclaim(h, o)
+                i = i + 1
+            end
+            local tombs: int64 = 0
+            local j: uint64 = 0
+            while j < made.count do
+                local o = native.pointer(heap.wordAt(made, j)) as heap.Header*
+                if o.flags as uint64 == heap.F_TOMBSTONE and o.kind as uint64 == heap.KIND_FREED then
+                    tombs = tombs + 1
+                end
+                if j > 0 and heap.wordAt(made, j - 1) == heap.wordAt(made, j) then
+                    tombs = tombs - 1000000
+                end
+                j = j + 1
+            end
+            heap.destroy(h)
+
+            return tombs
+        end
+    end
+end
+
+-- Large objects: each a live slot of class 255 on a mapping of its own, and
+-- not one once freed. Answers live large objects before the frees, a
+-- thousand times, plus those still live after.
+local function largeObjects(count: int64, inline: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local made = h.oracleStack
+            local i: int64 = 0
+            while i < count do
+                local o = heap.allocRaw(h, heap.KIND_STR, inline)
+                if o.sizeClass as uint64 ~= heap.CLASS_LARGE then
+                    return -1
+                end
+                -- The last byte of the payload is writable.
+                native.store32(native.pointer(native.address(o as voidptr) + 32 + inline - 4), 0, 7)
+                heap.wordsPush(made, native.address(o as voidptr))
+                i = i + 1
+            end
+            local before: int64 = 0
+            local j: uint64 = 0
+            while j < made.count do
+                if heap.isLiveSlot(h, heap.wordAt(made, j)) then
+                    before = before + 1
+                end
+                j = j + 1
+            end
+            j = 0
+            while j < made.count do
+                heap.reclaim(h, native.pointer(heap.wordAt(made, j)) as heap.Header*)
+                j = j + 1
+            end
+            local after: int64 = 0
+            j = 0
+            while j < made.count do
+                if heap.isLiveSlot(h, heap.wordAt(made, j)) then
+                    after = after + 1
+                end
+                j = j + 1
+            end
+            heap.destroy(h)
+
+            return before * 1000 + after
+        end
+    end
+end
+
+-- Live bytes and objects through allocation, growth outside the slot and
+-- frees: answers live bytes, a million times the live count beside it.
+local function accounting(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local one = heap.allocRaw(h, heap.KIND_TABLE, 80)
+            heap.allocRaw(h, heap.KIND_STR, 9)
+            local three = heap.allocRaw(h, heap.KIND_STR, 50000)
+            heap.accountResize(h, 0, 64)
+            heap.accountResize(h, 64, 32)
+            heap.reclaim(h, one)
+            heap.reclaim(h, three)
+            local answer = h.liveBytes + h.liveCount * 1000000
+            heap.destroy(h)
+
+            return answer
+        end
+    end
+end
+
+-- The address sets: `count` words in, every third out, then membership of
+-- each checked. Answers the disagreements.
+local function wordSet(count: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local s = h.seen
+            local i: uint64 = 1
+            while i <= count do
+                heap.setAdd(s, i * 0x40000)
+                i = i + 1
+            end
+            i = 1
+            while i <= count do
+                if i % 3 == 0 then
+                    heap.setRemove(s, i * 0x40000)
+                end
+                i = i + 1
+            end
+            local wrong: uint64 = 0
+            i = 1
+            while i <= count do
+                if heap.setHas(s, i * 0x40000) ~= (i % 3 ~= 0) then
+                    wrong = wrong + 1
+                end
+                i = i + 1
+            end
+            if s.count ~= count - count // 3 then
+                wrong = wrong + 1000000
+            end
+            heap.destroy(h)
+
+            return wrong
+        end
+    end
+end
+
+-- Allocation alone, for a smoke number: `count` objects of one class and
+-- each freed again, in nanoseconds per pair.
+local function allocFreeNanos(count: int64, inline: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local started = os.monotonicNanos()
+            local i: int64 = 0
+            while i < count do
+                heap.reclaim(h, heap.allocRaw(h, heap.KIND_STR, inline))
+                i = i + 1
+            end
+            local elapsed = os.monotonicNanos() - started
+            heap.destroy(h)
+
+            return elapsed // native.word(count)
+        end
+    end
+end

@@ -1,0 +1,1013 @@
+module nupp.runtime.vm.heap
+
+--[[
+The guest heap's allocator (contracts 4.1, 4.3, 5.1): objects with the fixed
+32-byte header of `heap.rs`, allocated in place from size-classed chunks that
+never move, or on their own when they are large, over pages the glue maps.
+
+A chunk is 256 KiB aligned to itself, so an address finds its chunk by
+masking; its first 64 bytes describe it and the rest are slots of one class.
+A class hands out the most recently freed slot first, then the next slot of
+its current chunk that was never used, so a chunk's pages are touched as they
+are needed rather than when it is mapped. A large object is a mapping of its
+own, its header 16 bytes in, behind a word naming its place in the large
+list.
+
+None of the allocator's own state is in the collected heap. The heap record,
+the size-class table, the class lookup and the gray stack's segments come out
+of an arena the caller opens; the chunk list, the large list and the two
+address sets are word vectors over mappings of their own, which grow by
+mapping twice the room and copying.
+
+The collector (`nupp.runtime.vm.collector`) decides what is freed; this module
+only hands out and takes back. The allocation color is decided here, because
+it depends on where the sweep stands (4.3).
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const values = require("nupp.runtime.vm.values")
+
+-- Object kinds, as the header byte compiled code reads (`heap.rs`).
+export const KIND_FREED: uint64 = 0
+export const KIND_STR: uint64 = 1
+export const KIND_TABLE: uint64 = 2
+export const KIND_RECORD: uint64 = 3
+export const KIND_STORAGE: uint64 = 4
+export const KIND_CLOSURE: uint64 = 5
+export const KIND_CELL: uint64 = 6
+export const KIND_BYTES: uint64 = 7
+export const KIND_ITER: uint64 = 8
+export const KIND_SLICE: uint64 = 9
+export const KIND_USERDATA: uint64 = 10
+export const KIND_INTEGER: uint64 = 12
+
+export const COLOR_WHITE: uint64 = 0
+export const COLOR_GRAY: uint64 = 1
+export const COLOR_BLACK: uint64 = 2
+
+-- Header flags.
+export const F_INTERNED: uint64 = 1
+export const F_TOMBSTONE: uint64 = 2
+
+--- The size class byte of an object allocated on its own.
+export const CLASS_LARGE: uint64 = 255
+
+--- Collector phases.
+export const PHASE_IDLE: uint64 = 0
+
+export const PHASE_MARKING: uint64 = 1
+export const PHASE_SWEEPING: uint64 = 2
+
+export const HEADER_BYTES: uint64 = 32
+export const CHUNK_BYTES: uint64 = 262144
+export const CHUNK_MASK: uint64 = 262143
+export const CHUNK_HEADER_BYTES: uint64 = 64
+export const CLASS_COUNT: uint64 = 30
+export const LARGEST_SLOT: uint64 = 32768
+
+--- Bytes before a large object's header: its index in the large list and the
+--- size of its mapping.
+export const LARGE_PREFIX: uint64 = 16
+
+--- Chunks mapped at once; the mapping is one chunk longer so an aligned run
+--- of this many fits inside it.
+const REGION_CHUNKS: uint64 = 16
+
+--- The gray stack's segment: a link to the one below, a count, then words.
+export const SEGMENT_BYTES: uint64 = 4096
+
+export const SEGMENT_WORDS: uint64 = 510
+
+--- The fixed header (contracts 2.1): the same fields at the same offsets as
+--- `heap.rs`'s `Header`, so a header is one memory with two readers.
+export struct Header
+    kind: uint8
+    color: uint8
+    sizeClass: uint8
+    flags: uint8
+
+    --- The cycle that last whitened or allocated the object (4.12).
+    epoch: uint32
+
+    --- Bytes of the object: header and inline payload, before rounding.
+    size: uint32
+
+    --- Kind-specific: a record's shape, a closure's function, a table's weak
+    --- mode bits; a freed object's former kind.
+    aux: uint32
+
+    --- The payload's address, or a free slot's successor.
+    auxPtr: uint64
+
+    auxLen: uint64
+end
+
+--- A chunk's first bytes: class, slot size, slot count and its index in
+--- allocation order at `heap.rs`'s offsets, then how many of its slots have
+--- ever been handed out.
+export struct ChunkHeader
+    sizeClass: uint8
+    slotSize: uint32
+    slotCount: uint32
+    index: uint32
+
+    --- Slots handed out at least once, set when the chunk stops being its
+    --- class's current one; while current, its class's cursor says.
+    used: uint32
+end
+
+--- One size class: its free list, threaded through the freed headers'
+--- `auxPtr`, and the current chunk's never-used slots.
+export struct SizeClass
+    free: uint64
+    cursor: uint64
+    limit: uint64
+    chunk: uint64
+    slotBytes: uint64
+end
+
+--- A vector of words over a mapping of its own.
+export struct Words
+    base: uint64
+    count: uint64
+    capacity: uint64
+end
+
+--- A table's payload: the array part (mirrored in the header's `auxPtr` and
+--- `auxLen`, as `heap.rs` keeps it), the hash part at `heap.rs`'s offsets
+--- (its `ValueTable`: key and value words per bucket, `NIL` keys empty), and
+--- the metatable. Rust keeps the array part as a `Vec`, whose layout is not
+--- C; this is the Nupp layout of the same 24 bytes.
+export struct TableBody
+    arrayPtr: uint64
+    arrayLen: uint64
+    arrayCap: uint64
+    hashPtr: uint64
+    hashMask: uint64
+    hashCap: uint64
+    hashLen: uint64
+    hashOrder: uint64
+    hashRank: uint64
+    meta: uint64
+end
+
+--- What follows a record's slots: its array part and its overflow, the
+--- Nupp layout of `heap.rs`'s `Vec` and `Option<Box<RecordExtra>>`.
+export struct RecordTail
+    arrayPtr: uint64
+    arrayLen: uint64
+    arrayCap: uint64
+    extra: uint64
+end
+
+--- A record's overflow: fields beyond its shape and a metatable.
+export struct RecordExtra
+    hashPtr: uint64
+    hashMask: uint64
+    hashCap: uint64
+    hashLen: uint64
+    hashOrder: uint64
+    hashRank: uint64
+    meta: uint64
+end
+
+--- A set of nonzero words: open addressing over a mapping, linear probing,
+--- deletion by backward shift so no tombstones accumulate.
+export struct WordSet
+    table: uint64
+    mask: uint64
+    count: uint64
+end
+
+--- One entry of the class lookup.
+export struct ClassByte
+    value: uint8
+end
+
+--- A segment of the gray stack, taken from the heap's pool.
+export struct Segment
+    previous: uint64
+    count: uint64
+end
+
+--- Collection counters, kept for the harness and `GC_STATS`.
+export struct Stats
+    cycles: uint64
+    allocated: uint64
+    freed: uint64
+    barrierGrays: uint64
+    steps: uint64
+    scanned: uint64
+    swept: uint64
+    rootWalks: uint64
+    rootCandidates: uint64
+    peakLive: uint64
+    chunks: uint64
+    large: uint64
+    tombstones: uint64
+end
+
+--- The heap: the allocator's state, the collector's, and the roots it walks.
+--- It lives in the caller's arena, as everything it points to does but the
+--- chunks, the large objects and the vectors' own mappings.
+export struct Heap
+    --- 1 while marking: a store checks this one byte before the barrier.
+    marking: uint8
+
+    phase: int64
+
+    --- Size-class table, `CLASS_COUNT` entries, and the lookup from a size in
+    --- 16-byte steps to its class.
+    classes: uint64
+
+    classOf: uint64
+
+    --- Chunks in allocation order; the set of their bases; the mappings they
+    --- came out of (base, bytes) and the room left in the last.
+    chunks: Words*
+
+    chunkSet: WordSet*
+    regions: Words*
+    regionCursor: uint64
+    regionLimit: uint64
+
+    --- Large objects in allocation order, a freed one zero until the sweep
+    --- compacts the list, and the set of their headers.
+    large: Words*
+
+    largeSet: WordSet*
+
+    --- The gray stack's top segment and the pool its segments come from.
+    gray: uint64
+
+    grayPool: arena.Pool*
+
+    --- The sweep cursor: chunk index and slot index, then the large index.
+    sweepChunk: uint64
+
+    sweepSlot: uint64
+    sweepLarge: uint64
+
+    --- Pacing (4.10): bytes allocated since the last step, and the debt that
+    --- starts a cycle.
+    debt: uint64
+
+    threshold: uint64
+    liveBytes: uint64
+    liveCount: uint64
+
+    --- Verification modes (4.11) and whether safepoints collect at all.
+    automatic: boolean
+
+    stress: boolean
+    interleave: boolean
+    oracle: boolean
+    quarantine: boolean
+
+    --- Roots (4.5, 4.7, 4.14, 5.1): registered (base, words) ranges, handles
+    --- with their free indices, the handle-scope stack, immutable ranges, task
+    --- frame stacks and the value-window size of each function.
+    ranges: Words*
+
+    handles: Words*
+    handleFree: Words*
+    scope: Words*
+    constants: Words*
+    tasks: Words*
+    windows: uint64
+
+    --- Weak tables scanned this cycle (address and mode), and released objects
+    --- the runtime has not acknowledged (step 5).
+    weak: Words*
+
+    released: Words*
+
+    --- The oracle's reachable set and work stack, built when it runs.
+    seen: WordSet*
+
+    oracleStack: Words*
+
+    --- Oracle failures recorded rather than trapped, for the harness.
+    oracleFailures: uint64
+
+    stats: Stats*
+end
+
+-- ---- words over mappings ---------------------------------------------------
+
+local function pageRound(bytes: uint64): uint64
+    @unsafe do
+        local page = os.pageSize()
+        return (bytes + page - 1) & ~(page - 1)
+    end
+end
+
+local function mapOrFail(bytes: uint64): uint64
+    @unsafe do
+        local base = os.mapPages(bytes)
+        if base == nil then
+            error("heap: the system refused a mapping")
+        end
+        return native.address(base)
+    end
+end
+
+local function unmapAt(base: uint64, bytes: uint64): nil
+    @unsafe do
+        if base ~= 0 then
+            os.unmapPages(native.pointer(base), bytes)
+        end
+    end
+end
+
+--- The word at index `i` of a vector.
+export function wordAt(v: Words*, i: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(v.base), native.index(i * 8))
+    end
+end
+
+export function setWordAt(v: Words*, i: uint64, word: uint64): nil
+    @unsafe do
+        native.store64(native.pointer(v.base), native.index(i * 8), word)
+    end
+end
+
+local function wordsGrow(v: Words*, least: uint64): nil
+    @unsafe do
+        local capacity: uint64 = v.capacity * 2
+        if capacity < 512 then
+            capacity = 512
+        end
+        while capacity < least do
+            capacity = capacity * 2
+        end
+        local fresh = mapOrFail(capacity * 8)
+        local i: uint64 = 0
+        while i < v.count do
+            native.store64(native.pointer(fresh), native.index(i * 8), wordAt(v, i))
+            i = i + 1
+        end
+        unmapAt(v.base, v.capacity * 8)
+        v.base = fresh
+        v.capacity = capacity
+    end
+end
+
+export function wordsPush(v: Words*, word: uint64): nil
+    @unsafe do
+        if v.count == v.capacity then
+            wordsGrow(v, v.count + 1)
+        end
+        setWordAt(v, v.count, word)
+        v.count = v.count + 1
+    end
+end
+
+--- The last word, removed; zero when the vector is empty.
+export function wordsPop(v: Words*): uint64
+    @unsafe do
+        if v.count == 0 then
+            return 0
+        end
+        v.count = v.count - 1
+        return wordAt(v, v.count)
+    end
+end
+
+export function wordsRelease(v: Words*): nil
+    @unsafe do
+        unmapAt(v.base, v.capacity * 8)
+        v.base = 0
+        v.count = 0
+        v.capacity = 0
+    end
+end
+
+-- ---- word sets ---------------------------------------------------------------
+
+local function spread(word: uint64): uint64
+    @unsafe do
+        return ((word >> 4) * values.HASH_MULTIPLIER) >> 32
+    end
+end
+
+local function setSlot(s: WordSet*, i: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(s.table), native.index(i * 8))
+    end
+end
+
+local function setPut(s: WordSet*, i: uint64, word: uint64): nil
+    @unsafe do
+        native.store64(native.pointer(s.table), native.index(i * 8), word)
+    end
+end
+
+export function setHas(s: WordSet*, word: uint64): boolean
+    @unsafe do
+        if s.table == 0 or word == 0 then
+            return false
+        end
+        local i = spread(word) & s.mask
+        while true do
+            local here = setSlot(s, i)
+            if here == word then
+                return true
+            end
+            if here == 0 then
+                return false
+            end
+            i = (i + 1) & s.mask
+        end
+        return false
+    end
+end
+
+local function setPlace(s: WordSet*, word: uint64): nil
+    @unsafe do
+        local i = spread(word) & s.mask
+        while setSlot(s, i) ~= 0 do
+            i = (i + 1) & s.mask
+        end
+        setPut(s, i, word)
+    end
+end
+
+local function setRehash(s: WordSet*): nil
+    @unsafe do
+        local oldTable = s.table
+        local oldSize: uint64 = 0
+        if oldTable ~= 0 then
+            oldSize = s.mask + 1
+        end
+        local size: uint64 = 512
+        while size * 3 < (s.count + 1) * 4 do
+            size = size * 2
+        end
+        if size <= oldSize then
+            size = oldSize * 2
+        end
+        s.table = mapOrFail(size * 8)
+        s.mask = size - 1
+        local i: uint64 = 0
+        while i < oldSize do
+            local word = native.load64(native.pointer(oldTable), native.index(i * 8))
+            if word ~= 0 then
+                setPlace(s, word)
+            end
+            i = i + 1
+        end
+        unmapAt(oldTable, oldSize * 8)
+    end
+end
+
+export function setAdd(s: WordSet*, word: uint64): nil
+    @unsafe do
+        if s.table == 0 or (s.count + 1) * 4 > (s.mask + 1) * 3 then
+            setRehash(s)
+        end
+        setPlace(s, word)
+        s.count = s.count + 1
+    end
+end
+
+export function setRemove(s: WordSet*, word: uint64): nil
+    @unsafe do
+        if s.table == 0 then
+            return
+        end
+        local i = spread(word) & s.mask
+        while true do
+            local here = setSlot(s, i)
+            if here == 0 then
+                return
+            end
+            if here == word then
+                break
+            end
+            i = (i + 1) & s.mask
+        end
+        -- Backward shift: pull later members of the probe run into the hole when
+        -- their home is not between the hole and themselves.
+        local hole = i
+        local j = (i + 1) & s.mask
+        while true do
+            local moved = setSlot(s, j)
+            if moved == 0 then
+                break
+            end
+            local home = spread(moved) & s.mask
+            -- The member stays when its home lies in (hole, j], cyclically.
+            local stays: boolean = false
+            if hole <= j then
+                if hole < home then
+                    stays = home <= j
+                end
+            elseif hole < home then
+                stays = true
+            else
+                stays = home <= j
+            end
+            if not stays then
+                setPut(s, hole, moved)
+                hole = j
+            end
+            j = (j + 1) & s.mask
+        end
+        setPut(s, hole, 0)
+        s.count = s.count - 1
+    end
+end
+
+export function setClear(s: WordSet*): nil
+    @unsafe do
+        if s.table ~= 0 then
+            unmapAt(s.table, (s.mask + 1) * 8)
+        end
+        s.table = 0
+        s.mask = 0
+        s.count = 0
+    end
+end
+
+-- ---- size classes --------------------------------------------------------------
+
+--- The slot size of each class, as `heap.rs`'s `CLASSES`.
+export function classBytes(i: uint64): uint64
+    @unsafe do
+        if i < 7 then
+            return 32 + i * 16
+        elseif i < 11 then
+            return 128 + (i - 6) * 32
+        elseif i < 15 then
+            return 256 + (i - 10) * 64
+        elseif i == 15 then
+            return 640
+        elseif i == 16 then
+            return 768
+        elseif i == 17 then
+            return 1024
+        elseif i == 18 then
+            return 1280
+        elseif i == 19 then
+            return 1536
+        elseif i == 20 then
+            return 2048
+        elseif i == 21 then
+            return 2560
+        elseif i == 22 then
+            return 3072
+        elseif i == 23 then
+            return 4096
+        elseif i == 24 then
+            return 6144
+        elseif i == 25 then
+            return 8192
+        elseif i == 26 then
+            return 12288
+        elseif i == 27 then
+            return 16384
+        elseif i == 28 then
+            return 24576
+        end
+        return 32768
+    end
+end
+
+export function classAt(h: Heap*, i: uint64): SizeClass*
+    @unsafe do
+        return native.pointer(h.classes + i * 40) as SizeClass*
+    end
+end
+
+--- The class of an object of `bytes`, or `CLASS_LARGE`.
+export function classFor(h: Heap*, bytes: uint64): uint64
+    @unsafe do
+        if bytes > LARGEST_SLOT then
+            return CLASS_LARGE
+        end
+        return native.word(native.load8(native.pointer(h.classOf), native.index((bytes + 15) >> 4)))
+    end
+end
+
+-- ---- the heap record
+-- -----------------------------------------------------------------
+
+local function zeroWords(borrows a: arena.Arena*): Words* borrows (a)
+    @unsafe do
+        local raw = arena.alloc(a, 24, 8)
+        if raw == nil then
+            error("heap: the arena is full")
+        end
+        return raw as Words*
+    end
+end
+
+local function zeroSet(borrows a: arena.Arena*): WordSet* borrows (a)
+    @unsafe do
+        local raw = arena.alloc(a, 24, 8)
+        if raw == nil then
+            error("heap: the arena is full")
+        end
+        return raw as WordSet*
+    end
+end
+
+--- A heap whose record, tables and gray segments live in `a`. Nothing is
+--- mapped for objects until the first allocation. `destroy` unmaps what the
+--- heap mapped; the arena takes back the rest when it closes.
+export function create(borrows a: arena.Arena*): Heap* borrows (a)
+    @unsafe do
+        local raw = arena.alloc(a, 256, 8)
+        local classes = arena.alloc(a, CLASS_COUNT * 40, 8)
+        local lookup = arena.alloc(a, 2064, 8)
+        local stats = arena.alloc(a, 104, 8)
+        if raw == nil or classes == nil or lookup == nil or stats == nil then
+            error("heap: the arena is full")
+        end
+        local h = raw as Heap*
+        local pool = arena.pool(a, SEGMENT_BYTES)
+        if pool == nil then
+            error("heap: the arena is full")
+        end
+        h.classes = native.address(classes)
+        h.classOf = native.address(lookup)
+        h.stats = stats as Stats*
+        h.grayPool = pool
+        h.chunks = zeroWords(a)
+        h.chunkSet = zeroSet(a)
+        h.regions = zeroWords(a)
+        h.large = zeroWords(a)
+        h.largeSet = zeroSet(a)
+        h.ranges = zeroWords(a)
+        h.handles = zeroWords(a)
+        h.handleFree = zeroWords(a)
+        h.scope = zeroWords(a)
+        h.constants = zeroWords(a)
+        h.tasks = zeroWords(a)
+        h.weak = zeroWords(a)
+        h.released = zeroWords(a)
+        h.seen = zeroSet(a)
+        h.oracleStack = zeroWords(a)
+        h.threshold = 1048576
+        h.automatic = true
+        h.phase = PHASE_IDLE
+        local i: uint64 = 0
+        while i < CLASS_COUNT do
+            classAt(h, i).slotBytes = classBytes(i)
+            i = i + 1
+        end
+        -- The lookup: entry k is the first class whose slots hold 16k bytes.
+        local k: uint64 = 0
+        local class: uint64 = 0
+        while k <= LARGEST_SLOT >> 4 do
+            while classBytes(class) < k * 16 do
+                class = class + 1
+            end
+            (native.offset(native.pointer(h.classOf), native.index(k)) as ClassByte*).value = class
+            k = k + 1
+        end
+
+        return h
+    end
+end
+
+local function releaseLarge(h: Heap*): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < h.large.count do
+            local header = wordAt(h.large, i)
+            if header ~= 0 then
+                local base = header - LARGE_PREFIX
+                unmapAt(base, native.load64(native.pointer(base), 8))
+            end
+            i = i + 1
+        end
+    end
+end
+
+--- Unmaps every chunk, large object and vector the heap mapped.
+export function destroy(h: Heap*): nil
+    @unsafe do
+        releaseLarge(h)
+        local i: uint64 = 0
+        while i < h.regions.count do
+            unmapAt(wordAt(h.regions, i), wordAt(h.regions, i + 1))
+            i = i + 2
+        end
+        wordsRelease(h.chunks)
+        wordsRelease(h.regions)
+        wordsRelease(h.large)
+        wordsRelease(h.ranges)
+        wordsRelease(h.handles)
+        wordsRelease(h.handleFree)
+        wordsRelease(h.scope)
+        wordsRelease(h.constants)
+        wordsRelease(h.tasks)
+        wordsRelease(h.weak)
+        wordsRelease(h.released)
+        wordsRelease(h.oracleStack)
+        setClear(h.chunkSet)
+        setClear(h.largeSet)
+        setClear(h.seen)
+    end
+end
+
+-- ---- chunks
+-- ---------------------------------------------------------------------------
+
+--- A fresh chunk's base, carved from the current region or a new one.
+local function carveChunk(h: Heap*): uint64
+    @unsafe do
+        if h.regionCursor + CHUNK_BYTES > h.regionLimit then
+            local bytes: uint64 = (REGION_CHUNKS + 1) * CHUNK_BYTES
+            local base = mapOrFail(bytes)
+            wordsPush(h.regions, base)
+            wordsPush(h.regions, bytes)
+            h.regionCursor = (base + CHUNK_MASK) & ~CHUNK_MASK
+            h.regionLimit = base + bytes
+        end
+        local chunk = h.regionCursor
+        h.regionCursor = chunk + CHUNK_BYTES
+        return chunk
+    end
+end
+
+--- Makes a fresh chunk its class's current one, retiring the previous.
+local function newChunk(h: Heap*, class: uint64): nil
+    @unsafe do
+        local c = classAt(h, class)
+        if c.chunk ~= 0 then
+            local old = native.pointer(c.chunk) as ChunkHeader*
+            old.used = old.slotCount
+        end
+        local base = carveChunk(h)
+        local slot = c.slotBytes
+        local chunk = native.pointer(base) as ChunkHeader*
+        chunk.sizeClass = class
+        chunk.slotSize = slot
+        chunk.slotCount = (CHUNK_BYTES - CHUNK_HEADER_BYTES) // slot
+        chunk.index = h.chunks.count
+        chunk.used = 0
+        c.chunk = base
+        c.cursor = base + CHUNK_HEADER_BYTES
+        c.limit = base + CHUNK_HEADER_BYTES + (chunk.slotCount as uint64) * slot
+        h.stats.chunks = h.stats.chunks + 1
+        wordsPush(h.chunks, base)
+        setAdd(h.chunkSet, base)
+    end
+end
+
+--- Slots of a chunk handed out at least once: the sweep and the slot check
+--- look no further, so a chunk's untouched tail stays untouched.
+export function chunkUsed(h: Heap*, base: uint64): uint64
+    @unsafe do
+        local chunk = native.pointer(base) as ChunkHeader*
+        local c = classAt(h, chunk.sizeClass as uint64)
+        if c.chunk == base then
+            return (c.cursor - base - CHUNK_HEADER_BYTES) // c.slotBytes
+        end
+        return chunk.used as uint64
+    end
+end
+
+-- ---- allocation ---------------------------------------------------------------------
+
+--- The color a new object takes (4.3): white when idle, black while marking,
+--- and while sweeping black ahead of the cursor and white behind it.
+local function colorAt(h: Heap*, header: uint64, class: uint64): uint64
+    @unsafe do
+        if h.phase == PHASE_IDLE then
+            return COLOR_WHITE
+        end
+        if h.phase == PHASE_MARKING or class == CLASS_LARGE then
+            return COLOR_BLACK
+        end
+        local base = header & ~CHUNK_MASK
+        local chunk = native.pointer(base) as ChunkHeader*
+        local index = chunk.index as uint64
+        if index < h.sweepChunk then
+            return COLOR_WHITE
+        end
+        if index == h.sweepChunk then
+            local slot = (header - base - CHUNK_HEADER_BYTES) // (chunk.slotSize as uint64)
+            if slot < h.sweepSlot then
+                return COLOR_WHITE
+            end
+        end
+        return COLOR_BLACK
+    end
+end
+
+local function allocLarge(h: Heap*, size: uint64): uint64
+    @unsafe do
+        local bytes = pageRound(size + LARGE_PREFIX)
+        local base = mapOrFail(bytes)
+        native.store64(native.pointer(base), 0, h.large.count)
+        native.store64(native.pointer(base), 8, bytes)
+        local header = base + LARGE_PREFIX
+        wordsPush(h.large, header)
+        setAdd(h.largeSet, header)
+        h.stats.large = h.stats.large + 1
+        return header
+    end
+end
+
+--- A slot for an object of `size` bytes, header included: the class's last
+--- freed slot, else its next untouched one, else a fresh chunk's first.
+local function takeSlot(h: Heap*, class: uint64): uint64
+    @unsafe do
+        local c = classAt(h, class)
+        local free = c.free
+        if free ~= 0 then
+            c.free = (native.pointer(free) as Header*).auxPtr
+            return free
+        end
+        if c.cursor >= c.limit then
+            newChunk(h, class)
+        end
+        local slot = c.cursor
+        c.cursor = slot + c.slotBytes
+        return slot
+    end
+end
+
+--- Allocates an object of `kind` with `inlineBytes` of payload and answers
+--- its header, colored for where the collector stands. Nothing collects
+--- here: the collector's `allocate` runs its safepoint first. The payload is
+--- what the slot last held; the caller initializes it.
+export function allocRaw(h: Heap*, kind: uint64, inlineBytes: uint64): Header*
+    @unsafe do
+        local size = HEADER_BYTES + inlineBytes
+        local class = classFor(h, size)
+        local header: uint64 = 0
+        if class == CLASS_LARGE then
+            header = allocLarge(h, size)
+        else
+            header = takeSlot(h, class)
+        end
+        local o = native.pointer(header) as Header*
+        o.kind = kind
+        o.color = colorAt(h, header, class)
+        o.sizeClass = class
+        o.flags = 0
+        o.epoch = h.stats.cycles
+        o.size = size
+        o.aux = 0
+        o.auxPtr = header + HEADER_BYTES
+        o.auxLen = 0
+        h.liveCount = h.liveCount + 1
+        h.liveBytes = h.liveBytes + size
+        h.debt = h.debt + size
+        h.stats.allocated = h.stats.allocated + 1
+
+        return o
+    end
+end
+
+--- Accounts bytes an object owns outside its slot (a table's parts), as
+--- `Heap::account_resize` does: growth is allocation debt.
+export function accountResize(h: Heap*, before: uint64, after: uint64): nil
+    @unsafe do
+        if after >= before then
+            h.liveBytes = h.liveBytes + (after - before)
+            h.debt = h.debt + (after - before)
+        else
+            h.liveBytes = h.liveBytes - (before - after)
+        end
+    end
+end
+
+--- Returns a dead object's memory: to its class's free list, or its mapping
+--- to the system, or, under stress and quarantine, keeps it as a tombstone
+--- that is never reused. The header keeps its former kind in `aux`.
+export function reclaim(h: Heap*, o: Header*): nil
+    @unsafe do
+        local address = native.address(o as voidptr)
+        h.liveBytes = h.liveBytes - (o.size as uint64)
+        h.liveCount = h.liveCount - 1
+        h.stats.freed = h.stats.freed + 1
+        o.aux = o.kind
+        o.kind = KIND_FREED
+        o.auxLen = 0
+        o.color = COLOR_WHITE
+        if h.stress or h.quarantine then
+            o.flags = F_TOMBSTONE
+            o.auxPtr = 0
+            h.stats.tombstones = h.stats.tombstones + 1
+            return
+        end
+        if o.sizeClass as uint64 == CLASS_LARGE then
+            local base = address - LARGE_PREFIX
+            setWordAt(h.large, native.load64(native.pointer(base), 0), 0)
+            setRemove(h.largeSet, address)
+            unmapAt(base, native.load64(native.pointer(base), 8))
+            return
+        end
+        local c = classAt(h, o.sizeClass as uint64)
+        o.flags = 0
+        o.auxPtr = c.free
+        c.free = address
+    end
+end
+
+--- Whether `address` is the header of a live object: a slot boundary of a
+--- chunk inside its used slots, or a large object, and not freed. The root
+--- walk accepts a frame word only when this holds (5.1).
+export function isLiveSlot(h: Heap*, address: uint64): boolean
+    @unsafe do
+        if setHas(h.largeSet, address) then
+            return (native.pointer(address) as Header*).kind as uint64 ~= KIND_FREED
+        end
+        local base = address & ~CHUNK_MASK
+        if address < base + CHUNK_HEADER_BYTES or not setHas(h.chunkSet, base) then
+            return false
+        end
+        local chunk = native.pointer(base) as ChunkHeader*
+        local offset = address - base - CHUNK_HEADER_BYTES
+        local slot = chunk.slotSize as uint64
+        if offset % slot ~= 0 or offset // slot >= chunkUsed(h, base) then
+            return false
+        end
+        return (native.pointer(address) as Header*).kind as uint64 ~= KIND_FREED
+    end
+end
+
+--- The header behind an object value.
+export function objectHeader(value: uint64): Header*
+    @unsafe do
+        return native.pointer(value & values.PAYLOAD) as Header*
+    end
+end
+
+--- Whether a value is a heap object.
+export function isObject(value: uint64): boolean
+    @unsafe do
+        return value & values.TAG_MASK == values.TAG_OBJ
+    end
+end
+
+--- The value of an object.
+export function objectValue(o: Header*): uint64
+    @unsafe do
+        return values.TAG_OBJ | native.address(o as voidptr)
+    end
+end
+
+-- ---- the gray stack
+-- ------------------------------------------------------------------
+
+export function grayPush(h: Heap*, o: Header*): nil
+    @unsafe do
+        local top = h.gray
+        if top == 0 or (native.pointer(top) as Segment*).count == SEGMENT_WORDS then
+            local raw = arena.take(h.grayPool)
+            if raw == nil then
+                error("heap: no room for the gray stack")
+            end
+            local fresh = native.address(raw)
+            local segment = native.pointer(fresh) as Segment*
+            segment.previous = top
+            segment.count = 0
+            h.gray = fresh
+            top = fresh
+        end
+        local segment = native.pointer(top) as Segment*
+        native.store64(native.pointer(top), native.index(16 + segment.count * 8), native.address(o as voidptr))
+        segment.count = segment.count + 1
+    end
+end
+
+--- The most recently grayed object's address, or zero when none is left.
+export function grayPop(h: Heap*): uint64
+    @unsafe do
+        while h.gray ~= 0 do
+            local top = h.gray
+            local segment = native.pointer(top) as Segment*
+            if segment.count > 0 then
+                segment.count = segment.count - 1
+                return native.load64(native.pointer(top), native.index(16 + segment.count * 8))
+            end
+            h.gray = segment.previous
+            arena.give(h.grayPool, native.pointer(top))
+        end
+        return 0
+    end
+end
+
+export function grayEmpty(h: Heap*): boolean
+    @unsafe do
+        local top = h.gray
+        while top ~= 0 do
+            local segment = native.pointer(top) as Segment*
+            if segment.count > 0 then
+                return false
+            end
+            top = segment.previous
+        end
+        return true
+    end
+end
