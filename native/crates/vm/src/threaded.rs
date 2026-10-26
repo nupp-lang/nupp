@@ -92,6 +92,7 @@ codes! {
     VarargN,
     CallMethod,
     PCall, Raise, Defer, DeferMethod, DisarmAt, RearmAt, CleanupLive, Unwind,
+    Switch,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -199,8 +200,36 @@ pub fn encode(op: &Op) -> Ins {
         Op::RearmAt(depth, v, c) => Ins { imm: depth as i32, ..i(Code::RearmAt, v, c, 0) },
         Op::CleanupLive(d, depth) => Ins { imm: depth as i32, ..i(Code::CleanupLive, d, 0, 0) },
         Op::Unwind(depth) => Ins { imm: depth as i32, ..i(Code::Unwind, 0, 0, 0) },
+        Op::Switch(r, t) => Ins { imm: t as i32, ..i(Code::Switch, r, 0, 0) },
         _ => i(Code::Slow, 0, 0, 0),
     }
+}
+
+/// The 32-bit words of a function's jump tables as `Switch` reads them past
+/// its last instruction (`FuncInfo.ncode`): a start word per table, then at
+/// each start the table's length, its default offset and its offsets, all
+/// relative to the instruction after the `Switch`.
+fn jump_words(f: &Function) -> Vec<i32> {
+    let mut words: Vec<i32> = vec![0; f.jump_tables.len()];
+    for (t, (default, offsets)) in f.jump_tables.iter().enumerate() {
+        words[t] = words.len() as i32;
+        words.push(offsets.len() as i32);
+        words.push(*default);
+        words.extend_from_slice(offsets);
+    }
+    while words.len() % 4 != 0 { words.push(0); }
+    words
+}
+
+/// A function's code as the core reads it: each instruction encoded, then
+/// its jump tables packed four words to an instruction slot.
+pub fn encode_function(f: &Function) -> Vec<Ins> {
+    let mut ins: Vec<Ins> = f.code.iter().map(encode).collect();
+    for w in jump_words(f).chunks(4) {
+        let b = w[0].to_le_bytes();
+        ins.push(Ins { op: b[0], a: b[1], b: b[2], c: b[3], imm: w[1], k: (w[2] as u32 as i64) | ((w[3] as i64) << 32) });
+    }
+    ins
 }
 
 /// Whether the task's instruction budget applies: a scheduled task's.
@@ -415,7 +444,7 @@ impl Interp {
     pub fn prepare_threaded(&mut self) {
         if std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
-        for f in &mut self.funcs { if f.ins.len() != f.code.len() { f.ins = f.code.iter().map(encode).collect(); } }
+        for f in &mut self.funcs { if f.ins.len() != f.code.len() + jump_words(f).len() / 4 { f.ins = encode_function(f); } }
         self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
         self.threaded = true;
     }

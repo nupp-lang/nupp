@@ -1146,6 +1146,30 @@ fn native_calls_spread_varargs_below_the_callee_header() {
     }
 }
 
+/// `Switch` reads its function's jump tables past the last instruction
+/// (`FuncInfo.ncode`), as `encode_function` packs them: a start word per
+/// table, then each table's length, default and offsets, relative to the
+/// instruction after the switch. An index past either end takes the default.
+#[test]
+fn native_switch_reads_the_tables_past_the_code() {
+    let words: [i32; 12] = [2, 7, 3, 4, 0, 1, 2, 1, -3, -4, 0, 0];
+    for (table, index, target) in [(0, 0, 5), (0, 2, 7), (0, 3, 9), (0, -1, 9), (1, 0, 1), (1, 5, 2)] {
+        let mut code = vec![Ins::default(); 10];
+        code[4] = Ins { op: Code::Switch as u8, a: 2, imm: table, ..Ins::default() };
+        for w in words.chunks(4) {
+            let b = w[0].to_le_bytes();
+            code.push(Ins { op: b[0], a: b[1], b: b[2], c: b[3], imm: w[1], k: (w[2] as u32 as i64) | ((w[3] as i64) << 32) });
+        }
+        let mut m = Machine::new(code, vec![Ins::default()], 0);
+        m.funcs[0].ncode = 10;
+        m.sync();
+        let off_i = m.funcs[0].off_i as usize;
+        m.stack[off_i + 2] = index as u64;
+        let exit = unsafe { m.run(4) };
+        assert_eq!(exit, m.code(0, target), "table {table} index {index}");
+    }
+}
+
 /// A caller frame at 0 that called at pc 5, and a callee frame above it with
 /// `values` in its registers from 0.
 fn returning(values: &[u64], indirect: bool) -> Box<Machine> {

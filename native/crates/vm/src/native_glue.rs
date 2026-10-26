@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 60] = [
+pub const LAYOUT_FIELDS: [&str; 61] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -32,6 +32,7 @@ pub const LAYOUT_FIELDS: [&str; 60] = [
     "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
     "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
     "cleanups", "ncleanups", "Cleanup.size", "Cleanup.frame", "Cleanup.value", "Cleanup.callback",
+    "FuncInfo.ncode",
 ];
 
 /// A field of a table's hash part (`ValueTable`), from the object's start.
@@ -105,6 +106,8 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "Cleanup.frame" => offset_of!(crate::interp::Cleanup, frame),
         "Cleanup.value" => offset_of!(crate::interp::Cleanup, value),
         "Cleanup.callback" => offset_of!(crate::interp::Cleanup, callback),
+        // Where a function's jump tables begin, past its code.
+        "FuncInfo.ncode" => offset_of!(FuncInfo, ncode),
         _ => return Err("unknown context field".into()),
     })
 }
@@ -309,6 +312,7 @@ fn metadata_header() -> String {
         ("calls", offset_of!(FuncInfo, calls)),
         ("typed", offset_of!(FuncInfo, typed)),
         ("native", offset_of!(FuncInfo, native)),
+        ("ncode", offset_of!(FuncInfo, ncode)),
     ] {
         metadata.push_str(&format!(
             "assert!(std::mem::offset_of!(FuncInfo, {field}) == {offset});\n"

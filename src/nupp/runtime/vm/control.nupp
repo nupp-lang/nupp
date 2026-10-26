@@ -377,3 +377,35 @@ export function Unwind(
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
+
+-- `Switch i t`: jump table `t` of the frame's own function indexed by the
+-- integer register `i`, its default past either end. The tables lie past
+-- the function's last instruction (`FuncInfo.ncode`): a start word per
+-- table, then at each start the length, the default and the offsets, each
+-- relative to the next instruction. A backward target charges no budget,
+-- as in the step, which does not count a switch among its back edges.
+export function Switch(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local i = native.loadIndex(ints, native.load8(pc, 1) * 8)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local tables = native.offset(
+        native.loadPointer(info, native.layout("FuncInfo.code")),
+        native.load32(info, native.layout("FuncInfo.ncode")) * 16
+    )
+    local start = native.load32(tables, native.load32(pc, 4) * 4)
+    local offset = native.load32(tables, (start + 1) * 4)
+    if native.both(i >= 0, i < native.load32(tables, start * 4)) then
+        offset = native.load32(tables, (start + 2 + i) * 4)
+    end
+
+    return native.dispatch(native.offset(pc, (offset + 1) * 16), regs, ints, floats, context, frame)
+end
