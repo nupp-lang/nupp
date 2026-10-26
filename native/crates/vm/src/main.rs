@@ -219,7 +219,7 @@ pub(crate) fn main() {
         let result = match (args.get(2).map(String::as_str), args.len()) {
             (Some("layouts"), 4) => native_glue::write_layouts(&args[3]),
             (Some("object"), 5) => native_glue::write_object(&args[3], &args[4]),
-            (Some("jit"), 5..) => native_glue::jit(&args[3], &args[4], &args[5..]),
+            (Some("jit"), 5..) => nupp_vm::native_jit::jit(&args[3], &args[4], &args[5..]),
             _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...])"); std::process::exit(2) }
         };
         if let Err(problem) = result { eprintln!("{problem}"); std::process::exit(1) }

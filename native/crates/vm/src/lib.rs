@@ -107,6 +107,8 @@ mod dispatch;
 pub mod jit;
 #[cfg(feature = "aot")]
 pub mod native_glue;
+#[cfg(feature = "aot")]
+pub mod native_jit;
 
 #[cfg(feature = "compiled-runtime")]
 pub mod compiled;

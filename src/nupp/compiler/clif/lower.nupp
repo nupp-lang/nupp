@@ -37,10 +37,12 @@ local lower = {}
 --- The intrinsics declaration the runtime sources are written against.
 lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
 
---- The declaration of the Rust helpers a handler may call by C ABI; a member
---- `name` is the symbol `nupp_rt_<name in snake case>`, with the kinds its
---- declared signature says.
-lower.HELPERS = "nupp.runtime.vm.helpers"
+--- The declarations of what the runtime exports to native code, by C ABI,
+--- and the symbol prefix each declares under: a member `name` of the module
+--- is the symbol `<prefix><name in snake case>`, with the kinds its declared
+--- signature says. `helpers` are the interpreter's Rust helpers; `os` the
+--- operating-system edges (pages, threads, files).
+lower.HELPER_MODULES = {["nupp.runtime.vm.helpers"] = "nupp_rt_", ["nupp.runtime.vm.os"] = "nupp_os_"}
 
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
@@ -53,11 +55,11 @@ lower.RUNTIME_MODULES = {
 }
 
 local INTRINSICS = lower.INTRINSICS
-local HELPERS = lower.HELPERS
+local HELPER_MODULES: {[string]: string} = lower.HELPER_MODULES
 
--- `getIndexNum` is `nupp_rt_get_index_num`.
-local function helperSymbol(member: string): string
-    return "nupp_rt_" .. member:gsub("%u", function(letter: string): string
+-- `getIndexNum` under `nupp_rt_` is `nupp_rt_get_index_num`.
+local function helperSymbol(prefix: string, member: string): string
+    return prefix .. member:gsub("%u", function(letter: string): string
         return "_" .. letter:lower()
     end)
 end
@@ -442,16 +444,21 @@ local function compileFunction(fn: Fn, options: any): string
     -- materializing every flag.
     local branchOn
 
-    local function callsInto(n: any, moduleName: string): boolean
-        return n.kind == "call"
+    -- The module a call reaches into through a required binding, if any.
+    local function calledModule(n: any): string?
+        if n.kind == "call"
             and n.obj.kind == "dotIndex"
             and n.obj.obj.kind == "name"
             and n.obj.obj.token.definition ~= nil
-            and n.obj.obj.token.definition.requiredModule == moduleName
+        then
+            return n.obj.obj.token.definition.requiredModule
+        end
+
+        return nil
     end
 
     local function isIntrinsicCall(n: any): boolean
-        return callsInto(n, INTRINSICS)
+        return calledModule(n) == INTRINSICS
     end
 
     local function isIntrinsic(n: any, intrinsicName: string): boolean
@@ -618,7 +625,7 @@ local function compileFunction(fn: Fn, options: any): string
 
     -- A call into the helpers declaration: a C ABI call to the exported
     -- symbol, with the kinds the declared signature says.
-    local function helperCall(n: any): any
+    local function helperCall(n: any, prefix: string): any
         need(handlers, "Rust helpers belong to handler modules")
         local member = n.obj.name.text
         local signature = raw(n.obj.inferredType)
@@ -766,8 +773,8 @@ local function compileFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
-        elseif callsInto(n, HELPERS) then
-            return helperCall(n)
+        elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
+            return helperCall(n, HELPER_MODULES[calledModule(n) as string] as string)
         elseif n.kind == "call" then
             local target = need(resolveCallee(n, scope, modules), "only direct calls to module functions") as Fn
             local known = callee(target)
@@ -1284,7 +1291,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     for _, entry in ipairs(pending) do
         for _, required in ipairs(entry.requires) do
             need(
-                required == INTRINSICS or required == HELPERS or modules[required] ~= nil,
+                required == INTRINSICS or HELPER_MODULES[required] ~= nil or modules[required] ~= nil,
                 entry.scope.name .. " requires " .. required .. ", which is not native code"
             )
         end
