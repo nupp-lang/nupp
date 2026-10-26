@@ -20,5 +20,6 @@ local record Helpers
     enterFrame: function(context: voidptr, pc: int64, hot: int64): uint64
     newString: function(context: voidptr, length: int64): uint64
     intern: function(context: voidptr, value: uint64): uint64
+    newTable: function(context: voidptr, n: int64, m: int64): uint64
 end
 return Helpers

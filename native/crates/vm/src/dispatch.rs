@@ -157,6 +157,20 @@ mod native_helpers {
         let it = unsafe { &mut *((*ctx).interp as *mut crate::interp::Interp) };
         it.heap.intern_string(Value(s)).0
     }
+    /// A new table with room for `n` array entries and `m` hash entries: the
+    /// allocation, which is the heap's until N05; its contents are the
+    /// handlers'.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_table(ctx: *mut Ctx, n: i64, m: i64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let v = it.guarded(|it| it.new_table_sized(n as usize, m as usize));
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
 }
 
 #[cfg(test)]

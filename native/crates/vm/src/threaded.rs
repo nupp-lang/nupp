@@ -85,6 +85,7 @@ codes! {
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
     PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
     Concat,
+    NewTable, NewTableN,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -177,6 +178,8 @@ pub fn encode(op: &Op) -> Ins {
         Op::SetIdx(t, k, v) => i(Code::SetIdx, t, k, v),
         Op::Mod(d, a, b) => i(Code::Mod, d, a, b),
         Op::Concat(d, a, b) => i(Code::Concat, d, a, b),
+        Op::NewTable(d) => i(Code::NewTable, d, 0, 0),
+        Op::NewTableN(d, n, m) => i(Code::NewTableN, d, n, m),
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

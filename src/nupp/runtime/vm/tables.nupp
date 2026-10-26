@@ -1,0 +1,39 @@
+module nupp.runtime.vm.tables
+
+-- Tables (contracts 2.4, 2.13, 4.2): construction, the hash part's lookup and
+-- insertion, the array part and its border, written against the heap layout
+-- the glue measures. Allocation is the heap's until N05: a new table, the
+-- array part's length and a rehash are helpers; every other table operation
+-- is here.
+const native = require("nupp.runtime.vm.intrinsics")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+-- A new table in register `a`, with room for `n` array and `m` hash entries.
+local function newTableSlow(pc: voidptr, context: voidptr, n: int64, m: int64): uint64
+    protocol.publishPc(pc, context)
+    local table = helpers.newTable(context, n, m)
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), table, true)
+end
+
+export function NewTable(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return newTableSlow(pc, context, 0, 0)
+end
+
+export function NewTableN(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return newTableSlow(pc, context, native.load8(pc, 2), native.load8(pc, 3))
+end
