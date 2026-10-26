@@ -191,6 +191,33 @@ pub(crate) mod native_helpers {
         it.heap.account_resize(before, h.external_bytes());
         sync(ctx, it);
     }
+    /// A closure over function `fid` with `n` nil captures the core fills in
+    /// place, under the barrier while marking (contracts 4.2): an allocation,
+    /// so a collection may run here, under the published pc.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_closure(ctx: *mut Ctx, fid: u64, n: u64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let captures = vec![Value::NIL; n as usize];
+        let v = it.guarded(|it| it.new_closure(fid as u32, &captures));
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
+    /// A cell holding nil, filled by the core as a closure is.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_cell(ctx: *mut Ctx) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let v = it.guarded(|it| it.new_cell(Value::NIL));
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
 }
 
 #[cfg(test)]

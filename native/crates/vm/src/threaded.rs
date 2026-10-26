@@ -86,6 +86,7 @@ codes! {
     PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
     Concat,
     NewTable, NewTableN, SetField,
+    NewClosure, NewCell,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -181,6 +182,8 @@ pub fn encode(op: &Op) -> Ins {
         Op::NewTable(d) => i(Code::NewTable, d, 0, 0),
         Op::NewTableN(d, n, m) => i(Code::NewTableN, d, n, m),
         Op::SetField(t, k, s) => Ins { imm: k as i32, ..i(Code::SetField, t, s, 0) },
+        Op::NewClosure(d, f, b, n) => Ins { k: f as i64, ..i(Code::NewClosure, d, b, n) },
+        Op::NewCell(d, a) => i(Code::NewCell, d, a, 0),
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

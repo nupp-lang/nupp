@@ -1,0 +1,82 @@
+module nupp.runtime.vm.closures
+
+--[[
+Closures and cells (contracts 2.1): a closure is a heap object of kind closure
+whose header carries its function id and whose slots are the values it
+captured; a cell is an object of kind cell with one slot, shared by every
+closure that captured the variable. Both are allocated through a helper until
+N05 and filled here, under the insertion barrier (4.2) while marking: an
+object allocated during marking is black, so a reference stored into it
+greys the child, as every later store does.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+-- The captures are the caller's registers from `base + 1`, copied into the
+-- closure once it exists: the allocation may collect, so they are read from
+-- the window, which the root walk scans, only after it.
+local function newClosureSlow(pc: voidptr, context: voidptr, fid: uint64, base: int64, count: int64): uint64
+    protocol.publishPc(pc, context)
+    local closure = helpers.newClosure(context, native.index(fid), count)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local regs = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8) + 32)
+    local slots = native.loadPointer(native.pointer(closure & values.PAYLOAD), native.layout("Header.aux_ptr"))
+    local marking = native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0
+    local i: int64 = 0
+    while i < count do
+        local captured = native.load64(regs, (base + 1 + i) * 8)
+        native.store64(slots, i * 8, captured)
+        if marking then
+            helpers.barrier(context, closure, captured)
+        end
+        i = i + 1
+    end
+
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), closure, true)
+end
+
+-- `NewClosure d fid base n`: a closure over the function capturing the `n`
+-- values from `base + 1`.
+export function NewClosure(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return newClosureSlow(pc, context, native.load64(pc, 8), native.load8(pc, 2), native.load8(pc, 3))
+end
+
+local function newCellSlow(pc: voidptr, context: voidptr, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    local cell = helpers.newCell(context)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local slot = native.loadPointer(native.pointer(cell & values.PAYLOAD), native.layout("Header.aux_ptr"))
+    native.store64(slot, 0, value)
+    if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+        helpers.barrier(context, cell, value)
+    end
+
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), cell, true)
+end
+
+-- `NewCell d v`: a cell holding the value.
+export function NewCell(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return newCellSlow(pc, context, native.load64(regs, native.load8(pc, 2) * 8))
+end

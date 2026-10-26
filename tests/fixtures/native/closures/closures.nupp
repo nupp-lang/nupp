@@ -1,0 +1,92 @@
+-- Closures and cells through the native core's `NewClosure` and `NewCell`:
+-- captured values and shared cells, closures over closures, many captures,
+-- and enough allocation in a loop that collections run between a closure's
+-- allocation and its captures' stores. Every line is checked against a
+-- literal here and printed for the differential run.
+local out: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local function counter(start: number): (function(): number, function(): number)
+    local n = start
+
+    return function(): number
+        n = n + 1
+        return n
+    end, function(): number
+        return n
+    end
+end
+
+local bump, peek = counter(10)
+bump()
+bump()
+show("shared", peek(), 12)
+
+local function adder(x: number): function(y: number): number
+    return function(y: number): number
+        return x + y
+    end
+end
+
+show("captured", adder(3)(4), 7)
+
+local function compose(f: function(x: number): number, g: function(x: number): number): function(x: number): number
+    return function(x: number): number
+        return f(g(x))
+    end
+end
+
+show("nested", compose(adder(1), adder(10))(100), 111)
+
+local a, b, c, d, e = "a", "b", "c", "d", "e"
+local five = function(): string
+    return a .. b .. c .. d .. e
+end
+show("many", five(), "abcde")
+
+local label = string.rep("w", 50)
+local closures: {function(): string} = {}
+for i = 1, 3000 do
+    local text = label .. i
+    local box = {text}
+    closures[#closures + 1] = function(): string
+        return box[1] .. ":" .. text
+    end
+end
+show("loopFirst", closures[1](), label .. "1:" .. label .. "1")
+show("loopLast", closures[3000](), label .. "3000:" .. label .. "3000")
+
+local cells: {function(): number} = {}
+for i = 1, 2000 do
+    local v = i
+    cells[#cells + 1] = function(): number
+        v = v + 1
+        return v
+    end
+end
+local total = 0
+for _, f in ipairs(cells) do
+    total = total + f() + f()
+end
+show("cells", total, 2 * (2000 * 2001 // 2) + 3 * 2000)
+
+local function fib(): function(): number
+    local x, y = 0, 1
+
+    return function(): number
+        x, y = y, x + y
+        return x
+    end
+end
+
+local next = fib()
+for _ = 1, 29 do
+    next()
+end
+show("fib", next(), 832040)
+
+print(table.concat(out, "\n"))
