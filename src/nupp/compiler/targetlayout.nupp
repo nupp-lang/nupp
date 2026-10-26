@@ -332,6 +332,9 @@ function targetLayout.of(t: any, key: string): any?, string?
         local fixed = FIXED[subject.tag]
         if fixed then
             return fixed
+        elseif subject.tag == "literal" and type(subject.constant) == "number" then
+            -- A tag field holds one integer value at the width of a C enumerator.
+            return FIXED.int32
         elseif subject.tag == "number" then
             return model.number
         elseif subject.tag == "int64" or subject.tag == "uint64" then
@@ -351,6 +354,17 @@ function targetLayout.of(t: any, key: string): any?, string?
                     or other.tag == "func" and other.foreign
                 )
             then
+                return model.pointer
+            end
+        elseif subject.tag == "union" then
+            -- A union of pointers is one pointer whichever member it holds.
+            local pointers = true
+            for _, member in ipairs(subject.members) do
+                if member.tag ~= "nil" and member.tag ~= "ptr" then
+                    pointers = false
+                end
+            end
+            if pointers then
                 return model.pointer
             end
         elseif subject.tag == "carray" then

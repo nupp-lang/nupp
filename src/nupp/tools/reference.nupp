@@ -988,6 +988,61 @@ return m
     ),
 
     new reference.Section(
+        title = "Tagged struct unions",
+        codes = {"NUPP2201", "NUPP2004"},
+        body = [=[
+A struct field may have an integer literal type, `kind: 1`. The field holds that
+one value and is stored as the `int32` a C enumerator occupies; writing any
+other value to it is refused, so the tag cannot drift from the declaration.
+
+A union of pointers to such structs, `m.Leaf* | m.Pair*`, is a tagged union with
+a C layout. It is one pointer at run time whichever member it holds, so a field
+of that type is a pointer field, with NULL among its values when the union
+admits nil, and a member pointer lands in it without a cast. Through the union
+only the fields every member lays out alike are reachable, which is what the
+tag is for: comparing it narrows the union to the member declaring that value,
+as it does for records, and that member's own fields follow in the branch. A
+member without the field is `NUPP2004` where the union reads it.
+
+The same declaration is what the native profile compiles: the tag compares as
+the `int32` it is stored at, a narrowed member reads its fields at its own
+offsets, and no pointer moves.
+]=],
+        example = [=[
+local m = {}
+
+type m.Expr = m.Leaf* | m.Pair*
+
+struct m.Leaf
+    kind: 1
+    value: int64
+end
+
+struct m.Pair
+    kind: 2
+    left: m.Expr
+    right: m.Expr
+end
+
+function m.eval(expr: m.Expr): int64
+    if expr.kind == 1 then
+        return expr.value
+    else
+        return m.eval(expr.left) + m.eval(expr.right)
+    end
+end
+
+function m.leaf(node: m.Leaf*, value: int64): m.Expr
+    @unsafe node.kind = 1
+    @unsafe node.value = value
+    return node
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[

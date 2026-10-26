@@ -685,10 +685,24 @@ function narrow.install(c: state.Checker): narrow.Ops
             return nil, nil, nil
         end
         local baseKey = facts.pathKey(discNode.obj)
-        local baseT = c.refType(discNode.obj)
+        local heldT = c.refType(discNode.obj)
+        -- A borrowed union of struct pointers is still the union it narrows
+        -- as; the qualifier is kept on what the test leaves.
+        local baseT = heldT and T.unwrapOwnership(heldT) or nil
         if not baseKey or not baseT or baseT.tag ~= "union" then
             return nil, nil, nil
         end
+
+        local function requalify(narrowed: Type): Type
+            if heldT.tag == "borrowed" then
+                return T.borrowed(narrowed)
+            elseif heldT.tag == "pinned" then
+                return T.pinned(narrowed)
+            end
+
+            return narrowed
+        end
+
         local kept, dropped = {}, {}
         for _, m in ipairs(baseT.members) do
             local ft = c.fieldType(m, discNode.name.text)
@@ -709,7 +723,7 @@ function narrow.install(c: state.Checker): narrow.Ops
             return nil, nil, nil
         end
 
-        return baseKey, T.union(kept), T.union(dropped)
+        return baseKey, requalify(T.union(kept)), requalify(T.union(dropped))
     end
 
     --- Whether an expression is one no run can find falsy, which is what lets the

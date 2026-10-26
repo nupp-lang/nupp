@@ -152,6 +152,12 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     if REIFIABLE_PRIM[t.tag] then
         return true
     end
+    -- An integer literal type is a tag: the field holds that one value, stored
+    -- as an `int32` the way a C enumerator is. It is what makes a union of
+    -- struct pointers a tagged union the checker can narrow by the field.
+    if t.tag == "literal" and type(t.constant) == "number" then
+        return true
+    end
     -- cstring/voidptr are legal in C-declared structs only: in a GC-managed struct a
     -- "const char *" field would dangle (no anchor)
     if isCdef and (t.tag == "cstring" or t.tag == "voidptr") then
@@ -195,6 +201,17 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
             return true
         end
         return false
+    end
+    -- A union of struct pointers is one pointer whichever member it holds, so a
+    -- field of it is a pointer field; with nil among the members, NULL is one
+    -- of its values.
+    if t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if member ~= T.nil_ and member.tag ~= "ptr" then
+                return false
+            end
+        end
+        return true
     end
 
     return false

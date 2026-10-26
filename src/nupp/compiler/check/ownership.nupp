@@ -206,7 +206,9 @@ function ownership.install(c: state.Checker): ownership.Ops
         if t.tag == "ptr" or t.tag == "carray" or t == T.cstring or t == T.voidptr then
             return true
         end
-        if t.tag == "union" and t.hasNil then
+        -- A union of pointers is one pointer at run time, whichever member it
+        -- holds; with nil among them, NULL is one of its values.
+        if t.tag == "union" then
             for _, member in ipairs(t.members) do
                 if member ~= T.nil_ and not own.pointerShaped(member) then
                     return false

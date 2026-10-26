@@ -393,6 +393,16 @@ function metadata.structLayout(declaration, target)
         if subject.tag == "func" and subject.foreign then
             return subject
         end
+        if subject.tag == "union" then
+            -- A union of struct pointers is one pointer that names no single
+            -- pointee.
+            for _, member in ipairs(subject.members or {}) do
+                if member.tag ~= "nil" and member.tag ~= "ptr" then
+                    return nil
+                end
+            end
+            return types.voidptr
+        end
 
         return nil
     end
@@ -404,6 +414,10 @@ function metadata.structLayout(declaration, target)
         end
         if not subject then
             return nil, "unresolved stored type"
+        end
+        if subject.tag == "literal" and type(subject.constant) == "number" then
+            -- A tag field is stored as the `int32` a C enumerator occupies.
+            subject = types.int32
         end
         local pointer = pointerOf(subject)
         if pointer then

@@ -145,6 +145,16 @@ local STRUCTS = {
     {"words", {"buffer:64", 8}, "24"},
 }
 
+-- (a + b) * (c + d) over seven nodes written into the buffer; `chain` links
+-- cells holding every other leaf and sums what they hold.
+local TAGGED = {
+    {"evaluate", {"buffer:512", 1, 2, 3, 4}, "21"}, {"evaluate", {"buffer:512", -5, 5, 7, 0}, "0"},
+    {"evaluate", {"buffer:512", 10, 20, 3, 4}, "210"},
+    {"leaves", {"buffer:512", 1, 2, 3, 4}, "4"}, {"sums", {"buffer:512", 1, 2, 3, 4}, "2"},
+    {"tagOf", {"buffer:512", 0}, "3"}, {"tagOf", {"buffer:512", 1}, "2"}, {"tagOf", {"buffer:512", 2}, "2"},
+    {"chain", {"buffer:512", 6}, "60"}, {"chain", {"buffer:512", 1}, "0"}, {"chain", {"buffer:512", 0}, "0"},
+}
+
 local function check(clif, cases)
     for _, case in ipairs(cases) do
         local name, args, expected = case[1], case[2], case[3]
@@ -166,6 +176,10 @@ end
 
 function M.structFieldsLowerAtTheCompilersLayoutOffsets()
     check(compileFixture("structs"), STRUCTS)
+end
+
+function M.taggedUnionsOfStructPointersNarrowByTheirTagField()
+    check(compileFixture("tagged"), TAGGED)
 end
 
 -- Handler modules written against a temporary include root beside `src`, so

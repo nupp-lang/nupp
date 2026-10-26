@@ -70,6 +70,41 @@ function M.fieldValidation()
     testAssert.equal((diagsOf("local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
 end
 
+-- An integer literal field is a tag stored as `int32`; a union of struct
+-- pointers is one pointer, so a field of it is reifiable too.
+function M.tagFieldsAndPointerUnionsAreReifiable()
+    local TAGGED = "local struct Leaf\n   kind: 1\n   value: int64\nend\n"
+        .. "local struct Pair\n   kind: 2\n   left: Leaf* | Pair*\n   right: Leaf* | Pair* | nil\nend\n"
+    assertClean(TAGGED)
+    -- the tag admits only its own value, and a wider union is not a pointer
+    testAssert.equal((diagsOf(TAGGED .. "local function f(p: Leaf*): nil\n   @unsafe p.kind = 2\nend")), "NUPP2001:11")
+    testAssert.equal((diagsOf("local struct S\n   mixed: S* | int64\nend")), "NUPP2201:2")
+    -- comparing the tag narrows a union of struct pointers, through a borrowed parameter too
+    assertClean(TAGGED .. "local function eval(e: Leaf* | Pair*): int64\n"
+        .. "   if e.kind == 1 then\n      return e.value\n   else\n      return eval(e.left)\n   end\nend")
+    testAssert.equal((diagsOf(TAGGED .. "local function f(e: Leaf* | Pair*): int64\n   return e.value\nend")), "NUPP2004:11")
+    -- the layout: an int32 tag, then the pointers at the pointer's alignment
+    local _, diags = compile(TAGGED .. "return Pair", "tagged_layout.nupp", "tagged_layout")
+    testAssert.equal(#diags, 0, "layout program checks")
+    local pair = require("nupp.compiler.syntax.parser").parse(TAGGED, "t.nupp")
+    local checked = check.check(pair, "t2.nupp", env, {moduleName = "tagged_layout_2"})
+    testAssert.equal(#checked, 0)
+    local decl
+    for _, block in ipairs(pair.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            if stat.kind == "recordDecl" and stat.name.text == "Pair" then
+                decl = stat
+            end
+        end
+    end
+    local layout = assert(targetLayout.of(decl.resolvedType, "x86_64-unknown-linux-gnu"))
+    testAssert.equal(layout.size, 24)
+    testAssert.equal(layout.offsets.kind, 0)
+    testAssert.equal(layout.fields[1].size, 4)
+    testAssert.equal(layout.offsets.left, 8)
+    testAssert.equal(layout.offsets.right, 16)
+end
+
 function M.constructionChecking()
     assertClean(VEC .. "local v = new Vec2(1, 2)")
     assertClean(VEC .. "local v = new Vec2()")

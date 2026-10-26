@@ -4250,6 +4250,10 @@ function types.cName(t: types.Type): string?
     if C_NAME[tag] then
         return C_NAME[tag]
     end
+    if tag == "literal" and type(t.constant) == "number" then
+        -- A tag field: one integer value, stored at the width of a C enumerator.
+        return C_NAME.int32
+    end
     if tag == "nominal" and t.declKind == "struct" then
         -- Its own name, so a fingerprint distinguishes two structs of one shape and a
         -- reader sees the declaration rather than an encoding. Sizing it needs the
@@ -4278,7 +4282,16 @@ function types.cName(t: types.Type): string?
             return types.cName(other)
         end
     end
-    if tag == "nominal" then
+    if tag == "union" then
+        -- A union of struct pointers is one pointer whichever member it holds,
+        -- and names no single pointee.
+        for _, member in ipairs(t.members) do
+            if member ~= types.nil_ and member.tag ~= "ptr" then
+                return nil
+            end
+        end
+        return "void *"
+    elseif tag == "nominal" then
         -- A stored `Fixed<N>` vector is its element's C array, aligned as the
         -- target layout model lays it out, which is more than the array's own
         -- alignment and what makes the spelling measure the field it names.

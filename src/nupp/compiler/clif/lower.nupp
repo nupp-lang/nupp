@@ -96,10 +96,35 @@ end
 -- Wrappers that change what the checker knows, not the representation.
 local wrappers = {literal = "base", const = "inner", borrowed = "inner", pinned = "inner", affine = "inner"}
 
+-- The pointer members of a union, when every member but nil is one: such a
+-- union is one pointer at run time whichever member it holds.
+local function pointerMembers(t: any): {any}?
+    if not t or t.tag ~= "union" then
+        return nil
+    end
+    local members = {}
+    for _, member in ipairs(t.members) do
+        local m = member
+        while m and wrappers[m.tag] do
+            m = m[wrappers[m.tag]]
+        end
+        if m.tag == "ptr" or m.tag == "voidptr" then
+            members[#members + 1] = m
+        elseif m.tag ~= "nil" then
+            return nil
+        end
+    end
+
+    return #members > 0 and members or nil
+end
+
 local function tag(t: any): string
     t = nonnil(t)
     while t and wrappers[t.tag] do
         t = nonnil(t[wrappers[t.tag]])
+    end
+    if pointerMembers(t) then
+        return "ptr"
     end
     local kind = t and t.tag or "missing"
     -- An integer-valued number is a number here: the refinement changes no
@@ -135,6 +160,18 @@ end
 local layoutKey = targetLayout.hostKey() or "aarch64-apple-darwin"
 local fieldCache = {}
 
+-- The scalar kind a struct field is loaded and stored as. A tag field (an
+-- integer literal type) and an `integer` field occupy the `int32` a C
+-- enumerator does, whatever the checker reads them back as.
+local function fieldKind(t: any): string
+    local r = raw(t)
+    if r and (r.tag == "integer" or (r.tag == "literal" and type(r.constant) == "number")) then
+        return "int32"
+    end
+
+    return tag(t)
+end
+
 local function fieldOf(struct: any, member: string): any
     local fields = fieldCache[struct]
     if not fields then
@@ -149,7 +186,34 @@ local function fieldOf(struct: any, member: string): any
     local field = need(fields[member], "unknown field " .. member)
     need(not field.bitWidth, "bitfields")
 
-    return {offset = field.offset, kind = tag(struct.byname[member]), type = struct.byname[member]}
+    return {offset = field.offset, kind = fieldKind(struct.byname[member]), type = struct.byname[member]}
+end
+
+-- A field reached through a pointer type: a struct pointer's field, or a field
+-- every member of a union of struct pointers places at one offset with one
+-- kind, which is what a tag field is and what makes comparing it narrow the
+-- union.
+local function fieldThrough(t: any, member: string): any
+    local struct = pointee(t)
+    if struct then
+        return fieldOf(struct, member)
+    end
+    local members = need(pointerMembers(raw(t)), "field access needs a struct pointer")
+    local common = nil
+    for _, m in ipairs(members) do
+        local each = need(pointee(m), "field access needs a struct pointer")
+        local field = fieldOf(each, member)
+        if common then
+            need(
+                field.offset == common.offset and field.kind == common.kind,
+                "field " .. member .. " is not laid out alike in every member of the union"
+            )
+        else
+            common = field
+        end
+    end
+
+    return common
 end
 
 -- The machine type of a scalar Nupp type.
@@ -596,8 +660,7 @@ local function compileFunction(fn: Fn, options: any): string
 
     fieldAddress = function(n: any): any
         local base = expression(n.obj)
-        local struct = need(pointee(base.type), "field access needs a struct pointer")
-        local field = fieldOf(struct, n.name.text)
+        local field = fieldThrough(base.type, n.name.text)
         local address = emit("iadd " .. materialize(base, "ptr") .. ", " .. constant("i64", tostring(field.offset)))
 
         return {address = address, field = field}
@@ -730,7 +793,9 @@ local function compileFunction(fn: Fn, options: any): string
             if kind == "missing" or machine(kind) ~= b.typeOf(variable) then
                 kind = kindOfVariable(variable)
             end
-            return {kind = kind, value = value, type = varDecl[variable] or n.inferredType}
+            -- The checker's type at this read is the narrowed one; the declared
+            -- type stands in where a read carries none.
+            return {kind = kind, value = value, type = n.inferredType or varDecl[variable]}
         elseif n.kind == "dotIndex"
             and n.obj.kind == "name"
             and n.obj.token.definition ~= nil
@@ -1291,7 +1356,7 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
                 local definition = node.names[1].definition
                 need(definition and definition.requiredModule, "module initialization is not native code")
                 requires[#requires + 1] = definition.requiredModule
-            elseif node.kind ~= "emptyStmt" and node.kind ~= "recordDecl" then
+            elseif node.kind ~= "emptyStmt" and node.kind ~= "recordDecl" and node.kind ~= "typeAlias" then
                 error("lower: unsupported top-level statement " .. tostring(node.kind), 0)
             end
         end

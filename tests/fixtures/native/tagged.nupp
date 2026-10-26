@@ -1,0 +1,154 @@
+module tagged
+
+-- A tagged union of struct pointers: each member's leading field is an integer
+-- literal, the tag, stored as the `int32` a C enumerator occupies. Comparing
+-- it narrows the union to the member declaring that value, and a field of the
+-- union type holds whichever member was stored.
+const native = require("nupp.runtime.vm.intrinsics")
+
+local type Expr = Leaf* | Add* | Mul*
+
+local struct Leaf
+    kind: 1
+    value: int64
+end
+
+local struct Add
+    kind: 2
+    left: Expr
+    right: Expr
+end
+
+local struct Mul
+    kind: 3
+    left: Expr
+    right: Expr
+end
+
+-- Nodes live in a caller's buffer at a stride of 24 bytes, the largest member.
+local function slot(base: voidptr, index: int64): voidptr
+    return native.offset(base, index * 24)
+end
+
+local function leaf(base: voidptr, index: int64, value: int64): Expr
+    local node = slot(base, index) as Leaf*
+    @unsafe node.kind = 1
+    @unsafe node.value = value
+
+    return node
+end
+
+local function add(base: voidptr, index: int64, left: Expr, right: Expr): Expr
+    local node = slot(base, index) as Add*
+    @unsafe node.kind = 2
+    @unsafe node.left = left
+    @unsafe node.right = right
+
+    return node
+end
+
+local function mul(base: voidptr, index: int64, left: Expr, right: Expr): Expr
+    local node = slot(base, index) as Mul*
+    @unsafe node.kind = 3
+    @unsafe node.left = left
+    @unsafe node.right = right
+
+    return node
+end
+
+local function eval(expr: Expr): int64
+    if expr.kind == 1 then
+        return expr.value
+    elseif expr.kind == 2 then
+        return eval(expr.left) + eval(expr.right)
+    else
+        return eval(expr.left) * eval(expr.right)
+    end
+end
+
+local function countKind(expr: Expr, wanted: int64): int64
+    local here: int64 = 0
+    if expr.kind == wanted then
+        here = 1
+    end
+    if expr.kind == 1 then
+        return here
+    end
+
+    return here + countKind(expr.left, wanted) + countKind(expr.right, wanted)
+end
+
+-- (a + b) * (c + d), seven nodes.
+local function build(base: voidptr, a: int64, b: int64, c: int64, d: int64): Expr
+    local left = add(base, 2, leaf(base, 0, a), leaf(base, 1, b))
+    local right = add(base, 5, leaf(base, 3, c), leaf(base, 4, d))
+
+    return mul(base, 6, left, right)
+end
+
+local function evaluate(base: voidptr, a: int64, b: int64, c: int64, d: int64): int64
+    return eval(build(base, a, b, c, d))
+end
+
+local function leaves(base: voidptr, a: int64, b: int64, c: int64, d: int64): int64
+    return countKind(build(base, a, b, c, d), 1)
+end
+
+local function sums(base: voidptr, a: int64, b: int64, c: int64, d: int64): int64
+    return countKind(build(base, a, b, c, d), 2)
+end
+
+-- A tag read through the union compares as the `int32` it is stored as.
+local function tagOf(base: voidptr, which: int64): int64
+    local expr = build(base, 1, 2, 3, 4)
+    if which == 0 then
+        return expr.kind
+    end
+    local inner = expr
+    if inner.kind == 3 then
+        if which == 1 then
+            return @unsafe inner.left.kind
+        end
+        return @unsafe inner.right.kind
+    end
+
+    return -1
+end
+
+-- An optional union field: nil is one of the pointer's values.
+local struct Cell
+    kind: 4
+    item: Expr?
+    next: Cell*?
+end
+
+local function chain(base: voidptr, count: int64): int64
+    local first = native.offset(base, 256) as Cell*
+    local i: int64 = 0
+    while i < count do
+        local cell = native.offset(base, 256 + i * 24) as Cell*
+        @unsafe cell.kind = 4
+        if i % 2 == 0 then
+            @unsafe cell.item = leaf(base, i, i * 10)
+        else
+            @unsafe cell.item = nil
+        end
+        if i + 1 < count then
+            @unsafe cell.next = native.offset(base, 256 + (i + 1) * 24) as Cell*
+        else
+            @unsafe cell.next = nil
+        end
+        i = i + 1
+    end
+    local total: int64 = 0
+    local cell: Cell*? = first
+    while cell ~= nil do
+        @unsafe local item = cell.item
+        if item ~= nil then
+            total = total + eval(item)
+        end
+        @unsafe cell = cell.next
+    end
+
+    return total
+end
