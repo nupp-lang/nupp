@@ -87,6 +87,7 @@ codes! {
     Concat,
     NewTable, NewTableN, SetField,
     NewClosure, NewCell,
+    VarargN,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -184,6 +185,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::SetField(t, k, s) => Ins { imm: k as i32, ..i(Code::SetField, t, s, 0) },
         Op::NewClosure(d, f, b, n) => Ins { k: f as i64, ..i(Code::NewClosure, d, b, n) },
         Op::NewCell(d, a) => i(Code::NewCell, d, a, 0),
+        Op::VarargN(d, n) => i(Code::VarargN, d, n, 0),
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

@@ -225,8 +225,104 @@ local function pushFrame(
     end
 end
 
+-- A call whose argument count is flagged, or whose callee takes varargs
+-- (contracts 5.1). The arguments are `fixed` words from the window at
+-- `base + 1`, then a spread: with 128 the caller's own varargs, which lie
+-- below its header, their count in header word 3; with 64 the results the
+-- last call left after the fixed arguments, while they are all in the window
+-- (eight or fewer). A vararg callee keeps its surplus just below its own
+-- header, the count in its header word 3; any other callee drops it. Both
+-- flags at once, and a pack past the window, are the step's.
+local function pushSpreadSlow(
+    pc: voidptr,
+    context: voidptr,
+    fid: uint64,
+    closure: uint64,
+    base: int64,
+    nargs: int64
+): uint64
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local current = native.load64(context, native.layout("cur"))
+    local frame = native.offset(stack, native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    local callee = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(fid) * native.layout("FuncInfo.size")
+    )
+    local fixed: int64 = nargs
+    local count: int64 = 0
+    local source = native.offset(regs, (base + 1 + nargs) * 8)
+    local refused = false
+    if nargs >= 128 then
+        fixed = nargs & 127
+        count = native.index(native.load64(frame, 24) >> 49)
+        source = native.offset(frame, 0 - count * 8)
+        refused = fixed >= 64
+    elseif nargs >= 64 then
+        fixed = nargs & 63
+        count = native.loadIndex(context, native.layout("last_nres"))
+        source = native.offset(regs, (base + 1 + fixed) * 8)
+        refused = count > 8
+    end
+    local total = fixed + count
+    local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
+    local nvar: int64 = 0
+    if native.both(native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0, total > nparams) then
+        nvar = total - nparams
+    end
+    local budget = native.load64(context, native.layout("budget"))
+    local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF) + native.word(nvar)
+    local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
+    if native.either(
+        native.either(refused, budget == 0),
+        next + words > native.load64(context, native.layout("cap"))
+    ) then
+        return native.slow(pc, regs, regs, regs, context, frame)
+    end
+    native.store64(context, native.layout("budget"), budget - 1)
+    local caller = native.loadPointer(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(
+            native.load64(frame, 0) & values.LOW_WORD
+        ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
+    )
+    local resume = ((native.address(pc) - native.address(caller)) >> 4) + 1
+    native.store64(frame, 0, (native.load64(frame, 0) & values.LOW_WORD) | (resume << 32))
+    local pushed = native.offset(stack, native.index(next * 8))
+    native.store64(pushed, 0, fid)
+    native.store64(pushed, 8, current | ((current + 4 + native.word(base)) << 32))
+    native.store64(pushed, 16, closure)
+    native.store64(pushed, 24, (words << 33) | (native.word(nvar) << 49))
+    -- Argument `i` is a fixed word or a spread word; a parameter's goes to
+    -- its register, a surplus one below the header. Nothing overlaps: the
+    -- callee lies above the caller's whole frame.
+    local i: int64 = 0
+    while i < total do
+        local word: uint64 = 0
+        if i < fixed then
+            word = native.load64(regs, (base + 1 + i) * 8)
+        else
+            word = native.load64(source, (i - fixed) * 8)
+        end
+        if i < nparams then
+            native.store64(pushed, 40 + i * 8, word)
+        elseif nvar > 0 then
+            native.store64(pushed, (i - nparams - nvar) * 8, word)
+        end
+        i = i + 1
+    end
+    while i < nparams do
+        native.store64(pushed, 40 + i * 8, values.NIL)
+        i = i + 1
+    end
+    native.store64(context, native.layout("cur"), next)
+
+    return enterPushed(pc, regs, regs, regs, context, pushed, callee, fid)
+end
+
 -- The Rust core's `dynamic_call!` once the callee is a known function id:
--- varargs, typed parameters and the unavailable function stay in Rust.
+-- typed parameters and the unavailable function stay in Rust; a flagged
+-- count or a vararg callee takes the spread push.
 local function dynamicCall(
     pc: voidptr,
     regs: voidptr,
@@ -246,13 +342,12 @@ local function dynamicCall(
             native.index(fid) * native.layout("FuncInfo.size")
         )
         if native.either(
-            native.either(
-                native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0,
-                native.load32(callee, native.layout("FuncInfo.typed")) ~= 0
-            ),
+            native.load32(callee, native.layout("FuncInfo.typed")) ~= 0,
             fid == native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD)
         ) then
             return native.slow(pc, regs, ints, floats, context, frame)
+        elseif native.either(nargs >= 64, native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0) then
+            return pushSpreadSlow(pc, context, fid, closure, native.load8(pc, 2), nargs)
         else
             local base = native.load8(pc, 2)
             local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
@@ -278,7 +373,7 @@ export function Call(
         native.index(fid) * native.layout("FuncInfo.size")
     )
     if native.either(native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0, nargs >= 64) then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return pushSpreadSlow(pc, context, fid, values.NIL, native.load8(pc, 1), nargs)
     else
         return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, values.NIL, native.load8(pc, 1), nargs)
     end
@@ -303,7 +398,9 @@ end
 
 -- The Rust core's `dynamic_call!`: a closure or a bare function value pushes
 -- a frame, a builtin and an iterator run in Rust from the argument window,
--- and anything else is the interpreter's.
+-- and anything else is the interpreter's. A builtin whose arguments end in
+-- the last call's results is the step's: the helper reads the result count
+-- from the task record, which the core does not publish.
 local function callValue(
     pc: voidptr,
     regs: voidptr,
@@ -345,7 +442,7 @@ local function callValue(
             return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
         elseif upper == values.LOW_HALF then
             local id = native.index(value & values.LOW_WORD)
-            if id >= 1000 then
+            if native.either(id >= 1000, native.both(nargs >= 64, nargs < 128)) then
                 return native.slow(pc, regs, ints, floats, context, frame)
             elseif native.word(id) < native.load64(context, native.layout("nslow_calls"))
                 and native.load8(native.loadPointer(context, native.layout("slow_calls")), id) ~= 0
@@ -402,9 +499,7 @@ export function CallK(
 ): uint64
     local nargs = native.load8(pc, 3)
     local value = native.load64(regs, native.load8(pc, 1) * 8)
-    if nargs >= 64 then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    elseif native.load32(context, native.layout("feedback")) ~= 0 then
+    if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     elseif value == values.TAG_FUNC | native.load64(pc, 8) then
         return dynamicCall(pc, regs, ints, floats, context, frame, native.load64(pc, 8), values.NIL, nargs)
@@ -653,11 +748,36 @@ export function CallDyn(
 ): uint64
     local nargs = native.load8(pc, 3)
     local value = native.load64(regs, native.load8(pc, 1) * 8)
-    if nargs >= 64 then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    elseif native.load32(context, native.layout("feedback")) ~= 0 then
+    if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     else
         return callValue(pc, regs, ints, floats, context, frame, value, nargs)
     end
+end
+
+-- `VarargN d n`: the frame's first `n` varargs into `d..`, nil past the
+-- ones it has (contracts 5.1: they lie below the header, their count in
+-- header word 3).
+export function VarargN(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local d = native.load8(pc, 1)
+    local n = native.load8(pc, 2)
+    local count = native.index(native.load64(frame, 24) >> 49)
+    local i: int64 = 0
+    while i < n do
+        if i < count then
+            native.store64(regs, (d + i) * 8, native.load64(frame, (i - count) * 8))
+        else
+            native.store64(regs, (d + i) * 8, values.NIL)
+        end
+        i = i + 1
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end

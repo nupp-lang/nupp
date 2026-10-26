@@ -1,0 +1,112 @@
+-- Varargs through the native core (contracts 5.1): a vararg callee keeps its
+-- surplus below its header, `...` loads it (`VarargN`) and forwards it (a call
+-- count flagged 128), and a call ending in another call spreads its results
+-- (flagged 64), within the window and past it. Every line is checked against
+-- a literal here and printed for the differential run.
+local out: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local function count(...: any): number
+    return select("#", ...)
+end
+
+local function first(...: any): any
+    local a = ...
+    return a
+end
+
+local function third(...: any): any
+    local _, _, c = ...
+    return c
+end
+
+local function join(sep: string, ...: any): string
+    local parts: {string} = {}
+    for i = 1, select("#", ...) do
+        parts[#parts + 1] = tostring((select(i, ...)))
+    end
+    return table.concat(parts, sep)
+end
+
+local function forward(...: any): string
+    return join(",", ...)
+end
+
+local function forwardMore(...: any): string
+    return join("+", "x", ...)
+end
+
+local function plain(a: any, b: any, c: any): string
+    return tostring(a) .. tostring(b) .. tostring(c)
+end
+
+local function toPlain(...: any): string
+    return plain(...)
+end
+
+local function several(): (number, number, number)
+    return 1, 2, 3
+end
+
+local function ten(): (number, number, number, number, number, number, number, number, number, number)
+    return 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+end
+
+local function sum(...: number): number
+    local total = 0
+    for _, v in ipairs({...}) do
+        total = total + v
+    end
+    return total
+end
+
+show("countNone", count(), 0)
+show("countSome", count(1, nil, 3), 3)
+show("first", first("a", "b"), "a")
+show("firstNone", first(), nil)
+show("third", third(1, 2, 3, 4), 3)
+show("thirdShort", third(1), nil)
+show("forward", forward(1, "two", 3), "1,two,3")
+show("forwardNone", forward(), "")
+show("forwardMore", forwardMore(1, 2), "x+1+2")
+show("toPlain", toPlain("p", "q"), "pqnil")
+show("toPlainLong", toPlain("p", "q", "r", "s"), "pqr")
+show("spread", join("-", several()), "1-2-3")
+show("spreadFixed", join("-", 0, several()), "0-1-2-3")
+show("spreadTen", join("-", ten()), "1-2-3-4-5-6-7-8-9-10")
+show("spreadCount", count(several()), 3)
+show("spreadTenCount", count(ten()), 10)
+show("table", sum(1, 2, 3, 4), 10)
+show("plainSpread", plain(several()), "123")
+
+local function depth(n: number, ...: any): number
+    if n == 0 then
+        return select("#", ...)
+    end
+    return depth(n - 1, n, ...)
+end
+show("deep", depth(150), 150)
+
+local function each(...: any): function(): any
+    local items = {...}
+    local i: integer = 0
+    return function(): any
+        i = i + 1
+        return items[i]
+    end
+end
+local it = each("u", "v")
+it()
+show("closure", it(), "v")
+
+local total = 0
+for k = 1, 5000 do
+    total = total + count(k, k, k) + select(2, k, k * 2)
+end
+show("loop", total, 15000 + 5000 * 5001)
+
+print(table.concat(out, "\n"))

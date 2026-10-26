@@ -1058,8 +1058,6 @@ fn native_calls_leave_unsupported_calls_untouched() {
     let callk = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
     type Setup = fn(&mut Machine);
     let cases: Vec<(&str, Ins, u64, Setup)> = vec![
-        ("vararg", call, 0, |m| m.funcs[1].vararg = 1),
-        ("vararg dynamic", callk, Value::func(1).0, |m| m.funcs[1].vararg = 1),
         ("typed dynamic", callk, Value::func(1).0, |m| m.funcs[1].typed = 1),
         ("unavailable", callk, closure_value, |m| m.ctx.unavailable_fid = 1),
         // Builtins run through the helper, except a host service and one the
@@ -1069,8 +1067,9 @@ fn native_calls_leave_unsupported_calls_untouched() {
         ("slow builtin", callk, Value::builtin(3).0, |m| { m.slow_calls = vec![0, 0, 0, 1]; m.sync(); }),
         ("not callable", callk, Value::num(1.0).0, |_| {}),
         ("unknown function", callk, Value::func(9).0, |_| {}),
-        ("wide argument count", Ins { c: 64, ..callk }, closure_value, |_| {}),
-        ("wide static count", Ins { b: 64, ..call }, 0, |_| {}),
+        // A result pack past the window, and both spread flags at once.
+        ("wide result pack", Ins { c: 64 | 1, ..callk }, closure_value, |m| m.ctx.last_nres = 9),
+        ("both flags", Ins { c: 128 | 64, ..callk }, closure_value, |_| {}),
         ("growth", call, 0, |m| m.ctx.cap = (TEST_FRAME_WORDS * 2 - 1) as u64),
         ("growth dynamic", callk, closure_value, |m| m.ctx.cap = (TEST_FRAME_WORDS * 2 - 1) as u64),
     ];
@@ -1096,6 +1095,55 @@ fn native_calls_leave_unsupported_calls_untouched() {
     assert_eq!(exit, m.code(1, 1), "the callee's first instruction ran natively");
     assert_eq!(m.ctx.cur, TEST_FRAME_WORDS as u64);
     assert_eq!(m.stack[TEST_FRAME_WORDS as usize + HDR + 3], Value::num(7.0).0);
+}
+
+/// Contracts 5.1: a vararg callee's surplus lies just below its header, the
+/// count in header word 3; a count flagged 128 appends the caller's own
+/// varargs and one flagged 64 the last call's results; a callee without
+/// varargs drops what its parameters do not take.
+#[test]
+fn native_calls_spread_varargs_below_the_callee_header() {
+    let (a, b, c) = (Value::num(1.0).0, Value::num(2.0).0, Value::num(3.0).0);
+    let call = Ins { op: Code::Call as u8, a: 2, b: 3, k: 1, ..Ins::default() };
+    let callk = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
+    // (name, instruction, callee nparams, callee vararg, caller varargs,
+    // last result count, the registers from base + 1, parameters, surplus)
+    type Case = (&'static str, Ins, u32, u32, Vec<u64>, u64, Vec<u64>, Vec<u64>, Vec<u64>);
+    let cases: Vec<Case> = vec![
+        ("static", call, 1, 1, vec![], 0, vec![a, b, c], vec![a], vec![b, c]),
+        ("static short", call, 4, 1, vec![], 0, vec![a, b, c], vec![a, b, c, NIL], vec![]),
+        ("frame varargs", Ins { c: 128 | 1, ..callk }, 1, 1, vec![b, c], 0, vec![a], vec![a], vec![b, c]),
+        ("frame varargs dropped", Ins { c: 128 | 1, ..callk }, 2, 0, vec![b, c], 0, vec![a], vec![a, b], vec![]),
+        ("no frame varargs", Ins { c: 128, ..callk }, 1, 1, vec![], 0, vec![], vec![NIL], vec![]),
+        ("result pack", Ins { c: 64 | 1, ..callk }, 1, 1, vec![], 2, vec![a, b, c], vec![a], vec![b, c]),
+        ("wide plain count", Ins { b: 64 | 1, ..call }, 2, 0, vec![], 1, vec![a, b], vec![a, b], vec![]),
+    ];
+    for (name, ins, nparams, vararg, varargs, nres, args, params, surplus) in cases {
+        let mut m = Machine::new(vec![Ins::default(), ins, Ins::default()], vec![Ins::default()], nparams);
+        m.funcs[1].vararg = vararg;
+        // The caller's frame sits above its own varargs.
+        let s = varargs.len();
+        for (i, v) in varargs.iter().enumerate() { m.stack[i] = *v; }
+        m.stack[s] = 0;
+        m.stack[s + 1] = u32::MAX as u64;
+        m.stack[s + 2] = NIL;
+        m.stack[s + 3] = ((TEST_FRAME_WORDS as u64) << 33) | ((s as u64) << 49);
+        m.stack[s + HDR + 1] = Value::func(1).0;
+        for (i, v) in args.iter().enumerate() { m.stack[s + HDR + 3 + i] = *v; }
+        m.sync();
+        m.ctx.cur = s as u64;
+        m.ctx.last_nres = nres;
+        let exit = unsafe { m.run(1) };
+        let ns = s + TEST_FRAME_WORDS as usize + surplus.len();
+        assert_eq!(exit, m.code(1, 0), "{name}: continues in the callee");
+        assert_eq!(m.ctx.cur, ns as u64, "{name}");
+        assert_eq!(m.stack[s] >> 32, 2, "{name}: the caller resumes after the call");
+        assert_eq!(m.stack[ns], 1, "{name}");
+        assert_eq!(m.stack[ns + 1], s as u64 | (((s + HDR + 2) as u64) << 32), "{name}");
+        assert_eq!(m.stack[ns + 3], ((TEST_FRAME_WORDS as u64) << 33) | ((surplus.len() as u64) << 49), "{name}");
+        assert_eq!(&m.stack[ns - surplus.len()..ns], &surplus[..], "{name}: surplus");
+        assert_eq!(&m.stack[ns + HDR + 1..ns + HDR + 1 + params.len()], &params[..], "{name}: parameters");
+    }
 }
 
 /// A caller frame at 0 that called at pc 5, and a callee frame above it with
