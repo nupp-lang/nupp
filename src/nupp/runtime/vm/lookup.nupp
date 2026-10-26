@@ -275,6 +275,121 @@ export function SetIdxI(
     end
 end
 
+local function storeKeyedSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.storeKeyed(context, object, key, value)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- A numeric key the array path did not take: appended to a plain dense
+-- array, which runs no program code and moves no stack, or stored by the
+-- helper with the key normalized.
+local function appendOrStoreSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    if helpers.appendPlain(context, object, native.fromBits(key), value) ~= 0 then
+        return protocol.continueAfter(pc, context, 0, 0, false)
+    else
+        protocol.publishPc(pc, context)
+        helpers.storeKeyed(context, object, key, value)
+        return protocol.continueAfter(pc, context, 0, 0, false)
+    end
+end
+
+-- The Rust core's `array_store!`: a store by a numeric key into the array
+-- part of a plain table, under the guards its read has and the storage flags
+-- that make a table something other than plain slots; the append and the
+-- keyed store otherwise. `key` is `d` boxed.
+local function arrayStore(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    object: uint64,
+    d: number,
+    key: uint64,
+    value: uint64
+): uint64
+    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+        return storeKeyedSlow(pc, context, object, key, value)
+    else
+        local header = native.pointer(object & 281474976710655ULL)
+        if native.both(
+            native.load8(header, native.layout("Header.kind")) == 2,
+            native.load8(header, native.layout("Header.flags")) & 224 == 0
+        ) then
+            local length = native.unsignedFloat(native.load64(header, native.layout("Header.aux_len")))
+            local whole = native.unsignedInt(d)
+            if native.both(
+                native.both(native.both(1 <= d, d <= length), native.unsignedFloat(whole) == d),
+                native.either(value ~= 9221401712017801216ULL, d < length)
+            ) then
+                local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+                local at = native.index((whole - 1) * 8)
+                if native.either(
+                    native.load64(data, at) ~= 9221401712017801216ULL,
+                    native.load64(header, native.layout("Table.meta")) == 9221401712017801216ULL
+                ) then
+                    if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+                        return barrierStoreSlow(pc, context, object, value, data, at)
+                    else
+                        native.store64(data, at, value)
+                        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                    end
+                end
+            end
+        end
+        return appendOrStoreSlow(pc, context, object, key, value)
+    end
+end
+
+export function SetIdxF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local d = native.loadFloat(floats, native.load8(pc, 2) * 8)
+    local value = native.load64(regs, native.load8(pc, 3) * 8)
+    -- The key is the float boxed: a NaN payload as the canonical quiet NaN.
+    local bits = native.bits(d)
+    local nan = native.both(bits & 9221120237041090560ULL == 9221120237041090560ULL, bits ~= 9221120237041090560ULL)
+
+    return arrayStore(
+        pc,
+        regs,
+        ints,
+        floats,
+        context,
+        frame,
+        object,
+        d,
+        native.chooseWord(nan, 9221120237041090560ULL, bits),
+        value
+    )
+end
+
+export function SetIdx(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local key = native.load64(regs, native.load8(pc, 2) * 8)
+    local value = native.load64(regs, native.load8(pc, 3) * 8)
+    if native.either(key & 9221120237041090560ULL ~= 9221120237041090560ULL, key == 9221120237041090560ULL) then
+        return arrayStore(pc, regs, ints, floats, context, frame, object, native.fromBits(key), key, value)
+    else
+        return storeKeyedSlow(pc, context, object, key, value)
+    end
+end
+
 export function SetCell(
     pc: voidptr,
     regs: voidptr,
