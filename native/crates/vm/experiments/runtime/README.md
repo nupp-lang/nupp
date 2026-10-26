@@ -41,3 +41,13 @@ The native core remains opt-in: interpreter loops, tables and closures and
 JIT loops and strings miss the 2% margin. The cold compiler check completes
 after the OSR fix but remains slower than Rust in its diagnostic single
 pair. These results do not close N09 or the default-runtime gate.
+
+`interpreter-resize-measurements.json` records the helper change at
+`53a063aad`: resizing a table's external vector cannot enter the VM, so it
+keeps pending frame state and budget charges in the native context. Twelve
+paired interpreter forks improve closures 27.0% and tables 7.4% against the
+previous Nupp runtime. Against pinned Rust, closures improves 9.0% and tables
+passes the 2% margin; 24-fork repeats settle the noisy fib and strings
+comparisons. JIT-on results, exact hashes, raw samples, correctness checks
+and the matched-control compiler failure are included. Interpreter loops,
+the native-only compiler failure, D0 and the remaining migration stay open.
