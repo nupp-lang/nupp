@@ -77,7 +77,7 @@
         },
         {
           "name": "Run the native core suites",
-          "platforms": ["macos"],
+          "platforms": ["linux", "macos"],
           "groups": ["native-runtime"],
           "guarantees": [
             "the handler sources lower, compile and pass the native contract tests"

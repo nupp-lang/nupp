@@ -464,10 +464,11 @@ jobs:
 
       # The Nupp-authored interpreter core: the handler sources lowered to CLIF,
       # compiled into an object by the glue, and the runtime's native contract
-      # tests run against it. macOS ARM64 only until the object is brought up
-      # on Linux and Windows; the broad suite below excludes the group.
+      # tests run against it. Linux x64 and macOS ARM64; Windows waits on the
+      # object's unwind and stack-walking behavior there. The broad suite
+      # below excludes the group.
       - name: Run the native core suites
-        if: runner.os == 'macOS'
+        if: runner.os != 'Windows'
         shell: bash
         run: ./bin/nupp test --jobs=1 --group=native-runtime
 
