@@ -178,7 +178,7 @@ pub(crate) fn replay(it: &mut Interp, patch: &[u8], retired: &[u32]) -> Result<(
 fn apply_in(it: &mut Interp, patch: &[u8], commit: bool, replaying: Option<&[u32]>) -> Result<(Report, Vec<u32>), String> {
     let header = header(patch)?;
     let running = it.hot.modules.get(header.module).cloned().ok_or_else(|| format!("module {} is not loaded", header.module))?;
-    if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) {
+    if it.entries.iter().any(|&p| p != 0) {
         return Err("hot reload requires the interpreter or heap-frame entries, as dynamic image loading does".into());
     }
     let parsed = if header.image.starts_with(crate::graph::MAGIC) {
@@ -289,13 +289,6 @@ fn apply_in(it: &mut Interp, patch: &[u8], commit: bool, replaying: Option<&[u32
         }
     }
     for &fid in &changed { it.invalidate_function(fid); }
-    for f in &it.funcs[first_new as usize..] {
-        it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op));
-    }
-    for &fid in &changed {
-        let f = &it.funcs[fid as usize];
-        it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op));
-    }
     it.entries.resize(it.funcs.len(), 0);
     if it.threaded { it.prepare_threaded(); }
     it.hot.modules.insert(header.module.to_string(), ModuleCode { fids: target, shapes: parsed.shape_ids });

@@ -1242,7 +1242,7 @@ fn install(table: &Table, it: &mut Interp, bytes: &[u8], refuse_native: bool) ->
         }
     }
     crate::hotpatch::record(it, base, &funcs, &shape_ids, &modules);
-    for f in funcs { it.frame_required |= f.code.iter().any(|op| matches!(op, Op::Defer(..) | Op::DeferMethod(..) | Op::AffineEnter) || crate::native_simd::required(op)); it.funcs.push(f); }
+    it.funcs.extend(funcs);
     for (i, s) in image.shapes.iter().enumerate() {
         for &(name, fid) in &s.methods { let n = it.intern(image.text(name)); it.heap.shapes[shape_ids[i] as usize].methods.insert(n, Value::func(base + fid)); }
     }

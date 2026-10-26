@@ -67,6 +67,10 @@ fn runtime(source: &str, mode: Mode) -> Box<Interp> {
                     .unwrap_or_else(|error| panic!("ordinary entry {fid}: {error}"))
                     as u64;
             }
+            // Direct entries only: every task runs as the frame driver, which
+            // would otherwise compile a frame entry when a callee is entered
+            // interpreted; the frame path is `Mode::Frame`'s.
+            vm.frame_threshold = u32::MAX;
         }
         vm.jit = Some(Box::new(jit));
     }

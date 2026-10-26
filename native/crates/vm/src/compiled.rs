@@ -270,7 +270,7 @@ pub extern "C" fn j_frame_refresh() -> u64 {
     let unwinding = it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&it.native_task))
         && it.unwind_state(it.native_task) != V::NIL;
     let enabled = it.instruction_budget.is_none() && !unwinding
-        && it.jit_threshold == 0 && !it.trace && nesting_enabled();
+        && !it.trace && nesting_enabled();
     #[cfg(feature = "jit")]
     let enabled = enabled && !it.spec.frames;
     let task = &mut it.tasks[it.native_task];
@@ -796,7 +796,7 @@ fn j_pcall_impl(argv: *const u64, nargs: u64) -> u64 {
     let it = ctx();
     let args = compiled_args(it, argv, nargs);
     let scope = it.open_scope(); for &a in args.iter() { it.handles.push(a); }
-    let outs = it.pcall_values(args[0], &args[1..]);
+    let outs = it.pcall_compiled(args[0], &args[1..]);
     it.close_scope(scope);
     it.extra_n = outs.len().saturating_sub(1).min(crate::interp::MAX_RESULTS - 1); for i in 0..it.extra_n { it.extra[i] = outs[i + 1]; }
     it.last_nres = outs.len().min(crate::interp::MAX_RESULTS);

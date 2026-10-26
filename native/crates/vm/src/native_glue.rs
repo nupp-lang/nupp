@@ -20,10 +20,10 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 52] = [
-    "funcs", "FuncInfo.size", "FuncInfo.consts", "frame_mode", "jit_frames", "nframe_entries",
-    "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres", "entries",
-    "jit_threshold", "feedback", "guard", "unavailable_fid", "FuncInfo.code",
+pub const LAYOUT_FIELDS: [&str; 49] = [
+    "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
+    "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
+    "feedback", "guard", "unavailable_fid", "FuncInfo.code",
     "FuncInfo.frame_words", "FuncInfo.nparams", "FuncInfo.off_i", "FuncInfo.off_f",
     "FuncInfo.vararg", "FuncInfo.calls", "FuncInfo.typed", "FuncInfo.native", "Header.aux_len",
     "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
@@ -37,7 +37,6 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "funcs" => offset_of!(Ctx, funcs),
         "FuncInfo.size" => std::mem::size_of::<FuncInfo>(),
         "FuncInfo.consts" => offset_of!(FuncInfo, consts),
-        "frame_mode" => offset_of!(Ctx, frame_mode),
         "jit_frames" => offset_of!(Ctx, jit_frames),
         "nframe_entries" => offset_of!(Ctx, nframe_entries),
         "frame_entries" => offset_of!(Ctx, frame_entries),
@@ -47,8 +46,6 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "nfuncs" => offset_of!(Ctx, nfuncs),
         "result" => offset_of!(Ctx, result),
         "last_nres" => offset_of!(Ctx, last_nres),
-        "entries" => offset_of!(Ctx, entries),
-        "jit_threshold" => offset_of!(Ctx, jit_threshold),
         "feedback" => offset_of!(Ctx, feedback),
         "guard" => offset_of!(Ctx, guard),
         "unavailable_fid" => offset_of!(Ctx, unavailable_fid),
@@ -239,7 +236,6 @@ fn metadata_header() -> String {
         ("slow_calls", offset_of!(Ctx, slow_calls)),
         ("nslow_calls", offset_of!(Ctx, nslow_calls)),
         ("funcs", offset_of!(Ctx, funcs)),
-        ("frame_mode", offset_of!(Ctx, frame_mode)),
         ("jit_frames", offset_of!(Ctx, jit_frames)),
         ("nframe_entries", offset_of!(Ctx, nframe_entries)),
         ("frame_entries", offset_of!(Ctx, frame_entries)),
@@ -249,8 +245,6 @@ fn metadata_header() -> String {
         ("nfuncs", offset_of!(Ctx, nfuncs)),
         ("result", offset_of!(Ctx, result)),
         ("last_nres", offset_of!(Ctx, last_nres)),
-        ("entries", offset_of!(Ctx, entries)),
-        ("jit_threshold", offset_of!(Ctx, jit_threshold)),
         ("feedback", offset_of!(Ctx, feedback)),
         ("guard", offset_of!(Ctx, guard)),
         ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),

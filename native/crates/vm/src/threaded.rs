@@ -14,8 +14,8 @@ use crate::value::Value;
 pub struct Ins { pub op: u8, pub a: u8, pub b: u8, pub c: u8, pub imm: i32, pub k: i64 }
 
 #[repr(C)]
-/// `calls` counts the calls the core and the interpreter push until the lazy
-/// tier's threshold, when the function is compiled.
+/// `calls` counts the entries and taken back edges of a function the JIT has
+/// not decided on, toward the frame threshold that compiles it.
 /// `typed` marks a function with a float parameter, which a dynamic call
 /// unboxes on entry and the core leaves to Rust; `native` one with vector
 /// instructions, which runs only compiled or by the interpreter's policy.
@@ -25,14 +25,14 @@ pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_wo
 pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64, pub mask: u64 }
 
 #[repr(C)]
-/// In frame mode (a scheduled task, or an image with ownership regions) the
-/// core runs as the frame driver would: `guard` is the highest frame whose
-/// return the Rust path must take (a registered cleanup or a protected call
-/// at or above it, or every frame while an unwind is in progress; `NO_GUARD`
-/// when none), `slow_calls` the builtins it hands to Rust whole, and
-/// `frame_entries` the compiled frame entry per function, entered through
-/// `rt_enter_frame`.
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub entries: *const u64, pub jit_threshold: u32, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub frame_mode: u32, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32 }
+/// The core runs every task as the frame driver: `guard` is the highest
+/// frame whose return the Rust path must take (a registered cleanup or a
+/// protected call at or above it, or every frame while an unwind is in
+/// progress; `NO_GUARD` when none), `slow_calls` the builtins it hands to
+/// Rust whole, `frame_entries` the compiled frame entry per function,
+/// entered through `rt_enter_frame`, and `frame_threshold` the heat at which
+/// a function without one is compiled while `jit_frames` says the JIT may.
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32 }
 
 pub const NO_GUARD: u64 = u64::MAX;
 /// Every return goes to Rust: an unwind is driving the task's cleanups.
@@ -182,13 +182,10 @@ fn sync(ctx: &mut Ctx, it: &mut Interp) {
     ctx.last_nres = it.last_nres as u64;
     ctx.funcs = it.finfo.as_ptr(); ctx.nfuncs = it.finfo.len() as u64;
     ctx.shapes = it.shape_info.as_ptr(); ctx.nshapes = it.shape_info.len() as u64;
-    ctx.entries = it.entries.as_ptr();
-    if ctx.frame_mode != 0 {
-        ctx.guard = guard(it, tid);
-        // Compiling a frame entry may grow (and move) the table.
-        #[cfg(feature = "compiled-runtime")]
-        { ctx.frame_entries = it.frame_entries.as_ptr(); ctx.nframe_entries = it.frame_entries.len() as u64; }
-    }
+    ctx.guard = guard(it, tid);
+    // Compiling a frame entry may grow (and move) the table.
+    #[cfg(feature = "compiled-runtime")]
+    { ctx.frame_entries = it.frame_entries.as_ptr(); ctx.nframe_entries = it.frame_entries.len() as u64; }
 }
 
 /// The highest frame of `tid` whose return the Rust path must take.
@@ -318,22 +315,6 @@ pub(crate) fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
     let (it, _) = enter_rust(unsafe { &mut *ctx });
     if let Some(p) = Value(parent).as_obj() { it.heap.barrier(p, Value(child)); }
 }
-/// A compiled function called from the core: arguments from the window at
-/// `base + 1`, results delivered from `base`.
-pub(crate) fn rt_enter_compiled(ctx: *mut Ctx, entry: u64, closure: u64, base: u64, nargs: u32, nparams: u32) {
-    let ctx = unsafe { &mut *ctx };
-    let (it, tid) = enter_rust(ctx);
-    let mut buf = [Value::NIL; 8]; let n = (nargs as usize).min(8);
-    for (i, slot) in buf.iter_mut().enumerate().take(n) { *slot = Value(it.tasks[tid].stack[base as usize + 1 + i]); }
-    let mut outs = crate::builtins::Outs::new();
-    let r = it.guarded(|it| { outs = it.enter_compiled(entry, Value(closure), &buf[..n], nparams as usize); Value::NIL });
-    if r == Value::ERROR { ctx.status = ST_ERROR; sync(ctx, it); return; }
-    it.note_results(outs.as_slice());
-    let t = &mut it.tasks[tid];
-    if outs.is_empty() { t.stack[base as usize] = Value::NIL.0; }
-    for (i, v) in outs.iter().take(8).enumerate() { t.stack[base as usize + i] = v.0; }
-    sync(ctx, it);
-}
 /// A builtin called from the core: arguments in the window from `base + 1`,
 /// results delivered from `base`. Host services, which may park, are not
 /// taken here: the core hands those to `rt_exec_op`.
@@ -397,21 +378,20 @@ impl Interp {
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
         if self.finfo.len() != self.funcs.len() || self.shape_info.len() != self.heap.shapes.len() { self.prepare_threaded(); }
-        let frame_mode = self.frame_mode;
         let slow = slow_calls();
         #[cfg(feature = "compiled-runtime")]
-        let (frame_entries, nframe_entries) = if frame_mode && !self.frame_entries.is_empty() { (self.frame_entries.as_ptr(), self.frame_entries.len() as u64) } else { (std::ptr::null(), 0) };
+        let (frame_entries, nframe_entries) = if !self.frame_entries.is_empty() { (self.frame_entries.as_ptr(), self.frame_entries.len() as u64) } else { (std::ptr::null(), 0) };
         #[cfg(not(feature = "compiled-runtime"))]
         let (frame_entries, nframe_entries): (*const u64, u64) = (std::ptr::null(), 0);
         #[cfg(feature = "jit")]
-        let jit_frames = frame_mode && self.jit.is_some();
+        let jit_frames = self.jit.is_some();
         #[cfg(not(feature = "jit"))]
         let jit_frames = false;
         #[cfg(feature = "compiled-runtime")]
         let frame_threshold = self.frame_threshold;
         #[cfg(not(feature = "compiled-runtime"))]
         let frame_threshold = 0;
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, entries: self.entries.as_ptr(), jit_threshold: if frame_mode { 0 } else { self.jit_threshold }, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, frame_mode: frame_mode as u32, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold };
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]

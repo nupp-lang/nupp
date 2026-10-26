@@ -325,7 +325,6 @@ mod tests {
         let mut vm = Box::new(Interp::new());
         crate::image::load(&mut vm, source).unwrap();
         vm.install_globals();
-        vm.frame_required = true;
         vm.heap.stress_steps = true;
         vm.heap.oracle = true;
         vm.heap.quarantine = true;

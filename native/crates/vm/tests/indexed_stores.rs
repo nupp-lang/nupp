@@ -129,6 +129,10 @@ fn runtime(op: &str, mode: Mode) -> (Box<Interp>, Value, Value) {
             // The callback stays interpreted; native entry and reentry cross
             // the same semantic store helper without requiring a call graph.
             vm.entries[0] = jit.try_compile(&vm.funcs[0], 0).unwrap() as u64;
+            // Direct entries only: every task runs as the frame driver, which
+            // would otherwise compile a frame entry at the callback's first
+            // entry; the frame path is `Mode::Frame`'s.
+            vm.frame_threshold = u32::MAX;
         }
         vm.jit = Some(Box::new(jit));
     }

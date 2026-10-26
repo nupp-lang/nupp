@@ -1093,7 +1093,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             return outs![Value::NIL];
         }
         Special::VmLoadimage => {
-            if it.jit_threshold != 0 || it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
+            if it.entries.iter().any(|&p| p != 0) { it.err("dynamic image loading currently requires the interpreter"); }
             let bytes = bytes_of(it, arg(args, 0));
             let first = it.funcs.len() as u32;
             let entry = if bytes.starts_with(crate::graph::MAGIC) {

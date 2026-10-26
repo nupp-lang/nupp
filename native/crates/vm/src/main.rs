@@ -327,13 +327,12 @@ pub(crate) fn main() {
         it.shape_probe.clear();
         it.shape_probe.extend(probes);
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
-        let threshold: u32 = std::env::var("JIT_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
         let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
         // Heap-frame entries compile once a function is warm (JIT_FRAME_THRESHOLD
         // entries or interpreted back edges, 0 for the first): compiling every
         // function a run reaches cost more than it saved on the compiler.
         it.frame_threshold = std::env::var("JIT_FRAME_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(200);
-        if threshold > 0 || frame_entries { it.jit_threshold = threshold; it.jit = Some(Box::new(j)); if !executable { if frame_entries { eprintln!("jit: heap-frame entries on demand"); } else { eprintln!("jit: lazy, compiling at the call number {threshold}"); } } None } else {
+        if frame_entries { it.jit = Some(Box::new(j)); if !executable { eprintln!("jit: heap-frame entries on demand"); } None } else {
         let tj = cpu_now();
         let (mut compiled, mut refused) = (0, Vec::new());
         // JIT_LIMIT=n compiles the first n functions by id; JIT_SKIP=a,b leaves
@@ -498,7 +497,6 @@ pub(crate) fn main() {
     }
     if std::env::var("BUILTIN_STATS").is_ok() { let c = builtins::CALLS.lock().unwrap(); let mut rows: Vec<(usize, u64)> = c.iter().copied().enumerate().filter(|(_, n)| *n > 0).collect(); rows.sort_by(|a, b| b.1.cmp(&a.1)); eprintln!("builtin calls:"); for (i, n) in rows.iter().take(16) { eprintln!("  {n}\t{}", builtins::NAMES[*i]); } }
     if std::env::var("TABLE_STATS").is_ok() { let c: Vec<u64> = nupp_vm::interp::TABLE_COUNTS.iter().map(|a| a.load(std::sync::atomic::Ordering::Relaxed)).collect(); eprintln!("index reads: table by number {}, table by key {}, record by number {}, record by key {}, other {}; table key reads met hash parts of 0: {}, 1-4: {}, 5-16: {}, 17-64: {}, 65+: {}; stores by number {}, by key {}; tables made {}", c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], nupp_vm::heap::NEW_TABLES.load(std::sync::atomic::Ordering::Relaxed)); }
-    if it.jit_threshold != 0 { eprintln!("jit: compiled {} functions lazily in {:.2} ms", it.lazy_compiled, it.lazy_micros as f64 / 1e3); }
     #[cfg(feature = "jit")]
     if std::env::var_os("JIT_SPEC_STATS").is_some() { eprintln!("{}", nupp_vm::specialize::report(&it)); }
     #[cfg(feature = "compiled-runtime")]

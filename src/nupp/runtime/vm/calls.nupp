@@ -1,11 +1,13 @@
 module nupp.runtime.vm.calls
 
 -- Calls, returns, result padding and the frame driver: the frame-transition
--- protocol in Nupp. In frame mode a function starting, or one with vector
--- instructions resuming anywhere, goes to its compiled frame entry when it
--- has one, is compiled when this entry makes it hot, or meets the
--- interpreter's policy for vector code; `rt_enter_frame` is that service, and
--- the chain goes on in whatever frame the context names when it is done.
+-- protocol in Nupp. A function starting, or one with vector instructions
+-- resuming anywhere, goes to its compiled frame entry when it has one, is
+-- compiled when this entry makes it hot, or meets the interpreter's policy
+-- for vector code; `rt_enter_frame` is that service, and the chain goes on in
+-- whatever frame the context names when it is done. Compiled code is entered
+-- through frame entries only: there is no second entry table and no second
+-- counter.
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -50,30 +52,28 @@ local function settle(context: voidptr, first: uint64): uint64
             local pcIndex = native.index(header >> 32)
             local due = false
             local hot = false
-            if native.load32(context, native.layout("frame_mode")) ~= 0 then
-                local vector = native.load32(info, native.layout("FuncInfo.native")) ~= 0
-                if native.either(pcIndex == 0, vector) then
-                    local entry: uint64 = 0
-                    if fid < native.load64(context, native.layout("nframe_entries")) then
-                        entry = native.load64(
-                            native.loadPointer(context, native.layout("frame_entries")),
-                            native.index(fid) * 8
-                        )
-                    end
-                    if native.both(
-                        native.both(pcIndex == 0, entry == 0),
-                        native.load32(context, native.layout("jit_frames")) ~= 0
-                    ) then
-                        local calls = (native.load32(info, native.layout("FuncInfo.calls")) & values.LOW_WORD) + 1
-                        if calls < native.load32(context, native.layout("frame_threshold")) & values.LOW_WORD then
-                            native.store32(info, native.layout("FuncInfo.calls"), calls)
-                        else
-                            native.store32(info, native.layout("FuncInfo.calls"), 0)
-                            hot = true
-                        end
-                    end
-                    due = native.either(native.either(native.both(entry ~= 0, entry ~= values.NO_GUARD), vector), hot)
+            local vector = native.load32(info, native.layout("FuncInfo.native")) ~= 0
+            if native.either(pcIndex == 0, vector) then
+                local entry: uint64 = 0
+                if fid < native.load64(context, native.layout("nframe_entries")) then
+                    entry = native.load64(
+                        native.loadPointer(context, native.layout("frame_entries")),
+                        native.index(fid) * 8
+                    )
                 end
+                if native.both(
+                    native.both(pcIndex == 0, entry == 0),
+                    native.load32(context, native.layout("jit_frames")) ~= 0
+                ) then
+                    local calls = (native.load32(info, native.layout("FuncInfo.calls")) & values.LOW_WORD) + 1
+                    if calls < native.load32(context, native.layout("frame_threshold")) & values.LOW_WORD then
+                        native.store32(info, native.layout("FuncInfo.calls"), calls)
+                    else
+                        native.store32(info, native.layout("FuncInfo.calls"), 0)
+                        hot = true
+                    end
+                end
+                due = native.either(native.either(native.both(entry ~= 0, entry ~= values.NO_GUARD), vector), hot)
             end
             if due then
                 result = helpers.enterFrame(context, pcIndex, native.chooseIndex(hot, 1, 0))
@@ -108,8 +108,8 @@ export function resumeSlow(pc: voidptr, context: voidptr): uint64
     return settle(context, values.LOW_WORD)
 end
 
--- The callee's frame is in place and the context names it: in frame mode the
--- policy for a function starting, then the callee's code.
+-- The callee's frame is in place and the context names it: the policy for a
+-- function starting, then the callee's code.
 local function enterPushed(
     pc: voidptr,
     regs: voidptr,
@@ -124,45 +124,39 @@ local function enterPushed(
     local calleeRegs = native.offset(frame, 32)
     local calleeInts = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_i")) * 8)
     local calleeFloats = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_f")) * 8)
-    if native.load32(context, native.layout("frame_mode")) == 0 then
-        return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
-    else
-        -- The frame entry table is absent, not empty, when nothing is
-        -- compiled: it is read only below its recorded length.
-        local entry: uint64 = 0
-        if fid < native.load64(context, native.layout("nframe_entries")) then
-            entry = native.load64(native.loadPointer(context, native.layout("frame_entries")), native.index(fid) * 8)
-        end
-        local hot = false
-        if native.both(entry == 0, native.load32(context, native.layout("jit_frames")) ~= 0) then
-            local calls = (native.load32(callee, native.layout("FuncInfo.calls")) & values.LOW_WORD) + 1
-            if calls < native.load32(context, native.layout("frame_threshold")) & values.LOW_WORD then
-                native.store32(callee, native.layout("FuncInfo.calls"), calls)
-            else
-                native.store32(callee, native.layout("FuncInfo.calls"), 0)
-                hot = true
-            end
-        end
-        if native.either(
-            native.either(
-                native.both(entry ~= 0, entry ~= values.NO_GUARD),
-                native.load32(callee, native.layout("FuncInfo.native")) ~= 0
-            ),
-            hot
-        ) then
-            return enterFrameSlow(code, context, 0, native.chooseIndex(hot, 1, 0))
+    -- The frame entry table is absent, not empty, when nothing is compiled:
+    -- it is read only below its recorded length.
+    local entry: uint64 = 0
+    if fid < native.load64(context, native.layout("nframe_entries")) then
+        entry = native.load64(native.loadPointer(context, native.layout("frame_entries")), native.index(fid) * 8)
+    end
+    local hot = false
+    if native.both(entry == 0, native.load32(context, native.layout("jit_frames")) ~= 0) then
+        local calls = (native.load32(callee, native.layout("FuncInfo.calls")) & values.LOW_WORD) + 1
+        if calls < native.load32(context, native.layout("frame_threshold")) & values.LOW_WORD then
+            native.store32(callee, native.layout("FuncInfo.calls"), calls)
         else
-            return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
+            native.store32(callee, native.layout("FuncInfo.calls"), 0)
+            hot = true
         end
+    end
+    if native.either(
+        native.either(
+            native.both(entry ~= 0, entry ~= values.NO_GUARD),
+            native.load32(callee, native.layout("FuncInfo.native")) ~= 0
+        ),
+        hot
+    ) then
+        return enterFrameSlow(code, context, 0, native.chooseIndex(hot, 1, 0))
+    else
+        return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
     end
 end
 
--- The Rust core's `count_call` and `push`: the callee's frame goes above the
--- caller's, `supplied` argument words copied from the argument window and the
+-- The Rust core's `push`: the callee's frame goes above the caller's,
+-- `supplied` argument words copied from the argument window and the
 -- remaining parameters nil, and the caller's header remembers where to
--- resume. Capacity is checked before the call count moves so a growing call
--- counts exactly once, in Rust; the call that reaches the threshold is left
--- uncounted for Rust as well.
+-- resume. A call the stack cannot hold grows it in Rust.
 local function pushFrame(
     pc: voidptr,
     regs: voidptr,
@@ -182,66 +176,53 @@ local function pushFrame(
     if next + words > native.load64(context, native.layout("cap")) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local threshold = native.load32(context, native.layout("jit_threshold"))
-        local calls = native.load32(callee, native.layout("FuncInfo.calls"))
-        local counting = native.both(threshold ~= 0, calls < threshold)
-        local counted = calls + native.chooseIndex(counting, 1, 0)
-        if native.both(counting, counted == threshold) then
-            -- The call that makes the function hot is Rust's: its own count
-            -- reaches the threshold and hands the call to the interpreter,
-            -- which compiles the function.
-            return native.slow(pc, regs, ints, floats, context, frame)
+        local caller = native.loadPointer(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(
+                native.load64(frame, 0) & values.LOW_WORD
+            ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
+        )
+        local resume = ((native.address(pc) - native.address(caller)) >> 4) + 1
+        native.store64(frame, 0, (native.load64(frame, 0) & values.LOW_WORD) | (resume << 32))
+        local stack = native.loadPointer(context, native.layout("stack"))
+        local pushed = native.offset(stack, native.index(next * 8))
+        local arguments = current + 4 + native.word(base)
+        local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
+        native.store64(pushed, 0, fid)
+        native.store64(pushed, 8, current | (arguments << 32))
+        native.store64(pushed, 16, closure)
+        native.store64(pushed, 24, words << 33)
+        -- The arguments are the caller's registers from `base + 1`; one
+        -- to three of them, the common counts, are copied without a loop.
+        local from = (base + 1) * 8
+        if supplied == 1 then
+            native.store64(pushed, 40, native.load64(regs, from))
+        elseif supplied == 2 then
+            native.store64(pushed, 40, native.load64(regs, from))
+            native.store64(pushed, 48, native.load64(regs, from + 8))
+        elseif supplied == 3 then
+            native.store64(pushed, 40, native.load64(regs, from))
+            native.store64(pushed, 48, native.load64(regs, from + 8))
+            native.store64(pushed, 56, native.load64(regs, from + 16))
         else
-            native.store32(callee, native.layout("FuncInfo.calls"), counted)
-            local caller = native.loadPointer(
-                native.loadPointer(context, native.layout("funcs")),
-                native.index(
-                    native.load64(frame, 0) & values.LOW_WORD
-                ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
-            )
-            local resume = ((native.address(pc) - native.address(caller)) >> 4) + 1
-            native.store64(frame, 0, (native.load64(frame, 0) & values.LOW_WORD) | (resume << 32))
-            local stack = native.loadPointer(context, native.layout("stack"))
-            local pushed = native.offset(stack, native.index(next * 8))
-            local arguments = current + 4 + native.word(base)
-            local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
-            native.store64(pushed, 0, fid)
-            native.store64(pushed, 8, current | (arguments << 32))
-            native.store64(pushed, 16, closure)
-            native.store64(pushed, 24, words << 33)
-            -- The arguments are the caller's registers from `base + 1`; one
-            -- to three of them, the common counts, are copied without a loop.
-            local from = (base + 1) * 8
-            if supplied == 1 then
-                native.store64(pushed, 40, native.load64(regs, from))
-            elseif supplied == 2 then
-                native.store64(pushed, 40, native.load64(regs, from))
-                native.store64(pushed, 48, native.load64(regs, from + 8))
-            elseif supplied == 3 then
-                native.store64(pushed, 40, native.load64(regs, from))
-                native.store64(pushed, 48, native.load64(regs, from + 8))
-                native.store64(pushed, 56, native.load64(regs, from + 16))
-            else
-                local copied: int64 = 0
-                while copied < supplied do
-                    native.store64(pushed, 40 + copied * 8, native.load64(regs, from + copied * 8))
-                    copied = copied + 1
-                end
+            local copied: int64 = 0
+            while copied < supplied do
+                native.store64(pushed, 40 + copied * 8, native.load64(regs, from + copied * 8))
+                copied = copied + 1
             end
-            local filled: int64 = supplied
-            while filled < nparams do
-                native.store64(pushed, 40 + filled * 8, values.NIL)
-                filled = filled + 1
-            end
-            native.store64(context, native.layout("cur"), next)
-            return enterPushed(pc, regs, ints, floats, context, pushed, callee, fid)
         end
+        local filled: int64 = supplied
+        while filled < nparams do
+            native.store64(pushed, 40 + filled * 8, values.NIL)
+            filled = filled + 1
+        end
+        native.store64(context, native.layout("cur"), next)
+        return enterPushed(pc, regs, ints, floats, context, pushed, callee, fid)
     end
 end
 
 -- The Rust core's `dynamic_call!` once the callee is a known function id:
--- varargs, typed parameters, the unavailable function and compiled entries
--- stay in Rust.
+-- varargs, typed parameters and the unavailable function stay in Rust.
 local function dynamicCall(
     pc: voidptr,
     regs: voidptr,
@@ -272,19 +253,7 @@ local function dynamicCall(
             local base = native.load8(pc, 2)
             local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
             local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-            if native.load32(context, native.layout("frame_mode")) == 0 then
-                local entry = native.load64(
-                    native.loadPointer(context, native.layout("entries")),
-                    native.index(fid) * 8
-                )
-                if entry ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                else
-                    return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied)
-                end
-            else
-                return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied)
-            end
+            return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied)
         end
     end
 end
@@ -469,10 +438,7 @@ local function resumeCaller(
     local callerRegs = native.offset(resumed, 32)
     local callerInts = native.offset(resumed, native.load32(callerInfo, native.layout("FuncInfo.off_i")) * 8)
     local callerFloats = native.offset(resumed, native.load32(callerInfo, native.layout("FuncInfo.off_f")) * 8)
-    if native.both(
-        native.load32(context, native.layout("frame_mode")) ~= 0,
-        native.load32(callerInfo, native.layout("FuncInfo.native")) ~= 0
-    ) then
+    if native.load32(callerInfo, native.layout("FuncInfo.native")) ~= 0 then
         return enterFrameSlow(callerPc, context, native.index(header >> 32), 0)
     else
         if native.both(delivered ~= 0, native.load8(callerPc, 0) == native.layout("Code.PadResults")) then
@@ -516,14 +482,12 @@ export function backEdge(
     displacement: int64
 ): uint64
     local target = native.offset(pc, (displacement + 1) * 16)
-    if native.load32(context, native.layout("frame_mode")) == 0 then
+    local jit = native.load32(context, native.layout("jit_frames"))
+    local frames = native.load64(context, native.layout("nframe_entries"))
+    if native.both(jit == 0, frames == 0) then
         return native.dispatch(target, regs, ints, floats, context, frame)
     else
-        local jit = native.load32(context, native.layout("jit_frames"))
-        local frames = native.load64(context, native.layout("nframe_entries"))
-        if native.both(jit == 0, frames == 0) then
-            return native.dispatch(target, regs, ints, floats, context, frame)
-        else
+        do
             local fid = native.load64(frame, 0) & values.LOW_WORD
             local info = native.offset(
                 native.loadPointer(context, native.layout("funcs")),

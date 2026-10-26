@@ -15,8 +15,11 @@ const IMAGE: &str = include_str!("specialize/specialize.image");
 const DEOPT_IMAGE: &str = include_str!("specialize/deopt.image");
 const PROGRAMS: &[&str] = &["cases", "classes", "poly", "shapes"];
 
+/// `Eager` compiles every function's direct entry up front and the harness
+/// enters it as compiled code would (`call_direct`): the interpreter itself
+/// enters compiled code only through frame entries, which is `Frames`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Tier { Rust, Threaded, Eager, Lazy, Frames }
+enum Tier { Rust, Threaded, Eager, Frames }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Gc { Plain, Interleave, Stress }
@@ -43,7 +46,7 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
     vm.spec.limits.miss_limit = 50;
     vm.spec.limits.deopt_limit = 20;
     if tier != Tier::Rust { vm.prepare_threaded(); }
-    if matches!(tier, Tier::Eager | Tier::Lazy | Tier::Frames) {
+    if matches!(tier, Tier::Eager | Tier::Frames) {
         use nupp_vm::{compiled, jit::Jit};
         let mut jit = Jit::new();
         jit.extra_addr = vm.extra.as_ptr() as i64;
@@ -56,6 +59,9 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
         jit.probe_addr = vm.shape_probe.as_ptr() as i64;
         compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
         match tier {
+            // Direct entries only: a frame entry would be compiled at the
+            // first entry otherwise, and the scenarios below read the
+            // direct convention's own feedback.
             Tier::Eager => for id in 0..vm.entries.len() {
                 if vm.funcs[id].name.starts_with("module:") { continue; }
                 let entry = match vm.spec_baseline_plan(id as u32) {
@@ -63,8 +69,8 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
                     None => jit.try_compile(&vm.funcs[id].clone(), id as u32).ok().map(|p| p as u64),
                 };
                 if let Some(entry) = entry { vm.entries[id] = entry; }
+                vm.frame_threshold = u32::MAX;
             },
-            Tier::Lazy => vm.jit_threshold = 50,
             _ => vm.enable_scheduler().unwrap(),
         }
         vm.jit = Some(Box::new(jit));
@@ -94,7 +100,10 @@ fn call(vm: &mut Interp, tier: Tier, module: &str, export: &str, args: &[Value])
             }
         }
     } else {
-        let v = vm.guarded(|vm| vm.call_value(f, args).first().copied().unwrap_or(Value::NIL));
+        let v = vm.guarded(|vm| {
+            let direct = if tier == Tier::Eager { vm.call_direct(f, args) } else { None };
+            direct.unwrap_or_else(|| vm.call_value(f, args)).first().copied().unwrap_or(Value::NIL)
+        });
         if v == Value::ERROR {
             let e = vm.pending_error.take().unwrap();
             panic!("{module}.{export} on {tier:?} raised {}", String::from_utf8_lossy(vm.bytes_of(e)));
@@ -122,7 +131,7 @@ fn expected() -> Vec<String> {
 #[test]
 fn every_tier_agrees_with_feedback_off_on_and_specializing() {
     let want = expected();
-    for tier in [Tier::Rust, Tier::Threaded, Tier::Eager, Tier::Lazy, Tier::Frames] {
+    for tier in [Tier::Rust, Tier::Threaded, Tier::Eager, Tier::Frames] {
         for spec in [Spec::Off, Spec::Feedback, Spec::Specialize] {
             let mut vm = fixture(tier, spec, Gc::Plain);
             for (p, w) in PROGRAMS.iter().zip(&want) {
@@ -137,7 +146,7 @@ fn every_tier_agrees_with_feedback_off_on_and_specializing() {
 #[test]
 fn the_deopt_program_agrees_on_every_tier() {
     let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
-    for tier in [Tier::Threaded, Tier::Eager, Tier::Lazy, Tier::Frames] {
+    for tier in [Tier::Threaded, Tier::Eager, Tier::Frames] {
         for spec in [Spec::Off, Spec::Feedback, Spec::Specialize] {
             let mut vm = fixture_of(DEOPT_IMAGE, tier, spec, Gc::Plain);
             assert_eq!(text(&mut vm, tier, "deopt"), want, "deopt on {tier:?} with {spec:?}");
@@ -148,7 +157,7 @@ fn the_deopt_program_agrees_on_every_tier() {
 #[test]
 fn specialized_tiers_agree_under_collector_verification() {
     let want = expected();
-    for tier in [Tier::Eager, Tier::Lazy, Tier::Frames] {
+    for tier in [Tier::Eager, Tier::Frames] {
         let mut vm = fixture(tier, Spec::Specialize, Gc::Interleave);
         for (p, w) in PROGRAMS.iter().zip(&want) {
             if *p == "shapes" || *p == "classes" { continue; }
@@ -197,7 +206,7 @@ fn a_failed_guard_takes_the_generic_path_and_respecializes() {
 
 #[test]
 fn replacing_a_method_or_a_metatable_invalidates_what_code_assumed() {
-    for tier in [Tier::Eager, Tier::Lazy] {
+    for tier in [Tier::Eager] {
         let mut vm = fixture(tier, Spec::Specialize, Gc::Interleave);
         let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
         for export in ["mutate", "metatable"] {
@@ -210,15 +219,15 @@ fn replacing_a_method_or_a_metatable_invalidates_what_code_assumed() {
 
 #[test]
 fn unstable_sites_settle_within_the_version_cap() {
-    let mut vm = fixture(Tier::Eager, Spec::Specialize, Gc::Plain);
+    let mut vm = fixture(Tier::Frames, Spec::Specialize, Gc::Plain);
     let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
     let want = call(&mut plain, Tier::Rust, "cases", "unstable", &[Value::num(20000.0)]);
-    assert_eq!(call(&mut vm, Tier::Eager, "cases", "unstable", &[Value::num(20000.0)]), want);
+    assert_eq!(call(&mut vm, Tier::Frames, "cases", "unstable", &[Value::num(20000.0)]), want);
     let max = vm.spec.limits.max_versions;
     for f in vm.spec.funcs.iter().flatten() { assert!(f.kind(false).specialized <= max && f.kind(true).specialized <= max, "a function past the version cap"); }
-    let site = *vm.spec.get(fid(&vm, "cases", "call")).unwrap().kind(false);
+    let site = *vm.spec.get(fid(&vm, "cases", "call")).unwrap().kind(true);
     assert!(site.settled && !site.active, "the megamorphic method site settled on its generic entry");
-    assert_eq!(vm.entries[fid(&vm, "cases", "call") as usize], site.baseline);
+    assert_eq!(vm.frame_entries[fid(&vm, "cases", "call") as usize], site.baseline);
 }
 
 /// `deopt.nupp` leaves specialized heap-frame entries with boxed values,
@@ -299,7 +308,7 @@ fn the_feedback_budget_refuses_once_and_allocates_nothing() {
 fn forced_guard_failures_change_no_answer() {
     let want = expected();
     let want_deopt = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
-    for tier in [Tier::Eager, Tier::Lazy, Tier::Frames] {
+    for tier in [Tier::Eager, Tier::Frames] {
         for period in [1, 3, 17] {
             let chaotic = |image| {
                 let mut vm = fixture_of(image, tier, Spec::Specialize, Gc::Plain);

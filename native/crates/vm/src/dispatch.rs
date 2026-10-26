@@ -92,18 +92,6 @@ unsafe fn observe(ctx: *mut Ctx, pc: *const Ins, frame: *mut u64, v: u64, k: u32
     }
 }
 #[inline(always)]
-unsafe fn count_call(ctx: *mut Ctx, fid: usize) -> bool {
-    let threshold = (*ctx).jit_threshold;
-    if threshold != 0 {
-        let f = (*ctx).funcs.add(fid).cast_mut();
-        if (*f).calls < threshold {
-            (*f).calls += 1;
-            return (*f).calls == threshold;
-        }
-    }
-    false
-}
-#[inline(always)]
 unsafe fn push(
     ctx: *mut Ctx,
     frame: *mut u64,
@@ -179,11 +167,11 @@ unsafe fn frame_entry(ctx: *mut Ctx, fid: usize) -> u64 {
 /// Back edges are entry points while compiled frames are possible.
 #[inline(always)]
 unsafe fn osr(ctx: *mut Ctx) -> bool {
-    (*ctx).frame_mode != 0 && ((*ctx).jit_frames != 0 || (*ctx).nframe_entries != 0)
+    (*ctx).jit_frames != 0 || (*ctx).nframe_entries != 0
 }
 
 /// What the frame driver does as an activation starts or resumes, at every
-/// frame transition: in frame mode a function starting, or one with vector
+/// frame transition: a function starting, or one with vector
 /// instructions resuming anywhere (its compiled entries revalidate what the
 /// interpreter cannot), goes to its compiled frame entry when it has one, is
 /// compiled when this call makes it hot, or meets the interpreter's policy.
@@ -196,7 +184,7 @@ unsafe fn entry(ctx: *mut Ctx) -> bool {
         let frame = (*ctx).stack.add((*ctx).cur as usize);
         let fi = func(ctx, frame);
         let pc = (*frame >> 32) as u32;
-        if (*ctx).frame_mode != 0 && (pc == 0 || (*fi).native != 0) {
+        if pc == 0 || (*fi).native != 0 {
             let e = frame_entry(ctx, *frame as u32 as usize);
             let hot = pc == 0 && e == 0 && (*ctx).jit_frames != 0 && heat(ctx, fi);
             if (e != 0 && e != u64::MAX) || (*fi).native != 0 || hot {
@@ -356,7 +344,7 @@ unsafe fn native_segment(
 /// or at an instruction Rust runs in the frame the context names.
 #[cfg(feature = "native-runtime")]
 #[allow(unused_assignments)]
-unsafe fn native_exit(mut pc: *const Ins, mut regs: *mut u64, mut iregs: *mut i64, mut fregs: *mut f64, ctx: *mut Ctx, mut frame: *mut u64) -> u64 {
+unsafe fn native_exit(pc: *const Ins, mut regs: *mut u64, mut iregs: *mut i64, mut fregs: *mut f64, ctx: *mut Ctx, mut frame: *mut u64) -> u64 {
     if pc as u64 == EXIT_ERROR {
         return 0;
     }
@@ -514,29 +502,6 @@ macro_rules! dynamic_call {
         if (*fi).vararg != 0 || (*fi).typed != 0 || fid == (*$ctx).unavailable_fid {
             slow!();
         }
-        let entry = if (*$ctx).frame_mode != 0 {
-            0
-        } else {
-            *(*$ctx).entries.add(fid as usize)
-        };
-        if entry != 0 {
-            note($ctx, $pc, $frame);
-            rt_enter_compiled(
-                $ctx,
-                entry,
-                closure,
-                (*$ctx).cur + HDR as u64 + $ins.b as u64,
-                nargs,
-                (*fi).nparams,
-            );
-            checked!($ctx);
-            reload!($pc, $regs, $iregs, $fregs, $ctx, $frame);
-            $pc = $pc.add(1);
-            next!();
-        }
-        if count_call($ctx, fid as usize) {
-            slow!();
-        }
         nargs = nargs.min((*fi).nparams);
         let pcx = $pc.offset_from((*func($ctx, $frame)).code) as u32 + 1;
         push(
@@ -649,7 +614,7 @@ emit! {
     StrByte => h_strbyte { let t=r!(regs,ins.b); if !is_obj(t) || (kind(t)!=KIND_STR && kind(t)!=KIND_SLICE) {slow!();} let i=r!(iregs,ins.c); if i<0 {slow!();} r!(regs,ins.a)=if i>=1 && i as u64<=len(t) {num(*data(t).cast::<u8>().add(i as usize-1) as f64)} else {NIL}; pc=pc.add(1); next!(); }
     Call => h_call {
         let fid=ins.k as usize;
-        if (*(*ctx).funcs.add(fid)).vararg!=0 || ins.b>=64 || count_call(ctx,fid) {slow!();}
+        if (*(*ctx).funcs.add(fid)).vararg!=0 || ins.b>=64 {slow!();}
         let pcx=pc.offset_from((*func(ctx,frame)).code) as u32+1;
         push(ctx,frame,fid as u32,((*ctx).cur as usize+HDR+ins.a as usize) as u32,ins.b as u32,pcx,NIL);
         reenter!();

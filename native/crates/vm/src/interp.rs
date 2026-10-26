@@ -510,9 +510,6 @@ pub struct Interp {
     pub loaded_table: Value,
     /// The threaded core's per-function and per-shape tables, and whether it runs tasks.
     pub finfo: Vec<crate::threaded::FuncInfo>,
-    /// The lazy typed tier: compile a function at its `jit_threshold`th call
-    /// (0: no lazy compilation; the runner compiles eagerly or not at all).
-    pub jit_threshold: u32,
     #[cfg(feature = "jit")]
     pub jit: Option<Box<crate::jit::Jit>>,
     /// The background frame compiler, started by the first hot function.
@@ -530,8 +527,6 @@ pub struct Interp {
     pub frame_threshold: u32,
     #[cfg(feature = "compiled-runtime")]
     pub(crate) frame_heat: Vec<u32>,
-    pub(crate) frame_mode: bool,
-    pub(crate) frame_required: bool,
     /// Value registers live across each pc (live-in and live-out), by
     /// function, computed on the first explicit collection that needs them.
     dead_register_maps: std::collections::HashMap<u32, Vec<crate::verify::RegSet>>,
@@ -564,8 +559,6 @@ pub struct Interp {
     // Transient native bindings and field caches belong to this VM, not code.
     pub(crate) runtime_addresses: [u64; 7],
     pub(crate) field_caches: Vec<Option<Box<[[u64; 2]]>>>,
-    pub lazy_compiled: usize,
-    pub lazy_micros: u64,
     pub shape_info: Vec<crate::threaded::ShapeInfo>,
     pub threaded: bool,
     /// The typed tier's compiled entry per function (0 when interpreted),
@@ -671,7 +664,7 @@ macro_rules! hdr { ($it:expr, $v:expr, $what:expr) => { match $v.as_obj() { Some
 impl Default for Interp { fn default() -> Self { Self::new() } }
 
 impl Interp {
-    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, frame_mode: false, frame_required: false, native_task: 0, #[cfg(feature = "compiled-runtime")] frame_context: Default::default(), #[cfg(feature = "compiled-runtime")] frame_info: Vec::new(), direct_frame: usize::MAX, native_exit: None, compiled_frame_entries: 0, compiled_frame_parks: 0, compiled_frame_continuations: 0, native_frame_depth: 0, nested_calls: 0, unwind_nested: false, unwinds: Value::NIL, string_meta: Value::NIL, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_threshold: 0, #[cfg(feature = "compiled-runtime")] frame_heat: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), jit_threshold: 0, #[cfg(feature = "jit")] jit: None, lazy_compiled: 0, lazy_micros: 0, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, hot: Default::default(), #[cfg(feature = "jit")] spec: Default::default(), #[cfg(feature = "jit")] jit_worker: None, #[cfg(feature = "jit")] jit_background: std::env::var("JIT_BACKGROUND").map_or(true, |v| v != "0") } }
+    pub fn new() -> Interp { Interp { dead_register_maps: std::collections::HashMap::new(), native_required: Vec::new(), simd_interpret: cfg!(feature = "jit") || std::env::var("SIMD_INTERPRET").is_ok(), clock: Default::default(), channel_registry: Default::default(), workers: Default::default(), instruction_budget: None, execution_limit: None, loading_modules: Default::default(), dynamic_modules: Default::default(), spent_modules: Default::default(), task_parents: Default::default(), random_state: 0x9e37_79b9_7f4a_7c15, pending_xpcall: None, xpcall_scopes: Vec::new(), xpcall_handled: false, native_task: 0, #[cfg(feature = "compiled-runtime")] frame_context: Default::default(), #[cfg(feature = "compiled-runtime")] frame_info: Vec::new(), direct_frame: usize::MAX, native_exit: None, compiled_frame_entries: 0, compiled_frame_parks: 0, compiled_frame_continuations: 0, native_frame_depth: 0, nested_calls: 0, unwind_nested: false, unwinds: Value::NIL, string_meta: Value::NIL, worker_compiled_entries: 0, worker_compile_micros: 0, supervised: Default::default(), linked_frames: Vec::new(), runtime_consts: Vec::new(), runtime_addresses: [0; 7], field_caches: Default::default(), #[cfg(feature = "compiled-runtime")] frame_entries: Vec::new(), #[cfg(feature = "compiled-runtime")] frame_threshold: 0, #[cfg(feature = "compiled-runtime")] frame_heat: Vec::new(), scheduler: None, active_cancellation: None, persistence_hook_depth: 0, nonsuspending_cleanup: 0, callback_depth: Default::default(), code_events: Vec::new(), execution_depth: Default::default(), resources: Default::default(), native_files: Default::default(), nfiles: Default::default(), ncompression: Default::default(), nnet: Default::default(), nhttp: Default::default(), foreign: Default::default(), extensions: Default::default(), physical_fields: Default::default(), temporary_paths: Default::default(), processes: Default::default(), #[cfg(feature = "c-headers")] c_declarations: None, heap: Heap::new(), host: None, host_waiters: std::collections::HashMap::new(), funcs: Vec::new(), tasks: Vec::new(), handles: Vec::new(), registered: Vec::new(), back_edges: 0, parks: 0, trace: std::env::var("TRACE_CALLS").is_ok(), trace_ops: std::env::var("TRACE_OPS").is_ok(), stack_pool: Vec::new(), ic_stats: std::env::var("IC_STATS").is_ok(), slot_stats: if std::env::var("SLOT_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, slot_miss_shapes: std::collections::HashMap::new(), op_stats: if std::env::var("OP_STATS").is_ok() { Some(Box::new(std::collections::HashMap::new())) } else { None }, last_nres: 0, modules: std::collections::HashMap::new(), module_paths: std::collections::HashMap::new(), literal_fid: u32::MAX, unavailable_fid: u32::MAX, caller: Default::default(), loaded: std::collections::HashMap::new(), loaded_table: Value::NIL, finfo: Vec::new(), #[cfg(feature = "jit")] jit: None, shape_info: Vec::new(), threaded: false, entries: Vec::new(), calltab: Vec::new(), shape_probe: Vec::new(), extra: [Value::NIL; MAX_RESULTS], extra_n: 0, pending_error: None, hot: Default::default(), #[cfg(feature = "jit")] spec: Default::default(), #[cfg(feature = "jit")] jit_worker: None, #[cfg(feature = "jit")] jit_background: std::env::var("JIT_BACKGROUND").map_or(true, |v| v != "0") } }
 
     pub fn box_integer(&mut self, value: crate::numeric::Integer) -> Value { self.heap.box_integer(value, roots!(self)) }
     pub fn intern(&mut self, s: &str) -> Value { self.heap.intern(s, roots!(self)) }
@@ -688,7 +681,6 @@ impl Interp {
     // ---- tasks and frames -------------------------------------------------
 
     pub fn spawn(&mut self, fid: u32, args: &[Value]) -> usize {
-        if self.jit_threshold != 0 { self.note_call(fid); }
         let f = &self.funcs[fid as usize];
         let words = f.frame_words();
         // A vararg entry's surplus arguments lie below its header.
@@ -782,38 +774,7 @@ impl Interp {
     /// places the header, copies the value arguments from `args_at + 1..`
     /// into the callee's r1.. and records `args_at` as the result slot. The
     /// stack may move, so callers re-derive their pointers.
-    /// A call of `fid` on an interpreted path: counted, and compiled at the
-    /// threshold so the next call takes the entry.
-    #[inline] pub fn note_call(&mut self, fid: u32) {
-        if self.jit_threshold == 0 || self.entries.get(fid as usize).copied().unwrap_or(1) != 0 { return; }
-        if let Some(fi) = self.finfo.get_mut(fid as usize) { if fi.calls < self.jit_threshold { fi.calls += 1; } if fi.calls >= self.jit_threshold { self.compile_now(fid); } }
-    }
-    #[cfg(feature = "jit")]
-    fn compile_now(&mut self, fid: u32) {
-        let Some(mut j) = self.jit.take() else { return };
-        let f = self.funcs[fid as usize].clone();
-        if !f.name.starts_with("module:") {
-            // With specialization on, the generic entry is installed as a
-            // version record and interpreter feedback picks what follows.
-            if self.spec.specialize {
-                self.jit = Some(j);
-                let t0 = std::time::Instant::now();
-                if self.spec_compile_baseline(fid).is_some() { self.lazy_compiled += 1; self.respecialize(fid, false); }
-                self.lazy_micros += t0.elapsed().as_micros() as u64;
-                if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }
-                return;
-            }
-            let t0 = std::time::Instant::now();
-            if let Ok(p) = j.try_compile(&f, fid) { self.entries[fid as usize] = p as u64; self.lazy_compiled += 1; }
-            self.lazy_micros += t0.elapsed().as_micros() as u64;
-        }
-        if let Some(fi) = self.finfo.get_mut(fid as usize) { fi.calls = u32::MAX; }
-        self.jit = Some(j);
-    }
-    #[cfg(not(feature = "jit"))]
-    fn compile_now(&mut self, _fid: u32) {}
     fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
-        if self.jit_threshold != 0 { self.note_call(f); }
         let callee = unsafe { self.funcs.get_unchecked(f as usize) };
         if self.trace { eprintln!("call {} nargs {}", callee.name, nargs); }
         if nargs >= 64 || callee.vararg { return self.push_frame_cold(tid, f, args_at, nargs, pc); }
@@ -1033,8 +994,12 @@ impl Interp {
     // ---- calls from the runtime ------------------------------------------
 
     /// The typed tier's entry for a function, if it has one.
+    /// The direct entry compiled for `fid`, if any: the JIT's table for
+    /// compiled-to-compiled calls and the tests that enter compiled code
+    /// directly. The interpreter itself enters compiled code only through
+    /// frame entries.
     #[inline]
-    pub fn entry_of(&self, fid: u32) -> u64 { if self.frame_mode || self.execution_limit.is_some() { return 0; } self.entries.get(fid as usize).copied().unwrap_or(0) }
+    pub fn entry_of(&self, fid: u32) -> u64 { self.entries.get(fid as usize).copied().unwrap_or(0) }
     /// Enters a compiled function with its closure and value arguments through
     /// a per-arity trampoline; the first result returns, extras through `extra`.
     #[cfg(feature = "compiled-runtime")]
@@ -1076,6 +1041,23 @@ impl Interp {
     }
     #[cfg(not(feature = "compiled-runtime"))]
     pub fn enter_compiled(&mut self, _entry: u64, _closure: Value, _args: &[Value], _nparams: usize) -> crate::builtins::Outs { unreachable!("no typed tier in this build") }
+    /// Enters the direct entry compiled for `callee` -- a function or closure
+    /// with one, not vararg -- as compiled code would, answering its results;
+    /// `None` when it has none. The interpreter never takes this path itself:
+    /// its tasks enter compiled code through frame entries. Tests of the
+    /// direct convention do.
+    pub fn call_direct(&mut self, callee: Value, args: &[Value]) -> Option<Vec<Value>> {
+        let (fid, closure) = if let Some(f) = callee.as_func() { (f, Value::NIL) } else {
+            let p = callee.as_obj()?;
+            let h = unsafe { &*p.as_ptr() };
+            if h.kind != KIND_CLOSURE { return None; }
+            (h.fid(), callee)
+        };
+        let entry = self.entry_of(fid);
+        if entry == 0 || self.funcs[fid as usize].vararg { return None; }
+        let nparams = self.funcs[fid as usize].nparams as usize;
+        Some(self.enter_compiled(entry, closure, args, nparams).to_vec())
+    }
     /// Calls any callable value on a scratch task and returns every result:
     /// the path for builtins that call back (gsub) and for module chunks.
     pub fn call_value(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
@@ -1088,8 +1070,6 @@ impl Interp {
             let h = unsafe { &*p.as_ptr() };
             match h.kind { KIND_CLOSURE => (h.fid(), callee), KIND_ITER => return crate::builtins::iter_next(self, callee).to_vec(), KIND_TABLE | KIND_RECORD | KIND_USERDATA => { let f = self.call_handler(callee); if !self.is_function(f) { self.op_error(OpErr::Call, callee) } let mut full = Vec::with_capacity(args.len() + 1); full.push(callee); full.extend_from_slice(args); return self.call_value(f, &full); } _ => self.err(&format!("call_value of a non-function object ({})", Heap::describe(h))) }
         };
-        let entry = self.entry_of(fid);
-        if entry != 0 && !self.funcs[fid as usize].vararg { let np = self.funcs[fid as usize].nparams as usize; return self.enter_compiled(entry, closure, args, np).to_vec(); }
         let parent = self.caller_task();
         let scratch = self.spawn(fid, args);
         { let t = &mut self.tasks[scratch]; let s0 = t.cur(); t.stack[s0 + 2] = closure.0; }
@@ -1104,7 +1084,9 @@ impl Interp {
         self.task_parents.retain(|&task, _| task < scratch);
         match result { Ok(outs) => outs, Err(error) => std::panic::resume_unwind(error) }
     }
-    /// `call_value` without a heap allocation on the builtin path.
+    /// `call_value` without a heap allocation on the builtin path: compiled
+    /// code's way to a callee it has no direct call for (`j_call_dyn`), so a
+    /// callee with a direct entry is entered there, as a direct call would.
     pub fn call_outs(&mut self, callee: Value, args: &[Value]) -> crate::builtins::Outs {
         #[cfg(feature = "compiled-runtime")]
         if self.ic_stats { let i = if callee.as_builtin().is_some() { 4 } else { match callee.as_obj() { Some(p) => { let h = unsafe { &*p.as_ptr() }; if h.kind == KIND_CLOSURE && self.entry_of(h.fid()) != 0 && !self.funcs[h.fid() as usize].vararg { 5 } else { 6 } } None => if callee.as_func().map(|f| self.entry_of(f) != 0).unwrap_or(false) { 5 } else { 6 } } }; crate::compiled::IC_STATS[i].fetch_add(1, std::sync::atomic::Ordering::Relaxed); if i == 6 { let fid = match callee.as_obj() { Some(p) => unsafe { (*p.as_ptr()).fid() }, None => callee.as_func().unwrap_or(u32::MAX) }; let mut g = crate::compiled::INTERP_CALLEES.lock().unwrap(); *g.get_or_insert_with(Default::default).entry(fid).or_insert(0) += 1; } }
@@ -1156,9 +1138,20 @@ impl Interp {
     }
     /// pcall as values: ok first, then the results or the error value.
     pub fn pcall_values(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
+        self.pcall_with(callee, args, false)
+    }
+    /// `pcall_values` for compiled code (`j_pcall`): a callee with a direct
+    /// entry is entered there, as compiled code's own calls take it.
+    pub fn pcall_compiled(&mut self, callee: Value, args: &[Value]) -> Vec<Value> {
+        self.pcall_with(callee, args, true)
+    }
+    fn pcall_with(&mut self, callee: Value, args: &[Value], direct: bool) -> Vec<Value> {
         let hook = std::panic::take_hook(); std::panic::set_hook(Box::new(|_| {}));
         let mark = self.handles.len();
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, args)));
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let entered = if direct { self.call_direct(callee, args) } else { None };
+            entered.unwrap_or_else(|| self.call_value(callee, args))
+        }));
         std::panic::set_hook(hook);
         match outcome {
             Ok(mut vals) => { vals.insert(0, Value::TRUE); vals }
@@ -2251,19 +2244,18 @@ impl Interp {
         })
     }
     /// Run task `tid` until it finishes or parks: on the threaded core when
-    /// it is built and enabled, else on the Rust loop.
+    /// it is built and enabled, else on the Rust loop. Every task runs as the
+    /// frame driver runs it: compiled code is entered through frame entries,
+    /// protected calls are frames a task can suspend in, and cleanups run on
+    /// the task's own stack.
     pub fn run(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(Caller::Task(tid));
-        let old = self.frame_mode;
-        // Ownership regions must use the frame driver: C return handlers do
-        // not execute cleanup, and a native caller cannot survive a park.
-        self.frame_mode |= self.frame_required;
         loop {
-            if let Some(outcome) = self.resume_unwind(tid) { self.frame_mode=old; return outcome; }
+            if let Some(outcome) = self.resume_unwind(tid) { return outcome; }
             let mark = self.handles.len();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && self.execution_limit.is_none() && (!self.frame_mode || self.threaded_frames()) { self.run_threaded(tid) } else { self.run_rust(tid) }}));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && self.execution_limit.is_none() && self.instruction_budget.is_none() { self.run_threaded(tid) } else { self.run_rust(tid) }}));
             match result {
-                Ok(o) => { self.frame_mode = old; return o; }
+                Ok(o) => return o,
                 Err(e) => {
                     self.handles.truncate(mark);
                     if self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) {
@@ -2287,7 +2279,6 @@ impl Interp {
                         self.last_nres = 2; self.release(root);
                         continue;
                     }
-                    self.frame_mode = old;
                     let value = self.error_value(e); let root = self.register(value);
                     // xpcall's handler for this task runs here, where the error
                     // was raised: its frames are still on the stack, so a
@@ -2325,14 +2316,8 @@ impl Interp {
         false
     }
     pub(crate) fn compiled_frames_active_pub(&self) -> bool { self.compiled_frames_active() }
-    /// Whether the threaded core may drive a task in frame mode: not under an
-    /// instruction budget, which only the Rust loop charges. With the JIT the
-    /// core counts heat itself and hands hot functions to `rt_enter_frame`.
-    fn threaded_frames(&self) -> bool {
-        self.instruction_budget.is_none()
-    }
     fn compiled_frames_active(&self) -> bool {
-        if !self.frame_mode || self.execution_limit.is_some() { return false; }
+        if self.execution_limit.is_some() { return false; }
         #[cfg(feature = "jit")] if self.jit.is_some() { return true; }
         #[cfg(feature = "compiled-runtime")] if !self.frame_entries.is_empty() { return true; }
         false
@@ -2506,11 +2491,7 @@ impl Interp {
                     Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::CallMethod(k, b, nargs) => match { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::PCall(b, nargs) => {
-                        if self.frame_mode {
-                            match self.frame_pcall(tid, &win, pc, b, nargs, Value::NIL) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) }
-                        } else { self.op_pcall(tid, &win, b, nargs); }
-                    }
+                    Op::PCall(b, nargs) => match self.frame_pcall(tid, &win, pc, b, nargs, Value::NIL) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
                     Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
                     Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
                     Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); let iv = self.key_for_store(iv); self.newindex(tv, iv, v); }
@@ -2732,8 +2713,6 @@ impl Interp {
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let callee = r!(fr);
         if let Some(f) = callee.as_func() {
-            let e = self.entry_of(f);
-            if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, Value::NIL, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
             self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
         }
         let coroutine = crate::coroutines::wrapped(self, callee);
@@ -2749,7 +2728,7 @@ impl Interp {
             // `pcall` and `xpcall` reached as values (a Lua chunk's globals,
             // a local alias) protect the same way the PCall opcode does, so a
             // task can suspend inside them.
-            if self.frame_mode && (id == crate::builtins::PCALL || id == crate::builtins::XPCALL) {
+            if id == crate::builtins::PCALL || id == crate::builtins::XPCALL {
                 if let Some(flow) = self.dynamic_pcall(tid, w, pc, id, b, nargs) { return flow; }
             }
             let args = self.call_args(tid, base + b as usize + 1, nargs);
@@ -2783,8 +2762,6 @@ impl Interp {
         }
         if h.kind != KIND_CLOSURE { self.op_error(OpErr::Call, callee) }
         let f = h.fid();
-        let e = self.entry_of(f);
-        if e != 0 && nargs < 128 && !self.funcs[f as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[f as usize].nparams as usize; let outs = self.enter_compiled(e, callee, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         // A dynamic call carries every argument as a value; a typed callee's
         // float parameters are unboxed on entry.
         let (nv, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.vararg) };
@@ -2835,8 +2812,6 @@ impl Interp {
         }
         let ch = hdr!(self, method, "method is not a function");
         if ch.kind != KIND_CLOSURE { self.err("method is not a function") }
-        let e = self.entry_of(ch.fid());
-        if e != 0 && !self.funcs[ch.fid() as usize].vararg { let args = self.call_args(tid, base + b as usize + 1, nargs); let np = self.funcs[ch.fid() as usize].nparams as usize; let outs = self.enter_compiled(e, method, args.as_slice(), np); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
         self.push_frame(tid, ch.fid(), base + b as usize, nargs, pc);
         let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
         Flow::Reenter

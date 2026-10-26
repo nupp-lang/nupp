@@ -520,8 +520,8 @@ fn native_constants_and_upvalues_use_the_entry_context_and_frame() {
     }
 }
 
-/// A function table for a frame-mode test of back edges: one function whose
-/// code is `program`, far from hot.
+/// A function table for a test of back edges: one function whose code is
+/// `program`, far from hot.
 fn one_function(program: &[Ins]) -> FuncInfo {
     FuncInfo {
         code: program.as_ptr(),
@@ -539,7 +539,7 @@ fn one_function(program: &[Ins]) -> FuncInfo {
     }
 }
 
-/// A taken back edge in frame mode counts toward its function's heat while
+/// A taken back edge counts toward its function's heat while
 /// the JIT may compile frames, and is taken natively while the function is
 /// neither hot nor compiled; anything else leaves the loop alone.
 #[test]
@@ -553,7 +553,7 @@ fn native_value_branches_count_heat_on_taken_back_edges() {
             crate::value::QNAN,
         ] {
             for displacement in [-2, 1] {
-                for mode in [0, 1] {
+                {
                     for jit in [0, 1] {
                         for entries in [0, 1] {
                             let mut program = [Ins::default(); 5];
@@ -568,7 +568,6 @@ fn native_value_branches_count_heat_on_taken_back_edges() {
                             let mut funcs = [one_function(&program)];
                             let frame_entries = [0u64];
                             let mut ctx: Ctx = unsafe { std::mem::zeroed() };
-                            ctx.frame_mode = mode;
                             ctx.jit_frames = jit;
                             ctx.funcs = funcs.as_mut_ptr();
                             ctx.nfuncs = 1;
@@ -596,9 +595,9 @@ fn native_value_branches_count_heat_on_taken_back_edges() {
                             assert_eq!(regs, [value]);
                             assert_eq!(ints, [-123]);
                             assert_eq!(floats, [19.25]);
-                            let heat = (taken && displacement < 0 && mode != 0 && jit != 0) as u32;
+                            let heat = (taken && displacement < 0 && jit != 0) as u32;
                             let counted = unsafe { std::ptr::read_volatile(&funcs[0].calls) };
-                            assert_eq!(counted, heat, "{code:?} mode {mode} jit {jit} entries {entries}");
+                            assert_eq!(counted, heat, "{code:?} jit {jit} entries {entries}");
                         }
                     }
                 }
@@ -634,7 +633,6 @@ fn back_edges_finish_without_native_recursion() {
         let mut funcs = [one_function(&program)];
         let frame_entries = [0u64];
         let mut ctx: Ctx = unsafe { std::mem::zeroed() };
-        ctx.frame_mode = 1;
         ctx.jit_frames = jit;
         ctx.funcs = funcs.as_mut_ptr();
         ctx.nfuncs = 1;
@@ -865,7 +863,6 @@ struct Machine {
     stack: Vec<u64>,
     funcs: Vec<FuncInfo>,
     codes: Vec<Vec<Ins>>,
-    entries: Vec<u64>,
     frame_entries: Vec<u64>,
     slow_calls: Vec<u8>,
     ctx: Ctx,
@@ -880,7 +877,6 @@ impl Machine {
             stack: vec![0x5a5a_0000_0000_5a5a; 4096],
             funcs: Vec::new(),
             codes: vec![caller, callee],
-            entries: vec![0, 0],
             frame_entries: Vec::new(),
             slow_calls: Vec::new(),
             ctx: unsafe { std::mem::zeroed() },
@@ -913,7 +909,6 @@ impl Machine {
         self.ctx.cap = self.stack.len() as u64;
         self.ctx.funcs = self.funcs.as_ptr();
         self.ctx.nfuncs = self.funcs.len() as u64;
-        self.ctx.entries = self.entries.as_ptr();
         self.ctx.frame_entries = self.frame_entries.as_ptr();
         self.ctx.nframe_entries = self.frame_entries.len() as u64;
         self.ctx.slow_calls = self.slow_calls.as_ptr();
@@ -964,7 +959,7 @@ fn native_calls_push_the_frame_rust_pushes() {
                 (Code::CallDyn, Value::func(1).0),
                 (Code::CallDyn, closure_value),
             ] {
-                for (frame_mode, jit_frames) in [(0, 0), (1, 0), (1, 1)] {
+                for jit_frames in [0, 1] {
                     // Reg 1 holds the callee value, the argument window starts
                     // at reg 2, so the results land at reg 2.
                     let ins = if matches!(code, Code::Call) {
@@ -975,7 +970,6 @@ fn native_calls_push_the_frame_rust_pushes() {
                     let caller = vec![Ins::default(), ins, Ins::default()];
                     let callee = vec![Ins::default()];
                     let mut m = Machine::new(caller, callee, nparams);
-                    m.ctx.frame_mode = frame_mode;
                     m.ctx.jit_frames = jit_frames;
                     m.sync();
                     m.stack[HDR + 1] = callee_word;
@@ -1005,8 +999,7 @@ fn native_calls_push_the_frame_rust_pushes() {
                     assert_eq!(m.ctx.cur, reference.cur);
                     assert_eq!(m.stack, expected, "opcode {} nargs {nargs} nparams {nparams}", code as u8);
                     assert_eq!(exit, m.code(1, 0), "opcode {} continues in the callee", code as u8);
-                    // In frame mode under the JIT, a function starting counts
-                    // toward its heat.
+                    // Under the JIT, a function starting counts toward its heat.
                     assert_eq!(m.funcs[1].calls, jit_frames, "opcode {} heat", code as u8);
                 }
             }
@@ -1026,7 +1019,6 @@ fn native_calls_leave_unsupported_calls_untouched() {
         ("vararg dynamic", callk, Value::func(1).0, |m| m.funcs[1].vararg = 1),
         ("typed dynamic", callk, Value::func(1).0, |m| m.funcs[1].typed = 1),
         ("unavailable", callk, closure_value, |m| m.ctx.unavailable_fid = 1),
-        ("compiled entry", callk, closure_value, |m| m.entries[1] = 0x1000),
         // Builtins run through the helper, except a host service and one the
         // slow-call table names; an iterator runs through its helper too, as
         // does feedback, so none of those leaves anything untouched here.
@@ -1051,32 +1043,10 @@ fn native_calls_leave_unsupported_calls_untouched() {
         assert_eq!(m.stack, before, "{name}: nothing changed");
         assert_eq!(m.funcs[1].calls, 0, "{name}: nothing counted");
     }
-    // The JIT's call threshold: counted the way `count_call` counts below
-    // it, and the call that would reach it goes to Rust uncounted, so the
-    // Rust handler's own count reaches the threshold and hands the call to
-    // the interpreter, which compiles the function.
-    for threshold in [1u32, 3] {
-        let mut m = Machine::new(vec![Ins::default(), callk, Ins::default()], vec![Ins::default()], 1);
-        m.stack[HDR + 1] = closure_value;
-        m.ctx.jit_threshold = threshold;
-        for call in 1..=threshold {
-            m.ctx.cur = 0;
-            let exit = unsafe { m.run(1) };
-            if call == threshold {
-                assert_eq!(m.funcs[1].calls, threshold - 1, "the hot call is Rust's to count");
-                assert_eq!(exit, m.code(0, 1), "threshold {threshold}: hot call goes to Rust");
-                assert_eq!(m.ctx.cur, 0);
-            } else {
-                assert_eq!(m.funcs[1].calls, call);
-                assert_eq!(exit, m.code(1, 0));
-                assert_eq!(m.ctx.cur, TEST_FRAME_WORDS as u64);
-            }
-        }
-    }
     // A segment that entered one frame and fell back in another names the
     // instruction and leaves the frame to the context: the entry contract.
-    let frame_mode_entry = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
-    let mut m = Machine::new(vec![Ins::default(), frame_mode_entry], vec![Ins { op: Code::Move as u8, a: 3, b: 1, ..Ins::default() }, Ins::default()], 1);
+    let entering = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
+    let mut m = Machine::new(vec![Ins::default(), entering], vec![Ins { op: Code::Move as u8, a: 3, b: 1, ..Ins::default() }, Ins::default()], 1);
     m.stack[HDR + 1] = closure_value;
     m.stack[HDR + 3] = Value::num(7.0).0;
     let exit = unsafe { m.run(1) };
@@ -1117,11 +1087,10 @@ fn returning(values: &[u64], indirect: bool) -> Box<Machine> {
 fn native_returns_deliver_results_and_resume_the_caller() {
     let values = [Value::TRUE.0, Value::num(-0.0).0, 0xdead_beef, Value::NIL.0, 5, 6, 7, 8, 9];
     for indirect in [false, true] {
-        for frame_mode in [0, 1] {
+        {
             // Ret delivers register 1 to the caller's result slot, or to the
             // slot the frame names when its header says so.
             let mut m = returning(&values, indirect);
-            m.ctx.frame_mode = frame_mode;
             let before = m.stack.clone();
             let exit = unsafe { m.run(0) };
             assert_eq!(m.ctx.cur, 0);
@@ -1133,7 +1102,6 @@ fn native_returns_deliver_results_and_resume_the_caller() {
             assert_eq!(exit, m.code(0, 6), "resumes after the call");
             // RetNil delivers nil and no results.
             let mut m = returning(&values, indirect);
-            m.ctx.frame_mode = frame_mode;
             let exit = unsafe { m.run(1) };
             assert_eq!(m.ctx.cur, 0);
             assert_eq!(m.ctx.last_nres, 0);
@@ -1221,9 +1189,9 @@ fn native_result_padding_fills_only_missing_results() {
 }
 
 /// Whole programs through the interpreter: recursion through dynamic and
-/// static calls, multiple results, padding, stack growth under native
-/// frames, and both frame modes. Every result is exact, so an instruction
-/// skipped or repeated at any frame transition shows.
+/// static calls, multiple results, padding, and stack growth under native
+/// frames. Every result is exact, so an instruction skipped or repeated at
+/// any frame transition shows.
 fn program(vm: &mut crate::interp::Interp) {
     let source = r#"
 function fib 0 1 12 1 v:v
@@ -1374,11 +1342,10 @@ entry 0
 }
 
 #[test]
-fn native_frames_run_whole_programs_in_both_frame_modes() {
-    for frame_mode in [false, true] {
+fn native_frames_run_whole_programs() {
+    {
         let mut vm = Box::new(crate::interp::Interp::new());
         program(&mut vm);
-        vm.frame_mode = frame_mode;
         let call = |vm: &mut crate::interp::Interp, fid: u32, arg: f64| {
             vm.call_value(Value::func(fid), &[Value::num(arg)])
         };

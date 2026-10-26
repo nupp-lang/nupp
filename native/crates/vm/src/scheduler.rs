@@ -538,10 +538,7 @@ impl Interp {
             };
 
             let scope = self.open_scope();
-            let old_frame_mode = self.frame_mode;
-            self.frame_mode = true;
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run(tid)));
-            self.frame_mode = old_frame_mode;
             self.active_cancellation = None;
             self.scheduler
                 .as_mut()
