@@ -2253,7 +2253,7 @@ impl Interp {
         loop {
             if let Some(outcome) = self.resume_unwind(tid) { return outcome; }
             let mark = self.handles.len();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); if self.threaded && self.execution_limit.is_none() && self.instruction_budget.is_none() { self.run_threaded(tid) } else { self.run_rust(tid) }}));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {crate::scheduler::checkpoint(self); self.run_core(tid)}));
             match result {
                 Ok(o) => return o,
                 Err(e) => {
@@ -2297,8 +2297,18 @@ impl Interp {
             }
         }
     }
-    /// The Rust dispatch loop: the fallback (`NO_THREADED=1`) and the
-    /// reference the threaded core's results are checked against.
+    /// The native core when it is linked and prepared, and no budget is
+    /// set, since only the Rust loop charges budgets; the Rust loop otherwise.
+    fn run_core(&mut self, tid: usize) -> Outcome {
+        #[cfg(feature = "native-runtime")]
+        {
+            if self.threaded && self.execution_limit.is_none() && self.instruction_budget.is_none() { return self.run_threaded(tid); }
+        }
+        self.run_rust(tid)
+    }
+    /// The Rust dispatch loop: the build without the native object, the
+    /// fallback (`NO_THREADED=1`) and the reference the core's results are
+    /// checked against.
     /// Whether the interpreter, about to run `next` in `fid`, should offer the
     /// activation to compiled code: `next` is a back edge, where compiled code
     /// has an entry (`frame::resumes`), or the step was one in a function the

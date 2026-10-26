@@ -1,4 +1,15 @@
 use super::*;
+use crate::heap::{F_METATABLE, KIND_CELL, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR};
+
+fn num(x: f64) -> u64 {
+    Value::num(x).0
+}
+fn boolean(x: bool) -> u64 {
+    Value::boolean(x).0
+}
+fn truthy(x: u64) -> bool {
+    Value(x).truthy()
+}
 
 // Use the actual frame/window relation, rather than independent toy windows.
 // Guard both sides of the boxed window and preserve the frame header. The
@@ -937,6 +948,29 @@ impl Machine {
     fn code(&self, fid: usize, pc: usize) -> u64 {
         unsafe { self.codes[fid].as_ptr().add(pc) as u64 }
     }
+}
+
+/// The frame a call pushes, as the Rust core pushed it (contracts 5.1): the
+/// reference the native call handlers are compared with.
+unsafe fn push(ctx: *mut Ctx, frame: *mut u64, fid: u32, args: u32, nargs: u32, pc: u32, closure: u64) {
+    let fi = (*ctx).funcs.add(fid as usize);
+    let s = (*ctx).cur;
+    *frame = (*frame & 0xffff_ffff) | ((pc as u64) << 32);
+    let ns = s + ((*frame.add(3) >> 33) & 0xffff);
+    let words = (*fi).frame_words as u64;
+    let st = (*ctx).stack;
+    let nf = st.add(ns as usize);
+    *nf = fid as u64;
+    *nf.add(1) = s | ((args as u64) << 32);
+    *nf.add(2) = closure;
+    *nf.add(3) = words << 33;
+    for i in 0..nargs {
+        *nf.add(HDR + 1 + i as usize) = *st.add(args as usize + 1 + i as usize);
+    }
+    for i in nargs..(*fi).nparams {
+        *nf.add(HDR + 1 + i as usize) = NIL;
+    }
+    (*ctx).cur = ns;
 }
 
 fn closure_header(fid: u32) -> Box<Header> {

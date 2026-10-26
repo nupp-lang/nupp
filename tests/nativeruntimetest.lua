@@ -31,7 +31,7 @@ function M.theHandlerSourcesBuildIntoOneObjectAndPassTheContractTests()
     assert(status == 0, "scripts/vm-cli runtime failed: " .. output:sub(-6000))
     local object = assert(output:match("([^\r\n]+%.o)%s*$"), "vm-cli runtime named no object: " .. output:sub(-2000))
     local sidecar = read(object .. ".rs")
-    assert(sidecar:find("table[Code::IAdd as usize] = native_segment", 1, true), "the sidecar names no handlers")
+    assert(sidecar:find("assert!(Code::IAdd as u8 ==", 1, true), "the sidecar names no handlers")
     status, output = capture(("NUPP_NATIVE_RUNTIME_OBJECT=%s CARGO_TARGET_DIR=build/rust/target cargo test --locked --release "
         .. "-p nupp-vm --features aot,native-runtime -j 4 --lib native_tests"):format(quote(object)))
     assert(status == 0, "the native contract tests failed: " .. output:sub(-8000))

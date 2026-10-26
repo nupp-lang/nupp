@@ -1,7 +1,3 @@
-// The interpreter core's handlers end in guaranteed tail calls (`become`),
-// which pins the build to a nightly toolchain (`rust-toolchain.toml`).
-#![feature(explicit_tail_calls)]
-#![allow(incomplete_features)]
 //! The Nupp runtime (plan: `nupp-runtime.md`, contracts: `nupp-runtime-contracts.md`).
 //!
 //! Module map, in dependency order: `value` (the 64-bit word), `heap`
@@ -102,6 +98,7 @@ pub mod declaration;
 pub mod extension;
 pub mod embed;
 pub mod threaded;
+#[cfg(feature = "native-runtime")]
 mod dispatch;
 #[cfg(feature = "jit")]
 pub mod jit;

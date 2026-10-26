@@ -218,8 +218,7 @@ fn require_handler_clif(
 }
 
 /// The build-time sidecar: every layout the handlers were compiled against,
-/// asserted where the object is linked, and the table edit that routes the
-/// handled opcodes to the native entry.
+/// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
     metadata.push_str(
@@ -300,7 +299,6 @@ fn metadata_header() -> String {
         crate::heap::OFF_T_HASH_MASK
     ));
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
-    metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
     metadata
 }
 
@@ -362,12 +360,10 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         function_ids.push(id);
         if let Some(op) = opcode {
             handled.push((op, id));
-            metadata.push_str(&format!(
-                "assert!(Code::{name} as u8 == {op}); table[Code::{name} as usize] = native_segment;\n"
-            ));
+            metadata.push_str(&format!("assert!(Code::{name} as u8 == {op});\n"));
         }
     }
-    metadata.push_str("table }\n");
+    metadata.push_str("};\n");
     // Calls to the exported helpers import them; tail calls name functions of
     // this file. Imported signatures take the platform convention.
     let mut imports: BTreeMap<String, FuncId> = BTreeMap::new();

@@ -1,8 +1,10 @@
-//! The tail-call-threaded core's contract (contracts 5.2): the instruction
-//! encoding it reads, the per-function table it walks, the context it runs in,
-//! and the helpers it calls for anything it does not do itself. The handlers
-//! are in `dispatch`; `Interp::run_rust` remains the loop for what the core
-//! leaves to it (instruction budgets, execution limits, `NO_THREADED=1`).
+//! The native core's contract (contracts 5.2): the instruction encoding it
+//! reads, the per-function table it walks, the context it runs in, and the
+//! Rust helpers it calls for anything it does not do itself. The handlers are
+//! Nupp (`src/nupp/runtime/vm`), linked by the `native-runtime` feature and
+//! driven by `dispatch`; a build without the object, and `NO_THREADED=1`, run
+//! `Interp::run_rust`, the reference the core's results are checked against.
+#![cfg_attr(not(feature = "native-runtime"), allow(dead_code, unused_imports))]
 
 use crate::interp::{Function, Interp, Op, Outcome, State, Step};
 use crate::value::Value;
@@ -372,7 +374,8 @@ impl Interp {
         self.threaded = true;
     }
 
-    /// Runs the task on the threaded core until it finishes or parks.
+    /// Runs the task on the native core until it finishes or parks.
+    #[cfg(feature = "native-runtime")]
     pub fn run_threaded(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(crate::interp::Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
