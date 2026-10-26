@@ -162,6 +162,22 @@ mod native_helpers {
         it.heap.account_resize(before, h.external_bytes());
         sync(ctx, it);
     }
+    /// A store to a key a table with a metatable lacks (contracts 9): the
+    /// `__newindex` dispatch, which is the object library's until N04, and
+    /// the raw store when the metatable holds none.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_index(ctx: *mut Ctx, obj: u64, key: u64, value: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let r = it.guarded(|it| {
+            it.newindex(Value(obj), Value(key), Value(value));
+            Value::NIL
+        });
+        if r == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+    }
     /// The hash part of a plain table rehashed with room for one more entry:
     /// the entries whose values went nil drop, the rest keep their insertion
     /// order (contracts 2.13).

@@ -19,5 +19,6 @@ local record Helpers
     internKey: function(context: voidptr, key: uint64, create: int64): uint64
     resizeArray: function(context: voidptr, table: uint64, length: int64): nil
     growHash: function(context: voidptr, table: uint64): nil
+    newIndex: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
 end
 return Helpers

@@ -5,9 +5,11 @@ module nupp.runtime.vm.tables
 -- layout the glue measures. Allocation is the heap's until N05: a new table,
 -- the array part's length and a rehash are helpers, and a key that is not yet
 -- canonical (an uninterned string, a slice, an unsigned integer box) is made
--- so by one; every other table operation is here. A receiver that is not a
--- plain table (a record, a declaration or prototype table, a metatable's
--- `__newindex`, an error) is the Rust step's for one instruction.
+-- so by one, and a store to a key a table with a metatable lacks goes to
+-- the `__newindex` dispatch, the object library's until N04, as a read it
+-- lacks goes to the `__index` walk; every other table operation is here. A
+-- receiver that is not a plain table (a record, a declaration or prototype
+-- table, an error) is the Rust step's for one instruction.
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -114,6 +116,14 @@ local function growInsertSlow(pc: voidptr, context: voidptr, object: uint64, key
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
+-- A store to a key the table lacks under a metatable: `__newindex` may
+-- answer it (contracts 9), which the helper decides and dispatches.
+local function newIndexSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.newIndex(context, object, key, value)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
 -- A store by a canonical key into the hash part of a plain table: the probe
 -- sequence from the key's hash, the entry overwritten when the key has one
 -- (a key keeps its entry when its value becomes nil), inserted at the first
@@ -141,7 +151,7 @@ local function hashStore(
             if bucket == key then
                 local at = native.index(k * 16 + 8)
                 if native.both(meta ~= values.NIL, native.load64(buckets, at) == values.NIL) then
-                    return native.slow(pc, regs, ints, floats, context, frame)
+                    return newIndexSlow(pc, context, object, key, value)
                 elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
                     return markedStoreSlow(pc, context, object, value, buckets, at)
                 else
@@ -156,7 +166,7 @@ local function hashStore(
         end
     end
     if meta ~= values.NIL then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return newIndexSlow(pc, context, object, key, value)
     elseif value == values.NIL then
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif native.either(
@@ -332,7 +342,7 @@ local function storeKeyed(
                 local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
                 local at = native.index((whole - 1) * 8)
                 if native.both(meta ~= values.NIL, native.load64(data, at) == values.NIL) then
-                    return native.slow(pc, regs, ints, floats, context, frame)
+                    return newIndexSlow(pc, context, object, bits, value)
                 elseif native.both(value == values.NIL, whole == length) then
                     return trimSlow(pc, context, object, native.index(length) - 1)
                 elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
@@ -343,7 +353,7 @@ local function storeKeyed(
                 end
             elseif whole == length + 1 then
                 if meta ~= values.NIL then
-                    return native.slow(pc, regs, ints, floats, context, frame)
+                    return newIndexSlow(pc, context, object, bits, value)
                 else
                     return appendSlow(pc, context, object, bits, value)
                 end
