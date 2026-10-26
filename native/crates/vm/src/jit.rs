@@ -97,7 +97,10 @@ pub type Jit = Compiler<JITModule>;
 /// thread-local), and what is known of each callee.
 pub struct Job { pub fid: u32, pub func: Function, pub closure: i64, pub extra: i64, pub last_nres: i64, pub entries: i64, pub calltab: i64, pub probe: i64, pub callee_info: Vec<(u8, bool)>, /// Compiled by the Nupp emitter rather than the Rust lowering.
     pub guest: bool, /// What feedback lets the emitter assume (`jit_glue::plan_text`).
-    pub plan: String }
+    pub plan: String,
+    /// Where a guest function's direct body goes.
+    #[cfg(all(feature = "aot", feature = "native-runtime"))]
+    pub calls: crate::jit_glue::CallRow }
 
 /// A compiler thread with a Cranelift module of its own. Hot functions are
 /// queued here and keep running interpreted until their entry is installed,
@@ -114,7 +117,17 @@ impl Worker {
         let (outbox, done) = std::sync::mpsc::channel();
         std::thread::Builder::new().name("nupp-jit".into()).stack_size(64 << 20).spawn(move || {
             let mut jit = Jit::new();
-            for job in inbox {
+            // The smallest waiting function first: a small hot one (a loop
+            // body, a recursive call) pays back at once, and a large one
+            // would hold the queue for as long as it takes to compile.
+            let mut waiting: Vec<Job> = Vec::new();
+            loop {
+                if waiting.is_empty() {
+                    match inbox.recv() { Ok(job) => waiting.push(job), Err(_) => break }
+                }
+                while let Ok(job) = inbox.try_recv() { waiting.push(job); }
+                let next = waiting.iter().enumerate().min_by_key(|(_, job)| job.func.code.len()).map(|(i, _)| i).unwrap();
+                let job = waiting.swap_remove(next);
                 jit.cur_closure_addr = job.closure;
                 jit.extra_addr = job.extra;
                 jit.last_nres_addr = job.last_nres;
@@ -122,8 +135,9 @@ impl Worker {
                 jit.calltab_addr = job.calltab;
                 jit.probe_addr = job.probe;
                 jit.callee_info = job.callee_info;
+                if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("jit worker: job {} ({})", job.fid, job.func.name); }
                 #[cfg(all(feature = "aot", feature = "native-runtime"))]
-                let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid, &job.plan) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
+                let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid, &job.plan, job.calls) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
                 #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                 let result = jit.compile_frame(&job.func, job.fid).map(|p| p as u64);
                 if outbox.send((job.fid, result)).is_err() { break; }

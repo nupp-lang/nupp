@@ -255,6 +255,7 @@ local GUEST = {
     {"countdown", {5}}, {"firstSquareAbove", {50}},
     {"fibonacci", {20}}, {"viaHelper", {100}}, {"viaClosure", {50}}, {"viaBuiltin", {100}},
     {"concatLoop", {10}}, {"tableSum", {100}}, {"multi", {7}}, {"varargs", {4}}, {"depth", {300}},
+    {"fields", {1000}},
 }
 
 function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()

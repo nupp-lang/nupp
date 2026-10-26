@@ -152,6 +152,8 @@ impl Interp {
                         plan: if self.guest_jit { crate::jit_glue::plan_text(self, fid) } else { String::new() },
                         #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                         plan: String::new(),
+                        #[cfg(all(feature = "aot", feature = "native-runtime"))]
+                        calls: crate::jit_glue::call_row(self),
                     };
                     let worker = self.jit_worker.get_or_insert_with(|| Box::new(crate::jit::Worker::start()));
                     if worker.submit(job) { return 0; }
@@ -163,7 +165,7 @@ impl Interp {
                     // it refuses stays interpreted.
                     if self.jit.is_none() { return 0; }
                     let plan = crate::jit_glue::plan_text(self, fid);
-                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid, &plan);
+                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid, &plan, crate::jit_glue::call_row(self));
                     if let Err(reason) = &result { if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: {} refused: {reason}", self.funcs[fid as usize].name); } }
                     self.frame_entries[fid as usize] = result.unwrap_or(u64::MAX);
                     return self.frame_entries[fid as usize];

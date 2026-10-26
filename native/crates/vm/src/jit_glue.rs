@@ -142,7 +142,11 @@ pub fn field_sites(f: &Function) -> usize {
 /// bare function of this image) while the epoch holds. Empty without
 /// feedback (`JIT_FEEDBACK`/`JIT_SPECIALIZE`) or when nothing is monomorphic.
 pub fn plan_text(it: &Interp, fid: u32) -> String {
-    let Some(Some(feedback)) = it.spec.funcs.get(fid as usize) else { return String::new() };
+    // The direct-call table the emitter reads callees' bodies from.
+    let calls = if it.guest_calls.capacity() > 0 {
+        format!("  calls {:#x} {}\n", it.guest_calls.as_ptr() as u64, it.guest_calls.len() / 2)
+    } else { String::new() };
+    let Some(Some(feedback)) = it.spec.funcs.get(fid as usize) else { return calls };
     let f = &it.funcs[fid as usize];
     let mut text = String::new();
     for (pc, op) in f.code.iter().enumerate() {
@@ -163,7 +167,18 @@ pub fn plan_text(it: &Interp, fid: u32) -> String {
     if !text.is_empty() {
         text.insert_str(0, &format!("  epoch {:#x} {}\n", &it.heap.proto_epoch as *const u64 as u64, it.heap.proto_epoch));
     }
-    text
+    calls + &text
+}
+
+/// Where a compiled function's direct body goes: the VM's direct-call
+/// table, two words per function id (the body, then `parameters | frame
+/// words << 8 | 1 << 40`), filled once the body is compiled.
+#[derive(Clone, Copy, Default)]
+pub struct CallRow { pub table: u64, pub count: u64 }
+
+/// The VM's direct-call table, for a compile.
+pub fn call_row(it: &Interp) -> CallRow {
+    CallRow { table: if it.guest_calls.is_empty() { 0 } else { it.guest_calls.as_ptr() as u64 }, count: (it.guest_calls.len() / 2) as u64 }
 }
 
 /// The layout table the emitter reads, as JSON: the glue's fields.
@@ -292,50 +307,68 @@ impl Emitter {
         Ok(clif)
     }
 
-    /// Compiles one function's CLIF and answers its entry address. The text
-    /// names helpers as `%symbol`; they resolve to the helper table.
-    pub fn compile(&mut self, clif: &str) -> Result<u64, String> {
+    /// Compiles the functions of one emitted text and answers each one's
+    /// address and parameter count by its name in the text. A `%name` the
+    /// text defines is a call between them; any other names a helper of the
+    /// table.
+    pub fn compile(&mut self, clif: &str) -> Result<HashMap<String, (u64, usize)>, String> {
         let parsing = std::time::Instant::now();
-        let mut functions = cranelift_reader::parse_functions(clif).map_err(|e| e.to_string())?;
+        let functions = cranelift_reader::parse_functions(clif).map_err(|e| e.to_string())?;
         self.parse_micros += parsing.elapsed().as_micros();
-        if functions.len() != 1 { return Err(format!("{} functions in the emitted text", functions.len())); }
-        let mut function = functions.pop().unwrap();
         let conv = self.module.isa().default_call_conv();
-        function.signature.call_conv = conv;
-        for (_, signature) in function.dfg.signatures.iter_mut() { signature.call_conv = conv; }
         self.serial += 1;
-        let name = format!("{}.{}", crate::native_glue::name_of(&function), self.serial);
-        let id = self.module.declare_function(&name, Linkage::Local, &function.signature).map_err(|e| e.to_string())?;
-        let references: Vec<_> = function.dfg.ext_funcs.iter().filter_map(|(reference, data)| match &data.name {
-            ExternalName::TestCase(callee) => Some((reference, callee.to_string().trim_start_matches('%').to_string(), data.signature)),
-            _ => None,
-        }).collect();
-        let mut imports: HashMap<String, cranelift_module::FuncId> = HashMap::new();
-        for (reference, callee, signature) in references {
-            let declared = match imports.get(&callee) {
-                Some(id) => *id,
-                None => {
-                    let sig = function.dfg.signatures[signature].clone();
-                    let id = self.module.declare_function(&callee, Linkage::Import, &sig).map_err(|e| format!("{callee}: {e}"))?;
-                    imports.insert(callee.clone(), id);
-                    id
-                }
-            };
-            let user = function.declare_imported_user_function(UserExternalName { namespace: 0, index: declared.as_u32() });
-            let data = &mut function.dfg.ext_funcs[reference];
-            data.name = ExternalName::user(user);
-            data.colocated = false;
+        let mut locals: HashMap<String, (cranelift_module::FuncId, usize)> = HashMap::new();
+        let mut declared_ids = Vec::new();
+        for function in &functions {
+            let mut signature = function.signature.clone();
+            signature.call_conv = conv;
+            let name = crate::native_glue::name_of(function);
+            let id = self.module.declare_function(&format!("{name}.{}", self.serial), Linkage::Local, &signature).map_err(|e| e.to_string())?;
+            locals.insert(name, (id, signature.params.len()));
+            declared_ids.push(id);
         }
-        self.ctx.func = function;
-        self.module.define_function(id, &mut self.ctx).map_err(|e| format!("{name}: {e}"))?;
-        self.module.clear_context(&mut self.ctx);
+        let mut imports: HashMap<String, cranelift_module::FuncId> = HashMap::new();
+        for (mut function, id) in functions.into_iter().zip(declared_ids.iter().copied()) {
+            function.signature.call_conv = conv;
+            for (_, signature) in function.dfg.signatures.iter_mut() { signature.call_conv = conv; }
+            let references: Vec<_> = function.dfg.ext_funcs.iter().filter_map(|(reference, data)| match &data.name {
+                ExternalName::TestCase(callee) => Some((reference, callee.to_string().trim_start_matches('%').to_string(), data.signature)),
+                _ => None,
+            }).collect();
+            for (reference, callee, signature) in references {
+                let (target, local) = match locals.get(&callee) {
+                    Some((id, _)) => (*id, true),
+                    None => match imports.get(&callee) {
+                        Some(id) => (*id, false),
+                        None => {
+                            let sig = function.dfg.signatures[signature].clone();
+                            let id = self.module.declare_function(&callee, Linkage::Import, &sig).map_err(|e| format!("{callee}: {e}"))?;
+                            imports.insert(callee.clone(), id);
+                            (id, false)
+                        }
+                    },
+                };
+                let user = function.declare_imported_user_function(UserExternalName { namespace: 0, index: target.as_u32() });
+                let data = &mut function.dfg.ext_funcs[reference];
+                data.name = ExternalName::user(user);
+                data.colocated = local;
+            }
+            let name = crate::native_glue::name_of(&function);
+            self.ctx.func = function;
+            let listing = std::env::var_os("JIT_GUEST_DISASM").is_some();
+            self.ctx.want_disasm = listing;
+            self.module.define_function(id, &mut self.ctx).map_err(|e| format!("{name}: {e}"))?;
+            if listing { eprintln!("{name}:\n{}", self.ctx.compiled_code().and_then(|c| c.vcode.clone()).unwrap_or_default()); }
+            self.module.clear_context(&mut self.ctx);
+        }
         self.module.finalize_definitions().map_err(|e| e.to_string())?;
-        Ok(self.module.get_finalized_function(id) as u64)
+        Ok(locals.into_iter().map(|(name, (id, params))| (name, (self.module.get_finalized_function(id) as u64, params))).collect())
     }
 
     /// Describes, emits and compiles `f` under `plan` (what feedback lets its
-    /// sites assume): the entry address, or why not.
-    pub fn compile_function(&mut self, f: &Function, fid: u32, plan: &str) -> Result<u64, String> {
+    /// sites assume): the frame entry's address, or why not. A direct body,
+    /// when the emitter made one, goes into its row of the call table.
+    pub fn compile_function(&mut self, f: &Function, fid: u32, plan: &str, row: CallRow) -> Result<u64, String> {
         let started = std::time::Instant::now();
         let sites = field_sites(f);
         let caches = if sites == 0 { 0 } else {
@@ -359,10 +392,27 @@ impl Emitter {
         if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: emitted {} ({} ops) in {} us", f.name, f.code.len(), took); }
         let clif = match clif { Ok(c) => c, Err(e) => { self.refused += 1; return Err(e); } };
         if std::env::var_os("JIT_GUEST_DUMP").is_some() { eprintln!("{clif}"); }
-        let entry = self.compile(&clif);
+        let compiled = self.compile(&clif);
         self.compile_micros += emitted.elapsed().as_micros();
-        if entry.is_ok() { self.compiled += 1; }
-        entry
+        let compiled = compiled?;
+        self.compiled += 1;
+        let name = format!("guest_{fid}");
+        let entry = compiled.get(&name).map(|(address, _)| *address).ok_or("no frame entry in the emitted text")?;
+        // A body whose parameters past the context, the frame and the pc are
+        // the function's own is a direct one: its row is filled, the body
+        // first, so a caller that sees the info sees the body.
+        if let Some(&(body, params)) = compiled.get(&format!("{name}_body")) {
+            if std::env::var_os("JIT_GUEST_NO_DIRECT").is_none() && (fid as u64) < row.count && row.table != 0 && params == 3 + f.nparams as usize && !f.vararg && f.sig.iter().all(|&c| c == b'v') && !f.code.iter().any(|op| matches!(op, crate::interp::Op::RetN(..))) {
+                let info = (f.nparams as u64) | ((f.frame_words() as u64) << 8) | (1u64 << 40);
+                unsafe {
+                    let slot = (row.table as *mut u64).add(2 * fid as usize);
+                    std::ptr::write_volatile(slot, body);
+                    std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
+                    std::ptr::write_volatile(slot.add(1), info);
+                }
+            }
+        }
+        Ok(entry)
     }
 }
 
@@ -399,7 +449,11 @@ impl Drop for Isolation {
 /// Compiles `f` with this thread's emitter. `JIT_GUEST_ONLY=a,b` compiles
 /// those functions and nothing else, `JIT_GUEST_SKIP=a,b` everything but
 /// those: the bisection controls.
-pub fn compile_here(f: &Function, fid: u32, plan: &str) -> Result<u64, String> {
+pub fn compile_here(f: &Function, fid: u32, plan: &str, row: CallRow) -> Result<u64, String> {
+    // A module body runs once: compiling it costs more than it can save, and
+    // a large one holds up the queue of functions that do run hot
+    // (jit-compile-cost.md, "never compile module bodies").
+    if f.name.starts_with("module:") { return Err("a module body runs once".into()); }
     if let Ok(only) = std::env::var("JIT_GUEST_ONLY") {
         if !only.split(',').any(|n| n == f.name) { return Err("not in JIT_GUEST_ONLY".into()); }
     }
@@ -409,7 +463,7 @@ pub fn compile_here(f: &Function, fid: u32, plan: &str) -> Result<u64, String> {
     EMITTER.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot.is_none() { *slot = Some(Emitter::new()?); }
-        slot.as_mut().unwrap().compile_function(f, fid, plan)
+        slot.as_mut().unwrap().compile_function(f, fid, plan, row)
     })
 }
 

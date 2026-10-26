@@ -210,3 +210,33 @@ end
 export function depth(n: number): number
     return deep(n)
 end
+
+-- Field reads and stores by name, through the sites' inline caches: a table
+-- and a record of two shapes behind `any`, so one site sees both.
+local record Pair
+    x: number
+    y: number
+end
+
+local record Triple
+    x: number
+    y: number
+    z: number
+end
+
+export function fields(n: number): number
+    local t: any = {x = 0, y = 1}
+    local p: any = new Pair(x = 1, y = 2)
+    local q: any = new Triple(x = 3, y = 4, z = 5)
+    for i = 1, n do
+        t.x = t.x + i
+        p.x = p.x + t.y
+        local r: any = p
+        if i % 2 == 0 then
+            r = q
+        end
+        t.y = r.y
+    end
+
+    return t.x + p.x + t.y + q.z
+end

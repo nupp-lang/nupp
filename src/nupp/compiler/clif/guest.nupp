@@ -65,6 +65,22 @@ guest.EXIT_LEFT = "-1"
 guest.EXIT_REENTER = "-2"
 guest.EXIT_RETURNED = "-3"
 
+--- What a direct call's body answers when it returned natively: its value
+--- is the second result, and one result (`EXIT_VALUE`) or none
+--- (`EXIT_NONE`) was returned. The caller's frame never saw it.
+guest.EXIT_VALUE = "-10"
+
+guest.EXIT_NONE = "-11"
+
+--- The pc a direct caller passes: the arguments are the body's parameters,
+--- not the frame's window.
+guest.CALL_PC = "-1"
+
+--- Functions larger than this get no direct body: the call protocol is
+--- what small hot functions pay most for, and a body costs nothing extra to
+--- emit, but its entry block keeps every parameter in a register.
+guest.DIRECT_PARAMS = 6
+
 --- The entry's symbol for a function id.
 function guest.entryName(fid: integer): string
     return "guest_" .. tostring(fid)
@@ -117,6 +133,16 @@ record guest.Fn
     --- Method sites the plan resolved, by pc: the record shape seen and the
     --- method value (hex text) its descriptor answers while the epoch holds.
     methodSites: {[integer]: {string}}
+
+    --- The parameter classes, `v` or `f` per parameter, and the result's.
+    signature: string
+
+    --- The VM's direct-call table, as hex text, and how many function ids it
+    --- covers: two words per id, the body's address and its call info
+    --- (`parameters | frame words << 8 | 1 << 40`). Nil without one.
+    callsAddress: string?
+
+    callsCount: integer
 end
 
 local function need(ok: any, message: string): any
@@ -167,7 +193,10 @@ function guest.parse(text: string): guest.Fn
                 caches = nil,
                 epochAddress = nil,
                 epochValue = nil,
-                methodSites = {}
+                methodSites = {},
+                signature = parts[7] or "",
+                callsAddress = nil,
+                callsCount = 0
             )
         elseif fn == nil then
             error("guest: text before the function line: " .. line, 0)
@@ -189,6 +218,10 @@ function guest.parse(text: string): guest.Fn
             (fn as guest.Fn).nvreg = (tonumber(parts[2]) or 2) as integer
         elseif head == "caches" then
             (fn as guest.Fn).caches = parts[2]
+        elseif head == "calls" then
+            local f = fn as guest.Fn
+            f.callsAddress = parts[2]
+            f.callsCount = need(tonumber(parts[3]), "call table size") as integer
         elseif head == "epoch" then
             local f = fn as guest.Fn
             f.epochAddress = parts[2]
@@ -682,6 +715,23 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local newBlock, seal = b.newBlock, b.seal
     local preamble: {string} = {}
     local imports: {[string]: string} = {}
+    local sigCount: integer = 1
+    local fnCount: integer = 0
+    local signatures: {[string]: string} = {}
+
+    -- A signature, declared once per spelling.
+    local function sigRef(spelling: string): string
+        local known = signatures[spelling]
+        if known then
+            return known
+        end
+        local sig = "sig" .. tostring(sigCount)
+        sigCount = sigCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. spelling
+        signatures[spelling] = sig
+
+        return sig
+    end
 
     local function helperRef(symbol: string): string
         local known = imports[symbol]
@@ -689,44 +739,102 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             return known
         end
         local spec = need(HELPERS[symbol], "unknown helper " .. symbol) as {string}
-        local index = #preamble / 2
-        local sig = "sig" .. tostring(index + 1)
-        local ref = "fn" .. tostring(index)
-        preamble[#preamble + 1] = sig .. " = " .. spec[1]
+        local sig = sigRef(spec[1])
+        local ref = "fn" .. tostring(fnCount)
+        fnCount = fnCount + 1
         preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
         imports[symbol] = ref
 
         return ref
     end
 
-    -- Immediates are materialized once per block they are used in would be
-    -- better; once per use keeps the emitter simple and the optimizer is off.
-    -- Immediates are materialized once each, in the entry block, which
-    -- dominates every other: a constant's value is reused by name wherever
-    -- it is needed.
-    local entryBlock = b.here()
+    -- Whether this function gets a direct body: value parameters only, few
+    -- of them, one result or none on every return, no surplus arguments.
+    local direct = not fn.vararg and fn.nparams <= guest.DIRECT_PARAMS
+    do
+        local params = fn.signature:match("^([^:]*)") or ""
+        if params:find("f", 1, true) then
+            direct = false
+        end
+        for _, ins in ipairs(fn.code) do
+            if ins.name == "RetN" then
+                direct = false
+            end
+        end
+    end
+    local directParams = direct and fn.nparams or 0
+
+    -- The body's signature: the context, the frame, the pc, and the
+    -- parameters a direct caller passes; the exit word and a direct return's
+    -- value.
+    local function bodySignature(count: integer): string
+        local types = {"i64", "i64", "i64"}
+        for _ = 1, count do
+            types[#types + 1] = "i64"
+        end
+
+        return "(" .. table.concat(types, ", ") .. ") -> i64, i64"
+    end
+
+    -- The caller's frame size, which places a callee's frame above it.
+    local frameWords = 4 + fn.nregs + 1 + fn.nireg + fn.nfreg + 2 * fn.nvreg
+
+    -- Immediates are materialized once per block that uses them: a constant
+    -- hoisted to the entry would be live across the whole function, which
+    -- with the optimizer off spills it there, and the entry runs on every
+    -- call of a small function.
     local constants: {[string]: string} = {}
 
     local function k(text: string): string
-        local known = constants["i64 " .. text]
+        local key = tostring(b.here().id) .. " i64 " .. text
+        local known = constants[key]
         if known then
             return known
         end
-        local value = b.fresh()
-        entryBlock.lines[#entryBlock.lines + 1] = value .. " = iconst.i64 " .. text
-        constants["i64 " .. text] = value
+        local value = emit("iconst.i64 " .. text)
+        constants[key] = value
 
         return value
     end
 
+    -- Every exit of the body answers the exit word and a value, which only a
+    -- direct return fills.
+    local function finishWith(values: {string}): nil
+        if #values == 1 then
+            values[2] = k("0")
+        end
+        b.finish(values)
+    end
+
+    -- Whether the body was entered by a direct caller (`CALL_PC`), set in
+    -- the entry block, which dominates every return.
+    local isCall: string = ""
+
+    -- A return in a function with a direct body: a direct caller gets the
+    -- value in a register and restores its own frame; a frame entry goes on
+    -- to the frame protocol.
+    local function directReturn(value: string, code: string): nil
+        if not direct then
+            return
+        end
+        local yes = newBlock()
+        local no = newBlock()
+        b.branch(isCall, yes, no)
+        seal(yes)
+        seal(no)
+        b.current = yes
+        finishWith({k(code), value})
+        b.current = no
+    end
+
     local function k8(text: string): string
-        local known = constants["i8 " .. text]
+        local key = tostring(b.here().id) .. " i8 " .. text
+        local known = constants[key]
         if known then
             return known
         end
-        local value = b.fresh()
-        entryBlock.lines[#entryBlock.lines + 1] = value .. " = iconst.i8 " .. text
-        constants["i8 " .. text] = value
+        local value = emit("iconst.i8 " .. text)
+        constants[key] = value
 
         return value
     end
@@ -955,10 +1063,19 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local function exitAt(pc: integer): nil
         flush(true)
         storeSet(live.liveAt(pc))
-        b.finish({k(tostring(pc))})
+        finishWith({k(tostring(pc))})
     end
 
+    -- SSA values known to be number words: numeric constants and boxed
+    -- float results. A check of one is the constant true, which `guard`
+    -- and `both` drop rather than branch on.
+    local numbers: {[string]: boolean} = {}
+    local alwaysTrue = "true"
+
     local function isNumber(x: string): string
+        if numbers[x] then
+            return alwaysTrue
+        end
         local masked = emit("band " .. x .. ", " .. k(guest.QNAN))
         local notNan = emit("icmp ne " .. masked .. ", " .. k(guest.QNAN))
         local canonical = emit("icmp eq " .. x .. ", " .. k(guest.QNAN))
@@ -975,7 +1092,21 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local masked = emit("band " .. bits .. ", " .. k(guest.QNAN))
         local nan = emit("icmp eq " .. masked .. ", " .. k(guest.QNAN))
 
-        return emit("select " .. nan .. ", " .. k(guest.QNAN) .. ", " .. bits)
+        local boxed = emit("select " .. nan .. ", " .. k(guest.QNAN) .. ", " .. bits)
+        numbers[boxed] = true
+
+        return boxed
+    end
+
+    -- Both conditions, either of which may be the constant true.
+    local function both(a: string, c: string): string
+        if a == alwaysTrue then
+            return c
+        elseif c == alwaysTrue then
+            return a
+        end
+
+        return emit("band " .. a .. ", " .. c)
     end
 
     local function boolWord(cond: string): string
@@ -1014,9 +1145,22 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local function constantWord(index: integer): string
         local c = need(fn.consts[index + 1], "constant " .. tostring(index)) as guest.Constant
         if c.kind == "word" then
-            return k(c.text)
+            local value = k(c.text)
+            -- A number word: its top thirteen bits are not a tagged NaN's,
+            -- or it is the canonical NaN itself.
+            local digits = c.text:sub(3)
+            digits = string.rep("0", 16 - #digits) .. digits
+            local top = (tonumber(digits:sub(1, 4), 16) or 0) % 32768
+            if top < 32760 or digits == "7ff8000000000000" then
+                numbers[value] = true
+            end
+
+            return value
         elseif c.kind == "num" then
-            return k(doubleBits(need(tonumber(c.text), "numeric constant " .. c.text) as number))
+            local value = k(doubleBits(need(tonumber(c.text), "numeric constant " .. c.text) as number))
+            numbers[value] = true
+
+            return value
         elseif c.kind == "nil" then
             return k(guest.NIL)
         elseif c.kind == "true" then
@@ -1037,7 +1181,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.branch(raised, bad, ok)
         seal(bad)
         b.current = bad
-        b.finish({k(guest.ERROR)})
+        finishWith({k(guest.ERROR)})
         b.current = ok
         seal(ok)
         reloadFrame()
@@ -1078,7 +1222,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.branch(next, ok, out)
         seal(out)
         b.current = out
-        b.finish({answer})
+        finishWith({answer})
         b.current = ok
         seal(ok)
         reloadFrame()
@@ -1149,16 +1293,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local block = newBlock()
             local defs = valueDefs(pc)
             local params: {string} = {}
-            local conds: {string} = {}
             for i, _ in ipairs(defs) do
                 params[i] = b.addParam(block, "i64")
-                conds[i] = b.addParam(block, "i8")
             end
             -- What the account held when the instruction's first fallback
             -- branched off: values loaded or written on the main path after
             -- that are not defined on the fallback path, so the join may not
             -- keep them.
-            cont = {block = block, defs = defs, params = params, conds = conds, before = snapshot()}
+            cont = {block = block, defs = defs, params = params, before = snapshot()}
             continuations[pc] = cont
         end
 
@@ -1171,9 +1313,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local cont = continuationOf(pc)
         local args: {string} = {}
         for _, r in ipairs(cont.defs as {integer}) do
-            local value = emit("load.i64 notrap " .. slotText(0, r))
-            args[#args + 1] = value
-            args[#args + 1] = truthy(value)
+            args[#args + 1] = emit("load.i64 notrap " .. slotText(0, r))
         end
         b.jump(cont.block as ssa.Block, args)
     end
@@ -1202,6 +1342,9 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- instruction's one defined register, or nil for an instruction that
     -- defines none.
     local function guardTo(cond: string, fallback: ssa.Block): nil
+        if cond == alwaysTrue then
+            return
+        end
         local ok = newBlock()
         b.branch(cond, ok, fallback)
         seal(ok)
@@ -1217,9 +1360,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local args: {string} = {}
         local isDef: {[integer]: boolean} = {}
         for _, r in ipairs(cont.defs as {integer}) do
-            local value = V(r)
-            args[#args + 1] = value
-            args[#args + 1] = condOf[r] or truthy(value)
+            args[#args + 1] = V(r)
             isDef[r] = true
         end
         -- Values the main path took up after the fallback branched off are
@@ -1247,11 +1388,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         for i, r in ipairs(cont.defs as {integer}) do
             cache[r] = (cont.params as {string})[i]
             dirty[r] = true
-            condOf[r] = (cont.conds as {string})[i]
         end
     end
 
     local function guard(cond: string, pc: integer): nil
+        if cond == alwaysTrue then
+            return
+        end
         local ok = newBlock()
         b.branch(cond, ok, stepBlockAt(pc))
         seal(ok)
@@ -1260,7 +1403,18 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- A plain jump to a bytecode block, with the budget charged at a back edge
     -- (the interpreter parks or raises there when it is spent).
+    -- Blocks whose only way in is one edge from the code before them: they
+    -- start from that edge's account rather than from the frame, so values
+    -- flow through a branch into either side without a store or a load.
+    local inherited: {[integer]: {any}} = {}
+    local single: {[integer]: boolean} = {}
+
     local function jumpTo(pc: integer, target: integer): nil
+        if single[target] and target > pc then
+            inherited[target] = snapshot()
+            b.jump(need(blockAt[target], "jump target " .. tostring(target)) as ssa.Block, {})
+            return
+        end
         if target < pc then
             local budget = ctxLoad("budget")
             local spent = emit("icmp eq " .. budget .. ", " .. k("0"))
@@ -1300,8 +1454,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- for anything else (metamethods, integer boxes, errors).
     local function arithmetic(pc: integer, ins: guest.Instruction, op: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
-        local both = emit("band " .. isNumber(x) .. ", " .. isNumber(y))
-        guard(both, pc)
+        guard(both(isNumber(x), isNumber(y)), pc)
         local p, q = unbox(x), unbox(y)
         local result: string
         if op == "fmod" then
@@ -1318,8 +1471,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     local function comparison(pc: integer, ins: guest.Instruction, cc: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
-        local both = emit("band " .. isNumber(x) .. ", " .. isNumber(y))
-        guard(both, pc)
+        guard(both(isNumber(x), isNumber(y)), pc)
         local cond = emit("fcmp " .. cc .. " " .. unbox(x) .. ", " .. unbox(y))
         setV(d, boolWord(cond))
         condOf[d] = cond
@@ -1334,13 +1486,16 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local result = b.addParam(join, "i8")
         local yes = negate and k8("0") or k8("1")
         local no = negate and k8("1") or k8("0")
-        local numbers = newBlock()
+        local numberBlock = newBlock()
         local words = newBlock()
-        local both = emit("band " .. isNumber(x) .. ", " .. isNumber(y))
-        b.branch(both, numbers, words)
-        seal(numbers)
+        local numeric = both(isNumber(x), isNumber(y))
+        if numeric == alwaysTrue then
+            numeric = k8("1")
+        end
+        b.branch(numeric, numberBlock, words)
+        seal(numberBlock)
         seal(words)
-        b.current = numbers
+        b.current = numberBlock
         local equal = emit("fcmp eq " .. unbox(x) .. ", " .. unbox(y))
         b.jump(join, {emit("select " .. equal .. ", " .. yes .. ", " .. no)})
         b.current = words
@@ -1419,7 +1574,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.branch(returnedLater, done, leave)
         seal(leave)
         b.current = leave
-        b.finish({finished})
+        finishWith({finished})
         b.current = done
         seal(done)
         reloadFrame()
@@ -1444,6 +1599,106 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         nargs: integer,
         slow: ssa.Block
     ): nil
+        -- A callee with a direct body takes its arguments in registers and
+        -- answers its value in one: its frame is pushed (the header only;
+        -- the window fills at a safepoint of the callee's that needs it) and
+        -- the body called. Any other callee, or a direct body that left for
+        -- the interpreter, takes the generic protocol below.
+        local after: ssa.Block? = nil
+        if fn.callsAddress ~= nil and nargs <= guest.DIRECT_PARAMS then
+            local joined = newBlock()
+            after = joined
+            local generic = newBlock()
+            local saved = snapshot()
+            local inTable = emit("icmp ult " .. fid .. ", " .. k(tostring(fn.callsCount)))
+            local probe = newBlock()
+            b.branch(inTable, probe, generic)
+            seal(probe)
+            b.current = probe
+            local row = emit("iadd " .. k(fn.callsAddress as string) .. ", " .. emit("ishl " .. fid .. ", " .. k("4")))
+            local body = emit("load.i64 notrap " .. row .. "+0")
+            local info = emit("load.i64 notrap " .. row .. "+8")
+            -- A body of exactly the site's arity: the low byte is the count
+            -- and bit 40 says the row is filled.
+            local matches = emit(
+                "icmp eq " .. emit(
+                    "band " .. info .. ", " .. k("0x100000000ff")
+                ) .. ", " .. k(string.format("0x100000000%02x", nargs))
+            )
+            local words = emit("band " .. emit("ushr " .. info .. ", " .. k("8")) .. ", " .. k("65535"))
+            local budget = ctxLoad("budget")
+            local current = ctxLoad("cur")
+            local next = emit("iadd " .. current .. ", " .. k(tostring(frameWords)))
+            local fits = emit("icmp ule " .. emit("iadd " .. next .. ", " .. words) .. ", " .. ctxLoad("cap"))
+            local interp = ctxLoad("interp")
+            local nestedOffset = tostring(settings.nested or 0)
+            local nested = emit("load.i64 notrap " .. interp .. "+" .. nestedOffset)
+            local room = emit("icmp ult " .. nested .. ", " .. k(tostring(guest.NESTED_LIMIT)))
+            local ok = emit(
+                "band " .. emit(
+                    "band " .. matches .. ", " .. room
+                ) .. ", " .. emit("band " .. fits .. ", " .. emit("icmp ne " .. budget .. ", " .. k("0")))
+            )
+            local fast = newBlock()
+            b.branch(ok, fast, generic)
+            seal(fast)
+            seal(generic)
+            b.current = fast
+            flush(false)
+            storeSet(live.liveAt(pc))
+            ctxStore("budget", emit("iadd " .. budget .. ", " .. k("-1")))
+            effect(
+                "store notrap " .. emit(
+                    "bor " .. k(tostring(fn.fid)) .. ", " .. emit("ishl " .. k(tostring(pc + 1)) .. ", " .. k("32"))
+                ) .. ", " .. frame() .. "+0"
+            )
+            local pushed = emit("iadd " .. ctxLoad("stack") .. ", " .. emit("ishl " .. next .. ", " .. k("3")))
+            effect("store notrap " .. fid .. ", " .. pushed .. "+0")
+            local resultSlot = emit("iadd " .. current .. ", " .. k(tostring(4 + base)))
+            effect(
+                "store notrap " .. emit(
+                    "bor " .. current .. ", " .. emit("ishl " .. resultSlot .. ", " .. k("32"))
+                ) .. ", " .. pushed .. "+8"
+            )
+            effect("store notrap " .. closure .. ", " .. pushed .. "+16")
+            effect("store notrap " .. emit("ishl " .. words .. ", " .. k("33")) .. ", " .. pushed .. "+24")
+            ctxStore("cur", next)
+            effect(
+                "store notrap " .. emit("iadd " .. nested .. ", " .. k("1")) .. ", " .. interp .. "+" .. nestedOffset
+            )
+            local args: {string} = {ctxValue, pushed, k(guest.CALL_PC)}
+            for i = 0, nargs - 1 do
+                args[#args + 1] = V(base + 1 + i)
+            end
+            local word = b.fresh()
+            local value = b.fresh()
+            effect(
+                word .. ", " .. value .. " = call_indirect " .. sigRef(
+                    bodySignature(nargs)
+                ) .. ", " .. body .. "(" .. table.concat(args, ", ") .. ")"
+            )
+            effect("store notrap " .. nested .. ", " .. interp .. "+" .. nestedOffset)
+            local one = emit("icmp eq " .. word .. ", " .. k(guest.EXIT_VALUE))
+            local none = emit("icmp eq " .. word .. ", " .. k(guest.EXIT_NONE))
+            local native = newBlock()
+            local other = newBlock()
+            b.branch(emit("bor " .. one .. ", " .. none), native, other)
+            seal(native)
+            seal(other)
+            b.current = native
+            -- Returned natively: the caller's frame is on top again, with
+            -- the value delivered into the window as a return delivers it.
+            ctxStore("cur", current)
+            ctxStore("last_nres", emit("iadd " .. word .. ", " .. k("11")))
+            reloadFrame()
+            effect("store notrap " .. value .. ", " .. slotText(0, base))
+            b.jump(joined, {})
+            b.current = other
+            finishCall(pc, base, current, word)
+            b.jump(joined, {})
+            restore(saved)
+            b.current = generic
+        end
         local nfuncs = ctxLoad("nfuncs")
         local inRange = emit("icmp ult " .. fid .. ", " .. nfuncs)
         local checkInfo = newBlock()
@@ -1624,6 +1879,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = joined
         seal(joined)
         finishCall(pc, base, current, b.read(answerVar, joined))
+        if after ~= nil then
+            b.jump(after as ssa.Block, {})
+            b.current = after
+            seal(after as ssa.Block)
+            forgetAll()
+            condOf = {}
+        end
     end
 
     -- A call through a value: a closure or a bare function of this image
@@ -1672,7 +1934,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(back)
         seal(leave)
         b.current = leave
-        b.finish({answer})
+        finishWith({answer})
         b.current = back
         reloadFrame()
         condOf = {}
@@ -1819,9 +2081,9 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 "load.i64 notrap " .. emit("iadd " .. data .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
             )
             local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+            local from = b.here()
             b.branch(present, join, miss)
             -- The join takes the value from the hit edge.
-            local from = b.here()
             for _, target in ipairs(from.term.targets) do
                 if target.block == join then
                     target.args[1] = value
@@ -1954,7 +2216,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = viaStep
         coldStep(pc)
         -- The step returned the frame to its caller: the driver decides.
-        b.finish({k(guest.EXIT_REENTER)})
+        finishWith({k(guest.EXIT_REENTER)})
         b.current = fast
 
         return link, caller, current
@@ -2470,6 +2732,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             else
                 value = V(num(ins, 1))
             end
+            directReturn(value, guest.EXIT_VALUE)
             local flags = emit("load.i64 notrap " .. frame() .. "+24")
             local indirect = emit(
                 "icmp ne " .. emit(
@@ -2490,9 +2753,10 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             )
             ctxStore("cur", caller)
             ctxStore("last_nres", k("1"))
-            b.finish({k(guest.EXIT_RETURNED)})
+            finishWith({k(guest.EXIT_RETURNED)})
         elseif name == "RetNil" then
             local link, caller = returnGuard(pc)
+            directReturn(k(guest.NIL), guest.EXIT_NONE)
             local stack = ctxLoad("stack")
             local slot = emit("ushr " .. link .. ", " .. k("32"))
             effect(
@@ -2502,12 +2766,12 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             )
             ctxStore("cur", caller)
             ctxStore("last_nres", k("0"))
-            b.finish({k(guest.EXIT_RETURNED)})
+            finishWith({k(guest.EXIT_RETURNED)})
         elseif name == "RetN" then
             local start, count = num(ins, 1), num(ins, 2)
             if count > 8 then
                 step(pc)
-                b.finish({k(guest.EXIT_REENTER)})
+                finishWith({k(guest.EXIT_REENTER)})
             else
                 local link, caller = returnGuard(pc)
                 local stack = ctxLoad("stack")
@@ -2521,7 +2785,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 end
                 ctxStore("cur", caller)
                 ctxStore("last_nres", k(tostring(count)))
-                b.finish({k(guest.EXIT_RETURNED)})
+                finishWith({k(guest.EXIT_RETURNED)})
             end
         elseif name == "PadResults" then
             local base, wanted = num(ins, 1), num(ins, 2)
@@ -2547,6 +2811,10 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     ctxValue = b.addParam(entry, "i64")
     local frameArg = b.addParam(entry, "i64")
     local pcArg = b.addParam(entry, "i64")
+    local directArgs: {string} = {}
+    for i = 1, directParams do
+        directArgs[i] = b.addParam(entry, "i64")
+    end
     b.write(frameVar, entry, frameArg)
     -- Blocks at every leader; entry points at pc 0 and each back edge.
     for pc in pairs(live.leaders) do
@@ -2564,6 +2832,40 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             end
         end
     end
+    -- A direct caller's entry: the parameters arrive in registers, and the
+    -- body's first block takes them as its own (they reach the frame only
+    -- if a safepoint needs them there). When pc 0 is also a jump target the
+    -- parameters are stored instead and the block reads the frame.
+    local startParams: {string} = {}
+    if direct then
+        isCall = emit("icmp eq " .. pcArg .. ", " .. k(guest.CALL_PC))
+        local inherits = true
+        for _, ins in ipairs(fn.code) do
+            for _, target in ipairs(successors(fn, ins)) do
+                if target == 0 then
+                    inherits = false
+                end
+            end
+        end
+        local callBlock = newBlock()
+        local rest = newBlock()
+        b.branch(isCall, callBlock, rest)
+        seal(callBlock)
+        seal(rest)
+        b.current = callBlock
+        if inherits and directParams > 0 then
+            for i = 1, directParams do
+                startParams[i] = b.addParam(blockAt[0] as ssa.Block, "i64")
+            end
+            b.jump(blockAt[0] as ssa.Block, directArgs)
+        else
+            for i = 1, directParams do
+                effect("store notrap " .. directArgs[i] .. ", " .. slotText(0, i))
+            end
+            b.jump(blockAt[0] as ssa.Block, {})
+        end
+        b.current = rest
+    end
     -- Dispatch on the pc: a chain of compares, one per entry point, then the
     -- fallback that hands an unknown pc back.
     for _, pc in ipairs(entryPcs) do
@@ -2574,22 +2876,62 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(rest)
         b.current = load
         loadSet(live.liveAt(pc))
-        b.jump(blockAt[pc] as ssa.Block, {})
+        local args: {string} = {}
+        if pc == 0 then
+            for i = 1, #startParams do
+                args[i] = emit("load.i64 notrap " .. slotText(0, i))
+            end
+        end
+        b.jump(blockAt[pc] as ssa.Block, args)
         b.current = rest
     end
-    b.finish({pcArg})
+    finishWith({pcArg})
+    -- Which leaders have one way in: one edge into them over the whole code,
+    -- and no entry from the frame driver.
+    do
+        local into: {[integer]: integer} = {}
+        for _, ins in ipairs(fn.code) do
+            for _, target in ipairs(successors(fn, ins)) do
+                into[target] = (into[target] or 0) + 1
+            end
+        end
+        local entered: {[integer]: boolean} = {}
+        for _, pc in ipairs(entryPcs) do
+            entered[pc] = true
+        end
+        for pc in pairs(blockAt) do
+            if pc > 0 and pc < n and into[pc] == 1 and not entered[pc] then
+                single[pc] = true
+            end
+        end
+    end
     -- The body.
     for pc = 0, n - 1 do
         local ins = fn.code[pc + 1]
         local block = blockAt[pc]
         if block then
             if b.current then
-                flush(false)
+                if single[pc] then
+                    inherited[pc] = snapshot()
+                else
+                    flush(false)
+                end
                 b.jump(block, {})
             end
             b.current = block
             condOf = {}
-            forgetAll()
+            local carried = inherited[pc]
+            if carried ~= nil then
+                restore(carried as {any})
+            else
+                forgetAll()
+            end
+            if pc == 0 then
+                for i, value in ipairs(startParams) do
+                    cache[i] = value
+                    dirty[i] = true
+                end
+            end
         end
         if b.current then
             instruction(pc, ins)
@@ -2599,7 +2941,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             if b.current and (opcodes.byName[ins.name] as opcodes.Opcode).flow == "stop" then
                 -- An instruction the interpreter ran that leaves the function
                 -- never answers the next pc; the path is dead, and ends here.
-                b.finish({k(guest.EXIT_REENTER)})
+                finishWith({k(guest.EXIT_REENTER)})
             end
         end
     end
@@ -2609,7 +2951,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             b.jump(blockAt[n] as ssa.Block, {})
         end
         b.current = blockAt[n]
-        b.finish({k(tostring(n))})
+        finishWith({k(tostring(n))})
     end
     need(b.current == nil, "the function falls off its end")
     for _, block in pairs(blockAt) do
@@ -2626,10 +2968,31 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     table.insert(preamble, 1, "sig0 = (i64, i64, i64) -> i64")
 
     local built = os.clock()
-    local text = b.print(guest.entryName(fn.fid), "(i64, i64, i64) -> i64", preamble)
+    local name = guest.entryName(fn.fid)
+    local text = b.print(name .. "_body", bodySignature(directParams), preamble)
     guest.lastPrintSeconds = os.clock() - built
+    -- The frame entry the frame driver calls: the body at the pc it names.
+    local passed = {"v0", "v1", "v2"}
+    for _ = 1, directParams do
+        passed[#passed + 1] = "v3"
+    end
+    local wrapper = table.concat(
+        {
+            "function %" .. name .. "(i64, i64, i64) -> i64 {",
+            "    sig0 = " .. bodySignature(directParams),
+            "    fn0 = %" .. name .. "_body sig0",
+            "",
+            "block0(v0: i64, v1: i64, v2: i64):",
+            "    v3 = iconst.i64 0",
+            "    v4, v5 = call fn0(" .. table.concat(passed, ", ") .. ")",
+            "    return v4",
+            "}",
+            ""
+        },
+        "\n"
+    )
 
-    return text, nil
+    return text .. "\n" .. wrapper, nil
 end
 
 --- The glue's layout table as a function, from its JSON text.

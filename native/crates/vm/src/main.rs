@@ -354,6 +354,9 @@ pub(crate) fn main() {
         it.shape_probe.extend(probes);
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
         it.guest_jit = guest;
+        // The direct-call table: rows for every function the image has and
+        // room for those a later image adds, never reallocated.
+        if guest { it.guest_calls = vec![0; 2 * (it.funcs.len() + 65536)]; }
         // The Nupp emitter compiles frame entries only: with it, every
         // function enters compiled code through the frame driver.
         let frame_entries = guest || scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
