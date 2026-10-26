@@ -29,8 +29,8 @@ fn signature(cc: CallConv) -> Signature {
     sig
 }
 
-fn opcode(name: &str) -> u8 {
-    encode(&match name {
+fn opcode(name: &str) -> Option<u8> {
+    Some(encode(&match name {
         "FAdd" => Op::FAdd(0, 0, 0),
         "FSub" => Op::FSub(0, 0, 0),
         "FMul" => Op::FMul(0, 0, 0),
@@ -95,51 +95,119 @@ fn opcode(name: &str) -> u8 {
         "RetNil" => Op::RetNil,
         "RetN" => Op::RetN(0, 0),
         "PadResults" => Op::PadResults(0, 0),
-        _ => panic!("unsupported leaf handler {name}"),
+        "GetField" => Op::GetField(0, 0, 0),
+        "Eq" => Op::Eq(0, 0, 0),
+        "Ne" => Op::Ne(0, 0, 0),
+        "GetIdx" => Op::GetIdx(0, 0, 0),
+        "SetIdxI" => Op::SetIdxI(0, 0, 0),
+        "SetCell" => Op::SetCell(0, 0),
+        "SetSlot" => Op::SetSlot(0, 0, 0, 0),
+        "SetSlotF" => Op::SetSlotF(0, 0, 0, 0),
+        "TagCheckNum" => Op::TagCheckNum(0, 0),
+        "NewRecord" => Op::NewRecord(0, 0),
+        "IBox" => Op::IBox(0, 0),
+        "IUnbox" => Op::IUnbox(0, 0),
+        "StrByte" => Op::StrByte(0, 0, 0),
+        "SetIdxF" => Op::SetIdxF(0, 0, 0),
+        "SetIdx" => Op::SetIdx(0, 0, 0),
+        _ => return None,
     })
-    .op
+    .op)
 }
+
+/// The Rust helpers a handler may call: exported by `dispatch.rs` under the
+/// experiment feature, each publishing and reloading the task record itself.
+const HELPERS: [&str; 11] = [
+    "nupp_rt_get_field",
+    "nupp_rt_get_index",
+    "nupp_rt_get_index_num",
+    "nupp_rt_set_index_num",
+    "nupp_rt_store_index",
+    "nupp_rt_barrier",
+    "nupp_rt_new_record",
+    "nupp_rt_eq_slow",
+    "nupp_rt_call_iter",
+    "nupp_rt_call_builtin",
+    "nupp_rt_append_plain",
+];
 
 /// Opcodes whose Rust handlers share one body (`dynamic_call!`) and whose
 /// native handler is the one source function: the table points both
 /// opcodes at it when the source defines the first name only.
 const ALIASES: [(&str, &str); 1] = [("CallDyn", "CallK")];
 
-/// The handler contract on a parsed function: no call, no symbol, the handler
-/// signature, `return` only of the entry pc or the reenter code, and every
-/// tail dispatch preserving the context.
-fn require_leaf_clif(f: &cranelift_codegen::ir::Function, tail: &Signature) -> Result<(), String> {
-    use cranelift_codegen::ir::{InstructionData, Opcode, ValueDef};
-    if f.signature != *tail {
+/// The handler contract on a parsed function. A handler has the six-register
+/// tail signature; a support function (a slow path a handler tail-calls)
+/// takes the pc, the context, up to five words of its own and the dispatch
+/// table, so the tail call to it fits in argument registers. Either may call
+/// only the exported Rust helpers, tail-call only functions of this file, and
+/// `return` only the entry pc, the reenter code or the error code; every
+/// tail dispatch preserves the context.
+fn require_handler_clif(
+    f: &cranelift_codegen::ir::Function,
+    tail: &Signature,
+    handler: bool,
+    locals: &std::collections::BTreeSet<String>,
+) -> Result<(), String> {
+    use cranelift_codegen::ir::{ExternalName, InstructionData, Opcode, ValueDef};
+    if handler && f.signature != *tail {
         return Err(format!("{}: handler signature required", f.name));
     }
-    if !f.dfg.ext_funcs.is_empty() || !f.global_values.is_empty() || !f.sized_stack_slots.is_empty() {
+    if !handler
+        && (f.signature.call_conv != CallConv::Tail
+            || f.signature.params.len() < 3
+            || f.signature.params.len() > 8
+            || f.signature.returns.len() != 1
+            || f.signature.params.iter().any(|p| p.value_type != types::I64))
+    {
+        return Err(format!("{}: support signature required (pc, context, up to five more, table)", f.name));
+    }
+    let context = if handler { 4 } else { 1 };
+    if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty() {
         return Err(format!("{}: handlers reference no symbols or stack", f.name));
     }
     let entry = f.layout.entry_block().ok_or("entry block required")?;
     let params = f.dfg.block_params(entry).to_vec();
-    if params.len() != 6 {
-        return Err("six handler parameters required".into());
-    }
+    let callee_name = |inst| -> Option<String> {
+        match &f.dfg.insts[inst] {
+            InstructionData::Call { func_ref, .. } => match &f.dfg.ext_funcs[*func_ref].name {
+                ExternalName::TestCase(name) => Some(name.to_string().trim_start_matches('%').to_string()),
+                _ => None,
+            },
+            _ => None,
+        }
+    };
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {
             let data = &f.dfg.insts[inst];
             match data.opcode() {
-                Opcode::Call | Opcode::CallIndirect | Opcode::ReturnCall => {
+                Opcode::CallIndirect => {
                     return Err("VM slice may only dispatch or leave before executing a helper".into());
+                }
+                Opcode::Call => {
+                    let name = callee_name(inst).unwrap_or_default();
+                    if !HELPERS.contains(&name.as_str()) {
+                        return Err(format!("{name} is not an exported helper"));
+                    }
+                }
+                Opcode::ReturnCall => {
+                    let name = callee_name(inst).unwrap_or_default();
+                    if !locals.contains(&name) {
+                        return Err(format!("{name} is not a function of this file"));
+                    }
                 }
                 Opcode::ReturnCallIndirect => {
                     let args = f.dfg.inst_args(inst);
-                    if args.len() != 7 || args[5] != params[4] {
+                    if args.len() != 7 || args[5] != params[context] {
                         return Err("dispatch must preserve the context".into());
                     }
                 }
                 Opcode::Return => {
                     let args = f.dfg.inst_args(inst);
-                    let reenter = args.len() == 1
+                    let code = args.len() == 1
                         && matches!(f.dfg.value_def(args[0]), ValueDef::Result(i, 0)
-                            if matches!(f.dfg.insts[i], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } if imm.bits() == runtime_ir::EXIT_REENTER));
-                    if args.len() != 1 || (args[0] != params[0] && !reenter) {
+                            if matches!(f.dfg.insts[i], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm } if imm.bits() == runtime_ir::EXIT_REENTER || imm.bits() == 0));
+                    if args.len() != 1 || (args[0] != params[0] && !code) {
                         return Err("leaf transfer must preserve its VM windows and context; slow must preserve pc".into());
                     }
                 }
@@ -204,7 +272,9 @@ fn main() -> Result<(), String> {
         match option.as_str() {
             "--integers-only" => sources.retain(|f| {
                 let name = name_of(f);
-                (name.starts_with('I') && name != "IToF") || name == "Jmp" || name == "JmpIfIZero"
+                (name.starts_with('I') && name != "IToF" && name != "IBox" && name != "IUnbox")
+                    || name == "Jmp"
+                    || name == "JmpIfIZero"
             }),
             "--packed-state" | "--derived-frame" => {}
             _ if option.starts_with("--without=") => {
@@ -283,6 +353,12 @@ fn main() -> Result<(), String> {
         ));
     }
     for (field, offset) in [
+        ("pc", offset_of!(Ctx, pc)),
+        ("status", offset_of!(Ctx, status)),
+        ("marking", offset_of!(Ctx, marking)),
+        ("shapes", offset_of!(Ctx, shapes)),
+        ("slow_calls", offset_of!(Ctx, slow_calls)),
+        ("nslow_calls", offset_of!(Ctx, nslow_calls)),
         ("funcs", offset_of!(Ctx, funcs)),
         ("frame_mode", offset_of!(Ctx, frame_mode)),
         ("jit_frames", offset_of!(Ctx, jit_frames)),
@@ -337,32 +413,84 @@ fn main() -> Result<(), String> {
         ));
     }
     metadata.push_str(&format!(
-        "assert!(crate::heap::KIND_CLOSURE == 5 && crate::value::T_FUNC == 0x0004_0000_0000_0000 && NO_GUARD == u64::MAX && EXIT_REENTER == {});\n",
+        "assert!(crate::heap::KIND_CLOSURE == 5 && crate::value::T_FUNC == 0x0004_0000_0000_0000 && NO_GUARD == u64::MAX && EXIT_REENTER == {} && EXIT_ERROR == 0 && ST_ERROR == 0xffff_fffc);\n",
         runtime_ir::EXIT_REENTER
+    ));
+    metadata.push_str(&format!(
+        "assert!(std::mem::size_of::<ShapeInfo>() == {} && std::mem::offset_of!(ShapeInfo, table) == {} && std::mem::offset_of!(ShapeInfo, mask) == {} && crate::heap::OFF_T_HASH_PTR == {} && crate::heap::OFF_T_HASH_MASK == {});\n",
+        std::mem::size_of::<nupp_vm::threaded::ShapeInfo>(),
+        offset_of!(nupp_vm::threaded::ShapeInfo, table),
+        offset_of!(nupp_vm::threaded::ShapeInfo, mask),
+        nupp_vm::heap::OFF_T_HASH_PTR,
+        nupp_vm::heap::OFF_T_HASH_MASK
     ));
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata.push_str("};\nconst fn native_table(mut table: [Handler; Code::Mod as usize + 1]) -> [Handler; Code::Mod as usize + 1] {\n");
     let names: Vec<String> = sources.iter().map(name_of).collect();
-    for function in &sources {
-        require_leaf_clif(function, &tail)?;
+    let locals: std::collections::BTreeSet<String> = names.iter().cloned().collect();
+    let mut imports: std::collections::BTreeMap<String, cranelift_module::FuncId> = Default::default();
+    let conv = module.isa().default_call_conv();
+    for function in &mut sources {
         let name = name_of(function);
-        let op = opcode(&name);
+        let handler = opcode(&name).is_some();
+        require_handler_clif(function, &tail, handler, &locals)?;
+        let mut signature = function.signature.clone();
+        if !handler {
+            signature.call_conv = CallConv::Tail;
+        }
         let id = module
-            .declare_function(&name, Linkage::Local, &tail)
+            .declare_function(&name, Linkage::Local, &signature)
             .unwrap();
-        ids.push((op, id));
         function_ids.push(id);
-        metadata.push_str(&format!(
-            "assert!(Code::{name} as u8 == {op}); table[Code::{name} as usize] = native_segment;\n"
-        ));
-        for (alias, target) in ALIASES {
-            if name == target && !names.iter().any(|f| f == alias) {
-                let op = opcode(alias);
-                ids.push((op, id));
-                metadata.push_str(&format!(
-                    "assert!(Code::{alias} as u8 == {op}); table[Code::{alias} as usize] = native_segment;\n"
-                ));
+        if let Some(op) = opcode(&name) {
+            ids.push((op, id));
+            metadata.push_str(&format!(
+                "assert!(Code::{name} as u8 == {op}); table[Code::{name} as usize] = native_segment;\n"
+            ));
+            for (alias, target) in ALIASES {
+                if name == target && !names.iter().any(|f| f == alias) {
+                    let op = opcode(alias).unwrap();
+                    ids.push((op, id));
+                    metadata.push_str(&format!(
+                        "assert!(Code::{alias} as u8 == {op}); table[Code::{alias} as usize] = native_segment;\n"
+                    ));
+                }
             }
+        }
+    }
+    // Calls to the exported helpers import them; tail calls name functions of
+    // this file. Imported signatures take the platform convention.
+    for function in &mut sources {
+        let references: Vec<_> = function
+            .dfg
+            .ext_funcs
+            .iter()
+            .filter_map(|(reference, data)| match &data.name {
+                cranelift_codegen::ir::ExternalName::TestCase(callee) => {
+                    Some((reference, callee.to_string().trim_start_matches('%').to_string(), data.signature))
+                }
+                _ => None,
+            })
+            .collect();
+        for (reference, callee, sig_ref) in references {
+            let id = if HELPERS.contains(&callee.as_str()) {
+                function.dfg.signatures[sig_ref].call_conv = conv;
+                let signature = function.dfg.signatures[sig_ref].clone();
+                *imports.entry(callee.clone()).or_insert_with(|| {
+                    module.declare_function(&callee, Linkage::Import, &signature).unwrap()
+                })
+            } else {
+                let index = names.iter().position(|n| *n == callee).ok_or_else(|| format!("unknown function {callee}"))?;
+                function.dfg.signatures[sig_ref].call_conv = CallConv::Tail;
+                function_ids[index]
+            };
+            let user = function.declare_imported_user_function(cranelift_codegen::ir::UserExternalName {
+                namespace: 0,
+                index: id.as_u32(),
+            });
+            let data = &mut function.dfg.ext_funcs[reference];
+            data.name = cranelift_codegen::ir::ExternalName::user(user);
+            data.colocated = !HELPERS.contains(&callee.as_str());
         }
     }
     metadata.push_str("table }\n");

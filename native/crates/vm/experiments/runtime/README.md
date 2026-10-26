@@ -1,9 +1,10 @@
 # Native runtime authoring experiment
 
 This implements a native-authoring experiment against
-`codegen-experiment@73d54b904cd014f666671407e4a1751fb8de2418`. The call and
-return candidate passes the 2% noninferiority gate on every workload; the full
-compiler check still regresses cold, so every candidate remains disabled.
+`codegen-experiment@73d54b904cd014f666671407e4a1751fb8de2418`. The current
+candidate passes the 2% noninferiority gate on every workload and runs the full
+compiler check faster than the Rust core; it stays disabled until the broader
+coverage below is in.
 This is an isolated experiment, not a completed Rust-removal migration.
 
 The handlers are ordinary Nupp, validated by the ordinary parser and checker
@@ -138,6 +139,31 @@ or Linux/Windows native execution is claimed. Cross-target object generation cov
 does not establish native execution, stack walking, or exception correctness
 on those platforms.
 
+## Helpers
+
+A handler may call the Rust helpers `dispatch.rs` exports by C ABI under the
+experiment feature: field and index reads and stores past the fast paths, the
+insertion barrier, record allocation, slow equality, iterator and builtin
+calls. Each publishes and reloads the task record as its Rust caller does. The
+handler's side of the protocol is three steps, spelled in Nupp: publish the
+pc to the context before the call, since the helper notes it for backtraces
+and the collector's liveness; after it, end the chain with `native.fail` (the
+exit word 0, which `native_segment` returns as a Rust handler's `checked!`
+would) when the status says a raise is propagating; otherwise derive the
+windows again from the context, because the stack may have moved, and
+continue. The calls live in support functions named `...Slow`, which take the
+pc, the context and up to five words and are tail-called with the dispatch
+table last, so the fast path of a handler stays a frameless leaf while the
+slow path, its own function, carries the frame the call needs. A barrier is
+the one helper a store path calls without reload, as the Rust handlers do.
+
+`GetField` (a record's shape table, a table's hash part, or the helper),
+`GetIdx`, `Eq` and `Ne` (numbers by value, identity, interned strings by
+identity, the helper for the rest), `SetIdxI`, `SetCell`, `SetSlot`,
+`SetSlotF`, `TagCheckNum`, `IBox`, `IUnbox`, `StrByte` and `NewRecord` are
+native this way; the shim's contract admits a `call` only to an exported
+helper and a `return_call` only to a function of the file.
+
 ## Ordinary Nupp to CLIF
 
 `nupp.experiment.lower` compiles ordinary typed Nupp, checked by the ordinary
@@ -232,20 +258,22 @@ gate is the one that governs promotion, so the experiment stays disabled: the
 compiler's time is in field and index lookup, the helpers they call, and the
 remaining boundary crossings around them, not in calls and returns.
 
-Compiled from the ordinary-Nupp spelling of the same handlers, the paired
-ratios are 0.697 for fib (interval 0.693-0.700), 0.901 for closures,
-0.805 for records, 0.966 for tables, 0.972 for loops and 0.996 for
-strings, every workload again passing the gate; the cold compiler check is
-43.68 s against 46.07 s and warm 0.605 s against 0.607 s. The
-loops and inlined helpers give the call handlers a slightly different shape
-from the hand-written IR, which is where the closures difference comes from;
-`candidates.handlers` records it beside `candidates.calls`.
+With the helpers and the lookup, store, equality, boxing and allocation
+handlers native, and conditions branching directly, the paired ratios are
+0.679 for fib (interval 0.674-0.684), 0.861 for closures, 0.775 for
+records, 0.946 for tables, 0.993 for loops and 0.999 for strings, every
+workload within the margin. The three paired full compiler checks turn around:
+median cold 43.70 s for Rust against 42.55 s for the candidate, warm 0.599 s
+against 0.584 s, every cold run checking 504 modules without diagnostics. This
+is the first candidate that is not slower than the Rust core on the compiler,
+which is what the profile predicted field and index lookup would buy.
+`candidates.helpers` and `compiler.helpers` record it beside the earlier
+candidates.
 
 With that object, 446 Rust tests pass across 66 targets with four ignored
 and the pre-existing `aot_relocation` compile failure excluded; the
-specialization suite, whose `shapes` program caught the frame-identity exit
-bug, passes; 18 native contract tests, 17 rejection checks and 56 lowering
-cases pass.
+specialization suite passes; 18 native contract tests, 17 rejection checks and
+56 lowering cases pass.
 
 ## Initial slice
 

@@ -233,10 +233,66 @@ unsafe extern "C" {
     ) -> u64;
 }
 
-/// The native chain's only non-address exit: a frame changed under the
-/// frame driver's policy, which `tail_entry` applies before going on.
+/// The native chain's non-address exits: a frame changed under the frame
+/// driver's policy, which `tail_entry` applies before going on; or a helper
+/// raised, and the chain ends as a Rust handler's `checked!` ends it.
 #[cfg(feature = "native-runtime-experiment")]
 const EXIT_REENTER: u64 = 1;
+#[cfg(feature = "native-runtime-experiment")]
+const EXIT_ERROR: u64 = 0;
+
+/// The Rust helpers a native handler may call, by C ABI. Each publishes and
+/// reloads the task record as its Rust caller would; the handler publishes
+/// `ctx.pc` before the call, checks `ctx.status` after it, and re-derives its
+/// windows from the context, since the stack may have moved.
+#[cfg(feature = "native-runtime-experiment")]
+mod native_helpers {
+    use super::*;
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
+        rt_get_field(ctx, obj, name)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
+        rt_get_index(ctx, obj, key)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
+        rt_get_index_num(ctx, obj, i)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
+        rt_set_index_num(ctx, obj, i, v)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_store_index(ctx: *mut Ctx, obj: u64, key: u64, v: u64) {
+        unsafe { store_index(ctx, obj, key, v) }
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
+        rt_barrier(ctx, parent, child)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_record(ctx: *mut Ctx, shape: u64) -> u64 {
+        rt_new_record(ctx, shape as u32)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u64 {
+        rt_eq_slow(ctx, x, y) as u64
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) {
+        rt_call_iter(ctx, iter, base)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_call_builtin(ctx: *mut Ctx, id: u64, base: u64, nargs: u64) {
+        rt_call_builtin(ctx, id as u32, base, nargs as u32)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_append_plain(ctx: *mut Ctx, t: u64, d: f64, v: u64) -> u64 {
+        unsafe { append_plain(ctx, t, d, v) as u64 }
+    }
+}
 
 /// A native segment retains no managed values outside the VM stack and
 /// calls no helpers, so nothing moves the stack while it runs: `ctx.cur`
@@ -267,6 +323,9 @@ unsafe fn native_segment(
     let exit = nupp_native_runtime_entry(pc, regs, iregs, fregs, ctx, frame);
     if exit == EXIT_REENTER {
         become tail_entry(pc, regs, iregs, fregs, ctx, frame);
+    }
+    if exit == EXIT_ERROR {
+        return 0;
     }
     pc = exit as *const Ins;
     let top = (*ctx).stack.add((*ctx).cur as usize);

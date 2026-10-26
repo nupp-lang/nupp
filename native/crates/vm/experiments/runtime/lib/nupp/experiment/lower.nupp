@@ -189,6 +189,7 @@ local function compileFunction(node: any, functions: any, options: any): string
     -- handler tail-calls them, so every handler stays one frameless function.
     local handlers = options.handlers == true
     local isHandler = handlers and functions[name].isHandler == true
+    local isSupport = handlers and functions[name].isSupport == true
     local tableValue: string? = nil
     local inlining = {}
     local paramKinds, paramTypes = {}, {}
@@ -200,6 +201,9 @@ local function compileFunction(node: any, functions: any, options: any): string
     local rets = body.signatureType and body.signatureType.rets or {}
     need(#rets <= 1, "at most one result")
     local resultKind = #rets == 1 and tag(rets[1]) or nil
+    if resultKind == "nil" then
+        resultKind = nil
+    end
     local resultType = resultKind and machine(resultKind) or nil
 
     local blocks: {Block} = {}
@@ -634,9 +638,65 @@ local function compileFunction(node: any, functions: any, options: any): string
         index = {"uint64", "int64"}
     }
 
+    -- The exported Rust helpers: called by C ABI, each with its parameter
+    -- kinds and result kind; nil for a helper that answers nothing.
+    local rustHelpers = {
+        getField = {"nupp_rt_get_field", {"voidptr", "uint64", "uint64"}, "uint64"},
+        getIndex = {"nupp_rt_get_index", {"voidptr", "uint64", "uint64"}, "uint64"},
+        getIndexNum = {"nupp_rt_get_index_num", {"voidptr", "uint64", "int64"}, "uint64"},
+        setIndexNum = {"nupp_rt_set_index_num", {"voidptr", "uint64", "int64", "uint64"}, nil},
+        storeKeyed = {"nupp_rt_store_index", {"voidptr", "uint64", "uint64", "uint64"}, nil},
+        barrier = {"nupp_rt_barrier", {"voidptr", "uint64", "uint64"}, nil},
+        newRecord = {"nupp_rt_new_record", {"voidptr", "int64"}, "uint64"},
+        eqSlow = {"nupp_rt_eq_slow", {"voidptr", "uint64", "uint64"}, "uint64"},
+        callIter = {"nupp_rt_call_iter", {"voidptr", "uint64", "uint64"}, nil},
+        callBuiltin = {"nupp_rt_call_builtin", {"voidptr", "int64", "uint64", "int64"}, nil},
+        appendPlain = {"nupp_rt_append_plain", {"voidptr", "uint64", "number", "uint64"}, "uint64"}
+    }
+    local imported = {}
+
+    local function importHelper(spec: any): string
+        local known = imported[spec[1]]
+        if known then
+            return known
+        end
+        local index = #preamble / 2
+        local sig = "sig" .. tostring(index + 1)
+        local ref = "fn" .. tostring(index)
+        local types = {}
+        for i, kind in ipairs(spec[2]) do
+            types[i] = machine(kind)
+        end
+        local signature = "(" .. table.concat(types, ", ") .. ")"
+        if spec[3] then
+            signature = signature .. " -> " .. machine(spec[3])
+        end
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. spec[1] .. " " .. sig
+        imported[spec[1]] = ref
+
+        return ref
+    end
+
     local function intrinsic(name: string, args: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], name .. ": argument " .. tostring(index))), kind)
+        end
+
+        if rustHelpers[name] then
+            need(handlers, "Rust helpers belong to handler modules")
+            local spec = rustHelpers[name]
+            need(#args == #spec[2], name .. ": argument count")
+            local words = {}
+            for index, kind in ipairs(spec[2]) do
+                words[index] = arg(index, kind)
+            end
+            local text = "call " .. importHelper(spec) .. "(" .. table.concat(words, ", ") .. ")"
+            if spec[3] then
+                return {kind = spec[3], value = emit(text)}
+            end
+            effect(text)
+            return {kind = "nil", value = ""}
         end
 
         if intrinsicLoads[name] then
@@ -660,7 +720,7 @@ local function compileFunction(node: any, functions: any, options: any): string
             need(field.kind == "string", "literal layout field required")
             local text = field.token.value or field.token.text:sub(2, -2)
             return {kind = "int64", value = constant("i64", tostring(options.layout(text)))}
-        elseif name == "dispatch" or name == "slow" or name == "reenter" then
+        elseif name == "dispatch" or name == "slow" or name == "reenter" or name == "fail" then
             error("lower: " .. name .. " is a transfer: `return native." .. name .. "(...)`", 0)
         elseif name == "both" or name == "either" then
             local op = name == "both" and "band " or "bor "
@@ -766,6 +826,30 @@ local function compileFunction(node: any, functions: any, options: any): string
         error("lower: unsupported expression " .. tostring(n.kind), 0)
     end
 
+    -- A support function of this module, declared once per caller.
+    local supports = {}
+
+    local function supportRef(fnName: string): string
+        local known = supports[fnName]
+        if known then
+            return known
+        end
+        local target = functions[fnName]
+        local index = #preamble / 2
+        local sig = "sig" .. tostring(index + 1)
+        local ref = "fn" .. tostring(index)
+        local types = {}
+        for i, kind in ipairs(target.paramKinds) do
+            types[i] = machine(kind)
+        end
+        types[#types + 1] = "i64"
+        preamble[#preamble + 1] = sig .. " = (" .. table.concat(types, ", ") .. ") -> i64 tail"
+        preamble[#preamble + 1] = ref .. " = %" .. fnName .. " " .. sig
+        supports[fnName] = ref
+
+        return ref
+    end
+
     -- A handler's transfers: dispatch through the table, hand the instruction
     -- to Rust at its own pc, or ask for the frame driver.
     local function transfer(name: string, args: any): nil
@@ -774,6 +858,9 @@ local function compileFunction(node: any, functions: any, options: any): string
         if name == "reenter" then
             need(#args == 0, "reenter takes no arguments")
             block.term = {kind = "return", values = {constant("i64", "1")}}
+        elseif name == "fail" then
+            need(#args == 0, "fail takes no arguments")
+            block.term = {kind = "return", values = {constant("i64", "0")}}
         elseif name == "slow" then
             need(#args == 6, "slow takes the six handler arguments")
             block.term = {kind = "return", values = {materialize(expression(args[1]), "voidptr")}}
@@ -885,7 +972,40 @@ local function compileFunction(node: any, functions: any, options: any): string
             local rhs = expression(stat.value)
             assign(stat.target.token, arithmetic(stat, op, kindOf(stat.target, lhs, rhs), lhs, rhs))
         elseif kind == "callStmt" then
-            expression(stat.expr)
+            local call = stat.expr
+            local helper = handlers
+                and call.kind == "call"
+                and call.obj.kind == "name"
+                and functions[call.obj.token.text]
+                or nil
+            if helper then
+                -- A helper answering nothing is inlined where it is called and
+                -- continues into the statements after it.
+                need(not helper.isHandler and not helper.isSupport, "a handler or slow path is tail-called")
+                need(helper.resultKind == nil, "a helper with a result is tail-called")
+                local helperName = call.obj.token.text
+                need(not inlining[helperName], "recursive helper " .. helperName)
+                local exprs = call.args.exprs or {}
+                need(#exprs == #helper.paramKinds, "argument count")
+                local values = {}
+                for index, arg in ipairs(exprs) do
+                    values[index] = materialize(expression(arg), helper.paramKinds[index])
+                end
+                for index, param in ipairs(helper.node.body.params) do
+                    local variable = declare(
+                        param.name,
+                        helper.paramKinds[index],
+                        param.type and param.type.resolvedType
+                    )
+                    writeVariable(variable, current as Block, values[index])
+                end
+                inlining[helperName] = true
+                block(helper.node.body.body.stats)
+                inlining[helperName] = nil
+                need(current ~= nil, "helper " .. helperName .. " must continue")
+            else
+                expression(call)
+            end
         elseif kind == "returnStmt" then
             local value = stat.exprs[1]
             local transferName = handlers
@@ -903,8 +1023,30 @@ local function compileFunction(node: any, functions: any, options: any): string
                 and value.obj.kind == "name"
                 and functions[value.obj.token.text]
                 or nil
-            if transferName == "dispatch" or transferName == "slow" or transferName == "reenter" then
+            if transferName == "dispatch"
+                or transferName == "slow"
+                or transferName == "reenter"
+                or transferName == "fail"
+            then
                 transfer(transferName, value.args.exprs or {})
+            elseif helper and helper.isSupport then
+                -- A slow path is its own tail-called function, so the fast
+                -- path stays frameless: the Rust helper call lives there.
+                local exprs = value.args.exprs or {}
+                need(#exprs == #helper.paramKinds, "argument count")
+                local words = {}
+                for index, arg in ipairs(exprs) do
+                    words[index] = materialize(expression(arg), helper.paramKinds[index])
+                end
+                words[#words + 1] = tableValue as string
+                local block = current as Block
+                block.term = {
+                    kind = "text",
+                    text = "return_call " .. supportRef(
+                        helper.node.name.text
+                    ) .. "(" .. table.concat(words, ", ") .. ")"
+                }
+                current = nil
             elseif helper then
                 need(not helper.isHandler, "a handler is dispatched to, not called")
                 inlineHelper(helper, value)
@@ -1036,7 +1178,7 @@ local function compileFunction(node: any, functions: any, options: any): string
     local entry = newBlock()
     entry.sealed = true
     current = entry
-    need(not handlers or isHandler, "a helper is compiled where it is tail-called")
+    need(not handlers or isHandler or isSupport, "a helper is compiled where it is tail-called")
     for index, param in ipairs(body.params) do
         local value = addParam(entry, paramTypes[index])
         local variable = declare(param.name, paramKinds[index], param.type and param.type.resolvedType)
@@ -1048,6 +1190,11 @@ local function compileFunction(node: any, functions: any, options: any): string
         end
         values[index] = value
         writeVariable(variable, entry, value)
+    end
+    if isSupport then
+        -- A support function carries the dispatch table after its own
+        -- parameters.
+        tableValue = addParam(entry, "i64")
     end
     block(body.body.stats)
     if current then
@@ -1126,11 +1273,19 @@ local function compileFunction(node: any, functions: any, options: any): string
     if resultType then
         signature = signature .. " -> " .. resultType
     end
-    if isHandler then
+    if isSupport then
+        local types = {}
+        for i, t in ipairs(paramTypes) do
+            types[i] = t
+        end
+        types[#types + 1] = "i64"
+        signature = "(" .. table.concat(types, ", ") .. ") -> i64"
+    end
+    if isHandler or isSupport then
         signature = signature .. " tail"
     end
     out[#out + 1] = "function %" .. name .. signature .. " {"
-    if isHandler then
+    if isHandler or isSupport then
         out[#out + 1] = "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
     end
     for _, text in ipairs(preamble) do
@@ -1238,11 +1393,31 @@ export function compile(root: string, path: string, mode: string?, layoutPath: s
                 end
                 local rets = body.signatureType and body.signatureType.rets or {}
                 local resultKind = #rets == 1 and tag(rets[1]) or nil
+                if resultKind == "nil" then
+                    resultKind = nil
+                end
                 local isHandler = handlers and #paramKinds == 6 and resultKind == "uint64"
                 for _, kind in ipairs(paramKinds) do
                     if kind ~= "voidptr" then
                         isHandler = false
                     end
+                end
+                -- A helper named `...Slow` is a support function: compiled on its
+                -- own and tail-called, so the handlers that reach it stay
+                -- frameless while it calls Rust.
+                local isSupport = handlers and not isHandler and node.name.text:match("Slow$") ~= nil
+                if isSupport then
+                    -- Its parameters are the pc, the context and its own, so a
+                    -- tail call to it fits in argument registers and the
+                    -- handler stays frameless; it derives its windows from the
+                    -- context when it continues.
+                    need(
+                        #paramKinds >= 2
+                        and paramKinds[1] == "voidptr"
+                        and paramKinds[2] == "voidptr"
+                        and resultKind == "uint64",
+                        "a slow path takes the pc and the context first"
+                    )
                 end
                 functions[
                     node.name.text
@@ -1252,9 +1427,10 @@ export function compile(root: string, path: string, mode: string?, layoutPath: s
                     paramTypes = paramTypes,
                     resultKind = resultKind,
                     resultType = resultKind and machine(resultKind) or nil,
-                    isHandler = isHandler
+                    isHandler = isHandler,
+                    isSupport = isSupport
                 }
-                if not handlers or isHandler then
+                if not handlers or isHandler or isSupport then
                     order[#order + 1] = node.name.text
                 end
             elseif node.kind == "localStmt" then

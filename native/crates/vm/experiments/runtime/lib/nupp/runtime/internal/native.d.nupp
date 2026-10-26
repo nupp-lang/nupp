@@ -23,6 +23,21 @@ local record Native
     layout: function(field: string): int64
     slow: function(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     reenter: function(): uint64
+    fail: function(): uint64
+    -- The Rust helpers, each publishing and reloading the task record itself;
+    -- the caller publishes the pc before and checks the status and reloads
+    -- its windows after.
+    getField: function(context: voidptr, object: uint64, name: uint64): uint64
+    getIndex: function(context: voidptr, object: uint64, key: uint64): uint64
+    getIndexNum: function(context: voidptr, object: uint64, index: int64): uint64
+    setIndexNum: function(context: voidptr, object: uint64, index: int64, value: uint64): nil
+    storeKeyed: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
+    barrier: function(context: voidptr, parent: uint64, child: uint64): nil
+    newRecord: function(context: voidptr, shape: int64): uint64
+    eqSlow: function(context: voidptr, left: uint64, right: uint64): uint64
+    callIter: function(context: voidptr, iterator: uint64, base: uint64): nil
+    callBuiltin: function(context: voidptr, id: int64, base: uint64, nargs: int64): nil
+    appendPlain: function(context: voidptr, table: uint64, key: number, value: uint64): uint64
     load8: function(base: voidptr, offset: int64): int64
     load32: function(base: voidptr, offset: int64): int64
     load64: function(base: voidptr, offset: int64): uint64

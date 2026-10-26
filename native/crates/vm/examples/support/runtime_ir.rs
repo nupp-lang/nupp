@@ -16,14 +16,16 @@ use std::{
 /// measure it. The Nupp producer reads these (`runtime_slice --layouts`), and
 /// the generated sidecar asserts the same values at build time.
 #[allow(dead_code)] // The pilot does not export layouts.
-pub const LAYOUT_FIELDS: [&str; 39] = [
+pub const LAYOUT_FIELDS: [&str; 50] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "frame_mode", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres", "entries",
     "jit_threshold", "feedback", "guard", "unavailable_fid", "FuncInfo.code",
     "FuncInfo.frame_words", "FuncInfo.nparams", "FuncInfo.off_i", "FuncInfo.off_f",
     "FuncInfo.vararg", "FuncInfo.calls", "FuncInfo.typed", "FuncInfo.native", "Header.aux_len",
     "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
-    "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k",
+    "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k", "pc", "status", "marking", "shapes",
+    "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
+    "slow_calls", "nslow_calls",
 ];
 
 pub fn layout(field: &str) -> Result<usize, String> {
@@ -69,6 +71,17 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "Ins.c" => std::mem::offset_of!(Ins, c),
         "Ins.imm" => std::mem::offset_of!(Ins, imm),
         "Ins.k" => std::mem::offset_of!(Ins, k),
+        "pc" => std::mem::offset_of!(Ctx, pc),
+        "status" => std::mem::offset_of!(Ctx, status),
+        "marking" => std::mem::offset_of!(Ctx, marking),
+        "shapes" => std::mem::offset_of!(Ctx, shapes),
+        "ShapeInfo.size" => std::mem::size_of::<nupp_vm::threaded::ShapeInfo>(),
+        "ShapeInfo.table" => std::mem::offset_of!(nupp_vm::threaded::ShapeInfo, table),
+        "ShapeInfo.mask" => std::mem::offset_of!(nupp_vm::threaded::ShapeInfo, mask),
+        "Table.hash_ptr" => nupp_vm::heap::OFF_T_HASH_PTR as usize,
+        "Table.hash_mask" => nupp_vm::heap::OFF_T_HASH_MASK as usize,
+        "slow_calls" => std::mem::offset_of!(Ctx, slow_calls),
+        "nslow_calls" => std::mem::offset_of!(Ctx, nslow_calls),
         _ => return Err("unknown context field".into()),
     })
 }

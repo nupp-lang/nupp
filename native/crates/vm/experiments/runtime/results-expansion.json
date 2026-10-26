@@ -1,13 +1,13 @@
 {
  "baseline_revision": "73d54b904cd014f666671407e4a1751fb8de2418",
  "experiment_parent": "aa79357c0",
- "recorded_utc": "2026-10-25T23:29:45.257324+00:00",
+ "recorded_utc": "2026-10-26T00:13:58.469904+00:00",
  "host": {
   "architecture": "arm64",
   "os": "26.6",
   "cpu": "Apple M5 Pro"
  },
- "decision": "Keep disabled. The handler slice written as ordinary Nupp passes the 2% gate on all six workloads (fib 0.697, closures 0.901, records 0.805, tables 0.966, loops 0.972, strings 0.996) but the cold compiler check still regresses (43.68 s to 46.07 s median of three; warm 0.605 s to 0.607 s). Lookup and helper paths are next; promotion needs the compiler regression gone and broader coverage.",
+ "decision": "Keep disabled, but the whole-program gate now passes: every workload within the 2% margin (fib 0.679, closures 0.861, records 0.775, tables 0.946, loops 0.993, strings 0.999) and the cold compiler check faster (43.70 s to 42.55 s median of three; warm 0.599 s to 0.584 s). Promotion still needs broader coverage: the full Nupp suite, fixpoint, Linux and Windows execution, and a comparison against the then-current production runtime.",
  "margin": 0.02,
  "method": "12 paired independent processes per xbench candidate; alternating AB/BA; best-of-three inside each process; geometric mean paired ratio and 10000 paired bootstrap draws, 95% interval. Timing candidates and compiler checks ran serially.",
  "candidates": {
@@ -2941,6 +2941,173 @@
     "baseline": 208388096.0,
     "candidate": 208289792.0
    }
+  },
+  "helpers": {
+   "layout": "derived",
+   "source": "ordinary Nupp through nupp.experiment.lower in handler mode, with Rust helpers called from tail-called support functions; direct condition branching",
+   "functions": [
+    "Move",
+    "Nil",
+    "IK",
+    "IMov",
+    "IAddK",
+    "IMaskU32",
+    "IAdd",
+    "ISub",
+    "IAnd",
+    "IOr",
+    "IShl",
+    "IShrU",
+    "ICmpEq",
+    "ICmpNe",
+    "ICmpLt",
+    "ICmpLe",
+    "ICmpSLt",
+    "ICmpSLe",
+    "Jmp",
+    "JmpIfIZero",
+    "FAdd",
+    "FSub",
+    "FMul",
+    "FDiv",
+    "FMod",
+    "FK",
+    "FMov",
+    "FNeg",
+    "IToF",
+    "FToI",
+    "FCmpEq",
+    "FCmpNe",
+    "FCmpLt",
+    "FCmpLe",
+    "FBox",
+    "FUnbox",
+    "GetCell",
+    "Add",
+    "Sub",
+    "Mul",
+    "Mod",
+    "Lt",
+    "Le",
+    "Neg",
+    "Not",
+    "Truthy",
+    "BoolFromI",
+    "GetUpval",
+    "K",
+    "JmpIf",
+    "JmpIfNot",
+    "GetSlot",
+    "GetSlotF",
+    "Len",
+    "LenF",
+    "GetIdxF",
+    "GetIdxI",
+    "Call",
+    "CallK",
+    "Ret",
+    "RetNil",
+    "RetN",
+    "PadResults",
+    "getFieldSlow",
+    "GetField",
+    "eqSlow",
+    "Eq",
+    "Ne",
+    "getIndexSlow",
+    "getIndexNumSlow",
+    "GetIdx",
+    "barrierStoreSlow",
+    "setIndexNumSlow",
+    "SetIdxI",
+    "SetCell",
+    "SetSlot",
+    "SetSlotF",
+    "TagCheckNum",
+    "IBox",
+    "IUnbox",
+    "StrByte",
+    "NewRecord"
+   ],
+   "table_aliases": {
+    "CallDyn": "CallK"
+   },
+   "clif_sha256": "43b813b13df2dc8c62cdd5da7c6d4f6c795edc9d7993e5db4cbf35bafe5e41cc",
+   "object_sha256": "243ef131dd895528cf7d16c7d7a8ba97d6c6b584a747eb59e7decab24e89ef3d",
+   "runtime_sha256": "f96976ab9aeff02c2f926f36f0cf55127a07ebfc394e6c4dce0c722cfe787748",
+   "binaries": {
+    "baseline": {
+     "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/baseline-app",
+     "sha256": "37e4c9d11a1f052b73b16badcc871998c769409d823fed4f67690378e057db80"
+    },
+    "candidate": {
+     "path": "/private/tmp/nupp-rust-removal-73d54b904/build/native-runtime/calls-app",
+     "sha256": "394cc20606ced115a3a4f67b1d1de7ced6a68197e716a0c7a7092a547cb17b03"
+    }
+   },
+   "scale": 2,
+   "forks": 12,
+   "summary": {
+    "fib": {
+     "ratio": 0.6790932521614862,
+     "low95": 0.6740286338706125,
+     "high95": 0.6841959257472587,
+     "baseline_median_seconds": 0.071,
+     "candidate_median_seconds": 0.0485,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "loops": {
+     "ratio": 0.9926593357678716,
+     "low95": 0.9709864799636421,
+     "high95": 1.013080271171821,
+     "baseline_median_seconds": 0.368,
+     "candidate_median_seconds": 0.3635,
+     "verdict": "inconclusive",
+     "noninferiority_pass": true
+    },
+    "tables": {
+     "ratio": 0.9461695162862128,
+     "low95": 0.9326880302136374,
+     "high95": 0.9587566146215508,
+     "baseline_median_seconds": 0.0775,
+     "candidate_median_seconds": 0.0735,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "strings": {
+     "ratio": 0.9985380215602269,
+     "low95": 0.986630213072436,
+     "high95": 1.0110657808641001,
+     "baseline_median_seconds": 0.1605,
+     "candidate_median_seconds": 0.16,
+     "verdict": "unchanged",
+     "noninferiority_pass": true
+    },
+    "records": {
+     "ratio": 0.774988152386763,
+     "low95": 0.7679520129741104,
+     "high95": 0.7821103074064859,
+     "baseline_median_seconds": 0.055,
+     "candidate_median_seconds": 0.043,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    },
+    "closures": {
+     "ratio": 0.8606838696525942,
+     "low95": 0.8571572149294475,
+     "high95": 0.8645696743914202,
+     "baseline_median_seconds": 0.064,
+     "candidate_median_seconds": 0.055,
+     "verdict": "improved",
+     "noninferiority_pass": true
+    }
+   },
+   "noninferiority_pass": true,
+   "max_rss_bytes": {
+    "baseline": 208412672.0,
+    "candidate": 208322560.0
+   }
   }
  },
  "validation": {
@@ -2974,7 +3141,7 @@
   ],
   "synthetic_abi": "JIT and linked host AOT probes pass; Linux x64 and Windows GNU x64 object emission covers the synthetic ABI pilot, not the expanded production slice.",
   "platform_limits": "Real production-slice execution is macOS ARM64 only. No fixpoint or full Rust deletion claimed. The full Nupp suite was not run; the broad validation is the Rust VM suite and pinned compiler checks.",
-  "gc_helper_limit": "No allocating or reentrant helper inside any native segment. Calls and returns are native; growth, unsupported instructions and OSR leave to Rust.",
+  "gc_helper_limit": "Allocating and reentrant helpers run from tail-called support functions under the publish, check and reload protocol; the barrier runs without reload as in Rust.",
   "minimal_runtime": {
    "features": "--no-default-features --features native-runtime-experiment",
    "runtime_sha256": "ea839aca4a5ecb996122fa53c4be62d383eadf9405b44df24c3111cc22522d26",
@@ -3163,6 +3330,48 @@
    "warm_compiled_modules": [
     0
    ]
+  },
+  "helpers": {
+   "runtimes": {
+    "baseline": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+    "candidate": "f96976ab9aeff02c2f926f36f0cf55127a07ebfc394e6c4dce0c722cfe787748"
+   },
+   "image_sha256": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb",
+   "forks": 3,
+   "median_seconds": {
+    "baseline_cold": 43.700708958,
+    "baseline_warm": 0.5994995830000107,
+    "candidate_cold": 42.54620995799999,
+    "candidate_warm": 0.5839198750000207
+   },
+   "seconds": {
+    "baseline_cold": [
+     43.700708958,
+     43.897787584000014,
+     43.64443179100002
+    ],
+    "baseline_warm": [
+     0.6003691669999967,
+     0.5955662089999976,
+     0.5994995830000107
+    ],
+    "candidate_cold": [
+     42.842407582999996,
+     42.53239987500001,
+     42.54620995799999
+    ],
+    "candidate_warm": [
+     0.5893763750000005,
+     0.5839198750000207,
+     0.5760816670000395
+    ]
+   },
+   "cold_compiled_modules": [
+    504
+   ],
+   "warm_compiled_modules": [
+    0
+   ]
   }
  },
  "deterministic": {
@@ -3183,16 +3392,16 @@
  },
  "xbench_payload_sha256": "09cc26e1d5169e0632f6cfc8833cedc21d9af6b9803d2020de63448cc75a9606",
  "source_sha256": {
-  "native/crates/vm/examples/runtime_slice.rs": "095d59e4a900ecaf7462417e37297b129209b546fd72472d988d723270659e15",
-  "native/crates/vm/examples/support/runtime_ir.rs": "a7737283e158e1473579771da73f78f10f729f0a16e1461ed22c57ca14023509",
+  "native/crates/vm/examples/runtime_slice.rs": "5f3616d9bf74699db7bda630a4afeb1586bbf7a00ac9d884b93b7c083fc0b333",
+  "native/crates/vm/examples/support/runtime_ir.rs": "2aba62c1cbe29d82187593cf6ae7b150ee280ae6ef0eee9050066ec4ba428bab",
   "native/crates/vm/examples/clif_run.rs": "bf24e8073d9d4818b854cffbbc830082b1424cd99712dca4c1cd88ab692efed6",
-  "native/crates/vm/src/dispatch.rs": "1d0d5ba91614f306b5ca2cc7b9f0e685e2f497d5e2f8637423179f93a625a710",
-  "native/crates/vm/experiments/runtime/tests.rs": "4869d92edde203bdef71790ec7c04e261f5a6acc19b3cde930707ff670752d0f",
-  "native/crates/vm/experiments/runtime/lib/nupp/experiment/lower.nupp": "45ffa8772301c486883efa530ce1c9bd4ab1d4f3b3e8d3befa6bfcffd877adcf",
+  "native/crates/vm/src/dispatch.rs": "0b77a5eccc04db1813e320d4eb6a1246e594ad9ddd70274f1d47c58865f5847a",
+  "native/crates/vm/experiments/runtime/tests.rs": "2aa76f9662678dd637320be337fd0069ff62ac937b974490c8141ab2be74b0e9",
+  "native/crates/vm/experiments/runtime/lib/nupp/experiment/lower.nupp": "6bfa7c4d339fd7dba315c9d4744ddc54948d75b292099d6bfa135005bdb42aa1",
   "native/crates/vm/experiments/runtime/lib/nupp/experiment/runtime.nupp": "72f550045919b638f192307d0ff8536e68bb48fab279c0924e8ee74a0fc2bf99",
   "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/handlers.nupp": "bddd8da925d6504f4e7f6ccaa9543e01b9c66fbfea541ab08f525d5fd2a3445c",
-  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "e90fd199d261c89c84c5bd55bf7e7213defbe83567cf7de6f089b8af42f77112",
-  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "a19cc9987a0e0e43f40c851a4432a5b9a6cf86335f7ac3f68b6d132c64842a45"
+  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/native.d.nupp": "629e99bbe8f449e722f30eda564eeeb8637a1f74e7fa700c18ce6afa256a640a",
+  "native/crates/vm/experiments/runtime/lib/nupp/runtime/internal/slice.nupp": "f188666986eebfa59f1829d7a244ed9c6d83a9658e57423b00a36a4a62e4e9db"
  },
  "toolchain": "rustc 1.101.0-nightly (5c543b0b8 2026-09-29)\nbinary: rustc\ncommit-hash: 5c543b0b8c73c7b72bc8284ced4fb22ead15734d\ncommit-date: 2026-09-29\nhost: aarch64-apple-darwin\nrelease: 1.101.0-nightly\nLLVM version: 23.1.1\n",
  "fib_profile": {
