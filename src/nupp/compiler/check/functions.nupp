@@ -1064,6 +1064,16 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         c.retStack[#c.retStack + 1] = annotated or false
         c.retPackStack[#c.retPackStack + 1] = body.returnPack and retPack or false
+        -- A local function statement with a plain declared signature: the
+        -- statements below may call it, and see this signature when they do.
+        local selfBinding: any = (body as any).selfBinding
+        if selfBinding ~= nil and body.returnPack and not retPack.tail and not retPack.alternatives then
+            local provisional = T.func(params, rets, vararg)
+            selfBinding.t = provisional
+            if selfBinding.definition then
+                selfBinding.definition.type = provisional
+            end
+        end
         -- A literal written where a callable is expected has its results inferred
         -- from what it returns, so a result the slot leaves open -- a generic's result
         -- binder -- is bound by the body rather than left `any`, and a result the slot
@@ -1696,27 +1706,25 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not nameTok or not body then
             return
         end
-        -- Bind the name before checking the body, so a recursive call resolves.
-        -- A fully declared plain signature is known before the body is: a call
-        -- the body makes to itself is typed by it rather than left unknown.
-        -- Generics, modes, varargs and packs keep the refining bind below.
-        local provisional = T.any
+        -- Bind the name before checking the body, so a recursive call resolves. A
+        -- fully declared plain signature refines this binding as soon as the body
+        -- check has resolved it, before the statements are checked, so a call the
+        -- body makes to itself is typed by it rather than left unknown. Generics,
+        -- modes, varargs and packs keep the refining bind below alone.
+        c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
         local declared: any = body
         if declared.returnPack and not declared.generics and not declared.varargParam then
-            local params, plain = {}, true
+            local plain = true
             for _, p in ipairs(declared.params or {}) do
                 if p.vararg or p.namedVararg or not p.type or p.modeTok or p.type.kind == "tpack" then
                     plain = false
                     break
                 end
-                params[#params + 1] = c.resolveType(p.type)
             end
-            local results = plain and c.resolvePack(declared.returnPack) or nil
-            if results and not results.tail and not results.alternatives then
-                provisional = T.func(params, results.head, false)
+            if plain then
+                declared.selfBinding = c.scope.vars[nameTok.text]
             end
         end
-        c.bindVar(nameTok.text, provisional, false, nameTok, "function", stat.isConst)
         if stat.comptimeFunction then
             local entry = c.scope.vars[nameTok.text]
             if entry and entry.definition then
