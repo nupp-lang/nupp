@@ -576,7 +576,10 @@ end
 -- jump's own pc ran nothing: the jump is taken with the windows derived
 -- again. Anything else is settled as a frame entry's answer is.
 local function backEdgeSlow(pc: voidptr, context: voidptr, pcIndex: int64, hot: int64): uint64
-    local result = helpers.enterFrame(context, pcIndex, hot)
+    -- Bit 1 says the conditional jump has already been taken. The guest
+    -- JIT enters at its target; a caller resuming at this pc must still
+    -- evaluate the condition.
+    local result = helpers.enterFrame(context, pcIndex, hot + 2)
     if result == native.word(pcIndex) then
         return resumeTop(context, pcIndex + native.load32(pc, 4) + 1)
     else

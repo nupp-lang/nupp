@@ -27,6 +27,14 @@ pub(crate) fn back_edge(op: &Op) -> bool {
     matches!(op, Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0)
 }
 
+/// The next instruction after a taken backward jump.
+pub(crate) fn back_edge_target(op: &Op, pc: usize) -> Option<usize> {
+    match op {
+        Op::Jmp(n) | Op::JmpIfIZero(_, n) | Op::JmpIf(_, n) | Op::JmpIfNot(_, n) | Op::IJmpIfUle(_, _, n) | Op::IJmpIfUlt(_, _, n) if *n < 0 => Some((pc as i64 + 1 + *n as i64) as usize),
+        _ => None,
+    }
+}
+
 /// Room the JIT's tables keep for images loaded after it starts. Compiled
 /// code holds their addresses as constants, so they must never move.
 #[cfg(feature = "jit")]
@@ -84,7 +92,7 @@ impl Interp {
     /// entry or vector instructions: refuse vector code a no-JIT host may not
     /// interpret, then run the compiled entry. Answers the pc the core goes
     /// on interpreting at, as `run_compiled_frame` does.
-    pub(crate) fn enter_frame_from_core(&mut self, tid: usize, fid: u32, pc: usize, hot: bool) -> Result<usize, crate::interp::Step> {
+    pub(crate) fn enter_frame_from_core(&mut self, tid: usize, fid: u32, pc: usize, hot: bool, taken: bool) -> Result<usize, crate::interp::Step> {
         if pc == 0 && !self.simd_interpret && !self.compiled_frames_active_pub() && self.function_needs_native(fid) {
             self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
         }
@@ -94,6 +102,11 @@ impl Interp {
             self.frame_heat.resize(self.funcs.len(), 0);
             self.frame_heat[fid as usize] = self.frame_threshold - 1;
         }
+        // Rust entries name the jump itself. Guest entries name the next
+        // instruction, so only skip a conditional jump when the core took it.
+        let pc = if self.guest_jit && taken {
+            back_edge_target(&self.funcs[fid as usize].code[pc], pc).expect("taken backward jump")
+        } else { pc };
         let _ = hot;
         #[cfg(feature = "compiled-runtime")]
         if self.compiled_frames_active_pub() { return self.run_compiled_frame(tid, fid, pc); }

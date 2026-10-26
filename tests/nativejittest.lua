@@ -170,7 +170,7 @@ end
 -- The answer of the JIT runtime in guest mode: every function compiled at
 -- its first entry, on the compiler thread or in line, under the scheduler or
 -- a plain call.
-local function compiledRun(name, args, background, tasks)
+local function compiledRun(name, args, background, tasks, callee)
     local words = {}
     for index, arg in ipairs(args) do
         words[index] = quote(arg)
@@ -191,8 +191,10 @@ local function compiledRun(name, args, background, tasks)
     )
     assert(status == 0, ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
     if not background then
-        local compiled = "guest jit: compiled " .. functionNamed(name).name
-        assert(reported:find(compiled, 1, true), "the JIT did not compile " .. name .. ": " .. reported)
+        for _, expected in ipairs(callee and {name, callee} or {name}) do
+            local compiled = "guest jit: compiled " .. functionNamed(expected).name
+            assert(reported:find(compiled, 1, true), "the JIT did not compile " .. expected .. ": " .. reported)
+        end
     end
 
     return (output:match("^([^\r\n]*)"))
@@ -326,6 +328,9 @@ local GUEST = {
     {"slots", {1000}},
     {"mixedSlots", {1000}},
     {"arrayMiss", {1000}},
+    {"repeatAfterDeopt", {3}, "deoptimizedRepeat"},
+    {"repeatAfterDeopt", {1}, "deoptimizedRepeat"},
+    {"repeatAfterDeopt", {0}, "deoptimizedRepeat"},
 }
 
 function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
@@ -333,21 +338,57 @@ function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
         local name, args = case[1], case[2]
         local expected = interpret(name, args)
         local label = ("%s(%s)"):format(name, table.concat(args, ", "))
-        local inline = compiledRun(name, args, false, false)
+        local inline = compiledRun(name, args, false, false, case[3])
         assert(
             inline == expected,
             label .. ": in line, plain call: interpreter " .. expected .. ", compiled " .. inline
         )
-        local scheduledInline = compiledRun(name, args, false, true)
+        local scheduledInline = compiledRun(name, args, false, true, case[3])
         assert(
             scheduledInline == expected,
             label .. ": in line, scheduled: interpreter " .. expected .. ", compiled " .. scheduledInline
         )
-        local scheduled = compiledRun(name, args, true, true)
+        local scheduled = compiledRun(name, args, true, true, case[3])
         assert(
             scheduled == expected,
             label .. ": compiler thread, scheduled: interpreter " .. expected .. ", compiled " .. scheduled
         )
+    end
+end
+
+function M.selfEdgesRespectTheExecutionBudget()
+    local process = require("nupp.io.process")
+    for _, case in ipairs({
+        {"Jmp -1", 0},
+        {"const 0 num 1\nK 1 0\nJmpIf 1 -1", 1},
+        {"Nil 1\nJmpIfNot 1 -1", 1},
+        {"IK 0 0\nJmpIfIZero 0 -1", 1},
+        {"IK 0 1\nIK 1 2\nIJmpIfUle 0 1 -1", 2},
+        {"IK 0 1\nIK 1 2\nIJmpIfUlt 0 1 -1", 2},
+    }) do
+        local fn = guest.parse("function spin 0 0 4 2 :v\n" .. case[1] .. "\nRetNil\nend\n")
+        local clif, reason = guest.emit(fn, layouts(), {nested = 0})
+        assert(clif, reason)
+        -- Give both harness entries one back edge, then expect the jump's
+        -- pc as the deoptimization exit when its budget is spent.
+        local pattern = "(= iconst%.i64 )%-1(\n%s*store notrap v%d+, v%d+%+" .. tostring(layouts()("budget")) .. "\n)"
+        local harness, count = guest.harness(fn, clif, layouts()):gsub(pattern, function(prefix, suffix)
+            return prefix .. "1" .. suffix
+        end)
+        assert(count == 2, "the harness did not set both entry budgets")
+        local path = tempDirectory() .. "/spin.clif"
+        write(path, harness)
+        local child, problem = process.spawn({
+            args = {glueTool(), "native", "jit", path, "word_0"},
+            stdin = "null",
+            timeoutMs = 10000,
+        })
+        assert(child, problem)
+        local result, failed = child:communicate()
+        child:close()
+        assert(result, failed)
+        assert(result:succeeded(), "a self edge did not stop at its budget: " .. result.errorOutput)
+        assert(tonumber(result.output) == case[2], "a self edge stopped at the wrong pc: " .. result.output)
     end
 end
 

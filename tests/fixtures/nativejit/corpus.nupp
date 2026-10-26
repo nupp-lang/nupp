@@ -281,3 +281,22 @@ export function arrayMiss(n: integer): number
 
     return total
 end
+
+local function deoptimizedRepeat(n: number): number
+    local object: any = new Triple(x = 3, y = 4, z = 5)
+    local p = object as Pair
+    local total = 0
+    repeat
+        total = total + p.x
+        n = n - 1
+        if n < -1 then
+            error("a conditional OSR entry skipped the repeat condition")
+        end
+    until n <= 0
+
+    return total
+end
+
+export function repeatAfterDeopt(n: number): number
+    return deoptimizedRepeat(n)
+end

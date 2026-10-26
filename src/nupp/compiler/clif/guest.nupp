@@ -1583,7 +1583,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             b.jump(need(blockAt[target], "jump target " .. tostring(target)) as ssa.Block, {})
             return
         end
-        if target < pc then
+        if target <= pc then
             local budget = ctxLoad("budget")
             local spent = emit("icmp eq " .. budget .. ", " .. k("0"))
             local go = newBlock()
@@ -3009,35 +3009,28 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         directArgs[i] = b.addParam(entry, "i64")
     end
     b.write(frameVar, entry, frameArg)
-    -- Blocks at every leader; entry points at pc 0 and each back edge.
+    -- Blocks at every leader; entry points at pc 0 and each loop header.
     for pc in pairs(live.leaders) do
         if pc <= n then
             blockAt[pc] = newBlock()
         end
     end
-    -- The frame driver enters at pc 0 and at a taken back edge (contracts
-    -- 5.3), naming the jump's pc: the entry takes the jump itself and goes
-    -- to the loop header, which it reaches as the loop's own back edge does.
-    -- A back edge to pc 0 enters at the jump instead, since pc 0's block
-    -- takes a direct call's parameters.
+    -- Entries name the next instruction to execute. In particular a loop
+    -- entry names its header, never a conditional jump that a fallback
+    -- driver has yet to evaluate.
     local entryPcs: {integer} = {0}
-    local entryTarget: {[integer]: integer} = {[0] = 0}
+    local entered: {[integer]: boolean} = {[0] = true}
     for _, ins in ipairs(fn.code) do
         if isBackEdge(ins) then
-            entryPcs[#entryPcs + 1] = ins.pc
-            local target = ins.pc
-            for _, next in ipairs(successors(fn, ins)) do
-                if next <= ins.pc then
-                    target = next
+            for _, target in ipairs(successors(fn, ins)) do
+                if target <= ins.pc and not entered[target] then
+                    entryPcs[#entryPcs + 1] = target
+                    entered[target] = true
+                    if not blockAt[target] then
+                        blockAt[target] = newBlock()
+                        live.leaders[target] = true
+                    end
                 end
-            end
-            if target == 0 then
-                target = ins.pc
-            end
-            entryTarget[ins.pc] = target
-            if not blockAt[target] then
-                blockAt[target] = newBlock()
-                live.leaders[target] = true
             end
         end
     end
@@ -3083,10 +3076,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             for _, target in ipairs(successors(fn, ins)) do
                 into[target] = (into[target] or 0) + 1
             end
-        end
-        local entered: {[integer]: boolean} = {}
-        for _, pc in ipairs(entryPcs) do
-            entered[entryTarget[pc] as integer] = true
         end
         for pc in pairs(blockAt) do
             if pc > 0 and pc < n and into[pc] == 1 and not entered[pc] then
@@ -3202,7 +3191,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- Dispatch on the pc: a chain of compares, one per entry point, then the
     -- fallback that hands an unknown pc back.
     for _, pc in ipairs(entryPcs) do
-        local target = entryTarget[pc] as integer
+        local target = pc
         local load = newBlock()
         local rest = newBlock()
         b.branch(emit("icmp eq " .. pcArg .. ", " .. k(tostring(pc))), load, rest)

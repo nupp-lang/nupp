@@ -2337,6 +2337,9 @@ impl Interp {
     /// heat, so a large function was hot within its first call.
     #[inline]
     fn frame_entry_pending(&mut self, fid: u32, back: bool, next: &Op) -> bool {
+        // Guest OSR entries name loop headers, after the jump is taken.
+        // Do not enter a conditional back edge before evaluating it.
+        if self.guest_jit { return back; }
         #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return crate::frame::back_edge(next) || self.function_needs_native(fid); }
         #[cfg(feature = "jit")] if back && self.jit.is_some() && self.frame_entries.get(fid as usize).copied().unwrap_or(0) == 0 { return true; }
         let _ = (fid, back, next);
@@ -2431,7 +2434,7 @@ impl Interp {
                 }
                 self.tasks[tid].note_pc(pc + 1);
                 match self.step(tid, &win, pc) {
-                    Step::Next(next) => { pc = next; self.tasks[tid].note_pc(pc); break; },
+                    Step::Next(next) => { let back = next <= pc; pc = next; self.tasks[tid].note_pc(pc); if !self.guest_jit || back { break; } },
                     Step::Reenter => break,
                     Step::Return(o) => return Err(Step::Return(o)),
                 }

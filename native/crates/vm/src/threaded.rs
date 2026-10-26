@@ -332,7 +332,7 @@ pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
 /// a back edge -- compiling it first when the core counted it `hot`, or
 /// applies the interpreter's policy for one with vector instructions and no
 /// compiled entry. Answers the pc to go on interpreting at, or a status.
-pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
+pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, flags: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
@@ -341,7 +341,7 @@ pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
     it.last_nres = ctx.last_nres as usize;
     let fid = (it.tasks[tid].stack[ctx.cur as usize] & 0xffff_ffff) as u32;
     let mark = it.handles.len();
-    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.enter_frame_from_core(tid, fid, pc as usize, hot != 0)));
+    let entered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.enter_frame_from_core(tid, fid, pc as usize, flags & 1 != 0, flags & 2 != 0)));
     if entered.is_err() { it.handles.truncate(mark); }
     let r = match entered {
         Ok(Ok(next)) => next as u32,
