@@ -264,6 +264,16 @@ function M.atomicWordsAndHalvesLowerToAtomicInstructions()
     check(compileFixture("atomics"), ATOMICS)
 end
 
+-- The managed-fields measurement: both designs run; the numbers are read from
+-- the report, not asserted, since they are the machine's.
+function M.theManagedFieldsMeasurementRuns()
+    local clif = compileFixture("managed")
+    for _, case in ipairs({{"heapStores", {"buffer:200000", 100000, "true"}}, {"heapStores", {"buffer:200000", 100000, "false"}},
+        {"rootedStores", {"buffer:200000", 100000}}, {"traceHeap", {"buffer:200000", 100}}, {"walkRoots", {"buffer:200000", 100}}}) do
+        local nanos = tonumber(run(clif, case[1], case[2]))
+        assert(nanos and nanos > 0, case[1] .. " answered no time")
+    end
+end
 
 function M.arenasOverMappedPagesOpenForAnExtentAndClose()
     check(compileFixture("arenas", {"arena"}), ARENAS)

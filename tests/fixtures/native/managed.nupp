@@ -1,0 +1,115 @@
+module managed
+
+-- The managed-fields decision, measured: a runtime struct holding heap
+-- references either lives in the collected heap, where the collector finds it
+-- by walking objects and every store of a managed field pays the insertion
+-- barrier, or it lives in an arena and is registered as a root while live,
+-- where stores are plain and the collector walks the root stack. Each function
+-- answers nanoseconds for `rounds` operations.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+
+-- A task record with two managed slots, as the scheduler's would be.
+local struct Task
+    header: uint64
+    closure: uint64
+    result: uint64
+    priority: int64
+end
+
+-- The "heap" and the "root stack" are regions of the caller's buffer: the
+-- objects at 0, the gray stack at 65536, the root stack at 131072.
+const GRAY: int64 = 65536
+const ROOTS: int64 = 131072
+
+local function taskAt(base: voidptr, index: int64): Task*
+    return native.offset(base, index * 32) as Task*
+end
+
+-- Heap-resident: a store of a managed field runs the insertion barrier, which
+-- reads the mark bit in the header and pushes the object onto the gray stack
+-- when marking is on and the object is already black.
+local function heapStores(base: voidptr, rounds: int64, marking: boolean): uint64
+    local started = os.monotonicNanos()
+    local gray: int64 = 0
+    local i: int64 = 0
+    while i < rounds do
+        local task = taskAt(base, i % 1024)
+        @unsafe do
+            task.closure = native.word(i)
+            if marking and task.header & 1 == 1 then
+                task.header = task.header | 2
+                native.storeIndex(base, GRAY + gray * 8, i % 1024)
+                gray = (gray + 1) % 4096
+            end
+        end
+        i = i + 1
+    end
+
+    return os.monotonicNanos() - started
+end
+
+-- Arena-resident and registered: the store is plain; the registration is a
+-- push onto the root stack at scope entry and a pop at exit.
+local function rootedStores(base: voidptr, rounds: int64): uint64
+    local started = os.monotonicNanos()
+    local i: int64 = 0
+    while i < rounds do
+        local task = taskAt(base, i % 1024)
+        native.storeIndex(base, ROOTS, native.index(native.address(task as voidptr)))
+        @unsafe task.closure = native.word(i)
+        native.storeIndex(base, ROOTS, 0)
+        i = i + 1
+    end
+
+    return os.monotonicNanos() - started
+end
+
+-- Collection, heap-resident: every object is visited, its header read, and
+-- its managed slots marked by shape.
+local function traceHeap(base: voidptr, rounds: int64): uint64
+    local started = os.monotonicNanos()
+    local marked: uint64 = 0
+    local round: int64 = 0
+    while round < rounds do
+        local i: int64 = 0
+        while i < 1024 do
+            local task = taskAt(base, i)
+            @unsafe do
+                if task.header & 1 == 0 then
+                    marked = marked + task.closure + task.result
+                end
+            end
+            i = i + 1
+        end
+        round = round + 1
+    end
+    native.store64(base, GRAY, marked)
+
+    return os.monotonicNanos() - started
+end
+
+-- Collection, arena-resident: the root stack is walked, and each registered
+-- struct's managed slots marked by shape.
+local function walkRoots(base: voidptr, rounds: int64): uint64
+    local i: int64 = 0
+    while i < 1024 do
+        native.storeIndex(base, ROOTS + i * 8, native.index(native.address(taskAt(base, i) as voidptr)))
+        i = i + 1
+    end
+    local started = os.monotonicNanos()
+    local marked: uint64 = 0
+    local round: int64 = 0
+    while round < rounds do
+        i = 0
+        while i < 1024 do
+            local task = native.pointer(native.word(native.loadIndex(base, ROOTS + i * 8))) as Task*
+            @unsafe marked = marked + task.closure + task.result
+            i = i + 1
+        end
+        round = round + 1
+    end
+    native.store64(base, GRAY, marked)
+
+    return os.monotonicNanos() - started
+end

@@ -18,5 +18,8 @@ local record Os
 
     --- The system's page size in bytes.
     pageSize: function(): uint64
+
+    --- A monotonic clock in nanoseconds, for measurements.
+    monotonicNanos: function(): uint64
 end
 return Os

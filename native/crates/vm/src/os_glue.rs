@@ -119,6 +119,14 @@ pub unsafe extern "C" fn nupp_os_page_size() -> u64 {
     }
 }
 
+/// A monotonic clock in nanoseconds, for measurements written in the profile.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_monotonic_nanos() -> u64 {
+    use std::sync::OnceLock;
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+}
+
 /// The address of an operating-system edge by its symbol, for a runner that
 /// links native code into this process rather than against the runtime.
 pub fn symbol(name: &str) -> Option<*const u8> {
@@ -127,6 +135,7 @@ pub fn symbol(name: &str) -> Option<*const u8> {
         "nupp_os_unmap_pages" => nupp_os_unmap_pages as *const u8,
         "nupp_os_advise_pages" => nupp_os_advise_pages as *const u8,
         "nupp_os_page_size" => nupp_os_page_size as *const u8,
+        "nupp_os_monotonic_nanos" => nupp_os_monotonic_nanos as *const u8,
         _ => return None,
     })
 }
