@@ -33,3 +33,11 @@ what the evidence showed along the way (frame identity by address and by
 function, eager condition flags, support functions past eight arguments, a
 mistyped tag constant) is written into the handler sources' comments and the
 contract tests rather than repeated here.
+
+`n09-measurements.json` records partial N09 integration at `23cffbcca`, with
+source and artifact hashes, verification, twelve paired forks of all six
+workloads with the JIT on and off, and a quiet 24-fork interpreter loops run.
+The native core remains opt-in: interpreter loops, tables and closures and
+JIT loops and strings miss the 2% margin. The cold compiler check completes
+after the OSR fix but remains slower than Rust in its diagnostic single
+pair. These results do not close N09 or the default-runtime gate.
