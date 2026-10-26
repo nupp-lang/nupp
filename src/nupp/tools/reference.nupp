@@ -1318,6 +1318,45 @@ return m
     ),
 
     new reference.Section(
+        title = "Unsafe regions",
+        codes = {"NUPP2604", "NUPP2603", "NUPP2608"},
+        body = [=[
+`@unsafe` is the author's signature on an operation the checker cannot prove:
+dereferencing or storing through a raw pointer, indexing C memory without a
+bound, reconstructing a pointer, `nupp.adopt`, `nupp.release` and `borrowFrom`,
+and in the native profile storing a borrowed pointer through a reference or
+handing one to a plain pointer parameter. Written on a statement it covers that
+statement; written as `return @unsafe expr` or `local x = @unsafe expr` it
+covers the expression.
+
+`@unsafe do ... end` covers every statement in the block, nested ones included,
+so an allocator or a collector writes its region once rather than signing each
+store. The region changes nothing about what the checker proves outside it, and
+what it admits inside is recorded on each operation, so a tool can list them.
+]=],
+        example = [=[
+local m = {}
+
+struct m.Node
+    value: int64
+    next: m.Node*?
+end
+
+function m.link(first: m.Node*, second: m.Node*): int64
+    @unsafe do
+        first.value = 1
+        second.value = 2
+        second.next = nil
+        first.next = second
+        return first.value + second.value
+    end
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[

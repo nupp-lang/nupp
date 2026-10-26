@@ -105,6 +105,37 @@ function M.tagFieldsAndPointerUnionsAreReifiable()
     testAssert.equal(layout.offsets.right, 16)
 end
 
+-- `@unsafe do ... end` signs every statement of its block, nested ones included;
+-- the same stores outside it are refused one by one.
+function M.anUnsafeRegionCoversItsBlock()
+    -- A raw pointer: a call's result carries no borrow, unlike a parameter.
+    local NODE = "local struct Node\n   value: int64\n   next: Node*?\nend\n"
+        .. "local function raw(p: voidptr): Node*\n   return p as Node*\nend\n"
+    assertClean(NODE .. table.concat({
+        "local function link(base: voidptr, other: voidptr): int64",
+        "   local first = raw(base)",
+        "   local second = raw(other)",
+        "   @unsafe do",
+        "      first.value = 1",
+        "      if second ~= nil then",
+        "         second.value = 2",
+        "         first.next = second",
+        "      end",
+        "      return first.value",
+        "   end",
+        "end",
+    }, "\n"))
+    testAssert.equal((diagsOf(NODE .. table.concat({
+        "local function link(base: voidptr, other: voidptr): int64",
+        "   local first = raw(base)",
+        "   local second = raw(other)",
+        "   first.value = 1",
+        "   first.next = second",
+        "   return @unsafe first.value",
+        "end",
+    }, "\n"))), "NUPP2604:11 NUPP2604:12")
+end
+
 function M.constructionChecking()
     assertClean(VEC .. "local v = new Vec2(1, 2)")
     assertClean(VEC .. "local v = new Vec2()")
