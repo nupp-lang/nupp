@@ -224,7 +224,7 @@ pub(crate) fn main() {
             (Some("describe"), 4) => {
                 let mut it = Interp::new();
                 load_image_file(&mut it, &args[3]).and_then(|()| {
-                    for (fid, f) in it.funcs.iter().enumerate() { print!("{}", nupp_vm::jit_glue::describe(f, fid as u32)); }
+                    for (fid, f) in it.funcs.iter().enumerate() { print!("{}", nupp_vm::jit_glue::describe(f, fid as u32, 0)); }
                     Ok(())
                 })
             }

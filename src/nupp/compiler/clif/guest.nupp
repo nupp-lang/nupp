@@ -103,6 +103,20 @@ record guest.Fn
     consts: {guest.Constant}
     code: {guest.Instruction}
     tables: {{integer}}
+
+    --- The address of the function's inline-cache bank, as hex text: two
+    --- words per field site in code order; nil when the glue gave none.
+    caches: string?
+
+    --- The descriptor epoch's address and value at planning, as text, when
+    --- the glue passed a plan.
+    epochAddress: string?
+
+    epochValue: string?
+
+    --- Method sites the plan resolved, by pc: the record shape seen and the
+    --- method value (hex text) its descriptor answers while the epoch holds.
+    methodSites: {[integer]: {string}}
 end
 
 local function need(ok: any, message: string): any
@@ -149,7 +163,11 @@ function guest.parse(text: string): guest.Fn
                 vararg = parts[8] == "vararg",
                 consts = {},
                 code = {},
-                tables = {}
+                tables = {},
+                caches = nil,
+                epochAddress = nil,
+                epochValue = nil,
+                methodSites = {}
             )
         elseif fn == nil then
             error("guest: text before the function line: " .. line, 0)
@@ -169,6 +187,16 @@ function guest.parse(text: string): guest.Fn
             f.consts[#f.consts + 1] = constant
         elseif head == "vectors" then
             (fn as guest.Fn).nvreg = (tonumber(parts[2]) or 2) as integer
+        elseif head == "caches" then
+            (fn as guest.Fn).caches = parts[2]
+        elseif head == "epoch" then
+            local f = fn as guest.Fn
+            f.epochAddress = parts[2]
+            f.epochValue = parts[3]
+        elseif head == "site" then
+            local f = fn as guest.Fn
+            need(parts[3] == "method", "plan site kind " .. tostring(parts[3]))
+            f.methodSites[need(tonumber(parts[2]), "site pc") as integer] = {parts[4], parts[5]}
         elseif head == "table" then
             local f = fn as guest.Fn
             local offsets: {integer} = {}
@@ -578,7 +606,11 @@ local HELPERS: {
     nupp_rt_new_record = {"(i64, i64) -> i64"},
     nupp_rt_eq_slow = {"(i64, i64, i64) -> i64"},
     nupp_rt_observe = {"(i64, i64, i64, i64, i64)"},
+    nupp_rt_call_builtin = {"(i64, i64, i64, i64)"},
+    nupp_rt_call_iter = {"(i64, i64, i64)"},
     nupp_jit_step = {"(i64, i64) -> i64"},
+    nupp_jit_field_miss = {"(i64, i64, i64, i64) -> i64"},
+    nupp_jit_field_store = {"(i64, i64, i64, i64, i64)"},
     nupp_jit_call = {"(i64, i64, i64) -> i64"},
     nupp_jit_finish = {"(i64, i64, i64) -> i64"}
 }
@@ -738,9 +770,81 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         return frame() .. "+" .. tostring(offset)
     end
 
+    -- Value registers read within a bytecode block are kept in SSA values,
+    -- and values written are held back from the frame until a safepoint: the
+    -- end of the block, an exit, an instruction the interpreter runs, a
+    -- helper that may collect, a call. Nothing crosses a block boundary in a
+    -- value, so no block parameter is ever made for a value register.
+    local cache: {[integer]: string} = {}
+    local dirty: {[integer]: boolean} = {}
+
     local function V(r: integer): string
         need(r <= fn.nregs, "value register " .. tostring(r))
-        return emit("load.i64 notrap " .. slotText(0, r))
+        local known = cache[r]
+        if known then
+            return known
+        end
+        local value = emit("load.i64 notrap " .. slotText(0, r))
+        cache[r] = value
+
+        return value
+    end
+
+    -- Writes the registers written since the last flush to the frame. With
+    -- `keep`, the emitter's own account is left as it is: a cold block that
+    -- stores what the main path holds and never returns to it.
+    local function flush(keep: boolean): nil
+        local written: {integer} = {}
+        for r in pairs(dirty) do
+            written[#written + 1] = r
+        end
+        table.sort(written)
+        for _, r in ipairs(written) do
+            effect("store notrap " .. (cache[r] as string) .. ", " .. slotText(0, r))
+        end
+        if not keep then
+            dirty = {}
+        end
+    end
+
+    -- Forgets the cached values of registers something else wrote to the
+    -- frame: the interpreter's definitions, a call's results.
+    local function forget(r: integer): nil
+        cache[r] = nil
+        dirty[r] = nil
+    end
+
+    local function forgetAll(): nil
+        cache = {}
+        dirty = {}
+    end
+
+    -- The account as it stands, copied, for paths that branch and rejoin:
+    -- each path is emitted from the same account and the join starts afresh.
+    local function snapshot(): {any}
+        local c: {[integer]: string} = {}
+        local d: {[integer]: boolean} = {}
+        for r, v in pairs(cache) do
+            c[r] = v
+        end
+        for r in pairs(dirty) do
+            d[r] = true
+        end
+
+        return {c, d}
+    end
+
+    local function restore(saved: {any}): nil
+        local kept = snapshot()
+        cache = {}
+        dirty = {}
+        for r, v in pairs(saved[1] as {[integer]: string}) do
+            cache[r] = v
+        end
+        for r in pairs(saved[2] as {[integer]: boolean}) do
+            dirty[r] = true
+        end
+        local _ = kept
     end
 
     local function I(r: integer): string
@@ -759,7 +863,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local function setV(r: integer, value: string): nil
         need(r <= fn.nregs, "value register " .. tostring(r))
         condOf[r] = nil
-        effect("store notrap " .. value .. ", " .. slotText(0, r))
+        cache[r] = value
+        dirty[r] = true
     end
 
     local function setI(r: integer, value: string): nil
@@ -847,6 +952,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     -- Leaves at `pc`: the live typed registers written back, the pc answered.
     local function exitAt(pc: integer): nil
+        flush(true)
         storeSet(live.liveAt(pc))
         b.finish({k(tostring(pc))})
     end
@@ -943,6 +1049,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- A runtime helper at `pc`: the value registers it may collect are in the
     -- frame, and the frame is derived again after it.
     local function helper(pc: integer, symbol: string, args: {string}, result: boolean): string?
+        flush(false)
         publishPc(pc)
         local text = "call " .. helperRef(symbol) .. "(" .. table.concat(args, ", ") .. ")"
         local value: string? = nil
@@ -961,6 +1068,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- that did not end at the next instruction ends this activation with
     -- what the glue answered.
     local function step(pc: integer): nil
+        flush(false)
         storeSet(live.liveAt(pc))
         local answer = emit("call " .. helperRef("nupp_jit_step") .. "(" .. ctxValue .. ", " .. k(tostring(pc)) .. ")")
         local next = emit("icmp eq " .. answer .. ", " .. k(tostring(pc + 1)))
@@ -975,27 +1083,99 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         reloadFrame()
         condOf = {}
         loadSet(live.defs(pc))
+        for r in pairs(live.defs(pc)) do
+            if r < 256 then
+                forget(r)
+            end
+        end
+        -- A call the interpreter ran delivered its results from the window's
+        -- base, up to the eight registers a call reserves.
+        local ins = fn.code[pc + 1]
+        local resultBase: integer? = nil
+        if ins.name == "CallK" then
+            resultBase = num(ins, 3)
+        elseif ins.name == "CallDyn" or ins.name == "Call" or ins.name == "CallMethod" then
+            resultBase = num(ins, 2)
+        elseif ins.name == "PCall" then
+            resultBase = num(ins, 1)
+        end
+        if resultBase ~= nil then
+            for r = resultBase as integer, (resultBase as integer) + 7 do
+                forget(r)
+            end
+        end
     end
 
-    -- The block the instruction after `pc` begins, made a leader if it was
-    -- not one: where a fallback path rejoins the native code.
+    -- A step on a cold path that never returns to the main path's account:
+    -- what the main path holds is stored, the step runs from a fresh account,
+    -- and the main path's account is as it was.
+    local function coldStep(pc: integer): nil
+        local saved = snapshot()
+        flush(true)
+        cache, dirty = {}, {}
+        step(pc)
+        restore(saved)
+    end
+
     local blockAt: {[integer]: ssa.Block} = {}
 
-    local function continuationAt(target: integer): ssa.Block
-        if not blockAt[target] then
-            blockAt[target] = newBlock()
-        end
+    -- The one fallback block of the instruction at `pc`: the interpreter runs
+    -- it, and the path rejoins the native code at a continuation block of
+    -- the instruction's own, whose parameters are the value registers the
+    -- instruction defines (and the branch condition behind a boolean one):
+    -- the fallback reads them back from the frame, the main path passes what
+    -- it computed, and every other cached value is the same SSA value on both
+    -- sides, so nothing else becomes a block parameter. Every guard of the
+    -- instruction branches to the same block.
+    local stepBlocks: {[integer]: ssa.Block} = {}
+    local continuations: {[integer]: any} = {}
 
-        return blockAt[target] as ssa.Block
+    local function valueDefs(pc: integer): {integer}
+        local out: {integer} = {}
+        for r in pairs(live.defs(pc)) do
+            if r < 256 then
+                out[#out + 1] = r
+            end
+        end
+        table.sort(out)
+
+        return out
     end
 
-    -- Branches on `cond`, continuing natively in a fresh block when it holds;
-    -- otherwise the interpreter runs the instruction (`step`) and the code
-    -- rejoins at the next one.
-    -- The one fallback block of the instruction at `pc`: the interpreter runs
-    -- it and the code rejoins at the next one. Every guard of the instruction
-    -- branches to the same block, which is sealed with the others at the end.
-    local stepBlocks: {[integer]: ssa.Block} = {}
+    local function continuationOf(pc: integer): any
+        local cont = continuations[pc]
+        if cont == nil then
+            local block = newBlock()
+            local defs = valueDefs(pc)
+            local params: {string} = {}
+            local conds: {string} = {}
+            for i, _ in ipairs(defs) do
+                params[i] = b.addParam(block, "i64")
+                conds[i] = b.addParam(block, "i8")
+            end
+            -- What the account held when the instruction's first fallback
+            -- branched off: values loaded or written on the main path after
+            -- that are not defined on the fallback path, so the join may not
+            -- keep them.
+            cont = {block = block, defs = defs, params = params, conds = conds, before = snapshot()}
+            continuations[pc] = cont
+        end
+
+        return cont
+    end
+
+    -- Joins the instruction's continuation from a cold path whose results
+    -- are in the frame.
+    local function rejoinFromFrame(pc: integer): nil
+        local cont = continuationOf(pc)
+        local args: {string} = {}
+        for _, r in ipairs(cont.defs as {integer}) do
+            local value = emit("load.i64 notrap " .. slotText(0, r))
+            args[#args + 1] = value
+            args[#args + 1] = truthy(value)
+        end
+        b.jump(cont.block as ssa.Block, args)
+    end
 
     local function stepBlockAt(pc: integer): ssa.Block
         local known = stepBlocks[pc]
@@ -1006,11 +1186,95 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         stepBlocks[pc] = block
         local outer = b.current
         b.current = block
-        step(pc)
-        b.jump(continuationAt(pc + 1), {})
+        -- What the main path holds is stored here; the step runs from a fresh
+        -- account and the main path's account is untouched.
+        coldStep(pc)
+        rejoinFromFrame(pc)
         b.current = outer
 
         return block
+    end
+
+    -- A cold path of the instruction's own that answers it through a runtime
+    -- helper rather than the interpreter: `body` runs from a fresh account
+    -- after the main path's values are stored, and answers the value of the
+    -- instruction's one defined register, or nil for an instruction that
+    -- defines none.
+    local fallbackBlocks: {ssa.Block} = {}
+
+    local function helperFallbackAt(pc: integer, body: function(): string?): ssa.Block
+        local block = newBlock()
+        fallbackBlocks[#fallbackBlocks + 1] = block
+        local outer = b.current
+        b.current = block
+        local saved = snapshot()
+        flush(true)
+        cache, dirty = {}, {}
+        local value = body()
+        local cont = continuationOf(pc)
+        local args: {string} = {}
+        if value ~= nil then
+            need(#(cont.defs as {integer}) == 1, "one result")
+            args[1] = value as string
+            args[2] = truthy(value as string)
+        else
+            need(#(cont.defs as {integer}) == 0, "no result")
+        end
+        b.jump(cont.block as ssa.Block, args)
+        restore(saved)
+        b.current = outer
+
+        return block
+    end
+
+    local function guardTo(cond: string, fallback: ssa.Block): nil
+        local ok = newBlock()
+        b.branch(cond, ok, fallback)
+        seal(ok)
+        b.current = ok
+    end
+
+    -- After an instruction with a fallback: the main path joins it.
+    local function rejoin(pc: integer): nil
+        local cont = continuations[pc]
+        if cont == nil then
+            return
+        end
+        local args: {string} = {}
+        local isDef: {[integer]: boolean} = {}
+        for _, r in ipairs(cont.defs as {integer}) do
+            local value = V(r)
+            args[#args + 1] = value
+            args[#args + 1] = condOf[r] or truthy(value)
+            isDef[r] = true
+        end
+        -- Values the main path took up after the fallback branched off are
+        -- stored if written and dropped: only what both paths share, and the
+        -- instruction's own results, cross the join.
+        local before = (cont.before as {any})[1] as {[integer]: string}
+        local stale: {integer} = {}
+        for r, value in pairs(cache) do
+            if not isDef[r] and before[r] ~= value then
+                stale[#stale + 1] = r
+            end
+        end
+        table.sort(stale)
+        for _, r in ipairs(stale) do
+            if dirty[r] then
+                effect("store notrap " .. (cache[r] as string) .. ", " .. slotText(0, r))
+            end
+            cache[r] = nil
+            dirty[r] = nil
+        end
+        b.jump(cont.block as ssa.Block, args)
+        b.current = cont.block as ssa.Block
+        seal(cont.block as ssa.Block)
+        condOf = {}
+        for i, r in ipairs(cont.defs as {integer}) do
+            cache[r] = (cont.params as {string})[i]
+            dirty[r] = true
+            condOf[r] = (cont.conds as {string})[i]
+        end
     end
 
     local function guard(cond: string, pc: integer): nil
@@ -1036,6 +1300,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             seal(go)
             ctxStore("budget", emit("iadd " .. budget .. ", " .. k("-1")))
         end
+        flush(true)
         b.jump(need(blockAt[target], "jump target " .. tostring(target)) as ssa.Block, {})
     end
 
@@ -1050,6 +1315,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         end
         seal(yes)
         seal(no)
+        -- Both sides store what the block wrote, from the same values.
         b.current = yes
         jumpTo(pc, target)
         b.current = no
@@ -1137,9 +1403,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = distinct
         b.jump(join, {no})
         b.current = slow
+        local saved = snapshot()
         local answer = helper(pc, "nupp_rt_eq_slow", {ctxValue, x, y}, true) as string
         local equalSlow = emit("icmp ne " .. answer .. ", " .. k("0"))
         b.jump(join, {emit("select " .. equalSlow .. ", " .. yes .. ", " .. no)})
+        restore(saved)
         b.current = join
         seal(join)
         setV(d, boolWord(result))
@@ -1182,6 +1450,9 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(done)
         reloadFrame()
         condOf = {}
+        for r = base, base + 7 do
+            forget(r)
+        end
     end
 
     -- The call protocol of `calls.nupp` for a callee known by function id and
@@ -1235,6 +1506,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = push
         -- Everything live is in the frame before the callee runs: the
         -- collector roots it there, and a park unwinds through here.
+        flush(false)
         storeSet(live.liveAt(pc))
         ctxStore("budget", emit("iadd " .. budget .. ", " .. k("-1")))
         -- The caller resumes after the call.
@@ -1393,9 +1665,12 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     ): nil
         local slow = newBlock()
         local outer = b.current
+        local saved = snapshot()
         b.current = slow
         -- The interpreter performs the call; the callee frame, when one was
         -- pushed, runs under the glue until the caller is back on top.
+        flush(true)
+        cache, dirty = {}, {}
         storeSet(live.liveAt(pc))
         local cur = ctxLoad("cur")
         local stepped = emit("call " .. helperRef("nupp_jit_step") .. "(" .. ctxValue .. ", " .. k(tostring(pc)) .. ")")
@@ -1428,6 +1703,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         reloadFrame()
         condOf = {}
         b.jump(resume, {})
+        restore(saved)
         b.current = outer
         if known ~= nil then
             local same = emit("icmp eq " .. value .. ", " .. emit("bor " .. k(guest.TAG_FUNC) .. ", " .. known))
@@ -1439,6 +1715,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             b.current = knownBlock
             callFrame(pc, ins, known, k(guest.NIL), base, nargs, slow)
             b.jump(resume, {})
+            restore(saved)
             b.current = other
         end
         local object = newBlock()
@@ -1448,28 +1725,216 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(notObject)
         b.current = object
         local header = objectOf(value)
-        local closure = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("5"))
+        local kind = headerByte(header, "Header.kind")
+        local closure = emit("icmp eq " .. kind .. ", " .. k("5"))
         local closureBlock = newBlock()
-        b.branch(closure, closureBlock, slow)
+        local notClosure = newBlock()
+        b.branch(closure, closureBlock, notClosure)
         seal(closureBlock)
+        seal(notClosure)
         b.current = closureBlock
         callFrame(pc, ins, headerU32(header, "Header.aux"), value, base, nargs, slow)
         b.jump(resume, {})
+        restore(saved)
+        -- An iterator object steps in place through the handlers' helper,
+        -- its results delivered into the window.
+        b.current = notClosure
+        local iteratorBlock = newBlock()
+        b.branch(emit("icmp eq " .. kind .. ", " .. k("8")), iteratorBlock, slow)
+        seal(iteratorBlock)
+        b.current = iteratorBlock
+        local window = emit("iadd " .. ctxLoad("cur") .. ", " .. k(tostring(4 + base)))
+        helper(pc, "nupp_rt_call_iter", {ctxValue, value, window}, false)
+        b.jump(resume, {})
+        restore(saved)
         b.current = notObject
         local tag = emit("band " .. value .. ", " .. k(guest.TAG_MASK))
         local isFunction = emit("icmp eq " .. tag .. ", " .. k(guest.TAG_FUNC))
         local upper = emit("band " .. emit("ushr " .. value .. ", " .. k("32")) .. ", " .. k("65535"))
         local local_ = emit("band " .. isFunction .. ", " .. emit("icmp eq " .. upper .. ", " .. k("0")))
         local bare = newBlock()
-        b.branch(local_, bare, slow)
+        local notBare = newBlock()
+        b.branch(local_, bare, notBare)
         seal(bare)
+        seal(notBare)
         b.current = bare
         callFrame(pc, ins, emit("band " .. value .. ", " .. k("4294967295")), k(guest.NIL), base, nargs, slow)
         b.jump(resume, {})
+        restore(saved)
+        -- A builtin the slow-call table does not reserve for the interpreter
+        -- runs through the handlers' helper, from and into the window.
+        b.current = notBare
+        local isBuiltin = emit("band " .. isFunction .. ", " .. emit("icmp eq " .. upper .. ", " .. k("65535")))
+        local builtinBlock = newBlock()
+        b.branch(isBuiltin, builtinBlock, slow)
+        seal(builtinBlock)
+        b.current = builtinBlock
+        local id = emit("band " .. value .. ", " .. k("4294967295"))
+        local small = emit("icmp ult " .. id .. ", " .. k("1000"))
+        local inTable = emit("icmp ult " .. id .. ", " .. ctxLoad("nslow_calls"))
+        local checked = newBlock()
+        b.branch(emit("band " .. small .. ", " .. inTable), checked, slow)
+        seal(checked)
+        b.current = checked
+        local slowFlag = emit("uload8.i64 notrap " .. emit("iadd " .. ctxLoad("slow_calls") .. ", " .. id) .. "+0")
+        local plainBuiltin = newBlock()
+        b.branch(emit("icmp eq " .. slowFlag .. ", " .. k("0")), plainBuiltin, slow)
+        seal(plainBuiltin)
+        b.current = plainBuiltin
+        local builtinWindow = emit("iadd " .. ctxLoad("cur") .. ", " .. k(tostring(4 + base)))
+        helper(pc, "nupp_rt_call_builtin", {ctxValue, id, builtinWindow, k(tostring(nargs))}, false)
+        b.jump(resume, {})
+        restore(saved)
         seal(slow)
         b.current = resume
         seal(resume)
+        -- Every path stored what it held; the join starts from the frame.
         condOf = {}
+        forgetAll()
+    end
+
+    -- Field sites in code order, each with two words of inline cache in the
+    -- bank the glue allotted: the record shape seen (plus one, so an empty
+    -- cache matches nothing) and the slot the name has in it.
+    local siteOf: {[integer]: integer} = {}
+    do
+        local site: integer = 0
+        for _, ins in ipairs(fn.code) do
+            if ins.name == "GetField" or ins.name == "SetField" then
+                siteOf[ins.pc] = site
+                site = site + 1
+            end
+        end
+    end
+
+    local function cacheAddress(pc: integer): string?
+        if fn.caches == nil then
+            return nil
+        end
+
+        return emit("iadd " .. k(fn.caches as string) .. ", " .. k(tostring((siteOf[pc] as integer) * 16)))
+    end
+
+    -- A read by an interned name: the cached shape's slot, else the glue's
+    -- miss helper, which reads as the interpreter does and fills the cache.
+    local function fieldRead(pc: integer, ins: guest.Instruction): nil
+        local d, t = num(ins, 1), num(ins, 2)
+        local object = V(t)
+        local name = constantWord(num(ins, 3))
+        local address = cacheAddress(pc)
+        local join = newBlock()
+        local result = b.addParam(join, "i64")
+        local miss = newBlock()
+        if address ~= nil then
+            local cache = address as string
+            local record = newBlock()
+            b.branch(isObject(object), record, miss)
+            seal(record)
+            b.current = record
+            local header = objectOf(object)
+            local isRecord = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("3"))
+            local shape = emit("iadd " .. headerU32(header, "Header.aux") .. ", " .. k("1"))
+            local cached = emit("icmp eq " .. shape .. ", " .. emit("load.i64 notrap " .. cache .. "+0"))
+            local hit = newBlock()
+            b.branch(emit("band " .. isRecord .. ", " .. cached), hit, miss)
+            seal(hit)
+            b.current = hit
+            local slot = emit("load.i64 notrap " .. cache .. "+8")
+            local data = headerWord(header, "Header.aux_ptr")
+            local value = emit(
+                "load.i64 notrap " .. emit("iadd " .. data .. ", " .. emit("ishl " .. slot .. ", " .. k("3"))) .. "+0"
+            )
+            local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+            b.branch(present, join, miss)
+            -- The join takes the value from the hit edge.
+            local from = b.here()
+            for _, target in ipairs(from.term.targets) do
+                if target.block == join then
+                    target.args[1] = value
+                end
+            end
+        else
+            b.jump(miss, {})
+        end
+        seal(miss)
+        b.current = miss
+        local saved = snapshot()
+        local answer: string
+        if address ~= nil then
+            answer = helper(pc, "nupp_jit_field_miss", {ctxValue, object, name, address as string}, true) as string
+        else
+            answer = helper(pc, "nupp_rt_get_field", {ctxValue, object, name}, true) as string
+        end
+        b.jump(join, {answer})
+        restore(saved)
+        b.current = join
+        seal(join)
+        setV(d, result)
+    end
+
+    -- A store by an interned name: the cached shape's slot written in place
+    -- under the interpreter's own conditions, else the glue's store helper.
+    local function fieldWrite(pc: integer, ins: guest.Instruction): nil
+        local t, v = num(ins, 1), num(ins, 3)
+        local object = V(t)
+        local value = V(v)
+        local name = constantWord(num(ins, 2))
+        local address = cacheAddress(pc)
+        local done = newBlock()
+        local miss = newBlock()
+        if address ~= nil then
+            local cache = address as string
+            local record = newBlock()
+            b.branch(isObject(object), record, miss)
+            seal(record)
+            b.current = record
+            local header = objectOf(object)
+            local flags = headerByte(header, "Header.flags")
+            local isRecord = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("3"))
+            local plain = emit("icmp eq " .. emit("band " .. flags .. ", " .. k("160")) .. ", " .. k("0"))
+            local shape = emit("iadd " .. headerU32(header, "Header.aux") .. ", " .. k("1"))
+            local cached = emit("icmp eq " .. shape .. ", " .. emit("load.i64 notrap " .. cache .. "+0"))
+            local hit = newBlock()
+            b.branch(emit("band " .. emit("band " .. isRecord .. ", " .. plain) .. ", " .. cached), hit, miss)
+            seal(hit)
+            b.current = hit
+            local slot = emit("load.i64 notrap " .. cache .. "+8")
+            local data = headerWord(header, "Header.aux_ptr")
+            local at = emit("iadd " .. data .. ", " .. emit("ishl " .. slot .. ", " .. k("3")))
+            local current = emit("load.i64 notrap " .. at .. "+0")
+            local meta = emit("icmp ne " .. emit("band " .. flags .. ", " .. k("4")) .. ", " .. k("0"))
+            local blocked = emit("band " .. meta .. ", " .. emit("icmp eq " .. current .. ", " .. k(guest.NIL)))
+            local open = newBlock()
+            b.branch(blocked, miss, open)
+            seal(open)
+            b.current = open
+            local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+            local barrier = newBlock()
+            local store = newBlock()
+            b.branch(emit("icmp ne " .. marking .. ", " .. k("0")), barrier, store)
+            seal(barrier)
+            seal(store)
+            b.current = barrier
+            effect("call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. object .. ", " .. value .. ")")
+            b.jump(store, {})
+            b.current = store
+            effect("store notrap " .. value .. ", " .. at .. "+0")
+            b.jump(done, {})
+        else
+            b.jump(miss, {})
+        end
+        seal(miss)
+        b.current = miss
+        local saved = snapshot()
+        if address ~= nil then
+            helper(pc, "nupp_jit_field_store", {ctxValue, object, name, value, address as string}, false)
+        else
+            step(pc)
+        end
+        b.jump(done, {})
+        restore(saved)
+        b.current = done
+        seal(done)
     end
 
     -- Feedback for the specializer, as the handlers report it.
@@ -1513,7 +1978,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(viaStep)
         seal(fast)
         b.current = viaStep
-        step(pc)
+        coldStep(pc)
         -- The step returned the frame to its caller: the driver decides.
         b.finish({k(guest.EXIT_REENTER)})
         b.current = fast
@@ -1790,49 +2255,140 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             seal(join)
             setV(num(ins, 1), result)
         elseif name == "GetIdxI" then
+            -- An integer index into the array part; anything else is the
+            -- index helper with the key boxed, as the handler's slow path.
             local x = V(num(ins, 2))
             local index = I(num(ins, 3))
-            guard(isObject(x), pc)
+            local miss = helperFallbackAt(pc, function(): string?
+                local boxed = emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. index))
+                return helper(pc, "nupp_rt_get_index", {ctxValue, x, boxed}, true)
+            end)
+            guardTo(isObject(x), miss)
             local object = objectOf(x)
-            guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+            guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
             local length = headerWord(object, "Header.aux_len")
             local positive = emit("icmp sge " .. index .. ", " .. k("1"))
             local within = emit("icmp ule " .. index .. ", " .. length)
             local exact = emit("icmp ule " .. index .. ", " .. k("9007199254740992"))
-            guard(emit("band " .. emit("band " .. positive .. ", " .. within) .. ", " .. exact), pc)
+            guardTo(emit("band " .. emit("band " .. positive .. ", " .. within) .. ", " .. exact), miss)
             local data = headerWord(object, "Header.aux_ptr")
             local at = emit("iadd " .. data .. ", " .. emit("ishl " .. index .. ", " .. k("3")))
             local value = emit("load.i64 notrap " .. at .. "-8")
             local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
             local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            guard(emit("bor " .. present .. ", " .. plain), pc)
+            guardTo(emit("bor " .. present .. ", " .. plain), miss)
             setV(num(ins, 1), value)
         elseif name == "GetIdxF" or name == "GetIdx" then
+            -- The array part for an integral key in range; the index helper
+            -- for any other key of an object (the hash part, records, strings
+            -- and the metamethods); the interpreter for a non-object.
             local x = V(num(ins, 2))
-            local d: string
+            local keyWord: string
+            local d: string = ""
             if name == "GetIdxF" then
                 d = F(num(ins, 3))
+                keyWord = boxFloat(d)
             else
-                local keyWord = V(num(ins, 3))
-                guard(isNumber(keyWord), pc)
+                keyWord = V(num(ins, 3))
+            end
+            local miss = helperFallbackAt(pc, function(): string?
+                return helper(pc, "nupp_rt_get_index", {ctxValue, x, keyWord}, true)
+            end)
+            guard(isObject(x), pc)
+            if name == "GetIdx" then
+                guardTo(isNumber(keyWord), miss)
                 d = unbox(keyWord)
             end
-            guard(isObject(x), pc)
             local object = objectOf(x)
-            guard(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+            guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
             local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
             local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
             local within = emit("fcmp le " .. d .. ", " .. length)
             local whole = emit("fcvt_to_uint_sat.i64 " .. d)
             local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
-            guard(emit("band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact), pc)
+            guardTo(emit("band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact), miss)
             local data = headerWord(object, "Header.aux_ptr")
             local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
             local value = emit("load.i64 notrap " .. at .. "-8")
             local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
             local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
-            guard(emit("bor " .. present .. ", " .. plain), pc)
+            guardTo(emit("bor " .. present .. ", " .. plain), miss)
             setV(num(ins, 1), value)
+        elseif name == "SetIdxF" or name == "SetIdx" or name == "SetIdxI" then
+            -- The handlers' array store: a numeric key into the array part of
+            -- a plain table, with the barrier while marking; the keyed store
+            -- helper otherwise, which normalizes the key and takes the
+            -- metamethods; the interpreter for a non-object.
+            local x = V(num(ins, 1))
+            local value = V(num(ins, 3))
+            local keyWord: string
+            local d: string = ""
+            if name == "SetIdxF" then
+                d = F(num(ins, 2))
+                keyWord = boxFloat(d)
+            elseif name == "SetIdxI" then
+                d = emit("fcvt_from_sint.f64 " .. I(num(ins, 2)))
+                keyWord = emit("bitcast.i64 " .. d)
+            else
+                keyWord = V(num(ins, 2))
+            end
+            local miss = helperFallbackAt(pc, function(): string?
+                helper(pc, "nupp_rt_store_keyed", {ctxValue, x, keyWord, value}, false)
+                return nil
+            end)
+            guard(isObject(x), pc)
+            if name == "SetIdx" then
+                guardTo(isNumber(keyWord), miss)
+                d = unbox(keyWord)
+            end
+            local object = objectOf(x)
+            local flags = headerByte(object, "Header.flags")
+            local plainTable = emit(
+                "band " .. emit(
+                    "icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")
+                ) .. ", " .. emit("icmp eq " .. emit("band " .. flags .. ", " .. k("224")) .. ", " .. k("0"))
+            )
+            guardTo(plainTable, miss)
+            local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
+            local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
+            local within = emit("fcmp le " .. d .. ", " .. length)
+            local whole = emit("fcvt_to_uint_sat.i64 " .. d)
+            local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
+            local keeps = emit(
+                "bor " .. emit(
+                    "icmp ne " .. value .. ", " .. k(guest.NIL)
+                ) .. ", " .. emit("fcmp lt " .. d .. ", " .. length)
+            )
+            guardTo(
+                emit(
+                    "band " .. emit(
+                        "band " .. emit("band " .. atLeastOne .. ", " .. within) .. ", " .. exact
+                    ) .. ", " .. keeps
+                ),
+                miss
+            )
+            local data = headerWord(object, "Header.aux_ptr")
+            local at = emit("iadd " .. data .. ", " .. emit("ishl " .. whole .. ", " .. k("3")))
+            local current = emit("load.i64 notrap " .. at .. "-8")
+            local present = emit("icmp ne " .. current .. ", " .. k(guest.NIL))
+            local plain = emit("icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL))
+            guardTo(emit("bor " .. present .. ", " .. plain), miss)
+            local marking = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+            local barrier = newBlock()
+            local store = newBlock()
+            b.branch(emit("icmp ne " .. marking .. ", " .. k("0")), barrier, store)
+            seal(barrier)
+            seal(store)
+            b.current = barrier
+            effect("call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. x .. ", " .. value .. ")")
+            b.jump(store, {})
+            b.current = store
+            effect("store notrap " .. value .. ", " .. at .. "-8")
+        elseif name == "GetField" then
+            observe(pc, V(num(ins, 2)), k("1"))
+            fieldRead(pc, ins)
+        elseif name == "SetField" then
+            fieldWrite(pc, ins)
         elseif name == "NewRecord" then
             local value = helper(pc, "nupp_rt_new_record", {ctxValue, k(ins.operands[2])}, true) as string
             setV(num(ins, 1), value)
@@ -1862,7 +2418,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 local slow = newBlock()
                 local outer = b.current
                 b.current = slow
-                step(pc)
+                coldStep(pc)
                 local resume = newBlock()
                 b.jump(resume, {})
                 b.current = outer
@@ -1872,10 +2428,31 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 b.current = resume
                 seal(resume)
                 condOf = {}
+                forgetAll()
             end
-        elseif name == "Ret" then
+        elseif name == "CallMethod" and fn.methodSites[pc] ~= nil and fn.epochAddress ~= nil and num(ins, 3) < 64 then
+            -- The plan's shape and method: a record of that shape, while the
+            -- descriptor epoch holds, calls the method the plan resolved; any
+            -- other receiver, or a changed epoch, is the interpreter's call.
+            local site = fn.methodSites[pc] as {string}
+            local base, nargs = num(ins, 2), num(ins, 3)
+            local receiver = V(base + 1)
+            local epoch = emit("load.i64 notrap " .. k(fn.epochAddress as string) .. "+0")
+            guard(emit("icmp eq " .. epoch .. ", " .. k(fn.epochValue as string)), pc)
+            guard(isObject(receiver), pc)
+            local header = objectOf(receiver)
+            local isRecord = emit("icmp eq " .. headerByte(header, "Header.kind") .. ", " .. k("3"))
+            local sameShape = emit("icmp eq " .. headerU32(header, "Header.aux") .. ", " .. k(site[1]))
+            guard(emit("band " .. isRecord .. ", " .. sameShape), pc)
+            callValue(pc, ins, k(site[2]), base, nargs, nil)
+        elseif name == "Ret" or name == "FRet" then
             local link, caller, _ = returnGuard(pc)
-            local value = V(num(ins, 1))
+            local value: string
+            if name == "FRet" then
+                value = boxFloat(F(num(ins, 1)))
+            else
+                value = V(num(ins, 1))
+            end
             local flags = emit("load.i64 notrap " .. frame() .. "+24")
             local indirect = emit(
                 "icmp ne " .. emit(
@@ -1990,13 +2567,18 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local block = blockAt[pc]
         if block then
             if b.current then
+                flush(false)
                 b.jump(block, {})
             end
             b.current = block
             condOf = {}
+            forgetAll()
         end
         if b.current then
             instruction(pc, ins)
+            if b.current then
+                rejoin(pc)
+            end
             if b.current and (opcodes.byName[ins.name] as opcodes.Opcode).flow == "stop" then
                 -- An instruction the interpreter ran that leaves the function
                 -- never answers the next pc; the path is dead, and ends here.
@@ -2006,6 +2588,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
     if blockAt[n] then
         if b.current then
+            flush(false)
             b.jump(blockAt[n] as ssa.Block, {})
         end
         b.current = blockAt[n]
@@ -2017,6 +2600,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
     for _, block in pairs(stepBlocks) do
         seal(block)
+    end
+    for _, block in ipairs(fallbackBlocks) do
+        seal(block)
+    end
+    for _, cont in pairs(continuations) do
+        if not (cont.block as ssa.Block).sealed then
+            seal(cont.block as ssa.Block)
+        end
     end
     table.insert(preamble, 1, "sig0 = (i64, i64, i64) -> i64")
 

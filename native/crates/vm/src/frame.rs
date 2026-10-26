@@ -148,6 +148,10 @@ impl Interp {
                         probe: if self.linked_frames.is_empty() { self.shape_probe.as_ptr() as i64 } else { 0 },
                         callee_info: self.jit.as_ref().map(|j| j.callee_info.clone()).unwrap_or_default(),
                         guest: self.guest_jit,
+                        #[cfg(all(feature = "aot", feature = "native-runtime"))]
+                        plan: if self.guest_jit { crate::jit_glue::plan_text(self, fid) } else { String::new() },
+                        #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
+                        plan: String::new(),
                     };
                     let worker = self.jit_worker.get_or_insert_with(|| Box::new(crate::jit::Worker::start()));
                     if worker.submit(job) { return 0; }
@@ -158,7 +162,8 @@ impl Interp {
                     // The Nupp emitter compiles the frame entry; a function
                     // it refuses stays interpreted.
                     if self.jit.is_none() { return 0; }
-                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid);
+                    let plan = crate::jit_glue::plan_text(self, fid);
+                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid, &plan);
                     if let Err(reason) = &result { if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: {} refused: {reason}", self.funcs[fid as usize].name); } }
                     self.frame_entries[fid as usize] = result.unwrap_or(u64::MAX);
                     return self.frame_entries[fid as usize];

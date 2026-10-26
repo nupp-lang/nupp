@@ -13,7 +13,7 @@
 //! on, every frame entry is a guest entry and the Rust lowering is not used.
 #![cfg_attr(not(feature = "native-runtime"), allow(dead_code, unused_imports))]
 use crate::interp::{Function, Interp, Outcome, Step};
-use crate::threaded::{Ctx, NO_GUARD, ST_DONE, ST_ERROR, ST_PARKED, ST_REENTER};
+use crate::threaded::{Ctx, ST_DONE, ST_ERROR, ST_PARKED, ST_REENTER};
 use crate::value::Value;
 use cranelift_codegen::ir::{ExternalName, UserExternalName};
 use cranelift_codegen::settings::{self, Configurable};
@@ -27,9 +27,6 @@ pub const EXIT_LEFT: u64 = u64::MAX;
 pub const EXIT_REENTER: u64 = u64::MAX - 1;
 pub const EXIT_RETURNED: u64 = u64::MAX - 2;
 const ERROR: u64 = Value::ERROR.0;
-/// Every return goes to Rust: an unwind is driving the task's cleanups
-/// (`dispatch.rs`'s own value).
-const GUARD_ALL: u64 = u64::MAX - 1;
 
 thread_local! {
     /// The context of the task the native core is running on this thread,
@@ -104,12 +101,15 @@ pub fn guest_mode() -> bool {
 }
 
 /// A function as the emitter reads it: the image's function dialect, every
-/// constant as its raw word.
-pub fn describe(f: &Function, fid: u32) -> String {
+/// constant as its raw word, and the address of the inline-cache bank its
+/// field sites write (`caches`), two words per `GetField` or `SetField` in
+/// code order; zero when there is none.
+pub fn describe(f: &Function, fid: u32, caches: u64) -> String {
     let mut text = String::new();
     let sig: String = f.sig.iter().map(|&c| c as char).collect();
     text.push_str(&format!("function {} {fid} {} {} {} {sig}:{}{}\n", f.name, f.nparams, f.nregs, f.nireg, f.ret as char, if f.vararg { " vararg" } else { "" }));
     text.push_str(&format!("  vectors {}\n", f.nvreg));
+    if caches != 0 { text.push_str(&format!("  caches {caches:#x}\n")); }
     for (i, c) in f.consts.iter().enumerate() {
         text.push_str(&format!("  const {i} word {:#x}\n", c.0));
     }
@@ -125,6 +125,44 @@ pub fn describe(f: &Function, fid: u32) -> String {
         text.push('\n');
     }
     text.push_str("end\n");
+    text
+}
+
+/// The field sites of a function: what an inline-cache bank holds a pair of
+/// words for.
+pub fn field_sites(f: &Function) -> usize {
+    f.code.iter().filter(|op| matches!(op, crate::interp::Op::GetField(..) | crate::interp::Op::SetField(..))).count()
+}
+
+/// What the specializer's feedback says a function's sites may assume, as
+/// lines the emitter reads after the function: `epoch ADDRESS VALUE` names
+/// the descriptor epoch (`Heap::proto_epoch`) and its value at planning;
+/// `site PC method SHAPE WORD` says the method site at `pc` saw records of
+/// one shape only, whose descriptor answers the method `WORD` (a closure or a
+/// bare function of this image) while the epoch holds. Empty without
+/// feedback (`JIT_FEEDBACK`/`JIT_SPECIALIZE`) or when nothing is monomorphic.
+pub fn plan_text(it: &Interp, fid: u32) -> String {
+    let Some(Some(feedback)) = it.spec.funcs.get(fid as usize) else { return String::new() };
+    let f = &it.funcs[fid as usize];
+    let mut text = String::new();
+    for (pc, op) in f.code.iter().enumerate() {
+        let crate::interp::Op::CallMethod(k, _, _) = *op else { continue };
+        let Some(&site) = feedback.site_of.get(pc) else { continue };
+        if site == crate::specialize::NO_SITE { continue }
+        let Some(key) = feedback.sites[site as usize].mono() else { continue };
+        if key & (0xf << 60) != crate::specialize::K_SHAPE { continue }
+        let shape = (key & 0xffff_ffff) as usize;
+        let name = f.consts[k as usize];
+        let Some(&method) = it.heap.shapes.get(shape).and_then(|s| s.methods.get(&name)) else { continue };
+        // A function of this image, as a closure or a bare value; builtins
+        // and the rest keep the generic path.
+        let ok = method.as_func().is_some_and(|id| (id as usize) < f.consts.len() || true) || it.kind_of(method) == Some(crate::heap::KIND_CLOSURE);
+        if !ok { continue }
+        text.push_str(&format!("  site {pc} method {shape} {:#x}\n", method.0));
+    }
+    if !text.is_empty() {
+        text.insert_str(0, &format!("  epoch {:#x} {}\n", &it.heap.proto_epoch as *const u64 as u64, it.heap.proto_epoch));
+    }
     text
 }
 
@@ -162,6 +200,9 @@ pub struct Emitter {
     /// The slowest emission and its function, for the compile-cost record.
     pub slowest_micros: u128,
     pub slowest: String,
+    /// The inline-cache banks of the functions compiled, kept for the life
+    /// of the code that embeds their addresses.
+    banks: Vec<Box<[u64]>>,
 }
 
 impl Emitter {
@@ -216,7 +257,7 @@ impl Emitter {
         for (name, address) in helper_table() { builder.symbol(name, address); }
         let module = JITModule::new(builder);
         let ctx = module.make_context();
-        Ok(Emitter { vm, compile, layouts, module, ctx, serial: 0, emit_micros: 0, parse_micros: 0, compile_micros: 0, compiled: 0, refused: 0, startup_micros: started.elapsed().as_micros(), slowest_micros: 0, slowest: String::new() })
+        Ok(Emitter { vm, compile, layouts, module, ctx, serial: 0, emit_micros: 0, parse_micros: 0, compile_micros: 0, compiled: 0, refused: 0, startup_micros: started.elapsed().as_micros(), slowest_micros: 0, slowest: String::new(), banks: Vec::new() })
     }
 
     /// The CLIF of a function, or the reason the emitter refused it.
@@ -290,10 +331,25 @@ impl Emitter {
         Ok(self.module.get_finalized_function(id) as u64)
     }
 
-    /// Describes, emits and compiles `f`: the entry address, or why not.
-    pub fn compile_function(&mut self, f: &Function, fid: u32) -> Result<u64, String> {
+    /// Describes, emits and compiles `f` under `plan` (what feedback lets its
+    /// sites assume): the entry address, or why not.
+    pub fn compile_function(&mut self, f: &Function, fid: u32, plan: &str) -> Result<u64, String> {
         let started = std::time::Instant::now();
-        let clif = self.emit(&describe(f, fid));
+        let sites = field_sites(f);
+        let caches = if sites == 0 { 0 } else {
+            let bank: Box<[u64]> = vec![0u64; sites * 2].into_boxed_slice();
+            let address = bank.as_ptr() as u64;
+            self.banks.push(bank);
+            address
+        };
+        let mut text = describe(f, fid, caches);
+        if !plan.is_empty() {
+            // The plan lines go before `end`.
+            text.truncate(text.len() - "end\n".len());
+            text.push_str(plan);
+            text.push_str("end\n");
+        }
+        let clif = self.emit(&text);
         let emitted = std::time::Instant::now();
         let took = (emitted - started).as_micros();
         self.emit_micros += took;
@@ -341,7 +397,7 @@ impl Drop for Isolation {
 /// Compiles `f` with this thread's emitter. `JIT_GUEST_ONLY=a,b` compiles
 /// those functions and nothing else, `JIT_GUEST_SKIP=a,b` everything but
 /// those: the bisection controls.
-pub fn compile_here(f: &Function, fid: u32) -> Result<u64, String> {
+pub fn compile_here(f: &Function, fid: u32, plan: &str) -> Result<u64, String> {
     if let Ok(only) = std::env::var("JIT_GUEST_ONLY") {
         if !only.split(',').any(|n| n == f.name) { return Err("not in JIT_GUEST_ONLY".into()); }
     }
@@ -351,62 +407,35 @@ pub fn compile_here(f: &Function, fid: u32) -> Result<u64, String> {
     EMITTER.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot.is_none() { *slot = Some(Emitter::new()?); }
-        slot.as_mut().unwrap().compile_function(f, fid)
+        slot.as_mut().unwrap().compile_function(f, fid, plan)
     })
 }
 
 // --- The helpers compiled code calls -----------------------------------------
 
 /// The task record brought up to date with the context before Rust touches
-/// it, and the context after: what `dispatch.rs` does around every helper,
-/// repeated here until its `charge` and `sync` are shared.
-fn budgeted(it: &Interp, tid: usize) -> bool { it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) }
-
-/// Charges what the core took since the last sync and tells the task record
-/// where the core left the frame.
+/// it (`threaded::charge`, then where the core left the frame), and the
+/// context after (`threaded::sync`).
+#[cfg(feature = "native-runtime")]
 fn charge(ctx: &mut Ctx, it: &mut Interp) {
+    crate::threaded::charge(ctx, it);
     let tid = ctx.tid as usize;
-    let used = ctx.budget_mark.saturating_sub(ctx.budget);
-    if used != 0 {
-        ctx.budget_mark = ctx.budget;
-        if let Some(n) = it.execution_limit.as_mut() { *n = n.saturating_sub(used as usize); }
-        if budgeted(it, tid) { if let Some(n) = it.instruction_budget.as_mut() { *n = n.saturating_sub(used as usize); } }
-    }
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.last_nres = ctx.last_nres as usize;
 }
 
+#[cfg(feature = "native-runtime")]
 fn enter(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     charge(ctx, it);
     (it, ctx.tid as usize)
 }
 
-fn leave(ctx: &mut Ctx, it: &mut Interp) {
-    let tid = ctx.tid as usize;
-    let mut limit = u64::MAX;
-    if let Some(n) = it.execution_limit { limit = limit.min(n as u64); }
-    if budgeted(it, tid) { if let Some(n) = it.instruction_budget { limit = limit.min(n as u64); } }
-    ctx.budget = limit;
-    ctx.budget_mark = limit;
-    let unwinding = budgeted(it, tid) && it.unwind_state(tid) != Value::NIL;
-    let t = &mut it.tasks[tid];
-    ctx.stack = t.stack.as_mut_ptr();
-    ctx.cap = t.stack.len() as u64;
-    ctx.cur = t.cur() as u64;
-    ctx.guard = if unwinding { GUARD_ALL } else {
-        match (t.cleanups.last().map(|c| c.frame as u64), t.protected.last().map(|p| p.frame as u64)) { (None, None) => NO_GUARD, (a, b) => a.unwrap_or(0).max(b.unwrap_or(0)) }
-    };
-    ctx.last_nres = it.last_nres as u64;
-    ctx.funcs = it.finfo.as_ptr();
-    ctx.nfuncs = it.finfo.len() as u64;
-    ctx.shapes = it.shape_info.as_ptr();
-    ctx.nshapes = it.shape_info.len() as u64;
-    ctx.frame_entries = it.frame_entries.as_ptr();
-    ctx.nframe_entries = it.frame_entries.len() as u64;
-}
+#[cfg(feature = "native-runtime")]
+fn leave(ctx: &mut Ctx, it: &mut Interp) { crate::threaded::sync(ctx, it); }
 
 /// The core's status words as the emitted code's exit words.
+#[cfg(feature = "native-runtime")]
 fn exit_word(ctx: &mut Ctx, status: u32) -> u64 {
     match status {
         ST_ERROR => { ctx.status = ST_ERROR; ERROR }
@@ -417,6 +446,7 @@ fn exit_word(ctx: &mut Ctx, status: u32) -> u64 {
     }
 }
 
+#[cfg(feature = "native-runtime")]
 /// Runs the interpreter on the task until the frame at `stop` is on top
 /// again: the callee a compiled caller pushed, or the frames an instruction
 /// it stepped left above it. `word` is what the callee's entry or the step
@@ -475,9 +505,46 @@ mod exported {
     pub unsafe extern "C" fn nupp_rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) { crate::threaded::rt_barrier(ctx, parent, child) }
     pub unsafe extern "C" fn nupp_rt_new_record(ctx: *mut Ctx, shape: u64) -> u64 { crate::threaded::rt_new_record(ctx, shape as u32) }
     pub unsafe extern "C" fn nupp_rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u64 { crate::threaded::rt_eq_slow(ctx, x, y) as u64 }
+    pub unsafe extern "C" fn nupp_rt_call_builtin(ctx: *mut Ctx, id: u64, base: u64, nargs: u64) { crate::threaded::rt_call_builtin(ctx, id as u32, base, nargs as u32) }
+    pub unsafe extern "C" fn nupp_rt_call_iter(ctx: *mut Ctx, iter: u64, base: u64) { crate::threaded::rt_call_iter(ctx, iter, base) }
     pub unsafe extern "C" fn nupp_rt_observe(ctx: *mut Ctx, fid: u64, pc: u64, value: u64, kind: u64) {
         crate::specialize::rt_observe(unsafe { (*ctx).interp }, fid as u32, pc as u32, value, kind as u32);
     }
+    /// A field read the site's inline cache did not answer: the read itself,
+    /// and the cache filled with the record's shape and the field's slot when
+    /// the shape has one (a shape is permanent, contracts 2.5, so the pair
+    /// stays right until the site sees another shape).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_jit_field_miss(ctx: *mut Ctx, obj: u64, name: u64, cache: *mut u64) -> u64 {
+        let value = crate::threaded::rt_get_field(ctx, obj, name);
+        fill_cache(unsafe { &*(*ctx).interp.cast::<Interp>() }, obj, name, cache);
+        value
+    }
+    /// A field store the site's inline cache did not take: the store itself,
+    /// under the interpreter's rules, and the cache filled as for a read.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_jit_field_store(ctx: *mut Ctx, obj: u64, name: u64, value: u64, cache: *mut u64) {
+        let context = unsafe { &mut *ctx };
+        let (it, _) = enter(context);
+        let r = it.guarded(|it| { it.store_field(Value(obj), Value(name), Value(value)); Value::NIL });
+        if r == Value::ERROR { context.status = ST_ERROR; }
+        fill_cache(it, obj, name, cache);
+        leave(context, it);
+    }
+}
+
+/// Fills a field site's cache with (shape + 1, slot) when `obj` is a record
+/// whose shape holds `name` as a slot; a shape number is offset by one so an
+/// empty cache (zero) matches nothing.
+#[cfg(feature = "native-runtime")]
+fn fill_cache(it: &Interp, obj: u64, name: u64, cache: *mut u64) {
+    if cache.is_null() { return; }
+    let Some(p) = Value(obj).as_obj() else { return };
+    let header = unsafe { &*p.as_ptr() };
+    if header.kind != crate::heap::KIND_RECORD { return; }
+    let shape = header.aux as usize;
+    let Some(slot) = it.heap.shapes.get(shape).and_then(|s| s.slot_of(Value(name))) else { return };
+    unsafe { *cache = shape as u64 + 1; *cache.add(1) = slot as u64; }
 }
 
 /// The symbols emitted code imports, by name.
@@ -485,6 +552,8 @@ mod exported {
 fn helper_table() -> Vec<(&'static str, *const u8)> {
     use exported::*;
     vec![
+        ("nupp_jit_field_miss", nupp_jit_field_miss as *const u8),
+        ("nupp_jit_field_store", nupp_jit_field_store as *const u8),
         ("nupp_jit_step", nupp_jit_step as *const u8),
         ("nupp_jit_call", nupp_jit_call as *const u8),
         ("nupp_jit_finish", nupp_jit_finish as *const u8),
@@ -492,6 +561,8 @@ fn helper_table() -> Vec<(&'static str, *const u8)> {
         ("nupp_rt_barrier", nupp_rt_barrier as *const u8),
         ("nupp_rt_new_record", nupp_rt_new_record as *const u8),
         ("nupp_rt_eq_slow", nupp_rt_eq_slow as *const u8),
+        ("nupp_rt_call_builtin", nupp_rt_call_builtin as *const u8),
+        ("nupp_rt_call_iter", nupp_rt_call_iter as *const u8),
         ("nupp_rt_observe", nupp_rt_observe as *const u8),
     ]
 }

@@ -200,7 +200,7 @@ fn budget_limit(it: &Interp, tid: usize) -> u64 {
 }
 
 /// Charges what the core took since `sync` to the budgets it was drawn from.
-fn charge(ctx: &mut Ctx, it: &mut Interp) {
+pub(crate) fn charge(ctx: &mut Ctx, it: &mut Interp) {
     let used = ctx.budget_mark.saturating_sub(ctx.budget);
     if used == 0 { return; }
     ctx.budget_mark = ctx.budget;
