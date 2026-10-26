@@ -6,6 +6,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const strings = require("nupp.runtime.vm.strings")
 
 local function getFieldSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
@@ -134,15 +135,8 @@ export function GetField(
     end
 end
 
-local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, negate: uint64): uint64
-    protocol.publishPc(pc, context)
-    local equal = helpers.eqSlow(context, left, right)
-    local answer = native.chooseWord((equal ~= 0) == (negate == 0), values.TRUE, values.FALSE)
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), answer, true)
-end
-
 -- Equality past the word compare: numbers by value, one object by identity,
--- two interned strings by identity, anything else by the helper.
+-- two interned strings by identity, two other objects by the string module.
 local function equality(
     pc: voidptr,
     regs: voidptr,
@@ -174,7 +168,7 @@ local function equality(
                 native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
-                return eqSlow(pc, context, x, y, negate)
+                return strings.equal(pc, regs, ints, floats, context, frame, x, y, negate)
             end
         else
             native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))

@@ -1,0 +1,133 @@
+module nupp.runtime.vm.strings
+
+--[[
+Strings (contracts 1.3): heap objects of kind string, or a slice of one, whose
+bytes the header's payload pointer and length name. Two interned strings are
+equal iff their words are, which the equality handler decides before it reaches
+here; everything else about two strings is their bytes, read in place. A new
+string is allocated through a helper until N05 and filled here.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+-- Ordering past the number compare of `Lt` and `Le`: two strings by their
+-- bytes, unsigned, a proper prefix the lesser. Anything else is the step's: a
+-- metamethod, or the error two incomparable values raise.
+export function order(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    x: uint64,
+    y: uint64,
+    orEqual: uint64
+): uint64
+    if native.both(x & values.TAG_MASK == values.TAG_OBJ, y & values.TAG_MASK == values.TAG_OBJ) then
+        local xh = native.pointer(x & values.PAYLOAD)
+        local yh = native.pointer(y & values.PAYLOAD)
+        local xk = native.load8(xh, native.layout("Header.kind"))
+        local yk = native.load8(yh, native.layout("Header.kind"))
+        if native.both(
+            native.either(xk == values.KIND_STRING, xk == values.KIND_SLICE),
+            native.either(yk == values.KIND_STRING, yk == values.KIND_SLICE)
+        ) then
+            local a = native.load8(pc, 1) * 8
+            local xn = native.load64(xh, native.layout("Header.aux_len"))
+            local yn = native.load64(yh, native.layout("Header.aux_len"))
+            local xp = native.loadPointer(xh, native.layout("Header.aux_ptr"))
+            local yp = native.loadPointer(yh, native.layout("Header.aux_ptr"))
+            local n = native.chooseWord(xn < yn, xn, yn)
+            -- Whole words first; a word that differs holds the deciding byte
+            -- within the next eight.
+            local i: uint64 = 0
+            local words = n & 0xfffffffffffffff8ULL
+            while i < words do
+                if native.load64(xp, native.index(i)) ~= native.load64(yp, native.index(i)) then
+                    break
+                end
+                i = i + 8
+            end
+            while i < n do
+                local xb = native.load8(xp, native.index(i))
+                local yb = native.load8(yp, native.index(i))
+                if xb ~= yb then
+                    native.store64(regs, a, native.chooseWord(xb < yb, values.TRUE, values.FALSE))
+                    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                end
+                i = i + 1
+            end
+            local less = native.either(xn < yn, native.both(orEqual ~= 0, xn == yn))
+            native.store64(regs, a, native.chooseWord(less, values.TRUE, values.FALSE))
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        end
+    end
+
+    return native.slow(pc, regs, ints, floats, context, frame)
+end
+
+local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, negate: uint64): uint64
+    protocol.publishPc(pc, context)
+    local equal = helpers.eqSlow(context, left, right)
+    local answer = native.chooseWord((equal ~= 0) == (negate == 0), values.TRUE, values.FALSE)
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), answer, true)
+end
+
+-- Equality of two objects of different words that are not both interned: two
+-- strings by length and bytes, since an interned string and a fresh one may
+-- still spell the same; anything else (boxed integers, `__eq`) by the helper.
+export function equal(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    x: uint64,
+    y: uint64,
+    negate: uint64
+): uint64
+    local xh = native.pointer(x & values.PAYLOAD)
+    local yh = native.pointer(y & values.PAYLOAD)
+    local xk = native.load8(xh, native.layout("Header.kind"))
+    local yk = native.load8(yh, native.layout("Header.kind"))
+    if native.both(
+        native.either(xk == values.KIND_STRING, xk == values.KIND_SLICE),
+        native.either(yk == values.KIND_STRING, yk == values.KIND_SLICE)
+    ) then
+        local n = native.load64(xh, native.layout("Header.aux_len"))
+        local same = n == native.load64(yh, native.layout("Header.aux_len"))
+        if same then
+            local xp = native.loadPointer(xh, native.layout("Header.aux_ptr"))
+            local yp = native.loadPointer(yh, native.layout("Header.aux_ptr"))
+            local i: uint64 = 0
+            local words = n & 0xfffffffffffffff8ULL
+            while i < words do
+                if native.load64(xp, native.index(i)) ~= native.load64(yp, native.index(i)) then
+                    same = false
+                    break
+                end
+                i = i + 8
+            end
+            while native.both(same, i < n) do
+                if native.load8(xp, native.index(i)) ~= native.load8(yp, native.index(i)) then
+                    same = false
+                    break
+                end
+                i = i + 1
+            end
+        end
+        native.store64(
+            regs,
+            native.load8(pc, 1) * 8,
+            native.chooseWord(same == (negate == 0), values.TRUE, values.FALSE)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return eqSlow(pc, context, x, y, negate)
+    end
+end

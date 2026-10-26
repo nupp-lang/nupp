@@ -9,6 +9,7 @@ module nupp.runtime.vm.core
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 const calls = require("nupp.runtime.vm.calls")
+const strings = require("nupp.runtime.vm.strings")
 
 export function Move(
     pc: voidptr,
@@ -745,7 +746,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return strings.order(pc, regs, ints, floats, context, frame, x, y, 0)
     end
 end
 
@@ -763,7 +764,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return strings.order(pc, regs, ints, floats, context, frame, x, y, 1)
     end
 end
 

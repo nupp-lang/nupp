@@ -59,3 +59,19 @@ export const HASH_MULTIPLIER = 0x9e3779b97f4a7c15ULL
 export const ST_REENTER = 0xffffffffULL
 
 export const ST_ERROR = 0xfffffffcULL
+
+--- The object kinds the string handlers read (`heap.rs`): a string, a byte
+--- buffer, a slice of a string, and a boxed integer.
+export const KIND_STRING = 1
+
+export const KIND_BYTES = 7
+
+export const KIND_SLICE = 9
+
+export const KIND_INTEGER = 12
+
+--- The header flag of an interned string (`F_INTERNED`).
+export const F_INTERNED = 1
+
+--- The longest string that is interned (contracts 1.3), in bytes.
+export const INTERN_LIMIT = 40

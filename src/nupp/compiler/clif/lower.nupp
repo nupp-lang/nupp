@@ -56,7 +56,8 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",
     "src/nupp/runtime/vm/lookup.nupp",
-    "src/nupp/runtime/vm/boxing.nupp"
+    "src/nupp/runtime/vm/boxing.nupp",
+    "src/nupp/runtime/vm/strings.nupp"
 }
 
 local INTRINSICS = lower.INTRINSICS
