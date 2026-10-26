@@ -1,0 +1,284 @@
+module nupp.runtime.vm.gcweak
+
+--[[
+The collector's side of weak tables and of what a dead object owns
+(contracts 4.10, 4.12).
+
+A table's weak mode is two bits of its header's `aux` (keys 1, values 2),
+which the object library keeps as its metatable's `__mode` says; the
+collector reads only the bits. A weak table is scanned as an ephemeron
+table: an entry survives when each of its weak sides is a string or a boxed
+integer, which are never cleared, or already marked; only then are both sides
+marked. Every weak table a cycle scanned is revisited when the gray stack
+drains, since a weak side marked later makes its entry survive, and once
+marking can do no more, the entries whose weak side is still white are
+cleared before the sweep frees what they named.
+
+A lookup structure that is not a root but answers references, the intern
+table first, is weak too, and a hit in it passes the read barrier: while
+marking a white hit is grayed, and while sweeping a white hit whitened by an
+earlier cycle is a miss, since the sweep has not reached it and will free
+it, where one the sweep already passed (this cycle's epoch) is a survivor.
+
+There are no finalizers: no guest code runs for a dead object. What the
+collector owes the runtime is the chance to let go of what an object owns
+outside its slot (a table's parts, a record's array part and overflow, an
+iterator's keys, a buffer's bytes, a userdata's host data) and to drop an
+interned string or a boxed integer from its lookup table. Such an object is
+retired by the sweep: counted dead, its kind `FREED` so nothing reaches it
+as live, its payload intact, and its slot withheld from reuse until the
+runtime takes it from the released list and recycles it.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+
+export const WEAK_KEYS: uint64 = 1
+export const WEAK_VALUES: uint64 = 2
+export const WEAK_MODES: uint64 = 3
+
+--- Grays a white object, answering whether it did.
+local function grayIfWhite(h: heap.Heap*, value: uint64): boolean
+    @unsafe do
+        if value & values.TAG_MASK ~= values.TAG_OBJ then
+            return false
+        end
+        local o = native.pointer(value & values.PAYLOAD) as heap.Header*
+        if o.color as uint64 ~= heap.COLOR_WHITE then
+            return false
+        end
+        o.color = heap.COLOR_GRAY
+        heap.grayPush(h, o)
+        return true
+    end
+end
+
+--- Whether a weak entry may drop `value`: an object other than a string, a
+--- slice or a boxed integer, which are never collected out of a weak table.
+local function clearable(value: uint64): boolean
+    @unsafe do
+        if value & values.TAG_MASK ~= values.TAG_OBJ then
+            return false
+        end
+        local kind = (native.pointer(value & values.PAYLOAD) as heap.Header*).kind as uint64
+        return kind ~= heap.KIND_STR and kind ~= heap.KIND_SLICE and kind ~= heap.KIND_INTEGER
+    end
+end
+
+--- Whether a weak side keeps its entry as marking stands.
+local function holds(value: uint64): boolean
+    @unsafe do
+        if not clearable(value) then
+            return true
+        end
+        return (native.pointer(value & values.PAYLOAD) as heap.Header*).color as uint64 ~= heap.COLOR_WHITE
+    end
+end
+
+local function isDead(value: uint64): boolean
+    return not holds(value)
+end
+
+--- Grays both sides of every entry that survives as marking stands; answers
+--- whether anything was grayed.
+local function markLiveEntries(h: heap.Heap*, o: heap.Header*, mode: uint64): boolean
+    @unsafe do
+        local weakKeys = mode & WEAK_KEYS ~= 0
+        local weakValues = mode & WEAK_VALUES ~= 0
+        local grayed: boolean = false
+        local i: uint64 = 0
+        while i < o.auxLen do
+            local item = native.load64(native.pointer(o.auxPtr), native.index(i * 8))
+            if not weakValues or holds(item) then
+                if grayIfWhite(h, item) then
+                    grayed = true
+                end
+            end
+            i = i + 1
+        end
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        if t.hashPtr ~= 0 then
+            i = 0
+            while i < t.hashCap do
+                local key = native.load64(native.pointer(t.hashPtr), native.index(i * 16))
+                local item = native.load64(native.pointer(t.hashPtr), native.index(i * 16 + 8))
+                if key ~= values.NIL and item ~= values.NIL then
+                    local survives: boolean = true
+                    if weakKeys and not holds(key) then
+                        survives = false
+                    end
+                    if weakValues and not holds(item) then
+                        survives = false
+                    end
+                    if survives then
+                        if grayIfWhite(h, key) then
+                            grayed = true
+                        end
+                        if grayIfWhite(h, item) then
+                            grayed = true
+                        end
+                    end
+                end
+                i = i + 1
+            end
+        end
+        return grayed
+    end
+end
+
+--- Scans a table under a weak mode: its metatable, and both sides of the
+--- entries that survive as marking stands; the table is remembered for
+--- `propagate` and `clear`.
+export function scanWeak(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        markLiveEntries(h, o, (o.aux as uint64) & WEAK_MODES)
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        grayIfWhite(h, t.meta)
+        heap.wordsPush(h.weak, native.address(o as voidptr))
+    end
+end
+
+--- Revisits every weak table this cycle scanned once the gray stack drains:
+--- an entry whose weak side was marked after its table was scanned now
+--- survives. Answers whether marking has more to do.
+export function propagate(h: heap.Heap*): boolean
+    @unsafe do
+        local grayed: boolean = false
+        local i: uint64 = 0
+        while i < h.weak.count do
+            local o = native.pointer(heap.wordAt(h.weak, i)) as heap.Header*
+            if o.kind as uint64 == heap.KIND_TABLE then
+                if markLiveEntries(h, o, (o.aux as uint64) & WEAK_MODES) then
+                    grayed = true
+                end
+            end
+            i = i + 1
+        end
+        return grayed
+    end
+end
+
+--- Once marking has ended: drops every weak entry whose weak side is still
+--- white, and the array part's trailing nils. White now means unreachable
+--- but for weak references; the sweep that follows frees those objects.
+export function clear(h: heap.Heap*): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < h.weak.count do
+            local o = native.pointer(heap.wordAt(h.weak, i)) as heap.Header*
+            if o.kind as uint64 == heap.KIND_TABLE then
+                local mode = (o.aux as uint64) & WEAK_MODES
+                local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+                if mode & WEAK_VALUES ~= 0 and o.auxLen > 0 then
+                    local k: uint64 = 0
+                    while k < o.auxLen do
+                        if isDead(native.load64(native.pointer(o.auxPtr), native.index(k * 8))) then
+                            native.store64(native.pointer(o.auxPtr), native.index(k * 8), values.NIL)
+                        end
+                        k = k + 1
+                    end
+                    local length = o.auxLen
+                    while length > 0
+                        and native.load64(native.pointer(o.auxPtr), native.index((length - 1) * 8)) == values.NIL do
+                        length = length - 1
+                    end
+                    o.auxLen = length
+                    t.arrayLen = length
+                end
+                if t.hashPtr ~= 0 then
+                    local k: uint64 = 0
+                    while k < t.hashCap do
+                        local key = native.load64(native.pointer(t.hashPtr), native.index(k * 16))
+                        local item = native.load64(native.pointer(t.hashPtr), native.index(k * 16 + 8))
+                        if key ~= values.NIL and item ~= values.NIL then
+                            local gone: boolean = false
+                            if mode & WEAK_KEYS ~= 0 and isDead(key) then
+                                gone = true
+                            end
+                            if mode & WEAK_VALUES ~= 0 and isDead(item) then
+                                gone = true
+                            end
+                            if gone then
+                                native.store64(native.pointer(t.hashPtr), native.index(k * 16 + 8), values.NIL)
+                            end
+                        end
+                        k = k + 1
+                    end
+                end
+            end
+            i = i + 1
+        end
+        h.weak.count = 0
+    end
+end
+
+--- The read barrier of a weak lookup structure (4.12): whether a hit on `o`
+--- stands. While marking a white hit is grayed and stands; while sweeping a
+--- white hit an earlier cycle whitened is a miss, never a resurrection.
+export function lookupHit(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        if o.color as uint64 ~= heap.COLOR_WHITE then
+            return true
+        end
+        if h.phase == heap.PHASE_MARKING then
+            o.color = heap.COLOR_GRAY
+            heap.grayPush(h, o)
+            h.stats.barrierGrays = h.stats.barrierGrays + 1
+            return true
+        end
+        if h.phase == heap.PHASE_SWEEPING and (o.epoch as uint64) < h.stats.cycles then
+            return false
+        end
+        return true
+    end
+end
+
+--- Whether a dead object owns something outside its slot or sits in a lookup
+--- table, so the runtime must see it before its slot is reused.
+local function owns(o: heap.Header*): boolean
+    @unsafe do
+        local kind = o.kind as uint64
+        local body = native.address(o as voidptr) + heap.HEADER_BYTES
+        if kind == heap.KIND_TABLE then
+            local t = native.pointer(body) as heap.TableBody*
+            return t.arrayPtr ~= 0 or t.hashPtr ~= 0
+        elseif kind == heap.KIND_RECORD then
+            local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
+            return tail.arrayPtr ~= 0 or tail.extra ~= 0
+        elseif kind == heap.KIND_ITER then
+            return o.auxPtr ~= 0
+        elseif kind == heap.KIND_BYTES or kind == heap.KIND_STORAGE then
+            return o.auxPtr ~= 0 and o.auxPtr ~= body
+        elseif kind == heap.KIND_USERDATA or kind == heap.KIND_INTEGER then
+            return true
+        end
+        return (o.flags as uint64) & heap.F_INTERNED ~= 0
+    end
+end
+
+--- A white object the sweep reached: reclaimed at once when it owns nothing
+--- outside its slot, else retired onto the released list for the runtime.
+export function release(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if owns(o) then
+            heap.retire(h, o)
+            heap.wordsPush(h.released, native.address(o as voidptr))
+        else
+            heap.reclaim(h, o)
+        end
+    end
+end
+
+--- The next object the runtime must let go of, or zero: its kind is in
+--- `aux` and its payload as it was. Hand it to `recycleReleased` when done.
+export function nextReleased(h: heap.Heap*): uint64
+    @unsafe do
+        return heap.wordsPop(h.released)
+    end
+end
+
+--- Gives a released object's slot back to the allocator.
+export function recycleReleased(h: heap.Heap*, address: uint64): nil
+    @unsafe heap.recycle(h, native.pointer(address) as heap.Header*)
+end

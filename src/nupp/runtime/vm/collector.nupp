@@ -29,6 +29,7 @@ record's overflow, an iterator's keys).
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
+const weak = require("nupp.runtime.vm.gcweak")
 
 --- A task's frame stack as the root walk reads it (5.1): the base of its
 --- words and the index of the top frame, or `NO_FRAME` once it is done.
@@ -233,11 +234,16 @@ export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): 
     end
 end
 
---- Scans a gray object: its children grayed, itself black.
+--- Scans a gray object: its children grayed, itself black. A table under a
+--- weak mode keeps only the entries that will survive (`gcweak`).
 local function scanObject(h: heap.Heap*, o: heap.Header*): nil
     @unsafe do
         h.stats.scanned = h.stats.scanned + 1
-        eachChild(h, o, nil)
+        if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0 then
+            weak.scanWeak(h, o)
+        else
+            eachChild(h, o, nil)
+        end
         o.color = heap.COLOR_BLACK
     end
 end
@@ -379,9 +385,10 @@ export function startCycle(h: heap.Heap*): nil
     end
 end
 
---- Frees a white object: its memory goes back to the allocator.
+--- Frees a white object: its memory goes back to the allocator, or, when
+--- it owns something outside its slot, onto the released list (`gcweak`).
 local function freeObject(h: heap.Heap*, o: heap.Header*): nil
-    @unsafe heap.reclaim(h, o)
+    @unsafe weak.release(h, o)
 end
 
 local function sweepOne(h: heap.Heap*, o: heap.Header*): nil
@@ -473,10 +480,11 @@ local function markSome(h: heap.Heap*, budget: uint64): uint64
                 return 0
             end
             walkRoots(h, false, nil)
-            if heap.grayEmpty(h) then
+            if heap.grayEmpty(h) and not weak.propagate(h) then
                 break
             end
         end
+        weak.clear(h)
         h.phase = heap.PHASE_SWEEPING
         h.marking = 0
         h.sweepChunk = 0

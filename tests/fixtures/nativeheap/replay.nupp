@@ -12,13 +12,15 @@ module replay
 --   there is no floating garbage (4.8). Never right.
 -- - `floating`: the same in an incremental cycle: floating garbage.
 --
--- The replay then frees what Rust freed, so the two heaps stay one heap. It
+-- The replay then frees what Rust freed, so the two heaps stay one heap, and
+-- lets go of what each dead object owned when the collector releases it. It
 -- writes its counts to standard output and answers the disagreements.
 const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
+const gcweak = require("nupp.runtime.vm.gcweak")
 const values = require("nupp.runtime.vm.values")
 
 -- The replay's state, in the arena it opens.
@@ -171,9 +173,8 @@ end
 
 -- What an object owns outside its slot, given back: a table's parts, a
 -- record's array part, an iterator's keys.
-local function releaseBuffers(r: Replay*, o: heap.Header*): nil
+local function releaseBuffers(r: Replay*, o: heap.Header*, kind: uint64): nil
     @unsafe do
-        local kind = o.kind as uint64
         local body = native.address(o as voidptr) + heap.HEADER_BYTES
         if kind == heap.KIND_TABLE then
             local t = native.pointer(body) as heap.TableBody*
@@ -329,7 +330,7 @@ local function setChildren(r: Replay*): nil
         local kind = o.kind as uint64
         local body = address + heap.HEADER_BYTES
         if kind == heap.KIND_TABLE then
-            releaseBuffers(r, o)
+            releaseBuffers(r, o, kind)
             local t = native.pointer(body) as heap.TableBody*
             local left = count
             t.meta = values.NIL
@@ -481,7 +482,6 @@ local function compareAndSweep(r: Replay*): nil
                             if nuppLive then
                                 r.kept = r.kept + 1
                             end
-                            releaseBuffers(r, o)
                             o.color = heap.COLOR_WHITE
                         elseif not nuppLive then
                             if r.atomic then
@@ -498,6 +498,17 @@ local function compareAndSweep(r: Replay*): nil
             c = c + 1
         end
         collector.sweepAll(h)
+        -- What the dead owned outside their slots, let go as the runtime would
+        -- before their slots are reused.
+        while true do
+            local address = gcweak.nextReleased(h)
+            if address == 0 then
+                break
+            end
+            local o = native.pointer(address) as heap.Header*
+            releaseBuffers(r, o, o.aux as uint64)
+            gcweak.recycleReleased(h, address)
+        end
     end
 end
 

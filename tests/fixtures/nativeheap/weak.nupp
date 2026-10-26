@@ -1,0 +1,386 @@
+module weak
+
+-- Weak tables, the read barrier of weak lookups and the released list
+-- (`nupp.runtime.vm.gcweak`). A table here is a table-kind object whose array
+-- and hash parts come from the arena, with its weak mode in the header's
+-- `aux` bits as the object library keeps it. Each function answers decimal
+-- digits, one per property, a 1 where the property holds.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const gcweak = require("nupp.runtime.vm.gcweak")
+const values = require("nupp.runtime.vm.values")
+
+local function item(h: heap.Heap*, slots: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CLOSURE, slots * 8)
+        o.auxLen = slots
+        local i: uint64 = 0
+        while i < slots do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8), values.NIL)
+            i = i + 1
+        end
+        collector.initialized(h, o)
+        return heap.objectValue(o)
+    end
+end
+
+local function text(h: heap.Heap*): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_STR, 16)
+        o.auxPtr = native.address(o as voidptr) + 40
+        o.auxLen = 7
+        return heap.objectValue(o)
+    end
+end
+
+local function words(a: arena.Arena*, count: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, count * 8 + 8, 8)
+        if raw == nil then
+            error("weak: the arena is full")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0
+        while i < count do
+            native.store64(native.pointer(base), native.index(i * 8), values.NIL)
+            i = i + 1
+        end
+        return base
+    end
+end
+
+-- A table of `arrayCount` array slots and `pairs` hash entries under `mode`.
+local function newTable(h: heap.Heap*, a: arena.Arena*, arrayCount: uint64, pairs: uint64, mode: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_TABLE, 80)
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        t.arrayPtr = 0
+        t.arrayLen = 0
+        t.arrayCap = 0
+        t.hashPtr = 0
+        t.hashMask = 0
+        t.hashCap = 0
+        t.hashLen = 0
+        t.hashOrder = 0
+        t.hashRank = 0
+        t.meta = values.NIL
+        o.auxPtr = 0
+        o.auxLen = 0
+        if arrayCount > 0 then
+            local array = words(a, arrayCount)
+            t.arrayPtr = array
+            t.arrayLen = arrayCount
+            t.arrayCap = arrayCount
+            o.auxPtr = array
+            o.auxLen = arrayCount
+        end
+        if pairs > 0 then
+            t.hashPtr = words(a, pairs * 2)
+            t.hashCap = pairs
+        end
+        o.aux = mode
+        collector.initialized(h, o)
+        return heap.objectValue(o)
+    end
+end
+
+local function body(table: uint64): heap.TableBody*
+    return native.pointer((table & values.PAYLOAD) + heap.HEADER_BYTES) as heap.TableBody*
+end
+
+-- A store into the array part; past its length it appends, so the length
+-- covers what is stored (a weak table's clearing trims trailing nils).
+local function putSlot(h: heap.Heap*, table: uint64, i: uint64, value: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(table)
+        collector.barrier(h, o, value)
+        native.store64(native.pointer(body(table).arrayPtr), native.index(i * 8), value)
+        if i >= o.auxLen then
+            o.auxLen = i + 1
+            body(table).arrayLen = i + 1
+        end
+    end
+end
+
+local function setEntry(h: heap.Heap*, table: uint64, i: uint64, key: uint64, value: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(table)
+        collector.barrier(h, o, key)
+        collector.barrier(h, o, value)
+        local hash = body(table).hashPtr
+        native.store64(native.pointer(hash), native.index(i * 16), key)
+        native.store64(native.pointer(hash), native.index(i * 16 + 8), value)
+    end
+end
+
+local function entryValue(table: uint64, i: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(body(table).hashPtr), native.index(i * 16 + 8))
+    end
+end
+
+local function slotOf(table: uint64, i: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(body(table).arrayPtr), native.index(i * 8))
+    end
+end
+
+local function alive(h: heap.Heap*, value: uint64): uint64
+    @unsafe do
+        if heap.isLiveSlot(h, value & values.PAYLOAD) then
+            return 1
+        end
+        return 0
+    end
+end
+
+local function bit(condition: boolean): uint64
+    if condition then
+        return 1
+    end
+    return 0
+end
+
+-- Takes every released object back, as the runtime would once it has let go
+-- of what each owned: answers how many there were.
+local function drain(h: heap.Heap*): uint64
+    local count: uint64 = 0
+    while true do
+        local address = gcweak.nextReleased(h)
+        if address == 0 then
+            break
+        end
+        gcweak.recycleReleased(h, address)
+        count = count + 1
+    end
+
+    return count
+end
+
+-- Weak values: the array keeps a rooted node and a string and loses an
+-- unrooted node, trimmed off its end; the hash part loses the entry naming an
+-- unrooted node and keeps the one naming the rooted node.
+local function weakValues(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = words(a, 2)
+            collector.register(h, roots, 2)
+            local t = newTable(h, a, 3, 2, gcweak.WEAK_VALUES)
+            native.store64(native.pointer(roots), 0, t)
+            local kept = item(h, 1)
+            native.store64(native.pointer(roots), 8, kept)
+            local lost = item(h, 1)
+            local named = item(h, 1)
+            putSlot(h, t, 0, kept)
+            putSlot(h, t, 1, text(h))
+            putSlot(h, t, 2, lost)
+            setEntry(h, t, 0, text(h), named)
+            setEntry(h, t, 1, text(h), kept)
+            collector.fullCycle(h)
+            drain(h)
+            local answer: uint64 = body(t).arrayLen * 10000 + heap.objectHeader(t).auxLen * 1000
+            answer = answer + bit(entryValue(t, 0) == values.NIL) * 100 + bit(entryValue(t, 1) == kept) * 10
+            answer = answer + bit(native.both(alive(h, lost) + alive(h, named) == 0, slotOf(t, 1) ~= values.NIL))
+            if collector.checkOracle(h, true) > 0 then
+                answer = 0ULL
+            end
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Weak keys, as ephemerons: an unrooted key loses its entry and its value;
+-- a rooted key keeps its value, which holds the key of an earlier entry,
+-- whose value survives once marking revisits the table.
+local function ephemerons(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = words(a, 2)
+            collector.register(h, roots, 2)
+            local t = newTable(h, a, 0, 3, gcweak.WEAK_KEYS)
+            native.store64(native.pointer(roots), 0, t)
+            local deadKey = item(h, 1)
+            local deadValue = item(h, 1)
+            local rootKey = item(h, 1)
+            native.store64(native.pointer(roots), 8, rootKey)
+            local holder = item(h, 1)
+            local laterKey = item(h, 1)
+            local laterValue = item(h, 1)
+            native.store64(native.pointer(heap.objectHeader(holder).auxPtr), 0, laterKey)
+            setEntry(h, t, 0, laterKey, laterValue)
+            setEntry(h, t, 1, rootKey, holder)
+            setEntry(h, t, 2, deadKey, deadValue)
+            collector.fullCycle(h)
+            drain(h)
+            local answer: uint64 = bit(entryValue(t, 0) == laterValue) * 1000 + bit(alive(h, laterValue) == 1) * 100
+            answer = answer + bit(entryValue(t, 2) == values.NIL) * 10
+            answer = answer + bit(alive(h, deadKey) + alive(h, deadValue) == 0)
+            if collector.checkOracle(h, true) > 0 then
+                answer = 0ULL
+            end
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Both sides weak: an entry goes when either side is a dead object; a
+-- string side never makes an entry go.
+local function weakBoth(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = words(a, 2)
+            collector.register(h, roots, 2)
+            local t = newTable(h, a, 0, 3, gcweak.WEAK_MODES)
+            native.store64(native.pointer(roots), 0, t)
+            local rooted = item(h, 1)
+            native.store64(native.pointer(roots), 8, rooted)
+            setEntry(h, t, 0, text(h), item(h, 1))
+            setEntry(h, t, 1, rooted, text(h))
+            setEntry(h, t, 2, item(h, 1), rooted)
+            collector.fullCycle(h)
+            drain(h)
+            local answer: uint64 = bit(entryValue(t, 0) == values.NIL) * 100 + bit(entryValue(t, 1) ~= values.NIL) * 10
+            answer = answer + bit(entryValue(t, 2) == values.NIL)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- The read barrier (4.12): a white hit while marking is grayed and survives
+-- its cycle; while sweeping, a white object from an earlier cycle is a miss,
+-- and one the sweep already passed and whitened is a hit.
+local function lookupBarrier(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            -- The survivor and ten fillers are rooted and first in the chunk.
+            local roots = words(a, 11)
+            collector.register(h, roots, 11)
+            local survivor = item(h, 1)
+            native.store64(native.pointer(roots), 0, survivor)
+            local found = item(h, 1)
+            local i: uint64 = 1
+            while i < 11 do
+                native.store64(native.pointer(roots), native.index(i * 8), item(h, 1))
+                i = i + 1
+            end
+            collector.startCycle(h)
+            local hit = gcweak.lookupHit(h, heap.objectHeader(found))
+            while h.phase ~= heap.PHASE_IDLE do
+                collector.step(h, 1000)
+            end
+            local foundKept = alive(h, found)
+            -- Allocated idle, after every other slot: white from this cycle.
+            local condemned = item(h, 1)
+            -- The next cycle, stopped after the sweep's first step, which
+            -- passes the survivor, the found object and two fillers.
+            collector.markAll(h)
+            collector.step(h, 1)
+            local miss = not gcweak.lookupHit(h, heap.objectHeader(condemned))
+            local passed = gcweak.lookupHit(h, heap.objectHeader(survivor))
+            local answer: uint64 = bit(native.both(hit, foundKept == 1)) * 100 + bit(miss) * 10 + bit(passed)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- The released list: a dead table with parts waits there with its payload
+-- and former kind until recycled, and its slot is reused only then; a dead
+-- table without parts is reclaimed at once.
+local function released(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local withParts = newTable(h, a, 4, 2, 0)
+            local bare = newTable(h, a, 0, 0, 0)
+            collector.fullCycle(h)
+            local first = gcweak.nextReleased(h)
+            local second = gcweak.nextReleased(h)
+            local o = native.pointer(first) as heap.Header*
+            local answer: uint64 = bit(native.both(first == (withParts & values.PAYLOAD), second == 0)) * 1000
+            answer = answer + bit(native.both(o.aux as uint64 == heap.KIND_TABLE, body(withParts).arrayPtr ~= 0)) * 100
+            -- The bare table's slot is free already; the next allocation of the
+            -- class takes it, and the released one only after it is recycled.
+            local next = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, 80))
+            answer = answer + bit(next == bare) * 10
+            gcweak.recycleReleased(h, first)
+            local again = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, 80))
+            answer = answer + bit(again == withParts)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Weak tables under interleaved collection with the oracle and tombstones:
+-- a weak-values table fills with nodes, every third also held by a list from
+-- a root. Answers the oracle's disagreements, a million times, plus the
+-- table's surviving array entries.
+local function interleavedWeak(count: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.interleave = true
+            h.oracle = true
+            h.quarantine = true
+            -- The table, the list's head, and the node being linked, which
+            -- the table alone holds only weakly across the next allocation.
+            local roots = words(a, 3)
+            collector.register(h, roots, 3)
+            local t = newTable(h, a, count, 0, gcweak.WEAK_VALUES)
+            heap.objectHeader(t).auxLen = 0
+            body(t).arrayLen = 0
+            native.store64(native.pointer(roots), 0, t)
+            local i: uint64 = 0
+            while i < count do
+                local n = item(h, 1)
+                putSlot(h, t, i, n)
+                if i % 3 == 0 then
+                    native.store64(native.pointer(roots), 16, n)
+                    local cell = item(h, 2)
+                    native.store64(
+                        native.pointer(heap.objectHeader(cell).auxPtr),
+                        0,
+                        native.load64(native.pointer(roots), 8)
+                    )
+                    native.store64(native.pointer(heap.objectHeader(cell).auxPtr), 8, n)
+                    -- Allocated black while marking: its initial references
+                    -- are scanned as a constructor's are (4.3a).
+                    collector.initialized(h, heap.objectHeader(cell))
+                    native.store64(native.pointer(roots), 8, cell)
+                    native.store64(native.pointer(roots), 16, values.NIL)
+                end
+                drain(h)
+                i = i + 1
+            end
+            h.interleave = false
+            collector.fullCycle(h)
+            drain(h)
+            local kept: uint64 = 0
+            i = 0
+            while i < body(t).arrayLen do
+                if slotOf(t, i) ~= values.NIL then
+                    kept = kept + 1
+                end
+                i = i + 1
+            end
+            local answer: uint64 = h.oracleFailures * 1000000 + kept
+            heap.destroy(h)
+            return answer
+        end
+    end
+end

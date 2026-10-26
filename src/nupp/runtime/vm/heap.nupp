@@ -881,19 +881,27 @@ export function accountResize(h: Heap*, before: uint64, after: uint64): nil
     end
 end
 
---- Returns a dead object's memory: to its class's free list, or its mapping
---- to the system, or, under stress and quarantine, keeps it as a tombstone
---- that is never reused. The header keeps its former kind in `aux`.
-export function reclaim(h: Heap*, o: Header*): nil
+--- Counts a dead object out: live bytes and objects go down, its kind
+--- becomes `FREED` with the former kind in `aux`, so nothing reaches it as
+--- live, and its payload stays as it was until `recycle`.
+export function retire(h: Heap*, o: Header*): nil
     @unsafe do
-        local address = native.address(o as voidptr)
         h.liveBytes = h.liveBytes - (o.size as uint64)
         h.liveCount = h.liveCount - 1
         h.stats.freed = h.stats.freed + 1
         o.aux = o.kind
         o.kind = KIND_FREED
-        o.auxLen = 0
         o.color = COLOR_WHITE
+    end
+end
+
+--- Returns a retired object's memory: to its class's free list, or its
+--- mapping to the system, or, under stress and quarantine, keeps it as a
+--- tombstone that is never reused.
+export function recycle(h: Heap*, o: Header*): nil
+    @unsafe do
+        local address = native.address(o as voidptr)
+        o.auxLen = 0
         if h.stress or h.quarantine then
             o.flags = F_TOMBSTONE
             o.auxPtr = 0
@@ -912,6 +920,12 @@ export function reclaim(h: Heap*, o: Header*): nil
         o.auxPtr = c.free
         c.free = address
     end
+end
+
+--- Retires a dead object and returns its memory at once.
+export function reclaim(h: Heap*, o: Header*): nil
+    retire(h, o)
+    recycle(h, o)
 end
 
 --- Whether `address` is the header of a live object: a slot boundary of a

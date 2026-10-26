@@ -5,7 +5,13 @@
 -- under `tests/fixtures/nativeheap/` build synthetic heaps and answer counts
 -- this suite computes independently.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local ROOT = HERE .. "/.."
+-- Absolute, since the cold check runs from the project it checks.
+local ROOT = (function()
+    local pipe = assert(io.popen("cd '" .. HERE:gsub("'", "'\\''") .. "/..' && pwd"))
+    local path = assert(pipe:read("*l"))
+    pipe:close()
+    return path
+end)()
 local FIXTURES = ROOT .. "/tests/fixtures/nativeheap"
 
 local lower = require("nupp.compiler.clif.lower")
@@ -169,13 +175,13 @@ local GRAPHS = {
 }
 
 function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
-    check(compileFixture("graphs", {"heap", "collector", "arena", "values"}), GRAPHS)
+    check(compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"}), GRAPHS)
 end
 
 -- Pacing alone runs the cycles: a million allocations of 48 bytes keep a
 -- bounded ring live, and live bytes stay near the threshold's floor.
 function M.allocationDebtPacesTheCycles()
-    local clif = compileFixture("graphs", {"heap", "collector", "arena", "values"})
+    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"})
     local answer = tonumber(run(clif, "paced", {1000000, 100}))
     assert(answer and answer > 0, "paced answered " .. tostring(answer))
     assert(answer % 1000 == 65, "the ring and its 64 nodes survive, got " .. answer)
@@ -184,7 +190,7 @@ end
 
 -- Smoke numbers, read from the report rather than asserted.
 function M.allocationAndCollectionThroughputRun()
-    local clif = compileFixture("graphs", {"heap", "collector", "arena", "values"})
+    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"})
     for _, case in ipairs({{"allocNanos", {1000000, 1}}, {"collectNanos", {500000}}}) do
         local nanos = tonumber(run(clif, case[1], case[2]))
         assert(nanos and nanos > 0, case[1] .. " answered no time")
@@ -221,16 +227,22 @@ local function workloadProject()
     return dir
 end
 
--- The one trace a recording wrote into `dir`.
-local function onlyTrace(dir)
+-- The traces a recording wrote into `dir`, one per thread that allocated.
+local function traces(dir)
     local pipe = assert(io.popen("ls " .. quote(dir)))
-    local names = {}
+    local paths = {}
     for line in pipe:lines() do
-        names[#names + 1] = line
+        paths[#paths + 1] = dir .. "/" .. line
     end
     pipe:close()
-    assert(#names == 1, "expected one trace in " .. dir .. ", found " .. #names)
-    return dir .. "/" .. names[1]
+    assert(#paths > 0, "no trace in " .. dir)
+    return paths
+end
+
+local function onlyTrace(dir)
+    local paths = traces(dir)
+    assert(#paths == 1, "expected one trace in " .. dir .. ", found " .. #paths)
+    return paths[1]
 end
 
 -- Runs a workload on the glue's runtime, which carries the recorder, and
@@ -249,7 +261,7 @@ end
 
 -- Replays a trace into the Nupp heap: its counts by label, and the answer.
 local function replay(trace)
-    local clif = compileFixture("replay", {"heap", "collector", "arena", "values"})
+    local clif = compileFixture("replay", {"heap", "collector", "gcweak", "arena", "values"})
     local output = run(clif, "replayTrace", {}, trace)
     local counts = {}
     for label, count in output:gmatch("(%a+) (%d+)\n") do
@@ -272,6 +284,39 @@ function M.recordedWorkloadsReplayWithTheSameSurvivors()
         assert(counts.snapshot >= 1 and counts.atomic >= 1, name .. " recorded no atomic snapshot:\n" .. output)
         assert(counts.compared > 0 and counts.allocs > 0, name .. " compared nothing:\n" .. output)
     end
+end
+
+-- A cold check of a small project (the workloads), the compiler running on
+-- the glue's runtime with the recorder on: its weak tables, interned strings
+-- and incremental cycles replay with the same survivors.
+function M.aRecordedColdCheckReplaysWithTheSameSurvivors()
+    local project = workloadProject()
+    local dir = tempDirectory()
+    local package = installedPackage()
+    local status, output = capture(("cd %s && NO_JIT=1 NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s NUPP_HEAP_TRACE=%s %s check"):format(
+        quote(project), quote(package .. "/compiler.image"), quote(glueTool()), quote(dir), quote(ROOT .. "/bin/nupp")))
+    assert(status == 0, "the check failed: " .. output)
+    local snapshots = 0
+    for _, trace in ipairs(traces(dir)) do
+        local counts, replayed = replay(trace)
+        assert(counts.answer == 0, "the check's trace disagrees:\n" .. replayed)
+        snapshots = snapshots + counts.snapshot
+    end
+    assert(snapshots >= 2, "the check collected too little to compare: " .. snapshots)
+end
+
+-- Weak tables, the lookup barrier and the released list.
+local WEAK = {
+    -- Array length and mirror 2, the dead entry cleared, the live one kept,
+    -- both unrooted nodes freed.
+    {"weakValues", {}, 22111}, {"ephemerons", {}, 1111}, {"weakBoth", {}, 111},
+    {"lookupBarrier", {}, 111}, {"released", {}, 1111},
+    -- Every third node of the weak table is also held by the list.
+    {"interleavedWeak", {3000}, 1000}, {"interleavedWeak", {301}, 101},
+}
+
+function M.weakTablesClearWhatOnlyTheyHold()
+    check(compileFixture("weak", {"heap", "collector", "gcweak", "arena", "values"}), WEAK)
 end
 
 return M
