@@ -439,6 +439,11 @@ local function compileFunction(fn: Fn, options: any): string
         return t == "f64" and "number" or (t == "i8" and "boolean" or "int64")
     end
 
+    -- The affine values `with` statements hold at this point, innermost last,
+    -- each with the function that releases it. A return runs them all; a
+    -- break or continue runs those opened inside the loop it leaves.
+    local cleanups = {}
+
     -- Callees and signatures are declared once per function in the preamble.
     -- `sig0` is the handler signature in handler mode, so numbering starts
     -- after it there.
@@ -771,7 +776,7 @@ local function compileFunction(fn: Fn, options: any): string
     -- A call into the helpers declaration: a C ABI call to the exported
     -- symbol, with the kinds the declared signature says.
     local function helperCall(n: any, prefix: string): any
-        need(handlers, "Rust helpers belong to handler modules")
+        need(handlers or prefix == "nupp_os_", "Rust helpers belong to handler modules")
         local member = n.obj.name.text
         local signature = raw(n.obj.inferredType)
         need(signature and signature.tag == "func", "helper " .. member .. " has no declared signature")
@@ -948,10 +953,24 @@ local function compileFunction(fn: Fn, options: any): string
         elseif n.kind == "call" then
             local target = resolveCallee(n, scope, modules)
             local exprs = n.args.exprs or {}
+            if n.ownershipIntrinsic == "borrowFrom" then
+                -- The borrow is the checker's fact; the pointer is the value.
+                return expression(need(exprs[1], "borrowFrom takes the pointer first"))
+            elseif not target
+                and n.obj.kind == "name"
+                and n.obj.token.text == "error"
+                and not b.typeOf(n.obj.token.definition or n.obj.token.text)
+            then
+                -- `error(...)` ends the function: a trap, since native code has
+                -- nothing to raise to. The message is not evaluated.
+                need(not handlers, "a handler leaves through native.fail()")
+                b.terminate("trap user2")
+                return {kind = "nil", value = ""}
+            end
             if not target then
                 -- A call through a function pointer: the callee is a value, and
                 -- the pointer's type says what it takes and answers.
-                need(not handlers, "a handler module calls its functions directly")
+                need(not handlers, "only direct calls to module functions in a handler module")
                 local pointer = expression(n.obj)
                 local fnType = need(
                     functionPointee(pointer.type),
@@ -1088,8 +1107,45 @@ local function compileFunction(fn: Fn, options: any): string
         writeVariable(variable, b.here(), materialize(e, kind))
     end
 
+    -- The function a cleanup names: a function of the module the affine type
+    -- was declared in, or, when the key names no module of the set, the one
+    -- function of that name any module exports.
+    local function cleanupFunction(cleanup: any): Fn
+        need(cleanup.kind == "function", "a with-scope cleanup is a module function")
+        local origin = cleanup.key and cleanup.key:match("^(.-)#") or nil
+        local home = origin and modules[origin] or nil
+        local found = home and (home.functions[cleanup.name] or home.exports[cleanup.name]) or nil
+        if not found then
+            found = scope.functions[cleanup.name]
+        end
+        if not found then
+            for _, other in pairs(modules) do
+                local export = other.exports[cleanup.name]
+                need(not (found and export), "cleanup " .. tostring(cleanup.name) .. " is exported by two modules")
+                found = found or export
+            end
+        end
+
+        return need(found, "cleanup " .. tostring(cleanup.name) .. " is not a function of the set") as Fn
+    end
+
+    -- Releases every `with` value held above `depth`, innermost first, in the
+    -- current block.
+    local function runCleanups(depth: number): nil
+        for index = #cleanups, depth + 1, -1 do
+            local held = cleanups[index]
+            local fn = cleanupFunction(held.cleanup)
+            need(#fn.paramKinds == 1, "a cleanup takes the value it releases")
+            local value = materialize(
+                {kind = held.kind, value = readVariable(held.variable, b.here())},
+                fn.paramKinds[1]
+            )
+            effect("call " .. callee(fn).ref .. "(" .. value .. ")")
+        end
+    end
+
     local function loopBody(bodyBlock: ssa.Block, exit: ssa.Block, continueTo: ssa.Block, stats: any): nil
-        loops[#loops + 1] = {exit = exit, continueTo = continueTo}
+        loops[#loops + 1] = {exit = exit, continueTo = continueTo, cleanupDepth = #cleanups}
         b.current = bodyBlock
         seal(bodyBlock)
         block(stats)
@@ -1173,10 +1229,14 @@ local function compileFunction(fn: Fn, options: any): string
                 need(b.current == nil, "helper " .. helper.name .. " may not fall through")
             elseif #stat.exprs == 0 then
                 need(resultKind == nil, "result required")
+                runCleanups(0)
                 b.finish({})
             else
                 need(#stat.exprs == 1 and resultKind ~= nil, "one result")
-                b.finish({materialize(expression(stat.exprs[1]), resultKind as string)})
+                -- The value is computed before what it may have read is released.
+                local value = materialize(expression(stat.exprs[1]), resultKind as string)
+                runCleanups(0)
+                b.finish({value})
             end
         elseif kind == "doStmt" then
             block(stat.body.stats)
@@ -1221,7 +1281,7 @@ local function compileFunction(fn: Fn, options: any): string
         elseif kind == "repeatStmt" then
             local bodyBlock, exit = newBlock(), newBlock()
             b.jump(bodyBlock, {})
-            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock}
+            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock, cleanupDepth = #cleanups}
             b.current = bodyBlock
             block(stat.body.stats)
             loops[#loops] = nil
@@ -1265,7 +1325,7 @@ local function compileFunction(fn: Fn, options: any): string
             b.current = bodyBlock
             seal(bodyBlock)
             writeVariable(var.definition or var.text, bodyBlock, readVariable(counter, bodyBlock))
-            loops[#loops + 1] = {exit = exit, continueTo = advance}
+            loops[#loops + 1] = {exit = exit, continueTo = advance, cleanupDepth = #cleanups}
             block(stat.body.stats)
             loops[#loops] = nil
             if b.current then
@@ -1289,10 +1349,32 @@ local function compileFunction(fn: Fn, options: any): string
             end
         elseif kind == "breakStmt" then
             local loop = need(loops[#loops], "break outside a loop")
+            runCleanups(loop.cleanupDepth)
             b.jump(loop.exit, {})
         elseif kind == "continueStmt" then
             local loop = need(loops[#loops], "continue outside a loop")
+            runCleanups(loop.cleanupDepth)
             b.jump(loop.continueTo, {})
+        elseif kind == "withStmt" then
+            -- Each acquisition is held for the body and released at every way
+            -- out of it, right to left.
+            local depth = #cleanups
+            for _, binding in ipairs(stat.bindings or {}) do
+                local acquired = expression(binding.expr)
+                local held = tag(binding.acquiredType)
+                local variable = declare(binding.name, held, binding.acquiredType)
+                writeVariable(variable, b.here(), materialize(acquired, held))
+                for index = #(binding.ownerCleanups or {}), 1, -1 do
+                    cleanups[#cleanups + 1] = {variable = variable, kind = held, cleanup = binding.ownerCleanups[index]}
+                end
+            end
+            block(stat.body.stats)
+            if b.current then
+                runCleanups(depth)
+            end
+            while #cleanups > depth do
+                cleanups[#cleanups] = nil
+            end
         else
             error("lower: unsupported statement " .. tostring(kind), 0)
         end
@@ -1445,6 +1527,12 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
                 local text = literalText(declared.exprs[1])
                 scope.constants[declared.names[1].definition or declared.names[1].text] = text
                 scope.exportedConstants[declared.names[1].text] = text
+            elseif node.kind == "exportStmt"
+                and node.stat ~= nil
+                and (node.stat.kind == "recordDecl" or node.stat.kind == "typeAlias")
+            then
+                -- An exported struct or type is the checker's business; nothing of
+                -- it is native code.
             elseif node.kind == "localFuncStmt" or node.kind == "exportStmt" then
                 local declared = node.kind == "exportStmt" and node.stat or node
                 local exported = node.kind == "exportStmt"
@@ -1467,7 +1555,7 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
             elseif node.kind == "localStmt" then
                 need(
                     #node.names == 1 and #node.exprs == 1 and node.isConst,
-                    "a module-level local is a `const` require"
+                    "a module-level local is a `const` require or a numeric constant"
                 )
                 local definition = node.names[1].definition
                 need(definition and definition.requiredModule, "module initialization is not native code")

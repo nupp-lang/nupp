@@ -1,0 +1,242 @@
+module nupp.runtime.vm.arena
+
+--[[
+Scoped bump arenas and freelist pools over mapped pages, for the runtime's own
+data: stacks, tables, gray stacks, parser arenas. Nothing here is collected or
+comes from a general allocator; an arena is pages the glue maps, handed out by
+bumping a cursor and given back all at once when the arena closes.
+
+An arena is opened for the extent of a `with`: `with a = arena.open(bytes) do`
+and what the body allocates from it borrows it, so the checker refuses a
+pointer that would outlive the arena. A fixed arena is one mapping and answers
+nil once it is full; a growable one maps another chunk of the same size and
+chains it, which is what a stack of unknown depth wants. Following Goose, a
+function opens at most one growable arena, which the `one-growable-arena`
+lint reports.
+
+A pool hands out slots of one size from an arena and takes them back onto a
+free list, so a structure of fixed-size nodes reuses its own memory within the
+arena's extent.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+
+--- One mapping of an arena. The header sits at the start of the mapping and
+--- the bytes after it are what the arena hands out.
+export struct Chunk
+    --- The chunk mapped before this one, unmapped after it when the arena
+    --- closes.
+    previous: Chunk*?
+
+    --- The size of the mapping, header included.
+    bytes: uint64
+end
+
+--- A bump arena. The header lives at the start of the first chunk, so an
+--- arena is one mapping until it grows.
+export struct Arena
+    --- The chunk allocations come from.
+    chunk: Chunk*
+
+    --- The next free byte of that chunk, as an address.
+    cursor: uint64
+
+    --- One past the last byte of that chunk, as an address.
+    limit: uint64
+
+    --- What each chunk is mapped at, header included.
+    chunkBytes: uint64
+
+    --- Whether a full arena maps another chunk or answers nil.
+    growable: boolean
+end
+
+--- A slot on a pool's free list: its first word links the next free slot.
+export struct Slot
+    next: Slot*?
+end
+
+--- A freelist pool of slots of one size over an arena.
+export struct Pool
+    arena: Arena*
+    free: Slot*?
+    slotBytes: uint64
+
+    --- Slots handed out and not yet given back.
+    live: int64
+end
+
+const HEADER: uint64 = 64
+
+local function roundUp(value: uint64, alignment: uint64): uint64
+    return (value + alignment - 1) & ~(alignment - 1)
+end
+
+--- Closes an arena, unmapping every chunk it mapped.
+export function close(takes a: Arena*): nil
+    local chunk: Chunk*? = a.chunk
+    while chunk ~= nil do
+        @unsafe local previous = chunk.previous
+        @unsafe os.unmapPages(chunk as voidptr, chunk.bytes)
+        chunk = previous
+    end
+end
+
+local function openWith(bytes: uint64, growable: boolean): affine(Arena*, close)
+    local mapped = roundUp(bytes + HEADER, os.pageSize())
+    local base = os.mapPages(mapped)
+    if base == nil then
+        error("arena: the system refused the mapping")
+    end
+    local chunk = base as Chunk*
+    local a = native.offset(base, 32) as Arena*
+    @unsafe do
+        chunk.previous = nil
+        chunk.bytes = mapped
+        a.chunk = chunk
+        a.cursor = native.address(base) + HEADER
+        a.limit = native.address(base) + mapped
+        a.chunkBytes = mapped
+        a.growable = growable
+    end
+
+    return a
+end
+
+--- Opens an arena of at least `bytes` in one mapping; `alloc` answers nil
+--- once it is full.
+export function open(bytes: uint64): affine(Arena*, close)
+    return openWith(bytes, false)
+end
+
+--- Opens an arena that maps another chunk of `bytes` whenever it is full.
+--- A function opens at most one of these.
+export function openGrowable(bytes: uint64): affine(Arena*, close)
+    return openWith(bytes, true)
+end
+
+--- Maps another chunk for a growable arena and makes it current.
+local function grow(a: Arena*): boolean
+    local base = os.mapPages(a.chunkBytes)
+    if base == nil then
+        return false
+    end
+    local chunk = base as Chunk*
+    @unsafe do
+        chunk.previous = a.chunk
+        chunk.bytes = a.chunkBytes
+        a.chunk = chunk
+        a.cursor = native.address(base) + 16
+        a.limit = native.address(base) + a.chunkBytes
+    end
+
+    return true
+end
+
+--- Allocates `bytes` aligned to `alignment` (a power of two) from the arena,
+--- zeroed since the pages were, or nil when a fixed arena is full or the
+--- system refuses a growable one another chunk. The answer borrows the
+--- arena, so it cannot outlive it.
+export function alloc(borrows a: Arena*, bytes: uint64, alignment: uint64): voidptr? borrows (a)
+    local start = roundUp(a.cursor, alignment)
+    if start + bytes > a.limit then
+        if not a.growable or bytes + 16 > a.chunkBytes then
+            return @unsafe borrowFrom(nil as voidptr?, a)
+        end
+        if not grow(a) then
+            return @unsafe borrowFrom(nil as voidptr?, a)
+        end
+        start = roundUp(a.cursor, alignment)
+    end
+    @unsafe a.cursor = start + bytes
+
+    return @unsafe borrowFrom(native.pointer(start) as voidptr?, a)
+end
+
+--- The bytes the header of a chunk takes: the arena's own header in the
+--- first chunk, a chunk header in the rest.
+local function headerOf(chunk: Chunk*): uint64
+    if chunk.previous == nil then
+        return HEADER
+    end
+
+    return 16
+end
+
+--- The bytes handed out of the current chunk, which is what `reset` gives
+--- back; the earlier chunks of a growable arena stay mapped.
+export function used(a: Arena*): uint64
+    return a.cursor - (native.address(a.chunk as voidptr) + headerOf(a.chunk))
+end
+
+--- Forgets every allocation of the current chunk. It takes the arena
+--- exclusively: nothing allocated from it may still be live, which is the
+--- rule the checker enforces at the call.
+export function reset(exclusive a: Arena*): nil
+    local chunk = a.chunk
+    local start = native.address(chunk as voidptr) + headerOf(chunk)
+    local page = roundUp(start, os.pageSize())
+    if page < a.limit then
+        os.advisePages(native.pointer(page), a.limit - page, 0)
+    end
+    @unsafe a.cursor = start
+end
+
+--- A pool of `slotBytes`-byte slots over the arena, itself allocated from it.
+--- A slot is at least a word, so a free one can link the next.
+export function pool(borrows a: Arena*, slotBytes: uint64): Pool*? borrows (a)
+    local raw = alloc(a, 32, 8)
+    if raw == nil then
+        return @unsafe borrowFrom(nil as Pool*?, a)
+    end
+    local p = raw as Pool*
+    local slot: uint64 = slotBytes
+    if slot < 8 then
+        slot = 8
+    end
+    -- The pool lives in the arena it serves, so the pointer it keeps to the
+    -- arena is as long-lived as the pool itself: the one store of a borrow
+    -- the checker takes on the author's word.
+    @unsafe do
+        p.arena = a
+        p.free = nil
+        p.slotBytes = roundUp(slot, 8)
+        p.live = 0
+    end
+
+    return p
+end
+
+--- Takes a slot: the most recently given back, or a fresh one from the arena.
+--- A fresh slot is zeroed; a reused one holds what it held, less its first
+--- word.
+export function take(borrows p: Pool*): voidptr? borrows (p)
+    local slot = p.free
+    if slot ~= nil then
+        @unsafe do
+            p.free = slot.next
+            slot.next = nil
+            p.live = p.live + 1
+        end
+        return @unsafe borrowFrom(slot as voidptr?, p)
+    end
+    local fresh = alloc(p.arena, p.slotBytes, 8)
+    if fresh ~= nil then
+        @unsafe p.live = p.live + 1
+    end
+
+    return fresh
+end
+
+--- Gives a slot back to the pool it was taken from. The slot came out of this
+--- pool's arena, so linking it into the free list keeps nothing alive longer
+--- than the arena already does.
+export function give(p: Pool*, slot: voidptr): nil
+    local freed = slot as Slot*
+    @unsafe do
+        freed.next = p.free
+        p.free = freed
+        p.live = p.live - 1
+    end
+end

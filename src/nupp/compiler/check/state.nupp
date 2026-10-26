@@ -187,6 +187,11 @@ record state.Binding
     --- The binding a narrowed copy records ownership on.
     ownershipOrigin: state.Binding?
 
+    --- Set on a narrowing shadow that took its declaration's place in the
+    --- declaration's own scope, so the scope's exit releases the declaration's
+    --- loans through it.
+    releasesDeclaration: boolean?
+
     --- The lexical cleanup this binding schedules, when its owner is discharged by
     --- leaving scope.
     automaticOwner: any

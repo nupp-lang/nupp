@@ -1231,6 +1231,12 @@ function narrow.install(c: state.Checker): narrow.Ops
                     ),
                     entry
                 )
+                -- Standing where the declaration stood, the shadow is what the
+                -- scope's exit visits, so it releases the declaration's loans.
+                local prior = c.scope.vars[name]
+                if prior ~= nil and (prior.ownershipOrigin == nil or prior.releasesDeclaration == true) then
+                    shadow.releasesDeclaration = true
+                end
                 c.scope.vars[name] = shadow
                 if shadow.aliasNode or shadow.aliasPath then
                     local aliases = c.scope.aliases or {}

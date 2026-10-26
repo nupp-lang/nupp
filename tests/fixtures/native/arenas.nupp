@@ -1,0 +1,168 @@
+module arenas
+
+-- Scoped arenas over mapped pages: `with` opens one for an extent and closes
+-- it at every way out, what is allocated from it borrows it, a pool reuses
+-- slots of one size, and a growable arena maps another chunk when full.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+
+local struct Item
+    value: int64
+    next: Item*?
+end
+
+local struct List
+    head: Item*?
+end
+
+-- A list of `count` items in a fixed arena, summed before the arena closes.
+-- The list header lives in the arena too, so linking an item into it keeps
+-- nothing alive past the arena, which is the claim the unsafe stores make.
+local function listSum(count: int64): int64
+    with a = arena.open(65472) do
+        local header = arena.alloc(a, 8, 8)
+        if header == nil then
+            return -1
+        end
+        local list = header as List*
+        local i: int64 = 0
+        while i < count do
+            local raw = arena.alloc(a, 16, 8)
+            if raw == nil then
+                return -1
+            end
+            local item = raw as Item*
+            @unsafe do
+                item.value = i
+                item.next = list.head
+                list.head = item
+            end
+            i = i + 1
+        end
+        local total: int64 = 0
+        local node = list.head
+        while node ~= nil do
+            @unsafe do
+                total = total + node.value
+                node = node.next
+            end
+        end
+
+        return total
+    end
+end
+
+-- Bytes handed out, with the alignment padding between allocations.
+local function usedAfter(count: int64, bytes: uint64): uint64
+    with a = arena.open(65472) do
+        local i: int64 = 0
+        while i < count do
+            arena.alloc(a, bytes, 8)
+            i = i + 1
+        end
+
+        return arena.used(a)
+    end
+end
+
+-- A fixed arena of one mapping answers nil once it is full.
+local function fillFixed(bytes: uint64): int64
+    local handed: int64 = 0
+    with a = arena.open(65472) do
+        while arena.alloc(a, bytes, 8) ~= nil do
+            handed = handed + 1
+        end
+    end
+
+    return handed
+end
+
+-- A growable arena maps another chunk instead.
+local function fillGrowable(bytes: uint64, count: int64): int64
+    local handed: int64 = 0
+    with a = arena.openGrowable(65472) do
+        local i: int64 = 0
+        while i < count do
+            if arena.alloc(a, bytes, 8) ~= nil then
+                handed = handed + 1
+            end
+            i = i + 1
+        end
+    end
+
+    return handed
+end
+
+-- Resetting forgets the chunk's allocations: the next one lands where the
+-- first did.
+local function resetReuses(): boolean
+    with a = arena.open(65472) do
+        local where: uint64 = 0
+        do
+            local first = arena.alloc(a, 100, 8)
+            if first ~= nil then
+                where = @unsafe native.address(first)
+            end
+            local second = arena.alloc(a, 100, 8)
+            if second == nil then
+                return false
+            end
+        end
+        local before = arena.used(a)
+        arena.reset(a)
+        local again = arena.alloc(a, 100, 8)
+        if again == nil then
+            return false
+        end
+
+        return before == 204 and arena.used(a) == 100 and @unsafe native.address(again) == where
+    end
+end
+
+-- A pool hands back the most recently given slot first.
+local function poolReuses(): boolean
+    with a = arena.open(65472) do
+        local p = arena.pool(a, 24)
+        if p == nil then
+            return false
+        end
+        local one = arena.take(p)
+        local two = arena.take(p)
+        local three = arena.take(p)
+        if one == nil or two == nil or three == nil then
+            return false
+        end
+        arena.give(p, two)
+        arena.give(p, three)
+        local fourth = arena.take(p)
+        local fifth = arena.take(p)
+        local sixth = arena.take(p)
+
+        return fourth == three and fifth == two and sixth ~= one and sixth ~= two and sixth ~= three and p.live == 4
+    end
+end
+
+-- Two arenas open at once close right to left; a break leaves the inner one.
+local function nested(count: int64): int64
+    local total: int64 = 0
+    with outer = arena.open(65472) do
+        local i: int64 = 0
+        while i < count do
+            with inner = arena.open(65472) do
+                local raw = arena.alloc(inner, 8, 8)
+                if raw == nil then
+                    break
+                end
+                @unsafe native.storeIndex(raw, 0, i)
+                total = total + @unsafe native.loadIndex(raw, 0)
+            end
+            local kept = arena.alloc(outer, 8, 8)
+            if kept ~= nil then
+                @unsafe native.storeIndex(kept, 0, total)
+            end
+            i = i + 1
+        end
+
+        return total + native.index(arena.used(outer))
+    end
+end

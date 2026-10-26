@@ -58,6 +58,7 @@ Every lint has a name and a stable code.
 | `private-export-type` | `NUPP2516` | suspicious | warning |
 | `exit-suffix-binding` | `NUPP2517` | suspicious | warning |
 | `prefer-comptime` | `NUPP2518` | performance | off |
+| `one-growable-arena` | `NUPP2519` | suspicious | warning |
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
@@ -563,6 +564,39 @@ Functions with parameters, methods, runtime captures, unsupported or nondetermin
 operations, table results, trivial literal bodies, and computations that do not become
 materially smaller are not reported. The lint is off until a project enables the
 performance category or the lint by name.
+
+### `one-growable-arena`
+
+A growable arena (`nupp.runtime.vm.arena.openGrowable`) maps another chunk
+whenever it is full, so its size is bounded by what the function allocates and
+not by what it asked for. One per function is a stack: it grows with the work
+and closes with the scope. Two growing side by side compete for pages with no
+bound on either, which is the shape that fragments a process. Open one growable
+arena and fixed ones (`arena.open`) for the rest, or move the second into the
+function that owns its extent.
+
+::: code-group
+```nupp [src/one-growable-arena.nupp]
+const arena = require("nupp.runtime.vm.arena")
+
+local function work(): uint64
+    with stack = arena.openGrowable(4096) do
+        with scratch = arena.openGrowable(4096) do
+            return arena.used(stack) + arena.used(scratch)
+        end
+    end
+end
+
+return work
+```
+
+```text [nupp check output]
+src/one-growable-arena.nupp:5:23: warning: NUPP2519 one-growable-arena: this function opens a second growable arena
+ 5 |         with scratch = arena.openGrowable(4096) do
+   |                        ^~~~~~~~~~~~~~~~~~
+help: open one growable arena per function and fixed arenas (arena.open) beside it
+```
+:::
 
 ## Categories
 

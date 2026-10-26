@@ -1,0 +1,22 @@
+-- The operating-system edges native code reaches by C ABI, implemented by
+-- the glue (`native/crates/vm/src/os_glue.rs`). A member `name` here is the
+-- exported symbol `nupp_os_<name in snake case>`; the lowering reads each
+-- signature from this declaration, so adding an edge is a line here and its
+-- export in the glue. Pages are the only edge so far: the runtime's arenas
+-- and heap are written in Nupp over them.
+local record Os
+    --- Maps `bytes` of zeroed, readable and writable memory at a page
+    --- boundary, or nil when the system refuses.
+    mapPages: function(bytes: uint64): voidptr?
+
+    --- Unmaps what `mapPages` mapped at `base` for `bytes`.
+    unmapPages: function(base: voidptr, bytes: uint64): nil
+
+    --- Advises the system about the pages at `base`: 0 says their contents are
+    --- no longer needed, 1 that they are about to be used.
+    advisePages: function(base: voidptr, bytes: uint64, advice: int64): nil
+
+    --- The system's page size in bytes.
+    pageSize: function(): uint64
+end
+return Os

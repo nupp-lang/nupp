@@ -1148,6 +1148,22 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local selectedExport = callee
             and (callee.exactCallExport or calleeDefinition and calleeDefinition.exactCallExport)
             or nil
+        if selectedExport
+            and selectedExport.module == "nupp.runtime.vm.arena"
+            and selectedExport.member == "openGrowable"
+        then
+            -- Goose's rule: one growable arena per stack, which here is one per
+            -- function. The second one opened in a body is reported.
+            local body: any = c.functionBodies[#c.functionBodies]
+            if body ~= nil then
+                body.growableArenas = (body.growableArenas or 0) + 1
+                if body.growableArenas == 2 then
+                    c.diag("one-growable-arena", callee, "this function opens a second growable arena", nil, {
+                        help = "open one growable arena per function and fixed arenas (arena.open) beside it"
+                    })
+                end
+            end
+        end
         if selectedExport and selectedExport.module == "nupp.spi" and selectedExport.member == "load" then
             local _, subject = concreteTypePath(argExprs[1])
             local declared = subject and rawType(subject) or nil

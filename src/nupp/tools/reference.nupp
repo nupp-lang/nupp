@@ -1098,6 +1098,85 @@ return m
     ),
 
     new reference.Section(
+        title = "Arenas over pages",
+        codes = {"NUPP2519", "NUPP2607", "NUPP2608", "NUPP2619"},
+        body = [=[
+`nupp.runtime.vm.os` declares the operating-system edges native code reaches by
+C ABI, pages first: `mapPages`, `unmapPages`, `advisePages` and `pageSize`, each
+the symbol `nupp_os_<name>` the glue exports. `nupp.runtime.vm.arena` is the
+allocator written over them: a bump arena is pages handed out by moving a
+cursor and given back all at once, and a pool hands out slots of one size from
+an arena and takes them back onto a free list. Nothing in either is collected or
+comes from a general allocator.
+
+An arena is opened for the extent of a `with`: `with a = arena.open(bytes) do`
+closes it at every way out of the body, and what `alloc` answers borrows the
+arena, so a pointer that would leave the `with` is `NUPP2619` or `NUPP2608`.
+`reset` takes the arena exclusively and is refused while anything allocated
+from it is live (`NUPP2607`), which is the discipline the checker already has
+for `borrows` and `exclusive`. Where the allocator itself links a borrowed slot
+back into the memory it came from, the store is written under `@unsafe` and the
+module answers for it.
+
+A fixed arena is one mapping and answers nil once full; a growable one maps
+another chunk of the same size and chains it. A function opens at most one
+growable arena, following Goose: the `one-growable-arena` lint reports a second.
+
+The runtime's modules are not part of the library a project sees, so a program
+outside the runtime checks against a declaration of the surface it uses, as the
+companion beside the example does.
+]=],
+        context = {
+            [
+                "nupp/runtime/vm/arena.d.nupp"
+            ] = [=[
+-- The surface of the runtime's arena module, declared for a project that
+-- checks against it without compiling the runtime.
+local struct Arena
+    cursor: uint64
+    limit: uint64
+end
+local close: function(takes a: Arena*): nil
+local open: function(bytes: uint64): affine(Arena*, close)
+local openGrowable: function(bytes: uint64): affine(Arena*, close)
+local alloc: function(borrows a: Arena*, bytes: uint64, alignment: uint64): voidptr? borrows (a)
+local reset: function(exclusive a: Arena*): nil
+local used: function(a: Arena*): uint64
+return {close = close, open = open, openGrowable = openGrowable, alloc = alloc, reset = reset, used = used}
+]=]
+        },
+        example = [=[
+const arena = require("nupp.runtime.vm.arena")
+
+local m = {}
+
+struct m.Item
+    value: int64
+end
+
+function m.total(count: int64): int64
+    with a = arena.open(4096) do
+        local total: int64 = 0
+        local i: int64 = 0
+        while i < count do
+            local raw = arena.alloc(a, 8, 8)
+            if raw == nil then
+                return total
+            end
+            local item = raw as m.Item*
+            @unsafe item.value = i
+            total = total + item.value
+            i = i + 1
+        end
+        return total
+    end
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[

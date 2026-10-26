@@ -58,6 +58,10 @@ local function tempProject(section)
     manifest:write('return {include = {"."}}\n')
     manifest:close()
     for name, source in pairs(section.context or {}) do
+        local companionParent = name:match("^(.*)/[^/]+$")
+        if companionParent then
+            assert(os.execute("mkdir -p '" .. dir .. "/" .. companionParent .. "'") == 0)
+        end
         local companion = assert(io.open(dir .. "/" .. name, "wb"))
         companion:write(source)
         companion:close()

@@ -2,6 +2,7 @@
 //! suites and for native code written standalone against the runtime's
 //! exports. The object writer and the handler contract are `native_glue`.
 use crate::native_glue::name_of;
+use crate::os_glue;
 use cranelift_codegen::ir::{
     AbiParam, ExternalName, InstBuilder, MemFlagsData, Signature, UserExternalName, types,
 };
@@ -12,13 +13,16 @@ use std::collections::HashMap;
 
 /// `nupp-vm native jit IN.clif FUNCTION [ARG...]`: compiles the file just in
 /// time and calls one of its functions, printing the result. `%name`
-/// references between the file's functions resolve to each other; nothing
-/// else is linked. An argument is `true`/`false`, an integer, a float, or
+/// references between the file's functions resolve to each other, and a
+/// `nupp_os_*` reference resolves to this process's operating-system edge
+/// (`os_glue`), so standalone native code can map pages; nothing else is
+/// linked. An argument is `true`/`false`, an integer, a float, or
 /// `buffer:N`, the address of N zeroed bytes that live for the call.
 pub fn jit(path: &str, entry: &str, given: &[String]) -> Result<(), String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     let functions = cranelift_reader::parse_functions(&text).map_err(|e| e.to_string())?;
-    let builder = JITBuilder::new(default_libcall_names()).map_err(|e| e.to_string())?;
+    let mut builder = JITBuilder::new(default_libcall_names()).map_err(|e| e.to_string())?;
+    builder.symbol_lookup_fn(Box::new(|name| os_glue::symbol(name)));
     let mut module = JITModule::new(builder);
     let conv = module.isa().default_call_conv();
     let mut ids = HashMap::new();
@@ -51,16 +55,26 @@ pub fn jit(path: &str, entry: &str, given: &[String]) -> Result<(), String> {
             .collect();
         for (reference, callee) in references {
             let callee = callee.trim_start_matches('%');
-            let id = *ids
-                .get(callee)
-                .ok_or_else(|| format!("{name} calls unknown {callee}"))?;
+            let (id, colocated) = match ids.get(callee) {
+                Some(id) => (*id, true),
+                None if os_glue::symbol(callee).is_some() => {
+                    let signature = function.dfg.ext_funcs[reference].signature;
+                    let mut imported = function.dfg.signatures[signature].clone();
+                    imported.call_conv = conv;
+                    let id = module
+                        .declare_function(callee, Linkage::Import, &imported)
+                        .map_err(|e| e.to_string())?;
+                    (id, false)
+                }
+                None => return Err(format!("{name} calls unknown {callee}")),
+            };
             let user = function.declare_imported_user_function(UserExternalName {
                 namespace: 0,
                 index: id.as_u32(),
             });
             let data = &mut function.dfg.ext_funcs[reference];
             data.name = ExternalName::user(user);
-            data.colocated = true;
+            data.colocated = colocated;
         }
         ctx.func = function;
         module

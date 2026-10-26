@@ -1369,11 +1369,18 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     and rawTarget ~= nil
                     and (rawTarget.tag == "carray" or rawTarget.tag == "nominal" and rawTarget.declKind == "struct")
                 if et and ownershipKind(et) and not partialReinit and not taskAggregateWrite and not aggregateCopy then
-                    c.diag(
-                        "NUPP2603",
-                        written or stat,
-                        (ownershipKind(et) as string) .. " value cannot be stored through a reference"
-                    )
+                    -- A borrowed pointer stored under `@unsafe` is the author's
+                    -- claim that the slot lives no longer than the borrow's root:
+                    -- an allocator linking a slot into the arena it came from.
+                    if ownershipKind(et) == "borrowed" and c.unsafeDepth > 0 then
+                        (written or stat).unsafeOwnershipOperation = "borrowed pointer stored through a reference"
+                    else
+                        c.diag(
+                            "NUPP2603",
+                            written or stat,
+                            (ownershipKind(et) as string) .. " value cannot be stored through a reference"
+                        )
+                    end
                 end
                 -- Writing nil to a table entry is how Lua removes it, so an array or
                 -- map accepts nil whatever its element type says a present value holds.

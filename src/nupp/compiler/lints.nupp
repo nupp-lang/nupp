@@ -140,6 +140,13 @@ lints.all = {
         level = "off",
         summary = "a closed no-input function repeats work that comptime can erase"
     ),
+    new lints.Lint(
+        name = "one-growable-arena",
+        code = "NUPP2519",
+        category = "suspicious",
+        level = "warning",
+        summary = "a function opens more than one growable arena"
+    ),
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

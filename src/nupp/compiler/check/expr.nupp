@@ -1520,6 +1520,12 @@ function expr.install(c: state.Checker): nil
             if source.tag == "affine" then
                 return T.affine(target, source.cleanups, source.transferOnly, source.obligation)
             elseif c.ownershipKind(source) == "borrowed" then
+                -- The cast changes the type and not where the value came from, so
+                -- a binding made from it is rooted where the operand was.
+                local roots = c.own.provenanceOwners(cast)
+                if #roots > 0 then
+                    c.own.capabilityFacts(node).roots = roots
+                end
                 return T.borrowed(target)
             elseif c.ownershipKind(source) == "pinned" then
                 return T.pinned(target)

@@ -2970,7 +2970,9 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
                 "\n"
             )
         ),
-        "NUPP2608"
+        -- `held` still borrows the pool when the pool is dropped: the rebinding
+        -- inside the block does not end the loan the declaration holds.
+        "NUPP2608 NUPP2602"
     )
 end
 

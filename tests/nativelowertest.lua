@@ -59,8 +59,13 @@ local function read(path)
     return text
 end
 
-local function compileFixture(name)
-    local clif = lower.compile(ROOT, {FIXTURES .. "/" .. name .. ".nupp"}, {include = {"src", "tests/fixtures/native"}})
+-- A fixture, with the runtime modules it requires compiled beside it.
+local function compileFixture(name, runtimeModules)
+    local paths = {FIXTURES .. "/" .. name .. ".nupp"}
+    for _, module in ipairs(runtimeModules or {}) do
+        paths[#paths + 1] = ROOT .. "/src/nupp/runtime/vm/" .. module .. ".nupp"
+    end
+    local clif = lower.compile(ROOT, paths, {include = {"src", "tests/fixtures/native"}})
     local path = tempDirectory() .. "/" .. name .. ".clif"
     write(path, clif)
     return path
@@ -165,6 +170,47 @@ local POINTERS = {
     {"chosen", {0, 6, 4}, "10"}, {"chosen", {1, 6, 4}, "2"}, {"chosen", {2, 6, 4}, "24"},
 }
 
+-- Arenas over pages the glue maps: 65472 bytes asked for is one 64 KiB mapping
+-- on every page size up to 64 KiB, so the counts below hold on each.
+local ARENAS = {
+    {"listSum", {10}, "45"}, {"listSum", {0}, "0"}, {"listSum", {1000}, "499500"},
+    {"usedAfter", {3, 100}, "308"}, {"usedAfter", {0, 100}, "0"},
+    {"fillFixed", {1000}, "65"}, {"fillFixed", {65472}, "1"}, {"fillFixed", {65473}, "0"},
+    {"fillGrowable", {1000, 200}, "200"}, {"fillGrowable", {65472, 3}, "3"},
+    {"resetReuses", {}, true}, {"poolReuses", {}, true},
+    {"nested", {5}, "50"}, {"nested", {0}, "0"},
+}
+
+-- Arenas over pages the glue maps: 65472 bytes asked for is one 64 KiB mapping
+-- on every page size up to 64 KiB, so the counts below hold on each.
+local ARENAS = {
+    {"listSum", {10}, "45"}, {"listSum", {0}, "0"}, {"listSum", {1000}, "499500"},
+    {"usedAfter", {3, 100}, "308"}, {"usedAfter", {0, 100}, "0"},
+    {"fillFixed", {1000}, "65"}, {"fillFixed", {65472}, "1"}, {"fillFixed", {65473}, "0"},
+    {"fillGrowable", {1000, 200}, "200"}, {"fillGrowable", {65472, 3}, "3"},
+    {"resetReuses", {}, true}, {"poolReuses", {}, true},
+    {"nested", {5}, "50"}, {"nested", {0}, "0"},
+}
+
+-- Thirty-two bit arithmetic wraps; narrow fields load as the width they hold
+-- and a store narrows a wider source: 300 in a byte is 44.
+local FIXED = {
+    {"wrapAdd", {4294967295, 1}, "0"}, {"wrapAdd", {4000000000, 500000000}, "205032704"},
+    {"wrapMul", {65536, 65536}, "0"}, {"wrapMul", {123456789, 1000}, "3197704712"},
+    {"signedWrap", {2147483647, 1}, "-2147483648"}, {"signedWrap", {-2147483648, -1}, "2147483647"},
+    {"signedDifference", {-2147483648, 1}, "2147483647"},
+    {"fnv", {0}, "2615243109"}, {"fnv", {1}, "1048580676"}, {"fnv", {"72623859790382856"}, "3011442293"},
+    {"fnv", {"18446744073709551615"}, "1823345245"},
+    {"rotateLeft", {2147483649, 1}, "3"}, {"rotateLeft", {305419896, 8}, "878082066"}, {"rotateLeft", {1, 0}, "1"},
+    {"shiftRight", {-8, 1}, "2147483644"}, {"arithmeticShift", {-8, 1}, "-4"}, {"shiftRight", {1, 33}, "0"},
+    {"complement", {0}, "4294967295"}, {"complement", {252645135}, "4042322160"},
+    {"below", {1, 4294967295}, true}, {"signedBelow", {1, -1}, false}, {"signedBelow", {-1, 1}, true},
+    {"widen", {-5}, -5.0}, {"widenUnsigned", {4294967295}, 8589934590.0},
+    {"brightness", {"buffer:16", 10, 20, 30}, "60"}, {"brightness", {"buffer:16", 300, 0, 0}, "44"},
+    {"signedSum", {"buffer:16", -3, 1000}, "997"}, {"signedSum", {"buffer:16", 200, 70000}, "4408"},
+    {"halfWord", {"buffer:16", 65535}, "65535"}, {"halfWord", {"buffer:16", 65536}, "0"},
+}
+
 local function check(clif, cases)
     for _, case in ipairs(cases) do
         local name, args, expected = case[1], case[2], case[3]
@@ -194,6 +240,52 @@ end
 
 function M.functionPointersAreCalledStoredAndCompared()
     check(compileFixture("pointers"), POINTERS)
+end
+
+function M.arenasOverMappedPagesOpenForAnExtentAndClose()
+    check(compileFixture("arenas", {"arena"}), ARENAS)
+end
+
+-- An arena's lifetime is the checker's: a borrow of it cannot leave the
+-- `with`, and resetting it needs the sole live view.
+local ARENA_PREFIX = 'module escapes\nconst arena = require("nupp.runtime.vm.arena")\n'
+
+local function compileArenaUse(body)
+    local dir = tempDirectory()
+    local path = dir .. "/escapes.nupp"
+    write(path, ARENA_PREFIX .. body .. "\n")
+    return lower.compile(ROOT, {path, ROOT .. "/src/nupp/runtime/vm/arena.nupp"}, {include = {"src", dir}})
+end
+
+function M.theCheckerKeepsArenaBorrowsInsideTheirExtent()
+    local escaping = pcall(compileArenaUse, table.concat({
+        "local function escape(): voidptr?",
+        "    with a = arena.open(4096) do",
+        "        return arena.alloc(a, 8, 8)",
+        "    end",
+        "end",
+    }, "\n"))
+    assert(not escaping, "a borrow of the arena left its with")
+    local resetting = pcall(compileArenaUse, table.concat({
+        "local function reset(): int64",
+        "    with a = arena.open(4096) do",
+        "        local raw = arena.alloc(a, 8, 8)",
+        "        arena.reset(a)",
+        "        if raw == nil then return 0 end",
+        "        return 1",
+        "    end",
+        "end",
+    }, "\n"))
+    assert(not resetting, "the arena was reset under a live borrow")
+    assert(compileArenaUse(table.concat({
+        "local function fine(): int64",
+        "    with a = arena.open(4096) do",
+        "        local raw = arena.alloc(a, 8, 8)",
+        "        if raw == nil then return 0 end",
+        "        return 1",
+        "    end",
+        "end",
+    }, "\n")):find("function %fine", 1, true), "the ordinary use compiles")
 end
 
 -- Handler modules written against a temporary include root beside `src`, so

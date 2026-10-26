@@ -7,6 +7,7 @@
 //! surface).
 pub mod value;
 pub mod numeric;
+pub mod os_glue;
 #[macro_use]
 pub mod opcodes;
 mod storage;

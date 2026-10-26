@@ -1048,14 +1048,17 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- exclusive link is counted separately so a shared operation can distinguish a
     --- live writer from another shared reader without weakening ordinary borrow
     --- accounting.
-    function own.releaseBorrowLinks(entry)
-        entry = own.ownershipState(entry)
+    function own.releaseBorrowLinks(entry, discharging)
         -- Narrowed bindings share their declaration's flow state but do not acquire a
         -- second loan. Leaving the narrowing scope must therefore not release the
-        -- declaration's roots.
-        if entry.ownershipOrigin then
+        -- declaration's roots, so the shadow is asked before it resolves to the
+        -- declaration it stands for. A shadow that took the declaration's own place
+        -- in its scope is the one visit that scope makes, and releases for it; a
+        -- discharge releases whatever binding it was written through.
+        if entry and entry.ownershipOrigin and not entry.releasesDeclaration and not discharging then
             return
         end
+        entry = own.ownershipState(entry)
         if not entry.capabilityFacts then
             return
         end
@@ -1308,7 +1311,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             entry.movedAt = nameNode or expr
             -- An owner that retained a borrow releases it when it is discharged, so the
             -- source becomes free at that point rather than at the end of the scope.
-            own.releaseBorrowLinks(entry)
+            own.releaseBorrowLinks(entry, true)
         end
         -- Owned temporaries (principally calls returning `own`) transfer directly and
         -- need no variable state update.
