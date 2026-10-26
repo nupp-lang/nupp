@@ -48,10 +48,11 @@ unsafe extern "C" {
 /// parked the task.
 const EXIT_ERROR: u64 = 0;
 
-/// The Rust helpers a native handler may call, by C ABI. Each publishes and
-/// reloads the task record as its Rust caller would; the handler publishes
+/// The Rust helpers a native handler may call, by C ABI. Helpers that can
+/// enter the VM publish and reload the task record; the handler publishes
 /// `ctx.pc` before the call, checks `ctx.status` after it, and re-derives its
-/// windows from the context, since the stack may have moved.
+/// windows from the context, since the stack may have moved. Leaf services
+/// that cannot enter the VM leave the frame state in the native context.
 pub(crate) mod native_helpers {
     use super::*;
     #[unsafe(no_mangle)]
@@ -150,17 +151,17 @@ pub(crate) mod native_helpers {
     }
     /// The array part of a plain table at `length` entries, lengthened with
     /// nils or truncated: the handlers write the entries, the vector is the
-    /// heap's until N05.
+    /// heap's until N05. This only reallocates outside storage and accounts
+    /// for its capacity: it cannot collect, park, raise or move the VM stack,
+    /// so the native frame and its uncharged budget can stay in the context.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_resize_array(ctx: *mut Ctx, table: u64, length: i64) {
-        let ctx = unsafe { &mut *ctx };
-        let (it, _) = enter_rust(ctx);
+        let it = unsafe { &mut *((*ctx).interp as *mut crate::interp::Interp) };
         let h = unsafe { &mut *header(table) };
         let before = h.external_bytes();
         h.table().array.resize(length as usize, Value::NIL);
         h.refresh();
         it.heap.account_resize(before, h.external_bytes());
-        sync(ctx, it);
     }
     /// A store to a key a table with a metatable lacks (contracts 9): the
     /// `__newindex` dispatch, which is the object library's until N04, and

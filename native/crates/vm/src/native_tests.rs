@@ -1457,6 +1457,49 @@ entry 0
 }
 
 #[test]
+fn native_array_resize_preserves_unpublished_frame_state_and_budget() {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    program(&mut vm);
+    let table = vm.new_table();
+    vm.registered.push(table);
+    let tid = vm.spawn(6, &[]);
+    vm.execution_limit = Some(20);
+    let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+    ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+    ctx.tid = tid as u64;
+    crate::threaded::sync(&mut ctx, &mut vm);
+    ctx.budget -= 3;
+    let stack = ctx.stack;
+    let frame = vm.tasks[tid].cur();
+    let unpublished_header = vm.tasks[tid].stack[frame];
+    let before = vm.heap.live_bytes;
+    let before_capacity = unsafe { (*header(table.0)).external_bytes() };
+
+    unsafe {
+        native_helpers::nupp_rt_resize_array(&mut ctx, table.0, 257);
+        let h = &mut *header(table.0);
+        assert_eq!(h.aux_len, 257);
+        assert!(h.slots().iter().all(|v| *v == Value::NIL));
+        assert_eq!(
+            vm.heap.live_bytes - before,
+            h.external_bytes() - before_capacity
+        );
+        h.table().array[0] = Value::num(7.0);
+        native_helpers::nupp_rt_resize_array(&mut ctx, table.0, 1);
+        let h = &*header(table.0);
+        assert_eq!(h.slots(), &[Value::num(7.0)]);
+        assert_eq!(h.aux_ptr, h.table_ref().array.as_ptr().cast_mut().cast());
+    }
+    assert_eq!(ctx.stack, stack);
+    assert_eq!(vm.tasks[tid].stack[frame], unpublished_header);
+    assert_eq!(ctx.budget, 17);
+    assert_eq!(ctx.budget_mark, 20);
+    assert_eq!(vm.execution_limit, Some(20));
+    crate::threaded::charge(&mut ctx, &mut vm);
+    assert_eq!(vm.execution_limit, Some(17));
+}
+
+#[test]
 fn native_frames_run_whole_programs() {
     {
         let mut vm = Box::new(crate::interp::Interp::new());
