@@ -836,6 +836,7 @@ struct Machine {
     codes: Vec<Vec<Ins>>,
     entries: Vec<u64>,
     frame_entries: Vec<u64>,
+    slow_calls: Vec<u8>,
     ctx: Ctx,
 }
 
@@ -850,6 +851,7 @@ impl Machine {
             codes: vec![caller, callee],
             entries: vec![0, 0],
             frame_entries: Vec::new(),
+            slow_calls: Vec::new(),
             ctx: unsafe { std::mem::zeroed() },
         });
         for (fid, np) in [(0, 0), (1, nparams)] {
@@ -883,6 +885,8 @@ impl Machine {
         self.ctx.entries = self.entries.as_ptr();
         self.ctx.frame_entries = self.frame_entries.as_ptr();
         self.ctx.nframe_entries = self.frame_entries.len() as u64;
+        self.ctx.slow_calls = self.slow_calls.as_ptr();
+        self.ctx.nslow_calls = self.slow_calls.len() as u64;
         self.ctx.guard = NO_GUARD;
         self.ctx.unavailable_fid = u32::MAX;
     }
@@ -1003,8 +1007,11 @@ fn native_calls_leave_unsupported_calls_untouched() {
         ("unavailable", callk, closure_value, |m| m.ctx.unavailable_fid = 1),
         ("compiled entry", callk, closure_value, |m| m.entries[1] = 0x1000),
         ("feedback", callk, closure_value, |m| m.ctx.feedback = 1),
-        ("builtin", callk, Value::builtin(3).0, |_| {}),
-        ("iterator", callk, iter_value, |_| {}),
+        // Builtins run through the helper, except a host service and one the
+        // slow-call table names; an iterator runs through its helper too.
+        ("host service", callk, Value::builtin(1000).0, |_| {}),
+        ("slow builtin", callk, Value::builtin(3).0, |m| { m.slow_calls = vec![0, 0, 0, 1]; m.sync(); }),
+        ("iterator with feedback", callk, iter_value, |m| m.ctx.feedback = 1),
         ("not callable", callk, Value::num(1.0).0, |_| {}),
         ("unknown function", callk, Value::func(9).0, |_| {}),
         ("wide argument count", Ins { c: 64, ..callk }, closure_value, |_| {}),
@@ -1319,6 +1326,31 @@ K 5 0
 IUnbox 0 1
 Ret 5
 end
+function rounded 11 1 10 1 v:v
+const 0 builtin math.floor
+const 1 num 0.5
+K 2 0
+K 3 1
+Add 4 1 3
+CallK 0 2 3 1 1
+PadResults 3 1
+Ret 3
+end
+function iterated 12 1 14 1 v:v
+const 0 builtin ipairs
+const 1 num 1
+NewTable 2
+K 3 1
+SetIdx 2 3 1
+K 4 0
+Move 6 2
+CallK 0 4 5 1 1
+PadResults 5 1
+CallK 0 5 6 0 2
+PadResults 6 2
+Add 8 6 7
+Ret 8
+end
 entry 0
 "#;
     crate::image::load(vm, source).unwrap();
@@ -1348,6 +1380,10 @@ fn native_frames_run_whole_programs_in_both_frame_modes() {
         // windows before the next Rust instruction: with the first callee's
         // integer window, the unbox lands on the second callee's register 5.
         assert_eq!(call(&mut vm, 8, 5.0), vec![Value::num(12.0)], "two layouts at one frame index");
+        // A builtin and an iterator called through CallK run in Rust from the
+        // argument window; the chain goes on in the caller with their results.
+        assert_eq!(call(&mut vm, 11, 2.75), vec![Value::num(3.0)], "builtin call");
+        assert_eq!(call(&mut vm, 12, 41.0), vec![Value::num(42.0)], "iterator call");
     }
 }
 

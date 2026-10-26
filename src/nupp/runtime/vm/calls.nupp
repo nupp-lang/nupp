@@ -5,6 +5,8 @@ module nupp.runtime.vm.calls
 -- `reenter`; otherwise the chain continues in the new frame's windows.
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
 
 -- The callee's frame is in place and the context names it: continue there,
 -- or hand it to the frame driver.
@@ -190,6 +192,90 @@ export function Call(
     end
 end
 
+-- A builtin called from the core: its arguments in the window from `base + 1`
+-- and its results delivered from `base` by the helper, which may grow the
+-- stack. The protected calls and the task API, which park or run frames of
+-- their own, are the slow-call table's and go to Rust whole.
+local function callBuiltinSlow(pc: voidptr, context: voidptr, id: int64, base: uint64, nargs: int64): uint64
+    protocol.publishPc(pc, context)
+    helpers.callBuiltin(context, id, base, nargs)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- One step of an iterator object called as a function.
+local function callIterSlow(pc: voidptr, context: voidptr, iterator: uint64, base: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.callIter(context, iterator, base)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- The Rust core's `dynamic_call!`: a closure or a bare function value pushes
+-- a frame, a builtin and an iterator run in Rust from the argument window,
+-- and anything else is the interpreter's.
+local function callValue(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    value: uint64,
+    nargs: int64
+): uint64
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(value & values.PAYLOAD)
+        local kind = native.load8(object, native.layout("Header.kind"))
+        if kind == 5 then
+            return dynamicCall(
+                pc,
+                regs,
+                ints,
+                floats,
+                context,
+                frame,
+                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
+                value,
+                nargs
+            )
+        elseif kind == 8 then
+            return callIterSlow(
+                pc,
+                context,
+                value,
+                native.load64(context, native.layout("cur")) + 4 + native.word(native.load8(pc, 2))
+            )
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    elseif value & values.TAG_MASK == values.TAG_FUNC then
+        local upper = (value >> 32) & values.LOW_HALF
+        if upper == 0 then
+            return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
+        elseif upper == values.LOW_HALF then
+            local id = native.index(value & values.LOW_WORD)
+            if id >= 1000 then
+                return native.slow(pc, regs, ints, floats, context, frame)
+            elseif native.word(id) < native.load64(context, native.layout("nslow_calls"))
+                and native.load8(native.loadPointer(context, native.layout("slow_calls")), id) ~= 0
+            then
+                return native.slow(pc, regs, ints, floats, context, frame)
+            else
+                return callBuiltinSlow(
+                    pc,
+                    context,
+                    id,
+                    native.load64(context, native.layout("cur")) + 4 + native.word(native.load8(pc, 2)),
+                    nargs
+                )
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
 -- CallK and CallDyn share this body, as their Rust handlers share one.
 export function CallK(
     pc: voidptr,
@@ -203,28 +289,8 @@ export function CallK(
     local value = native.load64(regs, native.load8(pc, 1) * 8)
     if native.either(native.load32(context, native.layout("feedback")) ~= 0, nargs >= 64) then
         return native.slow(pc, regs, ints, floats, context, frame)
-    elseif value & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(value & values.PAYLOAD)
-        if native.load8(object, native.layout("Header.kind")) == 5 then
-            return dynamicCall(
-                pc,
-                regs,
-                ints,
-                floats,
-                context,
-                frame,
-                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
-                value,
-                nargs
-            )
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    elseif native.both(value & values.TAG_MASK == values.TAG_FUNC, (value >> 32) & values.LOW_HALF == 0) then
-        return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
-
+        return callValue(pc, regs, ints, floats, context, frame, value, nargs)
     end
 end
 
@@ -370,13 +436,6 @@ export function PadResults(
     end
 end
 
--- Helpers and the handlers that call them. A handler publishes the pc before a
--- Rust helper runs, since the helper notes it for backtraces and the
--- collector's liveness; afterwards it checks for a raise, re-derives its
--- windows from the context because the stack may have moved, and continues.
--- The calls live in `...Slow` support functions the handlers tail-call, so the
--- fast paths stay frameless.
-
 -- A dynamic call through a register is the same path as `CallK`; the Rust
 -- core shares one body between the two opcodes and so does this one.
 export function CallDyn(
@@ -391,27 +450,7 @@ export function CallDyn(
     local value = native.load64(regs, native.load8(pc, 1) * 8)
     if native.either(native.load32(context, native.layout("feedback")) ~= 0, nargs >= 64) then
         return native.slow(pc, regs, ints, floats, context, frame)
-    elseif value & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(value & values.PAYLOAD)
-        if native.load8(object, native.layout("Header.kind")) == 5 then
-            return dynamicCall(
-                pc,
-                regs,
-                ints,
-                floats,
-                context,
-                frame,
-                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
-                value,
-                nargs
-            )
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    elseif native.both(value & values.TAG_MASK == values.TAG_FUNC, (value >> 32) & values.LOW_HALF == 0) then
-        return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
-
+        return callValue(pc, regs, ints, floats, context, frame, value, nargs)
     end
 end
