@@ -574,14 +574,9 @@ local HELPERS: {
     [string]: {string}
 } = {
     nupp_rt_get_field = {"(i64, i64, i64) -> i64"},
-    nupp_rt_get_index = {"(i64, i64, i64) -> i64"},
-    nupp_rt_get_index_num = {"(i64, i64, i64) -> i64"},
-    nupp_rt_set_index_num = {"(i64, i64, i64, i64)"},
-    nupp_rt_store_keyed = {"(i64, i64, i64, i64)"},
     nupp_rt_barrier = {"(i64, i64, i64)"},
     nupp_rt_new_record = {"(i64, i64) -> i64"},
     nupp_rt_eq_slow = {"(i64, i64, i64) -> i64"},
-    nupp_rt_append_plain = {"(i64, i64, f64, i64) -> i64"},
     nupp_rt_observe = {"(i64, i64, i64, i64, i64)"},
     nupp_jit_step = {"(i64, i64) -> i64"},
     nupp_jit_call = {"(i64, i64, i64) -> i64"},

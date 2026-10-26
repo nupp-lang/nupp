@@ -539,17 +539,17 @@ end
 
 -- A read by any key (contracts 2.4): the array part for a whole number inside
 -- it, the hash part otherwise; another kind of receiver is the helper's.
-export function GetIdx(
+local function readKeyed(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
     floats: voidptr,
     context: voidptr,
-    frame: voidptr
+    frame: voidptr,
+    object: uint64,
+    key: uint64
 ): uint64
     local a = native.load8(pc, 1) * 8
-    local object = native.load64(regs, native.load8(pc, 2) * 8)
-    local key = native.load64(regs, native.load8(pc, 3) * 8)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
@@ -596,4 +596,52 @@ export function GetIdx(
     end
 
     return hashLookup(pc, regs, ints, floats, context, frame, object, header, meta, bits)
+end
+
+export function GetIdx(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 2) * 8)
+    local key = native.load64(regs, native.load8(pc, 3) * 8)
+    return readKeyed(pc, regs, ints, floats, context, frame, object, key)
+end
+
+export function GetIdxF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 2) * 8)
+    local d = native.loadFloat(floats, native.load8(pc, 3) * 8)
+    -- The key is the float boxed: a NaN payload as the canonical quiet NaN.
+    local bits = native.bits(d)
+    local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
+
+    return readKeyed(pc, regs, ints, floats, context, frame, object, native.chooseWord(nan, values.QNAN, bits))
+end
+
+export function GetIdxI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local position = native.loadIndex(ints, native.load8(pc, 3) * 8)
+    -- An integer a double cannot hold exactly is boxed as an integer object.
+    if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local object = native.load64(regs, native.load8(pc, 2) * 8)
+
+    return readKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)))
 end

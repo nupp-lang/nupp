@@ -389,10 +389,6 @@ mod exported {
     }
     // The handlers' helpers, under the names the handler sources call them by.
     pub unsafe extern "C" fn nupp_rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 { crate::threaded::rt_get_field(ctx, obj, name) }
-    pub unsafe extern "C" fn nupp_rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 { crate::threaded::rt_get_index(ctx, obj, key) }
-    pub unsafe extern "C" fn nupp_rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 { crate::threaded::rt_get_index_num(ctx, obj, i) }
-    pub unsafe extern "C" fn nupp_rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) { crate::threaded::rt_set_index_num(ctx, obj, i, v) }
-    pub unsafe extern "C" fn nupp_rt_store_keyed(ctx: *mut Ctx, obj: u64, key: u64, v: u64) { unsafe { crate::threaded::store_index(ctx, obj, key, v) } }
     pub unsafe extern "C" fn nupp_rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) { crate::threaded::rt_barrier(ctx, parent, child) }
     pub unsafe extern "C" fn nupp_rt_new_record(ctx: *mut Ctx, shape: u64) -> u64 { crate::threaded::rt_new_record(ctx, shape as u32) }
     pub unsafe extern "C" fn nupp_rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u64 { crate::threaded::rt_eq_slow(ctx, x, y) as u64 }
@@ -410,10 +406,6 @@ fn helper_table() -> Vec<(&'static str, *const u8)> {
         ("nupp_jit_call", nupp_jit_call as *const u8),
         ("nupp_jit_finish", nupp_jit_finish as *const u8),
         ("nupp_rt_get_field", nupp_rt_get_field as *const u8),
-        ("nupp_rt_get_index", nupp_rt_get_index as *const u8),
-        ("nupp_rt_get_index_num", nupp_rt_get_index_num as *const u8),
-        ("nupp_rt_set_index_num", nupp_rt_set_index_num as *const u8),
-        ("nupp_rt_store_keyed", nupp_rt_store_keyed as *const u8),
         ("nupp_rt_barrier", nupp_rt_barrier as *const u8),
         ("nupp_rt_new_record", nupp_rt_new_record as *const u8),
         ("nupp_rt_eq_slow", nupp_rt_eq_slow as *const u8),

@@ -701,7 +701,7 @@ impl NativeTableFixture {
 }
 
 #[test]
-fn native_array_reads_guard_bounds_integrality_and_metatables() {
+fn native_array_reads_answer_the_array_part_and_misses_in_place() {
     let mut table = NativeTableFixture::new(&[Value::num(12.0), Value::NIL, Value::TRUE]);
     for kind in [KIND_TABLE, KIND_RECORD] {
         for meta in [Value::NIL, Value::TRUE] {
@@ -737,15 +737,21 @@ fn native_array_reads_guard_bounds_integrality_and_metatables() {
                                 index
                             };
                             let slot = d as usize;
-                            let valid = kind == KIND_TABLE
-                                && word == table.value()
-                                && d >= 1.0
-                                && d <= 3.0
-                                && d == slot as f64
-                                && (slot != 2 || meta == Value::NIL);
+                            let in_array = d >= 1.0 && d <= 3.0 && d == slot as f64;
+                            let present = in_array && table.payload.array[slot - 1] != Value::NIL;
+                            // A record, and a table with a metatable whose
+                            // array part does not answer, go to the helper,
+                            // which this fixture has no runtime for.
+                            if word == table.value() && (kind != KIND_TABLE || (meta != Value::NIL && !present)) {
+                                continue;
+                            }
+                            // An integer a double cannot hold is a boxed key: Rust's.
+                            let boxed = matches!(code, Code::GetIdxI) && ints[2].unsigned_abs() > 1 << 53;
+                            let valid = word == table.value() && !boxed;
                             let mut expected = regs;
                             if valid {
-                                expected[dest + 1] = table.payload.array[slot - 1].0;
+                                // The array part, or a miss in the empty hash part.
+                                expected[dest + 1] = if in_array { table.payload.array[slot - 1].0 } else { Value::NIL.0 };
                             }
                             assert_eq!(
                                 unsafe {
