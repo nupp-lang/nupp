@@ -283,8 +283,26 @@ pub(crate) fn main() {
     let aot_frames = if std::env::var("NO_AOT").is_ok() { Vec::new() } else { aot_link::frame_entries() };
     #[cfg(feature = "aot-linked")]
     let aot_consts: Vec<u64> = it.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
+    // The Nupp emitter compiles this VM's frame entries when its image is
+    // named, or when the image loaded carries the emitter itself (the
+    // compiler's own); the JIT is then on even over linked code, and the
+    // linked entries go to the emitter's VM instead of this one.
+    #[cfg(feature = "aot")]
+    let guest = std::env::var("NO_JIT").is_err() && nupp_vm::jit_glue::guest_available(&it);
+    #[cfg(not(feature = "aot"))]
+    let guest = false;
     #[cfg(feature = "aot-linked")]
-    if !aot_entries.is_empty() || !aot_frames.is_empty() {
+    if guest && (!aot_entries.is_empty() || !aot_frames.is_empty()) {
+        let digest = nupp_vm::persist::primary_image_hash(&it).unwrap_or_else(|e| { eprintln!("aot: {e}"); std::process::exit(1) });
+        if aot_link::image_hash() != digest { eprintln!("aot: linked object was built for another image"); std::process::exit(1); }
+        nupp_vm::compiled::CODE_MAPS.lock().unwrap().extend(aot_link::maps().into_iter().map(|(start, len, maps)| (start, start + len, maps)));
+        #[cfg(feature = "aot")]
+        nupp_vm::jit_glue::register_linked(digest, aot_frames.clone());
+    }
+    #[cfg(feature = "aot")]
+    if guest { nupp_vm::jit_glue::set_default_image(&it); }
+    #[cfg(feature = "aot-linked")]
+    if !guest && (!aot_entries.is_empty() || !aot_frames.is_empty()) {
         let digest = nupp_vm::persist::primary_image_hash(&it).unwrap_or_else(|e| { eprintln!("aot: {e}"); std::process::exit(1) });
         if aot_link::image_hash() != digest {
             eprintln!("aot: linked object was built for another image");
@@ -313,7 +331,7 @@ pub(crate) fn main() {
         std::process::exit(1);
     }
     #[cfg(all(feature = "jit", feature = "aot-linked"))]
-    let has_aot = !aot_entries.is_empty() || !aot_frames.is_empty();
+    let has_aot = !guest && (!aot_entries.is_empty() || !aot_frames.is_empty());
     #[cfg(all(feature = "jit", not(feature = "aot-linked")))]
     let has_aot = false;
     // The typed tier: every function it accepts, callees first by id, with
@@ -335,10 +353,7 @@ pub(crate) fn main() {
         it.shape_probe.clear();
         it.shape_probe.extend(probes);
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
-        #[cfg(feature = "aot")]
-        let guest = nupp_vm::jit_glue::guest_mode();
-        #[cfg(not(feature = "aot"))]
-        let guest = false;
+        it.guest_jit = guest;
         // The Nupp emitter compiles frame entries only: with it, every
         // function enters compiled code through the frame driver.
         let frame_entries = guest || scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));

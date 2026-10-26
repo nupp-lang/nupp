@@ -619,6 +619,9 @@ local INELIGIBLE: {
     FRet = true
 }
 
+--- How long the last emission's printing took, for the profile.
+guest.lastPrintSeconds = 0
+
 --- The limit on native nesting of compiled calls before the frame driver
 --- takes over, as the Rust frame code has it.
 guest.NESTED_LIMIT = 96
@@ -2017,7 +2020,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
     table.insert(preamble, 1, "sig0 = (i64, i64, i64) -> i64")
 
-    return b.print(guest.entryName(fn.fid), "(i64, i64, i64) -> i64", preamble), nil
+    local built = os.clock()
+    local text = b.print(guest.entryName(fn.fid), "(i64, i64, i64) -> i64", preamble)
+    guest.lastPrintSeconds = os.clock() - built
+
+    return text, nil
 end
 
 --- The glue's layout table as a function, from its JSON text.
@@ -2252,6 +2259,37 @@ end
 --- stdout, for the lowering suite and for looking at what a function becomes.
 --- @raises string when the function is refused or a file cannot be read.
 function guest.main(functionPath: string, layoutsPath: string, nested: string?): string
+    if os.getenv("JIT_GUEST_PROFILE") then
+        -- The phases apart, on standard error: what emission costs where.
+        local started = os.clock()
+        local fn = guest.parse(assert(fs.readFile(functionPath)))
+        local parsed = os.clock()
+        local live = guest.liveness(fn)
+        for pc = 0, #fn.code - 1 do
+            live.liveAt(pc)
+        end
+        local analyzed = os.clock()
+        local clif, reason = guest.emit(fn, guest.layoutsWithInterp(assert(fs.readFile(layoutsPath))), {
+            nested = (tonumber(nested or "0") or 0) as integer
+        })
+        local emitted = os.clock()
+        io.stderr:write(
+            (
+                "guest profile: %d ops, parse %.1f ms, liveness %.1f ms, emit %.1f ms, print %.1f ms\n"
+            ):format(
+                #fn.code,
+                (parsed - started) * 1000,
+                (analyzed - parsed) * 1000,
+                (emitted - analyzed) * 1000 - guest.lastPrintSeconds * 1000,
+                guest.lastPrintSeconds * 1000
+            )
+        )
+        if clif == nil then
+            error("guest: " .. tostring(reason), 0)
+        end
+
+        return clif as string
+    end
     local clif, reason = guest.compile(
         assert(fs.readFile(functionPath)),
         assert(fs.readFile(layoutsPath)),

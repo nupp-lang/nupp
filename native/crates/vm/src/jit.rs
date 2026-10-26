@@ -95,7 +95,8 @@ pub type Jit = Compiler<JITModule>;
 /// One frame compile for the background compiler: the function, the table
 /// addresses its code will hold (the main thread's, since the closure slot is
 /// thread-local), and what is known of each callee.
-pub struct Job { pub fid: u32, pub func: Function, pub closure: i64, pub extra: i64, pub last_nres: i64, pub entries: i64, pub calltab: i64, pub probe: i64, pub callee_info: Vec<(u8, bool)> }
+pub struct Job { pub fid: u32, pub func: Function, pub closure: i64, pub extra: i64, pub last_nres: i64, pub entries: i64, pub calltab: i64, pub probe: i64, pub callee_info: Vec<(u8, bool)>, /// Compiled by the Nupp emitter rather than the Rust lowering.
+    pub guest: bool }
 
 /// A compiler thread with a Cranelift module of its own. Hot functions are
 /// queued here and keep running interpreted until their entry is installed,
@@ -121,7 +122,7 @@ impl Worker {
                 jit.probe_addr = job.probe;
                 jit.callee_info = job.callee_info;
                 #[cfg(all(feature = "aot", feature = "native-runtime"))]
-                let result = if crate::jit_glue::guest_mode() { crate::jit_glue::compile_here(&job.func, job.fid) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
+                let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
                 #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                 let result = jit.compile_frame(&job.func, job.fid).map(|p| p as u64);
                 if outbox.send((job.fid, result)).is_err() { break; }

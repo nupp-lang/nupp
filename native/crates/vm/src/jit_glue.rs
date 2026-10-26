@@ -55,16 +55,52 @@ impl Drop for ContextGuard {
     fn drop(&mut self) { CURRENT_CTX.with(|c| c.set(self.0)); }
 }
 
-/// The emitter image's path, when guest mode is on.
+/// The emitter image's path, when one is named.
 fn image_path() -> Option<String> {
     std::env::var("NUPP_JIT_IMAGE").ok().filter(|p| !p.is_empty())
 }
 
-/// Whether frame entries are compiled by the Nupp emitter: the image is
-/// named, and the native core is linked to drive the entries.
+/// The module the emitter lives in.
+pub const EMITTER_MODULE: &str = "nupp.compiler.clif.guest";
+
+/// The image the emitter VM loads when none is named: the running VM's own,
+/// when it carries the emitter (the compiler's image does), set by the
+/// runner before the first compile.
+static DEFAULT_IMAGE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+
+/// Linked AOT frame entries of the image the emitter runs, when the runtime
+/// carries them: the emitter then runs compiled rather than interpreted.
+struct Linked { hash: [u8; 32], frames: Vec<(usize, u64)> }
+static LINKED: std::sync::OnceLock<Linked> = std::sync::OnceLock::new();
+
+/// Whether `it` is a VM whose frame entries the Nupp emitter should compile:
+/// the native core is linked to drive them, and an emitter image is named or
+/// the VM's own image carries the emitter.
+pub fn guest_available(it: &Interp) -> bool {
+    cfg!(feature = "native-runtime") && (image_path().is_some() || it.modules.contains_key(EMITTER_MODULE))
+}
+
+/// Remembers the running VM's image as the emitter's default.
+pub fn set_default_image(it: &Interp) {
+    if image_path().is_some() { return; }
+    let bytes = match it.code_events.first() {
+        Some(crate::persist::CodeEvent::Image(text)) => text.as_bytes().to_vec(),
+        Some(crate::persist::CodeEvent::Graph { bytes, .. }) => bytes.clone(),
+        _ => return,
+    };
+    let _ = DEFAULT_IMAGE.set(bytes);
+}
+
+/// Remembers the linked frame entries of the image with `hash`.
+pub fn register_linked(hash: [u8; 32], frames: Vec<(usize, u64)>) {
+    let _ = LINKED.set(Linked { hash, frames });
+}
+
+/// Whether frame entries are compiled by the Nupp emitter on this process's
+/// worker: an image is named, and the native core is linked to drive the
+/// entries. Per VM, `Interp::guest_jit` decides.
 pub fn guest_mode() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| cfg!(feature = "native-runtime") && image_path().is_some())
+    cfg!(feature = "native-runtime") && (image_path().is_some() || DEFAULT_IMAGE.get().is_some())
 }
 
 /// A function as the emitter reads it: the image's function dialect, every
@@ -116,6 +152,7 @@ pub struct Emitter {
     /// Time spent emitting text and compiling it, in microseconds, for the
     /// compile-cost measurement (`JIT_GUEST_STATS=1` prints them at exit).
     pub emit_micros: u128,
+    pub parse_micros: u128,
     pub compile_micros: u128,
     pub compiled: u64,
     pub refused: u64,
@@ -130,8 +167,10 @@ pub struct Emitter {
 impl Emitter {
     fn new() -> Result<Emitter, String> {
         let started = std::time::Instant::now();
-        let path = image_path().ok_or("NUPP_JIT_IMAGE names no emitter image")?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+        let (bytes, path) = match image_path() {
+            Some(path) => (std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?, path),
+            None => (DEFAULT_IMAGE.get().ok_or("no emitter image: NUPP_JIT_IMAGE is unset and the running image has no emitter")?.clone(), "<running image>".to_string()),
+        };
         let mut vm = Box::new(Interp::new());
         if bytes.starts_with(crate::graph::MAGIC) {
             crate::graph::load_owned(&mut vm, bytes)?;
@@ -139,8 +178,25 @@ impl Emitter {
             let text = std::str::from_utf8(&bytes).map_err(|_| format!("{path}: not text"))?;
             crate::image::load(&mut vm, text)?;
         }
+        // The emitter runs compiled when the runtime links its image's
+        // frame entries: attached as the runner attaches them to the VM it
+        // runs, with the tables linked code reads through the runtime view.
+        let mut linked = false;
+        if let Some(table) = LINKED.get() {
+            if crate::persist::primary_image_hash(&vm).ok() == Some(table.hash) {
+                vm.frame_entries.resize(vm.funcs.len(), 0);
+                for &(fid, ptr) in &table.frames { if fid < vm.frame_entries.len() { vm.frame_entries[fid] = ptr; } }
+                vm.entries = vec![0; vm.funcs.len()];
+                vm.calltab = vm.funcs.iter().map(|f| { let plain = f.sig.iter().all(|&c| c == b'v') && f.ret != b'f' && !f.vararg; f.nparams as u64 | ((plain as u64) << 8) }).collect();
+                vm.shape_probe = vm.heap.shapes.iter().map(|s| (s.table.as_ptr() as u64, s.mask)).collect();
+                vm.runtime_consts = vm.funcs.iter().map(|f| f.consts.as_ptr() as u64).collect();
+                vm.linked_frames = vm.frame_entries.clone();
+                linked = true;
+            }
+        }
         vm.install_globals();
         vm.prepare_threaded();
+        if std::env::var_os("JIT_GUEST_STATS").is_some() { eprintln!("guest jit: emitter from {path}, {}", if linked { "linked frame entries" } else { "interpreted" }); }
         let module_value = vm.require("nupp.compiler.clif.guest");
         vm.registered.push(module_value);
         let key = vm.intern("compile");
@@ -160,7 +216,7 @@ impl Emitter {
         for (name, address) in helper_table() { builder.symbol(name, address); }
         let module = JITModule::new(builder);
         let ctx = module.make_context();
-        Ok(Emitter { vm, compile, layouts, module, ctx, serial: 0, emit_micros: 0, compile_micros: 0, compiled: 0, refused: 0, startup_micros: started.elapsed().as_micros(), slowest_micros: 0, slowest: String::new() })
+        Ok(Emitter { vm, compile, layouts, module, ctx, serial: 0, emit_micros: 0, parse_micros: 0, compile_micros: 0, compiled: 0, refused: 0, startup_micros: started.elapsed().as_micros(), slowest_micros: 0, slowest: String::new() })
     }
 
     /// The CLIF of a function, or the reason the emitter refused it.
@@ -170,6 +226,9 @@ impl Emitter {
         let nested = Value::num(std::mem::offset_of!(Interp, nested_calls) as f64);
         let compile = self.compile;
         let layouts = self.layouts;
+        // The emitter VM is the one the Rust-lowered helpers see while it
+        // runs; the VM being compiled for gets its context back after.
+        let _isolation = Isolation::enter(&mut *self.vm);
         let answer = self.vm.guarded(|vm| {
             let outs = vm.call_value(compile, &[source, layouts, nested]);
             let clif = outs.first().copied().unwrap_or(Value::NIL);
@@ -193,7 +252,9 @@ impl Emitter {
     /// Compiles one function's CLIF and answers its entry address. The text
     /// names helpers as `%symbol`; they resolve to the helper table.
     pub fn compile(&mut self, clif: &str) -> Result<u64, String> {
+        let parsing = std::time::Instant::now();
         let mut functions = cranelift_reader::parse_functions(clif).map_err(|e| e.to_string())?;
+        self.parse_micros += parsing.elapsed().as_micros();
         if functions.len() != 1 { return Err(format!("{} functions in the emitted text", functions.len())); }
         let mut function = functions.pop().unwrap();
         let conv = self.module.isa().default_call_conv();
@@ -250,8 +311,30 @@ impl Emitter {
 impl Drop for Emitter {
     fn drop(&mut self) {
         if std::env::var_os("JIT_GUEST_STATS").is_some() {
-            eprintln!("guest jit: compiled {} refused {} emit {:.2} ms compile {:.2} ms startup {:.2} ms slowest {} {:.2} ms", self.compiled, self.refused, self.emit_micros as f64 / 1e3, self.compile_micros as f64 / 1e3, self.startup_micros as f64 / 1e3, self.slowest, self.slowest_micros as f64 / 1e3);
+            eprintln!("guest jit: compiled {} refused {} emit {:.2} ms parse {:.2} ms compile {:.2} ms startup {:.2} ms slowest {} {:.2} ms", self.compiled, self.refused, self.emit_micros as f64 / 1e3, self.parse_micros as f64 / 1e3, (self.compile_micros - self.parse_micros) as f64 / 1e3, self.startup_micros as f64 / 1e3, self.slowest, self.slowest_micros as f64 / 1e3);
         }
+    }
+}
+
+/// The thread's compiled-code context while the emitter VM runs: the
+/// Rust-lowered helpers of its linked code read the VM through
+/// `compiled::CTX`, and the VM compiled for gets its own back afterwards.
+struct Isolation { previous: (*mut Interp, usize, u64) }
+impl Isolation {
+    fn enter(vm: *mut Interp) -> Isolation {
+        use std::sync::atomic::Ordering::Relaxed;
+        let previous = (crate::compiled::CTX.load(Relaxed), crate::compiled::HELPER_FP.swap(0, Relaxed), crate::compiled::CUR_CLOSURE.load(Relaxed));
+        crate::compiled::CTX.store(vm, Relaxed);
+        crate::compiled::CUR_CLOSURE.store(0, Relaxed);
+        Isolation { previous }
+    }
+}
+impl Drop for Isolation {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        crate::compiled::CTX.store(self.previous.0, Relaxed);
+        crate::compiled::HELPER_FP.store(self.previous.1, Relaxed);
+        crate::compiled::CUR_CLOSURE.store(self.previous.2, Relaxed);
     }
 }
 

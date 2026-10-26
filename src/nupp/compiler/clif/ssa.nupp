@@ -212,9 +212,11 @@ function ssa.new(): ssa.Builder
     end
 
     -- A block parameter fed the same value on every edge is that value: drop
-    -- it and its arguments, and let later readers see through it. Repeated
-    -- until nothing changes, since dropping one may make another trivial.
-    local function removeTrivialPhis(): function(string): string
+    -- it and its arguments, and let later readers see through it. A worklist
+    -- of blocks: dropping one parameter can make a parameter trivial only in
+    -- a block whose arguments named it, so those are looked at again, and
+    -- nothing else is visited twice.
+    local function removeTrivialPhis(): {[string]: string}
         local alias: {[string]: string} = {}
 
         local function resolve(value: string): string
@@ -224,63 +226,102 @@ function ssa.new(): ssa.Builder
             return value
         end
 
-        local changed = true
-        while changed do
-            changed = false
-            for _, block in ipairs(blocks) do
-                local index: integer = 1
-                while index <= #block.params do
-                    local param = block.params[index]
-                    if block.phis[param] then
-                        local same: string? = nil
-                        local trivial = true
-                        for _, pred in ipairs(block.preds) do
-                            for _, t in ipairs(pred.term.targets) do
-                                if t.block == block then
-                                    local operand = resolve(t.args[index])
-                                    if operand ~= param and operand ~= same then
-                                        if same == nil then
-                                            same = operand
-                                        else
-                                            trivial = false
-                                        end
-                                    end
-                                end
+        -- The blocks whose incoming arguments name a value.
+        local users: {[string]: {ssa.Block}} = {}
+        for _, block in ipairs(blocks) do
+            for _, pred in ipairs(block.preds) do
+                for _, t in ipairs(pred.term.targets) do
+                    if t.block == block then
+                        for _, arg in ipairs(t.args) do
+                            local list = users[arg]
+                            if not list then
+                                list = {}
+                                users[arg] = list
                             end
+                            list[#list + 1] = block
                         end
-                        if trivial and same ~= nil then
-                            alias[param] = same as string
-                            table.remove(block.params, index)
-                            table.remove(block.paramTypes, index)
-                            block.phis[param] = nil
-                            for _, pred in ipairs(block.preds) do
-                                for _, t in ipairs(pred.term.targets) do
-                                    if t.block == block then
-                                        table.remove(t.args, index)
-                                    end
-                                end
-                            end
-                            changed = true
-                        else
-                            index = index + 1
-                        end
-                    else
-                        index = index + 1
                     end
                 end
             end
         end
+        local queued: {[ssa.Block]: boolean} = {}
+        local work: {ssa.Block} = {}
+        for _, block in ipairs(blocks) do
+            if next(block.phis) ~= nil then
+                work[#work + 1] = block
+                queued[block] = true
+            end
+        end
+        local at: integer = 1
+        while at <= #work do
+            local block = work[at]
+            at = at + 1
+            queued[block] = nil
+            local index: integer = 1
+            while index <= #block.params do
+                local param = block.params[index]
+                if block.phis[param] then
+                    local same: string? = nil
+                    local trivial = true
+                    for _, pred in ipairs(block.preds) do
+                        for _, t in ipairs(pred.term.targets) do
+                            if t.block == block then
+                                local operand = resolve(t.args[index])
+                                if operand ~= param and operand ~= same then
+                                    if same == nil then
+                                        same = operand
+                                    else
+                                        trivial = false
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if trivial and same ~= nil then
+                        alias[param] = same as string
+                        table.remove(block.params, index)
+                        table.remove(block.paramTypes, index)
+                        block.phis[param] = nil
+                        for _, pred in ipairs(block.preds) do
+                            for _, t in ipairs(pred.term.targets) do
+                                if t.block == block then
+                                    table.remove(t.args, index)
+                                end
+                            end
+                        end
+                        for _, user in ipairs(users[param] or {}) do
+                            if not queued[user] and next(user.phis) ~= nil then
+                                work[#work + 1] = user
+                                queued[user] = true
+                            end
+                        end
+                    else
+                        index = index + 1
+                    end
+                else
+                    index = index + 1
+                end
+            end
+        end
+        -- Every alias resolved to its final value, keyed by the digits of the
+        -- value it replaces, for one substitution over the printed text.
+        local resolved: {[string]: string} = {}
+        for value in pairs(alias) do
+            resolved[value:sub(2)] = resolve(value)
+        end
 
-        return resolve
+        return resolved
     end
 
     local function print(name: string, signature: string, preamble: {string}): string
-        local resolve = removeTrivialPhis()
+        local resolved = removeTrivialPhis()
+        local aliased = next(resolved) ~= nil
 
-        local function substitute(text: string): string
-            return (text:gsub("v(%d+)", function(digits: string): string
-                return resolve("v" .. digits)
-            end))
+        -- Values are substituted once, over the whole body, by a table
+        -- lookup per occurrence; the body needs no pass at all when no
+        -- parameter was dropped.
+        local function resolve(value: string): string
+            return resolved[value:sub(2)] or value
         end
 
         local out = {}
@@ -314,7 +355,7 @@ function ssa.new(): ssa.Builder
             out[#out + 1] = ""
             out[#out + 1] = "block" .. tostring(block.id) .. "(" .. table.concat(params, ", ") .. "):"
             for _, text in ipairs(block.lines) do
-                out[#out + 1] = "    " .. substitute(text)
+                out[#out + 1] = "    " .. text
             end
             local term = need(block.term, "block without a terminator in " .. name)
 
@@ -336,15 +377,19 @@ function ssa.new(): ssa.Builder
                     term.cond
                 ) .. ", " .. target(term.targets[1]) .. ", " .. target(term.targets[2])
             elseif term.kind == "text" then
-                out[#out + 1] = "    " .. substitute(term.text)
+                out[#out + 1] = "    " .. term.text
             else
-                out[#out + 1] = "    return " .. substitute(table.concat(term.values, ", "))
+                out[#out + 1] = "    return " .. table.concat(term.values, ", ")
             end
         end
         out[#out + 1] = "}"
         out[#out + 1] = ""
+        local text = table.concat(out, "\n")
+        if aliased then
+            text = text:gsub("v(%d+)", resolved)
+        end
 
-        return table.concat(out, "\n")
+        return text
     end
 
     b = new ssa.Builder(

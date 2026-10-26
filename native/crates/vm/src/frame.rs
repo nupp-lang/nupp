@@ -147,13 +147,14 @@ impl Interp {
                         calltab: self.calltab.as_ptr() as i64,
                         probe: if self.linked_frames.is_empty() { self.shape_probe.as_ptr() as i64 } else { 0 },
                         callee_info: self.jit.as_ref().map(|j| j.callee_info.clone()).unwrap_or_default(),
+                        guest: self.guest_jit,
                     };
                     let worker = self.jit_worker.get_or_insert_with(|| Box::new(crate::jit::Worker::start()));
                     if worker.submit(job) { return 0; }
                     self.jit_background = false;
                 }
                 #[cfg(all(feature = "aot", feature = "native-runtime"))]
-                if crate::jit_glue::guest_mode() {
+                if self.guest_jit {
                     // The Nupp emitter compiles the frame entry; a function
                     // it refuses stays interpreted.
                     if self.jit.is_none() { return 0; }
@@ -239,7 +240,7 @@ impl Interp {
             return Ok(pc);
         }
         #[cfg(all(feature = "aot", feature = "native-runtime"))]
-        if crate::jit_glue::guest_mode() { return self.run_guest_frame(tid, fid, pc, entry); }
+        if self.guest_jit { return self.run_guest_frame(tid, fid, pc, entry); }
         crate::compiled::CTX.store(self, Ordering::Relaxed);
         let frame = self.tasks[tid].cur();
         let header = unsafe { self.tasks[tid].stack.as_mut_ptr().add(frame) };
