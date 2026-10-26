@@ -950,9 +950,16 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         dirty[r] = nil
     end
 
+    -- What guards proved about values the account holds: `table` for a
+    -- table, `rec:N` for a record of shape N. An object's kind and a
+    -- record's shape never change (contracts 2.5), so a fact holds for as
+    -- long as its value is in hand.
+    local kinds: {[string]: string} = {}
+
     local function forgetAll(): nil
         cache = {}
         dirty = {}
+        kinds = {}
     end
 
     -- The account as it stands, copied, for paths that branch and rejoin:
@@ -960,19 +967,27 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local function snapshot(): {any}
         local c: {[integer]: string} = {}
         local d: {[integer]: boolean} = {}
+        local f: {[string]: string} = {}
         for r, v in pairs(cache) do
             c[r] = v
         end
         for r in pairs(dirty) do
             d[r] = true
         end
+        for v, kind in pairs(kinds) do
+            f[v] = kind
+        end
 
-        return {c, d}
+        return {c, d, f}
     end
 
     local function restore(saved: {any}): nil
         cache = {}
         dirty = {}
+        kinds = {}
+        for v, kind in pairs((saved[3] or {}) as {[string]: string}) do
+            kinds[v] = kind
+        end
         for r, v in pairs(saved[1] as {[integer]: string}) do
             cache[r] = v
         end
@@ -1420,10 +1435,36 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         b.current = cont.block as ssa.Block
         seal(cont.block as ssa.Block)
         condOf = {}
+        -- A fact the main path proved after the fallback branched off is not
+        -- one the fallback proved.
+        kinds = {}
+        for v, kind in pairs(((cont.before as {any})[3] or {}) as {[string]: string}) do
+            kinds[v] = kind
+        end
         for i, r in ipairs(cont.defs as {integer}) do
             cache[r] = (cont.params as {string})[i]
             dirty[r] = true
         end
+    end
+
+    -- A deoptimization exit: when `cond` fails, the frame is written as the
+    -- interpreter expects it before the instruction at `pc` and the
+    -- interpreter runs from there; compiled code goes on only where it held.
+    -- Unlike a guard's fallback, nothing rejoins, so what the check proved
+    -- stays proved for the code after it. A receiver outside the expected
+    -- kind or shape continues through the interpreter's general path.
+    local function guardExit(cond: string, pc: integer): nil
+        if cond == alwaysTrue then
+            return
+        end
+        local ok = newBlock()
+        local leave = newBlock()
+        b.branch(cond, ok, leave)
+        seal(ok)
+        seal(leave)
+        b.current = leave
+        exitAt(pc)
+        b.current = ok
     end
 
     local function guard(cond: string, pc: integer): nil
@@ -1458,6 +1499,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- inside the loop they are numbers with no check at all.
     local numericAt: {[integer]: {[integer]: boolean}} = {}
 
+    -- Carried registers the loop never writes and uses as a table or as a
+    -- record of one shape: their kind is checked on the edges into the
+    -- header, and inside the loop it is a fact.
+    local kindAt: {[integer]: {[integer]: string}} = {}
+
     -- Jumps into a bytecode block: a loop header takes its carried registers
     -- as arguments, and only the rest of what was written is stored first.
     local function enterBlock(target: integer, from: integer): nil
@@ -1470,8 +1516,38 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local args: {string} = {}
         local passed: {[integer]: boolean} = {}
         local numeric = numericAt[target] or {}
+        local wanted = kindAt[target] or {}
         for i, r in ipairs(regs as {integer}) do
             local value = V(r)
+            local kind = wanted[r]
+            if kind ~= nil and kinds[value] ~= kind then
+                local object = objectOf(value)
+                local ok = newBlock()
+                local leave = newBlock()
+                local isObj = newBlock()
+                b.branch(isObject(value), isObj, leave)
+                seal(isObj)
+                b.current = isObj
+                local cond: string
+                if kind == "table" then
+                    cond = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2"))
+                else
+                    cond = emit(
+                        "band " .. emit(
+                            "icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3")
+                        ) .. ", " .. emit(
+                            "icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k((kind as string):sub(5))
+                        )
+                    )
+                end
+                b.branch(cond, ok, leave)
+                seal(ok)
+                seal(leave)
+                b.current = leave
+                exitAt(from)
+                b.current = ok
+                kinds[value] = kind as string
+            end
             if numeric[r] and not numbers[value] then
                 -- The deoptimization exit: the interpreter resumes at the
                 -- instruction that made the edge (the jump, or the header
@@ -2488,21 +2564,27 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             effect("store notrap " .. value .. ", " .. data .. "+0")
         elseif name == "GetSlot" or name == "GetSlotF" then
             local x = V(num(ins, 2))
-            guard(isObject(x), pc)
+            local known = "rec:" .. ins.operands[4]
             local object = objectOf(x)
-            local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
-            local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
-            guard(emit("band " .. record .. ", " .. shape), pc)
+            -- Keep a successful receiver check for later accesses. Another
+            -- shape takes the interpreter's by-name path through an exit.
+            if kinds[x] ~= known then
+                guardExit(isObject(x), pc)
+                local record = emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("3"))
+                local shape = emit("icmp eq " .. headerU32(object, "Header.aux") .. ", " .. k(ins.operands[4]))
+                guardExit(emit("band " .. record .. ", " .. shape), pc)
+                kinds[x] = known
+            end
             local data = headerWord(object, "Header.aux_ptr")
             local value = emit("load.i64 notrap " .. data .. "+" .. tostring(num(ins, 3) * 8))
             if name == "GetSlot" then
                 local present = emit("icmp ne " .. value .. ", " .. k(guest.NIL))
                 local flags = emit("band " .. headerByte(object, "Header.flags") .. ", " .. k("4"))
                 local plain = emit("icmp eq " .. flags .. ", " .. k("0"))
-                guard(emit("bor " .. present .. ", " .. plain), pc)
+                guardExit(emit("bor " .. present .. ", " .. plain), pc)
                 setV(num(ins, 1), value)
             else
-                guard(isNumber(value), pc)
+                guardExit(isNumber(value), pc)
                 setF(num(ins, 1), unbox(value))
             end
         elseif name == "SetSlot" or name == "SetSlotF" then
@@ -2589,10 +2671,16 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             -- index helper with the key boxed, as the handler's slow path.
             local x = V(num(ins, 2))
             local index = I(num(ins, 3))
-            local miss = stepBlockAt(pc)
-            guardTo(isObject(x), miss)
+            -- The receiver a table, as its type says: a deoptimization exit
+            -- otherwise, so the kind is a fact even where a miss below
+            -- rejoins through the handler.
             local object = objectOf(x)
-            guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
+            if kinds[x] ~= "table" then
+                guardExit(isObject(x), pc)
+                guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+                kinds[x] = "table"
+            end
+            local miss = stepBlockAt(pc)
             local length = headerWord(object, "Header.aux_len")
             local positive = emit("icmp sge " .. index .. ", " .. k("1"))
             local within = emit("icmp ule " .. index .. ", " .. length)
@@ -2618,14 +2706,25 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             else
                 keyWord = V(num(ins, 3))
             end
+            local object = objectOf(x)
+            if name == "GetIdxF" and kinds[x] ~= "table" then
+                -- An array read by a float index: the receiver a table, as
+                -- its type says, or a deoptimization exit.
+                guardExit(isObject(x), pc)
+                guardExit(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), pc)
+                kinds[x] = "table"
+            end
             local miss = stepBlockAt(pc)
-            guard(isObject(x), pc)
+            if kinds[x] ~= "table" then
+                guard(isObject(x), pc)
+            end
             if name == "GetIdx" then
                 guardTo(isNumber(keyWord), miss)
                 d = unbox(keyWord)
             end
-            local object = objectOf(x)
-            guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
+            if kinds[x] ~= "table" then
+                guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
+            end
             local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
             local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
             local within = emit("fcmp le " .. d .. ", " .. length)
@@ -3050,6 +3149,46 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 end
             end
             numericAt[header] = numeric
+            -- Kinds: a register the loop never defines, used as the object
+            -- of a table or record access of one kind throughout.
+            local wanted: {[integer]: string} = {}
+            local conflicted: {[integer]: boolean} = {}
+            local definedIn: {[integer]: boolean} = {}
+            for at = header, last do
+                for r in pairs(live.defs(at)) do
+                    definedIn[r] = true
+                end
+                local ins = fn.code[at + 1]
+                local object: integer? = nil
+                local kind: string? = nil
+                if ins.name == "GetSlot" or ins.name == "GetSlotF" then
+                    object = num(ins, 2)
+                    kind = "rec:" .. ins.operands[4]
+                elseif ins.name == "SetSlot" or ins.name == "SetSlotF" then
+                    object = num(ins, 1)
+                    kind = "rec:" .. ins.operands[4]
+                elseif ins.name == "GetIdx" or ins.name == "GetIdxF" or ins.name == "GetIdxI" then
+                    object = num(ins, 2)
+                    kind = "table"
+                elseif ins.name == "SetIdx" or ins.name == "SetIdxF" or ins.name == "SetIdxI" then
+                    object = num(ins, 1)
+                    kind = "table"
+                end
+                if object ~= nil then
+                    local r = object as integer
+                    if wanted[r] ~= nil and wanted[r] ~= kind then
+                        conflicted[r] = true
+                    end
+                    wanted[r] = kind as string
+                end
+            end
+            local hoisted: {[integer]: string} = {}
+            for _, r in ipairs(regs) do
+                if wanted[r] ~= nil and not conflicted[r] and not definedIn[r] then
+                    hoisted[r] = wanted[r] as string
+                end
+            end
+            kindAt[header] = hoisted
             if #regs > 0 then
                 carriedAt[header] = regs
                 local params: {string} = {}
@@ -3116,12 +3255,16 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local params = carriedParams[pc]
             if params ~= nil then
                 local numeric = numericAt[pc] or {}
+                local wanted = kindAt[pc] or {}
                 for i, r in ipairs(carriedAt[pc] as {integer}) do
                     local value = (params as {string})[i]
                     cache[r] = value
                     dirty[r] = true
                     if numeric[r] then
                         numbers[value] = true
+                    end
+                    if wanted[r] ~= nil then
+                        kinds[value] = wanted[r] as string
                     end
                 end
             end

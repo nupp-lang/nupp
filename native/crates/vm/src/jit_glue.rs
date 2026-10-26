@@ -170,17 +170,6 @@ pub fn plan_text(it: &Interp, fid: u32) -> String {
     calls + &text
 }
 
-/// Where a compiled function's direct body goes: the VM's direct-call
-/// table, two words per function id (the body, then `parameters | frame
-/// words << 8 | 1 << 40`), filled once the body is compiled.
-#[derive(Clone, Copy, Default)]
-pub struct CallRow { pub table: u64, pub count: u64 }
-
-/// The VM's direct-call table, for a compile.
-pub fn call_row(it: &Interp) -> CallRow {
-    CallRow { table: if it.guest_calls.is_empty() { 0 } else { it.guest_calls.as_ptr() as u64 }, count: (it.guest_calls.len() / 2) as u64 }
-}
-
 /// The layout table the emitter reads, as JSON: the glue's fields.
 fn layouts_json() -> String {
     let mut text = String::from("{");
@@ -378,9 +367,8 @@ impl Emitter {
     }
 
     /// Describes, emits and compiles `f` under `plan` (what feedback lets its
-    /// sites assume): the frame entry's address, or why not. A direct body,
-    /// when the emitter made one, goes into its row of the call table.
-    pub fn compile_function(&mut self, f: &Function, fid: u32, plan: &str, row: CallRow) -> Result<u64, String> {
+    /// sites assume): its frame entry and optional direct-call row, or why not.
+    pub fn compile_function(&mut self, f: &Function, fid: u32, plan: &str) -> Result<crate::jit::FrameEntry, String> {
         let started = std::time::Instant::now();
         let sites = field_sites(f);
         let caches = if sites == 0 { 0 } else {
@@ -410,21 +398,15 @@ impl Emitter {
         self.compiled += 1;
         let name = format!("guest_{fid}");
         let entry = compiled.get(&name).map(|(address, _)| *address).ok_or("no frame entry in the emitted text")?;
-        // A body whose parameters past the context, the frame and the pc are
-        // the function's own is a direct one: its row is filled, the body
-        // first, so a caller that sees the info sees the body.
-        if let Some(&(body, params)) = compiled.get(&format!("{name}_body")) {
-            if std::env::var_os("JIT_GUEST_NO_DIRECT").is_none() && (fid as u64) < row.count && row.table != 0 && params == 3 + f.nparams as usize && !f.vararg && f.sig.iter().all(|&c| c == b'v') && !f.code.iter().any(|op| matches!(op, crate::interp::Op::RetN(..))) {
-                let info = (f.nparams as u64) | ((f.frame_words() as u64) << 8) | (1u64 << 40);
-                unsafe {
-                    let slot = (row.table as *mut u64).add(2 * fid as usize);
-                    std::ptr::write_volatile(slot, body);
-                    std::sync::atomic::fence(std::sync::atomic::Ordering::Release);
-                    std::ptr::write_volatile(slot.add(1), info);
-                }
-            }
-        }
-        Ok(entry)
+        // Return the row with the frame entry. Only the VM thread installs
+        // it, after the completion channel transfers the compiled result.
+        let direct = compiled.get(&format!("{name}_body")).and_then(|&(body, params)| {
+            if std::env::var_os("JIT_GUEST_NO_DIRECT").is_none() && params == 3 + f.nparams as usize && !f.vararg && f.sig.iter().all(|&c| c == b'v') && !f.code.iter().any(|op| matches!(op, crate::interp::Op::RetN(..))) {
+                Some([body, (f.nparams as u64) | ((f.frame_words() as u64) << 8) | (1u64 << 40)])
+            } else { None }
+        });
+        if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: compiled {}", f.name); }
+        Ok(crate::jit::FrameEntry { address: entry, direct })
     }
 }
 
@@ -461,7 +443,7 @@ impl Drop for Isolation {
 /// Compiles `f` with this thread's emitter. `JIT_GUEST_ONLY=a,b` compiles
 /// those functions and nothing else, `JIT_GUEST_SKIP=a,b` everything but
 /// those: the bisection controls.
-pub fn compile_here(f: &Function, fid: u32, plan: &str, row: CallRow) -> Result<u64, String> {
+pub fn compile_here(f: &Function, fid: u32, plan: &str) -> Result<crate::jit::FrameEntry, String> {
     // A module body runs once: compiling it costs more than it can save, and
     // a large one holds up the queue of functions that do run hot
     // (jit-compile-cost.md, "never compile module bodies").
@@ -475,7 +457,7 @@ pub fn compile_here(f: &Function, fid: u32, plan: &str, row: CallRow) -> Result<
     EMITTER.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot.is_none() { *slot = Some(Emitter::new()?); }
-        slot.as_mut().unwrap().compile_function(f, fid, plan, row)
+        slot.as_mut().unwrap().compile_function(f, fid, plan)
     })
 }
 

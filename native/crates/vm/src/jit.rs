@@ -97,17 +97,25 @@ pub type Jit = Compiler<JITModule>;
 /// thread-local), and what is known of each callee.
 pub struct Job { pub fid: u32, pub func: Function, pub closure: i64, pub extra: i64, pub last_nres: i64, pub entries: i64, pub calltab: i64, pub probe: i64, pub callee_info: Vec<(u8, bool)>, /// Compiled by the Nupp emitter rather than the Rust lowering.
     pub guest: bool, /// What feedback lets the emitter assume (`jit_glue::plan_text`).
-    pub plan: String,
-    /// Where a guest function's direct body goes.
-    #[cfg(all(feature = "aot", feature = "native-runtime"))]
-    pub calls: crate::jit_glue::CallRow }
+    pub plan: String }
+
+/// Compiled code and its optional direct-call row. The VM thread publishes
+/// both after receiving the result; a compiler never writes into a live VM.
+pub struct FrameEntry {
+    pub address: u64,
+    pub direct: Option<[u64; 2]>,
+}
+
+impl FrameEntry {
+    fn plain(address: u64) -> Self { Self { address, direct: None } }
+}
 
 /// A compiler thread with a Cranelift module of its own. Hot functions are
 /// queued here and keep running interpreted until their entry is installed,
 /// so no run waits on a compile it may not live to use.
 pub struct Worker {
     jobs: std::sync::mpsc::Sender<Job>,
-    done: std::sync::mpsc::Receiver<(u32, Result<u64, String>)>,
+    done: std::sync::mpsc::Receiver<(u32, Result<FrameEntry, String>)>,
     pub pending: Vec<bool>,
 }
 
@@ -137,9 +145,9 @@ impl Worker {
                 jit.callee_info = job.callee_info;
                 if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("jit worker: job {} ({})", job.fid, job.func.name); }
                 #[cfg(all(feature = "aot", feature = "native-runtime"))]
-                let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid, &job.plan, job.calls) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
+                let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid, &job.plan) } else { jit.compile_frame(&job.func, job.fid).map(|p| FrameEntry::plain(p as u64)) };
                 #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
-                let result = jit.compile_frame(&job.func, job.fid).map(|p| p as u64);
+                let result = jit.compile_frame(&job.func, job.fid).map(|p| FrameEntry::plain(p as u64));
                 if outbox.send((job.fid, result)).is_err() { break; }
             }
         }).expect("cannot start the JIT compiler thread");
@@ -156,7 +164,7 @@ impl Worker {
         self.jobs.send(job).is_ok()
     }
     /// The compiles that finished since the last call.
-    pub fn finished(&mut self) -> Vec<(u32, Result<u64, String>)> {
+    pub fn finished(&mut self) -> Vec<(u32, Result<FrameEntry, String>)> {
         let mut out = Vec::new();
         while let Ok(done) = self.done.try_recv() { self.pending[done.0 as usize] = false; out.push(done); }
         out

@@ -22,6 +22,7 @@ local function capture(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
     return status, (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -37,6 +38,7 @@ local function answer(command)
         file:close()
     end
     os.remove(errors)
+
     return status, output, reported
 end
 
@@ -48,6 +50,7 @@ local function glueTool()
         assert(status == 0, "scripts/vm-cli glue failed: " .. output)
         glue = assert(output:match("([^\r\n]+)%s*$"), "scripts/vm-cli glue named no tool")
     end
+
     return glue
 end
 
@@ -89,6 +92,7 @@ local function layouts()
             return measured(field)
         end
     end
+
     return layoutFn
 end
 
@@ -106,6 +110,7 @@ local function corpusImage()
         assert(status == 0, "native describe failed: " .. described)
         corpus = {path = path, functions = guest.functions(described)}
     end
+
     return corpus
 end
 
@@ -120,6 +125,7 @@ local function functionNamed(name)
         table.sort(names)
         error("the corpus has no function " .. name .. "; it has " .. table.concat(names, " "), 2)
     end
+
     return guest.parse(text)
 end
 
@@ -129,9 +135,13 @@ local function interpret(name, args)
     for index, arg in ipairs(args) do
         words[index] = quote(arg)
     end
-    local status, output, reported = answer(("NO_JIT=1 %s run %s corpus %s %s"):format(
-        quote(glueTool()), quote(corpusImage().path), quote(name), table.concat(words, " ")))
+    local status, output, reported = answer(
+        (
+            "NO_JIT=1 %s run %s corpus %s %s"
+        ):format(quote(glueTool()), quote(corpusImage().path), quote(name), table.concat(words, " "))
+    )
     assert(status == 0, ("interpreter %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
+
     return (output:match("^([^\r\n]*)"))
 end
 
@@ -153,6 +163,7 @@ local function jitRuntime()
         write(image, project.emit(ROOT, "nupp.compiler.clif.guest", extras, "src"))
         jit = {runtime = runtime, image = image}
     end
+
     return jit
 end
 
@@ -165,10 +176,25 @@ local function compiledRun(name, args, background, tasks)
         words[index] = quote(arg)
     end
     local runtime = jitRuntime()
-    local status, output, reported = answer(("NUPP_JIT_IMAGE=%s JIT_VERIFY=1 JIT_FRAME_THRESHOLD=1 JIT_BACKGROUND=%d %s run %s corpus %s %s %s"):format(
-        quote(runtime.image), background and 1 or 0, quote(runtime.runtime), quote(corpusImage().path), quote(name),
-        table.concat(words, " "), tasks and "--tasks" or ""))
+    local status, output, reported = answer(
+        (
+            "env -u NO_JIT NO_AOT=1 NUPP_JIT_IMAGE=%s JIT_GUEST_TRACE=1 JIT_VERIFY=1 JIT_FRAME_THRESHOLD=1 JIT_BACKGROUND=%d %s run %s corpus %s %s %s"
+        ):format(
+            quote(runtime.image),
+            background and 1 or 0,
+            quote(runtime.runtime),
+            quote(corpusImage().path),
+            quote(name),
+            table.concat(words, " "),
+            tasks and "--tasks" or ""
+        )
+    )
     assert(status == 0, ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
+    if not background then
+        local compiled = "guest jit: compiled " .. functionNamed(name).name
+        assert(reported:find(compiled, 1, true), "the JIT did not compile " .. name .. ": " .. reported)
+    end
+
     return (output:match("^([^\r\n]*)"))
 end
 
@@ -184,6 +210,7 @@ local function compiledFile(name)
         write(path, guest.harness(fn, clif, layouts()))
         compiled[name] = {path = path, fid = fn.fid}
     end
+
     return compiled[name]
 end
 
@@ -195,9 +222,13 @@ local function run(name, args, asWord)
         words[index] = quote(arg)
     end
     local harness = (asWord and "word_" or "run_") .. tostring(entry.fid)
-    local status, output = capture(("%s native jit %s %s %s"):format(
-        quote(glueTool()), quote(entry.path), quote(harness), table.concat(words, " ")))
+    local status, output = capture(
+        (
+            "%s native jit %s %s %s"
+        ):format(quote(glueTool()), quote(entry.path), quote(harness), table.concat(words, " "))
+    )
     assert(status == 0, ("compiled %s(%s): %s"):format(name, table.concat(args, ", "), output))
+
     return (output:gsub("%s+$", ""))
 end
 
@@ -206,21 +237,41 @@ local FALSE = "9221683186994511872"
 
 -- {function, arguments}: numbers compared as numbers, booleans as words.
 local NUMERIC = {
-    {"sum", {0}}, {"sum", {100}}, {"sum", {1000}},
-    {"collatz", {27}}, {"collatz", {1}}, {"collatz", {97}},
-    {"nested", {10}}, {"nested", {0}}, {"nested", {25}},
-    {"clamp", {0.5, 0, 1}}, {"clamp", {-3.25, 0, 1}}, {"clamp", {7, 0, 1}},
-    {"mean", {1, 2}}, {"mean", {-1, 0}},
-    {"floorMod", {7, 3}}, {"floorMod", {-7, 3}}, {"floorMod", {7, -3}}, {"floorMod", {5.5, 2}},
-    {"scaled", {2}}, {"scaled", {0}},
-    {"countdown", {5}}, {"countdown", {0}},
-    {"firstSquareAbove", {50}}, {"firstSquareAbove", {0}},
+    {"sum", {0}},
+    {"sum", {100}},
+    {"sum", {1000}},
+    {"collatz", {27}},
+    {"collatz", {1}},
+    {"collatz", {97}},
+    {"nested", {10}},
+    {"nested", {0}},
+    {"nested", {25}},
+    {"clamp", {0.5, 0, 1}},
+    {"clamp", {-3.25, 0, 1}},
+    {"clamp", {7, 0, 1}},
+    {"mean", {1, 2}},
+    {"mean", {-1, 0}},
+    {"floorMod", {7, 3}},
+    {"floorMod", {-7, 3}},
+    {"floorMod", {7, -3}},
+    {"floorMod", {5.5, 2}},
+    {"scaled", {2}},
+    {"scaled", {0}},
+    {"countdown", {5}},
+    {"countdown", {0}},
+    {"firstSquareAbove", {50}},
+    {"firstSquareAbove", {0}},
 }
 
 local BOOLEAN = {
-    {"between", {5, 1, 10}}, {"between", {0, 1, 10}}, {"between", {10, 1, 10}},
-    {"same", {1, 1}}, {"same", {1, 2}}, {"same", {0, -0}},
-    {"differ", {1, 1}}, {"differ", {1, 2}},
+    {"between", {5, 1, 10}},
+    {"between", {0, 1, 10}},
+    {"between", {10, 1, 10}},
+    {"same", {1, 1}},
+    {"same", {1, 2}},
+    {"same", {0, -0}},
+    {"differ", {1, 1}},
+    {"differ", {1, 2}},
 }
 
 function M.numericFunctionsAnswerAsTheInterpreterDoes()
@@ -250,12 +301,31 @@ end
 -- driver, with calls nested natively where the callee has an entry and
 -- handed to the interpreter where it does not.
 local GUEST = {
-    {"sum", {1000}}, {"collatz", {97}}, {"nested", {25}}, {"clamp", {7, 0, 1}}, {"between", {5, 1, 10}},
-    {"mean", {1, 2}}, {"floorMod", {-7, 3}}, {"scaled", {2}}, {"same", {1, 2}}, {"differ", {1, 2}},
-    {"countdown", {5}}, {"firstSquareAbove", {50}},
-    {"fibonacci", {20}}, {"viaHelper", {100}}, {"viaClosure", {50}}, {"viaBuiltin", {100}},
-    {"concatLoop", {10}}, {"tableSum", {100}}, {"multi", {7}}, {"varargs", {4}}, {"depth", {300}},
+    {"sum", {1000}},
+    {"collatz", {97}},
+    {"nested", {25}},
+    {"clamp", {7, 0, 1}},
+    {"between", {5, 1, 10}},
+    {"mean", {1, 2}},
+    {"floorMod", {-7, 3}},
+    {"scaled", {2}},
+    {"same", {1, 2}},
+    {"differ", {1, 2}},
+    {"countdown", {5}},
+    {"firstSquareAbove", {50}},
+    {"fibonacci", {20}},
+    {"viaHelper", {100}},
+    {"viaClosure", {50}},
+    {"viaBuiltin", {100}},
+    {"concatLoop", {10}},
+    {"tableSum", {100}},
+    {"multi", {7}},
+    {"varargs", {4}},
+    {"depth", {300}},
     {"fields", {1000}},
+    {"slots", {1000}},
+    {"mixedSlots", {1000}},
+    {"arrayMiss", {1000}},
 }
 
 function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
@@ -264,22 +334,33 @@ function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
         local expected = interpret(name, args)
         local label = ("%s(%s)"):format(name, table.concat(args, ", "))
         local inline = compiledRun(name, args, false, false)
-        assert(inline == expected, label .. ": in line, plain call: interpreter " .. expected .. ", compiled " .. inline)
+        assert(
+            inline == expected,
+            label .. ": in line, plain call: interpreter " .. expected .. ", compiled " .. inline
+        )
         local scheduled = compiledRun(name, args, true, true)
-        assert(scheduled == expected, label .. ": compiler thread, scheduled: interpreter " .. expected .. ", compiled " .. scheduled)
+        assert(
+            scheduled == expected,
+            label .. ": compiler thread, scheduled: interpreter " .. expected .. ", compiled " .. scheduled
+        )
     end
 end
 
 function M.theEmitterRefusesVectorCodeAndJumpTables()
-    local fn = guest.parse(table.concat({
-        "function switched 0 1 4 1 v:v",
-        "  table 0 0 1",
-        "  IUnbox 0 1",
-        "  Switch 0 0",
-        "  RetNil",
-        "  RetNil",
-        "end",
-    }, "\n"))
+    local fn = guest.parse(
+        table.concat(
+            {
+                "function switched 0 1 4 1 v:v",
+                "  table 0 0 1",
+                "  IUnbox 0 1",
+                "  Switch 0 0",
+                "  RetNil",
+                "  RetNil",
+                "end",
+            },
+            "\n"
+        )
+    )
     local clif, reason = guest.emit(fn, layouts(), {nested = 0})
     assert(clif == nil and reason:find("Switch"), "a jump table was accepted: " .. tostring(reason))
     local vectors = guest.parse("function vectors 0 1 4 1 v:v\n  VAdd 0 0 0\n  RetNil\nend\n")

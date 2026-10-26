@@ -152,8 +152,6 @@ impl Interp {
                         plan: if self.guest_jit { crate::jit_glue::plan_text(self, fid) } else { String::new() },
                         #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                         plan: String::new(),
-                        #[cfg(all(feature = "aot", feature = "native-runtime"))]
-                        calls: crate::jit_glue::call_row(self),
                     };
                     let worker = self.jit_worker.get_or_insert_with(|| Box::new(crate::jit::Worker::start()));
                     if worker.submit(job) { return 0; }
@@ -165,9 +163,9 @@ impl Interp {
                     // it refuses stays interpreted.
                     if self.jit.is_none() { return 0; }
                     let plan = crate::jit_glue::plan_text(self, fid);
-                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid, &plan, crate::jit_glue::call_row(self));
+                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid, &plan);
                     if let Err(reason) = &result { if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: {} refused: {reason}", self.funcs[fid as usize].name); } }
-                    self.frame_entries[fid as usize] = result.unwrap_or(u64::MAX);
+                    self.frame_entries[fid as usize] = self.install_frame_result(fid, result);
                     return self.frame_entries[fid as usize];
                 }
                 let Some(mut jit) = self.jit.take() else {
@@ -205,10 +203,25 @@ impl Interp {
             self.frame_entries.resize(self.funcs.len(), 0);
         }
         for (fid, result) in finished {
-            if let Some(slot) = self.frame_entries.get_mut(fid as usize) {
-                if *slot == 0 { *slot = result.unwrap_or(u64::MAX); }
+            if self.frame_entries.get(fid as usize) == Some(&0) {
+                self.frame_entries[fid as usize] = self.install_frame_result(fid, result);
             }
         }
+    }
+
+    /// The VM owns publication of compiled code, including the direct-call
+    /// row. Background jobs carry addresses only in emitted text and never
+    /// dereference a table that may have died while they were compiling.
+    #[cfg(feature = "jit")]
+    fn install_frame_result(&mut self, fid: u32, result: Result<crate::jit::FrameEntry, String>) -> u64 {
+        let Ok(compiled) = result else { return u64::MAX };
+        if let Some(direct) = compiled.direct {
+            let start = 2 * fid as usize;
+            if let Some(row) = self.guest_calls.get_mut(start..start + 2) {
+                row.copy_from_slice(&direct);
+            }
+        }
+        compiled.address
     }
 
     /// Compile before entering a timed workload, using the same entries as
@@ -341,6 +354,21 @@ mod tests {
         scheduler::Status,
         value::Value,
     };
+
+    #[test]
+    fn compiled_results_publish_direct_rows_on_the_vm_thread() {
+        let mut vm = Interp::new();
+        vm.guest_calls = vec![0; 4];
+        let compiled = crate::jit::FrameEntry { address: 17, direct: Some([23, 41]) };
+        assert_eq!(vm.install_frame_result(1, Ok(compiled)), 17);
+        assert_eq!(vm.guest_calls, [0, 0, 23, 41]);
+        assert_eq!(vm.install_frame_result(1, Err("refused".into())), u64::MAX);
+        assert_eq!(vm.guest_calls, [0, 0, 23, 41]);
+        let late = crate::jit::FrameEntry { address: 53, direct: Some([59, 61]) };
+        assert_eq!(vm.install_frame_result(2, Ok(late)), 53);
+        assert_eq!(vm.guest_calls, [0, 0, 23, 41]);
+    }
+
     fn native_vm(source: &str) -> Box<Interp> {
         let mut vm = Box::new(Interp::new());
         crate::image::load(&mut vm, source).unwrap();

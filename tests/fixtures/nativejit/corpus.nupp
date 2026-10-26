@@ -240,3 +240,44 @@ export function fields(n: number): number
 
     return t.x + p.x + t.y + q.z
 end
+
+export function slots(n: number): number
+    local p = new Pair(x = 1, y = 2)
+    local total = 0
+    for i = 1, n do
+        total = total + p.x + p.y
+        p.x = p.x + i
+    end
+
+    return total
+end
+
+export function mixedSlots(n: number): number
+    local p: any = new Pair(x = 1, y = 2)
+    local q: any = new Triple(x = 3, y = 4, z = 5)
+    local total = 0
+    for i = 1, n do
+        local r = p as Pair
+        if i % 2 == 0 then
+            r = q as Pair
+        end
+        total = total + r.x + r.y
+    end
+
+    return total
+end
+
+export function arrayMiss(n: integer): number
+    local values: {number} = {1, 2}
+    setmetatable(values, {
+        __index = function(t: any, key: number): number
+            return key * 3
+        end,
+    })
+    local total = 0
+    for i = 1, n do
+        total = total + values[i] + values[1]
+    end
+
+    return total
+end

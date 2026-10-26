@@ -565,7 +565,7 @@ pub struct Interp {
     /// context; a VM whose entries are Rust-lowered (linked AOT, the Rust
     /// JIT) keeps this off.
     pub guest_jit: bool,
-    /// The direct-call table of a guest-JIT VM (`jit_glue::CallRow`): two
+    /// The direct-call table of a guest-JIT VM (installed with frame entries): two
     /// words per function id, allocated once with room for images loaded
     /// later, since compiled code holds its address.
     pub guest_calls: Vec<u64>,
