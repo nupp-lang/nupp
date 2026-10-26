@@ -1,0 +1,595 @@
+module replay
+
+-- A heap trace recorded from the Rust heap (`heap_trace.rs`), replayed into
+-- the Nupp allocator and collector from standard input. Every allocation is
+-- made again at its kind and size; at each of the Rust collector's
+-- snapshots the references that changed are written into the objects, the
+-- Nupp collector marks from the recorded roots, and its answer is compared
+-- with the objects the Rust collector was about to free:
+--
+-- - `kept`: reachable for Nupp, freed by Rust. Never right.
+-- - `freed`: unreachable for Nupp, kept by Rust in an atomic cycle, where
+--   there is no floating garbage (4.8). Never right.
+-- - `floating`: the same in an incremental cycle: floating garbage.
+--
+-- The replay then frees what Rust freed, so the two heaps stay one heap. It
+-- writes its counts to standard output and answers the disagreements.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+
+-- The replay's state, in the arena it opens.
+local struct Replay
+    h: heap.Heap*
+    input: uint64
+    length: uint64
+    position: uint64
+    ended: boolean
+
+    -- Object by id, less one; zero once freed.
+    objects: heap.Words*
+    roots: heap.Words*
+
+    -- Free lists of the external buffers by power-of-two words, and the arena
+    -- the small ones come from.
+    buffers: uint64
+    buffersArena: arena.Arena*
+
+    atomic: boolean
+    snapshots: uint64
+    atomicSnapshots: uint64
+    compared: uint64
+    kept: uint64
+    freed: uint64
+    floating: uint64
+    missing: uint64
+    dangling: uint64
+    malformed: uint64
+    allocations: uint64
+    reported: uint64
+end
+
+const INPUT_BYTES: uint64 = 1048576
+const BUFFER_CLASSES: uint64 = 18
+const RUST_DEAD: uint64 = 128
+
+-- ---- input -------------------------------------------------------------------------
+
+local function nextByte(r: Replay*): uint64
+    @unsafe do
+        if r.position == r.length then
+            local got = os.readInput(native.pointer(r.input), INPUT_BYTES)
+            if got <= 0 then
+                r.ended = true
+                return 0
+            end
+            r.length = native.word(got)
+            r.position = 0
+        end
+        local byte = native.word(native.load8(native.pointer(r.input), native.index(r.position)))
+        r.position = r.position + 1
+        return byte
+    end
+end
+
+local function number(r: Replay*): uint64
+    @unsafe do
+        local result: uint64 = 0
+        local shift: uint64 = 0
+        while true do
+            local byte = nextByte(r)
+            result = result | ((byte & 127) << shift)
+            if byte < 128 or r.ended then
+                break
+            end
+            shift = shift + 7
+        end
+        return result
+    end
+end
+
+-- ---- output -----------------------------------------------------------------------
+
+local function writeCount(r: Replay*, label: uint64, labelBytes: uint64, count: uint64): nil
+    @unsafe do
+        -- The label's bytes, packed little-endian in a word, then a space, the
+        -- decimal count and a newline.
+        local out = native.pointer(r.input)
+        native.store64(out, 0, label)
+        local at = labelBytes
+        native.store32(out, native.index(at), 32)
+        at = at + 1
+        local digits: uint64 = 1
+        local scale: uint64 = 1
+        while count // scale >= 10 do
+            scale = scale * 10
+            digits = digits + 1
+        end
+        while scale > 0 do
+            native.store32(out, native.index(at), native.index((count // scale) % 10 + 48))
+            at = at + 1
+            scale = scale // 10
+        end
+        native.store32(out, native.index(at), 10)
+        os.writeOutput(out, at + 1)
+    end
+end
+
+-- ---- external buffers -----------------------------------------------------------
+
+local function classOfWords(words: uint64): uint64
+    local class: uint64 = 0
+    while (1ULL << class) < words do
+        class = class + 1
+    end
+
+    return class
+end
+
+-- A buffer of at least `words` words, from its class's free list or the
+-- arena, or a mapping of its own past the largest class.
+local function bufferTake(r: Replay*, words: uint64): uint64
+    @unsafe do
+        local class = classOfWords(words)
+        if class >= BUFFER_CLASSES then
+            local mapped = os.mapPages((1ULL << class) * 8)
+            if mapped == nil then
+                error("replay: no room for a buffer")
+            end
+            return native.address(mapped)
+        end
+        local head = native.load64(native.pointer(r.buffers), native.index(class * 8))
+        if head ~= 0 then
+            native.store64(native.pointer(r.buffers), native.index(class * 8), native.load64(native.pointer(head), 0))
+            return head
+        end
+        local raw = arena.alloc(r.buffersArena, (1ULL << class) * 8, 8)
+        if raw == nil then
+            error("replay: no room for a buffer")
+        end
+        return native.address(raw)
+    end
+end
+
+local function bufferGive(r: Replay*, buffer: uint64, words: uint64): nil
+    @unsafe do
+        if buffer == 0 then
+            return
+        end
+        local class = classOfWords(words)
+        if class >= BUFFER_CLASSES then
+            os.unmapPages(native.pointer(buffer), (1ULL << class) * 8)
+            return
+        end
+        native.store64(native.pointer(buffer), 0, native.load64(native.pointer(r.buffers), native.index(class * 8)))
+        native.store64(native.pointer(r.buffers), native.index(class * 8), buffer)
+    end
+end
+
+-- What an object owns outside its slot, given back: a table's parts, a
+-- record's array part, an iterator's keys.
+local function releaseBuffers(r: Replay*, o: heap.Header*): nil
+    @unsafe do
+        local kind = o.kind as uint64
+        local body = native.address(o as voidptr) + heap.HEADER_BYTES
+        if kind == heap.KIND_TABLE then
+            local t = native.pointer(body) as heap.TableBody*
+            bufferGive(r, t.arrayPtr, t.arrayCap)
+            bufferGive(r, t.hashPtr, t.hashCap * 2)
+            t.arrayPtr = 0
+            t.arrayLen = 0
+            t.arrayCap = 0
+            t.hashPtr = 0
+            t.hashCap = 0
+            t.hashLen = 0
+            o.auxPtr = 0
+            o.auxLen = 0
+        elseif kind == heap.KIND_RECORD then
+            local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
+            bufferGive(r, tail.arrayPtr, tail.arrayCap)
+            tail.arrayPtr = 0
+            tail.arrayLen = 0
+            tail.arrayCap = 0
+        elseif kind == heap.KIND_ITER then
+            bufferGive(r, o.auxPtr, o.auxLen)
+            o.auxPtr = 0
+            o.auxLen = 0
+        end
+    end
+end
+
+-- ---- objects ----------------------------------------------------------------------
+
+local function objectAt(r: Replay*, id: uint64): uint64
+    @unsafe do
+        if id == 0 or id > r.objects.count then
+            return 0
+        end
+        return heap.wordAt(r.objects, id - 1)
+    end
+end
+
+-- The value a recorded child names: nil (0), a value that is not an object
+-- (1, replayed as `true`), or an object (its id plus one).
+local function childValue(r: Replay*, child: uint64): uint64
+    @unsafe do
+        if child == 0 then
+            return values.NIL
+        end
+        if child == 1 then
+            return values.TRUE
+        end
+        local address = objectAt(r, child - 1)
+        if address == 0 then
+            r.dangling = r.dangling + 1
+            return values.NIL
+        end
+        return values.TAG_OBJ | address
+    end
+end
+
+local function fillNil(base: uint64, words: uint64): nil
+    local i: uint64 = 0
+    while i < words do
+        native.store64(native.pointer(base), native.index(i * 8), values.NIL)
+        i = i + 1
+    end
+end
+
+-- An allocation made again: the slot of its class, its payload laid out
+-- empty as its kind's constructor would leave it.
+local function allocateAgain(r: Replay*, kind: uint64, size: uint64): nil
+    @unsafe do
+        local h = r.h
+        local inline: uint64 = 0
+        if size > heap.HEADER_BYTES then
+            inline = size - heap.HEADER_BYTES
+        end
+        local o = heap.allocRaw(h, kind, inline)
+        local body = native.address(o as voidptr) + heap.HEADER_BYTES
+        if kind == heap.KIND_TABLE then
+            local t = native.pointer(body) as heap.TableBody*
+            t.arrayPtr = 0
+            t.arrayLen = 0
+            t.arrayCap = 0
+            t.hashPtr = 0
+            t.hashMask = 0
+            t.hashCap = 0
+            t.hashLen = 0
+            t.hashOrder = 0
+            t.hashRank = 0
+            t.meta = values.NIL
+            o.auxPtr = 0
+        elseif kind == heap.KIND_RECORD then
+            local slots: uint64 = 0
+            if inline >= 32 then
+                slots = (inline - 32) // 8
+            end
+            o.auxLen = slots
+            fillNil(body, slots)
+            local tail = native.pointer(body + slots * 8) as heap.RecordTail*
+            tail.arrayPtr = 0
+            tail.arrayLen = 0
+            tail.arrayCap = 0
+            tail.extra = 0
+        elseif kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
+            o.auxLen = inline // 8
+            fillNil(body, inline // 8)
+        elseif kind == heap.KIND_SLICE or kind == heap.KIND_USERDATA then
+            fillNil(body, 2)
+        elseif kind == heap.KIND_ITER then
+            fillNil(body, 2)
+            o.auxPtr = 0
+        elseif kind == heap.KIND_STR and inline >= 9 then
+            o.auxPtr = body + 8
+            o.auxLen = inline - 9
+        end
+        heap.wordsPush(r.objects, native.address(o as voidptr))
+        r.allocations = r.allocations + 1
+    end
+end
+
+-- Reads `count` children into a fresh buffer of values.
+local function childrenInto(r: Replay*, buffer: uint64, count: uint64): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < count do
+            native.store64(native.pointer(buffer), native.index(i * 8), childValue(r, number(r)))
+            i = i + 1
+        end
+    end
+end
+
+local function skipChildren(r: Replay*, count: uint64): nil
+    local i: uint64 = 0
+    while i < count do
+        number(r)
+        i = i + 1
+    end
+end
+
+-- An object's references, as the snapshot recorded them, written into its
+-- layout: slots, a table's metatable, array and hash parts, a record's array
+-- part past its slots, an iterator's keys.
+local function setChildren(r: Replay*): nil
+    @unsafe do
+        local id = number(r)
+        local info = number(r)
+        local count = number(r)
+        local address = objectAt(r, id)
+        if address == 0 then
+            r.missing = r.missing + 1
+            skipChildren(r, count)
+            return
+        end
+        local o = native.pointer(address) as heap.Header*
+        local kind = o.kind as uint64
+        local body = address + heap.HEADER_BYTES
+        if kind == heap.KIND_TABLE then
+            releaseBuffers(r, o)
+            local t = native.pointer(body) as heap.TableBody*
+            local left = count
+            t.meta = values.NIL
+            if info & 4 ~= 0 then
+                t.meta = childValue(r, number(r))
+                left = left - 1
+            end
+            local arrayCount = info >> 3
+            if arrayCount > 0 then
+                local array = bufferTake(r, arrayCount)
+                childrenInto(r, array, arrayCount)
+                t.arrayPtr = array
+                t.arrayLen = arrayCount
+                t.arrayCap = 1ULL << classOfWords(arrayCount)
+                o.auxPtr = array
+                o.auxLen = arrayCount
+                left = left - arrayCount
+            end
+            if left > 0 then
+                local pairs = left // 2
+                local hash = bufferTake(r, pairs * 2)
+                childrenInto(r, hash, pairs * 2)
+                t.hashPtr = hash
+                t.hashCap = pairs
+                t.hashLen = pairs
+                t.hashMask = 0
+            end
+            o.aux = info & 3
+        elseif kind == heap.KIND_RECORD then
+            local slots = o.auxLen
+            local inSlots = count
+            if inSlots > slots then
+                inSlots = slots
+            end
+            fillNil(body, slots)
+            childrenInto(r, body, inSlots)
+            local tail = native.pointer(body + slots * 8) as heap.RecordTail*
+            bufferGive(r, tail.arrayPtr, tail.arrayCap)
+            tail.arrayPtr = 0
+            tail.arrayLen = 0
+            tail.arrayCap = 0
+            if count > slots then
+                local rest = count - slots
+                local array = bufferTake(r, rest)
+                childrenInto(r, array, rest)
+                tail.arrayPtr = array
+                tail.arrayLen = rest
+                tail.arrayCap = 1ULL << classOfWords(rest)
+            end
+        elseif kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
+            local slots = o.auxLen
+            if count > slots then
+                r.malformed = r.malformed + 1
+                childrenInto(r, body, slots)
+                skipChildren(r, count - slots)
+            else
+                fillNil(body, slots)
+                childrenInto(r, body, count)
+            end
+        elseif kind == heap.KIND_SLICE or kind == heap.KIND_USERDATA or kind == heap.KIND_ITER then
+            fillNil(body, 2)
+            local inBody = count
+            if inBody > 2 then
+                inBody = 2
+            end
+            childrenInto(r, body, inBody)
+            if kind == heap.KIND_ITER then
+                bufferGive(r, o.auxPtr, o.auxLen)
+                o.auxPtr = 0
+                o.auxLen = 0
+                if count > 2 then
+                    local keys = bufferTake(r, count - 2)
+                    childrenInto(r, keys, count - 2)
+                    o.auxPtr = keys
+                    o.auxLen = count - 2
+                end
+            elseif count > 2 then
+                r.malformed = r.malformed + 1
+                skipChildren(r, count - 2)
+            end
+        else
+            r.malformed = r.malformed + 1
+            skipChildren(r, count)
+        end
+    end
+end
+
+local function setRoots(r: Replay*): nil
+    @unsafe do
+        local count = number(r)
+        r.roots.count = 0
+        local i: uint64 = 0
+        while i < count do
+            heap.wordsPush(r.roots, childValue(r, number(r)))
+            i = i + 1
+        end
+    end
+end
+
+-- Compares the Nupp collector's marking with the objects Rust is about to
+-- free, then frees exactly those.
+local function compareAndSweep(r: Replay*): nil
+    @unsafe do
+        local h = r.h
+        collector.register(h, r.roots.base, r.roots.count)
+        collector.markAll(h)
+        collector.unregister(h)
+        local count = number(r)
+        local dead = r.objects
+        local i: uint64 = 0
+        while i < count do
+            local id = number(r)
+            local address = objectAt(r, id)
+            if address == 0 then
+                r.missing = r.missing + 1
+            else
+                local o = native.pointer(address) as heap.Header*
+                o.flags = (o.flags as uint64) | RUST_DEAD
+                heap.setWordAt(dead, id - 1, 0)
+            end
+            i = i + 1
+        end
+        -- Every object: what each collector decided.
+        local c: uint64 = 0
+        while c < h.chunks.count + h.large.count do
+            local base: uint64 = 0
+            local slot: uint64 = 0
+            local used: uint64 = 1
+            if c < h.chunks.count then
+                base = heap.wordAt(h.chunks, c)
+                slot = (native.pointer(base) as heap.ChunkHeader*).slotSize as uint64
+                used = heap.chunkUsed(h, base)
+            end
+            local k: uint64 = 0
+            while k < used do
+                local address: uint64 = 0
+                if c < h.chunks.count then
+                    address = base + heap.CHUNK_HEADER_BYTES + k * slot
+                else
+                    address = heap.wordAt(h.large, c - h.chunks.count)
+                end
+                if address ~= 0 then
+                    local o = native.pointer(address) as heap.Header*
+                    if o.kind as uint64 ~= heap.KIND_FREED then
+                        r.compared = r.compared + 1
+                        local rustDead = (o.flags as uint64) & RUST_DEAD ~= 0
+                        local nuppLive = o.color as uint64 ~= heap.COLOR_WHITE
+                        if rustDead then
+                            if nuppLive then
+                                r.kept = r.kept + 1
+                            end
+                            releaseBuffers(r, o)
+                            o.color = heap.COLOR_WHITE
+                        elseif not nuppLive then
+                            if r.atomic then
+                                r.freed = r.freed + 1
+                            else
+                                r.floating = r.floating + 1
+                            end
+                            o.color = heap.COLOR_BLACK
+                        end
+                    end
+                end
+                k = k + 1
+            end
+            c = c + 1
+        end
+        collector.sweepAll(h)
+    end
+end
+
+-- One snapshot: its header, then references, roots and the dead until its end.
+local function snapshot(r: Replay*): nil
+    @unsafe do
+        number(r)
+        r.atomic = number(r) ~= 0
+        while not r.ended do
+            local tag = number(r)
+            if tag == 2 then
+                setChildren(r)
+            elseif tag == 4 then
+                setRoots(r)
+            elseif tag == 5 then
+                compareAndSweep(r)
+            elseif tag == 6 then
+                break
+            else
+                r.malformed = r.malformed + 1
+                return
+            end
+        end
+        r.snapshots = r.snapshots + 1
+        if r.atomic then
+            r.atomicSnapshots = r.atomicSnapshots + 1
+        end
+    end
+end
+
+-- Replays standard input; writes the counts and answers the disagreements.
+local function replayTrace(): int64
+    @unsafe do
+        with a = arena.openGrowable(1048576) do
+            with small = arena.openGrowable(1048576) do
+                local raw = arena.alloc(a, 512, 8)
+                local input = os.mapPages(INPUT_BYTES)
+                local lists = arena.alloc(a, BUFFER_CLASSES * 8, 8)
+                if raw == nil or input == nil or lists == nil then
+                    return -1
+                end
+                local r = raw as Replay*
+                r.h = heap.create(a)
+                r.h.automatic = false
+                r.input = native.address(input)
+                r.buffers = native.address(lists)
+                r.buffersArena = small
+                local objectsRaw = arena.alloc(a, 24, 8)
+                local rootsRaw = arena.alloc(a, 24, 8)
+                if objectsRaw == nil or rootsRaw == nil then
+                    return -1
+                end
+                r.objects = objectsRaw as heap.Words*
+                r.roots = rootsRaw as heap.Words*
+                -- The magic, `NHT1`.
+                local magic = nextByte(r) | (nextByte(r) << 8) | (nextByte(r) << 16) | (nextByte(r) << 24)
+                if magic ~= 0x3154484e then
+                    return -2
+                end
+                while true do
+                    local tag = number(r)
+                    if r.ended then
+                        break
+                    end
+                    if tag == 1 then
+                        local kind = number(r)
+                        allocateAgain(r, kind, number(r))
+                    elseif tag == 3 then
+                        snapshot(r)
+                    else
+                        r.malformed = r.malformed + 1
+                        break
+                    end
+                end
+                -- Labels are their bytes as one little-endian word.
+                writeCount(r, 0x746f687370616e73ULL, 8, r.snapshots) -- snapshot
+                writeCount(r, 0x63696d6f7461ULL, 6, r.atomicSnapshots) -- atomic
+                writeCount(r, 0x64657261706d6f63ULL, 8, r.compared) -- compared
+                writeCount(r, 0x7470656bULL, 4, r.kept) -- kept
+                writeCount(r, 0x6465657266ULL, 5, r.freed) -- freed
+                writeCount(r, 0x676e6974616f6c66ULL, 8, r.floating) -- floating
+                writeCount(r, 0x676e697373696dULL, 7, r.missing) -- missing
+                writeCount(r, 0x676e696c676e6164ULL, 8, r.dangling) -- dangling
+                writeCount(r, 0x6d726f666c616dULL, 7, r.malformed) -- malform
+                writeCount(r, 0x73636f6c6c61ULL, 6, r.allocations) -- allocs
+                local answer = r.kept + r.freed + r.missing + r.dangling + r.malformed
+                heap.wordsRelease(r.roots)
+                heap.wordsRelease(r.objects)
+                heap.destroy(r.h)
+                os.unmapPages(input, INPUT_BYTES)
+                return native.index(answer)
+            end
+        end
+    end
+end

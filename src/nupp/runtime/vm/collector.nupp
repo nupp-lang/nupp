@@ -454,55 +454,93 @@ local function sweepSome(h: heap.Heap*, work: uint64): boolean
     end
 end
 
+--- Marks with up to `budget` gray objects (4.6): when none remain the
+--- mutable roots are rescanned, and when that grays nothing marking ends and
+--- the sweep is set at the first slot. Answers the budget left.
+local function markSome(h: heap.Heap*, budget: uint64): uint64
+    @unsafe do
+        local left = budget
+        while true do
+            while left > 0 do
+                local gray = heap.grayPop(h)
+                if gray == 0 then
+                    break
+                end
+                scanObject(h, native.pointer(gray) as heap.Header*)
+                left = left - 1
+            end
+            if left == 0 then
+                return 0
+            end
+            walkRoots(h, false, nil)
+            if heap.grayEmpty(h) then
+                break
+            end
+        end
+        h.phase = heap.PHASE_SWEEPING
+        h.marking = 0
+        h.sweepChunk = 0
+        h.sweepSlot = 0
+        h.sweepLarge = 0
+        return left
+    end
+end
+
+--- Sweeps with up to `work` objects; when the sweep is done the cycle ends
+--- and the next threshold is twice what survived (4.10).
+local function sweepPart(h: heap.Heap*, work: uint64): nil
+    @unsafe do
+        if sweepSome(h, work) then
+            compactLarge(h)
+            h.phase = heap.PHASE_IDLE
+            if h.liveBytes > h.stats.peakLive then
+                h.stats.peakLive = h.liveBytes
+            end
+            h.threshold = h.liveBytes * 2
+            if h.threshold < 1048576 then
+                h.threshold = 1048576
+            end
+        end
+    end
+end
+
 --- One increment of work (`Heap::step`): marking drains up to `budget` gray
---- objects; when none remain the roots are rescanned, weak entries settled,
---- and sweeping begins, which frees or whitens up to four times the budget.
+--- objects and, once it ends, sweeping frees or whitens up to four times
+--- what is left of it.
 export function step(h: heap.Heap*, budget: uint64): nil
     @unsafe do
         h.stats.steps = h.stats.steps + 1
         local left = budget
-        while true do
+        if h.phase == heap.PHASE_MARKING then
+            left = markSome(h, left)
             if h.phase == heap.PHASE_MARKING then
-                while left > 0 do
-                    local gray = heap.grayPop(h)
-                    if gray == 0 then
-                        break
-                    end
-                    scanObject(h, native.pointer(gray) as heap.Header*)
-                    left = left - 1
-                end
-                if left == 0 then
-                    return
-                end
-                walkRoots(h, false, nil)
-                if not heap.grayEmpty(h) then
-                    continue
-                end
-                h.phase = heap.PHASE_SWEEPING
-                h.marking = 0
-                h.sweepChunk = 0
-                h.sweepSlot = 0
-                h.sweepLarge = 0
-            elseif h.phase == heap.PHASE_SWEEPING then
-                local work = left * 4
-                if left > UNBOUNDED // 4 then
-                    work = UNBOUNDED
-                end
-                if sweepSome(h, work) then
-                    compactLarge(h)
-                    h.phase = heap.PHASE_IDLE
-                    if h.liveBytes > h.stats.peakLive then
-                        h.stats.peakLive = h.liveBytes
-                    end
-                    h.threshold = h.liveBytes * 2
-                    if h.threshold < 1048576 then
-                        h.threshold = 1048576
-                    end
-                end
-                return
-            else
                 return
             end
+        end
+        if h.phase == heap.PHASE_SWEEPING then
+            local work = left * 4
+            if left > UNBOUNDED // 4 then
+                work = UNBOUNDED
+            end
+            sweepPart(h, work)
+        end
+    end
+end
+
+--- Starts a cycle and marks to its end, leaving the sweep to `sweepAll`:
+--- between the two, colors say what the cycle frees.
+export function markAll(h: heap.Heap*): nil
+    @unsafe do
+        startCycle(h)
+        markSome(h, UNBOUNDED)
+    end
+end
+
+--- Sweeps to the end of the cycle `markAll` marked.
+export function sweepAll(h: heap.Heap*): nil
+    @unsafe do
+        while h.phase == heap.PHASE_SWEEPING do
+            sweepPart(h, UNBOUNDED)
         end
     end
 end

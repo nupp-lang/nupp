@@ -1,0 +1,14 @@
+module wl.loops
+
+-- `bench/vm/workloads.bench.nupp`'s loops at `BENCH_SCALE` 1, bracketed by
+-- whole collections so its trace has snapshots.
+export function main(): number
+    collectgarbage()
+    local total = 0
+    for i = 1, 30000000 do
+        total = (total + i * i) % 1000003
+    end
+    collectgarbage()
+
+    return total
+end

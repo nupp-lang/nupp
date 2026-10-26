@@ -629,6 +629,7 @@ impl Heap {
         };
         let color = match self.phase { Phase::Idle => COLOR_WHITE, Phase::Marking => COLOR_BLACK, Phase::Sweeping => if behind_sweep { COLOR_WHITE } else { COLOR_BLACK } };
         unsafe { h.write(Header { kind, color, class, flags: 0, epoch: self.stats.cycles as u32, size: size as u32, aux: 0, aux_ptr: (h as *mut u8).add(HEADER), aux_len: 0 }); }
+        crate::heap_trace::allocated(h, kind, size);
         self.live_count += 1;
         self.live_bytes += size;
         self.debt += size;
@@ -1164,6 +1165,7 @@ impl Heap {
                     if budget == 0 { return; }
                     self.mark_roots(roots, true);
                     if !self.gray.is_empty() || self.propagate_weak() { continue; }
+                    crate::heap_trace::marked(self, roots);
                     self.clear_weak();
                     self.proto_cache.clear();
                     self.clear_dead_declarations();
@@ -1287,8 +1289,10 @@ impl Heap {
         // Finish an in-progress incremental cycle, then collect from current
         // roots so an explicit full collection also removes floating garbage.
         while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
+        crate::heap_trace::atomic(true);
         self.start(roots);
         while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
+        crate::heap_trace::atomic(false);
         self.debt = 0;
     }
 

@@ -1,0 +1,21 @@
+module wl.tables
+
+-- `bench/vm/workloads.bench.nupp`'s tables at `BENCH_SCALE` 1.
+export function main(): number
+    local counts: {[number]: number} = {}
+    for i = 1, 3000000 do
+        local k = (i * 7919) % 4099
+        counts[k] = (counts[k] or 0) + 1
+    end
+    local arr: {number} = {}
+    for i = 1, 1000000 do
+        arr[i] = i % 977
+    end
+    local sum = 0
+    for _, v in ipairs(arr) do
+        sum = sum + v
+    end
+    collectgarbage()
+
+    return sum + #counts
+end

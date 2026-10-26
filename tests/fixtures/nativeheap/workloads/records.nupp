@@ -1,0 +1,24 @@
+module wl.records
+
+-- `bench/vm/workloads.bench.nupp`'s records at `BENCH_SCALE` 1.
+local record Point
+    x: number
+    y: number
+end
+
+export function main(): number
+    local points: {Point} = {}
+    for i = 1, 200000 do
+        points[i] = new Point(x = i, y = i * 2)
+    end
+    local acc = 0.0
+    for _ = 1, 20 do
+        for i = 1, #points do
+            local p = points[i]
+            acc = acc + p.x * 0.5 + p.y * 0.25
+        end
+    end
+    collectgarbage()
+
+    return math.floor(acc) % 1000003
+end

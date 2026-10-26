@@ -1,0 +1,17 @@
+module wl.strings
+
+-- `bench/vm/workloads.bench.nupp`'s strings at `BENCH_SCALE` 1.
+export function main(): number
+    local parts: {string} = {}
+    for i = 1, 300000 do
+        parts[#parts + 1] = ("item%d:%s"):format(i, tostring(i * 3))
+    end
+    local joined = table.concat(parts, ",")
+    local found = 0
+    for _ in joined:gmatch("item%d+5:") do
+        found = found + 1
+    end
+    collectgarbage()
+
+    return #joined + found
+end

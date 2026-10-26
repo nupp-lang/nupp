@@ -2,8 +2,9 @@
 -- the glue (`native/crates/vm/src/os_glue.rs`). A member `name` here is the
 -- exported symbol `nupp_os_<name in snake case>`; the lowering reads each
 -- signature from this declaration, so adding an edge is a line here and its
--- export in the glue. Pages are the only edge so far: the runtime's arenas
--- and heap are written in Nupp over them.
+-- export in the glue. Pages first: the runtime's arenas and heap are written
+-- in Nupp over them; standard input and output let a standalone harness read
+-- its data and report.
 local record Os
     --- Maps `bytes` of zeroed, readable and writable memory at a page
     --- boundary, or nil when the system refuses.
@@ -21,5 +22,13 @@ local record Os
 
     --- A monotonic clock in nanoseconds, for measurements.
     monotonicNanos: function(): uint64
+
+    --- Reads up to `bytes` of standard input into `base`: the count read, 0 at
+    --- its end, negative when the read failed.
+    readInput: function(base: voidptr, bytes: uint64): int64
+
+    --- Writes `bytes` at `base` to standard output: the count written, negative
+    --- when the write failed.
+    writeOutput: function(base: voidptr, bytes: uint64): int64
 end
 return Os

@@ -1,0 +1,28 @@
+module wl.closures
+
+-- `bench/vm/workloads.bench.nupp`'s closures at `BENCH_SCALE` 1.
+local function map(xs: {number}, f: function(number): number): {number}
+    local out: {number} = {}
+    for i = 1, #xs do
+        out[i] = f(xs[i])
+    end
+
+    return out
+end
+
+export function main(): number
+    local xs: {number} = {}
+    for i = 1, 100000 do
+        xs[i] = i
+    end
+    local total = 0
+    for round = 1, 30 do
+        local ys = map(xs, function(v: number): number
+            return v * round + 1
+        end)
+        total = (total + ys[#ys]) % 1000003
+    end
+    collectgarbage()
+
+    return total
+end

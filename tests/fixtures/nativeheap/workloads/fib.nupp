@@ -1,0 +1,19 @@
+module wl.fib
+
+-- `bench/vm/workloads.bench.nupp`'s fib at `BENCH_SCALE` 1, bracketed by
+-- whole collections so its trace has snapshots: fib allocates nothing itself.
+local function fib(n: number): number
+    if n < 2 then
+        return n
+    end
+
+    return fib(n - 1) + fib(n - 2)
+end
+
+export function main(): number
+    collectgarbage()
+    local answer = fib(30)
+    collectgarbage()
+
+    return answer
+end

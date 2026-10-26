@@ -193,4 +193,85 @@ function M.allocationAndCollectionThroughputRun()
     assert(tonumber(run(alloc, "allocFreeNanos", {1000000, 16})) ~= nil)
 end
 
+-- ---- differential replay of recorded traces --------------------------------
+
+local function read(path)
+    local file = assert(io.open(path, "rb"), "cannot read " .. path)
+    local text = file:read("*a")
+    file:close()
+    return text
+end
+
+-- The installed VM compiler: its runtime emits the workload images.
+local function installedPackage()
+    local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
+    return ROOT .. "/.nupp/vm-cli/" .. generation
+end
+
+local WORKLOADS = {"fib", "loops", "tables", "strings", "records", "closures"}
+
+-- A project holding the workloads as `wl.<name>`, each with `main`.
+local function workloadProject()
+    local dir = tempDirectory()
+    assert(os.execute("mkdir -p " .. quote(dir .. "/src/wl")) == 0)
+    write(dir .. "/nupp.lua", 'return {name = "wl", include = {"src"}}\n')
+    for _, name in ipairs(WORKLOADS) do
+        write(dir .. "/src/wl/" .. name .. ".nupp", read(FIXTURES .. "/workloads/" .. name .. ".nupp"))
+    end
+    return dir
+end
+
+-- The one trace a recording wrote into `dir`.
+local function onlyTrace(dir)
+    local pipe = assert(io.popen("ls " .. quote(dir)))
+    local names = {}
+    for line in pipe:lines() do
+        names[#names + 1] = line
+    end
+    pipe:close()
+    assert(#names == 1, "expected one trace in " .. dir .. ", found " .. #names)
+    return dir .. "/" .. names[1]
+end
+
+-- Runs a workload on the glue's runtime, which carries the recorder, and
+-- answers its trace.
+local function recordWorkload(project, name)
+    local package = installedPackage()
+    local image = project .. "/" .. name .. ".image"
+    local status, output = capture(("%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"):format(
+        quote(package .. "/runtime"), quote(package .. "/compiler.image"), quote(project), name, quote(image)))
+    assert(status == 0, "emitting " .. name .. ": " .. output)
+    local dir = tempDirectory()
+    status, output = capture(("NUPP_HEAP_TRACE=%s %s run %s wl.%s main"):format(quote(dir), quote(glueTool()), quote(image), name))
+    assert(status == 0, "running " .. name .. ": " .. output)
+    return onlyTrace(dir)
+end
+
+-- Replays a trace into the Nupp heap: its counts by label, and the answer.
+local function replay(trace)
+    local clif = compileFixture("replay", {"heap", "collector", "arena", "values"})
+    local output = run(clif, "replayTrace", {}, trace)
+    local counts = {}
+    for label, count in output:gmatch("(%a+) (%d+)\n") do
+        counts[label] = tonumber(count)
+    end
+    counts.answer = tonumber(output:match("(%-?%d+)$"))
+    assert(counts.snapshot, "the replay reported nothing: " .. output)
+    return counts, output
+end
+
+-- Each workload's trace, replayed: the Nupp collector's marking from the
+-- recorded roots agrees with the Rust collector's on every object of every
+-- snapshot, exactly in atomic cycles and up to floating garbage otherwise.
+function M.recordedWorkloadsReplayWithTheSameSurvivors()
+    local project = workloadProject()
+    for _, name in ipairs(WORKLOADS) do
+        local counts, output = replay(recordWorkload(project, name))
+        assert(counts.answer == 0, name .. " disagrees:\n" .. output)
+        assert(counts.kept == 0 and counts.freed == 0, name .. " disagrees:\n" .. output)
+        assert(counts.snapshot >= 1 and counts.atomic >= 1, name .. " recorded no atomic snapshot:\n" .. output)
+        assert(counts.compared > 0 and counts.allocs > 0, name .. " compared nothing:\n" .. output)
+    end
+end
+
 return M

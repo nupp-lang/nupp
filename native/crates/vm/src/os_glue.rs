@@ -1,4 +1,5 @@
-//! The operating-system edges native code reaches by C ABI: pages. A member
+//! The operating-system edges native code reaches by C ABI: pages, a clock,
+//! and standard input and output for standalone harnesses. A member
 //! `name` of `nupp.runtime.vm.os` (`src/nupp/runtime/vm/os.d.nupp`) is the
 //! symbol `nupp_os_<name in snake case>` here; the declaration gives it its
 //! types and the lowering reads them from there. Nothing here knows what the
@@ -127,6 +128,40 @@ pub unsafe extern "C" fn nupp_os_monotonic_nanos() -> u64 {
     START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
 }
 
+/// Reads up to `bytes` of standard input into `base`: the count read, 0 at
+/// its end, -1 when the read failed. A standalone harness reads its data so.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_read_input(base: *mut u8, bytes: u64) -> i64 {
+    use std::io::Read;
+    if base.is_null() {
+        return -1;
+    }
+    let buffer = unsafe { std::slice::from_raw_parts_mut(base, bytes as usize) };
+    loop {
+        match std::io::stdin().lock().read(buffer) {
+            Ok(n) => return n as i64,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return -1,
+        }
+    }
+}
+
+/// Writes `bytes` at `base` to standard output: the count written, -1 when
+/// the write failed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_os_write_output(base: *const u8, bytes: u64) -> i64 {
+    use std::io::Write;
+    if base.is_null() {
+        return -1;
+    }
+    let buffer = unsafe { std::slice::from_raw_parts(base, bytes as usize) };
+    let mut out = std::io::stdout().lock();
+    match out.write_all(buffer).and_then(|()| out.flush()) {
+        Ok(()) => bytes as i64,
+        Err(_) => -1,
+    }
+}
+
 /// The address of an operating-system edge by its symbol, for a runner that
 /// links native code into this process rather than against the runtime.
 pub fn symbol(name: &str) -> Option<*const u8> {
@@ -136,6 +171,8 @@ pub fn symbol(name: &str) -> Option<*const u8> {
         "nupp_os_advise_pages" => nupp_os_advise_pages as *const u8,
         "nupp_os_page_size" => nupp_os_page_size as *const u8,
         "nupp_os_monotonic_nanos" => nupp_os_monotonic_nanos as *const u8,
+        "nupp_os_read_input" => nupp_os_read_input as *const u8,
+        "nupp_os_write_output" => nupp_os_write_output as *const u8,
         _ => return None,
     })
 }
