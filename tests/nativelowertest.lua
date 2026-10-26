@@ -181,17 +181,6 @@ local ARENAS = {
     {"nested", {5}, "50"}, {"nested", {0}, "0"},
 }
 
--- Arenas over pages the glue maps: 65472 bytes asked for is one 64 KiB mapping
--- on every page size up to 64 KiB, so the counts below hold on each.
-local ARENAS = {
-    {"listSum", {10}, "45"}, {"listSum", {0}, "0"}, {"listSum", {1000}, "499500"},
-    {"usedAfter", {3, 100}, "308"}, {"usedAfter", {0, 100}, "0"},
-    {"fillFixed", {1000}, "65"}, {"fillFixed", {65472}, "1"}, {"fillFixed", {65473}, "0"},
-    {"fillGrowable", {1000, 200}, "200"}, {"fillGrowable", {65472, 3}, "3"},
-    {"resetReuses", {}, true}, {"poolReuses", {}, true},
-    {"nested", {5}, "50"}, {"nested", {0}, "0"},
-}
-
 -- Thirty-two bit arithmetic wraps; narrow fields load as the width they hold
 -- and a store narrows a wider source: 300 in a byte is 44.
 local FIXED = {
@@ -240,6 +229,10 @@ end
 
 function M.functionPointersAreCalledStoredAndCompared()
     check(compileFixture("pointers"), POINTERS)
+end
+
+function M.fixedWidthArithmeticWrapsAndNarrowFieldsLoadAtTheirWidth()
+    check(compileFixture("fixedwidth"), FIXED)
 end
 
 function M.arenasOverMappedPagesOpenForAnExtentAndClose()

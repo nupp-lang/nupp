@@ -1930,6 +1930,16 @@ Calls use Lua numbers in canonical ranges rather than allocating boxed values.
 Aliasing a standard member preserves its intrinsic identity; shadowing the name
 makes it an ordinary call.
 
+The native profile keeps the same semantics in a machine word: an `int32` or
+`uint32` is the low thirty-two bits sign- or zero-extended, every operator ends
+by wrapping to the width, a shift count is masked by 31, comparisons are signed
+or unsigned by the width, and widening to `number` is one conversion. The
+`wrap`, `rotateLeft`, `rotateRight`, `popcount`, `trailingZeros`,
+`leadingZeros`, `div` and `mod` identities lower to the corresponding
+instructions, `div` and `mod` answering zero for a zero divisor. A narrow struct
+field loads as the width its signedness says, `int8` and `int16` as `int32`,
+`uint8` and `uint16` as `uint32`, and a store to one narrows a wider source.
+
 `int8`, `int16`, `uint8`, and `uint16` are storage-only names. They may describe
 struct fields, C arrays and pointers, cdefs, and standard span elements, but
 not ordinary locals, parameters, results, record fields, or unrelated generic

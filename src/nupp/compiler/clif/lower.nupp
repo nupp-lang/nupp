@@ -238,6 +238,10 @@ local function machine(kind: string): string
         or kind == "ptr"
         or kind == "int32"
         or kind == "uint32"
+        or kind == "int8"
+        or kind == "uint8"
+        or kind == "int16"
+        or kind == "uint16"
     then
         return "i64"
     elseif kind == "number" then
@@ -511,6 +515,36 @@ local function compileFunction(fn: Fn, options: any): string
     -- Expressions answer a typed value, or a literal still free to take the
     -- type its context asks for.
     local expression
+    local scalarIntrinsic
+
+    -- The kind a narrow field's value has once loaded: the thirty-two bit width
+    -- of its signedness, as the checker types it.
+    local function loadedKind(kind: string): string
+        if kind == "int8" or kind == "int16" then
+            return "int32"
+        elseif kind == "uint8" or kind == "uint16" then
+            return "uint32"
+        end
+
+        return kind
+    end
+
+    -- A word holding a thirty-two bit value in canonical form: the low thirty-two
+    -- bits sign- or zero-extended, so a `uint32` reads as its value and an
+    -- `int32` as its signed one. Every fixed-width operation ends here, which is
+    -- what makes the arithmetic wrap.
+    local function wrap32(kind: string, value: string): string
+        local narrow = emit("ireduce.i32 " .. value)
+        if kind == "uint32" then
+            return emit("uextend.i64 " .. narrow)
+        end
+
+        return emit("sextend.i64 " .. narrow)
+    end
+
+    local function isFixed32(kind: string): boolean
+        return kind == "int32" or kind == "uint32"
+    end
 
     local function materialize(e: any, kind: string): string
         if e.literal then
@@ -520,6 +554,10 @@ local function compileFunction(fn: Fn, options: any): string
                 error("lower: a number is not a boolean", 0)
             end
             return constant("i64", e.literal)
+        end
+        if kind == "number" and isFixed32(e.kind) then
+            -- A fixed width widens to a number without changing its value.
+            return emit((e.kind == "uint32" and "fcvt_from_uint.f64 " or "fcvt_from_sint.f64 ") .. e.value)
         end
         need(
             e.kind == kind or (machine(e.kind) == machine(kind)),
@@ -539,6 +577,14 @@ local function compileFunction(fn: Fn, options: any): string
             return emit("sload32.i64 notrap " .. address)
         elseif kind == "uint32" then
             return emit("uload32.i64 notrap " .. address)
+        elseif kind == "int8" then
+            return emit("sload8.i64 notrap " .. address)
+        elseif kind == "uint8" then
+            return emit("uload8.i64 notrap " .. address)
+        elseif kind == "int16" then
+            return emit("sload16.i64 notrap " .. address)
+        elseif kind == "uint16" then
+            return emit("uload16.i64 notrap " .. address)
         end
 
         return emit("load.i64 notrap " .. address)
@@ -547,6 +593,10 @@ local function compileFunction(fn: Fn, options: any): string
     local function store(kind: string, value: string, address: string): nil
         if kind == "int32" or kind == "uint32" then
             effect("istore32 notrap " .. value .. ", " .. address)
+        elseif kind == "int8" or kind == "uint8" then
+            effect("istore8 notrap " .. value .. ", " .. address)
+        elseif kind == "int16" or kind == "uint16" then
+            effect("istore16 notrap " .. value .. ", " .. address)
         else
             effect("store notrap " .. value .. ", " .. address)
         end
@@ -634,7 +684,30 @@ local function compileFunction(fn: Fn, options: any): string
             local opName = need(floatOps[op], "unsupported float operator " .. op)
             return {kind = kind, value = emit(opName .. " " .. a .. ", " .. c)}
         end
-        local unsigned = kind == "uint64"
+        local unsigned = kind == "uint64" or kind == "uint32"
+        if isFixed32(kind) then
+            -- Thirty-two bit arithmetic: computed on the words and wrapped to the
+            -- width, which is the reference's `+`, `-` and `*` modulo 2^32. A
+            -- shift count is masked by 31; `>>` shifts zeros into the thirty-two
+            -- bit pattern and `~>>` copies its sign.
+            if op == "<<" or op == ">>" or op == "~>>" then
+                local count = emit("band " .. c .. ", " .. constant("i64", "31"))
+                if op == "<<" then
+                    return {kind = kind, value = wrap32(kind, emit("ishl " .. a .. ", " .. count))}
+                elseif op == ">>" then
+                    local pattern = emit("uextend.i64 " .. emit("ireduce.i32 " .. a))
+                    return {kind = kind, value = wrap32(kind, emit("ushr " .. pattern .. ", " .. count))}
+                end
+                local pattern = emit("sextend.i64 " .. emit("ireduce.i32 " .. a))
+                return {kind = kind, value = wrap32(kind, emit("sshr " .. pattern .. ", " .. count))}
+            elseif op == "//" then
+                return {kind = kind, value = emit((unsigned and "udiv " or "sdiv ") .. a .. ", " .. c)}
+            elseif op == "%" then
+                return {kind = kind, value = emit((unsigned and "urem " or "srem ") .. a .. ", " .. c)}
+            end
+            local opName = need(integerOps[op], "unsupported integer operator " .. op)
+            return {kind = kind, value = wrap32(kind, emit(opName .. " " .. a .. ", " .. c))}
+        end
         if op == ">>" then
             return {kind = kind, value = emit("ushr " .. a .. ", " .. c)}
         elseif op == "~>>" then
@@ -853,6 +926,72 @@ local function compileFunction(fn: Fn, options: any): string
         error("lower: intrinsic " .. intrinsicName .. " is not part of ordinary code", 0)
     end
 
+    -- A fixed-width identity of `nupp.math`: `i32.wrap` and its siblings, each
+    -- one or two operations on the thirty-two bit pattern, and the `u64` bit
+    -- counts on the word.
+    scalarIntrinsic = function(identity: string, args: any): any
+        local family, operation = identity:match("^(%w+)%.(.+)$")
+        local kind = family == "u32" and "uint32" or (family == "i32" and "int32" or "uint64")
+        need(family == "i32" or family == "u32" or family == "u64", "unsupported scalar intrinsic " .. identity)
+
+        -- An integer argument as a word: an `integer` is a number here, truncated
+        -- toward zero as the wrap of a number is.
+        local function word(index: number): string
+            local e = expression(need(args[index], identity .. ": argument " .. tostring(index)))
+            if e.literal then
+                return constant("i64", e.literal)
+            elseif e.kind == "number" then
+                return emit("fcvt_to_sint_sat.i64 " .. e.value)
+            end
+            need(machine(e.kind) == "i64", identity .. ": integer argument required")
+
+            return e.value
+        end
+
+        if operation == "wrap"
+            or operation == "fromU32"
+            or operation == "toU32"
+            or operation == "fromI32"
+            or operation == "toI32"
+        then
+            local result = kind
+            if operation == "toU32" or operation == "fromI32" then
+                result = "uint32"
+            elseif operation == "toI32" or operation == "fromU32" then
+                result = "int32"
+            end
+            return {kind = result, value = wrap32(result, word(1))}
+        elseif operation == "rotateLeft" or operation == "rotateRight" then
+            local opName = operation == "rotateLeft" and "rotl " or "rotr "
+            if family == "u64" then
+                return {kind = kind, value = emit(opName .. word(1) .. ", " .. word(2))}
+            end
+            local narrow = emit("ireduce.i32 " .. word(1))
+            local count = emit("ireduce.i32 " .. word(2))
+            return {kind = kind, value = wrap32(kind, emit("uextend.i64 " .. emit(opName .. narrow .. ", " .. count)))}
+        elseif operation == "popcount" or operation == "trailingZeros" or operation == "leadingZeros" then
+            local opName = operation == "popcount" and "popcnt " or (operation == "trailingZeros" and "ctz " or "clz ")
+            if family == "u64" then
+                return {kind = "uint64", value = emit(opName .. word(1))}
+            end
+            local narrow = emit("ireduce.i32 " .. word(1))
+            return {kind = "uint32", value = emit("uextend.i64 " .. emit(opName .. narrow))}
+        elseif (operation == "div" or operation == "mod") and family == "u32" then
+            -- Zero for a zero divisor, as the namespace promises.
+            local a, c = word(1), word(2)
+            local zero = constant("i64", "0")
+            local safe = emit(
+                "select " .. emit("icmp eq " .. c .. ", " .. zero) .. ", " .. constant("i64", "1") .. ", " .. c
+            )
+            local quotient = emit((operation == "div" and "udiv " or "urem ") .. a .. ", " .. safe)
+            return {
+                kind = "uint32",
+                value = emit("select " .. emit("icmp eq " .. c .. ", " .. zero) .. ", " .. zero .. ", " .. quotient)
+            }
+        end
+        error("lower: unsupported scalar intrinsic " .. identity, 0)
+    end
+
     expression = function(n: any): any
         if n.kind == "paren" then
             return expression(n.expr)
@@ -899,15 +1038,22 @@ local function compileFunction(fn: Fn, options: any): string
                 -- A fixed array field is its address, as a C array decays.
                 return {kind = "ptr", value = access.address, type = access.field.type}
             end
-            return {kind = access.field.kind, value = load(access.field.kind, access.address), type = access.field.type}
+            return {
+                kind = loadedKind(access.field.kind),
+                value = load(access.field.kind, access.address),
+                type = access.field.type
+            }
         elseif n.kind == "bracketIndex" then
             local element = elementAddress(n)
-            return {kind = element.kind, value = load(element.kind, element.address), type = element.type}
+            return {kind = loadedKind(element.kind), value = load(element.kind, element.address), type = element.type}
         elseif n.kind == "castExpr" then
             -- An erased assertion between types of one representation.
             local inner = expression(n.expr)
             local kind = tag(n.inferredType)
             if inner.literal then
+                return {kind = kind, value = materialize(inner, kind), type = n.inferredType}
+            end
+            if kind == "number" and isFixed32(inner.kind) then
                 return {kind = kind, value = materialize(inner, kind), type = n.inferredType}
             end
             need(machine(inner.kind) == machine(kind), "a cast cannot change representation")
@@ -920,7 +1066,11 @@ local function compileFunction(fn: Fn, options: any): string
                     return {literal = "-" .. operand.literal}
                 end
                 local opName = operand.kind == "number" and "fneg" or "ineg"
-                return {kind = operand.kind, value = emit(opName .. " " .. operand.value)}
+                local negated = emit(opName .. " " .. operand.value)
+                if isFixed32(operand.kind) then
+                    negated = wrap32(operand.kind, negated)
+                end
+                return {kind = operand.kind, value = negated}
             elseif op == "not" then
                 local value = condition(n.operand)
                 local zero = constant("i8", "0")
@@ -928,7 +1078,11 @@ local function compileFunction(fn: Fn, options: any): string
             elseif op == "~" then
                 local operand = expression(n.operand)
                 local kind = kindOf(n.operand, operand, nil)
-                return {kind = kind, value = emit("bnot " .. materialize(operand, kind))}
+                local inverted = emit("bnot " .. materialize(operand, kind))
+                if isFixed32(kind) then
+                    inverted = wrap32(kind, inverted)
+                end
+                return {kind = kind, value = inverted}
             end
             error("lower: unsupported unary operator " .. op, 0)
         elseif n.kind == "binop" then
@@ -950,6 +1104,17 @@ local function compileFunction(fn: Fn, options: any): string
             return intrinsic(n.obj.name.text, n.args.exprs or {})
         elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
             return helperCall(n, HELPER_MODULES[calledModule(n) as string] as string)
+        elseif n.kind == "call" and type(n.scalarIntrinsic) == "string" then
+            return scalarIntrinsic(n.scalarIntrinsic, n.args.exprs or {})
+        elseif n.kind == "call"
+            and n.obj.kind == "dotIndex"
+            and n.obj.obj.kind == "name"
+            and n.obj.obj.token.text == "math"
+            and n.obj.name.text == "floor"
+            and not b.typeOf(n.obj.obj.token.definition or "math")
+        then
+            local operand = expression(need(n.args.exprs and n.args.exprs[1], "math.floor takes a number"))
+            return {kind = "number", value = emit("floor " .. materialize(operand, "number"))}
         elseif n.kind == "call" then
             local target = resolveCallee(n, scope, modules)
             local exprs = n.args.exprs or {}
@@ -1100,7 +1265,7 @@ local function compileFunction(fn: Fn, options: any): string
     local function assign(token: any, e: any): nil
         local variable = variableOf(token)
         local kind = kindOfVariable(variable)
-        if not e.literal then
+        if not e.literal and not (kind == "number" and isFixed32(e.kind)) then
             need(machine(e.kind) == b.typeOf(variable), "assignment changes representation")
             kind = e.kind
         end

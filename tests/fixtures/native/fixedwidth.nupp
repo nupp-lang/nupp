@@ -1,0 +1,111 @@
+module fixedwidth
+
+-- First-class int32 and uint32 arithmetic, wrapping as the reference states,
+-- and the narrow storage widths loaded and stored through struct fields.
+const native = require("nupp.runtime.vm.intrinsics")
+
+local function wrapAdd(a: uint32, b: uint32): uint32
+    return a + b
+end
+
+local function wrapMul(a: uint32, b: uint32): uint32
+    return a * b
+end
+
+local function signedWrap(a: int32, b: int32): int32
+    return a + b
+end
+
+local function signedDifference(a: int32, b: int32): int32
+    return a - b
+end
+
+-- FNV-1a over the bytes of a word, each multiplication wrapping at 32 bits.
+local function fnv(word: uint64): uint32
+    local hash: uint32 = 2166136261
+    local i: int64 = 0
+    while i < 8 do
+        local byte = nupp.math.u32.wrap(math.floor(native.unsignedFloat((word >> (i * 8)) & 255)))
+        hash = (hash ~ byte) * 16777619
+        i = i + 1
+    end
+
+    return hash
+end
+
+local function rotateLeft(x: uint32, n: uint32): uint32
+    return (x << n) | (x >> (32 - n))
+end
+
+local function shiftRight(x: int32, n: int32): int32
+    return x >> n
+end
+
+local function arithmeticShift(x: int32, n: int32): int32
+    return x ~>> n
+end
+
+local function complement(x: uint32): uint32
+    return ~x
+end
+
+local function below(a: uint32, b: uint32): boolean
+    return a < b
+end
+
+local function signedBelow(a: int32, b: int32): boolean
+    return a < b
+end
+
+local function widen(a: int32): number
+    return a
+end
+
+local function widenUnsigned(a: uint32): number
+    local n: number = a
+
+    return n * 2
+end
+
+-- Narrow storage: bytes and halves loaded as the fixed width they hold and
+-- stored from a wider source, which the store narrows.
+local struct Pixel
+    r: uint8
+    g: uint8
+    b: uint8
+    a: int8
+    w: int16
+    h: uint16
+end
+
+local function paint(p: Pixel*, r: uint32, g: uint32, b: uint32, a: int32, w: int32, h: uint32): nil
+    @unsafe do
+        p.r = r
+        p.g = g
+        p.b = b
+        p.a = a
+        p.w = w
+        p.h = h
+    end
+end
+
+local function brightness(base: voidptr, r: uint32, g: uint32, b: uint32): uint32
+    local p = base as Pixel*
+    paint(p, r, g, b, 0, 0, 0)
+
+    return p.r + p.g + p.b
+end
+
+local function signedSum(base: voidptr, a: int32, w: int32): int32
+    local p = base as Pixel*
+    paint(p, 0, 0, 0, a, w, 0)
+
+    return p.a + p.w
+end
+
+local function halfWord(base: voidptr, h: uint32): uint32
+    local p = base as Pixel*
+    paint(p, 0, 0, 0, 0, 0, h)
+
+    return p.h
+end
