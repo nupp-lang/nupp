@@ -1,0 +1,114 @@
+-- Cleanups through the native core (contracts 6.5b): owners dropped at scope
+-- exit, early, on a break and on a raise; an owner moved out (disarmed), one
+-- reassigned (re-armed), one owned on only one branch (its liveness asked),
+-- and a closeable record's method as its cleanup. The log of what closed, in
+-- order, is checked against a literal here and printed for the differential
+-- run.
+local out: {string} = {}
+local log: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local record Res
+    name: string
+end
+
+local function closeRes(takes r: Res): nil
+    log[#log + 1] = r.name
+end
+
+local function open(name: string): affine(Res, closeRes)
+    return new Res(name = name)
+end
+
+local function consume(takes r: affine(Res, closeRes)): nil
+    log[#log + 1] = "took " .. r.name
+    nupp.drop(r)
+end
+
+local record Handle is nupp.Closeable
+    label: string
+
+    function close(takes self): nil
+        log[#log + 1] = "close " .. self.label
+    end
+end
+
+local function flush(): string
+    local text = table.concat(log, ",")
+    log = {}
+    return text
+end
+
+do
+    local a = open("a")
+    local b = open("b")
+end
+show("scope", flush(), "b,a")
+
+do
+    local a = open("a")
+    nupp.drop(a)
+    log[#log + 1] = "after"
+end
+show("drop", flush(), "a,after")
+
+do
+    local a = open("a")
+    consume(a)
+    log[#log + 1] = "after"
+end
+show("moved", flush(), "took a,a,after")
+
+do
+    local a = open("first")
+    nupp.drop(a)
+    a = open("second")
+end
+show("rearm", flush(), "first,second")
+
+local function branch(flag: boolean): nil
+    local a = open("x")
+    if flag then
+        consume(a)
+    end
+    log[#log + 1] = "end"
+end
+branch(true)
+branch(false)
+show("branch", flush(), "took x,x,end,end,x")
+
+for i = 1, 3 do
+    local r = open("loop" .. i)
+    if i == 2 then
+        break
+    end
+end
+show("break", flush(), "loop1,loop2")
+
+local ok = pcall(function(): nil
+    local r = open("raised")
+    error("boom")
+end)
+show("raise", tostring(ok) .. ":" .. flush(), "false:raised")
+
+do
+    local h = new Handle(label = "h")
+end
+show("closeable", flush(), "close h")
+
+local count = 0
+for i = 1, 2000 do
+    local r = open("n")
+    if i % 2 == 0 then
+        consume(r)
+    end
+    count = count + #log
+    log = {}
+end
+show("loop", count, 1000 * 2 + 1000)
+
+print(table.concat(out, "\n"))

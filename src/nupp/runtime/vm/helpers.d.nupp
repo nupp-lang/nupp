@@ -24,5 +24,8 @@ local record Helpers
     newCell: function(context: voidptr): uint64
     resolveMethod: function(context: voidptr, receiver: uint64, name: uint64): uint64
     callResolved: function(context: voidptr, base: int64, nargs: int64): uint64
+    defer: function(context: voidptr, value: uint64, callback: uint64): nil
+    protect: function(context: voidptr, frame: uint64, result: uint64): nil
+    raise: function(context: voidptr, value: uint64): nil
 end
 return Helpers

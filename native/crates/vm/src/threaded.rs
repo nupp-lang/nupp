@@ -38,8 +38,10 @@ pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64,
 /// before handing the instruction to Rust, which parks or raises there (an
 /// instruction budget's slice, a source chunk's limit); `u64::MAX` is none.
 /// `budget_mark` is what `sync` set it to, so the Rust side can charge the
-/// difference before it reads the budgets itself.
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32, pub budget: u64, pub budget_mark: u64 }
+/// difference before it reads the budgets itself. `cleanups` and
+/// `ncleanups` are the task's cleanup records (contracts 6.5b), which the
+/// core reads and rewrites in place and Rust alone pushes and pops.
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32, pub budget: u64, pub budget_mark: u64, pub cleanups: *mut crate::interp::Cleanup, pub ncleanups: u64 }
 
 pub const NO_GUARD: u64 = u64::MAX;
 /// Every return goes to Rust: an unwind is driving the task's cleanups.
@@ -89,6 +91,7 @@ codes! {
     NewClosure, NewCell,
     VarargN,
     CallMethod,
+    PCall, Raise, Defer, DeferMethod, DisarmAt, RearmAt, CleanupLive, Unwind,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -188,6 +191,14 @@ pub fn encode(op: &Op) -> Ins {
         Op::NewCell(d, a) => i(Code::NewCell, d, a, 0),
         Op::VarargN(d, n) => i(Code::VarargN, d, n, 0),
         Op::CallMethod(k, b, n) => Ins { imm: k as i32, ..i(Code::CallMethod, 0, b, n) },
+        Op::PCall(b, n) => i(Code::PCall, b, n, 0),
+        Op::Raise(k) => Ins { imm: k as i32, ..i(Code::Raise, 0, 0, 0) },
+        Op::Defer(v, c) => i(Code::Defer, v, c, 0),
+        Op::DeferMethod(v, k) => Ins { imm: k as i32, ..i(Code::DeferMethod, v, 0, 0) },
+        Op::DisarmAt(depth) => Ins { imm: depth as i32, ..i(Code::DisarmAt, 0, 0, 0) },
+        Op::RearmAt(depth, v, c) => Ins { imm: depth as i32, ..i(Code::RearmAt, v, c, 0) },
+        Op::CleanupLive(d, depth) => Ins { imm: depth as i32, ..i(Code::CleanupLive, d, 0, 0) },
+        Op::Unwind(depth) => Ins { imm: depth as i32, ..i(Code::Unwind, 0, 0, 0) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }
@@ -224,6 +235,8 @@ pub(crate) fn sync(ctx: &mut Ctx, it: &mut Interp) {
     ctx.stack = t.stack.as_mut_ptr();
     ctx.cap = t.stack.len() as u64;
     ctx.cur = t.cur() as u64;
+    ctx.cleanups = t.cleanups.as_mut_ptr();
+    ctx.ncleanups = t.cleanups.len() as u64;
     ctx.last_nres = it.last_nres as u64;
     ctx.funcs = it.finfo.as_ptr(); ctx.nfuncs = it.finfo.len() as u64;
     ctx.shapes = it.shape_info.as_ptr(); ctx.nshapes = it.shape_info.len() as u64;
@@ -427,7 +440,7 @@ impl Interp {
         let frame_threshold = self.frame_threshold;
         #[cfg(not(feature = "compiled-runtime"))]
         let frame_threshold = 0;
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold, budget: u64::MAX, budget_mark: u64::MAX };
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold, budget: u64::MAX, budget_mark: u64::MAX, cleanups: std::ptr::null_mut(), ncleanups: 0 };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]

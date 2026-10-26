@@ -83,3 +83,7 @@ export const NEGATIVE_ZERO = 0x8000000000000000ULL
 --- (32), a declaration (64) and a prototype (128), whose stores the Rust step
 --- accounts for.
 export const SPECIAL_TABLE_FLAGS = 224
+
+--- The guard of a task whose unwind is in progress (`GUARD_ALL` in the
+--- Rust core): every return, and every unwind, is Rust's.
+export const GUARD_ALL = 0xfffffffffffffffeULL

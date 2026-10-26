@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 54] = [
+pub const LAYOUT_FIELDS: [&str; 60] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -31,6 +31,7 @@ pub const LAYOUT_FIELDS: [&str; 54] = [
     "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
     "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
     "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
+    "cleanups", "ncleanups", "Cleanup.size", "Cleanup.frame", "Cleanup.value", "Cleanup.callback",
 ];
 
 /// A field of a table's hash part (`ValueTable`), from the object's start.
@@ -96,6 +97,14 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "Table.hash_len" => hash_part(offset_of!(crate::heap::ValueTable, len)),
         "Table.hash_order" => hash_part(offset_of!(crate::heap::ValueTable, order)),
         "Table.hash_rank" => hash_part(offset_of!(crate::heap::ValueTable, rank)),
+        // The task's cleanup records (contracts 6.5b), read and rewritten in
+        // place by the core.
+        "cleanups" => offset_of!(Ctx, cleanups),
+        "ncleanups" => offset_of!(Ctx, ncleanups),
+        "Cleanup.size" => std::mem::size_of::<crate::interp::Cleanup>(),
+        "Cleanup.frame" => offset_of!(crate::interp::Cleanup, frame),
+        "Cleanup.value" => offset_of!(crate::interp::Cleanup, value),
+        "Cleanup.callback" => offset_of!(crate::interp::Cleanup, callback),
         _ => return Err("unknown context field".into()),
     })
 }
@@ -264,6 +273,8 @@ fn metadata_header() -> String {
         ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),
         ("frame_threshold", offset_of!(Ctx, frame_threshold)),
         ("budget", offset_of!(Ctx, budget)),
+        ("cleanups", offset_of!(Ctx, cleanups)),
+        ("ncleanups", offset_of!(Ctx, ncleanups)),
     ] {
         metadata.push_str(&format!("assert!(std::mem::offset_of!(Ctx, {field}) == {offset});\n"));
     }
@@ -313,6 +324,13 @@ fn metadata_header() -> String {
         offset_of!(ShapeInfo, mask),
         crate::heap::OFF_T_HASH_PTR,
         crate::heap::OFF_T_HASH_MASK
+    ));
+    metadata.push_str(&format!(
+        "assert!(std::mem::size_of::<crate::interp::Cleanup>() == {} && std::mem::offset_of!(crate::interp::Cleanup, frame) == {} && std::mem::offset_of!(crate::interp::Cleanup, value) == {} && std::mem::offset_of!(crate::interp::Cleanup, callback) == {});\n",
+        std::mem::size_of::<crate::interp::Cleanup>(),
+        offset_of!(crate::interp::Cleanup, frame),
+        offset_of!(crate::interp::Cleanup, value),
+        offset_of!(crate::interp::Cleanup, callback)
     ));
     metadata.push_str("assert!(crate::heap::KIND_BYTES == 7 && crate::heap::KIND_INTEGER == 12 && crate::heap::F_INTERNED == 1);\n");
     metadata.push_str("assert!((crate::heap::F_STORAGE_SCHEMA | crate::heap::F_DECLARATION | crate::heap::F_PROTO) == 224);\n");

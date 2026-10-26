@@ -1,0 +1,379 @@
+module nupp.runtime.vm.control
+
+--[[
+Protected calls, raises, cleanups and jump tables (contracts 5.2b, 6.4a,
+6.5, 6.5b). A protected call is a frame like any other, with a record the
+task keeps beside its frames; a cleanup is a record of the task's list,
+which the core reads and rewrites in place through `cleanups` and
+`ncleanups` in the context. Rust alone grows those lists, and settles what
+touches the scheduler or runs code: a protected callee's return and a raise
+below it, and an unwind that has cleanups to run. A frame's own cleanups are
+the records at the end of the list whose frame is the frame on top; a depth
+counts from the first of them.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
+const calls = require("nupp.runtime.vm.calls")
+
+-- The record and frame of a protected call whose callee the core pushes:
+-- the record first, naming the frame the push makes, so the guard sends
+-- that frame's return to Rust, which delivers the status.
+local function protectSlow(
+    pc: voidptr,
+    context: voidptr,
+    fid: uint64,
+    closure: uint64,
+    base: int64,
+    nargs: int64
+): uint64
+    protocol.publishPc(pc, context)
+    local current = native.load64(context, native.layout("cur"))
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(current * 8))
+    helpers.protect(
+        context,
+        current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF),
+        current + 4 + native.word(base)
+    )
+    stack = native.loadPointer(context, native.layout("stack"))
+    frame = native.offset(stack, native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    local callee = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(fid) * native.layout("FuncInfo.size")
+    )
+    local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
+    local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
+
+    return calls.pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base + 1, supplied)
+end
+
+-- `PCall base nargs`: the callee at `base + 1` called on the `nargs` values
+-- after it, the status landing at `base` and the results after it. A plain
+-- function or closure the core can push now is pushed here; anything else
+-- (a builtin, `pcall` of `pcall`, a spread, a vararg or typed callee, no
+-- budget or room) is the step's whole.
+export function PCall(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local base = native.load8(pc, 1)
+    local nargs = native.load8(pc, 2)
+    local value = native.load64(regs, (base + 1) * 8)
+    local fid = values.NO_GUARD
+    local closure = values.NIL
+    if value & values.TAG_MASK == values.TAG_FUNC then
+        if (value >> 32) & values.LOW_HALF == 0 then
+            fid = value & values.LOW_WORD
+        end
+    elseif value & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(value & values.PAYLOAD)
+        if native.load8(object, native.layout("Header.kind")) == 5 then
+            fid = native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD)
+            closure = value
+        end
+    end
+    if native.both(nargs < 64, fid < native.load64(context, native.layout("nfuncs"))) then
+        local callee = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(fid) * native.layout("FuncInfo.size")
+        )
+        local next = native.load64(context, native.layout("cur")) + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
+        if native.both(
+            native.both(
+                native.load32(callee, native.layout("FuncInfo.vararg")) == 0,
+                native.load32(callee, native.layout("FuncInfo.typed")) == 0
+            ),
+            native.both(
+                native.both(
+                    fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD),
+                    native.load64(context, native.layout("budget")) ~= 0
+                ),
+                next + (
+                    native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
+                ) <= native.load64(context, native.layout("cap"))
+            )
+        ) then
+            return protectSlow(pc, context, fid, closure, base, nargs)
+        end
+    end
+
+    return native.slow(pc, regs, ints, floats, context, frame)
+end
+
+local function raiseSlow(pc: voidptr, context: voidptr, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.raise(context, value)
+    return native.fail()
+end
+
+-- `Raise k`: the constant raised. The Rust frame that entered the core
+-- re-raises it where a protected call can catch it (contracts 6.4a).
+export function Raise(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+
+    return raiseSlow(
+        pc,
+        context,
+        native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), native.load32(pc, 4) * 8)
+    )
+end
+
+local function deferSlow(pc: voidptr, context: voidptr, value: uint64, callback: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.defer(context, value, callback)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- `Defer v c`: a cleanup calling `c` on `v` when its region or the frame ends.
+export function Defer(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return deferSlow(
+        pc,
+        context,
+        native.load64(regs, native.load8(pc, 1) * 8),
+        native.load64(regs, native.load8(pc, 2) * 8)
+    )
+end
+
+local function deferMethodSlow(pc: voidptr, context: voidptr, value: uint64, name: uint64): uint64
+    protocol.publishPc(pc, context)
+    local callback = helpers.resolveMethod(context, value, name)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    helpers.defer(context, value, callback)
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- `DeferMethod v k`: a cleanup calling the method constant `k` names on `v`,
+-- resolved now; nil defers nothing that runs. A receiver that is not an
+-- object, or is a string, is the step's.
+export function DeferMethod(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.load64(regs, native.load8(pc, 1) * 8)
+    if value == values.NIL then
+        return deferSlow(pc, context, value, values.NIL)
+    elseif value & values.TAG_MASK == values.TAG_OBJ then
+        local kind = native.load8(native.pointer(value & values.PAYLOAD), native.layout("Header.kind"))
+        if native.both(kind ~= values.KIND_STRING, kind ~= values.KIND_SLICE) then
+            local info = native.offset(
+                native.loadPointer(context, native.layout("funcs")),
+                native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+            )
+            return deferMethodSlow(
+                pc,
+                context,
+                value,
+                native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), native.load32(pc, 4) * 8)
+            )
+        end
+    end
+
+    return native.slow(pc, regs, ints, floats, context, frame)
+end
+
+-- `CleanupLive d depth`: whether the frame's cleanup at `depth` is armed.
+export function CleanupLive(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    local current = native.load64(context, native.layout("cur"))
+    local start = n
+    while start > 0 do
+        if native.load64(records, (start - 1) * size + native.layout("Cleanup.frame")) < current then
+            break
+        end
+        start = start - 1
+    end
+    local slot = start + native.load32(pc, 4)
+    local live = false
+    if slot < n then
+        live = native.load64(records, slot * size + native.layout("Cleanup.value")) ~= values.NIL
+    end
+    native.store64(regs, native.load8(pc, 1) * 8, native.chooseWord(live, values.TRUE, values.FALSE))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+-- `DisarmAt depth`: the frame's cleanup at `depth` runs nothing, its value
+-- transferred elsewhere. A depth past the frame's cleanups is the step's,
+-- which refuses it.
+export function DisarmAt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    local current = native.load64(context, native.layout("cur"))
+    local start = n
+    while start > 0 do
+        if native.load64(records, (start - 1) * size + native.layout("Cleanup.frame")) < current then
+            break
+        end
+        start = start - 1
+    end
+    local slot = start + native.load32(pc, 4)
+    if slot >= n then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    native.store64(records, slot * size + native.layout("Cleanup.value"), values.NIL)
+    native.store64(records, slot * size + native.layout("Cleanup.callback"), values.NIL)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+-- Re-arms the frame's cleanup at `depth`, the method `name` names on `value`
+-- resolved first.
+local function rearmSlow(pc: voidptr, context: voidptr, value: uint64, name: uint64, depth: int64): uint64
+    protocol.publishPc(pc, context)
+    local callback = helpers.resolveMethod(context, value, name)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    local current = native.load64(context, native.layout("cur"))
+    local start = n
+    while start > 0 do
+        if native.load64(records, (start - 1) * size + native.layout("Cleanup.frame")) < current then
+            break
+        end
+        start = start - 1
+    end
+    native.store64(records, (start + depth) * size + native.layout("Cleanup.value"), value)
+    native.store64(records, (start + depth) * size + native.layout("Cleanup.callback"), callback)
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- `RearmAt depth v c`: the frame's cleanup at `depth` armed again with the
+-- receiver `v` and callback `c`, or the method a string `c` names on `v`;
+-- a nil receiver arms nothing. A string receiver of a method, a receiver
+-- that is not an object, and a depth past the frame's cleanups are the
+-- step's.
+export function RearmAt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.load64(regs, native.load8(pc, 1) * 8)
+    local given = native.load64(regs, native.load8(pc, 2) * 8)
+    local depth = native.load32(pc, 4)
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    local current = native.load64(context, native.layout("cur"))
+    local start = n
+    while start > 0 do
+        if native.load64(records, (start - 1) * size + native.layout("Cleanup.frame")) < current then
+            break
+        end
+        start = start - 1
+    end
+    if start + depth >= n then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local named = false
+    if given & values.TAG_MASK == values.TAG_OBJ then
+        local kind = native.load8(native.pointer(given & values.PAYLOAD), native.layout("Header.kind"))
+        named = native.either(kind == values.KIND_STRING, kind == values.KIND_SLICE)
+    end
+    if native.both(named, value ~= values.NIL) then
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            local kind = native.load8(native.pointer(value & values.PAYLOAD), native.layout("Header.kind"))
+            if native.both(kind ~= values.KIND_STRING, kind ~= values.KIND_SLICE) then
+                return rearmSlow(pc, context, value, given, depth)
+            end
+        end
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local at = (start + depth) * size
+    native.store64(records, at + native.layout("Cleanup.value"), value)
+    native.store64(
+        records,
+        at + native.layout("Cleanup.callback"),
+        native.chooseWord(value == values.NIL, values.NIL, given)
+    )
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+-- `Unwind depth`: the frame's cleanups from `depth` on run, latest first. A
+-- region whose cleanups were all taken already (none past `depth`) ends
+-- here; one with cleanups to run, and any unwind already in progress, are
+-- Rust's, which calls them and may park the task while a scope closes.
+export function Unwind(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    local current = native.load64(context, native.layout("cur"))
+    local start = n
+    while start > 0 do
+        if native.load64(records, (start - 1) * size + native.layout("Cleanup.frame")) < current then
+            break
+        end
+        start = start - 1
+    end
+    if native.either(
+        native.load64(context, native.layout("guard")) == values.GUARD_ALL,
+        start + native.load32(pc, 4) < n
+    ) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end

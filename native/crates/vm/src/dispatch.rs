@@ -274,6 +274,39 @@ pub(crate) mod native_helpers {
         sync(ctx, it);
         r as u64
     }
+    /// Registers a cleanup on the top frame (contracts 6.5b): the record
+    /// list is the task's, which only Rust grows; the guard is recomputed,
+    /// so the frame's return goes through Rust, which runs it.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_defer(ctx: *mut Ctx, value: u64, callback: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, tid) = enter_rust(ctx);
+        let frame = it.tasks[tid].cur();
+        it.tasks[tid].cleanups.push(crate::interp::Cleanup { frame, value: Value(value), callback: Value(callback) });
+        sync(ctx, it);
+    }
+    /// A protected call's record (contracts 5.2b, 6.4a): the callee's frame
+    /// at `frame`, about to be pushed by the core above `caller`, whose
+    /// register `result` takes the status and then the results. Its return
+    /// and any raise below it are settled by Rust, which the guard sends
+    /// them to.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_protect(ctx: *mut Ctx, frame: u64, result: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, tid) = enter_rust(ctx);
+        let caller = it.tasks[tid].cur();
+        it.tasks[tid].protected.push(crate::interp::Protected { frame: frame as usize, caller, result: result as usize, handler: Value::NIL });
+        sync(ctx, it);
+    }
+    /// A raise of `value` from the core: pending until the Rust frame that
+    /// entered the core re-raises it to the nearest protected call (6.4a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_raise(ctx: *mut Ctx, value: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        it.pending_error = Some(Value(value));
+        ctx.status = ST_ERROR;
+    }
     /// A cell holding nil, filled by the core as a closure is.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_new_cell(ctx: *mut Ctx) -> u64 {

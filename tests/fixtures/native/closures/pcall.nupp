@@ -1,0 +1,76 @@
+-- Protected calls through the native core's `PCall`: the status and the
+-- results of a callee that returns, one that raises (from Rust, from a
+-- nested call, from `error` with a table), nested protected calls, a
+-- protected closure, `pcall` of a builtin and of `pcall`, and enough of them
+-- in a loop that the record list grows and shrinks. Every line is checked
+-- against a literal here and printed for the differential run.
+local out: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local function add(a: number, b: number): number
+    return a + b
+end
+
+local function three(): (number, number, number)
+    return 1, 2, 3
+end
+
+local function fail(message: string): number
+    error(message, 0)
+end
+
+local function deep(n: number): number
+    if n == 0 then
+        error({code = 42})
+    end
+    return deep(n - 1) + 1
+end
+
+local ok, v = pcall(add, 2, 3)
+show("ok", ok, true)
+show("value", v, 5)
+local ok3, a, b, c = pcall(three)
+show("many", tostring(ok3) .. tostring(a) .. tostring(b) .. tostring(c), "true123")
+local okf, ef = pcall(fail, "boom")
+show("failOk", okf, false)
+show("failValue", ef, "boom")
+local okd, ed = pcall(deep, 20)
+show("deepOk", okd, false)
+show("deepValue", (ed as any).code, 42)
+local base = 10
+local okc, vc = pcall(function(x: number): number
+    return x + base
+end, 5)
+show("closure", tostring(okc) .. tostring(vc), "true15")
+local okn, inner, value = pcall(function(): (boolean, any)
+    return pcall(fail, "inner")
+end)
+show("nested", tostring(okn) .. tostring(inner) .. tostring(value), "truefalseinner")
+local okb, vb = pcall(string.rep, "ab", 3)
+show("builtin", tostring(okb) .. tostring(vb), "trueababab")
+local anyAdd: any = add
+local okm = pcall(anyAdd)
+show("missingArgs", okm, false)
+
+local good, bad = 0, 0
+for k = 1, 4000 do
+    local ok2 = pcall(function(): number
+        if k % 3 == 0 then
+            error("third")
+        end
+        return k
+    end)
+    if ok2 then
+        good = good + 1
+    else
+        bad = bad + 1
+    end
+end
+show("loopGood", good, 2667)
+show("loopBad", bad, 1333)
+
+print(table.concat(out, "\n"))

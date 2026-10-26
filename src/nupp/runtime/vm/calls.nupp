@@ -157,7 +157,7 @@ end
 -- `supplied` argument words copied from the argument window and the
 -- remaining parameters nil, and the caller's header remembers where to
 -- resume. A call the stack cannot hold grows it in Rust.
-local function pushFrame(
+export function pushFrame(
     pc: voidptr,
     regs: voidptr,
     ints: voidptr,
