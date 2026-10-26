@@ -104,6 +104,8 @@ mod dispatch;
 #[cfg(feature = "jit")]
 pub mod jit;
 #[cfg(feature = "aot")]
+pub mod jit_glue;
+#[cfg(feature = "aot")]
 pub mod native_glue;
 #[cfg(feature = "aot")]
 pub mod native_jit;

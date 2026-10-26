@@ -559,7 +559,7 @@ project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler
     .. "nupp.runtime.provider.nativenet,nupp.runtime.provider.nativepath,"
     .. "nupp.runtime.provider.nativetime,nupp.runtime.provider.nativetls,"
     .. "nupp.runtime.provider.nativeuri,nupp.runtime.provider.suspension,"
-    .. "nupp.runtime.provider.workers,nupp.compiler.clif.lower"
+    .. "nupp.runtime.provider.workers,nupp.compiler.clif.lower,nupp.compiler.clif.guest"
 
 --- Rebuild the compiler image, including its computed module dependencies.
 --- @raises string when the compiler sources fail to compile.

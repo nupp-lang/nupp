@@ -220,7 +220,15 @@ pub(crate) fn main() {
             (Some("layouts"), 4) => native_glue::write_layouts(&args[3]),
             (Some("object"), 5) => native_glue::write_object(&args[3], &args[4]),
             (Some("jit"), 5..) => nupp_vm::native_jit::jit(&args[3], &args[4], &args[5..]),
-            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...])"); std::process::exit(2) }
+            // Every function of an image as the JIT's emitter is handed it.
+            (Some("describe"), 4) => {
+                let mut it = Interp::new();
+                load_image_file(&mut it, &args[3]).and_then(|()| {
+                    for (fid, f) in it.funcs.iter().enumerate() { print!("{}", nupp_vm::jit_glue::describe(f, fid as u32)); }
+                    Ok(())
+                })
+            }
+            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...] | describe IMAGE)"); std::process::exit(2) }
         };
         if let Err(problem) = result { eprintln!("{problem}"); std::process::exit(1) }
         return;

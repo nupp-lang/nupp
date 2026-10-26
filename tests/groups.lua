@@ -82,5 +82,5 @@ return {
 
     -- The Nupp-authored interpreter core: the lowering, the glue and the object
     -- it links. Both build Rust; the second runs the runtime crate's tests.
-    ["native-runtime"] = {"nativelowertest", "nativeruntimetest"},
+    ["native-runtime"] = {"nativelowertest", "nativeruntimetest", "nativejittest"},
 }
