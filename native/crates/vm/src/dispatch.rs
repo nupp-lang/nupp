@@ -206,6 +206,74 @@ pub(crate) mod native_helpers {
         sync(ctx, it);
         v.0
     }
+    /// The method `recv:name(...)` calls: a string's through its metatable's
+    /// `__index`, anything else's as `Interp::resolve_method` finds it (a
+    /// shape method, a field, the `__index` chain). Raises as the step does
+    /// for a receiver that has none. May run an `__index` function.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_resolve_method(ctx: *mut Ctx, recv: u64, name: u64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let v = it.guarded(|it| {
+            let (recv, name) = (Value(recv), Value(name));
+            if recv.as_obj().is_none() {
+                it.op_error(crate::interp::OpErr::Index, recv)
+            }
+            if it.is_stringish(recv) {
+                let method = it.string_field(recv, name);
+                if method == Value::NIL {
+                    it.op_error(crate::interp::OpErr::Call, Value::NIL)
+                }
+                return method;
+            }
+            it.resolve_method(recv, name)
+        });
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
+    /// The rest of a dynamic call whose callee is already at `base` of the
+    /// top frame, at the published pc, as the step runs `CallDyn base base
+    /// nargs`: answers the pc to go on at, or a status, as the frame driver's
+    /// service does.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_call_resolved(ctx: *mut Ctx, base: u64, nargs: u64) -> u64 {
+        use crate::interp::{Flow, Outcome};
+        let ctx = unsafe { &mut *ctx };
+        let (it, tid) = enter_rust(ctx);
+        it.last_nres = ctx.last_nres as usize;
+        let pc = ctx.pc as usize;
+        let (win, _) = it.window(tid);
+        let mark = it.handles.len();
+        let flow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            it.op_call_dyn(tid, &win, pc + 1, base as u8, base as u8, nargs as u8)
+        }));
+        if flow.is_err() {
+            it.handles.truncate(mark);
+        }
+        let r = match flow {
+            Ok(Flow::Next) => (pc + 1) as u32,
+            Ok(Flow::Reenter) => ST_REENTER,
+            Ok(Flow::Return(Outcome::Done(v))) => {
+                ctx.result = v.0;
+                ST_DONE
+            }
+            Ok(Flow::Return(Outcome::Parked(k))) => {
+                ctx.result = k;
+                ST_PARKED
+            }
+            Err(p) => {
+                let v = it.error_value(p);
+                it.pending_error = Some(v);
+                ctx.status = ST_ERROR;
+                ST_ERROR
+            }
+        };
+        sync(ctx, it);
+        r as u64
+    }
     /// A cell holding nil, filled by the core as a closure is.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_new_cell(ctx: *mut Ctx) -> u64 {

@@ -2737,7 +2737,7 @@ impl Interp {
         Flow::Reenter
     }
     #[inline(never)]
-    fn op_call_dyn(&mut self, tid: usize, w: &Win, pc: usize, fr: u8, b: u8, nargs: u8) -> Flow {
+    pub(crate) fn op_call_dyn(&mut self, tid: usize, w: &Win, pc: usize, fr: u8, b: u8, nargs: u8) -> Flow {
         let (regs, base) = (w.regs, w.base);
         macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
         let callee = r!(fr);

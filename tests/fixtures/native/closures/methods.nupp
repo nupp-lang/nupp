@@ -1,0 +1,89 @@
+-- Method calls through the native core's `CallMethod`: record methods,
+-- table methods through `__index`, string methods (builtins), methods that
+-- take varargs, an `__index` function that counts how often it resolves (once
+-- per call), and the errors a missing method raises. Every line is checked
+-- against a literal here and printed for the differential run.
+local out: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local record Counter
+    n: number
+
+    function bump(self, by: number): number
+        self.n = self.n + by
+        return self.n
+    end
+
+    function sum(self, ...: number): number
+        local total = self.n
+        for _, v in ipairs({...}) do
+            total = total + v
+        end
+        return total
+    end
+end
+
+local c = new Counter(n = 0)
+for i = 1, 1000 do
+    c:bump(i)
+end
+show("record", c.n, 500500)
+show("varargMethod", c:sum(1, 2, 3), 500506)
+
+local Class: any = {}
+Class.__index = Class
+function Class.new(v: number): any
+    return setmetatable({v = v}, Class)
+end
+function Class:get(): number
+    return self.v
+end
+function Class:pair(): (number, number)
+    return self.v, self.v * 2
+end
+local obj: any = Class.new(21)
+show("table", obj:get(), 21)
+local p, q = obj:pair()
+show("pair", p + q, 63)
+
+local s = "hello world"
+show("string", s:upper(), "HELLO WORLD")
+show("stringSub", s:sub(1, 5), "hello")
+local found = s:find("world")
+show("stringFind", found, 7)
+local total = 0
+for k = 1, 3000 do
+    total = total + ("x" .. k):len()
+end
+show("stringLoop", total, 3000 + 9 + 180 + 2700 + 8004)
+
+local resolved = 0
+local Dynamic: any = setmetatable({}, {
+    __index = function(_: any, key: string): any
+        resolved = resolved + 1
+        return function(self: any, x: number): number
+            return x * 3
+        end
+    end
+})
+show("indexFunction", Dynamic:triple(5), 15)
+show("resolvedOnce", resolved, 1)
+
+local bad: any = {}
+local ok, err = pcall(function(): any
+    return bad:missing()
+end)
+show("missingOk", ok, false)
+show("missingMessage", tostring(err):match("attempt to call .*"), "attempt to call method 'missing' (a nil value)")
+local ok2, err2 = pcall(function(): any
+    local n: any = nil
+    return n:method()
+end)
+show("nilReceiver", ok2, false)
+show("nilMessage", tostring(err2):match("attempt to index .*"), "attempt to index a nil value")
+
+print(table.concat(out, "\n"))

@@ -22,5 +22,7 @@ local record Helpers
     newIndex: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
     newClosure: function(context: voidptr, fid: int64, count: int64): uint64
     newCell: function(context: voidptr): uint64
+    resolveMethod: function(context: voidptr, receiver: uint64, name: uint64): uint64
+    callResolved: function(context: voidptr, base: int64, nargs: int64): uint64
 end
 return Helpers

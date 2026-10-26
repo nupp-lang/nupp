@@ -88,6 +88,7 @@ codes! {
     NewTable, NewTableN, SetField,
     NewClosure, NewCell,
     VarargN,
+    CallMethod,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -186,6 +187,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::NewClosure(d, f, b, n) => Ins { k: f as i64, ..i(Code::NewClosure, d, b, n) },
         Op::NewCell(d, a) => i(Code::NewCell, d, a, 0),
         Op::VarargN(d, n) => i(Code::VarargN, d, n, 0),
+        Op::CallMethod(k, b, n) => Ins { imm: k as i32, ..i(Code::CallMethod, 0, b, n) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

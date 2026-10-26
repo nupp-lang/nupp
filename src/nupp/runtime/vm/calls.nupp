@@ -225,6 +225,17 @@ local function pushFrame(
     end
 end
 
+-- The rest of a call whose callee is already in the window at `base`, in
+-- Rust, as `CallDyn base base nargs` would make it: a callee the core does
+-- not push (a typed function, a host service, a value with `__call`), or a
+-- push the core cannot make (no budget, no room). A method is resolved once,
+-- so it is never resolved again; the answer is settled as the frame driver's
+-- service's is.
+local function callResolvedSlow(pc: voidptr, context: voidptr, base: int64, nargs: int64): uint64
+    protocol.publishPc(pc, context)
+    return settle(context, helpers.callResolved(context, base, nargs))
+end
+
 -- A call whose argument count is flagged, or whose callee takes varargs
 -- (contracts 5.1). The arguments are `fixed` words from the window at
 -- `base + 1`, then a spread: with 128 the caller's own varargs, which lie
@@ -232,14 +243,16 @@ end
 -- last call left after the fixed arguments, while they are all in the window
 -- (eight or fewer). A vararg callee keeps its surplus just below its own
 -- header, the count in its header word 3; any other callee drops it. Both
--- flags at once, and a pack past the window, are the step's.
+-- flags at once, and a pack past the window, are the step's, or with
+-- `resolved` (a method already resolved) Rust's from the callee on.
 local function pushSpreadSlow(
     pc: voidptr,
     context: voidptr,
     fid: uint64,
     closure: uint64,
     base: int64,
-    nargs: int64
+    nargs: int64,
+    resolved: int64
 ): uint64
     local stack = native.loadPointer(context, native.layout("stack"))
     local current = native.load64(context, native.layout("cur"))
@@ -277,6 +290,9 @@ local function pushSpreadSlow(
         native.either(refused, budget == 0),
         next + words > native.load64(context, native.layout("cap"))
     ) then
+        if resolved ~= 0 then
+            return callResolvedSlow(pc, context, base, nargs)
+        end
         return native.slow(pc, regs, regs, regs, context, frame)
     end
     native.store64(context, native.layout("budget"), budget - 1)
@@ -347,7 +363,7 @@ local function dynamicCall(
         ) then
             return native.slow(pc, regs, ints, floats, context, frame)
         elseif native.either(nargs >= 64, native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0) then
-            return pushSpreadSlow(pc, context, fid, closure, native.load8(pc, 2), nargs)
+            return pushSpreadSlow(pc, context, fid, closure, native.load8(pc, 2), nargs, 0)
         else
             local base = native.load8(pc, 2)
             local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
@@ -373,7 +389,7 @@ export function Call(
         native.index(fid) * native.layout("FuncInfo.size")
     )
     if native.either(native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0, nargs >= 64) then
-        return pushSpreadSlow(pc, context, fid, values.NIL, native.load8(pc, 1), nargs)
+        return pushSpreadSlow(pc, context, fid, values.NIL, native.load8(pc, 1), nargs, 0)
     else
         return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, values.NIL, native.load8(pc, 1), nargs)
     end
@@ -780,4 +796,109 @@ export function VarargN(
     end
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+-- `recv:name(...)`: the method resolved by the helper (contracts 2.x: a
+-- string's from its metatable's `__index`, a record's from its shape, a
+-- table's through `__index`), written into `base`, where a dynamic call
+-- reads its callee, and called with the receiver as its first argument, as
+-- `CallK` calls: a function or a closure pushes a frame here, a builtin
+-- runs from the window, and anything else is Rust's from the resolved
+-- method on. The receiver goes to the JIT's feedback first, as a receiver.
+local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base: int64, nargs: int64): uint64
+    protocol.publishPc(pc, context)
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local current = native.load64(context, native.layout("cur"))
+    local frame = native.offset(stack, native.index(current * 8))
+    local receiver = native.load64(frame, 32 + (base + 1) * 8)
+    if native.load32(context, native.layout("feedback")) ~= 0 then
+        helpers.observe(
+            context,
+            native.index(native.load64(frame, 0) & values.LOW_WORD),
+            native.load32(context, native.layout("pc")),
+            receiver,
+            1
+        )
+    end
+    local method = helpers.resolveMethod(context, receiver, name)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- An `__index` function may have run: the stack is derived again.
+    stack = native.loadPointer(context, native.layout("stack"))
+    frame = native.offset(stack, native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    native.store64(regs, base * 8, method)
+    local fid = values.NO_GUARD
+    local closure = values.NIL
+    if method & values.TAG_MASK == values.TAG_FUNC then
+        local upper = (method >> 32) & values.LOW_HALF
+        if upper == 0 then
+            fid = method & values.LOW_WORD
+        elseif native.both(upper == values.LOW_HALF, native.either(nargs < 64, nargs >= 128)) then
+            local id = native.index(method & values.LOW_WORD)
+            if native.both(
+                id < 1000,
+                native.either(
+                    native.word(id) >= native.load64(context, native.layout("nslow_calls")),
+                    native.load8(native.loadPointer(context, native.layout("slow_calls")), id) == 0
+                )
+            ) then
+                return callBuiltinSlow(pc, context, id, current + 4 + native.word(base), nargs)
+            end
+        end
+    elseif method & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(method & values.PAYLOAD)
+        if native.load8(object, native.layout("Header.kind")) == 5 then
+            fid = native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD)
+            closure = method
+        end
+    end
+    if fid < native.load64(context, native.layout("nfuncs")) then
+        local callee = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(fid) * native.layout("FuncInfo.size")
+        )
+        if native.both(
+            native.load32(callee, native.layout("FuncInfo.typed")) == 0,
+            fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD)
+        ) then
+            if native.either(nargs >= 64, native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0) then
+                return pushSpreadSlow(pc, context, fid, closure, base, nargs, 1)
+            end
+            -- The push's own refusals are decided here, so it never hands
+            -- the instruction back to be resolved a second time.
+            local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
+            local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
+            if native.both(
+                native.load64(context, native.layout("budget")) ~= 0,
+                next + words <= native.load64(context, native.layout("cap"))
+            ) then
+                local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
+                local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
+                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied)
+            end
+        end
+    end
+
+    return callResolvedSlow(pc, context, base, nargs)
+end
+
+-- `CallMethod k base nargs`: the method named by constant `k` on the
+-- receiver at `base + 1`, which `nargs` counts.
+export function CallMethod(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local name = native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), native.load32(pc, 4) * 8)
+
+    return callMethodSlow(pc, context, name, native.load8(pc, 2), native.load8(pc, 3))
 end
