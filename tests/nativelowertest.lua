@@ -210,6 +210,13 @@ local AGGREGATES = {
     {"checksum", {"buffer:64", 10}, "378"}, {"filled", {"buffer:64", 16, 300}, "704"},
 }
 
+-- Atomic words: 10 + rounds; the CAS loop counts up; a swap that misses leaves 5.
+local ATOMICS = {
+    {"counter", {"buffer:16", 100}, "110"}, {"increment", {"buffer:16", 40, 5}, "45"},
+    {"swapMiss", {"buffer:16"}, "505"}, {"exchange", {"buffer:16", 3, 4}, "3004"},
+    {"masks", {"buffer:16"}, "270"}, {"flags", {"buffer:16"}, "1"}, {"halves", {"buffer:16"}, "8589934593"},
+}
+
 local function check(clif, cases)
     for _, case in ipairs(cases) do
         local name, args, expected = case[1], case[2], case[3]
@@ -251,6 +258,10 @@ function M.structValuesArraysAndByteSpansLowerInPlace()
     -- A checked access outside the span traps rather than reading.
     local status = capture(("%s native jit %s %s %s %s"):format(quote(glueTool()), quote(clif), "outside", "buffer:64", 8))
     assert(status ~= 0, "the checked access outside the span did not trap")
+end
+
+function M.atomicWordsAndHalvesLowerToAtomicInstructions()
+    check(compileFixture("atomics"), ATOMICS)
 end
 
 

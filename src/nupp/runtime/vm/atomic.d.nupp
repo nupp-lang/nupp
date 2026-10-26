@@ -1,0 +1,44 @@
+-- The atomic operations native code is written against: loads, stores,
+-- exchanges and a fence on words at a byte offset from a base, and the same on
+-- the thirty-two bit halves. The native compiler consumes every call here as
+-- Cranelift's sequentially consistent atomic instructions, the strongest
+-- ordering, so an acquire or a release is what each promises at least; nothing
+-- here has a guest implementation.
+local record Atomic
+    --- The word at `base + offset`.
+    load: function(base: voidptr, offset: int64): uint64
+
+    --- Stores `value` at `base + offset`.
+    store: function(base: voidptr, offset: int64, value: uint64): nil
+
+    --- Replaces the word with `replacement` when it holds `expected`; answers
+    --- what the word held, which is `expected` when the swap happened.
+    compareAndSwap: function(base: voidptr, offset: int64, expected: uint64, replacement: uint64): uint64
+
+    --- Adds to the word, answering what it held before.
+    add: function(base: voidptr, offset: int64, value: uint64): uint64
+
+    --- Subtracts from the word, answering what it held before.
+    sub: function(base: voidptr, offset: int64, value: uint64): uint64
+
+    --- Replaces the word, answering what it held before.
+    exchange: function(base: voidptr, offset: int64, value: uint64): uint64
+
+    bitAnd: function(base: voidptr, offset: int64, value: uint64): uint64
+    bitOr: function(base: voidptr, offset: int64, value: uint64): uint64
+    bitXor: function(base: voidptr, offset: int64, value: uint64): uint64
+
+    --- The same operations on a thirty-two bit half at `base + offset`.
+    load32: function(base: voidptr, offset: int64): uint32
+
+    store32: function(base: voidptr, offset: int64, value: uint32): nil
+    compareAndSwap32: function(base: voidptr, offset: int64, expected: uint32, replacement: uint32): uint32
+    add32: function(base: voidptr, offset: int64, value: uint32): uint32
+    sub32: function(base: voidptr, offset: int64, value: uint32): uint32
+    exchange32: function(base: voidptr, offset: int64, value: uint32): uint32
+
+    --- A full barrier: every load and store before it completes before any
+    --- after it.
+    fence: function(): nil
+end
+return Atomic

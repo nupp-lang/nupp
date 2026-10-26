@@ -37,6 +37,10 @@ local lower = {}
 --- The intrinsics declaration the runtime sources are written against.
 lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
 
+--- The atomics declaration: loads, stores, exchanges and fences on words the
+--- lowering emits as Cranelift's sequentially consistent atomic instructions.
+lower.ATOMICS = "nupp.runtime.vm.atomic"
+
 --- The declarations of what the runtime exports to native code, by C ABI,
 --- and the symbol prefix each declares under: a member `name` of the module
 --- is the symbol `<prefix><name in snake case>`, with the kinds its declared
@@ -56,6 +60,7 @@ lower.RUNTIME_MODULES = {
 }
 
 local INTRINSICS = lower.INTRINSICS
+local ATOMICS = lower.ATOMICS
 local HELPER_MODULES: {[string]: string} = lower.HELPER_MODULES
 
 -- `getIndexNum` under `nupp_rt_` is `nupp_rt_get_index_num`.
@@ -318,6 +323,10 @@ local integerOps = {
     ["<<"] = "ishl"
 }
 local floatOps = {["+"] = "fadd", ["-"] = "fsub", ["*"] = "fmul", ["/"] = "fdiv"}
+-- The read-modify-write atomics, by the declaration's member name.
+local ATOMIC_RMW: {
+    [string]: string
+} = {add = "add", sub = "sub", exchange = "xchg", bitAnd = "and", bitOr = "or", bitXor = "xor"}
 
 -- The private memory intrinsics the handler modules are written against, so
 -- that profile is a subset of this one.
@@ -714,6 +723,46 @@ local function compileFunction(fn: Fn, options: any): string
 
     local function isIntrinsicCall(n: any): boolean
         return calledModule(n) == INTRINSICS
+    end
+
+    -- An atomic operation on a word or a thirty-two bit half of one, at a byte
+    -- offset from a base: Cranelift's sequentially consistent instructions,
+    -- which is the strongest ordering and what every call here promises.
+    local function atomic(operation: string, args: any): any
+        local function arg(index: number, kind: string): string
+            return materialize(expression(need(args[index], operation .. ": argument " .. tostring(index))), kind)
+        end
+
+        if operation == "fence" then
+            effect("fence")
+            return {kind = "nil", value = ""}
+        end
+        local narrow = operation:sub(-2) == "32"
+        local name = narrow and operation:sub(1, -3) or operation
+        local kind = narrow and "uint32" or "uint64"
+        local width = narrow and "i32" or "i64"
+        local address = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))
+
+        local function operand(index: number): string
+            local word = arg(index, kind)
+            return narrow and emit("ireduce.i32 " .. word) or word
+        end
+
+        local function answer(value: string): any
+            return {kind = kind, value = narrow and emit("uextend.i64 " .. value) or value}
+        end
+
+        if name == "load" then
+            return answer(emit("atomic_load." .. width .. " " .. address))
+        elseif name == "store" then
+            effect("atomic_store " .. operand(3) .. ", " .. address)
+            return {kind = "nil", value = ""}
+        elseif name == "compareAndSwap" then
+            return answer(emit("atomic_cas " .. address .. ", " .. operand(3) .. ", " .. operand(4)))
+        end
+        local rmw = need(ATOMIC_RMW[name], "unsupported atomic operation " .. operation) as string
+
+        return answer(emit("atomic_rmw." .. width .. " " .. rmw .. " " .. address .. ", " .. operand(3)))
     end
 
     local function isIntrinsic(n: any, intrinsicName: string): boolean
@@ -1197,6 +1246,8 @@ local function compileFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
+        elseif calledModule(n) == ATOMICS then
+            return atomic(n.obj.name.text, n.args.exprs or {})
         elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
             return helperCall(n, HELPER_MODULES[calledModule(n) as string] as string)
         elseif n.kind == "call" and type(n.scalarIntrinsic) == "string" then
@@ -1865,7 +1916,10 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     for _, entry in ipairs(pending) do
         for _, required in ipairs(entry.requires) do
             need(
-                required == INTRINSICS or HELPER_MODULES[required] ~= nil or modules[required] ~= nil,
+                required == INTRINSICS
+                or required == ATOMICS
+                or HELPER_MODULES[required] ~= nil
+                or modules[required] ~= nil,
                 entry.scope.name .. " requires " .. required .. ", which is not native code"
             )
         end

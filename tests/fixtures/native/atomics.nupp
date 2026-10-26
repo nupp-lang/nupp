@@ -1,0 +1,80 @@
+module atomics
+
+-- Atomic loads, stores, exchanges and fences on words and their halves, as the
+-- marking flag, a worker handoff and the scheduler's queues use them. One
+-- thread here, so the answers are the sequential ones; the instructions are
+-- the atomic ones.
+const native = require("nupp.runtime.vm.intrinsics")
+const atomic = require("nupp.runtime.vm.atomic")
+
+local function counter(base: voidptr, rounds: int64): uint64
+    atomic.store(base, 0, 10)
+    local i: int64 = 0
+    while i < rounds do
+        atomic.add(base, 0, 2)
+        atomic.sub(base, 0, 1)
+        i = i + 1
+    end
+    atomic.fence()
+
+    return atomic.load(base, 0)
+end
+
+-- A compare-and-swap loop that retries until it wins, as an increment under
+-- contention is written.
+local function increment(base: voidptr, from: uint64, times: int64): uint64
+    atomic.store(base, 8, from)
+    local i: int64 = 0
+    while i < times do
+        local seen = atomic.load(base, 8)
+        while atomic.compareAndSwap(base, 8, seen, seen + 1) ~= seen do
+            seen = atomic.load(base, 8)
+        end
+        i = i + 1
+    end
+
+    return atomic.load(base, 8)
+end
+
+-- A swap that fails leaves the word alone and answers what it held.
+local function swapMiss(base: voidptr): uint64
+    atomic.store(base, 0, 5)
+    local before = atomic.compareAndSwap(base, 0, 6, 9)
+
+    return before * 100 + atomic.load(base, 0)
+end
+
+local function exchange(base: voidptr, first: uint64, second: uint64): uint64
+    atomic.store(base, 0, first)
+    local old = atomic.exchange(base, 0, second)
+
+    return old * 1000 + atomic.load(base, 0)
+end
+
+local function masks(base: voidptr): uint64
+    atomic.store(base, 0, 255)
+    atomic.bitAnd(base, 0, 15)
+    atomic.bitOr(base, 0, 256)
+    atomic.bitXor(base, 0, 1)
+
+    return atomic.load(base, 0)
+end
+
+-- The halves: a marking flag is a thirty-two bit word beside another.
+local function flags(base: voidptr): uint32
+    atomic.store32(base, 0, 4294967295)
+    atomic.store32(base, 4, 1)
+    local was = atomic.compareAndSwap32(base, 4, 1, 2)
+    atomic.add32(base, 4, 4294967295)
+    local swapped = atomic.exchange32(base, 0, 7)
+
+    return atomic.load32(base, 4) + was + swapped
+end
+
+local function halves(base: voidptr): uint64
+    atomic.store(base, 0, 0)
+    atomic.store32(base, 0, 1)
+    atomic.store32(base, 4, 2)
+
+    return atomic.load(base, 0)
+end
