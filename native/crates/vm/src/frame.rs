@@ -661,6 +661,10 @@ NewTable 1
 K 2 0
 K 3 1
 SetIdx 1 2 3
+IK 0 3
+IAddK 0 0 -1
+JmpIfIZero 0 1
+Jmp -3
 GetIdx 4 1 2
 Ret 4
 end
@@ -675,10 +679,12 @@ entry 0
         vm.heap.quarantine = true;
         vm.jit = None;
         let task = vm.schedule(Value::func(0), &[], None).unwrap();
-        vm.instruction_budget = Some(2);
+        // A budget of one back edge: the loop's second one parks the task at
+        // the jump, in the middle of the activation.
+        vm.instruction_budget = Some(1);
         assert!(vm.run_ready(1).unwrap().is_empty());
         let frame = vm.tasks[task.index].cur();
-        assert_eq!(vm.tasks[task.index].stack[frame] >> 32, 2);
+        assert_eq!(vm.tasks[task.index].stack[frame] >> 32, 7);
         let bytes =
             persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
         let mut restored =

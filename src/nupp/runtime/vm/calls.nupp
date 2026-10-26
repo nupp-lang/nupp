@@ -170,12 +170,16 @@ local function pushFrame(
     base: int64,
     supplied: int64
 ): uint64
+    -- The budget: a call the task may not take yet is Rust's, which parks
+    -- the task or raises at this instruction.
+    local budget = native.load64(context, native.layout("budget"))
     local current = native.load64(context, native.layout("cur"))
     local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
     local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-    if next + words > native.load64(context, native.layout("cap")) then
+    if native.either(budget == 0, next + words > native.load64(context, native.layout("cap"))) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
+        native.store64(context, native.layout("budget"), budget - 1)
         local caller = native.loadPointer(
             native.loadPointer(context, native.layout("funcs")),
             native.index(
@@ -469,9 +473,10 @@ local function backEdgeSlow(pc: voidptr, context: voidptr, pcIndex: int64, hot: 
     end
 end
 
--- A taken back edge while compiled frames are possible, before it is taken:
--- the loop moves into compiled code when its function has a frame entry, or
--- is compiled when this edge makes it hot. Otherwise the jump is taken here.
+-- A taken back edge, before it is taken: charged to the budget, and while
+-- compiled frames are possible the loop moves into compiled code when its
+-- function has a frame entry, or is compiled when this edge makes it hot.
+-- Otherwise the jump is taken here.
 export function backEdge(
     pc: voidptr,
     regs: voidptr,
@@ -482,6 +487,11 @@ export function backEdge(
     displacement: int64
 ): uint64
     local target = native.offset(pc, (displacement + 1) * 16)
+    local budget = native.load64(context, native.layout("budget"))
+    if budget == 0 then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    native.store64(context, native.layout("budget"), budget - 1)
     local jit = native.load32(context, native.layout("jit_frames"))
     local frames = native.load64(context, native.layout("nframe_entries"))
     if native.both(jit == 0, frames == 0) then

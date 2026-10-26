@@ -585,6 +585,7 @@ fn native_value_branches_count_heat_on_taken_back_edges() {
                             ctx.frame_entries = frame_entries.as_ptr();
                             ctx.nframe_entries = entries;
                             ctx.frame_threshold = 100;
+                            ctx.budget = u64::MAX;
                             let mut regs = [value];
                             let mut ints = [-123];
                             let mut floats = [19.25];
@@ -651,6 +652,7 @@ fn back_edges_finish_without_native_recursion() {
         ctx.nframe_entries = entries;
         // Never hot: the whole loop runs natively, one edge counted at a time.
         ctx.frame_threshold = u32::MAX;
+        ctx.budget = u64::MAX;
         let mut ints = [1_000_000];
         let mut regs = [0];
         let mut floats = [0.0];
@@ -927,6 +929,7 @@ impl Machine {
         self.ctx.guard = NO_GUARD;
         self.ctx.unavailable_fid = u32::MAX;
         self.ctx.frame_threshold = 1 << 20;
+        self.ctx.budget = u64::MAX;
     }
     fn frame(&mut self) -> *mut u64 {
         unsafe { self.stack.as_mut_ptr().add(self.ctx.cur as usize) }

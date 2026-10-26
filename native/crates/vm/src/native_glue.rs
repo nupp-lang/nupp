@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 49] = [
+pub const LAYOUT_FIELDS: [&str; 50] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -29,7 +29,7 @@ pub const LAYOUT_FIELDS: [&str; 49] = [
     "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
     "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k", "pc", "status", "marking", "shapes",
     "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
-    "slow_calls", "nslow_calls", "frame_threshold", "Code.PadResults",
+    "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
 ];
 
 pub fn layout(field: &str) -> Result<usize, String> {
@@ -82,6 +82,7 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "slow_calls" => offset_of!(Ctx, slow_calls),
         "nslow_calls" => offset_of!(Ctx, nslow_calls),
         "frame_threshold" => offset_of!(Ctx, frame_threshold),
+        "budget" => offset_of!(Ctx, budget),
         // An opcode number a handler reads from the instruction stream: the
         // return that pads the results of the call it answers.
         "Code.PadResults" => crate::threaded::Code::PadResults as usize,
@@ -248,6 +249,7 @@ fn metadata_header() -> String {
         ("guard", offset_of!(Ctx, guard)),
         ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),
         ("frame_threshold", offset_of!(Ctx, frame_threshold)),
+        ("budget", offset_of!(Ctx, budget)),
     ] {
         metadata.push_str(&format!("assert!(std::mem::offset_of!(Ctx, {field}) == {offset});\n"));
     }

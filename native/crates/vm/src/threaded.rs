@@ -34,7 +34,12 @@ pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64,
 /// Rust whole, `frame_entries` the compiled frame entry per function,
 /// entered through `rt_enter_frame`, and `frame_threshold` the heat at which
 /// a function without one is compiled while `jit_frames` says the JIT may.
-pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32 }
+/// `budget` is how many more calls and taken back edges the core may take
+/// before handing the instruction to Rust, which parks or raises there (an
+/// instruction budget's slice, a source chunk's limit); `u64::MAX` is none.
+/// `budget_mark` is what `sync` set it to, so the Rust side can charge the
+/// difference before it reads the budgets itself.
+pub struct Ctx { pub interp: *mut std::ffi::c_void, pub tid: u64, pub stack: *mut u64, pub cap: u64, pub cur: u64, pub funcs: *const FuncInfo, pub nfuncs: u64, pub status: u32, pub pc: u32, pub result: u64, pub last_nres: u64, pub shapes: *const ShapeInfo, pub nshapes: u64, pub marking: *const u8, pub feedback: u32, pub guard: u64, pub slow_calls: *const u8, pub nslow_calls: u64, pub frame_entries: *const u64, pub nframe_entries: u64, pub unavailable_fid: u32, pub jit_frames: u32, pub frame_threshold: u32, pub budget: u64, pub budget_mark: u64 }
 
 pub const NO_GUARD: u64 = u64::MAX;
 /// Every return goes to Rust: an unwind is driving the task's cleanups.
@@ -174,9 +179,34 @@ pub fn encode(op: &Op) -> Ins {
     }
 }
 
+/// Whether the task's instruction budget applies: a scheduled task's.
+fn budgeted(it: &Interp, tid: usize) -> bool {
+    it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid))
+}
+
+/// The calls and back edges the core may still take: the smaller of the
+/// source chunk's limit and the scheduled task's slice, when either is set.
+fn budget_limit(it: &Interp, tid: usize) -> u64 {
+    let mut limit = u64::MAX;
+    if let Some(n) = it.execution_limit { limit = limit.min(n as u64); }
+    if budgeted(it, tid) { if let Some(n) = it.instruction_budget { limit = limit.min(n as u64); } }
+    limit
+}
+
+/// Charges what the core took since `sync` to the budgets it was drawn from.
+fn charge(ctx: &mut Ctx, it: &mut Interp) {
+    let used = ctx.budget_mark.saturating_sub(ctx.budget);
+    if used == 0 { return; }
+    ctx.budget_mark = ctx.budget;
+    if let Some(n) = it.execution_limit.as_mut() { *n = n.saturating_sub(used as usize); }
+    if budgeted(it, ctx.tid as usize) { if let Some(n) = it.instruction_budget.as_mut() { *n = n.saturating_sub(used as usize); } }
+}
+
 #[inline]
 fn sync(ctx: &mut Ctx, it: &mut Interp) {
     let tid = ctx.tid as usize;
+    ctx.budget = budget_limit(it, tid);
+    ctx.budget_mark = ctx.budget;
     let t = &mut it.tasks[tid];
     ctx.stack = t.stack.as_mut_ptr();
     ctx.cap = t.stack.len() as u64;
@@ -205,9 +235,20 @@ pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
+    charge(ctx, it);
     // The core moved frames on its own; the task record learns the top first.
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.last_nres = ctx.last_nres as usize;
+    // A spent budget: the core handed this instruction over before taking
+    // the call or the back edge. A scheduled task's slice ends here, parked
+    // at the instruction; a source chunk's limit raises.
+    if ctx.budget == 0 && budgeted(it, tid) && it.instruction_budget == Some(0) {
+        it.tasks[tid].note_pc(pc as usize);
+        ctx.result = 0;
+        sync(ctx, it);
+        return ST_PARKED;
+    }
+    let limited = ctx.budget == 0 && it.execution_limit == Some(0);
     // The frame's pc, for the backtrace of an error this op raises.
     it.tasks[tid].note_pc(pc as usize + 1);
     let (win, _) = it.window(tid);
@@ -216,7 +257,10 @@ pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     // A raise inside the opcode becomes the error status: the core returns
     // and `run_threaded` re-raises where Rust frames can carry it.
     let mark = it.handles.len();
-    let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| it.step(tid, &win, pc as usize)));
+    let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        if limited { it.err("source chunk instruction limit exceeded"); }
+        it.step(tid, &win, pc as usize)
+    }));
     if stepped.is_err() { it.handles.truncate(mark); }
     let r = match stepped {
         Ok(Step::Next(np)) => np as u32,
@@ -237,6 +281,7 @@ pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
+    charge(ctx, it);
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.last_nres = ctx.last_nres as usize;
     let fid = (it.tasks[tid].stack[ctx.cur as usize] & 0xffff_ffff) as u32;
@@ -259,6 +304,7 @@ pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, hot: u32) -> u32 {
 pub(crate) fn rt_grow(ctx: *mut Ctx, needed: u64) {
     let ctx = unsafe { &mut *ctx };
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
+    charge(ctx, it);
     let t = &mut it.tasks[ctx.tid as usize];
     t.set_cur(ctx.cur as usize);
     let n = (needed as usize).max(t.stack.len() * 2);
@@ -271,6 +317,7 @@ pub(crate) fn rt_grow(ctx: *mut Ctx, needed: u64) {
 fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
+    charge(ctx, it);
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.tasks[tid].note_pc(ctx.pc as usize + 1);
     (it, tid)
@@ -394,14 +441,15 @@ impl Interp {
         let frame_threshold = self.frame_threshold;
         #[cfg(not(feature = "compiled-runtime"))]
         let frame_threshold = 0;
-        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold };
+        let mut ctx = Ctx { interp: self as *mut Interp as *mut std::ffi::c_void, tid: tid as u64, stack: std::ptr::null_mut(), cap: 0, cur: 0, funcs: self.finfo.as_ptr(), nfuncs: self.finfo.len() as u64, status: 0, pc: 0, result: 0, last_nres: 0, shapes: self.shape_info.as_ptr(), nshapes: self.shape_info.len() as u64, marking: &self.heap.marking as *const u8, feedback: 0, guard: NO_GUARD, slow_calls: slow.as_ptr(), nslow_calls: slow.len() as u64, frame_entries, nframe_entries, unavailable_fid: self.unavailable_fid, jit_frames: jit_frames as u32, frame_threshold, budget: u64::MAX, budget_mark: u64::MAX };
         sync(&mut ctx, self);
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]
         { ctx.feedback = self.spec.feedback as u32; }
         let status = unsafe { crate::dispatch::run(&mut ctx) };
-        // The core's pops do not touch the task record; its state and last
-        // result count are brought over here.
+        // The core's pops do not touch the task record; its state, last
+        // result count and what it took of the budgets are brought over here.
+        charge(&mut ctx, self);
         self.last_nres = ctx.last_nres as usize;
         self.tasks[tid].set_cur(ctx.cur as usize);
         match status {

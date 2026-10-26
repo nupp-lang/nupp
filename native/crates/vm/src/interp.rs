@@ -337,6 +337,11 @@ pub static TABLE_COUNTS: [std::sync::atomic::AtomicU64; 12] = [const { std::sync
 /// lie just below the header (a vararg function's surplus arguments, in the
 /// frame rather than in any object).
 const NONE: u32 = u32::MAX;
+/// Where a budget is charged: a call or a backward jump, before it runs.
+/// The native core charges at the same instructions.
+#[inline] fn budget_point(op: &Op) -> bool {
+    matches!(op, Op::Call(..) | Op::CallK(..) | Op::CallDyn(..) | Op::CallT(..) | Op::CallMethod(..)) || crate::frame::back_edge(op)
+}
 #[inline] fn frame_words_of(h3: u64) -> usize { ((h3 >> 33) & 0xffff) as usize }
 #[inline] fn nvar_of(h3: u64) -> usize { (h3 >> 49) as usize }
 #[inline] fn header3(fret: usize, is_f: bool, words: usize, nvar: usize) -> u64 { fret as u64 | ((is_f as u64) << 32) | ((words as u64) << 33) | ((nvar as u64) << 49) }
@@ -2297,12 +2302,13 @@ impl Interp {
             }
         }
     }
-    /// The native core when it is linked and prepared, and no budget is
-    /// set, since only the Rust loop charges budgets; the Rust loop otherwise.
+    /// The native core when it is linked and prepared; the Rust loop
+    /// otherwise. Budgets are the core's own counter, charged at calls and
+    /// back edges, so a budgeted task runs on the core as any other.
     fn run_core(&mut self, tid: usize) -> Outcome {
         #[cfg(feature = "native-runtime")]
         {
-            if self.threaded && self.execution_limit.is_none() && self.instruction_budget.is_none() { return self.run_threaded(tid); }
+            if self.threaded { return self.run_threaded(tid); }
         }
         self.run_rust(tid)
     }
@@ -2360,14 +2366,18 @@ impl Interp {
                 win = self.window(tid).0;
             }
             loop {
-                if let Some(left) = self.execution_limit.as_mut() {
-                    if *left == 0 { self.err("source chunk instruction limit exceeded"); }
-                    *left -= 1;
+                // Budgets are charged where the core charges them: a call or
+                // a back edge, before it is taken.
+                if budget_point(unsafe { &*win.code.add(pc) }) {
+                    if let Some(left) = self.execution_limit.as_mut() {
+                        if *left == 0 { self.err("source chunk instruction limit exceeded"); }
+                        *left -= 1;
+                    }
+                    if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
+                        if *left == 0 { self.tasks[tid].note_pc(pc); return Outcome::Parked(0); }
+                        *left -= 1;
+                    } }
                 }
-                if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
-                    if *left == 0 { self.tasks[tid].note_pc(pc); return Outcome::Parked(0); }
-                    *left -= 1;
-                } }
                 // The frame's pc, for the backtrace of an error this op raises.
                 self.tasks[tid].note_pc(pc + 1);
                 if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
@@ -2398,14 +2408,16 @@ impl Interp {
             }
             win = self.window(tid).0;
             loop {
-                if let Some(left) = self.execution_limit.as_mut() {
-                    if *left == 0 { self.err("source chunk instruction limit exceeded"); }
-                    *left -= 1;
+                if budget_point(unsafe { &*win.code.add(pc) }) {
+                    if let Some(left) = self.execution_limit.as_mut() {
+                        if *left == 0 { self.err("source chunk instruction limit exceeded"); }
+                        *left -= 1;
+                    }
+                    if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
+                        if *left == 0 { self.tasks[tid].note_pc(pc); return Err(Step::Return(Outcome::Parked(0))); }
+                        *left -= 1;
+                    } }
                 }
-                if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
-                    if *left == 0 { self.tasks[tid].note_pc(pc); return Err(Step::Return(Outcome::Parked(0))); }
-                    *left -= 1;
-                } }
                 self.tasks[tid].note_pc(pc + 1);
                 match self.step(tid, &win, pc) {
                     Step::Next(next) => { pc = next; self.tasks[tid].note_pc(pc); break; },
