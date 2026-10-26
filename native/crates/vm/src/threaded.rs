@@ -61,7 +61,7 @@ macro_rules! codes {
     ($first:ident $(, $rest:ident)* $(,)?) => {
         #[allow(dead_code)]
         #[repr(u8)]
-        #[derive(Clone, Copy)]
+        #[derive(Clone, Copy, Debug)]
         pub(crate) enum Code { $first = 0, $($rest,)* }
         /// Every opcode name, indexed by its number.
         pub const CODE_NAMES: &[&str] = &[stringify!($first), $(stringify!($rest),)*];

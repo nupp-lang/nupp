@@ -3,10 +3,12 @@ module nupp.runtime.vm.core
 -- The native interpreter core's leaf handlers: moves, constants, integer and
 -- float arithmetic, comparisons, branches, boxed arithmetic, cells, upvalues,
 -- slots, lengths and array reads. Ordinary Nupp, compiled through
--- `nupp.compiler.clif.lower` in handler mode. Unsupported instructions and
--- OSR return to the Rust core before any helper can move a frame or collect.
+-- `nupp.compiler.clif.lower` in handler mode. Unsupported instructions return
+-- to the Rust core before any helper can move a frame or collect; a back edge
+-- that may enter compiled code goes through the frame driver in `calls`.
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
+const calls = require("nupp.runtime.vm.calls")
 
 export function Move(
     pc: voidptr,
@@ -309,21 +311,7 @@ export function Jmp(
 ): uint64
     local displacement = native.load32(pc, 4)
     if displacement < 0 then
-        local mode = native.load32(context, native.layout("frame_mode"))
-        if mode ~= 0 then
-            local frames = native.load64(context, native.layout("nframe_entries"))
-            local jit = native.load32(context, native.layout("jit_frames"))
-            if frames ~= 0 then
-                return native.slow(pc, regs, ints, floats, context, frame)
-            elseif jit ~= 0 then
-                return native.slow(pc, regs, ints, floats, context, frame)
-            else
-                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
-
-            end
-        else
-            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
-        end
+        return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
     else
         return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
     end
@@ -342,28 +330,7 @@ export function JmpIfIZero(
     if value == 0 then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
-            local mode = native.load32(context, native.layout("frame_mode"))
-            if mode ~= 0 then
-                local frames = native.load64(context, native.layout("nframe_entries"))
-                local jit = native.load32(context, native.layout("jit_frames"))
-                if frames ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                elseif jit ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                else
-                    return native.dispatch(
-                        native.offset(pc, (displacement + 1) * 16),
-                        regs,
-                        ints,
-                        floats,
-                        context,
-                        frame
-                    )
-
-                end
-            else
-                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
-            end
+            return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
         else
             return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
         end
@@ -915,28 +882,7 @@ export function JmpIf(
     if native.both(value ~= values.NIL, value ~= values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
-            local mode = native.load32(context, native.layout("frame_mode"))
-            if mode ~= 0 then
-                local frames = native.load64(context, native.layout("nframe_entries"))
-                local jit = native.load32(context, native.layout("jit_frames"))
-                if frames ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                elseif jit ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                else
-                    return native.dispatch(
-                        native.offset(pc, (displacement + 1) * 16),
-                        regs,
-                        ints,
-                        floats,
-                        context,
-                        frame
-                    )
-
-                end
-            else
-                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
-            end
+            return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
         else
             return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
         end
@@ -958,28 +904,7 @@ export function JmpIfNot(
     if native.either(value == values.NIL, value == values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
-            local mode = native.load32(context, native.layout("frame_mode"))
-            if mode ~= 0 then
-                local frames = native.load64(context, native.layout("nframe_entries"))
-                local jit = native.load32(context, native.layout("jit_frames"))
-                if frames ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                elseif jit ~= 0 then
-                    return native.slow(pc, regs, ints, floats, context, frame)
-                else
-                    return native.dispatch(
-                        native.offset(pc, (displacement + 1) * 16),
-                        regs,
-                        ints,
-                        floats,
-                        context,
-                        frame
-                    )
-
-                end
-            else
-                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
-            end
+            return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
         else
             return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
         end

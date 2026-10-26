@@ -520,8 +520,30 @@ fn native_constants_and_upvalues_use_the_entry_context_and_frame() {
     }
 }
 
+/// A function table for a frame-mode test of back edges: one function whose
+/// code is `program`, far from hot.
+fn one_function(program: &[Ins]) -> FuncInfo {
+    FuncInfo {
+        code: program.as_ptr(),
+        consts: std::ptr::null(),
+        frame_words: 8,
+        nregs: 1,
+        nparams: 0,
+        off_i: 5,
+        off_f: 6,
+        vararg: 0,
+        ncode: program.len() as u32,
+        calls: 0,
+        typed: 0,
+        native: 0,
+    }
+}
+
+/// A taken back edge in frame mode counts toward its function's heat while
+/// the JIT may compile frames, and is taken natively while the function is
+/// neither hot nor compiled; anything else leaves the loop alone.
 #[test]
-fn native_value_branches_yield_only_for_taken_osr_edges() {
+fn native_value_branches_count_heat_on_taken_back_edges() {
     for code in [Code::JmpIf, Code::JmpIfNot] {
         for value in [
             Value::NIL.0,
@@ -541,26 +563,24 @@ fn native_value_branches_yield_only_for_taken_osr_edges() {
                                 imm: displacement,
                                 ..Ins::default()
                             };
+                            // Native code writes the heat through the context's
+                            // pointer: the table is mutable, and read back below.
+                            let mut funcs = [one_function(&program)];
+                            let frame_entries = [0u64];
                             let mut ctx: Ctx = unsafe { std::mem::zeroed() };
                             ctx.frame_mode = mode;
                             ctx.jit_frames = jit;
+                            ctx.funcs = funcs.as_mut_ptr();
+                            ctx.nfuncs = 1;
+                            ctx.frame_entries = frame_entries.as_ptr();
                             ctx.nframe_entries = entries;
+                            ctx.frame_threshold = 100;
                             let mut regs = [value];
                             let mut ints = [-123];
                             let mut floats = [19.25];
                             let mut frame = [0; 4];
                             let taken = Value(value).truthy() == (matches!(code, Code::JmpIf));
-                            let expected = if taken
-                                && displacement < 0
-                                && mode != 0
-                                && (jit != 0 || entries != 0)
-                            {
-                                2
-                            } else if taken {
-                                (3 + displacement) as usize
-                            } else {
-                                3
-                            };
+                            let expected = if taken { (3 + displacement) as usize } else { 3 };
                             let next = unsafe {
                                 invoke_native(
                                     program.as_ptr().add(2),
@@ -576,6 +596,9 @@ fn native_value_branches_yield_only_for_taken_osr_edges() {
                             assert_eq!(regs, [value]);
                             assert_eq!(ints, [-123]);
                             assert_eq!(floats, [19.25]);
+                            let heat = (taken && displacement < 0 && mode != 0 && jit != 0) as u32;
+                            let counted = unsafe { std::ptr::read_volatile(&funcs[0].calls) };
+                            assert_eq!(counted, heat, "{code:?} mode {mode} jit {jit} entries {entries}");
                         }
                     }
                 }
@@ -585,7 +608,7 @@ fn native_value_branches_yield_only_for_taken_osr_edges() {
 }
 
 #[test]
-fn back_edges_finish_without_native_recursion_and_yield_before_osr() {
+fn back_edges_finish_without_native_recursion() {
     let program = [
         Ins {
             op: Code::IAddK as u8,
@@ -608,10 +631,17 @@ fn back_edges_finish_without_native_recursion_and_yield_before_osr() {
         Ins::default(),
     ];
     for (jit, entries) in [(0, 0), (1, 0), (0, 1)] {
+        let mut funcs = [one_function(&program)];
+        let frame_entries = [0u64];
         let mut ctx: Ctx = unsafe { std::mem::zeroed() };
         ctx.frame_mode = 1;
         ctx.jit_frames = jit;
+        ctx.funcs = funcs.as_mut_ptr();
+        ctx.nfuncs = 1;
+        ctx.frame_entries = frame_entries.as_ptr();
         ctx.nframe_entries = entries;
+        // Never hot: the whole loop runs natively, one edge counted at a time.
+        ctx.frame_threshold = u32::MAX;
         let mut ints = [1_000_000];
         let mut regs = [0];
         let mut floats = [0.0];
@@ -627,11 +657,10 @@ fn back_edges_finish_without_native_recursion_and_yield_before_osr() {
                 1,
             )
         };
-        let osr = jit != 0 || entries != 0;
-        assert_eq!(next, unsafe {
-            program.as_ptr().add(if osr { 2 } else { 3 })
-        });
-        assert_eq!(ints[0], if osr { 999_999 } else { 0 });
+        assert_eq!(next, unsafe { program.as_ptr().add(3) });
+        assert_eq!(ints[0], 0);
+        let counted = unsafe { std::ptr::read_volatile(&funcs[0].calls) };
+        assert_eq!(counted, if jit != 0 { 999_999 } else { 0 });
     }
 }
 
@@ -828,8 +857,10 @@ fn native_lengths_preserve_unsigned_conversion_and_kind_guards() {
 // Frame transitions. The native call and return handlers run against a real
 // task stack, function table and context, and are compared with the Rust
 // core's own `push` and with the stack a Rust return leaves. An exit word is
-// the instruction to resume at, or `EXIT_REENTER` when the frame driver has
-// a say over the frame the native chain already pushed or popped.
+// the instruction to resume at. The frame driver's service (a compiled frame
+// entry, a hot function, vector code) needs an interpreter and is covered by
+// the whole-program and specialization suites; here the policy's own
+// decisions -- counting heat, interpreting -- are what is checked.
 struct Machine {
     stack: Vec<u64>,
     funcs: Vec<FuncInfo>,
@@ -889,6 +920,7 @@ impl Machine {
         self.ctx.nslow_calls = self.slow_calls.len() as u64;
         self.ctx.guard = NO_GUARD;
         self.ctx.unavailable_fid = u32::MAX;
+        self.ctx.frame_threshold = 1 << 20;
     }
     fn frame(&mut self) -> *mut u64 {
         unsafe { self.stack.as_mut_ptr().add(self.ctx.cur as usize) }
@@ -932,9 +964,7 @@ fn native_calls_push_the_frame_rust_pushes() {
                 (Code::CallDyn, Value::func(1).0),
                 (Code::CallDyn, closure_value),
             ] {
-                for (frame_mode, jit_frames, native, frame_entry) in
-                    [(0, 0, 0, 0), (1, 0, 0, 0), (1, 1, 0, 0), (1, 0, 1, 0), (1, 0, 0, 7)]
-                {
+                for (frame_mode, jit_frames) in [(0, 0), (1, 0), (1, 1)] {
                     // Reg 1 holds the callee value, the argument window starts
                     // at reg 2, so the results land at reg 2.
                     let ins = if matches!(code, Code::Call) {
@@ -945,10 +975,6 @@ fn native_calls_push_the_frame_rust_pushes() {
                     let caller = vec![Ins::default(), ins, Ins::default()];
                     let callee = vec![Ins::default()];
                     let mut m = Machine::new(caller, callee, nparams);
-                    m.funcs[1].native = native;
-                    if frame_entry != 0 {
-                        m.frame_entries = vec![0, frame_entry];
-                    }
                     m.ctx.frame_mode = frame_mode;
                     m.ctx.jit_frames = jit_frames;
                     m.sync();
@@ -978,12 +1004,10 @@ fn native_calls_push_the_frame_rust_pushes() {
                     assert_eq!(m.ctx.cur, pushed, "opcode {} nargs {nargs} nparams {nparams}", code as u8);
                     assert_eq!(m.ctx.cur, reference.cur);
                     assert_eq!(m.stack, expected, "opcode {} nargs {nargs} nparams {nparams}", code as u8);
-                    let driver = frame_mode != 0 && (jit_frames != 0 || native != 0 || frame_entry != 0);
-                    if driver {
-                        assert_eq!(exit, EXIT_REENTER, "opcode {} frame driver policy", code as u8);
-                    } else {
-                        assert_eq!(exit, m.code(1, 0), "opcode {} continues in the callee", code as u8);
-                    }
+                    assert_eq!(exit, m.code(1, 0), "opcode {} continues in the callee", code as u8);
+                    // In frame mode under the JIT, a function starting counts
+                    // toward its heat.
+                    assert_eq!(m.funcs[1].calls, jit_frames, "opcode {} heat", code as u8);
                 }
             }
         }
@@ -1093,12 +1117,11 @@ fn returning(values: &[u64], indirect: bool) -> Box<Machine> {
 fn native_returns_deliver_results_and_resume_the_caller() {
     let values = [Value::TRUE.0, Value::num(-0.0).0, 0xdead_beef, Value::NIL.0, 5, 6, 7, 8, 9];
     for indirect in [false, true] {
-        for (frame_mode, native) in [(0, 0), (1, 0), (1, 1)] {
+        for frame_mode in [0, 1] {
             // Ret delivers register 1 to the caller's result slot, or to the
             // slot the frame names when its header says so.
             let mut m = returning(&values, indirect);
             m.ctx.frame_mode = frame_mode;
-            m.funcs[0].native = native;
             let before = m.stack.clone();
             let exit = unsafe { m.run(0) };
             assert_eq!(m.ctx.cur, 0);
@@ -1107,22 +1130,17 @@ fn native_returns_deliver_results_and_resume_the_caller() {
             let mut expected = before.clone();
             expected[if indirect { HDR + 5 } else { HDR + 2 }] = values[1];
             assert_eq!(m.stack, expected, "indirect {indirect}");
-            if frame_mode != 0 && native != 0 {
-                assert_eq!(exit, EXIT_REENTER);
-            } else {
-                assert_eq!(exit, m.code(0, 6), "resumes after the call");
-            }
+            assert_eq!(exit, m.code(0, 6), "resumes after the call");
             // RetNil delivers nil and no results.
             let mut m = returning(&values, indirect);
             m.ctx.frame_mode = frame_mode;
-            m.funcs[0].native = native;
             let exit = unsafe { m.run(1) };
             assert_eq!(m.ctx.cur, 0);
             assert_eq!(m.ctx.last_nres, 0);
             let mut expected = before.clone();
             expected[HDR + 2] = NIL;
             assert_eq!(m.stack, expected);
-            assert_eq!(exit, if frame_mode != 0 && native != 0 { EXIT_REENTER } else { m.code(0, 6) });
+            assert_eq!(exit, m.code(0, 6));
         }
     }
     // RetN copies `n` registers to the result slots; none delivers nil.

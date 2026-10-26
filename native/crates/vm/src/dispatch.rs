@@ -187,7 +187,9 @@ unsafe fn osr(ctx: *mut Ctx) -> bool {
 /// instructions resuming anywhere (its compiled entries revalidate what the
 /// interpreter cannot), goes to its compiled frame entry when it has one, is
 /// compiled when this call makes it hot, or meets the interpreter's policy.
-/// False when the task finished, parked or raised.
+/// False when the task finished, parked or raised. With the native core
+/// linked, `settle` in the handler sources is this policy.
+#[cfg(not(feature = "native-runtime"))]
 #[inline(always)]
 unsafe fn entry(ctx: *mut Ctx) -> bool {
     loop {
@@ -221,8 +223,10 @@ include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
 
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
-    /// Answers an exit word: the address of the instruction Rust resumes at,
-    /// or `EXIT_REENTER`.
+    /// Runs the native chain from the instruction at `pc` in the frame the
+    /// windows belong to. Answers an exit word: the address of the
+    /// instruction Rust runs next, in the frame the context then names, or
+    /// `EXIT_ERROR`.
     fn nupp_native_runtime_entry(
         pc: *const Ins,
         regs: *mut u64,
@@ -231,13 +235,15 @@ unsafe extern "C" {
         ctx: *mut Ctx,
         frame: *mut u64,
     ) -> u64;
+    /// The frame driver's policy for the frame the context names, then the
+    /// chain from there: the task's entry, and what follows an instruction
+    /// Rust ran that changed the frame. The same exit words.
+    fn nupp_native_runtime_resume(ctx: *mut Ctx) -> u64;
 }
 
-/// The native chain's non-address exits: a frame changed under the frame
-/// driver's policy, which `tail_entry` applies before going on; or a helper
-/// raised, and the chain ends as a Rust handler's `checked!` ends it.
-#[cfg(feature = "native-runtime")]
-const EXIT_REENTER: u64 = 1;
+/// The native chain's non-address exit: it ended, and the context holds the
+/// status -- a helper raised, as a Rust handler's `checked!` ends a chain, or
+/// the frame driver's service finished or parked the task.
 #[cfg(feature = "native-runtime")]
 const EXIT_ERROR: u64 = 0;
 
@@ -311,19 +317,16 @@ mod native_helpers {
     }
 }
 
-/// A native segment retains no managed values outside the VM stack and
-/// calls no helpers, so nothing moves the stack while it runs: `ctx.cur`
-/// names the frame it is in at every instruction, exactly as the Rust
-/// handlers keep it. It returns before the first unsupported instruction or
-/// OSR edge, naming that instruction; the frame it is in is read back from
-/// the context, and the windows are re-derived when it is not the one the
-/// segment entered with -- by address and by function, since a return and a
-/// call inside the segment can put another function's frame at the same
-/// index. That instruction then executes exactly once through
-/// the original handler, which owns all publication/reload rules. A frame
-/// the segment pushed or popped in frame mode, where the frame driver has a
-/// say, exits with `EXIT_REENTER` instead and takes `tail_entry` as the Rust
-/// call and return handlers do.
+/// A native segment keeps `ctx.cur` naming the frame it is in at every
+/// instruction, exactly as the Rust handlers keep it, and publishes the frame
+/// around any helper that can move the stack or collect. It returns before
+/// the first instruction it leaves to Rust, naming that instruction; the
+/// frame it is in is read back from the context, and the windows are
+/// re-derived when it is not the one the segment entered with -- by address
+/// and by function, since a return and a call inside the segment can put
+/// another function's frame at the same index. That instruction then executes
+/// exactly once through the Rust handler, which owns its own publication and
+/// reload rules.
 #[cfg(feature = "native-runtime")]
 #[allow(unused_assignments)]
 unsafe fn native_segment(
@@ -338,9 +341,6 @@ unsafe fn native_segment(
     // share the frame address: the function decides the windows.
     let entered = *frame as u32;
     let exit = nupp_native_runtime_entry(pc, regs, iregs, fregs, ctx, frame);
-    if exit == EXIT_REENTER {
-        become tail_entry(pc, regs, iregs, fregs, ctx, frame);
-    }
     if exit == EXIT_ERROR {
         return 0;
     }
@@ -349,6 +349,18 @@ unsafe fn native_segment(
     if top != frame || *top as u32 != entered {
         reload!(pc, regs, iregs, fregs, ctx, frame);
     }
+    become (*RUST_DISPATCH.get_unchecked((*pc).op as usize))(pc, regs, iregs, fregs, ctx, frame)
+}
+
+/// Where a chain that began with the frame driver's policy left off: ended,
+/// or at an instruction Rust runs in the frame the context names.
+#[cfg(feature = "native-runtime")]
+#[allow(unused_assignments)]
+unsafe fn native_exit(mut pc: *const Ins, mut regs: *mut u64, mut iregs: *mut i64, mut fregs: *mut f64, ctx: *mut Ctx, mut frame: *mut u64) -> u64 {
+    if pc as u64 == EXIT_ERROR {
+        return 0;
+    }
+    reload!(pc, regs, iregs, fregs, ctx, frame);
     become (*RUST_DISPATCH.get_unchecked((*pc).op as usize))(pc, regs, iregs, fregs, ctx, frame)
 }
 
@@ -364,7 +376,14 @@ pub(crate) unsafe fn run(ctx: *mut Ctx) -> u32 {
     (*ctx).status
 }
 
-/// Re-derives the windows after a frame change and continues.
+/// Applies the frame driver's policy to the frame on top, re-derives the
+/// windows and continues: the native core's own driver when it is linked.
+#[cfg(feature = "native-runtime")]
+unsafe fn tail_entry(_pc: *const Ins, regs: *mut u64, iregs: *mut i64, fregs: *mut f64, ctx: *mut Ctx, frame: *mut u64) -> u64 {
+    let exit = nupp_native_runtime_resume(ctx);
+    become native_exit(exit as *const Ins, regs, iregs, fregs, ctx, frame)
+}
+#[cfg(not(feature = "native-runtime"))]
 #[allow(unused_assignments)]
 unsafe fn tail_entry(mut pc: *const Ins, mut regs: *mut u64, mut iregs: *mut i64, mut fregs: *mut f64, ctx: *mut Ctx, mut frame: *mut u64) -> u64 {
     if !entry(ctx) {

@@ -1,15 +1,118 @@
 module nupp.runtime.vm.calls
 
--- Calls, returns and result padding: the frame-transition protocol in Nupp.
--- A pushed or popped frame in frame mode exits to the frame driver with
--- `reenter`; otherwise the chain continues in the new frame's windows.
+-- Calls, returns, result padding and the frame driver: the frame-transition
+-- protocol in Nupp. In frame mode a function starting, or one with vector
+-- instructions resuming anywhere, goes to its compiled frame entry when it
+-- has one, is compiled when this entry makes it hot, or meets the
+-- interpreter's policy for vector code; `rt_enter_frame` is that service, and
+-- the chain goes on in whatever frame the context names when it is done.
 const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
--- The callee's frame is in place and the context names it: continue there,
--- or hand it to the frame driver.
+-- The frame on top goes on interpreting at `pcIndex`, its windows derived
+-- from the context.
+local function resumeTop(context: voidptr, pcIndex: int64): uint64
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & 4294967295) * native.layout("FuncInfo.size")
+    )
+    local code = native.loadPointer(info, native.layout("FuncInfo.code"))
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+
+    return native.dispatch(native.offset(code, pcIndex * 16), regs, ints, floats, context, frame)
+end
+
+-- After the frame driver's service: a status ends the chain; `REENTER` asks
+-- the policy of whatever frame is on top now (the compiled frame returned, or
+-- transferred, to one the service did not run); a pc goes on interpreting
+-- the top frame there. The policy is the Rust driver's `entry`: a function
+-- starting counts toward its heat while the JIT has not decided on it, and
+-- goes to the service when it has a frame entry, has vector instructions, or
+-- this call made it hot.
+local function settle(context: voidptr, first: uint64): uint64
+    local result = first
+    while true do
+        if result == 4294967295 then
+            local stack = native.loadPointer(context, native.layout("stack"))
+            local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+            local header = native.load64(frame, 0)
+            local fid = header & 4294967295
+            local info = native.offset(
+                native.loadPointer(context, native.layout("funcs")),
+                native.index(fid) * native.layout("FuncInfo.size")
+            )
+            local pcIndex = native.index(header >> 32)
+            local due = false
+            local hot = false
+            if native.load32(context, native.layout("frame_mode")) ~= 0 then
+                local vector = native.load32(info, native.layout("FuncInfo.native")) ~= 0
+                if native.either(pcIndex == 0, vector) then
+                    local entry: uint64 = 0
+                    if fid < native.load64(context, native.layout("nframe_entries")) then
+                        entry = native.load64(
+                            native.loadPointer(context, native.layout("frame_entries")),
+                            native.index(fid) * 8
+                        )
+                    end
+                    if native.both(
+                        native.both(pcIndex == 0, entry == 0),
+                        native.load32(context, native.layout("jit_frames")) ~= 0
+                    ) then
+                        local calls = (native.load32(info, native.layout("FuncInfo.calls")) & 4294967295) + 1
+                        if calls < native.load32(context, native.layout("frame_threshold")) & 4294967295 then
+                            native.store32(info, native.layout("FuncInfo.calls"), calls)
+                        else
+                            native.store32(info, native.layout("FuncInfo.calls"), 0)
+                            hot = true
+                        end
+                    end
+                    due = native.either(
+                        native.either(native.both(entry ~= 0, entry ~= 18446744073709551615ULL), vector),
+                        hot
+                    )
+                end
+            end
+            if due then
+                result = helpers.enterFrame(context, pcIndex, native.chooseIndex(hot, 1, 0))
+            else
+                return resumeTop(context, pcIndex)
+            end
+        elseif result >= 4294967292ULL then
+            native.store32(context, native.layout("status"), native.index(result))
+            return native.fail()
+        else
+            local stack = native.loadPointer(context, native.layout("stack"))
+            local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+            native.store64(frame, 0, (native.load64(frame, 0) & 4294967295) | (result << 32))
+            return resumeTop(context, native.index(result))
+        end
+    end
+
+    return native.fail()
+end
+
+-- The service for the function on top, from a frameless handler: `pc` is a
+-- pc of that function, since the service reads the frame from the context.
+local function enterFrameSlow(pc: voidptr, context: voidptr, pcIndex: int64, hot: int64): uint64
+    return settle(context, helpers.enterFrame(context, pcIndex, hot))
+end
+
+-- The task's own entry, which the glue exports as
+-- `nupp_native_runtime_resume`: the policy of the frame on top when the task
+-- starts or resumes, or after Rust ran an instruction that changed the frame.
+-- Exported for the glue, which finds it by name; no handler calls it.
+export function resumeSlow(pc: voidptr, context: voidptr): uint64
+    return settle(context, 4294967295)
+end
+
+-- The callee's frame is in place and the context names it: in frame mode the
+-- policy for a function starting, then the callee's code.
 local function enterPushed(
     pc: voidptr,
     regs: voidptr,
@@ -20,31 +123,40 @@ local function enterPushed(
     callee: voidptr,
     fid: uint64
 ): uint64
-    local mode = native.load32(context, native.layout("frame_mode"))
     local code = native.loadPointer(callee, native.layout("FuncInfo.code"))
     local calleeRegs = native.offset(frame, 32)
     local calleeInts = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_i")) * 8)
     local calleeFloats = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_f")) * 8)
-    if mode == 0 then
+    if native.load32(context, native.layout("frame_mode")) == 0 then
         return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
-    elseif native.either(
-        native.load32(callee, native.layout("FuncInfo.native")) ~= 0,
-        native.load32(context, native.layout("jit_frames")) ~= 0
-    ) then
-        return native.reenter()
-    elseif
+    else
         -- The frame entry table is absent, not empty, when nothing is
         -- compiled: it is read only below its recorded length.
-        fid < native.load64(context, native.layout("nframe_entries")) then
-        local entry = native.load64(native.loadPointer(context, native.layout("frame_entries")), native.index(fid) * 8)
-        if entry ~= 0 then
-            return native.reenter()
+        local entry: uint64 = 0
+        if fid < native.load64(context, native.layout("nframe_entries")) then
+            entry = native.load64(native.loadPointer(context, native.layout("frame_entries")), native.index(fid) * 8)
+        end
+        local hot = false
+        if native.both(entry == 0, native.load32(context, native.layout("jit_frames")) ~= 0) then
+            local calls = (native.load32(callee, native.layout("FuncInfo.calls")) & 4294967295) + 1
+            if calls < native.load32(context, native.layout("frame_threshold")) & 4294967295 then
+                native.store32(callee, native.layout("FuncInfo.calls"), calls)
+            else
+                native.store32(callee, native.layout("FuncInfo.calls"), 0)
+                hot = true
+            end
+        end
+        if native.either(
+            native.either(
+                native.both(entry ~= 0, entry ~= 18446744073709551615ULL),
+                native.load32(callee, native.layout("FuncInfo.native")) ~= 0
+            ),
+            hot
+        ) then
+            return enterFrameSlow(code, context, 0, native.chooseIndex(hot, 1, 0))
         else
             return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
         end
-    else
-        return native.dispatch(code, calleeRegs, calleeInts, calleeFloats, context, frame)
-
     end
 end
 
@@ -317,8 +429,9 @@ export function CallK(
 end
 
 -- The caller's frame is on top again and the context names it: resume at
--- the instruction after its call, or hand a function with vector
--- instructions to the frame driver, which revalidates it.
+-- the instruction after its call, or a function with vector instructions
+-- through the service, whose compiled entries revalidate what the
+-- interpreter cannot.
 local function resumeCaller(
     pc: voidptr,
     regs: voidptr,
@@ -344,9 +457,76 @@ local function resumeCaller(
         native.load32(context, native.layout("frame_mode")) ~= 0,
         native.load32(callerInfo, native.layout("FuncInfo.native")) ~= 0
     ) then
-        return native.reenter()
+        return enterFrameSlow(callerPc, context, native.index(header >> 32), 0)
     else
         return native.dispatch(callerPc, callerRegs, callerInts, callerFloats, context, resumed)
+    end
+end
+
+-- Compiled code resumes at the jump itself, so a service that answers the
+-- jump's own pc ran nothing: the jump is taken with the windows derived
+-- again. Anything else is settled as a frame entry's answer is.
+local function backEdgeSlow(pc: voidptr, context: voidptr, pcIndex: int64, hot: int64): uint64
+    local result = helpers.enterFrame(context, pcIndex, hot)
+    if result == native.word(pcIndex) then
+        return resumeTop(context, pcIndex + native.load32(pc, 4) + 1)
+    else
+        return settle(context, result)
+    end
+end
+
+-- A taken back edge while compiled frames are possible, before it is taken:
+-- the loop moves into compiled code when its function has a frame entry, or
+-- is compiled when this edge makes it hot. Otherwise the jump is taken here.
+export function backEdge(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    displacement: int64
+): uint64
+    local target = native.offset(pc, (displacement + 1) * 16)
+    if native.load32(context, native.layout("frame_mode")) == 0 then
+        return native.dispatch(target, regs, ints, floats, context, frame)
+    else
+        local jit = native.load32(context, native.layout("jit_frames"))
+        local frames = native.load64(context, native.layout("nframe_entries"))
+        if native.both(jit == 0, frames == 0) then
+            return native.dispatch(target, regs, ints, floats, context, frame)
+        else
+            local fid = native.load64(frame, 0) & 4294967295
+            local info = native.offset(
+                native.loadPointer(context, native.layout("funcs")),
+                native.index(fid) * native.layout("FuncInfo.size")
+            )
+            local entry: uint64 = 0
+            if fid < frames then
+                entry = native.load64(
+                    native.loadPointer(context, native.layout("frame_entries")),
+                    native.index(fid) * 8
+                )
+            end
+            local hot = false
+            if native.both(entry == 0, jit ~= 0) then
+                local calls = (native.load32(info, native.layout("FuncInfo.calls")) & 4294967295) + 1
+                if calls < native.load32(context, native.layout("frame_threshold")) & 4294967295 then
+                    native.store32(info, native.layout("FuncInfo.calls"), calls)
+                else
+                    native.store32(info, native.layout("FuncInfo.calls"), 0)
+                    hot = true
+                end
+            end
+            if native.either(native.both(entry ~= 0, entry ~= 18446744073709551615ULL), hot) then
+                local code = native.loadPointer(info, native.layout("FuncInfo.code"))
+                local pcIndex = native.index(native.address(pc) - native.address(code)) >> 4
+                native.store64(frame, 0, (native.load64(frame, 0) & 4294967295) | (native.word(pcIndex) << 32))
+                return backEdgeSlow(pc, context, pcIndex, native.chooseIndex(hot, 1, 0))
+            else
+                return native.dispatch(target, regs, ints, floats, context, frame)
+            end
+        end
     end
 end
 

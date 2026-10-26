@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 50] = [
+pub const LAYOUT_FIELDS: [&str; 51] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "frame_mode", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres", "entries",
     "jit_threshold", "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -29,7 +29,7 @@ pub const LAYOUT_FIELDS: [&str; 50] = [
     "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
     "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k", "pc", "status", "marking", "shapes",
     "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
-    "slow_calls", "nslow_calls",
+    "slow_calls", "nslow_calls", "frame_threshold",
 ];
 
 pub fn layout(field: &str) -> Result<usize, String> {
@@ -84,14 +84,15 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "Table.hash_mask" => crate::heap::OFF_T_HASH_MASK as usize,
         "slow_calls" => offset_of!(Ctx, slow_calls),
         "nslow_calls" => offset_of!(Ctx, nslow_calls),
+        "frame_threshold" => offset_of!(Ctx, frame_threshold),
         _ => return Err("unknown context field".into()),
     })
 }
 
-/// The native chain's exit words. A pointer-aligned instruction address
+/// The native chain's exit words: a pointer-aligned instruction address
 /// resumes Rust at that instruction, in whatever frame the context now
-/// names; the small codes below are not addresses.
-pub const EXIT_REENTER: i64 = 1;
+/// names; zero says the chain ended and the context holds the status.
+pub const EXIT_ERROR: i64 = 0;
 
 /// Whether an imported symbol is one the runtime exports for native code: a
 /// helper of `dispatch.rs` (`nupp_rt_*`, each publishing and reloading the
@@ -132,8 +133,8 @@ pub(crate) fn name_of(f: &Function) -> String {
 /// takes the pc, the context, up to five words of its own and the dispatch
 /// table, so the tail call to it fits in argument registers. Either may call
 /// only the exported Rust helpers, tail-call only functions of this file, and
-/// `return` only the entry pc, the reenter code or the error code; every
-/// tail dispatch preserves the context.
+/// `return` only the entry pc or the error code; every tail dispatch
+/// preserves the context.
 fn require_handler_clif(
     f: &Function,
     tail: &Signature,
@@ -204,7 +205,7 @@ fn require_handler_clif(
                     let code = args.len() == 1
                         && matches!(f.dfg.value_def(args[0]), ValueDef::Result(i, 0)
                             if matches!(f.dfg.insts[i], InstructionData::UnaryImm { opcode: Opcode::Iconst, imm }
-                                if imm.bits() == EXIT_REENTER || imm.bits() == 0));
+                                if imm.bits() == EXIT_ERROR));
                     if args.len() != 1 || (args[0] != params[0] && !code) {
                         return Err("leaf transfer must preserve its VM windows and context; slow must preserve pc".into());
                     }
@@ -250,6 +251,7 @@ fn metadata_header() -> String {
         ("feedback", offset_of!(Ctx, feedback)),
         ("guard", offset_of!(Ctx, guard)),
         ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),
+        ("frame_threshold", offset_of!(Ctx, frame_threshold)),
     ] {
         metadata.push_str(&format!("assert!(std::mem::offset_of!(Ctx, {field}) == {offset});\n"));
     }
@@ -290,7 +292,7 @@ fn metadata_header() -> String {
         ));
     }
     metadata.push_str(&format!(
-        "assert!(crate::heap::KIND_CLOSURE == 5 && crate::value::T_FUNC == 0x0004_0000_0000_0000 && NO_GUARD == u64::MAX && EXIT_REENTER == {EXIT_REENTER} && EXIT_ERROR == 0 && ST_ERROR == 0xffff_fffc);\n"
+        "assert!(crate::heap::KIND_CLOSURE == 5 && crate::heap::KIND_ITER == 8 && crate::value::T_FUNC == 0x0004_0000_0000_0000 && NO_GUARD == u64::MAX && EXIT_ERROR == {EXIT_ERROR} && ST_ERROR == 0xffff_fffc && ST_REENTER == 0xffff_ffff);\n"
     ));
     metadata.push_str(&format!(
         "assert!(std::mem::size_of::<ShapeInfo>() == {} && std::mem::offset_of!(ShapeInfo, table) == {} && std::mem::offset_of!(ShapeInfo, mask) == {} && crate::heap::OFF_T_HASH_PTR == {} && crate::heap::OFF_T_HASH_MASK == {});\n",
@@ -311,7 +313,8 @@ fn metadata_header() -> String {
 /// handler; any other function is a support function the handlers reach by
 /// tail call. The entry derives the frame from the register window and
 /// dispatches through the 256-entry table, which handlers receive as their
-/// sixth argument.
+/// sixth argument. `resumeSlow`, the frame driver's entry for the frame on
+/// top, is exported beside it as `nupp_native_runtime_resume(ctx)`.
 pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(input).map_err(|e| e.to_string())?;
     let mut sources: Vec<Function> =
@@ -464,6 +467,41 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     }
     listings.push_str(&format!("\n{}\n", ctx.func.display()));
     module.define_function(entry, &mut ctx).map_err(|e| e.to_string())?;
+    listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
+    module.clear_context(&mut ctx);
+    // The resume entry: the frame driver's policy for the frame the context
+    // names, then the chain from there.
+    let resume_index = names
+        .iter()
+        .position(|n| n == "resumeSlow")
+        .ok_or("resumeSlow: the frame driver's entry is required")?;
+    let mut resume_sig = Signature::new(conv);
+    resume_sig.params.push(AbiParam::new(types::I64));
+    resume_sig.returns.push(AbiParam::new(types::I64));
+    let resume = module
+        .declare_function("nupp_native_runtime_resume", Linkage::Export, &resume_sig)
+        .unwrap();
+    ctx.func.signature = resume_sig;
+    ctx.want_disasm = true;
+    {
+        let mut fbc = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
+        let start = b.create_block();
+        b.append_block_params_for_function_params(start);
+        b.switch_to_block(start);
+        let context = b.block_params(start)[0];
+        let data = module.declare_data_in_func(table_id, b.func);
+        let table = b.ins().symbol_value(types::I64, data);
+        let target = module.declare_func_in_func(function_ids[resume_index], b.func);
+        let pc = b.ins().iconst(types::I64, 0);
+        let call = b.ins().call(target, &[pc, context, table]);
+        let value = b.inst_results(call)[0];
+        b.ins().return_(&[value]);
+        b.seal_all_blocks();
+        b.finalize(module.target_config());
+    }
+    listings.push_str(&format!("\n{}\n", ctx.func.display()));
+    module.define_function(resume, &mut ctx).map_err(|e| e.to_string())?;
     listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
     module.clear_context(&mut ctx);
     // `leave`: the table entry of every opcode without a handler, handing the
