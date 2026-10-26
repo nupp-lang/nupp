@@ -212,14 +212,24 @@ local function pushFrame(
             native.store64(pushed, 8, current | (arguments << 32))
             native.store64(pushed, 16, closure)
             native.store64(pushed, 24, words << 33)
-            local copied: int64 = 0
-            while copied < supplied do
-                native.store64(
-                    pushed,
-                    40 + copied * 8,
-                    native.load64(stack, native.index((arguments + 1) * 8) + copied * 8)
-                )
-                copied = copied + 1
+            -- The arguments are the caller's registers from `base + 1`; one
+            -- to three of them, the common counts, are copied without a loop.
+            local from = (base + 1) * 8
+            if supplied == 1 then
+                native.store64(pushed, 40, native.load64(regs, from))
+            elseif supplied == 2 then
+                native.store64(pushed, 40, native.load64(regs, from))
+                native.store64(pushed, 48, native.load64(regs, from + 8))
+            elseif supplied == 3 then
+                native.store64(pushed, 40, native.load64(regs, from))
+                native.store64(pushed, 48, native.load64(regs, from + 8))
+                native.store64(pushed, 56, native.load64(regs, from + 16))
+            else
+                local copied: int64 = 0
+                while copied < supplied do
+                    native.store64(pushed, 40 + copied * 8, native.load64(regs, from + copied * 8))
+                    copied = copied + 1
+                end
             end
             local filled: int64 = supplied
             while filled < nparams do
