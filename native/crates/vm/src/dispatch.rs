@@ -265,7 +265,7 @@ mod native_helpers {
         rt_set_index_num(ctx, obj, i, v)
     }
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_store_index(ctx: *mut Ctx, obj: u64, key: u64, v: u64) {
+    pub unsafe extern "C" fn nupp_rt_store_keyed(ctx: *mut Ctx, obj: u64, key: u64, v: u64) {
         unsafe { store_index(ctx, obj, key, v) }
     }
     #[unsafe(no_mangle)]

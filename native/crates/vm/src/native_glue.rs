@@ -102,7 +102,7 @@ const HELPERS: [&str; 11] = [
     "nupp_rt_get_index",
     "nupp_rt_get_index_num",
     "nupp_rt_set_index_num",
-    "nupp_rt_store_index",
+    "nupp_rt_store_keyed",
     "nupp_rt_barrier",
     "nupp_rt_new_record",
     "nupp_rt_eq_slow",

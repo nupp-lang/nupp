@@ -3,11 +3,12 @@ module nupp.runtime.vm.lookup
 -- Field and index lookups, stores, equality and cells: fast paths in Nupp
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
+const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
 local function getFieldSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
-    local value = native.getField(context, object, name)
+    local value = helpers.getField(context, object, name)
     return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
 end
 
@@ -103,7 +104,7 @@ end
 
 local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, negate: uint64): uint64
     protocol.publishPc(pc, context)
-    local equal = native.eqSlow(context, left, right)
+    local equal = helpers.eqSlow(context, left, right)
     local answer = native.chooseWord((equal ~= 0) == (negate == 0), 9221964661971222528ULL, 9221683186994511872ULL)
     return protocol.continueAfter(pc, context, native.load8(pc, 1), answer, true)
 end
@@ -166,7 +167,7 @@ end
 
 local function getIndexSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64): uint64
     protocol.publishPc(pc, context)
-    local value = native.getIndex(context, object, key)
+    local value = helpers.getIndex(context, object, key)
     return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
 end
 
@@ -224,14 +225,14 @@ local function barrierStoreSlow(
 ): uint64
     -- The insertion barrier moves no stack and runs no code of the program;
     -- the store follows it as in the Rust handlers.
-    native.barrier(context, parent, child)
+    helpers.barrier(context, parent, child)
     native.store64(target, at, child)
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
 local function setIndexNumSlow(pc: voidptr, context: voidptr, object: uint64, position: int64, value: uint64): uint64
     protocol.publishPc(pc, context)
-    native.setIndexNum(context, object, position, value)
+    helpers.setIndexNum(context, object, position, value)
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 

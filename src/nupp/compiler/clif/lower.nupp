@@ -37,6 +37,11 @@ local lower = {}
 --- The intrinsics declaration the runtime sources are written against.
 lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
 
+--- The declaration of the Rust helpers a handler may call by C ABI; a member
+--- `name` is the symbol `nupp_rt_<name in snake case>`, with the kinds its
+--- declared signature says.
+lower.HELPERS = "nupp.runtime.vm.helpers"
+
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
 lower.RUNTIME_MODULES = {
@@ -48,6 +53,14 @@ lower.RUNTIME_MODULES = {
 }
 
 local INTRINSICS = lower.INTRINSICS
+local HELPERS = lower.HELPERS
+
+-- `getIndexNum` is `nupp_rt_get_index_num`.
+local function helperSymbol(member: string): string
+    return "nupp_rt_" .. member:gsub("%u", function(letter: string): string
+        return "_" .. letter:lower()
+    end)
+end
 
 local function need(ok: any, message: string): any
     assert(ok, "lower: " .. message)
@@ -247,22 +260,6 @@ local intrinsicIdentity = {
     index = {"uint64", "int64"}
 }
 
--- The exported Rust helpers: called by C ABI, each with its parameter kinds
--- and result kind; nil for a helper that answers nothing.
-local rustHelpers = {
-    getField = {"nupp_rt_get_field", {"voidptr", "uint64", "uint64"}, "uint64"},
-    getIndex = {"nupp_rt_get_index", {"voidptr", "uint64", "uint64"}, "uint64"},
-    getIndexNum = {"nupp_rt_get_index_num", {"voidptr", "uint64", "int64"}, "uint64"},
-    setIndexNum = {"nupp_rt_set_index_num", {"voidptr", "uint64", "int64", "uint64"}, nil},
-    storeKeyed = {"nupp_rt_store_index", {"voidptr", "uint64", "uint64", "uint64"}, nil},
-    barrier = {"nupp_rt_barrier", {"voidptr", "uint64", "uint64"}, nil},
-    newRecord = {"nupp_rt_new_record", {"voidptr", "int64"}, "uint64"},
-    eqSlow = {"nupp_rt_eq_slow", {"voidptr", "uint64", "uint64"}, "uint64"},
-    callIter = {"nupp_rt_call_iter", {"voidptr", "uint64", "uint64"}, nil},
-    callBuiltin = {"nupp_rt_call_builtin", {"voidptr", "int64", "uint64", "int64"}, nil},
-    appendPlain = {"nupp_rt_append_plain", {"voidptr", "uint64", "number", "uint64"}, "uint64"}
-}
-
 -- A function of a module: its node, its kinds, and the module it belongs to,
 -- whose functions its body names.
 local record Fn
@@ -445,12 +442,16 @@ local function compileFunction(fn: Fn, options: any): string
     -- materializing every flag.
     local branchOn
 
-    local function isIntrinsicCall(n: any): boolean
+    local function callsInto(n: any, moduleName: string): boolean
         return n.kind == "call"
             and n.obj.kind == "dotIndex"
             and n.obj.obj.kind == "name"
             and n.obj.obj.token.definition ~= nil
-            and n.obj.obj.token.definition.requiredModule == INTRINSICS
+            and n.obj.obj.token.definition.requiredModule == moduleName
+    end
+
+    local function isIntrinsicCall(n: any): boolean
+        return callsInto(n, INTRINSICS)
     end
 
     local function isIntrinsic(n: any, intrinsicName: string): boolean
@@ -590,8 +591,10 @@ local function compileFunction(fn: Fn, options: any): string
 
     local imported = {}
 
-    local function importHelper(spec: any): string
-        local known = imported[spec[1]]
+    -- A Rust helper, declared once per caller with the signature the helpers
+    -- declaration gives it.
+    local function importHelper(symbol: string, paramKinds: {string}, resultKind: string?): string
+        local known = imported[symbol]
         if known then
             return known
         end
@@ -599,39 +602,54 @@ local function compileFunction(fn: Fn, options: any): string
         local sig = "sig" .. tostring(index + 1)
         local ref = "fn" .. tostring(index)
         local types = {}
-        for i, kind in ipairs(spec[2]) do
+        for i, kind in ipairs(paramKinds) do
             types[i] = machine(kind)
         end
         local signature = "(" .. table.concat(types, ", ") .. ")"
-        if spec[3] then
-            signature = signature .. " -> " .. machine(spec[3])
+        if resultKind then
+            signature = signature .. " -> " .. machine(resultKind)
         end
         preamble[#preamble + 1] = sig .. " = " .. signature
-        preamble[#preamble + 1] = ref .. " = %" .. spec[1] .. " " .. sig
-        imported[spec[1]] = ref
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        imported[symbol] = ref
 
         return ref
+    end
+
+    -- A call into the helpers declaration: a C ABI call to the exported
+    -- symbol, with the kinds the declared signature says.
+    local function helperCall(n: any): any
+        need(handlers, "Rust helpers belong to handler modules")
+        local member = n.obj.name.text
+        local signature = raw(n.obj.inferredType)
+        need(signature and signature.tag == "func", "helper " .. member .. " has no declared signature")
+        local args = n.args.exprs or {}
+        need(#args == #signature.params, member .. ": argument count")
+        local paramKinds, words = {}, {}
+        for index, param in ipairs(signature.params) do
+            paramKinds[index] = tag(param)
+            words[index] = materialize(expression(args[index]), paramKinds[index])
+        end
+        local resultKind = #signature.rets == 1 and tag(signature.rets[1]) or nil
+        if resultKind == "nil" then
+            resultKind = nil
+        end
+        local text = "call " .. importHelper(
+            helperSymbol(member),
+            paramKinds,
+            resultKind
+        ) .. "(" .. table.concat(words, ", ") .. ")"
+        if resultKind then
+            return {kind = resultKind, value = emit(text)}
+        end
+        effect(text)
+
+        return {kind = "nil", value = ""}
     end
 
     local function intrinsic(intrinsicName: string, args: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
-        end
-
-        if rustHelpers[intrinsicName] then
-            need(handlers, "Rust helpers belong to handler modules")
-            local spec = rustHelpers[intrinsicName]
-            need(#args == #spec[2], intrinsicName .. ": argument count")
-            local words = {}
-            for index, kind in ipairs(spec[2]) do
-                words[index] = arg(index, kind)
-            end
-            local text = "call " .. importHelper(spec) .. "(" .. table.concat(words, ", ") .. ")"
-            if spec[3] then
-                return {kind = spec[3], value = emit(text)}
-            end
-            effect(text)
-            return {kind = "nil", value = ""}
         end
 
         if intrinsicLoads[intrinsicName] then
@@ -748,6 +766,8 @@ local function compileFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
+        elseif callsInto(n, HELPERS) then
+            return helperCall(n)
         elseif n.kind == "call" then
             local target = need(resolveCallee(n, scope, modules), "only direct calls to module functions") as Fn
             local known = callee(target)
@@ -1264,7 +1284,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     for _, entry in ipairs(pending) do
         for _, required in ipairs(entry.requires) do
             need(
-                required == INTRINSICS or modules[required] ~= nil,
+                required == INTRINSICS or required == HELPERS or modules[required] ~= nil,
                 entry.scope.name .. " requires " .. required .. ", which is not native code"
             )
         end

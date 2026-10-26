@@ -2,6 +2,7 @@ module nupp.runtime.vm.boxing
 
 -- Boxing, tag checks, string bytes and record allocation.
 const native = require("nupp.runtime.vm.intrinsics")
+const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
 export function TagCheckNum(
@@ -104,6 +105,6 @@ export function NewRecord(
     frame: voidptr
 ): uint64
     protocol.publishPc(pc, context)
-    local value = native.newRecord(context, native.loadIndex(pc, 8))
+    local value = helpers.newRecord(context, native.loadIndex(pc, 8))
     return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
 end

@@ -1,0 +1,20 @@
+-- The Rust helpers a handler may call, by C ABI. Each publishes and reloads
+-- the task record itself; the caller publishes the pc before the call and
+-- checks the status and derives its windows again after it. A member `name`
+-- here is the exported symbol `nupp_rt_<name in snake case>`; the lowering
+-- reads each signature from this declaration, so adding a helper is a line
+-- here, its export in dispatch.rs and its name in the glue's allowlist.
+local record Helpers
+    getField: function(context: voidptr, object: uint64, name: uint64): uint64
+    getIndex: function(context: voidptr, object: uint64, key: uint64): uint64
+    getIndexNum: function(context: voidptr, object: uint64, index: int64): uint64
+    setIndexNum: function(context: voidptr, object: uint64, index: int64, value: uint64): nil
+    storeKeyed: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
+    barrier: function(context: voidptr, parent: uint64, child: uint64): nil
+    newRecord: function(context: voidptr, shape: int64): uint64
+    eqSlow: function(context: voidptr, left: uint64, right: uint64): uint64
+    callIter: function(context: voidptr, iterator: uint64, base: uint64): nil
+    callBuiltin: function(context: voidptr, id: int64, base: uint64, nargs: int64): nil
+    appendPlain: function(context: voidptr, table: uint64, key: number, value: uint64): uint64
+end
+return Helpers
