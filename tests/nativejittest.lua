@@ -338,6 +338,11 @@ function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
             inline == expected,
             label .. ": in line, plain call: interpreter " .. expected .. ", compiled " .. inline
         )
+        local scheduledInline = compiledRun(name, args, false, true)
+        assert(
+            scheduledInline == expected,
+            label .. ": in line, scheduled: interpreter " .. expected .. ", compiled " .. scheduledInline
+        )
         local scheduled = compiledRun(name, args, true, true)
         assert(
             scheduled == expected,
