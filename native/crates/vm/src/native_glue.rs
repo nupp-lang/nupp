@@ -300,6 +300,7 @@ fn metadata_header() -> String {
         crate::heap::OFF_T_HASH_PTR,
         crate::heap::OFF_T_HASH_MASK
     ));
+    metadata.push_str("assert!(crate::heap::KIND_BYTES == 7 && crate::heap::KIND_INTEGER == 12 && crate::heap::F_INTERNED == 1);\n");
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata
 }

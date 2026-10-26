@@ -1531,6 +1531,8 @@ impl Interp {
     /// A string that is not interned: long results, as Lua 5.4 treats them.
     pub fn heap_new_string(&mut self, text: &str) -> Value { self.heap.new_string(text, roots!(self)) }
     pub fn new_string_bytes(&mut self, b: &[u8]) -> Value { self.heap.new_string_bytes(b, roots!(self)) }
+    /// A fresh string of `n` bytes the caller fills before anything reads it.
+    pub fn new_string_blank(&mut self, n: usize) -> Value { self.heap.new_string_blank(n, roots!(self)) }
     /// A string with these bytes: interned when short (1.3), fresh otherwise.
     pub fn string_of(&mut self, b: &[u8]) -> Value {
         if b.len() <= 40 { self.intern_bytes(b) } else { self.new_string_bytes(b) }

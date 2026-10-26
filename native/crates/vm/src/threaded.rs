@@ -84,6 +84,7 @@ codes! {
     Call, CallK, CallDyn, Ret, RetNil, RetN,
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
     PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
+    Concat,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -175,6 +176,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::SetIdxF(t, k, v) => i(Code::SetIdxF, t, k, v),
         Op::SetIdx(t, k, v) => i(Code::SetIdx, t, k, v),
         Op::Mod(d, a, b) => i(Code::Mod, d, a, b),
+        Op::Concat(d, a, b) => i(Code::Concat, d, a, b),
         _ => i(Code::Slow, 0, 0, 0),
     }
 }
@@ -203,7 +205,7 @@ fn charge(ctx: &mut Ctx, it: &mut Interp) {
 }
 
 #[inline]
-fn sync(ctx: &mut Ctx, it: &mut Interp) {
+pub(crate) fn sync(ctx: &mut Ctx, it: &mut Interp) {
     let tid = ctx.tid as usize;
     ctx.budget = budget_limit(it, tid);
     ctx.budget_mark = ctx.budget;
@@ -314,7 +316,7 @@ pub(crate) fn rt_grow(ctx: *mut Ctx, needed: u64) {
 
 /// Brings the task record up to date with the core before Rust touches it.
 #[inline]
-fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
+pub(crate) fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
     let it = unsafe { &mut *(ctx.interp as *mut Interp) };
     let tid = ctx.tid as usize;
     charge(ctx, it);

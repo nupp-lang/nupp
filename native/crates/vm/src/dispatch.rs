@@ -136,6 +136,27 @@ mod native_helpers {
     pub unsafe extern "C" fn nupp_rt_enter_frame(ctx: *mut Ctx, pc: u64, hot: u64) -> u64 {
         rt_enter_frame(ctx, pc as u32, hot as u32) as u64
     }
+    /// A fresh string of `n` bytes the core fills in place (contracts 1.3):
+    /// an allocation, so a collection may run here, under the published pc.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_new_string(ctx: *mut Ctx, n: u64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let v = it.guarded(|it| it.new_string_blank(n as usize));
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
+    /// The interned string with a filled string's bytes: the one already in
+    /// the table, or this one, entered now. Allocates nothing and moves no
+    /// stack; the core calls it on every new string of at most forty bytes.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_intern(ctx: *mut Ctx, s: u64) -> u64 {
+        let it = unsafe { &mut *((*ctx).interp as *mut crate::interp::Interp) };
+        it.heap.intern_string(Value(s)).0
+    }
 }
 
 #[cfg(test)]

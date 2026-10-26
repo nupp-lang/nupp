@@ -646,20 +646,28 @@ impl Heap {
         self.alloc_raw(kind, inline_bytes)
     }
 
-    /// A fresh, uninterned string with these bytes (hash 0 until needed).
-    pub fn new_string_bytes(&mut self, bytes: &[u8], roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_STR, 9usize.checked_add(bytes.len()).expect("string extent overflow"), roots);
+    /// A fresh, uninterned string of `n` bytes (hash 0 until needed) whose
+    /// bytes the caller writes before anything reads them: the native core
+    /// fills a concatenation or a substring in place. Only the terminator is
+    /// written here.
+    pub fn new_string_blank(&mut self, n: usize, roots: &dyn Roots) -> Value {
+        let p = self.alloc(KIND_STR, 9usize.checked_add(n).expect("string extent overflow"), roots);
         unsafe {
             let h = &mut *p.as_ptr();
             (h.payload() as *mut StrPayload).write(StrPayload { hash: 0 });
             let dst = h.payload().add(8);
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), dst, bytes.len());
-            *dst.add(bytes.len()) = 0;
-            h.aux_ptr = dst; h.aux_len = bytes.len() as u64;
+            *dst.add(n) = 0;
+            h.aux_ptr = dst; h.aux_len = n as u64;
         }
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
+    }
+    /// A fresh, uninterned string with these bytes.
+    pub fn new_string_bytes(&mut self, bytes: &[u8], roots: &dyn Roots) -> Value {
+        let v = self.new_string_blank(bytes.len(), roots);
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), (*v.as_obj().unwrap().as_ptr()).aux_ptr, bytes.len()); }
+        v
     }
     pub fn new_string(&mut self, text: &str, roots: &dyn Roots) -> Value { self.new_string_bytes(text.as_bytes(), roots) }
 
@@ -671,11 +679,24 @@ impl Heap {
     pub fn intern_bytes(&mut self, s: &[u8], roots: &dyn Roots) -> Value {
         if let Some(v) = self.intern_lookup_bytes(s) { return v; }
         let v = self.new_string_bytes(s, roots);
+        self.mark_interned(v);
+        v
+    }
+    /// Interns a fresh string in place (1.3): the live interned string with
+    /// its bytes when there is one, else this string, now interned. Allocates
+    /// nothing; the native core calls it on a string it has just filled.
+    pub fn intern_string(&mut self, v: Value) -> Value {
+        let bytes: &[u8] = unsafe { (*v.as_obj().expect("intern of a non-object").as_ptr()).bytes() };
+        if let Some(found) = self.intern_lookup_bytes(bytes) { return found; }
+        self.mark_interned(v);
+        v
+    }
+    /// Enters a fresh string into the intern table: the one insertion routine.
+    fn mark_interned(&mut self, v: Value) {
         let p = v.as_obj().unwrap();
-        unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(s); }
+        let s: &[u8] = unsafe { let h = &mut *p.as_ptr(); h.flags |= F_INTERNED; (*(h.payload() as *mut StrPayload)).hash = fnv1a(h.bytes()); h.bytes() };
         if s.starts_with(b"__") { self.mm_seen |= crate::metamethods::bit_of(s); }
         self.interned.insert(s.into(), p);
-        v
     }
     /// The interned string with these bytes, if one is alive, allocating nothing.
     // For immediate table lookup only: this does not root or resurrect a key.
