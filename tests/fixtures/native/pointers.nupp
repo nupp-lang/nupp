@@ -1,0 +1,98 @@
+module pointers
+
+-- Function pointers: `Op*` is a typed pointer to a function, which a module
+-- function's name converts to, a struct field or a fixed array holds, and a
+-- call through reaches without a cast.
+const native = require("nupp.runtime.vm.intrinsics")
+
+local type Op = function(a: int64, b: int64): int64
+
+local struct Table
+    ops: Op*[4]
+    fallback: Op*
+    count: int64
+end
+
+local function add(a: int64, b: int64): int64
+    return a + b
+end
+
+local function sub(a: int64, b: int64): int64
+    return a - b
+end
+
+local function mul(a: int64, b: int64): int64
+    return a * b
+end
+
+local function larger(a: int64, b: int64): int64
+    if a > b then
+        return a
+    end
+    return b
+end
+
+local function zero(a: int64, b: int64): int64
+    return 0
+end
+
+local function install(t: Table*): nil
+    @unsafe t.ops[0] = add
+    @unsafe t.ops[1] = sub
+    @unsafe t.ops[2] = mul
+    @unsafe t.ops[3] = larger
+    @unsafe t.fallback = zero
+    @unsafe t.count = 4
+end
+
+local function apply(t: Table*, which: int64, a: int64, b: int64): int64
+    if which < 0 or which >= t.count then
+        return t.fallback(a, b)
+    end
+    return @unsafe t.ops[which](a, b)
+end
+
+local function dispatch(base: voidptr, which: int64, a: int64, b: int64): int64
+    local t = base as Table*
+    install(t)
+
+    return apply(t, which, a, b)
+end
+
+-- A function pointer as a local and a parameter.
+local function twice(op: Op*, a: int64, b: int64): int64
+    return op(op(a, b), b)
+end
+
+local function compose(which: int64, a: int64, b: int64): int64
+    local op: Op* = add
+    if which == 1 then
+        op = mul
+    end
+
+    return twice(op, a, b)
+end
+
+-- Pointers compare: the table holds the function it was given.
+local function installed(base: voidptr, which: int64): boolean
+    local t = base as Table*
+    install(t)
+    local op: Op* = @unsafe t.ops[which]
+
+    return op == larger
+end
+
+-- A pointer answered from a function and called by the caller's choice.
+local function choose(which: int64): Op*
+    if which == 0 then
+        return add
+    elseif which == 1 then
+        return sub
+    end
+
+    return mul
+end
+
+local function chosen(which: int64, a: int64, b: int64): int64
+    return choose(which)(a, b)
+end

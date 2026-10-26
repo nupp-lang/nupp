@@ -156,6 +156,20 @@ local function pointee(t: any): any
     return nil
 end
 
+-- The function type a pointer to a function names, or a function type itself:
+-- what a call through a function pointer is typed by.
+local function functionPointee(t: any): any
+    local r = raw(t)
+    if r and r.tag == "ptr" then
+        r = raw(r.elem)
+    end
+    if r and r.tag == "func" then
+        return r
+    end
+
+    return nil
+end
+
 -- Field offsets come from the compiler's own layout model for the host.
 local layoutKey = targetLayout.hostKey() or "aarch64-apple-darwin"
 local fieldCache = {}
@@ -343,6 +357,7 @@ local record Fn
     paramTypes: {string}
     resultKind: string?
     resultType: string?
+    result: any
     isHandler: boolean
     isSupport: boolean
 end
@@ -424,8 +439,52 @@ local function compileFunction(fn: Fn, options: any): string
         return t == "f64" and "number" or (t == "i8" and "boolean" or "int64")
     end
 
-    -- Callees are declared once per function in the preamble.
+    -- Callees and signatures are declared once per function in the preamble.
+    -- `sig0` is the handler signature in handler mode, so numbering starts
+    -- after it there.
     local callees, preamble = {}, {}
+    local signatures = {}
+    local sigCount = handlers and 1 or 0
+    local fnCount = 0
+
+    local function declareSignature(text: string): string
+        local known = signatures[text]
+        if known then
+            return known
+        end
+        local sig = "sig" .. tostring(sigCount)
+        sigCount = sigCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. text
+        signatures[text] = sig
+
+        return sig
+    end
+
+    local function declareFunction(symbol: string, sig: string): string
+        local ref = "fn" .. tostring(fnCount)
+        fnCount = fnCount + 1
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+
+        return ref
+    end
+
+    -- The CLIF signature of a function type: its parameters and result as the
+    -- machine types their kinds lower to.
+    local function signatureOf(fnType: any): string
+        local types = {}
+        for index, param in ipairs(fnType.params or {}) do
+            types[index] = machine(tag(param))
+        end
+        local text = "(" .. table.concat(types, ", ") .. ")"
+        local rets = fnType.rets or {}
+        need(#rets <= 1, "at most one result")
+        local resultKind = #rets == 1 and tag(rets[1]) or nil
+        if resultKind and resultKind ~= "nil" then
+            text = text .. " -> " .. machine(resultKind)
+        end
+
+        return text
+    end
 
     local function callee(target: Fn): any
         local known = callees[target]
@@ -433,15 +492,11 @@ local function compileFunction(fn: Fn, options: any): string
             return known
         end
         need(not handlers, "a handler module's functions are tail-called: `return " .. target.name .. "(...)`")
-        local index = #preamble / 2
-        local sig = "sig" .. tostring(index)
-        local ref = "fn" .. tostring(index)
         local signature = "(" .. table.concat(target.paramTypes, ", ") .. ")"
         if target.resultType then
             signature = signature .. " -> " .. target.resultType
         end
-        preamble[#preamble + 1] = sig .. " = " .. signature
-        preamble[#preamble + 1] = ref .. " = %" .. target.name .. " " .. sig
+        local ref = declareFunction(target.name, declareSignature(signature))
         known = {ref = ref, target = target}
         callees[target] = known
 
@@ -666,6 +721,30 @@ local function compileFunction(fn: Fn, options: any): string
         return {address = address, field = field}
     end
 
+    -- An element of a fixed array or of what a pointer names: its address,
+    -- the kind it loads as, and its type. An index into a `T[N]` the checker
+    -- did not prove in bounds, outside `@unsafe`, is checked here and traps.
+    local function elementAddress(n: any): any
+        local base = expression(n.obj)
+        local container = raw(base.type)
+        need(
+            container and (container.tag == "carray" or container.tag == "ptr"),
+            "indexing needs a fixed array or a pointer"
+        )
+        local elem = container.elem
+        local measured, reason = targetLayout.of(elem, layoutKey)
+        need(measured ~= nil, "element layout: " .. tostring(reason))
+        local index = materialize(expression(n.expr), "int64")
+        if n.carrayBound and not n.unsafeOwnershipOperation then
+            local outside = emit("icmp uge " .. index .. ", " .. constant("i64", tostring(n.carrayBound)))
+            effect("trapnz " .. outside .. ", user1")
+        end
+        local scaled = emit("imul " .. index .. ", " .. constant("i64", tostring(measured.size)))
+        local address = emit("iadd " .. materialize(base, "ptr") .. ", " .. scaled)
+
+        return {address = address, kind = fieldKind(elem), type = elem}
+    end
+
     local imported = {}
 
     -- A Rust helper, declared once per caller with the signature the helpers
@@ -675,9 +754,6 @@ local function compileFunction(fn: Fn, options: any): string
         if known then
             return known
         end
-        local index = #preamble / 2
-        local sig = "sig" .. tostring(index + 1)
-        local ref = "fn" .. tostring(index)
         local types = {}
         for i, kind in ipairs(paramKinds) do
             types[i] = machine(kind)
@@ -686,8 +762,7 @@ local function compileFunction(fn: Fn, options: any): string
         if resultKind then
             signature = signature .. " -> " .. machine(resultKind)
         end
-        preamble[#preamble + 1] = sig .. " = " .. signature
-        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        local ref = declareFunction(symbol, declareSignature(signature))
         imported[symbol] = ref
 
         return ref
@@ -787,6 +862,12 @@ local function compileFunction(fn: Fn, options: any): string
         elseif n.kind == "name" and scope.constants[n.token.definition or n.token.text] ~= nil then
             return {literal = scope.constants[n.token.definition or n.token.text]}
         elseif n.kind == "name" then
+            local named = n.token.definition or n.token.text
+            if not b.typeOf(named) and scope.functions[n.token.text] then
+                -- A module function's name is its address: a function pointer.
+                local known = callee(scope.functions[n.token.text] as Fn)
+                return {kind = "ptr", value = emit("func_addr.i64 " .. known.ref), type = n.inferredType}
+            end
             local variable = variableOf(n.token)
             local value = readVariable(variable, b.here())
             local kind = tag(n.inferredType)
@@ -808,7 +889,15 @@ local function compileFunction(fn: Fn, options: any): string
             return {literal = text}
         elseif n.kind == "dotIndex" then
             local access = fieldAddress(n)
+            local fieldRaw = raw(access.field.type)
+            if fieldRaw and fieldRaw.tag == "carray" then
+                -- A fixed array field is its address, as a C array decays.
+                return {kind = "ptr", value = access.address, type = access.field.type}
+            end
             return {kind = access.field.kind, value = load(access.field.kind, access.address), type = access.field.type}
+        elseif n.kind == "bracketIndex" then
+            local element = elementAddress(n)
+            return {kind = element.kind, value = load(element.kind, element.address), type = element.type}
         elseif n.kind == "castExpr" then
             -- An erased assertion between types of one representation.
             local inner = expression(n.expr)
@@ -857,17 +946,44 @@ local function compileFunction(fn: Fn, options: any): string
         elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
             return helperCall(n, HELPER_MODULES[calledModule(n) as string] as string)
         elseif n.kind == "call" then
-            local target = need(resolveCallee(n, scope, modules), "only direct calls to module functions") as Fn
-            local known = callee(target)
-            local args = {}
+            local target = resolveCallee(n, scope, modules)
             local exprs = n.args.exprs or {}
+            if not target then
+                -- A call through a function pointer: the callee is a value, and
+                -- the pointer's type says what it takes and answers.
+                need(not handlers, "a handler module calls its functions directly")
+                local pointer = expression(n.obj)
+                local fnType = need(
+                    functionPointee(pointer.type),
+                    "only direct calls to module functions, or calls through a function pointer"
+                )
+                need(#exprs == #(fnType.params or {}), "argument count")
+                local args = {}
+                for index, arg in ipairs(exprs) do
+                    args[index] = materialize(expression(arg), tag(fnType.params[index]))
+                end
+                local sig = declareSignature(signatureOf(fnType))
+                local text = "call_indirect " .. sig .. ", " .. materialize(
+                    pointer,
+                    "ptr"
+                ) .. "(" .. table.concat(args, ", ") .. ")"
+                local rets = fnType.rets or {}
+                local resultKind = #rets == 1 and tag(rets[1]) or nil
+                if resultKind and resultKind ~= "nil" then
+                    return {kind = resultKind, value = emit(text), type = rets[1]}
+                end
+                effect(text)
+                return {kind = "nil", value = ""}
+            end
+            local known = callee(target as Fn)
+            local args = {}
             need(#exprs == #target.paramKinds, "argument count")
             for index, arg in ipairs(exprs) do
                 args[index] = materialize(expression(arg), target.paramKinds[index])
             end
             local text = "call " .. known.ref .. "(" .. table.concat(args, ", ") .. ")"
             if target.resultKind then
-                return {kind = target.resultKind, value = emit(text)}
+                return {kind = target.resultKind, value = emit(text), type = target.result}
             end
             effect(text)
             return {kind = "nil", value = ""}
@@ -883,16 +999,12 @@ local function compileFunction(fn: Fn, options: any): string
         if known then
             return known
         end
-        local index = #preamble / 2
-        local sig = "sig" .. tostring(index + 1)
-        local ref = "fn" .. tostring(index)
         local types = {}
         for i, kind in ipairs(target.paramKinds) do
             types[i] = machine(kind)
         end
         types[#types + 1] = "i64"
-        preamble[#preamble + 1] = sig .. " = (" .. table.concat(types, ", ") .. ") -> i64 tail"
-        preamble[#preamble + 1] = ref .. " = %" .. target.name .. " " .. sig
+        local ref = declareFunction(target.name, declareSignature("(" .. table.concat(types, ", ") .. ") -> i64 tail"))
         supports[target] = ref
 
         return ref
@@ -1007,8 +1119,11 @@ local function compileFunction(fn: Fn, options: any): string
                 if target.kind == "dotIndex" then
                     local access = fieldAddress(target)
                     store(access.field.kind, materialize(value, access.field.kind), access.address)
+                elseif target.kind == "bracketIndex" then
+                    local element = elementAddress(target)
+                    store(element.kind, materialize(value, element.kind), element.address)
                 else
-                    need(target.kind == "name", "assignment to a local or a field")
+                    need(target.kind == "name", "assignment to a local, a field or an element")
                     assign(target.token, value)
                 end
             end
@@ -1282,6 +1397,7 @@ local function describe(fnName: string, node: any, body: any, scope: Scope, hand
         paramTypes = paramTypes,
         resultKind = resultKind,
         resultType = resultKind and machine(resultKind) or nil,
+        result = rets[1],
         isHandler = isHandler,
         isSupport = isSupport
     )

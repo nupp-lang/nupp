@@ -155,6 +155,16 @@ local TAGGED = {
     {"chain", {"buffer:512", 6}, "60"}, {"chain", {"buffer:512", 1}, "0"}, {"chain", {"buffer:512", 0}, "0"},
 }
 
+-- Operations dispatched through a table of function pointers in the buffer.
+local POINTERS = {
+    {"dispatch", {"buffer:64", 0, 7, 3}, "10"}, {"dispatch", {"buffer:64", 1, 7, 3}, "4"},
+    {"dispatch", {"buffer:64", 2, 7, 3}, "21"}, {"dispatch", {"buffer:64", 3, 7, 3}, "7"},
+    {"dispatch", {"buffer:64", 4, 7, 3}, "0"}, {"dispatch", {"buffer:64", -1, 7, 3}, "0"},
+    {"compose", {0, 5, 2}, "9"}, {"compose", {1, 5, 2}, "20"},
+    {"installed", {"buffer:64", 3}, true}, {"installed", {"buffer:64", 0}, false},
+    {"chosen", {0, 6, 4}, "10"}, {"chosen", {1, 6, 4}, "2"}, {"chosen", {2, 6, 4}, "24"},
+}
+
 local function check(clif, cases)
     for _, case in ipairs(cases) do
         local name, args, expected = case[1], case[2], case[3]
@@ -180,6 +190,10 @@ end
 
 function M.taggedUnionsOfStructPointersNarrowByTheirTagField()
     check(compileFixture("tagged"), TAGGED)
+end
+
+function M.functionPointersAreCalledStoredAndCompared()
+    check(compileFixture("pointers"), POINTERS)
 end
 
 -- Handler modules written against a temporary include root beside `src`, so

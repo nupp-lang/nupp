@@ -1043,6 +1043,61 @@ return m
     ),
 
     new reference.Section(
+        title = "Function pointers",
+        codes = {"NUPP2005", "NUPP2001"},
+        body = [=[
+`F*`, a pointer to a function type, is a typed function pointer: what a struct
+field, a fixed array `F*[N]` or a local holds when a program keeps code rather
+than calling it, as a dispatch table or a table of builtins does. A function
+fits a pointer to its own type, so a module function's name is how its address
+is taken, and calling through the pointer reaches the function it names with
+no cast, as in C. Two pointers compare equal when they name one function.
+
+The native profile compiles the pointer as the function's address, a call
+through it as an indirect call with the pointee's signature, and a `T[N]`
+element as its offset from the array, checked against `N` outside `@unsafe`.
+In the VM a function is a value and not an address: a local of pointer type
+holds and calls it, and a struct field cannot keep one.
+]=],
+        example = [=[
+local m = {}
+
+type m.Op = function(a: int64, b: int64): int64
+
+struct m.Table
+    ops: m.Op*[2]
+    fallback: m.Op*
+end
+
+local function add(a: int64, b: int64): int64
+    return a + b
+end
+
+local function zero(a: int64, b: int64): int64
+    return 0
+end
+
+function m.install(t: m.Table*): nil
+    @unsafe t.ops[0] = add
+    @unsafe t.fallback = zero
+end
+
+function m.apply(t: m.Table*, which: int64, a: int64, b: int64): int64
+    if which < 0 or which > 1 then
+        return t.fallback(a, b)
+    end
+    return @unsafe t.ops[which](a, b)
+end
+
+function m.twice(op: m.Op*, a: int64, b: int64): int64
+    return op(op(a, b), b)
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[

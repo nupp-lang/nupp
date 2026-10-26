@@ -1741,6 +1741,17 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
 
+    -- A function fits a pointer to its own type: `Op*` is a typed pointer to a
+    -- function, and a function's name is how a native program takes its
+    -- address. The pointee is read through `const` as any pointer's is.
+    if atag == "func" and btag == "ptr" then
+        local pointee = b.elem.tag == "const" and (b.elem as T.Const).inner or b.elem
+        if pointee.tag == "func" then
+            return isA(a, pointee)
+        end
+        return fail(a, b)
+    end
+
     if atag == "ptr" and btag == "ptr" then
         -- invariant pointee
         if isA(a.elem, b.elem) and isA(b.elem, a.elem) then

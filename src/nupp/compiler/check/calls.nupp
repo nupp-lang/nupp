@@ -1437,6 +1437,15 @@ function calls.install(c: state.Checker): calls.Ops
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
+        -- A pointer to a function is called as the function, as in C: the call
+        -- reaches the code the pointer names.
+        if rawType(calleeT).tag == "ptr" then
+            local pointee = rawType((rawType(calleeT) as T.Ptr).elem)
+            if pointee.tag == "func" then
+                calleeT = pointee
+                node.signatureType = calleeT
+            end
+        end
         -- struct construction: S{...} named or S(...) positional
         local constructible = calleeT.tag == "nominal"
             and (calleeT.declKind == "struct" or calleeT.declKind == "record")

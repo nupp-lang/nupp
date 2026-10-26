@@ -1156,7 +1156,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         if ot.tag == "ptr" then
             -- The unsafe gate above is what admits this; what is left is the element
             -- the pointer names, loaded or stored the way a C array slot is.
-            if not (it == T.any or isA(it, T.number)) then
+            if not (it == T.any or isA(it, T.number) or isA(it, T.int64) or isA(it, T.uint64)) then
                 c.diag("NUPP2004", key, ("pointer index must be numeric, got %s"):format(T.tostring(it)))
             end
             local elem = ot.elem
@@ -1183,8 +1183,9 @@ function index.install(c: state.Checker): state.ExprHandlers
         end
         if ot.tag == "carray" then
             -- numeric, not strictly integer: `integer` here is advisory, and ordinary
-            -- arithmetic on an index yields `number`
-            if not (it == T.any or isA(it, T.number)) then
+            -- arithmetic on an index yields `number`; a 64-bit box indexes as well,
+            -- since native code counts in them
+            if not (it == T.any or isA(it, T.number) or isA(it, T.int64) or isA(it, T.uint64)) then
                 c.diag("NUPP2004", key, ("carray index must be numeric, got %s"):format(T.tostring(it)))
             end
             -- zero-based, and always present: no optional here
