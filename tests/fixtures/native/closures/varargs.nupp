@@ -29,6 +29,7 @@ local function join(sep: string, ...: any): string
     for i = 1, select("#", ...) do
         parts[#parts + 1] = tostring((select(i, ...)))
     end
+
     return table.concat(parts, sep)
 end
 
@@ -61,6 +62,7 @@ local function sum(...: number): number
     for _, v in ipairs({...}) do
         total = total + v
     end
+
     return total
 end
 
@@ -89,6 +91,7 @@ local function depth(n: number, ...: any): number
     end
     return depth(n - 1, n, ...)
 end
+
 show("deep", depth(150), 150)
 
 local function each(...: any): function(): any
@@ -99,6 +102,7 @@ local function each(...: any): function(): any
         return items[i]
     end
 end
+
 local it = each("u", "v")
 it()
 show("closure", it(), "v")

@@ -77,6 +77,7 @@ local function branch(flag: boolean): nil
     end
     log[#log + 1] = "end"
 end
+
 branch(true)
 branch(false)
 show("branch", flush(), "took x,x,end,end,x")

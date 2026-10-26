@@ -42,9 +42,12 @@ local okd, ed = pcall(deep, 20)
 show("deepOk", okd, false)
 show("deepValue", (ed as any).code, 42)
 local base = 10
-local okc, vc = pcall(function(x: number): number
-    return x + base
-end, 5)
+local okc, vc = pcall(
+    function(x: number): number
+        return x + base
+    end,
+    5
+)
 show("closure", tostring(okc) .. tostring(vc), "true15")
 local okn, inner, value = pcall(function(): (boolean, any)
     return pcall(fail, "inner")

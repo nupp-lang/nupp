@@ -23,6 +23,7 @@ local record Counter
         for _, v in ipairs({...}) do
             total = total + v
         end
+
         return total
     end
 end
@@ -39,12 +40,15 @@ Class.__index = Class
 function Class.new(v: number): any
     return setmetatable({v = v}, Class)
 end
+
 function Class:get(): number
     return self.v
 end
+
 function Class:pair(): (number, number)
     return self.v, self.v * 2
 end
+
 local obj: any = Class.new(21)
 show("table", obj:get(), 21)
 local p, q = obj:pair()
