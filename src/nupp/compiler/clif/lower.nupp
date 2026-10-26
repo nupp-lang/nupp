@@ -820,9 +820,10 @@ local function compileFunction(fn: Fn, options: any): string
                 elseif op == ">>" then
                     local pattern = emit("uextend.i64 " .. emit("ireduce.i32 " .. a))
                     return {kind = kind, value = wrap32(kind, emit("ushr " .. pattern .. ", " .. count))}
+                else
+                    local pattern = emit("sextend.i64 " .. emit("ireduce.i32 " .. a))
+                    return {kind = kind, value = wrap32(kind, emit("sshr " .. pattern .. ", " .. count))}
                 end
-                local pattern = emit("sextend.i64 " .. emit("ireduce.i32 " .. a))
-                return {kind = kind, value = wrap32(kind, emit("sshr " .. pattern .. ", " .. count))}
             elseif op == "//" then
                 return {kind = kind, value = emit((unsigned and "udiv " or "sdiv ") .. a .. ", " .. c)}
             elseif op == "%" then
