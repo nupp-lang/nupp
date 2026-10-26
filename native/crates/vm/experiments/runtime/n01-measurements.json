@@ -1,0 +1,250 @@
+{
+ "gate": "N01",
+ "head": "d0d07d7e3c06c46ba5f73ef8011b767aaabf0291",
+ "baseline_revision": "73d54b904cd014f666671407e4a1751fb8de2418",
+ "method": "nupp bench --against: 12 (24 for the loops rerun) paired interleaved forks alternating AB/BA, median of seven rounds per fork, exact signed-rank interval on paired log ratios, geometric-mean ratio beside it; 2% noninferiority margin; checksums gated. The candidate is the plain aot runtime with the native core object (vm-cli runtime --link) running the compiler image of this head; the baseline the pinned Rust-core runtime running the pinned root image over the pinned sources.",
+ "artifacts": {
+  "runtime.o": "042f1fd88e0091ba392be54cd91330fb5aa9e3f8703759b3e47e441158d391d7",
+  "runtime.clif": "cd5651d8cbd1b0129a6c6ca4416dc178c07d3c5aee4c8f7cae5f428fc784d7a3",
+  "candidate_runtime": "de887673a887c505e9fa1ce4b927a30b0e54970c5e0e533d14098099465f31e1",
+  "candidate_image": "2a4025dcf0e507bce5b29aaec3ebc4363d9f59f55d9cc4b54a80e137b42606cd",
+  "baseline_runtime": "b6a38ee943be54a5ce9d8d86da6e5e3db0835fee7c7a26e8c71730562af9f1d1",
+  "baseline_image": "afacfbb53800e744b9f7d0d07bde9fa22c687e2dd81804db9925766235149abb"
+ },
+ "conditions": "The N09 lane was reading during the first three runs and building (77 compiler processes) during the loops rerun; the rerun is therefore not a quiet-machine measurement.",
+ "results": {
+  "workloads_interpreted": {
+   "forks": 12,
+   "recordedAt": "2026-10-26T06:17:59Z",
+   "machineKey": "c9de8eb7a2d486fd0b5bc7108ca21a85",
+   "verdicts": [
+    {
+     "name": "fib",
+     "meanRatio": 0.6831291740994734,
+     "change": -0.322280291071955,
+     "interval": {
+      "low": -0.32606996719737646,
+      "upper": -0.30862279216605293
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "loops",
+     "meanRatio": 1.0084139865767714,
+     "change": 0.012009383414987918,
+     "interval": {
+      "low": -0.0221472648376958,
+      "upper": 0.04451211346074069
+     },
+     "verdict": "inconclusive",
+     "noninferiority": false
+    },
+    {
+     "name": "tables",
+     "meanRatio": 0.8830452936457197,
+     "change": -0.11433674622213563,
+     "interval": {
+      "low": -0.1319920248405715,
+      "upper": -0.10219827459128095
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "strings",
+     "meanRatio": 0.9976200243470429,
+     "change": 0.00020044294725662937,
+     "interval": {
+      "low": -0.01793062249938271,
+      "upper": 0.017064270591923503
+     },
+     "verdict": "unchanged",
+     "noninferiority": true
+    },
+    {
+     "name": "records",
+     "meanRatio": 0.7861114117725236,
+     "change": -0.22432956512265,
+     "interval": {
+      "low": -0.236829132859409,
+      "upper": -0.1840908075397668
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "closures",
+     "meanRatio": 0.8925993677623172,
+     "change": -0.10779086969942453,
+     "interval": {
+      "low": -0.1246723393536392,
+      "upper": -0.09179971773931794
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    }
+   ],
+   "noninferiorityPass": false
+  },
+  "workloads_jit": {
+   "forks": 12,
+   "recordedAt": "2026-10-26T06:20:55Z",
+   "machineKey": "c9de8eb7a2d486fd0b5bc7108ca21a85",
+   "verdicts": [
+    {
+     "name": "fib",
+     "meanRatio": 0.712352295441941,
+     "change": -0.2881103492318321,
+     "interval": {
+      "low": -0.3066001517543361,
+      "upper": -0.26886960241956137
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "loops",
+     "meanRatio": 0.9939759754732089,
+     "change": -0.015012489701644371,
+     "interval": {
+      "low": -0.046482913378260826,
+      "upper": 0.03560207463800791
+     },
+     "verdict": "inconclusive",
+     "noninferiority": false
+    },
+    {
+     "name": "tables",
+     "meanRatio": 0.8868134486411106,
+     "change": -0.11232201437915024,
+     "interval": {
+      "low": -0.1336369366316037,
+      "upper": -0.09153465903619429
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "strings",
+     "meanRatio": 1.0135909696310879,
+     "change": 0.00908041140118665,
+     "interval": {
+      "low": -0.014617426409773038,
+      "upper": 0.031695223684499174
+     },
+     "verdict": "inconclusive",
+     "noninferiority": false
+    },
+    {
+     "name": "records",
+     "meanRatio": 0.7951809159942301,
+     "change": -0.2129432988686183,
+     "interval": {
+      "low": -0.2249101049933636,
+      "upper": -0.18436647225429414
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    },
+    {
+     "name": "closures",
+     "meanRatio": 0.872694174816878,
+     "change": -0.14023051001714237,
+     "interval": {
+      "low": -0.15209103292333648,
+      "upper": -0.1013464024994426
+     },
+     "verdict": "improved",
+     "noninferiority": true
+    }
+   ],
+   "noninferiorityPass": false
+  },
+  "compiler_check_pinned_sources": {
+   "forks": 3,
+   "recordedAt": "2026-10-26T06:30:16Z",
+   "machineKey": "c9de8eb7a2d486fd0b5bc7108ca21a85",
+   "verdicts": [
+    {
+     "name": "cold",
+     "meanRatio": 0.9651361261445653,
+     "change": -0.03388377204058346,
+     "interval": null,
+     "verdict": "inconclusive",
+     "noninferiority": null
+    },
+    {
+     "name": "warm",
+     "meanRatio": 0.9591494329122733,
+     "change": -0.03322673580596858,
+     "interval": null,
+     "verdict": "inconclusive",
+     "noninferiority": null
+    }
+   ],
+   "noninferiorityPass": false
+  },
+  "loops_strings_interpreted_24_forks": {
+   "forks": 24,
+   "recordedAt": "2026-10-26T06:35:29Z",
+   "machineKey": "c9de8eb7a2d486fd0b5bc7108ca21a85",
+   "verdicts": [
+    {
+     "name": "loops",
+     "meanRatio": 1.03461857360473,
+     "change": 0.009251264060226028,
+     "interval": {
+      "low": 0.0043385105490685305,
+      "upper": 0.05406736059715067
+     },
+     "verdict": "inconclusive",
+     "noninferiority": false
+    },
+    {
+     "name": "strings",
+     "meanRatio": 0.9743012715054997,
+     "change": -0.0009875216106943752,
+     "interval": {
+      "low": -0.036776873027382195,
+      "upper": 0.009562604347391312
+     },
+     "verdict": "inconclusive",
+     "noninferiority": true
+    }
+   ],
+   "noninferiorityPass": false
+  },
+  "loops_strings_jit_24_forks": {
+   "forks": 24,
+   "recordedAt": "2026-10-26T06:38:43Z",
+   "machineKey": "c9de8eb7a2d486fd0b5bc7108ca21a85",
+   "verdicts": [
+    {
+     "name": "loops",
+     "meanRatio": 0.9776453976955907,
+     "change": -0.021180640901994674,
+     "interval": {
+      "low": -0.0444850280558764,
+      "upper": -0.0007164102717055476
+     },
+     "verdict": "inconclusive",
+     "noninferiority": true
+    },
+    {
+     "name": "strings",
+     "meanRatio": 1.0325492475690987,
+     "change": 0.003958302029724914,
+     "interval": {
+      "low": -0.0007279005455784748,
+      "upper": 0.04486977522141067
+     },
+     "verdict": "inconclusive",
+     "noninferiority": false
+    }
+   ],
+   "noninferiorityPass": false
+  }
+ },
+ "verdict": "fib, tables, records and closures improved interpreted and with the JIT (0.68 to 0.89); strings unchanged; the compiler check 3.5% faster cold and 4% warm (3 forks, no interval); loops not established: +1.2% interpreted (interval -2.2% to +4.5%), -0.6% with the JIT, and +0.9% median / +3.5% geometric mean interpreted on the contaminated 24-fork rerun. The budget counter charged at back edges (the last N01 commit) is the suspected cost."
+}
