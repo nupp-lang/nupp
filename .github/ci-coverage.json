@@ -76,6 +76,14 @@
           "guarantees": ["resource owner stress and cancellation"]
         },
         {
+          "name": "Run the native core suites",
+          "platforms": ["macos"],
+          "groups": ["native-runtime"],
+          "guarantees": [
+            "the handler sources lower, compile and pass the native contract tests"
+          ]
+        },
+        {
           "name": "Run the benchmark runner suite",
           "platforms": ["linux"],
           "groups": ["measurement"],
@@ -91,7 +99,7 @@
         {
           "name": "Run the compiler suite",
           "excludes": {
-            "groups": ["external-corpus", "windows-preflight"],
+            "groups": ["external-corpus", "windows-preflight", "native-runtime"],
             "lanes": ["shared"]
           },
           "guarantees": ["every suite an earlier step in this job did not run"]

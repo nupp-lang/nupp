@@ -1,11 +1,28 @@
-module nupp.experiment.lower
+module nupp.compiler.clif.lower
 
--- Lowers ordinary typed Nupp to Cranelift's textual IR: the scalar types,
--- mutable locals, branches, loops and direct calls, with nothing managed
--- underneath. The ordinary parser and checker validate the source; this module
--- turns the checked tree into CLIF, building SSA form itself (block parameters
--- stand for the phis, placed by the sealed-block algorithm), and a Rust shim
--- parses and compiles the text.
+--[[
+Lowers ordinary typed Nupp to Cranelift's textual IR (CLIF): the scalar types,
+mutable locals, branches, loops, direct calls, struct fields through raw
+pointers at the compiler's own layout offsets, and the memory intrinsics, with
+nothing managed underneath. The ordinary parser and checker validate the
+source; this module turns the checked tree into CLIF, building SSA form through
+`nupp.compiler.clif.ssa`, and the runtime's glue parses and compiles the text.
+
+A set of modules compiles to one CLIF file. A module exports functions the
+others call through a table it declares (`local protocol = {}`,
+`function protocol.publishPc(...)`, `export = protocol`); a `const` require of
+another module of the set, or of the intrinsics declaration, is the only other
+module-level statement.
+
+Handler mode compiles the native interpreter core. A handler takes six pointer
+registers and answers a word; its sixth register is the dispatch table and its
+frame is derived from the boxed window. Helpers are inlined where a handler
+tail-calls them, or where a statement calls one answering nothing, so every
+handler stays one frameless function. A helper named `...Slow` is a support
+function: compiled on its own and tail-called with the pc, the context, up to
+five words of its own and the table, so the fast path stays frameless while the
+slow path calls the Rust helpers.
+]]
 
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("nupp.compiler.check")
@@ -14,9 +31,25 @@ local fs = require("nupp.compiler.fs")
 local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
 local targetLayout = require("nupp.compiler.targetlayout")
+local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
 
-local INTRINSICS = "nupp.runtime.internal.native"
+local lower = {}
+
+--- The intrinsics declaration the runtime sources are written against.
+lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
+
+--- The native core's modules, in the order they compile, relative to the
+--- repository root.
+lower.RUNTIME_MODULES = {
+    "src/nupp/runtime/vm/core.nupp",
+    "src/nupp/runtime/vm/calls.nupp",
+    "src/nupp/runtime/vm/protocol.nupp",
+    "src/nupp/runtime/vm/lookup.nupp",
+    "src/nupp/runtime/vm/boxing.nupp"
+}
+
+local INTRINSICS = lower.INTRINSICS
 
 local function need(ok: any, message: string): any
     assert(ok, "lower: " .. message)
@@ -166,201 +199,169 @@ local integerOps = {
 }
 local floatOps = {["+"] = "fadd", ["-"] = "fsub", ["*"] = "fmul", ["/"] = "fdiv"}
 
--- One function under construction.
-local record Block
-    id: number
-    params: {string}
+-- The private memory intrinsics the handler modules are written against, so
+-- that profile is a subset of this one.
+local intrinsicLoads = {
+    load8 = "uload8.i64",
+    load32 = "sload32.i64",
+    load64 = "load.i64",
+    loadIndex = "load.i64",
+    loadPointer = "load.i64",
+    loadFloat = "load.f64"
+}
+local intrinsicKinds = {
+    load8 = "int64",
+    load32 = "int64",
+    load64 = "uint64",
+    loadIndex = "int64",
+    loadPointer = "voidptr",
+    loadFloat = "number"
+}
+local intrinsicStores = {
+    store64 = "store",
+    storeIndex = "store",
+    storePointer = "store",
+    storeFloat = "store",
+    store32 = "istore32"
+}
+local intrinsicStoreKinds = {
+    store64 = "uint64",
+    storeIndex = "int64",
+    storePointer = "voidptr",
+    storeFloat = "number",
+    store32 = "int64"
+}
+local intrinsicUnary = {
+    bits = {"bitcast.i64", "number", "uint64"},
+    fromBits = {"bitcast.f64", "uint64", "number"},
+    floor = {"floor", "number", "number"},
+    neg = {"fneg", "number", "number"},
+    toFloat = {"fcvt_from_sint.f64", "int64", "number"},
+    toInt = {"fcvt_to_sint_sat.i64", "number", "int64"},
+    unsignedFloat = {"fcvt_from_uint.f64", "uint64", "number"},
+    unsignedInt = {"fcvt_to_uint_sat.i64", "number", "uint64"},
+    asWord = {"uextend.i64", "boolean", "uint64"}
+}
+local intrinsicIdentity = {
+    pointer = {"uint64", "voidptr"},
+    address = {"voidptr", "uint64"},
+    word = {"int64", "uint64"},
+    index = {"uint64", "int64"}
+}
+
+-- The exported Rust helpers: called by C ABI, each with its parameter kinds
+-- and result kind; nil for a helper that answers nothing.
+local rustHelpers = {
+    getField = {"nupp_rt_get_field", {"voidptr", "uint64", "uint64"}, "uint64"},
+    getIndex = {"nupp_rt_get_index", {"voidptr", "uint64", "uint64"}, "uint64"},
+    getIndexNum = {"nupp_rt_get_index_num", {"voidptr", "uint64", "int64"}, "uint64"},
+    setIndexNum = {"nupp_rt_set_index_num", {"voidptr", "uint64", "int64", "uint64"}, nil},
+    storeKeyed = {"nupp_rt_store_index", {"voidptr", "uint64", "uint64", "uint64"}, nil},
+    barrier = {"nupp_rt_barrier", {"voidptr", "uint64", "uint64"}, nil},
+    newRecord = {"nupp_rt_new_record", {"voidptr", "int64"}, "uint64"},
+    eqSlow = {"nupp_rt_eq_slow", {"voidptr", "uint64", "uint64"}, "uint64"},
+    callIter = {"nupp_rt_call_iter", {"voidptr", "uint64", "uint64"}, nil},
+    callBuiltin = {"nupp_rt_call_builtin", {"voidptr", "int64", "uint64", "int64"}, nil},
+    appendPlain = {"nupp_rt_append_plain", {"voidptr", "uint64", "number", "uint64"}, "uint64"}
+}
+
+-- A function of a module: its node, its kinds, and the module it belongs to,
+-- whose functions its body names.
+local record Fn
+    name: string
+    node: any
+    body: any
+    scope: any
+    paramKinds: {string}
     paramTypes: {string}
-    lines: {string}
-    term: any
-    preds: {Block}
-    sealed: boolean
-    defs: any
-    incomplete: any
-    phis: any
+    resultKind: string?
+    resultType: string?
+    isHandler: boolean
+    isSupport: boolean
 end
 
-local function compileFunction(node: any, functions: any, options: any): string
-    local body = node.body
+-- A module of the set: its functions by local name, its exports by member.
+local record Scope
+    name: string
+    path: string
+    functions: {[string]: Fn}
+    exports: {[string]: Fn}
+    exportName: string?
+    order: {string}
+end
+
+-- Whether a call names a module function: a local function of the module
+-- the code was written in, or a member of another module's export table.
+local function resolveCallee(call: any, scope: Scope, modules: {[string]: Scope}): Fn?
+    if call.kind ~= "call" then
+        return nil
+    end
+    local target = call.obj
+    if target.kind == "name" then
+        return scope.functions[target.token.text]
+    elseif target.kind == "dotIndex" and target.obj.kind == "name" then
+        local definition = target.obj.token.definition
+        local required = definition and definition.requiredModule
+        local other = required and modules[required]
+        if other then
+            return need(other.exports[target.name.text], "module " .. required .. " exports no " .. target.name.text)
+        end
+    end
+
+    return nil
+end
+
+local function compileFunction(fn: Fn, options: any): string
+    local body = fn.body
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain function required")
-    local name = node.name.text
-    -- In a handler module a handler's sixth register is the dispatch table and
-    -- its frame is derived from the boxed window; helpers are inlined where a
-    -- handler tail-calls them, so every handler stays one frameless function.
+    local name = fn.name
+    local modules: {[string]: Scope} = options.modules
+    -- The module whose functions a name resolves in: the function's own, or
+    -- the helper's while a helper from another module is inlined.
+    local scope: Scope = fn.scope
     local handlers = options.handlers == true
-    local isHandler = handlers and functions[name].isHandler == true
-    local isSupport = handlers and functions[name].isSupport == true
+    local isHandler = fn.isHandler
+    local isSupport = fn.isSupport
     local tableValue: string? = nil
     local inlining = {}
-    local paramKinds, paramTypes = {}, {}
-    for index, param in ipairs(body.params) do
-        local kind = tag(param.type and param.type.resolvedType)
-        paramKinds[index] = kind
-        paramTypes[index] = machine(kind)
-    end
-    local rets = body.signatureType and body.signatureType.rets or {}
-    need(#rets <= 1, "at most one result")
-    local resultKind = #rets == 1 and tag(rets[1]) or nil
-    if resultKind == "nil" then
-        resultKind = nil
-    end
-    local resultType = resultKind and machine(resultKind) or nil
+    local paramKinds, paramTypes = fn.paramKinds, fn.paramTypes
+    local resultKind, resultType = fn.resultKind, fn.resultType
 
-    local blocks: {Block} = {}
-    local counter = 0
-
-    local function fresh(): string
-        local value = "v" .. tostring(counter)
-        counter = counter + 1
-        return value
-    end
-
-    local function newBlock(): Block
-        local block = new Block(
-            id = #blocks,
-            params = {},
-            paramTypes = {},
-            lines = {},
-            term = nil,
-            preds = {},
-            sealed = false,
-            defs = {},
-            incomplete = {},
-            phis = {}
-        )
-        blocks[#blocks + 1] = block
-
-        return block
-    end
-
-    local function addParam(block: Block, kind: string): string
-        local value = fresh()
-        block.params[#block.params + 1] = value
-        block.paramTypes[#block.paramTypes + 1] = kind
-        return value
-    end
-
-    local current: Block? = nil
-
-    local function emit(text: string): string
-        local value = fresh()
-        local block = need(current, "emission outside a block") as Block
-        block.lines[#block.lines + 1] = value .. " = " .. text
-        return value
-    end
-
-    local function effect(text: string): nil
-        local block = need(current, "emission outside a block") as Block
-        block.lines[#block.lines + 1] = text
-    end
-
-    local function constant(kind: string, text: string): string
-        return emit("iconst." .. kind .. " " .. text)
-    end
-
-    local function link(from: Block, to: Block): nil
-        to.preds[#to.preds + 1] = from
-    end
-
-    local function jump(to: Block, args: {string}): nil
-        local block = current as Block
-        block.term = {kind = "jump", targets = {{block = to, args = args}}}
-        link(block, to)
-        current = nil
-    end
-
-    local function branch(cond: string, yes: Block, no: Block): nil
-        local block = current as Block
-        block.term = {kind = "brif", cond = cond, targets = {{block = yes, args = {}}, {block = no, args = {}}}}
-        link(block, yes)
-        link(block, no)
-        current = nil
-    end
-
-    local function finish(values: {string}): nil
-        local block = current as Block
-        block.term = {kind = "return", values = values}
-        current = nil
-    end
-
-    -- SSA construction over mutable locals: a variable is its declaration, a
-    -- definition is the block that last assigned it, and a read that finds no
-    -- definition in its block becomes a block parameter filled from the
-    -- predecessors once they are all known.
-    local varTypes = {}
+    local b = ssa.new()
+    local emit, effect, constant = b.emit, b.effect, b.constant
+    local newBlock, addParam, seal = b.newBlock, b.addParam, b.seal
+    local readVariable, writeVariable = b.read, b.write
     local varDecl = {}
-    local readVariable
-
-    local function writeVariable(variable: any, block: Block, value: string): nil
-        block.defs[variable] = value
-    end
-
-    local function addOperands(variable: any, block: Block, param: string): nil
-        for _, pred in ipairs(block.preds) do
-            local value = readVariable(variable, pred)
-            for _, target in ipairs(pred.term.targets) do
-                if target.block == block then
-                    target.args[#target.args + 1] = value
-                end
-            end
-        end
-    end
-
-    readVariable = function(variable: any, block: Block): string
-        local known = block.defs[variable]
-        if known then
-            return known
-        end
-        local value: string
-        if not block.sealed then
-            value = addParam(block, varTypes[variable])
-            block.phis[value] = true
-            block.incomplete[variable] = value
-        elseif #block.preds == 1 then
-            value = readVariable(variable, block.preds[1])
-        else
-            need(#block.preds > 0, "read of an unassigned variable")
-            value = addParam(block, varTypes[variable])
-            block.phis[value] = true
-            writeVariable(variable, block, value)
-            addOperands(variable, block, value)
-        end
-        writeVariable(variable, block, value)
-
-        return value
-    end
-
-    local function seal(block: Block): nil
-        for variable, param in pairs(block.incomplete) do
-            addOperands(variable, block, param)
-        end
-        block.incomplete = {}
-        block.sealed = true
-    end
 
     local function declare(token: any, kind: string, declared: any): any
         local variable = token.definition or token.text
-        varTypes[variable] = machine(kind)
+        b.declare(variable, machine(kind))
         varDecl[variable] = declared
         return variable
     end
 
     local function variableOf(token: any): any
         local variable = token.definition or token.text
-        need(varTypes[variable], "unknown variable " .. tostring(token.text))
+        need(b.typeOf(variable), "unknown variable " .. tostring(token.text))
         return variable
+    end
+
+    -- The scalar kind a variable's machine type reads back as when the
+    -- checker's type says nothing more.
+    local function kindOfVariable(variable: any): string
+        local t = b.typeOf(variable)
+        return t == "f64" and "number" or (t == "i8" and "boolean" or "int64")
     end
 
     -- Callees are declared once per function in the preamble.
     local callees, preamble = {}, {}
 
-    local function callee(fnName: string): any
-        local known = callees[fnName]
+    local function callee(target: Fn): any
+        local known = callees[target]
         if known then
             return known
         end
-        local target = need(functions[fnName], "unknown function " .. fnName)
-        need(not handlers, "a handler module's functions are tail-called: `return " .. fnName .. "(...)`")
+        need(not handlers, "a handler module's functions are tail-called: `return " .. target.name .. "(...)`")
         local index = #preamble / 2
         local sig = "sig" .. tostring(index)
         local ref = "fn" .. tostring(index)
@@ -369,9 +370,9 @@ local function compileFunction(node: any, functions: any, options: any): string
             signature = signature .. " -> " .. target.resultType
         end
         preamble[#preamble + 1] = sig .. " = " .. signature
-        preamble[#preamble + 1] = ref .. " = %" .. fnName .. " " .. sig
+        preamble[#preamble + 1] = ref .. " = %" .. target.name .. " " .. sig
         known = {ref = ref, target = target}
-        callees[fnName] = known
+        callees[target] = known
 
         return known
     end
@@ -447,17 +448,19 @@ local function compileFunction(node: any, functions: any, options: any): string
     -- materializing every flag.
     local branchOn
 
-    local function isIntrinsic(n: any, name: string): boolean
+    local function isIntrinsicCall(n: any): boolean
         return n.kind == "call"
             and n.obj.kind == "dotIndex"
             and n.obj.obj.kind == "name"
             and n.obj.obj.token.definition ~= nil
             and n.obj.obj.token.definition.requiredModule == INTRINSICS
-            and n.obj.name.text == name
-            and #(n.args.exprs or {}) == 2
     end
 
-    branchOn = function(n: any, yes: Block, no: Block): nil
+    local function isIntrinsic(n: any, intrinsicName: string): boolean
+        return isIntrinsicCall(n) and n.obj.name.text == intrinsicName and #(n.args.exprs or {}) == 2
+    end
+
+    branchOn = function(n: any, yes: ssa.Block, no: ssa.Block): nil
         if n.kind == "paren" then
             branchOn(n.expr, yes, no)
         elseif (n.kind == "binop" and n.op.text == "and") or isIntrinsic(n, "both") then
@@ -465,7 +468,7 @@ local function compileFunction(node: any, functions: any, options: any): string
             local rhs = n.kind == "binop" and n.rhs or n.args.exprs[2]
             local rest = newBlock()
             branchOn(lhs, rest, no)
-            current = rest
+            b.current = rest
             seal(rest)
             branchOn(rhs, yes, no)
         elseif (n.kind == "binop" and n.op.text == "or") or isIntrinsic(n, "either") then
@@ -473,71 +476,71 @@ local function compileFunction(node: any, functions: any, options: any): string
             local rhs = n.kind == "binop" and n.rhs or n.args.exprs[2]
             local rest = newBlock()
             branchOn(lhs, yes, rest)
-            current = rest
+            b.current = rest
             seal(rest)
             branchOn(rhs, yes, no)
         elseif n.kind == "unop" and n.op.text == "not" then
             branchOn(n.operand, no, yes)
         else
-            branch(condition(n), yes, no)
+            b.branch(condition(n), yes, no)
         end
     end
 
     local function arithmetic(n: any, op: string, kind: string, lhs: any, rhs: any): any
-        local a, b = materialize(lhs, kind), materialize(rhs, kind)
+        local a, c = materialize(lhs, kind), materialize(rhs, kind)
         if kind == "number" then
             if op == "%" then
-                local quotient = emit("fdiv " .. a .. ", " .. b)
+                local quotient = emit("fdiv " .. a .. ", " .. c)
                 local floored = emit("floor " .. quotient)
-                local product = emit("fmul " .. floored .. ", " .. b)
+                local product = emit("fmul " .. floored .. ", " .. c)
                 return {kind = kind, value = emit("fsub " .. a .. ", " .. product)}
             end
-            local name = need(floatOps[op], "unsupported float operator " .. op)
-            return {kind = kind, value = emit(name .. " " .. a .. ", " .. b)}
+            local opName = need(floatOps[op], "unsupported float operator " .. op)
+            return {kind = kind, value = emit(opName .. " " .. a .. ", " .. c)}
         end
         local unsigned = kind == "uint64"
         if op == ">>" then
-            return {kind = kind, value = emit("ushr " .. a .. ", " .. b)}
+            return {kind = kind, value = emit("ushr " .. a .. ", " .. c)}
         elseif op == "~>>" then
-            return {kind = kind, value = emit("sshr " .. a .. ", " .. b)}
+            return {kind = kind, value = emit("sshr " .. a .. ", " .. c)}
         elseif op == "//" then
             if unsigned then
-                return {kind = kind, value = emit("udiv " .. a .. ", " .. b)}
+                return {kind = kind, value = emit("udiv " .. a .. ", " .. c)}
             end
             -- Floored division: the truncated quotient, less one when the
             -- remainder is nonzero and disagrees in sign with the divisor.
-            local quotient = emit("sdiv " .. a .. ", " .. b)
-            local remainder = emit("srem " .. a .. ", " .. b)
+            local quotient = emit("sdiv " .. a .. ", " .. c)
+            local remainder = emit("srem " .. a .. ", " .. c)
             local zero = constant("i64", "0")
             local nonzero = emit("icmp ne " .. remainder .. ", " .. zero)
-            local mixed = emit("bxor " .. remainder .. ", " .. b)
+            local mixed = emit("bxor " .. remainder .. ", " .. c)
             local negative = emit("icmp slt " .. mixed .. ", " .. zero)
             local adjust = emit("band " .. nonzero .. ", " .. negative)
             local wide = emit("uextend.i64 " .. adjust)
             return {kind = kind, value = emit("isub " .. quotient .. ", " .. wide)}
         elseif op == "%" then
             if unsigned then
-                return {kind = kind, value = emit("urem " .. a .. ", " .. b)}
+                return {kind = kind, value = emit("urem " .. a .. ", " .. c)}
             end
-            local remainder = emit("srem " .. a .. ", " .. b)
+            local remainder = emit("srem " .. a .. ", " .. c)
             local zero = constant("i64", "0")
             local nonzero = emit("icmp ne " .. remainder .. ", " .. zero)
-            local mixed = emit("bxor " .. remainder .. ", " .. b)
+            local mixed = emit("bxor " .. remainder .. ", " .. c)
             local negative = emit("icmp slt " .. mixed .. ", " .. zero)
             local adjust = emit("band " .. nonzero .. ", " .. negative)
             local wide = emit("uextend.i64 " .. adjust)
             local mask = emit("ineg " .. wide)
-            local addend = emit("band " .. b .. ", " .. mask)
+            local addend = emit("band " .. c .. ", " .. mask)
             return {kind = kind, value = emit("iadd " .. remainder .. ", " .. addend)}
         end
-        local name = need(integerOps[op], "unsupported integer operator " .. op)
+        local opName = need(integerOps[op], "unsupported integer operator " .. op)
 
-        return {kind = kind, value = emit(name .. " " .. a .. ", " .. b)}
+        return {kind = kind, value = emit(opName .. " " .. a .. ", " .. c)}
     end
 
     local function compare(n: any, op: string, lhs: any, rhs: any): any
         local kind = kindOf(n.lhs, lhs, rhs)
-        local a, b = materialize(lhs, kind), materialize(rhs, kind)
+        local a, c = materialize(lhs, kind), materialize(rhs, kind)
         local text: string
         if kind == "number" then
             text = "fcmp " .. compareFloat[op]
@@ -550,18 +553,18 @@ local function compileFunction(node: any, functions: any, options: any): string
             text = "icmp " .. compareSigned[op]
         end
 
-        return {kind = "boolean", value = emit(text .. " " .. a .. ", " .. b)}
+        return {kind = "boolean", value = emit(text .. " " .. a .. ", " .. c)}
     end
 
     local function shortCircuit(n: any, isAnd: boolean): any
         local left = condition(n.lhs)
         local rest, join = newBlock(), newBlock()
         local result = addParam(join, "i8")
-        local from = current as Block
+        local from = b.here()
         if isAnd then
-            branch(left, rest, join)
+            b.branch(left, rest, join)
         else
-            branch(left, join, rest)
+            b.branch(left, join, rest)
         end
         -- The short-circuit edge carries the left operand.
         for _, target in ipairs(from.term.targets) do
@@ -569,11 +572,11 @@ local function compileFunction(node: any, functions: any, options: any): string
                 target.args[1] = left
             end
         end
-        current = rest
+        b.current = rest
         seal(rest)
         local right = condition(n.rhs)
-        jump(join, {right})
-        current = join
+        b.jump(join, {right})
+        b.current = join
         seal(join)
 
         return {kind = "boolean", value = result}
@@ -588,71 +591,6 @@ local function compileFunction(node: any, functions: any, options: any): string
         return {address = address, field = field}
     end
 
-    -- The private memory intrinsics the handler slice is written against,
-    -- so that profile is a subset of this one.
-    local intrinsicLoads = {
-        load8 = "uload8.i64",
-        load32 = "sload32.i64",
-        load64 = "load.i64",
-        loadIndex = "load.i64",
-        loadPointer = "load.i64",
-        loadFloat = "load.f64"
-    }
-    local intrinsicKinds = {
-        load8 = "int64",
-        load32 = "int64",
-        load64 = "uint64",
-        loadIndex = "int64",
-        loadPointer = "voidptr",
-        loadFloat = "number"
-    }
-    local intrinsicStores = {
-        store64 = "store",
-        storeIndex = "store",
-        storePointer = "store",
-        storeFloat = "store",
-        store32 = "istore32"
-    }
-    local intrinsicStoreKinds = {
-        store64 = "uint64",
-        storeIndex = "int64",
-        storePointer = "voidptr",
-        storeFloat = "number",
-        store32 = "int64"
-    }
-    local intrinsicUnary = {
-        bits = {"bitcast.i64", "number", "uint64"},
-        fromBits = {"bitcast.f64", "uint64", "number"},
-        floor = {"floor", "number", "number"},
-        neg = {"fneg", "number", "number"},
-        toFloat = {"fcvt_from_sint.f64", "int64", "number"},
-        toInt = {"fcvt_to_sint_sat.i64", "number", "int64"},
-        unsignedFloat = {"fcvt_from_uint.f64", "uint64", "number"},
-        unsignedInt = {"fcvt_to_uint_sat.i64", "number", "uint64"},
-        asWord = {"uextend.i64", "boolean", "uint64"}
-    }
-    local intrinsicIdentity = {
-        pointer = {"uint64", "voidptr"},
-        address = {"voidptr", "uint64"},
-        word = {"int64", "uint64"},
-        index = {"uint64", "int64"}
-    }
-
-    -- The exported Rust helpers: called by C ABI, each with its parameter
-    -- kinds and result kind; nil for a helper that answers nothing.
-    local rustHelpers = {
-        getField = {"nupp_rt_get_field", {"voidptr", "uint64", "uint64"}, "uint64"},
-        getIndex = {"nupp_rt_get_index", {"voidptr", "uint64", "uint64"}, "uint64"},
-        getIndexNum = {"nupp_rt_get_index_num", {"voidptr", "uint64", "int64"}, "uint64"},
-        setIndexNum = {"nupp_rt_set_index_num", {"voidptr", "uint64", "int64", "uint64"}, nil},
-        storeKeyed = {"nupp_rt_store_index", {"voidptr", "uint64", "uint64", "uint64"}, nil},
-        barrier = {"nupp_rt_barrier", {"voidptr", "uint64", "uint64"}, nil},
-        newRecord = {"nupp_rt_new_record", {"voidptr", "int64"}, "uint64"},
-        eqSlow = {"nupp_rt_eq_slow", {"voidptr", "uint64", "uint64"}, "uint64"},
-        callIter = {"nupp_rt_call_iter", {"voidptr", "uint64", "uint64"}, nil},
-        callBuiltin = {"nupp_rt_call_builtin", {"voidptr", "int64", "uint64", "int64"}, nil},
-        appendPlain = {"nupp_rt_append_plain", {"voidptr", "uint64", "number", "uint64"}, "uint64"}
-    }
     local imported = {}
 
     local function importHelper(spec: any): string
@@ -678,15 +616,15 @@ local function compileFunction(node: any, functions: any, options: any): string
         return ref
     end
 
-    local function intrinsic(name: string, args: any): any
+    local function intrinsic(intrinsicName: string, args: any): any
         local function arg(index: number, kind: string): string
-            return materialize(expression(need(args[index], name .. ": argument " .. tostring(index))), kind)
+            return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
         end
 
-        if rustHelpers[name] then
+        if rustHelpers[intrinsicName] then
             need(handlers, "Rust helpers belong to handler modules")
-            local spec = rustHelpers[name]
-            need(#args == #spec[2], name .. ": argument count")
+            local spec = rustHelpers[intrinsicName]
+            need(#args == #spec[2], intrinsicName .. ": argument count")
             local words = {}
             for index, kind in ipairs(spec[2]) do
                 words[index] = arg(index, kind)
@@ -699,40 +637,51 @@ local function compileFunction(node: any, functions: any, options: any): string
             return {kind = "nil", value = ""}
         end
 
-        if intrinsicLoads[name] then
+        if intrinsicLoads[intrinsicName] then
             local address = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))
-            return {kind = intrinsicKinds[name], value = emit(intrinsicLoads[name] .. " notrap " .. address)}
-        elseif intrinsicStores[name] then
+            return {
+                kind = intrinsicKinds[intrinsicName],
+                value = emit(intrinsicLoads[intrinsicName] .. " notrap " .. address)
+            }
+        elseif intrinsicStores[intrinsicName] then
             local address = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))
-            effect(intrinsicStores[name] .. " notrap " .. arg(3, intrinsicStoreKinds[name]) .. ", " .. address)
+            effect(
+                intrinsicStores[
+                    intrinsicName
+                ] .. " notrap " .. arg(3, intrinsicStoreKinds[intrinsicName]) .. ", " .. address
+            )
             return {kind = "nil", value = ""}
-        elseif intrinsicUnary[name] then
-            local spec = intrinsicUnary[name]
+        elseif intrinsicUnary[intrinsicName] then
+            local spec = intrinsicUnary[intrinsicName]
             return {kind = spec[3], value = emit(spec[1] .. " " .. arg(1, spec[2]))}
-        elseif intrinsicIdentity[name] then
-            local spec = intrinsicIdentity[name]
+        elseif intrinsicIdentity[intrinsicName] then
+            local spec = intrinsicIdentity[intrinsicName]
             return {kind = spec[2], value = arg(1, spec[1])}
-        elseif name == "offset" then
+        elseif intrinsicName == "offset" then
             return {kind = "voidptr", value = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))}
-        elseif name == "layout" then
+        elseif intrinsicName == "layout" then
             need(handlers and options.layout, "layouts belong to handler modules")
             local field = need(args[1], "layout field")
             need(field.kind == "string", "literal layout field required")
             local text = field.token.value or field.token.text:sub(2, -2)
             return {kind = "int64", value = constant("i64", tostring(options.layout(text)))}
-        elseif name == "dispatch" or name == "slow" or name == "reenter" or name == "fail" then
-            error("lower: " .. name .. " is a transfer: `return native." .. name .. "(...)`", 0)
-        elseif name == "both" or name == "either" then
-            local op = name == "both" and "band " or "bor "
+        elseif intrinsicName == "dispatch"
+            or intrinsicName == "slow"
+            or intrinsicName == "reenter"
+            or intrinsicName == "fail"
+        then
+            error("lower: " .. intrinsicName .. " is a transfer: `return native." .. intrinsicName .. "(...)`", 0)
+        elseif intrinsicName == "both" or intrinsicName == "either" then
+            local op = intrinsicName == "both" and "band " or "bor "
             return {kind = "boolean", value = emit(op .. arg(1, "boolean") .. ", " .. arg(2, "boolean"))}
-        elseif name == "chooseWord" or name == "chooseIndex" then
-            local kind = name == "chooseWord" and "uint64" or "int64"
+        elseif intrinsicName == "chooseWord" or intrinsicName == "chooseIndex" then
+            local kind = intrinsicName == "chooseWord" and "uint64" or "int64"
             return {
                 kind = kind,
                 value = emit("select " .. arg(1, "boolean") .. ", " .. arg(2, kind) .. ", " .. arg(3, kind))
             }
         end
-        error("lower: intrinsic " .. name .. " is not part of ordinary code", 0)
+        error("lower: intrinsic " .. intrinsicName .. " is not part of ordinary code", 0)
     end
 
     expression = function(n: any): any
@@ -748,10 +697,10 @@ local function compileFunction(node: any, functions: any, options: any): string
             return {literal = "0"}
         elseif n.kind == "name" then
             local variable = variableOf(n.token)
-            local value = readVariable(variable, current as Block)
+            local value = readVariable(variable, b.here())
             local kind = tag(n.inferredType)
-            if kind == "missing" or machine(kind) ~= varTypes[variable] then
-                kind = varTypes[variable] == "f64" and "number" or (varTypes[variable] == "i8" and "boolean" or "int64")
+            if kind == "missing" or machine(kind) ~= b.typeOf(variable) then
+                kind = kindOfVariable(variable)
             end
             return {kind = kind, value = value, type = varDecl[variable] or n.inferredType}
         elseif n.kind == "dotIndex" then
@@ -773,8 +722,8 @@ local function compileFunction(node: any, functions: any, options: any): string
                 if operand.literal then
                     return {literal = "-" .. operand.literal}
                 end
-                local name = operand.kind == "number" and "fneg" or "ineg"
-                return {kind = operand.kind, value = emit(name .. " " .. operand.value)}
+                local opName = operand.kind == "number" and "fneg" or "ineg"
+                return {kind = operand.kind, value = emit(opName .. " " .. operand.value)}
             elseif op == "not" then
                 local value = condition(n.operand)
                 local zero = constant("i8", "0")
@@ -800,25 +749,20 @@ local function compileFunction(node: any, functions: any, options: any): string
                 kind = tag(n.inferredType) == "missing" and "number" or tag(n.inferredType)
             end
             return arithmetic(n, op, kind, lhs, rhs)
-        elseif n.kind == "call"
-            and n.obj.kind == "dotIndex"
-            and n.obj.obj.kind == "name"
-            and n.obj.obj.token.definition
-            and n.obj.obj.token.definition.requiredModule == INTRINSICS
-        then
+        elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
         elseif n.kind == "call" then
-            need(n.obj.kind == "name", "only direct calls to module functions")
-            local target = callee(n.obj.token.text)
+            local target = need(resolveCallee(n, scope, modules), "only direct calls to module functions") as Fn
+            local known = callee(target)
             local args = {}
             local exprs = n.args.exprs or {}
-            need(#exprs == #target.target.paramKinds, "argument count")
+            need(#exprs == #target.paramKinds, "argument count")
             for index, arg in ipairs(exprs) do
-                args[index] = materialize(expression(arg), target.target.paramKinds[index])
+                args[index] = materialize(expression(arg), target.paramKinds[index])
             end
-            local text = "call " .. target.ref .. "(" .. table.concat(args, ", ") .. ")"
-            if target.target.resultKind then
-                return {kind = target.target.resultKind, value = emit(text)}
+            local text = "call " .. known.ref .. "(" .. table.concat(args, ", ") .. ")"
+            if target.resultKind then
+                return {kind = target.resultKind, value = emit(text)}
             end
             effect(text)
             return {kind = "nil", value = ""}
@@ -826,15 +770,14 @@ local function compileFunction(node: any, functions: any, options: any): string
         error("lower: unsupported expression " .. tostring(n.kind), 0)
     end
 
-    -- A support function of this module, declared once per caller.
+    -- A support function, declared once per caller.
     local supports = {}
 
-    local function supportRef(fnName: string): string
-        local known = supports[fnName]
+    local function supportRef(target: Fn): string
+        local known = supports[target]
         if known then
             return known
         end
-        local target = functions[fnName]
         local index = #preamble / 2
         local sig = "sig" .. tostring(index + 1)
         local ref = "fn" .. tostring(index)
@@ -844,26 +787,26 @@ local function compileFunction(node: any, functions: any, options: any): string
         end
         types[#types + 1] = "i64"
         preamble[#preamble + 1] = sig .. " = (" .. table.concat(types, ", ") .. ") -> i64 tail"
-        preamble[#preamble + 1] = ref .. " = %" .. fnName .. " " .. sig
-        supports[fnName] = ref
+        preamble[#preamble + 1] = ref .. " = %" .. target.name .. " " .. sig
+        supports[target] = ref
 
         return ref
     end
 
     -- A handler's transfers: dispatch through the table, hand the instruction
     -- to Rust at its own pc, or ask for the frame driver.
-    local function transfer(name: string, args: any): nil
+    local function transfer(transferName: string, args: any): nil
         need(handlers, "transfers belong to handler modules")
-        local block = need(current, "transfer outside a block") as Block
-        if name == "reenter" then
+        need(b.current, "transfer outside a block")
+        if transferName == "reenter" then
             need(#args == 0, "reenter takes no arguments")
-            block.term = {kind = "return", values = {constant("i64", "1")}}
-        elseif name == "fail" then
+            b.finish({constant("i64", "1")})
+        elseif transferName == "fail" then
             need(#args == 0, "fail takes no arguments")
-            block.term = {kind = "return", values = {constant("i64", "0")}}
-        elseif name == "slow" then
+            b.finish({constant("i64", "0")})
+        elseif transferName == "slow" then
             need(#args == 6, "slow takes the six handler arguments")
-            block.term = {kind = "return", values = {materialize(expression(args[1]), "voidptr")}}
+            b.finish({materialize(expression(args[1]), "voidptr")})
         else
             need(#args == 6, "dispatch takes the six handler arguments")
             local words = {}
@@ -875,45 +818,44 @@ local function compileFunction(node: any, functions: any, options: any): string
             local slot = emit("iadd " .. (tableValue as string) .. ", " .. shifted)
             local target = emit("load.i64 notrap " .. slot)
             words[6] = tableValue as string
-            block.term = {
-                kind = "text",
-                text = "return_call_indirect sig0, " .. target .. "(" .. table.concat(words, ", ") .. ")"
-            }
+            b.terminate("return_call_indirect sig0, " .. target .. "(" .. table.concat(words, ", ") .. ")")
         end
-        current = nil
     end
 
-    -- Statements. `current` is nil after a terminator; code after it in the
+    -- Statements. `b.current` is nil after a terminator; code after it in the
     -- same block is unreachable and is refused.
     local loops = {}
     local statements
     local block
 
-    -- A helper tail-called from a handler is inlined: its parameters become
-    -- locals bound to the arguments and its body continues in this function.
-    local function inlineHelper(target: any, call: any): nil
-        local helperName = call.obj.token.text
-        need(not inlining[helperName], "recursive helper " .. helperName)
+    -- A helper is inlined: its parameters become locals bound to the
+    -- arguments and its body continues in this function, naming the functions
+    -- of the module it was written in.
+    local function inlineHelper(target: Fn, call: any): nil
+        local helperName = target.name
+        need(not inlining[target], "recursive helper " .. helperName)
         local exprs = call.args.exprs or {}
         need(#exprs == #target.paramKinds, "argument count")
         local values = {}
         for index, arg in ipairs(exprs) do
             values[index] = materialize(expression(arg), target.paramKinds[index])
         end
-        for index, param in ipairs(target.node.body.params) do
+        for index, param in ipairs(target.body.params) do
             local variable = declare(param.name, target.paramKinds[index], param.type and param.type.resolvedType)
-            writeVariable(variable, current as Block, values[index])
+            writeVariable(variable, b.here(), values[index])
         end
-        inlining[helperName] = true
-        block(target.node.body.body.stats)
-        inlining[helperName] = nil
-        need(current == nil, "helper " .. helperName .. " may not fall through")
+        inlining[target] = true
+        local outer = scope
+        scope = target.scope
+        block(target.body.body.stats)
+        scope = outer
+        inlining[target] = nil
     end
 
     block = function(stats: any): nil
         for _, stat in ipairs(stats) do
             if stat.kind ~= "emptyStmt" then
-                need(current ~= nil, "unreachable statement")
+                need(b.current ~= nil, "unreachable statement")
                 statements(stat)
             end
         end
@@ -921,17 +863,17 @@ local function compileFunction(node: any, functions: any, options: any): string
 
     local function assign(token: any, e: any): nil
         local variable = variableOf(token)
-        local kind = varTypes[variable] == "f64" and "number" or (varTypes[variable] == "i8" and "boolean" or "int64")
+        local kind = kindOfVariable(variable)
         if not e.literal then
-            need(machine(e.kind) == varTypes[variable], "assignment changes representation")
+            need(machine(e.kind) == b.typeOf(variable), "assignment changes representation")
             kind = e.kind
         end
-        writeVariable(variable, current as Block, materialize(e, kind))
+        writeVariable(variable, b.here(), materialize(e, kind))
     end
 
-    local function loopBody(bodyBlock: Block, header: Block, exit: Block, continueTo: Block, stats: any): nil
+    local function loopBody(bodyBlock: ssa.Block, exit: ssa.Block, continueTo: ssa.Block, stats: any): nil
         loops[#loops + 1] = {exit = exit, continueTo = continueTo}
-        current = bodyBlock
+        b.current = bodyBlock
         seal(bodyBlock)
         block(stats)
         loops[#loops] = nil
@@ -948,7 +890,7 @@ local function compileFunction(node: any, functions: any, options: any): string
                     declared = e.literal and "number" or e.kind
                 end
                 local variable = declare(token, declared, token.inferredType or e.type)
-                writeVariable(variable, current as Block, materialize(e, declared))
+                writeVariable(variable, b.here(), materialize(e, declared))
             end
         elseif kind == "assignStmt" then
             local values = {}
@@ -973,56 +915,21 @@ local function compileFunction(node: any, functions: any, options: any): string
             assign(stat.target.token, arithmetic(stat, op, kindOf(stat.target, lhs, rhs), lhs, rhs))
         elseif kind == "callStmt" then
             local call = stat.expr
-            local helper = handlers
-                and call.kind == "call"
-                and call.obj.kind == "name"
-                and functions[call.obj.token.text]
-                or nil
+            local helper = handlers and resolveCallee(call, scope, modules) or nil
             if helper then
                 -- A helper answering nothing is inlined where it is called and
                 -- continues into the statements after it.
                 need(not helper.isHandler and not helper.isSupport, "a handler or slow path is tail-called")
                 need(helper.resultKind == nil, "a helper with a result is tail-called")
-                local helperName = call.obj.token.text
-                need(not inlining[helperName], "recursive helper " .. helperName)
-                local exprs = call.args.exprs or {}
-                need(#exprs == #helper.paramKinds, "argument count")
-                local values = {}
-                for index, arg in ipairs(exprs) do
-                    values[index] = materialize(expression(arg), helper.paramKinds[index])
-                end
-                for index, param in ipairs(helper.node.body.params) do
-                    local variable = declare(
-                        param.name,
-                        helper.paramKinds[index],
-                        param.type and param.type.resolvedType
-                    )
-                    writeVariable(variable, current as Block, values[index])
-                end
-                inlining[helperName] = true
-                block(helper.node.body.body.stats)
-                inlining[helperName] = nil
-                need(current ~= nil, "helper " .. helperName .. " must continue")
+                inlineHelper(helper, call)
+                need(b.current ~= nil, "helper " .. helper.name .. " must continue")
             else
                 expression(call)
             end
         elseif kind == "returnStmt" then
             local value = stat.exprs[1]
-            local transferName = handlers
-                and #stat.exprs == 1
-                and value.kind == "call"
-                and value.obj.kind == "dotIndex"
-                and value.obj.obj.kind == "name"
-                and value.obj.obj.token.definition
-                and value.obj.obj.token.definition.requiredModule == INTRINSICS
-                and value.obj.name.text
-                or nil
-            local helper = handlers
-                and #stat.exprs == 1
-                and value.kind == "call"
-                and value.obj.kind == "name"
-                and functions[value.obj.token.text]
-                or nil
+            local transferName = handlers and #stat.exprs == 1 and isIntrinsicCall(value) and value.obj.name.text or nil
+            local helper = handlers and #stat.exprs == 1 and resolveCallee(value, scope, modules) or nil
             if transferName == "dispatch"
                 or transferName == "slow"
                 or transferName == "reenter"
@@ -1039,23 +946,17 @@ local function compileFunction(node: any, functions: any, options: any): string
                     words[index] = materialize(expression(arg), helper.paramKinds[index])
                 end
                 words[#words + 1] = tableValue as string
-                local block = current as Block
-                block.term = {
-                    kind = "text",
-                    text = "return_call " .. supportRef(
-                        helper.node.name.text
-                    ) .. "(" .. table.concat(words, ", ") .. ")"
-                }
-                current = nil
+                b.terminate("return_call " .. supportRef(helper) .. "(" .. table.concat(words, ", ") .. ")")
             elseif helper then
                 need(not helper.isHandler, "a handler is dispatched to, not called")
                 inlineHelper(helper, value)
+                need(b.current == nil, "helper " .. helper.name .. " may not fall through")
             elseif #stat.exprs == 0 then
                 need(resultKind == nil, "result required")
-                finish({})
+                b.finish({})
             else
                 need(#stat.exprs == 1 and resultKind ~= nil, "one result")
-                finish({materialize(expression(stat.exprs[1]), resultKind as string)})
+                b.finish({materialize(expression(stat.exprs[1]), resultKind as string)})
             end
         elseif kind == "doStmt" then
             block(stat.body.stats)
@@ -1065,58 +966,58 @@ local function compileFunction(node: any, functions: any, options: any): string
                 need(not clause.binding, "binding clauses")
                 local taken, otherwise = newBlock(), newBlock()
                 branchOn(clause.cond, taken, otherwise)
-                current = taken
+                b.current = taken
                 seal(taken)
                 block(clause.body.stats)
-                if current then
-                    jump(merge, {})
+                if b.current then
+                    b.jump(merge, {})
                 end
-                current = otherwise
+                b.current = otherwise
                 seal(otherwise)
             end
             if stat.elseClause then
                 block(stat.elseClause.body.stats)
             end
-            if current then
-                jump(merge, {})
+            if b.current then
+                b.jump(merge, {})
             end
-            current = merge
+            b.current = merge
             seal(merge)
             if #merge.preds == 0 then
-                current = nil
+                b.current = nil
             end
         elseif kind == "whileStmt" then
             local header, bodyBlock, exit = newBlock(), newBlock(), newBlock()
-            jump(header, {})
-            current = header
+            b.jump(header, {})
+            b.current = header
             branchOn(stat.cond, bodyBlock, exit)
-            loopBody(bodyBlock, header, exit, header, stat.body.stats)
-            if current then
-                jump(header, {})
+            loopBody(bodyBlock, exit, header, stat.body.stats)
+            if b.current then
+                b.jump(header, {})
             end
             seal(header)
-            current = exit
+            b.current = exit
             seal(exit)
         elseif kind == "repeatStmt" then
             local bodyBlock, exit = newBlock(), newBlock()
-            jump(bodyBlock, {})
+            b.jump(bodyBlock, {})
             loops[#loops + 1] = {exit = exit, continueTo = bodyBlock}
-            current = bodyBlock
+            b.current = bodyBlock
             block(stat.body.stats)
             loops[#loops] = nil
-            if current then
+            if b.current then
                 branchOn(stat.cond, exit, bodyBlock)
             end
             seal(bodyBlock)
-            current = exit
+            b.current = exit
             seal(exit)
         elseif kind == "fornumStmt" then
             local var = stat.var
-            local kind = tag(var.inferredType)
+            local loopKind = tag(var.inferredType)
             local start = expression(stat.start)
             local stop = expression(stat.stop)
-            if kind == "missing" then
-                kind = kindOf(stat.start, start, stop)
+            if loopKind == "missing" then
+                loopKind = kindOf(stat.start, start, stop)
             end
             local step = "1"
             local descending = false
@@ -1127,35 +1028,38 @@ local function compileFunction(node: any, functions: any, options: any): string
                 descending = step:sub(1, 1) == "-"
             end
             local counter = {}
-            varTypes[counter] = machine(kind)
-            varTypes[var.definition or var.text] = machine(kind)
-            writeVariable(counter, current as Block, materialize(start, kind))
-            local limit = materialize(stop, kind)
+            b.declare(counter, machine(loopKind))
+            b.declare(var.definition or var.text, machine(loopKind))
+            writeVariable(counter, b.here(), materialize(start, loopKind))
+            local limit = materialize(stop, loopKind)
             local header, bodyBlock, advance, exit = newBlock(), newBlock(), newBlock(), newBlock()
-            jump(header, {})
-            current = header
+            b.jump(header, {})
+            b.current = header
             local value = readVariable(counter, header)
             local op = descending and ">=" or "<="
-            local cond = compare({lhs = stat.start}, op, {kind = kind, value = value}, {kind = kind, value = limit})
-            branch(cond.value, bodyBlock, exit)
-            current = bodyBlock
+            local cond = compare({lhs = stat.start}, op, {kind = loopKind, value = value}, {
+                kind = loopKind,
+                value = limit
+            })
+            b.branch(cond.value, bodyBlock, exit)
+            b.current = bodyBlock
             seal(bodyBlock)
             writeVariable(var.definition or var.text, bodyBlock, readVariable(counter, bodyBlock))
             loops[#loops + 1] = {exit = exit, continueTo = advance}
             block(stat.body.stats)
             loops[#loops] = nil
-            if current then
-                jump(advance, {})
+            if b.current then
+                b.jump(advance, {})
             end
-            current = advance
+            b.current = advance
             seal(advance)
-            local next = arithmetic(stat, "+", kind, {kind = kind, value = readVariable(counter, advance)}, {
+            local next = arithmetic(stat, "+", loopKind, {kind = loopKind, value = readVariable(counter, advance)}, {
                 literal = step
             })
             writeVariable(counter, advance, next.value)
-            jump(header, {})
+            b.jump(header, {})
             seal(header)
-            current = exit
+            b.current = exit
             seal(exit)
         elseif kind == "pragmaStmt" then
             -- `@unsafe` and its kin are the checker's business; the statement
@@ -1165,19 +1069,17 @@ local function compileFunction(node: any, functions: any, options: any): string
             end
         elseif kind == "breakStmt" then
             local loop = need(loops[#loops], "break outside a loop")
-            jump(loop.exit, {})
+            b.jump(loop.exit, {})
         elseif kind == "continueStmt" then
             local loop = need(loops[#loops], "continue outside a loop")
-            jump(loop.continueTo, {})
+            b.jump(loop.continueTo, {})
         else
             error("lower: unsupported statement " .. tostring(kind), 0)
         end
     end
 
     local values = {}
-    local entry = newBlock()
-    entry.sealed = true
-    current = entry
+    local entry = b.here()
     need(not handlers or isHandler or isSupport, "a helper is compiled where it is tail-called")
     for index, param in ipairs(body.params) do
         local value = addParam(entry, paramTypes[index])
@@ -1197,78 +1099,11 @@ local function compileFunction(node: any, functions: any, options: any): string
         tableValue = addParam(entry, "i64")
     end
     block(body.body.stats)
-    if current then
+    if b.current then
         need(resultKind == nil, "function " .. name .. " may fall through without a result")
-        finish({})
+        b.finish({})
     end
 
-    -- A block parameter fed the same value on every edge is that value: drop
-    -- it and its arguments, and let later readers see through it. Repeated
-    -- until nothing changes, since dropping one may make another trivial.
-    local alias = {}
-
-    local function resolve(value: string): string
-        while alias[value] do
-            value = alias[value]
-        end
-        return value
-    end
-
-    local changed = true
-    while changed do
-        changed = false
-        for _, b in ipairs(blocks) do
-            local index: integer = 1
-            while index <= #b.params do
-                local param = b.params[index]
-                if b.phis[param] then
-                    local same: string? = nil
-                    local trivial = true
-                    for _, pred in ipairs(b.preds) do
-                        for _, t in ipairs(pred.term.targets) do
-                            if t.block == b then
-                                local operand = resolve(t.args[index])
-                                if operand ~= param and operand ~= same then
-                                    if same == nil then
-                                        same = operand
-                                    else
-                                        trivial = false
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    if trivial and same ~= nil then
-                        alias[param] = same as string
-                        table.remove(b.params, index)
-                        table.remove(b.paramTypes, index)
-                        b.phis[param] = nil
-                        for _, pred in ipairs(b.preds) do
-                            for _, t in ipairs(pred.term.targets) do
-                                if t.block == b then
-                                    table.remove(t.args, index)
-                                end
-                            end
-                        end
-                        changed = true
-                    else
-                        index = index + 1
-                    end
-                else
-                    index = index + 1
-                end
-            end
-        end
-    end
-
-    local function substitute(text: string): string
-        return (text:gsub("v(%d+)", function(digits: string): string
-            return resolve("v" .. digits)
-        end))
-    end
-
-    -- Print.
-    local out = {}
     local signature = "(" .. table.concat(paramTypes, ", ") .. ")"
     if resultType then
         signature = signature .. " -> " .. resultType
@@ -1283,79 +1118,14 @@ local function compileFunction(node: any, functions: any, options: any): string
     end
     if isHandler or isSupport then
         signature = signature .. " tail"
-    end
-    out[#out + 1] = "function %" .. name .. signature .. " {"
-    if isHandler or isSupport then
-        out[#out + 1] = "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
-    end
-    for _, text in ipairs(preamble) do
-        out[#out + 1] = "    " .. text
-    end
-    -- Reverse postorder: every block's dominators print before it, so the
-    -- reader sees each value's definition before its uses, and unreachable
-    -- blocks never print.
-    local order, visited = {}, {}
-
-    local function visit(b: Block): nil
-        if visited[b] then
-            return
-        end
-        visited[b] = true
-        if b.term then
-            for _, t in ipairs(b.term.targets or {}) do
-                visit(t.block)
-            end
-        end
-        order[#order + 1] = b
+        table.insert(preamble, 1, "sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail")
     end
 
-    visit(entry)
-    for index = #order, 1, -1 do
-        local b = order[index]
-        do
-            local params = {}
-            for index, value in ipairs(b.params) do
-                params[index] = value .. ": " .. b.paramTypes[index]
-            end
-            out[#out + 1] = ""
-            out[#out + 1] = "block" .. tostring(b.id) .. "(" .. table.concat(params, ", ") .. "):"
-            for _, text in ipairs(b.lines) do
-                out[#out + 1] = "    " .. substitute(text)
-            end
-            local term = need(b.term, "block without a terminator in " .. name)
-
-            local function target(t: any): string
-                local args = {}
-                for i, arg in ipairs(t.args) do
-                    args[i] = resolve(arg)
-                end
-
-                return "block" .. tostring(t.block.id) .. "(" .. table.concat(args, ", ") .. ")"
-            end
-
-            if term.kind == "jump" then
-                out[#out + 1] = "    jump " .. target(term.targets[1])
-            elseif term.kind == "brif" then
-                out[
-                    #out + 1
-                ] = "    brif " .. resolve(
-                    term.cond
-                ) .. ", " .. target(term.targets[1]) .. ", " .. target(term.targets[2])
-            elseif term.kind == "text" then
-                out[#out + 1] = "    " .. substitute(term.text)
-            else
-                out[#out + 1] = "    return " .. substitute(table.concat(term.values, ", "))
-            end
-        end
-    end
-    out[#out + 1] = "}"
-    out[#out + 1] = ""
-
-    return table.concat(out, "\n")
+    return b.print(name, signature, preamble)
 end
 
--- The structure offsets a handler names come from the Rust shim
--- (`runtime_slice --layouts`), which measures the layouts it links against.
+-- The structure offsets a handler names come from the runtime's glue
+-- (`nupp-vm native layouts`), which measures the layouts it links against.
 local function layouts(path: string): function(string): number
     local offsets: any = json.decode(assert(fs.readFile(path)))
     return function(field: string): number
@@ -1365,91 +1135,207 @@ local function layouts(path: string): function(string): number
     end
 end
 
-export function compile(root: string, path: string, mode: string?, layoutPath: string?): string
-    need(mode == nil or mode == "handlers", "unknown mode")
-    local handlers = mode == "handlers"
-    need(not handlers or layoutPath ~= nil, "handler modules need the shim's layout file")
-    trivia.installDefault(provider)
-    local env = environment.new(root, {cache = false, config = {include = {"lib"}}})
-    local parsed = parser.parse(assert(fs.readFile(path)), path)
-    need(#parsed.errors == 0, "parse failed")
-    local diagnostics = checker.check(parsed, path, env as any, {})
-    for _, diagnostic in ipairs(diagnostics) do
-        if diagnostic.severity == "error" or not diagnostic.severity then
-            error(tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg), 0)
+-- The member a `function table.member(...)` statement defines.
+local function memberName(funcname: any): string?
+    if funcname.method then
+        return nil
+    end
+    local names = {}
+    for _, child in ipairs(funcname) do
+        if type(child) == "table" and child.kind == "name" then
+            names[#names + 1] = child.text
         end
     end
-    -- Every function's signature first, so calls may name any of them.
-    local functions, order = {}, {}
+    if #names ~= 2 then
+        return nil
+    end
+
+    return names[2]
+end
+
+-- The function record of one `local function` or exported function.
+local function describe(fnName: string, node: any, body: any, scope: Scope, handlers: boolean): Fn
+    local paramKinds, paramTypes = {}, {}
+    for index, param in ipairs(body.params) do
+        paramKinds[index] = tag(param.type and param.type.resolvedType)
+        paramTypes[index] = machine(paramKinds[index])
+    end
+    local rets = body.signatureType and body.signatureType.rets or {}
+    need(#rets <= 1, "at most one result")
+    local resultKind = #rets == 1 and tag(rets[1]) or nil
+    if resultKind == "nil" then
+        resultKind = nil
+    end
+    local isHandler = handlers and #paramKinds == 6 and resultKind == "uint64"
+    for _, kind in ipairs(paramKinds) do
+        if kind ~= "voidptr" then
+            isHandler = false
+        end
+    end
+    -- A helper named `...Slow` is a support function: compiled on its own and
+    -- tail-called, so the handlers that reach it stay frameless while it
+    -- calls Rust.
+    local isSupport = handlers and not isHandler and fnName:match("Slow$") ~= nil
+    if isSupport then
+        -- Its parameters are the pc, the context and its own, so a tail call
+        -- to it fits in argument registers; it derives its windows from the
+        -- context when it continues.
+        need(
+            #paramKinds >= 2 and paramKinds[1] == "voidptr" and paramKinds[2] == "voidptr" and resultKind == "uint64",
+            "a slow path takes the pc and the context first"
+        )
+    end
+
+    return new Fn(
+        name = fnName,
+        node = node,
+        body = body,
+        scope = scope,
+        paramKinds = paramKinds,
+        paramTypes = paramTypes,
+        resultKind = resultKind,
+        resultType = resultKind and machine(resultKind) or nil,
+        isHandler = isHandler,
+        isSupport = isSupport
+    )
+end
+
+-- One module's functions, from its checked tree. Requires are validated once
+-- every module of the set is known.
+local function describeModule(parsed: any, path: string, handlers: boolean): (Scope, {any})
+    local scope = new Scope(name = "", path = path, functions = {}, exports = {}, exportName = nil, order = {})
+    local requires = {}
     for _, block in ipairs(parsed.root.blocks) do
         for _, stat in ipairs(block.stats) do
             local node: any = stat
-            if node.kind == "localFuncStmt" then
-                local body = node.body
-                local paramKinds, paramTypes = {}, {}
-                for index, param in ipairs(body.params) do
-                    paramKinds[index] = tag(param.type and param.type.resolvedType)
-                    paramTypes[index] = machine(paramKinds[index])
+            if node.kind == "moduleStmt" then
+                local names = {}
+                for index, token in ipairs(node.names) do
+                    names[index] = token.text
                 end
-                local rets = body.signatureType and body.signatureType.rets or {}
-                local resultKind = #rets == 1 and tag(rets[1]) or nil
-                if resultKind == "nil" then
-                    resultKind = nil
-                end
-                local isHandler = handlers and #paramKinds == 6 and resultKind == "uint64"
-                for _, kind in ipairs(paramKinds) do
-                    if kind ~= "voidptr" then
-                        isHandler = false
-                    end
-                end
-                -- A helper named `...Slow` is a support function: compiled on its
-                -- own and tail-called, so the handlers that reach it stay
-                -- frameless while it calls Rust.
-                local isSupport = handlers and not isHandler and node.name.text:match("Slow$") ~= nil
-                if isSupport then
-                    -- Its parameters are the pc, the context and its own, so a
-                    -- tail call to it fits in argument registers and the
-                    -- handler stays frameless; it derives its windows from the
-                    -- context when it continues.
-                    need(
-                        #paramKinds >= 2
-                        and paramKinds[1] == "voidptr"
-                        and paramKinds[2] == "voidptr"
-                        and resultKind == "uint64",
-                        "a slow path takes the pc and the context first"
-                    )
-                end
-                functions[
-                    node.name.text
-                ] = {
-                    node = node,
-                    paramKinds = paramKinds,
-                    paramTypes = paramTypes,
-                    resultKind = resultKind,
-                    resultType = resultKind and machine(resultKind) or nil,
-                    isHandler = isHandler,
-                    isSupport = isSupport
-                }
-                if not handlers or isHandler or isSupport then
-                    order[#order + 1] = node.name.text
-                end
-            elseif node.kind == "localStmt" then
-                need(#node.names == 1 and #node.exprs == 1 and node.isConst, "one constant intrinsic import")
+                scope.name = table.concat(names, ".")
+            elseif node.kind == "localFuncStmt" then
+                local fnName = node.name.text
+                need(scope.functions[fnName] == nil, "function " .. fnName .. " defined twice")
+                scope.functions[fnName] = describe(fnName, node, node.body, scope, handlers)
+                scope.order[#scope.order + 1] = fnName
+            elseif node.kind == "funcStmt" then
+                local base = node.name.base
+                local member = memberName(node.name)
                 need(
-                    node.names[1].definition and node.names[1].definition.requiredModule == INTRINSICS,
-                    "module initialization is not native code"
+                    base ~= nil and member ~= nil and scope.exportName ~= nil and base.text == scope.exportName,
+                    "a module function is `local` or a member of the module's export table"
                 )
-            elseif node.kind ~= "moduleStmt" and node.kind ~= "emptyStmt" and node.kind ~= "recordDecl" then
+                local fnName = member as string
+                need(scope.functions[fnName] == nil, "function " .. fnName .. " defined twice")
+                local fn = describe(fnName, node, node.body, scope, handlers)
+                scope.functions[fnName] = fn
+                scope.exports[fnName] = fn
+                scope.order[#scope.order + 1] = fnName
+            elseif node.kind == "localStmt" then
+                need(#node.names == 1 and #node.exprs == 1, "one module-level local")
+                local init = node.exprs[1]
+                if init.kind == "tableExpr" then
+                    need(#init.fields == 0 and scope.exportName == nil, "one empty export table")
+                    scope.exportName = node.names[1].text
+                else
+                    need(node.isConst, "a module-level local is the export table or a `const` require")
+                    local definition = node.names[1].definition
+                    need(definition and definition.requiredModule, "module initialization is not native code")
+                    requires[#requires + 1] = definition.requiredModule
+                end
+            elseif node.kind == "exportStmt" then
+                need(
+                    node.value and node.value.kind == "name" and node.value.token.text == scope.exportName,
+                    "`export = ` names the module's export table"
+                )
+            elseif node.kind ~= "emptyStmt" and node.kind ~= "recordDecl" then
                 error("lower: unsupported top-level statement " .. tostring(node.kind), 0)
             end
         end
     end
-    need(#order > 0, "no functions")
-    local options = {handlers = handlers, layout = handlers and layouts(layoutPath as string) or nil}
+    need(scope.name ~= "", "module statement required in " .. path)
+
+    return scope, requires
+end
+
+--- Compiles a set of modules to one CLIF file.
+---
+--- `root` is the project root; `options.include` names its include roots
+--- (`{"src"}` by default). In handler mode (`options.handlers`), every
+--- handler and support function compiles; `options.layouts` names the glue's
+--- layout file. Otherwise every function compiles.
+--- @raises string when the source does not check or the lowering refuses it.
+function lower.compile(root: string, paths: {string}, options: any?): string
+    local settings: any = options or {}
+    local handlers = settings.handlers == true
+    need(not handlers or settings.layouts ~= nil, "handler modules need the glue's layout file")
+    trivia.installDefault(provider)
+    local env = environment.new(root, {cache = false, config = {include = settings.include or {"src"}}})
+    local modules: {[string]: Scope} = {}
+    local scopes: {Scope} = {}
+    local pending = {}
+    for _, path in ipairs(paths) do
+        local parsed = parser.parse(assert(fs.readFile(path)), path)
+        need(#parsed.errors == 0, "parse failed: " .. path)
+        local diagnostics = checker.check(parsed, path, env as any, {})
+        for _, diagnostic in ipairs(diagnostics) do
+            if diagnostic.severity == "error" or not diagnostic.severity then
+                error(tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg), 0)
+            end
+        end
+        local scope, requires = describeModule(parsed, path, handlers)
+        need(modules[scope.name] == nil, "module " .. scope.name .. " compiled twice")
+        modules[scope.name] = scope
+        scopes[#scopes + 1] = scope
+        pending[#pending + 1] = {scope = scope, requires = requires}
+    end
+    for _, entry in ipairs(pending) do
+        for _, required in ipairs(entry.requires) do
+            need(
+                required == INTRINSICS or modules[required] ~= nil,
+                entry.scope.name .. " requires " .. required .. ", which is not native code"
+            )
+        end
+    end
+    -- Every compiled function is one CLIF function, so the names of what
+    -- compiles must be unique across the set.
+    local compiled: {Fn} = {}
+    local seen = {}
+    for _, scope in ipairs(scopes) do
+        for _, fnName in ipairs(scope.order) do
+            local fn = scope.functions[fnName] as Fn
+            if not handlers or fn.isHandler or fn.isSupport then
+                need(seen[fnName] == nil, "function " .. fnName .. " compiled from two modules")
+                seen[fnName] = true
+                compiled[#compiled + 1] = fn
+            end
+        end
+    end
+    need(#compiled > 0, "no functions")
+    local functionOptions = {
+        handlers = handlers,
+        layout = handlers and layouts(settings.layouts as string) or nil,
+        modules = modules
+    }
     local text = {}
-    for index, fnName in ipairs(order) do
-        text[index] = compileFunction(functions[fnName].node, functions, options)
+    for index, fn in ipairs(compiled) do
+        text[index] = compileFunction(fn, functionOptions)
     end
 
     return table.concat(text, "\n")
 end
+
+--- Compiles the native core: the runtime modules in handler mode against the
+--- glue's layout file, answering the CLIF text.
+--- @raises string when the source does not check or the lowering refuses it.
+function lower.compileRuntime(root: string, layoutsPath: string): string
+    local paths = {}
+    for index, relative in ipairs(lower.RUNTIME_MODULES) do
+        paths[index] = fs.join(root, relative)
+    end
+
+    return lower.compile(root, paths, {handlers = true, layouts = layoutsPath, include = {"src"}})
+end
+
+export = lower

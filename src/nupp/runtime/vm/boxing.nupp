@@ -1,0 +1,113 @@
+module nupp.runtime.vm.boxing
+
+-- Boxing, tag checks, string bytes and record allocation.
+const native = require("nupp.runtime.vm.intrinsics")
+const protocol = require("nupp.runtime.vm.protocol")
+
+local boxing = {}
+
+function boxing.TagCheckNum(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.load64(regs, native.load8(pc, 2) * 8)
+    if native.either(value & 9221120237041090560ULL ~= 9221120237041090560ULL, value == 9221120237041090560ULL) then
+        native.store64(regs, native.load8(pc, 1) * 8, value)
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function boxing.IBox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.loadIndex(ints, native.load8(pc, 2) * 8)
+    if native.either(value < -9007199254740992, 9007199254740992 < value) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    else
+        native.store64(regs, native.load8(pc, 1) * 8, native.bits(native.toFloat(value)))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+function boxing.IUnbox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = native.load64(regs, native.load8(pc, 2) * 8)
+    if native.either(value & 9221120237041090560ULL ~= 9221120237041090560ULL, value == 9221120237041090560ULL) then
+        local d = native.fromBits(value)
+        if native.both(native.both(-9223372036854775808.0 <= d, d < 9223372036854775808.0), native.floor(d) == d) then
+            native.storeIndex(ints, native.load8(pc, 1) * 8, native.toInt(d))
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function boxing.StrByte(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 2) * 8)
+    local position = native.loadIndex(ints, native.load8(pc, 3) * 8)
+    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    else
+        local header = native.pointer(object & 281474976710655ULL)
+        local kind = native.load8(header, native.layout("Header.kind"))
+        if native.either(native.both(kind ~= 1, kind ~= 9), position < 0) then
+            return native.slow(pc, regs, ints, floats, context, frame)
+        else
+            local a = native.load8(pc, 1) * 8
+            if native.both(
+                position >= 1,
+                native.word(position) <= native.load64(header, native.layout("Header.aux_len"))
+            ) then
+                local byte = native.load8(native.loadPointer(header, native.layout("Header.aux_ptr")), position - 1)
+                native.store64(regs, a, native.bits(native.toFloat(byte)))
+            else
+                native.store64(regs, a, 9221401712017801216ULL)
+            end
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        end
+    end
+end
+
+-- A record allocation: the collector may run, so the frame is published
+-- before and the windows derived again after.
+function boxing.NewRecord(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    protocol.publishPc(pc, context)
+    local value = native.newRecord(context, native.loadIndex(pc, 8))
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+end
+
+export = boxing

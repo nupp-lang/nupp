@@ -462,6 +462,15 @@ jobs:
         shell: bash
         run: .github/scripts/test-rust-native-platform.sh
 
+      # The Nupp-authored interpreter core: the handler sources lowered to CLIF,
+      # compiled into an object by the glue, and the runtime's native contract
+      # tests run against it. macOS ARM64 only until the object is brought up
+      # on Linux and Windows; the broad suite below excludes the group.
+      - name: Run the native core suites
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ./bin/nupp test --jobs=1 --group=native-runtime
+
       # Keep the external corpus and the C importer explicit. A configured
       # corpus used to be absent and silently skipped, while an import-c failure
       # could be buried among thousands of unrelated cases. The broad suite
@@ -522,12 +531,12 @@ jobs:
           set -euo pipefail
           ulimit -c unlimited || true
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,measurement
+            --exclude-group=external-corpus,measurement,native-runtime
           if [ "$RUNNER_OS" != Linux ]; then
             ./bin/nupp test --lane=shared \
-              --exclude-group=external-corpus,measurement
+              --exclude-group=external-corpus,measurement,native-runtime
             ./bin/nupp test --lane=shell --jobs=2 \
-              --exclude-group=external-corpus,measurement
+              --exclude-group=external-corpus,measurement,native-runtime
           fi
 
       # A worker killed by a signal says which suite it was in, and on Linux it
@@ -603,11 +612,11 @@ jobs:
           NUPP_TEST_SH=$(cygpath -w "$sh_path")
           export NUPP_TEST_BASH NUPP_TEST_SH
           ./bin/nupp test --lane=isolated \
-            --exclude-group=external-corpus,windows-preflight,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
           ./bin/nupp test --lane=shared \
-            --exclude-group=external-corpus,windows-preflight,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
           ./bin/nupp test --lane=shell --jobs=2 \
-            --exclude-group=external-corpus,windows-preflight,measurement
+            --exclude-group=external-corpus,windows-preflight,measurement,native-runtime
 
       # What the suite saved, named in the log so a reader knows what the
       # artifact holds before downloading it. `aot-libraries.txt` beside these

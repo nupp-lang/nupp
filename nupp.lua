@@ -537,6 +537,10 @@ return {
     test = {build = "testRunner", argv = {"build/nupp-test"}, env = {NUPP_TEST_BUILD = "build"},},
 
     tasks = {
+        runtime = {
+            description = "Build the native interpreter core object from the handler sources",
+            argv = {"python3", "scripts/vm-cli", "runtime"},
+        },
         [
             "docs-serve"
         ] = {

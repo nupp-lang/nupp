@@ -1,0 +1,46 @@
+module nupp.runtime.vm.protocol
+
+-- The helper protocol: a handler publishes its pc before calling a Rust
+-- helper, and after it checks the status and derives its windows again from
+-- the context, since the stack may have moved.
+const native = require("nupp.runtime.vm.intrinsics")
+
+local protocol = {}
+
+function protocol.publishPc(pc: voidptr, context: voidptr): nil
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local code = native.loadPointer(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(
+            native.load64(frame, 0) & 4294967295
+        ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
+    )
+    native.store32(context, native.layout("pc"), native.index((native.address(pc) - native.address(code)) >> 4))
+end
+
+-- After a helper: a raise ends the chain; otherwise the windows are derived
+-- again and the result, when there is one, lands in register `slot`.
+function protocol.continueAfter(pc: voidptr, context: voidptr, slot: int64, value: uint64, storing: boolean): uint64
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    else
+        local stack = native.loadPointer(context, native.layout("stack"))
+        local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+        local info = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(native.load64(frame, 0) & 4294967295) * native.layout("FuncInfo.size")
+        )
+        local regs = native.offset(frame, 32)
+        local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+        local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+        if storing then
+            native.store64(regs, slot * 8, value)
+        end
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+export = protocol

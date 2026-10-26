@@ -611,4 +611,100 @@ function M.eachSelectorNarrowsOnItsOwn()
     os.execute(("rm -rf %q"):format(working))
 end
 
+-- The paired protocol around the two executables: their order alternates by round,
+-- each child is told which executable is measuring it, a peak resident set is read
+-- where the platform reports one, and two executables that compute different checksums
+-- fail the run instead of earning a verdict.
+function M.againstAlternatesOrderNamesTheExecutableAndFailsAChecksumMismatch()
+    local working = workspace()
+    local stdout = working .. "/stdout.json"
+    local program = working .. "/stamped.bench.nupp"
+    local other = working .. "/other-nupp"
+    -- The checksum is the executable the child was told about, so the two sides agree
+    -- exactly when they were told the same thing.
+    local source = assert(io.open(program, "wb"))
+    source:write(table.concat({
+        'local bench = require("nupp.bench")',
+        "",
+        'bench.case("stamped", function(b: bench.Case): nil',
+        "    local total = 0",
+        "    for index = 1, b.n do",
+        "        total = total + index",
+        "    end",
+        "    bench.keep(total)",
+        '    b.checksum = os.getenv("NUPP_BENCH_EXECUTABLE") or "unset"',
+        "end, 1)",
+        "",
+        "bench.report()",
+        "",
+    }, "\n"))
+    source:close()
+    -- The same compiler under another name.
+    local wrapper = assert(io.open(other, "wb"))
+    wrapper:write(('#!/bin/sh\nexec %q "$@"\n'):format(NUPP))
+    wrapper:close()
+    os.execute(("chmod +x %q"):format(other))
+
+    local function run(against)
+        local command = ("%q bench --timeout-ms " .. TIMEOUT_MS .. " --file %q --forks 2 --against %q --margin 5 --json > %q 2>/dev/null"):format(
+            NUPP,
+            program,
+            against,
+            stdout
+        )
+        local status = os.execute(inWorkspace(working, command))
+
+        return status, json.decode(read(stdout))
+    end
+
+    local status, report = run(other)
+    assert(status ~= 0, "two executables with different checksums fail the run")
+    testAssert.equal(report.ok, false, "and the document says so")
+    local mismatch = false
+    for _, diagnostic in ipairs(report.diagnostics) do
+        if tostring(diagnostic.message or diagnostic.msg):find("checksum mismatch", 1, true) then
+            mismatch = true
+        end
+    end
+    assert(mismatch, "the failure names the checksum mismatch: " .. read(stdout))
+    local comparison = report.comparisons[1]
+    testAssert.equal(#comparison.verdicts, 0, "no verdict is reported for a benchmark that computed two answers")
+    testAssert.equal(comparison.noninferiorityPass, false, "and nothing passes")
+    local candidate, baseline = report.benchmarks[1], comparison.baseline.benchmarks[1]
+    assert(candidate.summary.checksum:find("/bin/nupp$"), "this side's children were told this executable: " .. candidate.summary.checksum)
+    testAssert.equal(baseline.summary.checksum, other, "the other side's children were told the other executable")
+    for _, side in ipairs({candidate, baseline}) do
+        testAssert.equal(#side.forks, 2, "both forks of both sides are kept")
+        testAssert.equal(side.forks[1].againstFirst, false, "round one runs the candidate first")
+        testAssert.equal(side.forks[2].againstFirst, true, "round two runs the other executable first")
+        local timed = io.open("/usr/bin/time", "rb")
+        if timed then
+            timed:close()
+            local uname = assert(io.popen("uname -s")):read("*l")
+            if uname == "Darwin" or uname == "Linux" then
+                for _, fork in ipairs(side.forks) do
+                    assert(type(fork.maxRssBytes) == "number" and fork.maxRssBytes > 0, "a fork records its peak resident set")
+                end
+                assert(side.summary.maxRssBytes > 0, "and the summary the median")
+            end
+        end
+    end
+
+    -- The runner names its own executable through the launcher's root, so the same
+    -- path has to be spelled the same way for the two sides to agree.
+    local root = assert(io.popen(("cd %q && pwd"):format(HERE .. "/.."))):read("*l")
+    status, report = run(root .. "/bin/nupp")
+    testAssert.equal(status, 0, "the same executable on both sides agrees: " .. read(stdout))
+    testAssert.equal(report.ok, true, "and the run succeeds")
+    comparison = report.comparisons[1]
+    testAssert.equal(#comparison.verdicts, 1, "one verdict is reported")
+    local verdict = comparison.verdicts[1]
+    testAssert.equal(verdict.verdict, "inconclusive", "two forks support no interval")
+    testAssert.equal(verdict.noninferiority, nil, "so noninferiority is not claimed")
+    testAssert.equal(comparison.noninferiorityPass, false, "and the comparison does not pass")
+    assert(type(verdict.meanRatio) == "number" and verdict.meanRatio > 0, "the geometric mean ratio is reported")
+    testAssert.equal(report.benchmarks[1].summary.checksum, comparison.baseline.benchmarks[1].summary.checksum, "both sides agree")
+    os.execute(("rm -rf %q"):format(working))
+end
+
 return M

@@ -205,13 +205,117 @@ local function slug(name: string): string
     return answer ~= "" and answer or "benchmark"
 end
 
+--- How a child learns which executable is measuring it.
+---
+--- A program `nupp run` starts sees its own path in `arg[0]` and nothing names the
+--- compiler that ran it, so a benchmark that has to start that same compiler -- the
+--- compiler-check comparison does -- is told here. Under `--against` each side's
+--- children are told their own side's executable.
+local EXECUTABLE_VARIABLE = "NUPP_BENCH_EXECUTABLE"
+
+--- What a checkout's launcher pins in the environment for every child it starts.
+---
+--- Pinned so one command cannot mix compiler generations, which is right for the
+--- children of this executable and wrong for the other one: an `--against` launcher
+--- inheriting them would run this side's image and sources, and the comparison would
+--- measure one compiler twice. Blanked for that side; its launcher derives its own,
+--- and the compiler reads an empty value as unset.
+local LAUNCHER_PINS = {"NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY", "NUPP_VM_CLI_ENTRY", "NUPP_COMPILER_ROOT",}
+
+local function childEnvironment(executable: string, foreign: boolean): {[string]: string}
+    local env: {[string]: string} = {}
+    env[EXECUTABLE_VARIABLE] = executable
+    if foreign then
+        for _, name in ipairs(LAUNCHER_PINS) do
+            env[name] = ""
+        end
+    end
+
+    return env
+end
+
+--- How a child's peak resident set is read, per platform.
+---
+--- Nothing here can see a child's peak from outside it, so the child is started under
+--- `time`, which reports it on standard error once the child has ended: `-l` on macOS
+--- in bytes, GNU `-v` on Linux in kilobytes. The report is cut from what is passed on
+--- as the child's own standard error. The one cost is at the deadline: what is killed
+--- then is `time`, and the program under it runs on until it ends on its own.
+--- `NUPP_BENCH_RSS=0` turns the wrapper off.
+local RSS_WRAPPERS: {
+    [string]: any
+} = {
+    macos = {
+        prefix = {"/usr/bin/time", "-l"},
+        header = "^%s*[%d.]+ real%s+[%d.]+ user%s+[%d.]+ sys\n",
+        pattern = "(%d+)%s+maximum resident set size",
+        scale = 1,
+    },
+    linux = {
+        prefix = {"/usr/bin/time", "-v"},
+        header = "^%s*Command being timed:",
+        pattern = "Maximum resident set size %(kbytes%):%s*(%d+)",
+        scale = 1024,
+    },
+}
+
+local function rssWrapper(): any?
+    if os.getenv("NUPP_BENCH_RSS") == "0" then
+        return nil
+    end
+    local wrapper = RSS_WRAPPERS[tostring(system.platform)]
+    if wrapper == nil or not files.exists(wrapper.prefix[1]) then
+        return nil
+    end
+
+    return wrapper
+end
+
+--- Splits `time`'s report off a child's standard error, when it is there.
+---
+--- The report follows everything the child wrote, so the last line that reads as its
+--- header starts it. Headers are anchored and tried at line starts only, since an
+--- unanchored number pattern also matches inside the number it begins with.
+--- Exposed for the test, since the shapes are the platforms' and not this module's.
+function runner.splitRss(errorOutput: string, wrapper: any): (string, integer?)
+    local at: integer? = nil
+    local lineStart: integer = 1
+    while lineStart <= #errorOutput do
+        if errorOutput:find(wrapper.header, lineStart) ~= nil then
+            at = lineStart
+        end
+        local newline = errorOutput:find("\n", lineStart, true)
+        if newline == nil then
+            break
+        end
+        lineStart = (newline + 1) as integer
+    end
+    if at == nil then
+        return errorOutput, nil
+    end
+    local report = errorOutput:sub(at)
+    local digits = report:match(wrapper.pattern)
+    local bytes: integer? = nil
+    if digits ~= nil then
+        bytes = math.floor((tonumber(digits) or 0) * wrapper.scale) as integer
+    end
+    local own = errorOutput:sub(1, at - 1)
+    if at > 1 and own:sub(-1) ~= "\n" then
+        own = own .. "\n"
+    end
+
+    return own, bytes
+end
+
 local function nuppRun(
     executable: string,
     path: string,
     extra: {string},
     timeoutMs: integer,
-    gpuCostsOut: string?
-): (boolean, string?)
+    gpuCostsOut: string?,
+    env: {[string]: string}?,
+    measureRss: boolean?
+): (boolean, string?, integer?)
     local args = {executable, "run"}
     if gpuCostsOut ~= nil then
         args[#args + 1] = "--gpu-costs"
@@ -222,32 +326,49 @@ local function nuppRun(
         args[#args + 1] = entry
     end
     local childArgs = buildProcess.isolatedArguments(args)
+    local wrapper = measureRss and rssWrapper() or nil
+    if wrapper ~= nil then
+        local wrapped: {string} = {}
+        for _, entry in ipairs(wrapper.prefix as {string}) do
+            wrapped[#wrapped + 1] = entry
+        end
+        for _, entry in ipairs(childArgs) do
+            wrapped[#wrapped + 1] = entry
+        end
+        childArgs = wrapped
+    end
     local child, spawnProblem = process.spawn({
         args = childArgs,
+        env = env,
         stdin = "inherit",
         stdout = "pipe",
         stderr = "pipe",
         timeoutMs = timeoutMs,
     })
     if child == nil then
-        return false, tostring(spawnProblem or "could not start the child")
+        return false, tostring(spawnProblem or "could not start the child"), nil
     end
     local result, communicateProblem = child:communicate()
     child:close()
     if not result then
-        return false, tostring(communicateProblem or "could not collect child output")
+        return false, tostring(communicateProblem or "could not collect child output"), nil
     end
-    if result.errorOutput ~= "" then
-        io.stderr:write(result.errorOutput)
+    local errorOutput = result.errorOutput
+    local maxRss: integer? = nil
+    if wrapper ~= nil then
+        errorOutput, maxRss = runner.splitRss(errorOutput, wrapper)
+    end
+    if errorOutput ~= "" then
+        io.stderr:write(errorOutput)
     end
     if not result:succeeded() and result.output ~= "" then
         io.stderr:write(result.output)
     end
     if result.exit.timedOut then
-        return false, ("timed out after %.3fs"):format(timeoutMs / 1000.0)
+        return false, ("timed out after %.3fs"):format(timeoutMs / 1000.0), nil
     end
 
-    return result:succeeded(), nil
+    return result:succeeded(), nil, maxRss
 end
 
 --- Where the listings of the last run are remembered.
@@ -593,7 +714,8 @@ local function runCase(
     name: string,
     n: integer?,
     timeoutMs: integer,
-    gpuCostsOut: string?
+    gpuCostsOut: string?,
+    env: {[string]: string}?
 ): (any?, string?)
     os.remove(RECORD_OUT)
     local extra = {"--case", name, "--out", RECORD_OUT, "--quiet"}
@@ -601,7 +723,7 @@ local function runCase(
         extra[#extra + 1] = "--n"
         extra[#extra + 1] = tostring(n)
     end
-    local ok, runProblem = nuppRun(executable, path, extra, timeoutMs, gpuCostsOut)
+    local ok, runProblem, maxRss = nuppRun(executable, path, extra, timeoutMs, gpuCostsOut, env, true)
     local text = readFile(RECORD_OUT)
     if not text then
         return nil, path .. " / " .. name .. ": " .. (runProblem or "wrote no record")
@@ -611,6 +733,7 @@ local function runCase(
         return nil, path .. " / " .. name .. ": wrote a record that does not parse"
     end
     decoded.gpuCosts = gpuCostsOut
+    decoded.maxRssBytes = maxRss
     if not ok then
         return decoded, path .. " / " .. name .. ": " .. (runProblem or "the case reported a failure")
     end
@@ -731,8 +854,12 @@ end
 --- reader recomputing the interval needs the summaries, and a later warmup classifier
 --- needs each process's ordered samples, neither of which can be recovered from a
 --- median.
-local function mergeForks(name: string, path: string, forks: {any}): (any, {string})
+---
+--- The third result is what fails the run rather than annotating it: forks of one
+--- benchmark that computed different checksums.
+local function mergeForks(name: string, path: string, forks: {any}): (any, {string}, {string})
     local notes: {string} = {}
+    local problems: {string} = {}
     local first = forks[1]
     local firstMeasurement = onlyMeasurement(first)
     local summaries: {number} = {}
@@ -857,12 +984,53 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
         ):format(name, outliers, total, #forks, worst)
     end
 
-    local forkEntries: {any} = {}
-    for index, fork in ipairs(forks) do
-        forkEntries[#forkEntries + 1] = {index = index, measurement = onlyMeasurement(fork), gpuCosts = fork.gpuCosts,}
+    -- A checksum is a deterministic counter, so the forks either all agree or the
+    -- benchmark did not compute one thing. The summary carries the agreed value.
+    local checksums: {string} = {}
+    local seen: {[string]: boolean} = {}
+    for _, fork in ipairs(forks) do
+        local measurement = onlyMeasurement(fork)
+        local checksum = measurement and measurement.checksum
+        if checksum ~= nil and not seen[tostring(checksum)] then
+            seen[tostring(checksum)] = true
+            checksums[#checksums + 1] = tostring(checksum)
+        end
+    end
+    if #checksums > 1 then
+        problems[#problems + 1] = ("%s: forks disagree on the checksum: %s"):format(name, table.concat(checksums, ", "))
     end
 
-    return {name = name, case = path, forks = forkEntries, summary = merged, compiler = first.compiler,}, notes
+    -- Peak memory is a per-process fact; the summary takes the median fork.
+    local peaks: {number} = {}
+    for _, fork in ipairs(forks) do
+        if type(fork.maxRssBytes) == "number" then
+            peaks[#peaks + 1] = fork.maxRssBytes
+        end
+    end
+    if #peaks > 0 then
+        merged.maxRssBytes = statistics.median(peaks)
+    end
+
+    local forkEntries: {any} = {}
+    for index, fork in ipairs(forks) do
+        forkEntries[
+            #forkEntries + 1
+        ] = {
+            index = index,
+            measurement = onlyMeasurement(fork),
+            gpuCosts = fork.gpuCosts,
+            maxRssBytes = fork.maxRssBytes,
+            againstFirst = fork.againstFirst,
+        }
+    end
+
+    return {
+        name = name,
+        case = path,
+        forks = forkEntries,
+        summary = merged,
+        compiler = first.compiler,
+    }, notes, problems
 end
 
 --- The record shape `bench.compare` reads, assembled from a merged benchmark. The
@@ -878,22 +1046,31 @@ end
 
 --- Compares a benchmark's fork summaries against a baseline's.
 ---
---- Returns the relative change, its interval, and the p-value behind it. Paired when
---- the two sets came from one interleaved session, where fork `k` of each ran under
---- the same conditions; unpaired otherwise, which is every comparison against a record
---- made in another session.
-local function durationChange(current: {number}, previous: {number}, paired: boolean): (number, any, number)
+--- Returns the relative change, its interval, the p-value behind it, and the ratio of
+--- geometric means. Paired when the two sets came from one interleaved session, where
+--- fork `k` of each ran under the same conditions; unpaired otherwise, which is every
+--- comparison against a record made in another session.
+---
+--- The change is a median shift, which the interval belongs to. The geometric-mean
+--- ratio is reported beside it because that is the estimate a plain paired comparison
+--- quotes, and a reader moving between the two should not have to recompute it.
+local function durationChange(current: {number}, previous: {number}, paired: boolean): (number, any, number, number)
     if #current == 0 or #previous == 0 then
-        return 0.0, nil, 1.0
+        return 0.0, nil, 1.0, 1.0
     end
     local currentLogs: {number} = {}
     local previousLogs: {number} = {}
+    local currentTotal = 0.0
+    local previousTotal = 0.0
     for _, value in ipairs(current) do
         currentLogs[#currentLogs + 1] = value > 0.0 and math.log(value) or 0.0
+        currentTotal = currentTotal + currentLogs[#currentLogs]
     end
     for _, value in ipairs(previous) do
         previousLogs[#previousLogs + 1] = value > 0.0 and math.log(value) or 0.0
+        previousTotal = previousTotal + previousLogs[#previousLogs]
     end
+    local meanRatio = math.exp(currentTotal / #currentLogs - previousTotal / #previousLogs)
     if paired and #currentLogs == #previousLogs then
         local differences: {number} = {}
         for index = 1, #currentLogs do
@@ -906,7 +1083,7 @@ local function durationChange(current: {number}, previous: {number}, paired: boo
             interval = {low = math.exp(shift.low) - 1.0, upper = math.exp(shift.upper) - 1.0,}
         end
 
-        return math.exp(estimate) - 1.0, interval, statistics.pairedPValue(differences)
+        return math.exp(estimate) - 1.0, interval, statistics.pairedPValue(differences), meanRatio
     end
     local estimate, shift = statistics.unpairedShift(currentLogs, previousLogs)
     local interval: any = nil
@@ -914,7 +1091,7 @@ local function durationChange(current: {number}, previous: {number}, paired: boo
         interval = {low = math.exp(shift.low) - 1.0, upper = math.exp(shift.upper) - 1.0,}
     end
 
-    return math.exp(estimate) - 1.0, interval, statistics.unpairedPValue(currentLogs, previousLogs)
+    return math.exp(estimate) - 1.0, interval, statistics.unpairedPValue(currentLogs, previousLogs), meanRatio
 end
 
 local function percent(value: number): string
@@ -1369,55 +1546,67 @@ function runner.run(options: runner.Options): integer
                     .. slug(entry.name):sub(1, 72)
                 )
                 or nil
-            local started = time.now()
-            local record, failure = runCase(
-                executable,
-                entry.path,
-                entry.name,
-                entry.iterations,
-                timeoutMs,
-                gpuCostStem ~= nil and gpuCostStem .. "-candidate.jsonl" or nil
-            )
-            local wallSec = (time.now() - started) / 1000.0
-            if failure then
-                executionFailures[#executionFailures + 1] = failure
-            end
-            -- A record only counts as a fork once it carries a measurement with a
-            -- score. A child that died partway can still leave a file that parses, and
-            -- letting that through would put a fork with no measurement into the
-            -- interval -- widening or narrowing it on the strength of a crash.
-            if record and not usableRecord(record) then
-                executionFailures[
-                    #executionFailures + 1
-                ] = (
-                    "%s / %s: fork %d wrote no usable measurement and was dropped"
-                ):format(entry.path, entry.name, round)
-                record = nil
-            end
-            if record then
-                entry.records[#entry.records + 1] = record
-                -- Every fork of a case has to count the same work, or their scores are
-                -- derived from different amounts of it. The first round calibrates and
-                -- the rest are told what it chose.
-                if not entry.iterations then
-                    entry.iterations = previousIterations(record)
-                end
-                if not asJson and not pilot then
-                    io.stdout:write(progressLine(record, entry.name, wallSec))
-                    io.stdout:flush()
-                end
-            end
-            if against then
-                -- Adjacent in the same permutation, and told the same iteration count,
-                -- so the pair differ in the executable and as little else as the
-                -- machine allows.
-                local otherRecord, otherFailure = runCase(
-                    against,
+            -- The pair's order alternates by round, so neither executable is the one
+            -- that always runs first after the other has warmed the machine. Round one
+            -- is the candidate's, because it calibrates the iteration count the rest
+            -- are told.
+            local againstFirst = against ~= nil and round % 2 == 0
+
+            local function measureCandidate(): nil
+                local started = time.now()
+                local record, failure = runCase(
+                    executable,
                     entry.path,
                     entry.name,
                     entry.iterations,
                     timeoutMs,
-                    gpuCostStem ~= nil and gpuCostStem .. "-against.jsonl" or nil
+                    gpuCostStem ~= nil and gpuCostStem .. "-candidate.jsonl" or nil,
+                    childEnvironment(executable, false)
+                )
+                local wallSec = (time.now() - started) / 1000.0
+                if failure then
+                    executionFailures[#executionFailures + 1] = failure
+                end
+                -- A record only counts as a fork once it carries a measurement with a
+                -- score. A child that died partway can still leave a file that parses,
+                -- and letting that through would put a fork with no measurement into
+                -- the interval -- widening or narrowing it on the strength of a crash.
+                if record and not usableRecord(record) then
+                    executionFailures[
+                        #executionFailures + 1
+                    ] = (
+                        "%s / %s: fork %d wrote no usable measurement and was dropped"
+                    ):format(entry.path, entry.name, round)
+                    record = nil
+                end
+                if record then
+                    record.againstFirst = againstFirst
+                    entry.records[#entry.records + 1] = record
+                    -- Every fork of a case has to count the same work, or their scores
+                    -- are derived from different amounts of it. The first round
+                    -- calibrates and the rest are told what it chose.
+                    if not entry.iterations then
+                        entry.iterations = previousIterations(record)
+                    end
+                    if not asJson and not pilot then
+                        io.stdout:write(progressLine(record, entry.name, wallSec))
+                        io.stdout:flush()
+                    end
+                end
+            end
+
+            local function measureAgainst(): nil
+                -- Adjacent in the same permutation, and told the same iteration count,
+                -- so the pair differ in the executable and as little else as the
+                -- machine allows.
+                local otherRecord, otherFailure = runCase(
+                    against as string,
+                    entry.path,
+                    entry.name,
+                    entry.iterations,
+                    timeoutMs,
+                    gpuCostStem ~= nil and gpuCostStem .. "-against.jsonl" or nil,
+                    childEnvironment(against as string, true)
                 )
                 if otherFailure then
                     executionFailures[#executionFailures + 1] = "against: " .. otherFailure
@@ -1431,7 +1620,21 @@ function runner.run(options: runner.Options): integer
                     otherRecord = nil
                 end
                 if otherRecord then
+                    otherRecord.againstFirst = againstFirst
                     entry.againstRecords[#entry.againstRecords + 1] = otherRecord
+                    if not entry.iterations then
+                        entry.iterations = previousIterations(otherRecord)
+                    end
+                end
+            end
+
+            if againstFirst then
+                measureAgainst()
+                measureCandidate()
+            else
+                measureCandidate()
+                if against then
+                    measureAgainst()
                 end
             end
         end
@@ -1441,13 +1644,19 @@ function runner.run(options: runner.Options): integer
     local againstByName: {[string]: any} = {}
     for _, entry in ipairs(entries) do
         if #entry.records > 0 then
-            local summary, forkNotes = mergeForks(entry.name, entry.path, entry.records)
+            local summary, forkNotes, forkProblems = mergeForks(entry.name, entry.path, entry.records)
             merged[#merged + 1] = summary
             for _, note in ipairs(forkNotes) do
                 notes[#notes + 1] = note
             end
+            for _, item in ipairs(forkProblems) do
+                executionFailures[#executionFailures + 1] = item
+            end
             if #entry.againstRecords > 0 then
-                local other = mergeForks(entry.name, entry.path, entry.againstRecords)
+                local other, _, otherProblems = mergeForks(entry.name, entry.path, entry.againstRecords)
+                for _, item in ipairs(otherProblems) do
+                    executionFailures[#executionFailures + 1] = "against: " .. item
+                end
                 againstByName[tostring(entry.path) .. "\0" .. tostring(entry.name)] = other
             end
         end
@@ -1495,10 +1704,21 @@ function runner.run(options: runner.Options): integer
         local pending: {any} = {}
         for _, entry in ipairs(merged) do
             local other = againstByName[tostring(entry.case) .. "\0" .. tostring(entry.name)]
-            if other then
+            local mine = entry.summary.checksum
+            local theirs = other and other.summary.checksum
+            if other and mine ~= nil and theirs ~= nil and mine ~= theirs then
+                -- Two executables that computed different answers were not running
+                -- the same benchmark, and a duration verdict between them would be a
+                -- verdict about nothing. The run fails here instead of reporting one.
+                executionFailures[
+                    #executionFailures + 1
+                ] = (
+                    "%s / %s: checksum mismatch: candidate %s, against %s"
+                ):format(tostring(entry.case), tostring(entry.name), tostring(mine), tostring(theirs))
+            elseif other then
                 local current = entry.summary.forkSummariesMs or {}
                 local before = other.summary.forkSummariesMs or {}
-                local change, interval, pValue = durationChange(current, before, true)
+                local change, interval, pValue, meanRatio = durationChange(current, before, true)
                 local withheld = entry.summary.intervalWithheld or other.summary.intervalWithheld
                 -- Written out rather than folded into one expression. `withheld and nil
                 -- or interval` reads as a conditional and is not one: when `withheld`
@@ -1514,12 +1734,14 @@ function runner.run(options: runner.Options): integer
                     case = entry.case,
                     name = entry.name,
                     change = change,
+                    meanRatio = meanRatio,
                     interval = interval,
                     pValue = pValue,
                     withheld = withheld,
                 }
             end
         end
+        comparison.noninferiorityPass = #pending > 0
         if #pending > 0 then
             local pValues: {number} = {}
             for _, item in ipairs(pending) do
@@ -1529,6 +1751,10 @@ function runner.run(options: runner.Options): integer
             for index, item in ipairs(pending) do
                 item.adjusted = adjusted[index]
                 item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
+                item.noninferiority = statistics.noninferior(item.interval, margin or 0.0)
+                if item.noninferiority ~= true then
+                    comparison.noninferiorityPass = false
+                end
                 comparison.verdicts[#comparison.verdicts + 1] = item
             end
         end
@@ -1586,7 +1812,7 @@ function runner.run(options: runner.Options): integer
                 if margin and sameMachine then
                     local current = entry.summary.forkSummariesMs or {}
                     local before = was.summary and was.summary.forkSummariesMs or {}
-                    local change, interval, pValue = durationChange(current, before, false)
+                    local change, interval, pValue, meanRatio = durationChange(current, before, false)
                     local withheld = entry.summary.intervalWithheld or (olderSchema and "baseline-schema" or nil)
                     if withheld then
                         interval = nil
@@ -1597,6 +1823,7 @@ function runner.run(options: runner.Options): integer
                         case = entry.case,
                         name = entry.name,
                         change = change,
+                        meanRatio = meanRatio,
                         interval = interval,
                         pValue = pValue,
                         withheld = withheld,
@@ -1609,6 +1836,7 @@ function runner.run(options: runner.Options): integer
                 #notes + 1
             ] = "durations not compared: the baseline was recorded on another machine, so nothing controls for the difference"
         end
+        comparison.noninferiorityPass = #pending > 0
         if #pending > 0 then
             local pValues: {number} = {}
             for _, item in ipairs(pending) do
@@ -1618,6 +1846,10 @@ function runner.run(options: runner.Options): integer
             for index, item in ipairs(pending) do
                 item.adjusted = adjusted[index]
                 item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
+                item.noninferiority = statistics.noninferior(item.interval, margin or 0.0)
+                if item.noninferiority ~= true then
+                    comparison.noninferiorityPass = false
+                end
                 comparison.verdicts[#comparison.verdicts + 1] = item
             end
         end

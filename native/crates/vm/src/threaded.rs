@@ -55,11 +55,20 @@ pub const ST_PARKED: u32 = 0xffff_fffd;
 pub const ST_ERROR: u32 = 0xffff_fffc;
 
 // The core's opcode numbers: one handler each in `dispatch`, in this order.
-#[allow(dead_code)]
-#[repr(u8)]
-#[derive(Clone, Copy)]
-pub(crate) enum Code {
-    Slow = 0, Move, K, Nil, Add, Sub, Mul, Lt, Le, Eq, Ne, Not, Neg,
+// The same list names them, so a native handler source resolves its opcode
+// by name without a second table.
+macro_rules! codes {
+    ($first:ident $(, $rest:ident)* $(,)?) => {
+        #[allow(dead_code)]
+        #[repr(u8)]
+        #[derive(Clone, Copy)]
+        pub(crate) enum Code { $first = 0, $($rest,)* }
+        /// Every opcode name, indexed by its number.
+        pub const CODE_NAMES: &[&str] = &[stringify!($first), $(stringify!($rest),)*];
+    };
+}
+codes! {
+    Slow, Move, K, Nil, Add, Sub, Mul, Lt, Le, Eq, Ne, Not, Neg,
     Jmp, JmpIf, JmpIfNot, JmpIfIZero,
     IK, IAdd, ISub, IAnd, IOr, IShl, IShrU, ICmpSLt, ICmpSLe, ICmpEq, ICmpNe, ICmpLt, ICmpLe,
     IMov, IAddK, IMaskU32, IUnbox, IToF, FToI, Truthy, BoolFromI,
@@ -68,6 +77,11 @@ pub(crate) enum Code {
     Call, CallK, CallDyn, Ret, RetNil, RetN,
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
     PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
+}
+
+/// The opcode number of a core handler name, if it is one.
+pub fn code_by_name(name: &str) -> Option<u8> {
+    CODE_NAMES.iter().position(|n| *n == name).map(|i| i as u8)
 }
 
 /// The core's encoding of one opcode; anything it does not handle is `Slow`,

@@ -1,0 +1,1069 @@
+module nupp.runtime.vm.core
+
+-- The native interpreter core's leaf handlers: moves, constants, integer and
+-- float arithmetic, comparisons, branches, boxed arithmetic, cells, upvalues,
+-- slots, lengths and array reads. Ordinary Nupp, compiled through
+-- `nupp.compiler.clif.lower` in handler mode. Unsupported instructions and
+-- OSR return to the Rust core before any helper can move a frame or collect.
+const native = require("nupp.runtime.vm.intrinsics")
+
+local core = {}
+
+function core.Move(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(regs, a, native.load64(regs, b))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.Nil(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    native.store64(regs, a, 9221401712017801216ULL)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    native.store64(ints, a, native.load64(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IMov(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IAddK(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b) + native.load64(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IMaskU32(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.store64(ints, a, native.load64(ints, b) & 4294967295)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IAdd(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x + y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ISub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x - y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IAnd(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x & y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IOr(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x | y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IShl(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x << y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IShrU(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, x >> y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpEq(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x == y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpNe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x ~= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpLt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x < y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(ints, b)
+    local y = native.load64(ints, c)
+    native.store64(ints, a, native.asWord(x <= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpSLt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.loadIndex(ints, b)
+    local y = native.loadIndex(ints, c)
+    native.store64(ints, a, native.asWord(x < y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.ICmpSLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.loadIndex(ints, b)
+    local y = native.loadIndex(ints, c)
+    native.store64(ints, a, native.asWord(x <= y))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local displacement = native.load32(pc, 4)
+    if displacement < 0 then
+        local mode = native.load32(context, native.layout("frame_mode"))
+        if mode ~= 0 then
+            local frames = native.load64(context, native.layout("nframe_entries"))
+            local jit = native.load32(context, native.layout("jit_frames"))
+            if frames ~= 0 then
+                return native.slow(pc, regs, ints, floats, context, frame)
+            elseif jit ~= 0 then
+                return native.slow(pc, regs, ints, floats, context, frame)
+            else
+                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+    end
+end
+
+function core.JmpIfIZero(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local value = native.load64(ints, a)
+    if value == 0 then
+        local displacement = native.load32(pc, 4)
+        if displacement < 0 then
+            local mode = native.load32(context, native.layout("frame_mode"))
+            if mode ~= 0 then
+                local frames = native.load64(context, native.layout("nframe_entries"))
+                local jit = native.load32(context, native.layout("jit_frames"))
+                if frames ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                elseif jit ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    return native.dispatch(
+                        native.offset(pc, (displacement + 1) * 16),
+                        regs,
+                        ints,
+                        floats,
+                        context,
+                        frame
+                    )
+
+                end
+            else
+                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+function core.FAdd(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local p = native.loadFloat(floats, b)
+    local q = native.loadFloat(floats, c)
+    native.storeFloat(floats, a, p + q)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FSub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local p = native.loadFloat(floats, b)
+    local q = native.loadFloat(floats, c)
+    native.storeFloat(floats, a, p - q)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FMul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local p = native.loadFloat(floats, b)
+    local q = native.loadFloat(floats, c)
+    native.storeFloat(floats, a, p * q)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FDiv(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local p = native.loadFloat(floats, b)
+    local q = native.loadFloat(floats, c)
+    native.storeFloat(floats, a, p / q)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FMod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local p = native.loadFloat(floats, b)
+    local q = native.loadFloat(floats, c)
+    native.storeFloat(floats, a, p - native.floor(p / q) * q)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    native.storeFloat(floats, a, native.loadFloat(pc, 8))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FMov(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.storeFloat(floats, a, native.loadFloat(floats, b))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FNeg(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.storeFloat(floats, a, native.neg(native.loadFloat(floats, b)))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.IToF(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.storeFloat(floats, a, native.toFloat(native.loadIndex(ints, b)))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FToI(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    native.storeIndex(ints, a, native.toInt(native.loadFloat(floats, b)))
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FCmpEq(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) == native.loadFloat(floats, c)))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FCmpNe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) ~= native.loadFloat(floats, c)))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FCmpLt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) < native.loadFloat(floats, c)))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FCmpLe(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) <= native.loadFloat(floats, c)))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.FBox(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.bits(native.loadFloat(floats, b))
+    if bits & 9221120237041090560ULL == 9221120237041090560ULL then
+        native.store64(regs, a, 9221120237041090560ULL)
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        native.store64(regs, a, bits)
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+function core.FUnbox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9221120237041090560ULL ~= 9221120237041090560ULL then
+        native.storeFloat(floats, a, native.fromBits(bits))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    elseif bits == 9221120237041090560ULL then
+        native.storeFloat(floats, a, native.fromBits(bits))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+
+    end
+end
+
+function core.GetCell(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        if native.load8(object, native.layout("Header.kind")) == 6 then
+            local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+            native.store64(regs, a, native.load64(data, 0))
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local p = native.fromBits(x)
+        local q = native.fromBits(y)
+        local bits = native.bits(p + q)
+        native.store64(
+            regs,
+            a,
+            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local p = native.fromBits(x)
+        local q = native.fromBits(y)
+        local bits = native.bits(p - q)
+        native.store64(
+            regs,
+            a,
+            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local p = native.fromBits(x)
+        local q = native.fromBits(y)
+        local bits = native.bits(p * q)
+        native.store64(
+            regs,
+            a,
+            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local p = native.fromBits(x)
+        local q = native.fromBits(y)
+        local bits = native.bits(p - native.floor(p / q) * q)
+        native.store64(
+            regs,
+            a,
+            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local result = native.fromBits(x) < native.fromBits(y)
+        native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local x = native.load64(regs, b)
+    local y = native.load64(regs, c)
+    if native.both(
+        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
+        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    ) then
+        local result = native.fromBits(x) <= native.fromBits(y)
+        native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Neg(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local x = native.load64(regs, b)
+    if native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL) then
+        local bits = native.bits(native.neg(native.fromBits(x)))
+        native.store64(
+            regs,
+            a,
+            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
+        )
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Not(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local x = native.load64(regs, b)
+    local result = native.either(x == 9221401712017801216ULL, x == 9221683186994511872ULL)
+    native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.Truthy(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local x = native.load64(regs, b)
+    native.store64(ints, a, native.asWord(native.both(x ~= 9221401712017801216ULL, x ~= 9221683186994511872ULL)))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.BoolFromI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local result = native.loadIndex(ints, b) ~= 0
+    native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.GetUpval(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(frame, 16)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+        native.store64(regs, a, native.load64(data, b))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local index = native.load32(pc, 4) * 8
+    local fid = native.loadIndex(frame, 0) & 4294967295
+    local funcs = native.loadPointer(context, native.layout("funcs"))
+    local info = native.offset(funcs, fid * native.layout("FuncInfo.size"))
+    local consts = native.loadPointer(info, native.layout("FuncInfo.consts"))
+    native.store64(regs, a, native.load64(consts, index))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+function core.JmpIf(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local value = native.load64(regs, a)
+    if native.both(value ~= 9221401712017801216ULL, value ~= 9221683186994511872ULL) then
+        local displacement = native.load32(pc, 4)
+        if displacement < 0 then
+            local mode = native.load32(context, native.layout("frame_mode"))
+            if mode ~= 0 then
+                local frames = native.load64(context, native.layout("nframe_entries"))
+                local jit = native.load32(context, native.layout("jit_frames"))
+                if frames ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                elseif jit ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    return native.dispatch(
+                        native.offset(pc, (displacement + 1) * 16),
+                        regs,
+                        ints,
+                        floats,
+                        context,
+                        frame
+                    )
+
+                end
+            else
+                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+function core.JmpIfNot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local value = native.load64(regs, a)
+    if native.either(value == 9221401712017801216ULL, value == 9221683186994511872ULL) then
+        local displacement = native.load32(pc, 4)
+        if displacement < 0 then
+            local mode = native.load32(context, native.layout("frame_mode"))
+            if mode ~= 0 then
+                local frames = native.load64(context, native.layout("nframe_entries"))
+                local jit = native.load32(context, native.layout("jit_frames"))
+                if frames ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                elseif jit ~= 0 then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    return native.dispatch(
+                        native.offset(pc, (displacement + 1) * 16),
+                        regs,
+                        ints,
+                        floats,
+                        context,
+                        frame
+                    )
+
+                end
+            else
+                return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+            end
+        else
+            return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+        end
+    else
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+function core.GetSlot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        if native.both(
+            native.load8(object, native.layout("Header.kind")) == 3,
+            native.load32(object, native.layout("Header.aux")) == native.load32(pc, 4)
+        ) then
+            local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+            local slot = native.load8(pc, 3) * 8
+            local value = native.load64(data, slot)
+            if native.either(
+                value ~= 9221401712017801216ULL,
+                native.load8(object, native.layout("Header.flags")) & 4 == 0
+            ) then
+                native.store64(regs, a, value)
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.GetSlotF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        if native.both(
+            native.load8(object, native.layout("Header.kind")) == 3,
+            native.load32(object, native.layout("Header.aux")) == native.load32(pc, 4)
+        ) then
+            local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+            local slot = native.load8(pc, 3) * 8
+            local value = native.load64(data, slot)
+            if native.either(
+                value & 9221120237041090560ULL ~= 9221120237041090560ULL,
+                value == 9221120237041090560ULL
+            ) then
+                native.storeFloat(floats, a, native.fromBits(value))
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        local kind = native.load8(object, native.layout("Header.kind"))
+        if native.either(kind == 1, kind == 9) then
+            local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
+            native.store64(regs, a, native.bits(length))
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        elseif kind == 2 then
+            if native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL then
+                local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
+                native.store64(regs, a, native.bits(length))
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.LenF(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        local kind = native.load8(object, native.layout("Header.kind"))
+        if native.either(kind == 1, kind == 9) then
+            local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
+            native.storeFloat(floats, a, length)
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        elseif kind == 2 then
+            if native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL then
+                local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
+                native.storeFloat(floats, a, length)
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.GetIdxF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local index = native.loadFloat(floats, c)
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        if native.load8(object, native.layout("Header.kind")) == 2 then
+            local length = native.load64(object, native.layout("Header.aux_len"))
+            if native.both(native.fromBits(4607182418800017408ULL) <= index, index <= native.unsignedFloat(length)) then
+                local integer = native.unsignedInt(index)
+                if index == native.unsignedFloat(integer) then
+                    local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+                    local value = native.load64(data, native.index((integer - 1) * 8))
+                    if native.either(
+                        value ~= 9221401712017801216ULL,
+                        native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL
+                    ) then
+                        native.store64(regs, a, value)
+                        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                    else
+                        return native.slow(pc, regs, ints, floats, context, frame)
+                    end
+                else
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                end
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+function core.GetIdxI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local b = native.load8(pc, 2) * 8
+    local c = native.load8(pc, 3) * 8
+    local signed = native.loadIndex(ints, c)
+    local index = native.load64(ints, c)
+    local bits = native.load64(regs, b)
+    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
+        local object = native.pointer(bits & 281474976710655ULL)
+        if native.load8(object, native.layout("Header.kind")) == 2 then
+            local length = native.load64(object, native.layout("Header.aux_len"))
+            if native.both(1 <= signed, native.both(index <= length, index <= 9007199254740992ULL)) then
+                local integer = index
+                if integer == index then
+                    local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+                    local value = native.load64(data, native.index((integer - 1) * 8))
+                    if native.either(
+                        value ~= 9221401712017801216ULL,
+                        native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL
+                    ) then
+                        native.store64(regs, a, value)
+                        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                    else
+                        return native.slow(pc, regs, ints, floats, context, frame)
+                    end
+                else
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                end
+            else
+                return native.slow(pc, regs, ints, floats, context, frame)
+            end
+        else
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+    else
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+end
+
+-- Calls and returns. A frame transition stays native when the frame driver
+-- has nothing to do at it: outside frame mode always, and in frame mode when
+-- the function entered or resumed has no compiled frame entry, no vector
+-- instructions, and no JIT counting its frames. Otherwise the native chain
+-- leaves with `reenter`, and Rust's `tail_entry` applies the policy to the
+-- frame the chain has already pushed or popped, exactly as the Rust call and
+-- return handlers do. Growth, varargs, builtins, iterators, compiled entries,
+-- the JIT's call threshold, guarded returns, and feedback all leave through
+-- `slow` before any state changes, so the Rust handler runs the instruction
+-- once from the state it would have seen.
+
+export = core

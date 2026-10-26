@@ -1,0 +1,156 @@
+--- The compiler checking a pinned copy of its own sources, cold and then warm.
+---
+--- Two benchmarks, `cold` and `warm`, one process each as the runner always runs
+--- them. Each process extracts `git archive` of `BENCH_CHECK_REVISION` (`HEAD` by
+--- default) into a fresh directory and runs `check --json` there twice with its own
+--- `NUPP_CACHE_DIR` and `NUPP_CHECK_JOBS=1`: a cold check must compile modules, a
+--- warm one must compile none, and neither may report an error. The selected
+--- benchmark reports the wall time of its check; the other check still runs, since a
+--- warm check is only warm after a cold one.
+---
+--- The compiler measured is the one running this program. Nothing a `nupp run`
+--- program can see names it -- `arg[0]` is this file -- so the runner tells each child
+--- in `NUPP_BENCH_EXECUTABLE`, its own executable for its own children and the
+--- `--against` executable for that side's. The variable can be set by hand to run
+--- this program directly.
+---
+--- Frame sessions rather than cases because the program owns the loop: a case is
+--- timed over calibrated rounds, and a cold check cannot be made cold again without
+--- a fresh tree, so one frame is one check.
+---
+--- Run: nupp bench --file bench/vm/compilercheck.bench.nupp --against OTHER_NUPP
+--- --forks 3 --margin 2 --timeout-ms 600000
+local bench = require("nupp.bench")
+
+local files = require("nupp.io.files")
+local json = require("nupp.codec.json")
+local process = require("nupp.io.process")
+local time = require("nupp.time")
+
+--- Milliseconds one check may take before it counts as hung.
+local CHECK_TIMEOUT_MS: integer = 600000
+
+local cold = bench.frames("cold", nil, 1)
+local warm = bench.frames("warm", nil, 1)
+
+local function fail(message: string): nil
+    error("nupp: compilercheck: " .. message, 0)
+end
+
+local function shell(command: string): nil
+    local child, spawnProblem = process.spawn({args = {"sh", "-c", command}, stdin = "null", stderr = "pipe"})
+    if child == nil then
+        fail("cannot start sh: " .. tostring(spawnProblem))
+
+        return
+    end
+    local result, problem = child:communicate()
+    child:close()
+    if not result then
+        fail("sh: " .. tostring(problem))
+    elseif not result:succeeded() then
+        fail(command .. " failed: " .. result.errorOutput)
+    end
+end
+
+local function quote(text: string): string
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+--- Runs one check in `project` and returns its wall time in milliseconds.
+local function check(executable: string, project: string, cacheDir: string, state: string): number
+    local started = time.now()
+    local child, spawnProblem = process.spawn({
+        args = {executable, "check", "--json"},
+        cwd = project,
+        env = {NUPP_CACHE_DIR = cacheDir, NUPP_CHECK_JOBS = "1"},
+        stdin = "null",
+        timeoutMs = CHECK_TIMEOUT_MS,
+    })
+    if child == nil then
+        fail("cannot start " .. executable .. ": " .. tostring(spawnProblem))
+
+        return 0.0
+    end
+    local result, problem = child:communicate()
+    local elapsed = time.now() - started
+    child:close()
+    if not result then
+        fail(state .. " check: " .. tostring(problem))
+
+        return 0.0
+    end
+    if result.exit.timedOut then
+        fail(state .. " check timed out")
+    end
+    if not result:succeeded() then
+        fail(state .. " check exited " .. tostring(result.exit.exitCode) .. ": " .. result.errorOutput:sub(-2000))
+    end
+    local document, invalid = json.decode(result.output)
+    if invalid ~= nil or type(document) ~= "table" then
+        fail(state .. " check wrote no JSON document")
+    end
+    local timing = document.timing
+    local compiled = type(timing) == "table" and timing.compiledModules or nil
+    if type(compiled) ~= "number" then
+        fail(state .. " check reported no timing.compiledModules")
+    end
+    if state == "cold" and compiled <= 0 then
+        fail("cold check compiled no module; the tree was not cold")
+    end
+    if state == "warm" and compiled ~= 0 then
+        fail(("warm check compiled %d modules; the cache was not warm"):format(compiled))
+    end
+    if document.ok ~= true then
+        fail(state .. " check reported ok = false")
+    end
+    for _, diagnostic in ipairs(document.diagnostics or {}) do
+        if diagnostic.severity == "error" then
+            fail(state .. " check reported an error: " .. tostring(diagnostic.msg or diagnostic.message))
+        end
+    end
+
+    return elapsed
+end
+
+-- Both sessions are inert under a listing or when neither is selected, and the work
+-- is skipped: a listing has to answer in seconds.
+if cold:more() or warm:more() then
+    local executable = os.getenv("NUPP_BENCH_EXECUTABLE")
+    if executable == nil or executable == "" then
+        fail("NUPP_BENCH_EXECUTABLE names the compiler to measure; run this under nupp bench or set it")
+    end
+    local revision = os.getenv("BENCH_CHECK_REVISION")
+    if revision == nil or revision == "" then
+        revision = "HEAD"
+    end
+    local scratch, scratchErr = files.createTemporaryDirectory(
+        {prefix = "nupp-compilercheck-"} as files.TemporaryOptions
+    )
+    if scratch == nil then
+        fail("cannot create a temporary directory: " .. tostring(scratchErr))
+    end
+    local owned = scratch as files.TemporaryPath
+    local root = owned:toString()
+    local project = root .. "/source"
+    local cacheDir = root .. "/cache"
+    files.createDirectory(project)
+    files.createDirectory(cacheDir)
+    -- A fresh tree, not a fresh cache alone: the build state is keyed by module name
+    -- and lives in the project, so only a tree nothing has checked is cold.
+    shell("git archive --format=tar " .. quote(revision as string) .. " | tar -xf - -C " .. quote(project))
+
+    cold:begin()
+    local coldMs = check(executable as string, project, cacheDir, "cold")
+    cold:finish()
+    warm:begin()
+    local warmMs = check(executable as string, project, cacheDir, "warm")
+    warm:finish()
+    io.stderr:write(("# compilercheck: cold %.0f ms, warm %.0f ms\n"):format(coldMs, warmMs))
+
+    files.remove(root, true)
+    owned:close()
+
+    cold:report()
+    warm:report()
+end

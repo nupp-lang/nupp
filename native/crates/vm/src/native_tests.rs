@@ -39,9 +39,6 @@ unsafe fn invoke_native(
 
 #[test]
 fn derived_frame_entry_rejects_nonconforming_windows_without_writes() {
-    if !NATIVE_DERIVED_FRAME {
-        return;
-    }
     let program = [
         Ins {
             op: Code::Move as u8,
@@ -920,9 +917,6 @@ fn closure_header(fid: u32) -> Box<Header> {
 
 #[test]
 fn native_calls_push_the_frame_rust_pushes() {
-    if !NATIVE_DERIVED_FRAME {
-        return;
-    }
     let mut closure = closure_header(1);
     let closure_value = Value::obj(std::ptr::NonNull::from(&mut *closure)).0;
     for nparams in 0..=4u32 {
@@ -994,9 +988,6 @@ fn native_calls_push_the_frame_rust_pushes() {
 
 #[test]
 fn native_calls_leave_unsupported_calls_untouched() {
-    if !NATIVE_DERIVED_FRAME {
-        return;
-    }
     let mut closure = closure_header(1);
     let closure_value = Value::obj(std::ptr::NonNull::from(&mut *closure)).0;
     let mut iter = closure_header(1);
@@ -1097,9 +1088,6 @@ fn returning(values: &[u64], indirect: bool) -> Box<Machine> {
 
 #[test]
 fn native_returns_deliver_results_and_resume_the_caller() {
-    if !NATIVE_DERIVED_FRAME {
-        return;
-    }
     let values = [Value::TRUE.0, Value::num(-0.0).0, 0xdead_beef, Value::NIL.0, 5, 6, 7, 8, 9];
     for indirect in [false, true] {
         for (frame_mode, native) in [(0, 0), (1, 0), (1, 1)] {
@@ -1184,9 +1172,6 @@ fn native_returns_deliver_results_and_resume_the_caller() {
 
 #[test]
 fn native_result_padding_fills_only_missing_results() {
-    if !NATIVE_DERIVED_FRAME {
-        return;
-    }
     for wanted in 0..=9u8 {
         for delivered in 0..=9u64 {
             let program = [

@@ -216,10 +216,10 @@ unsafe fn entry(ctx: *mut Ctx) -> bool {
 
 type Handler = unsafe fn(*const Ins, *mut u64, *mut i64, *mut f64, *mut Ctx, *mut u64) -> u64;
 
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 include!(concat!(env!("OUT_DIR"), "/native_runtime.rs"));
 
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 unsafe extern "C" {
     /// Answers an exit word: the address of the instruction Rust resumes at,
     /// or `EXIT_REENTER`.
@@ -236,16 +236,16 @@ unsafe extern "C" {
 /// The native chain's non-address exits: a frame changed under the frame
 /// driver's policy, which `tail_entry` applies before going on; or a helper
 /// raised, and the chain ends as a Rust handler's `checked!` ends it.
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 const EXIT_REENTER: u64 = 1;
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 const EXIT_ERROR: u64 = 0;
 
 /// The Rust helpers a native handler may call, by C ABI. Each publishes and
 /// reloads the task record as its Rust caller would; the handler publishes
 /// `ctx.pc` before the call, checks `ctx.status` after it, and re-derives its
 /// windows from the context, since the stack may have moved.
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 mod native_helpers {
     use super::*;
     #[unsafe(no_mangle)]
@@ -307,7 +307,7 @@ mod native_helpers {
 /// the segment pushed or popped in frame mode, where the frame driver has a
 /// say, exits with `EXIT_REENTER` instead and takes `tail_entry` as the Rust
 /// call and return handlers do.
-#[cfg(feature = "native-runtime-experiment")]
+#[cfg(feature = "native-runtime")]
 #[allow(unused_assignments)]
 unsafe fn native_segment(
     mut pc: *const Ins,
@@ -335,8 +335,8 @@ unsafe fn native_segment(
     become (*RUST_DISPATCH.get_unchecked((*pc).op as usize))(pc, regs, iregs, fregs, ctx, frame)
 }
 
-#[cfg(all(test, feature = "native-runtime-experiment"))]
-#[path = "../experiments/runtime/tests.rs"]
+#[cfg(all(test, feature = "native-runtime"))]
+#[path = "native_tests.rs"]
 mod native_tests;
 
 /// Runs the context's task from its top frame until it finishes, parks or
@@ -409,12 +409,12 @@ macro_rules! emit {
         static DISPATCH: [Handler; Code::Mod as usize + 1] = {
             let mut table: [Handler; Code::Mod as usize + 1] = [h_slow as Handler; Code::Mod as usize + 1];
             $(table[Code::$op as usize] = $h;)*
-            #[cfg(feature = "native-runtime-experiment")]
+            #[cfg(feature = "native-runtime")]
             { native_table(table) }
-            #[cfg(not(feature = "native-runtime-experiment"))]
+            #[cfg(not(feature = "native-runtime"))]
             { table }
         };
-        #[cfg(feature = "native-runtime-experiment")]
+        #[cfg(feature = "native-runtime")]
         static RUST_DISPATCH: [Handler; Code::Mod as usize + 1] = {
             let mut table: [Handler; Code::Mod as usize + 1] = [h_slow as Handler; Code::Mod as usize + 1];
             $(table[Code::$op as usize] = $h;)*

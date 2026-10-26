@@ -53,6 +53,10 @@ local RUN_SCHEMA = {
                         type = "object",
                         description = "Baseline benchmark summaries and every fork's ordered samples, with stored-record provenance when available.",
                     },
+                    noninferiorityPass = {
+                        type = "boolean",
+                        description = "Whether every compared benchmark earned noninferiority. False when any was withheld or none was compared.",
+                    },
                     verdicts = {
                         type = "array",
                         items = {
@@ -61,6 +65,10 @@ local RUN_SCHEMA = {
                                 case = {type = "string"},
                                 name = {type = "string"},
                                 change = {type = "number", description = "Relative duration change as a fraction."},
+                                meanRatio = {
+                                    type = "number",
+                                    description = "Geometric mean of the candidate over baseline duration ratios.",
+                                },
                                 interval = {
                                     type = "object",
                                     properties = {low = {type = "number"}, upper = {type = "number"}}
@@ -71,6 +79,10 @@ local RUN_SCHEMA = {
                                 verdict = {
                                     type = "string",
                                     enum = {"improved", "regressed", "unchanged", "inconclusive"}
+                                },
+                                noninferiority = {
+                                    type = "boolean",
+                                    description = "Whether the interval's upper end is within the margin. Absent when the interval is withheld.",
                                 },
                             },
                             required = {"case", "name", "change", "pValue", "adjusted", "verdict"},
@@ -97,6 +109,14 @@ local RUN_SCHEMA = {
                                 gpuCosts = {
                                     type = "string",
                                     description = "This fork's GPU JSONL cost record, when requested."
+                                },
+                                maxRssBytes = {
+                                    type = "integer",
+                                    description = "The process's peak resident set, where the platform's time reports one.",
+                                },
+                                againstFirst = {
+                                    type = "boolean",
+                                    description = "Under --against, whether the other executable ran before this one in this round.",
                                 },
                                 measurement = {type = "object", description = "That fork's whole measurement."},
                             },

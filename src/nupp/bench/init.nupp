@@ -102,6 +102,14 @@ record bench.Case
     --- Iterations the body is to run. Fixed before the measured rounds begin, and
     --- carried in the record, so a comparison can re-run the same work.
     n: integer
+
+    --- What the body computed, when it wants that checked rather than only kept.
+    ---
+    --- Set by the body on every round. The record carries it as text, every round
+    --- in a process must agree, and the runner requires every fork -- and under
+    --- `--against`, both executables -- to agree too, so a faster runtime that
+    --- computes a different answer is a failure and not a verdict.
+    checksum: any?
 end
 
 --- An expanded suite case handed to setup, run and teardown callbacks.
@@ -306,6 +314,10 @@ record bench.Measurement
     outlierCount: integer?
 
     outlierMaxRatio: number?
+
+    --- The checksum the body declared, as `checksumText` renders it, when it declared
+    --- one. A deterministic counter: two records of one case must agree on it.
+    checksum: string?
 
     --- Processes this measurement summarizes, when the runner merged forks into it.
     ---
@@ -641,12 +653,34 @@ local function register(name: string, run: function(): nil, listing: any?): nil
     jobs[#jobs + 1] = {name = name, run = run,}
 end
 
+--- A checksum as a record carries it.
+---
+--- Text, so that two runtimes rendering the same number differently -- an integral
+--- float as `3` or `3.0` -- still agree. A whole number is formatted as one; anything
+--- else is `tostring`.
+function bench.checksumText(value: any): string
+    if type(value) == "number" and value == math.floor(value) and math.abs(value) < 2 ^ 53 then
+        return ("%d"):format(value)
+    end
+
+    return tostring(value)
+end
+
+local function checksumOf(subject: bench.Case): string?
+    if subject.checksum == nil then
+        return nil
+    end
+
+    return bench.checksumText(subject.checksum)
+end
+
 local function measureCase(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
     announceRun(name)
 
     local n = calibrate(name, body, fixedN or options.iterations or baselineIterations(name))
     local subject = new bench.Case(name = name, n = n)
     body(subject)
+    local checksum = checksumOf(subject)
 
     collectgarbage("collect")
     local before = collectgarbage("count")
@@ -656,6 +690,18 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         local started = time.now()
         body(subject)
         times[round] = time.now() - started
+        -- A body that answers differently from one round to the next is not
+        -- deterministic, and nothing downstream can compare what it computed.
+        local again = checksumOf(subject)
+        if again ~= checksum then
+            collectgarbage("restart")
+            error(
+                (
+                    "nupp: %s: checksum changed between rounds, %s then %s"
+                ):format(name, tostring(checksum), tostring(again)),
+                0
+            )
+        end
     end
     -- Collected before reading again, so what is reported is what the rounds kept
     -- rather than everything they allocated while the collector was off.
@@ -692,6 +738,7 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
         outlierCount = far.severe,
         outlierMaxRatio = far.maxRatio,
+        checksum = checksum,
         allocatedKb = allocated / ROUNDS,
         retainedKb = retained
     )
@@ -1238,8 +1285,8 @@ end
 --- result, and a different one from a regression: the runner has to say which, or a
 --- lost baseline reads like a pass.
 ---
---- Nothing is gated at present. The one deterministic counter there was, the
---- optimizer's count of the allocations it left standing, went with the optimizer;
+--- One counter is gated: a case's `checksum`, where both records carry one. The
+--- optimizer's count of the allocations it left standing went with the optimizer;
 --- durations are machine-dependent, so the runner reports them as verdicts instead.
 function bench.compare(record: any, baseline: any): ({string}, {string})
     local failures: {string} = {}
@@ -1263,8 +1310,13 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
         previous[entry.name] = entry
     end
     for _, entry in ipairs(record.cases or {}) do
-        if not previous[entry.name] then
+        local was = previous[entry.name]
+        if not was then
             uncompared[#uncompared + 1] = entry.name .. ": no baseline"
+        elseif entry.checksum ~= nil and was.checksum ~= nil and entry.checksum ~= was.checksum then
+            failures[
+                #failures + 1
+            ] = ("%s: checksum %s, baseline %s"):format(entry.name, tostring(entry.checksum), tostring(was.checksum))
         end
     end
 

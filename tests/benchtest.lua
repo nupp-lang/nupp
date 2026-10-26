@@ -835,4 +835,113 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     end
 end
 
+-- A checksum is text so two runtimes rendering one number differently still agree.
+function M.checksumTextRendersWholeNumbersAsIntegers()
+    local bench = require("nupp.bench")
+    testAssert.equal(bench.checksumText(832040), "832040", "a whole number is an integer")
+    testAssert.equal(bench.checksumText(3.0), "3", "an integral float is the same integer")
+    testAssert.equal(bench.checksumText(-7), "-7", "and so is a negative one")
+    testAssert.equal(bench.checksumText(0.5), tostring(0.5), "a fraction is left to tostring")
+    testAssert.equal(bench.checksumText("abc"), "abc", "text is itself")
+end
+
+-- The one deterministic counter a baseline gates: a case that computed a different
+-- answer is a failure, where a case without one, on either side, is not compared.
+function M.aChecksumIsGatedAgainstTheBaseline()
+    local bench = require("nupp.bench")
+
+    local function record(checksum)
+        return {schema = bench.SCHEMA, cases = {{name = "fib", kind = "case", n = 1, checksum = checksum}}}
+    end
+
+    local failures = bench.compare(record("832040"), record("832040"))
+    testAssert.equal(#failures, 0, "an agreeing checksum passes")
+    failures = bench.compare(record("832040"), record("832041"))
+    testAssert.equal(#failures, 1, "a different checksum is a failure")
+    testAssert.equal(failures[1], "fib: checksum 832040, baseline 832041", "naming both")
+    testAssert.equal(#bench.compare(record("832040"), record(nil)), 0, "a baseline without one is not compared")
+    testAssert.equal(#bench.compare(record(nil), record("832040")), 0, "nor is a record without one")
+end
+
+-- Forks of one benchmark either agree on the checksum or the run fails; the summary
+-- carries the agreed value, and the peak memory the median fork's.
+function M.mergeCarriesAgreedChecksumsAndFailsDisagreement()
+    local runner = require("nupp.tools.benchrunner")
+
+    local function fork(checksum, rss, againstFirst)
+        return {
+            maxRssBytes = rss,
+            againstFirst = againstFirst,
+            cases = {{name = "x", kind = "case", n = 1, medianMs = 1.0, samplesMs = {1.0}, checksum = checksum}},
+        }
+    end
+
+    local merged, notes, problems = runner.mergeForks("x", "a.nupp", {fork("7", 300, false), fork("7", 100, true), fork("7", 200, false)})
+    testAssert.equal(#problems, 0, "agreeing forks raise no problem")
+    testAssert.equal(#notes, 0, "and need no note")
+    testAssert.equal(merged.summary.checksum, "7", "the summary carries the agreed checksum")
+    testAssert.equal(merged.summary.maxRssBytes, 200, "and the median peak resident set")
+    testAssert.equal(merged.forks[1].maxRssBytes, 300, "each fork keeps its own peak")
+    testAssert.equal(merged.forks[2].againstFirst, true, "and which side ran first in its round")
+
+    local _, _, disagree = runner.mergeForks("x", "a.nupp", {fork("7"), fork("8"), fork("7")})
+    testAssert.equal(#disagree, 1, "forks that disagree are one problem")
+    testAssert.equal(disagree[1], "x: forks disagree on the checksum: 7, 8", "naming every value seen")
+
+    local plain = runner.mergeForks("x", "a.nupp", {fork(nil), fork(nil)})
+    testAssert.equal(plain.summary.checksum, nil, "a benchmark without a checksum records none")
+    testAssert.equal(plain.summary.maxRssBytes, nil, "and no peak where none was read")
+end
+
+-- Noninferiority is the one-sided question a replacement answers: not slower than the
+-- margin, whatever else the interval says.
+function M.noninferiorityIsOneSided()
+    local statistics = require("nupp.bench.internal.statistics")
+
+    local function interval(low, upper)
+        return {low = low, upper = upper, k = 2, attainedCoverage = 0.978515625}
+    end
+
+    testAssert.equal(statistics.noninferior(interval(-0.013, 0.006), 0.02), true, "inside the margin passes")
+    testAssert.equal(statistics.noninferior(interval(-0.30, 0.02), 0.02), true, "a wide gain reaching the margin passes")
+    testAssert.equal(statistics.noninferior(interval(-0.111, -0.082), 0.02), true, "an improvement passes")
+    testAssert.equal(statistics.noninferior(interval(-0.013, 0.021), 0.02), false, "an upper end past the margin fails")
+    testAssert.equal(statistics.noninferior(interval(0.162, 0.207), 0.02), false, "a regression fails")
+    testAssert.equal(statistics.noninferior(nil, 0.02), nil, "a withheld interval answers nothing")
+end
+
+-- A child's peak resident set comes from `time`, read off its standard error and cut
+-- out of what is passed on as the child's own.
+function M.splitRssReadsTimeReports()
+    local runner = require("nupp.tools.benchrunner")
+    local macos = {
+        header = "^%s*[%d.]+ real%s+[%d.]+ user%s+[%d.]+ sys\n",
+        pattern = "(%d+)%s+maximum resident set size",
+        scale = 1,
+    }
+    local linux = {
+        header = "^%s*Command being timed:",
+        pattern = "Maximum resident set size %(kbytes%):%s*(%d+)",
+        scale = 1024,
+    }
+
+    local own, bytes = runner.splitRss(
+        "warning: own line\n        0.07 real         0.06 user         0.00 sys\n            44236800  maximum resident set size\n                   0  average shared memory size\n",
+        macos
+    )
+    testAssert.equal(bytes, 44236800, "macOS reports bytes")
+    testAssert.equal(own, "warning: own line\n", "and the report is cut from the child's output")
+
+    own, bytes = runner.splitRss(
+        '\tCommand being timed: "nupp run x"\n\tUser time (seconds): 0.05\n\tMaximum resident set size (kbytes): 43200\n\tExit status: 0\n',
+        linux
+    )
+    testAssert.equal(bytes, 43200 * 1024, "GNU time reports kilobytes")
+    testAssert.equal(own, "", "a child that wrote nothing passes nothing on")
+
+    own, bytes = runner.splitRss("only the child spoke\n", macos)
+    testAssert.equal(bytes, nil, "no report, no peak")
+    testAssert.equal(own, "only the child spoke\n", "and the output is untouched")
+end
+
 return M

@@ -389,7 +389,7 @@ def build_from(args, out, target, image):
     if args.no_aot:
         runtime = cargo(None, target)
     else:
-        runtime = linked_runtime(image, out, target)
+        runtime = linked_runtime(image, out, target, args.native_core)
     staged = out / "runtime"
     # Never copied over an executable in place: macOS kills a process whose
     # mapped binary changes under it.
@@ -400,19 +400,117 @@ def build_from(args, out, target, image):
     install(args)
 
 
-def linked_runtime(image, out, target):
-    """A runtime with `image`'s functions compiled in."""
+NATIVE_OUT = ROOT / "build/native-runtime"
+# What the lowering needs beside itself when it runs as a small image of its own.
+LOWERING_EXTRAS = ",".join([
+    "nupp.compiler.hostservices", "nupp.compiler.fs", "nupp.compiler.project.projectconfig",
+    "nupp.compiler.project.store", "nupp.compiler.project.fingerprint", "nupp.compiler.hash",
+    "nupp.compiler.project.preludecache", "nupp.runtime.provider.nativeprocess",
+    "nupp.runtime.provider.nativepath", "nupp.runtime.provider.nativefiles",
+])
+
+
+def compiler_environment(cache):
+    env = dict(os.environ, NO_JIT="1", NUPP_COMPILER_ROOT=str(ROOT))
+    for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY",
+                 "NUPP_NATIVE_RUNTIME_OBJECT", "NUPP_AOT_OBJECT"):
+        env.pop(name, None)
+    if cache:
+        env["NUPP_VM_EMIT_CACHE"] = str(cache)
+    return env
+
+
+def native_runtime_object(runner, image, out, target, glue=None):
+    """The native core: the handler sources under src/nupp/runtime/native lowered
+    to CLIF by `nupp.compiler.clif.lower` running on `runner` with the compiler
+    `image`, against the layouts the glue measures, and compiled to an object by
+    the glue (`nupp-vm native`). Answers the object's path; the glue's `.rs`
+    sidecar and `.txt` listing land beside it."""
+    out.mkdir(parents=True, exist_ok=True)
+    glue = glue or cargo("aot", target)
+    layouts = out / "layouts.json"
+    run_step([str(glue), "native", "layouts", str(layouts)], None, "native layouts")
+    clif = out / "runtime.clif"
+    clif.unlink(missing_ok=True)
+    run_step([str(runner), "run", str(image), "nupp.compiler.clif.lower", "compileRuntime", str(ROOT), str(layouts),
+              "--output", str(clif)], compiler_environment(None), "lowering of the native core")
+    if not clif.is_file():
+        raise ValueError("the lowering wrote no CLIF")
+    obj = out / "runtime.o"
+    run_step([str(glue), "native", "object", str(clif), str(obj)], None, "native object")
+    (ROOT / "native/crates/vm/src/lib.rs").touch()
+    return obj
+
+
+def lowering_image(out, target, cache):
+    """A small image holding the lowering, emitted from these sources by the
+    installed compiler, or by the pinned stage zero on a plain runtime when
+    nothing is installed. Answers the image's path."""
+    out.mkdir(parents=True, exist_ok=True)
+    image = out / "lower.image"
+    image.unlink(missing_ok=True)
+    env = compiler_environment(cache)
+    if (PACKAGES / "current").exists():
+        package = selected()
+        runner = package / "runtime"
+        compiler = package / "compiler.image"
+    else:
+        runner = cargo(None, target)
+        compiler = stage_zero_image()
+    run_step([str(runner), "run", str(compiler), "nupp.tools.vm.project", "emit", str(ROOT),
+              "nupp.compiler.clif.lower", LOWERING_EXTRAS, "src", "--output", str(image)], env,
+             "emit of the lowering image")
+    if not image.is_file():
+        raise ValueError("the lowering image was not written")
+    return image
+
+
+def glue(_args):
+    """Build the glue (`nupp-vm` with the code generator, `native` and `aot`
+    subcommands) into the shared target directory and print its path."""
+    print(cargo("aot", ROOT / "build/rust/target"))
+
+
+def runtime(args):
+    """Build the native core object into build/native-runtime, and with
+    `--link` a runtime that has it linked in (build/native-runtime/runtime), for
+    measurement against a runtime without it."""
+    out = NATIVE_OUT
+    target = ROOT / "build/rust/target"
+    glue = cargo("aot", target)
+    image = lowering_image(out, target, None if args.no_cache else out / "emit-cache")
+    # The installed runtime is linked to its own image and refuses another;
+    # the glue is a plain runtime with the same interpreter.
+    obj = native_runtime_object(glue, image, out, target, glue)
+    print(obj)
+    if args.link:
+        built = cargo("aot,native-runtime", target, {"NUPP_NATIVE_RUNTIME_OBJECT": str(obj)})
+        shutil.copyfile(built, out / "runtime.new")
+        (out / "runtime.new").chmod(0o755)
+        os.replace(out / "runtime.new", out / "runtime")
+        print(out / "runtime")
+
+
+def linked_runtime(image, out, target, native=False):
+    """A runtime with `image`'s functions compiled in, and with `native` the
+    Nupp-authored interpreter core linked in as well."""
     aot_tool = cargo("aot", target)
     shutil.copyfile(aot_tool, out / "aot-tool.new")
     (out / "aot-tool.new").chmod(0o755)
     os.replace(out / "aot-tool.new", out / "aot-tool")
     obj = out / "compiler.o"
     run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
+    features = "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown"
+    env = {"NUPP_AOT_OBJECT": str(obj)}
+    if native:
+        # The image being linked carries the lowering, so it compiles the core.
+        core = native_runtime_object(out / "aot-tool", image, out / "native", target, out / "aot-tool")
+        features += ",native-runtime"
+        env["NUPP_NATIVE_RUNTIME_OBJECT"] = str(core)
     # The object is read by the build script, which does not see a changed
     # file behind an unchanged variable.
     (ROOT / "native/crates/vm/src/lib.rs").touch()
-    return cargo("aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown", target, {"NUPP_AOT_OBJECT": str(obj)},
-                 default_features=False)
+    return cargo(features, target, env, default_features=False)
 
 
 class build_lock:
@@ -475,7 +573,7 @@ def link(args):
             # A target directory of its own: a rebuild running beside this one
             # builds the interpreter-only runtime into the shared one, at the same
             # path.
-            runtime = linked_runtime(image, out, ROOT / "build/rust/link-target")
+            runtime = linked_runtime(image, out, ROOT / "build/rust/link-target", args.native_core)
             shutil.copyfile(runtime, out / "runtime.new")
             (out / "runtime.new").chmod(0o755)
             os.replace(out / "runtime.new", out / "runtime")
@@ -516,10 +614,17 @@ command.add_argument("--seed-image", type=Path, help="a root CLI image to lower 
 command.add_argument("--no-aot", action="store_true", help="install an interpreter-only runtime instead of linking compiled code")
 command.add_argument("--cache", type=Path, help="where emits keep per-module lowering (default: build/vm-cli/emit-cache)")
 command.add_argument("--no-cache", action="store_true", help="lower every module from source and keep nothing")
-commands.add_parser("link", help="link the selected generation's image into its runtime")
+command.add_argument("--native-core", action="store_true", help="link the Nupp-authored interpreter core into the runtime")
+command = commands.add_parser("link", help="link the selected generation's image into its runtime")
+command.add_argument("--native-core", action="store_true", help="link the Nupp-authored interpreter core into the runtime")
+commands.add_parser("glue", help="build the glue tool (nupp-vm with aot and native subcommands) and print its path")
+command = commands.add_parser("runtime", help="build the native core object (build/native-runtime/runtime.o) from the handler sources")
+command.add_argument("--link", action="store_true", help="also build a runtime with the object linked in, for measurement")
+command.add_argument("--no-cache", action="store_true", help="lower the lowering's image from source and keep nothing")
 args = parser.parse_args()
 try:
-    {"install": install, "status": lambda _: status(), "build": build, "link": link, "current": current}[args.command](args)
+    {"install": install, "status": lambda _: status(), "build": build, "link": link, "current": current,
+     "runtime": runtime, "glue": glue}[args.command](args)
 except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as error:
     print(f"nupp: {error}", file=sys.stderr)
     sys.exit(1)

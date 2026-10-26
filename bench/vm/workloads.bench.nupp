@@ -1,0 +1,149 @@
+--- The interpreter workloads: six cases a replacement runtime is judged on.
+---
+--- The same source the hand-rolled comparison ran, as `nupp.bench` cases so the
+--- runner's paired `--against` protocol applies to them. Each case runs its workload
+--- once per iteration -- `n` is fixed at one, so a round is one run of the original
+--- work -- and declares the checksum the original printed, which every fork and both
+--- executables must agree on.
+---
+--- `BENCH_SCALE` is read at run time, as the original read it, so no compiler can
+--- fold a case away. The checksums at scale 1 are fib 832040, loops 761038, tables
+--- 487886131, strings 5281858, records 800000, closures 499892; at scale 2 they are
+--- fib 1346269, loops 522073, tables 487986259, strings 5433712, records 199997,
+--- closures 999754.
+---
+--- Run: nupp bench --file bench/vm/workloads.bench.nupp --against OTHER_NUPP --forks 12
+--- --margin 2
+local bench = require("nupp.bench")
+
+local scale: number = tonumber(os.getenv("BENCH_SCALE") or "1") or 1
+
+local function fib(n: number): number
+    if n < 2 then
+        return n
+    end
+
+    return fib(n - 1) + fib(n - 2)
+end
+
+local function loops(): number
+    local total = 0
+    for i = 1, 30000000 do
+        total = (total + i * i * scale) % 1000003
+    end
+
+    return total
+end
+
+local function tables(): number
+    local counts: {[number]: number} = {}
+    for i = 1, 3000000 do
+        local k = (i * 7919 * scale) % 4099
+        counts[k] = (counts[k] or 0) + 1
+    end
+    local arr: {number} = {}
+    for i = 1, 1000000 do
+        arr[i] = (i * scale) % 977
+    end
+    local sum = 0
+    for _, v in ipairs(arr) do
+        sum = sum + v
+    end
+
+    return sum + #counts
+end
+
+local function strings(): number
+    local parts: {string} = {}
+    for i = 1, 300000 do
+        parts[#parts + 1] = ("item%d:%s"):format(i, tostring(i * 3 * scale))
+    end
+    local joined = table.concat(parts, ",")
+    local found = 0
+    for _ in joined:gmatch("item%d+5:") do
+        found = found + 1
+    end
+
+    return #joined + found
+end
+
+local record Point
+    x: number
+    y: number
+end
+
+local function records(): number
+    local points: {Point} = {}
+    for i = 1, 200000 do
+        points[i] = new Point(x = i * scale, y = i * 2)
+    end
+    local acc = 0.0
+    for _ = 1, 20 do
+        for i = 1, #points do
+            local p = points[i]
+            acc = acc + p.x * 0.5 + p.y * 0.25
+        end
+    end
+
+    return math.floor(acc) % 1000003
+end
+
+local function closures(): number
+    local function map(xs: {number}, f: function(number): number): {number}
+        local out: {number} = {}
+        for i = 1, #xs do
+            out[i] = f(xs[i])
+        end
+
+        return out
+    end
+
+    local xs: {number} = {}
+    for i = 1, 100000 do
+        xs[i] = i * scale
+    end
+    local total = 0
+    for round = 1, 30 do
+        local ys = map(xs, function(v: number): number
+            return v * round + 1
+        end)
+        total = (total + ys[#ys]) % 1000003
+    end
+
+    return total
+end
+
+local workloads: {{
+    name: string,
+    run: function(): number
+}} = {
+    {
+        name = "fib",
+        run = function(): number
+            return fib(29 + scale)
+        end,
+    },
+    {name = "loops", run = loops},
+    {name = "tables", run = tables},
+    {name = "strings", run = strings},
+    {name = "records", run = records},
+    {name = "closures", run = closures},
+}
+
+for _, workload in ipairs(workloads) do
+    local run = workload.run
+    bench.case(
+        workload.name,
+        function(b: bench.Case): nil
+            local check = 0
+            for _ = 1, b.n do
+                check = run()
+            end
+            bench.keep(check)
+            b.checksum = check
+        end,
+        1
+    )
+end
+
+bench.report()

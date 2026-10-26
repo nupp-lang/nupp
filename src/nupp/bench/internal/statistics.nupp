@@ -816,6 +816,21 @@ function statistics.verdict(interval: statistics.Interval?, margin: number, adju
     return "inconclusive"
 end
 
+--- Whether a change is shown not to be worse than the margin.
+---
+--- A one-sided claim, and a weaker one than `unchanged`: the interval's upper end is
+--- within the margin, wherever its lower end lies, so an `improved` benchmark passes
+--- and so does one whose interval runs from a large gain to a small loss. It is the
+--- question a replacement has to answer -- not slower than what it replaces -- and the
+--- aggregate a set of them is judged by. Nothing follows from a withheld interval.
+function statistics.noninferior(interval: statistics.Interval?, margin: number): boolean?
+    if not interval then
+        return nil
+    end
+
+    return interval.upper <= margin
+end
+
 ----------------------------------------------------------------------------
 -- Sizing a run
 ----------------------------------------------------------------------------

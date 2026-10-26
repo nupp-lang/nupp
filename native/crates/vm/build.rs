@@ -31,15 +31,15 @@ fn main() {
 
 fn native_runtime() {
     println!("cargo:rerun-if-env-changed=NUPP_NATIVE_RUNTIME_OBJECT");
-    if std::env::var_os("CARGO_FEATURE_NATIVE_RUNTIME_EXPERIMENT").is_some() {
+    if std::env::var_os("CARGO_FEATURE_NATIVE_RUNTIME").is_some() {
         let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         assert!(
             matches!(arch.as_str(), "aarch64" | "x86_64"),
-            "native runtime experiment requires a 64-bit ARM or x86 host"
+            "native-runtime requires a 64-bit ARM or x86 host"
         );
         let object = std::fs::canonicalize(
             std::env::var("NUPP_NATIVE_RUNTIME_OBJECT")
-                .expect("native-runtime-experiment requires NUPP_NATIVE_RUNTIME_OBJECT"),
+                .expect("native-runtime requires NUPP_NATIVE_RUNTIME_OBJECT"),
         )
         .unwrap();
         let object = object.to_str().unwrap();
@@ -52,7 +52,7 @@ fn native_runtime() {
     } else {
         assert!(
             std::env::var_os("NUPP_NATIVE_RUNTIME_OBJECT").is_none(),
-            "NUPP_NATIVE_RUNTIME_OBJECT requires native-runtime-experiment"
+            "NUPP_NATIVE_RUNTIME_OBJECT requires native-runtime"
         );
     }
 }

@@ -1,4 +1,4 @@
-module nupp.experiment.samples.scalars
+module scalars
 
 -- Ordinary typed Nupp compiled to CLIF: mutable locals, loops, branches,
 -- direct calls, and the scalar operators, with nothing managed underneath.

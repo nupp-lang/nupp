@@ -1,8 +1,8 @@
-module nupp.experiment.samples.structs
+module structs
 
 -- Structs reached through raw pointers, with the compiler's own layout model
 -- deciding field offsets, and the private memory intrinsics beside them.
-const native = require("nupp.runtime.internal.native")
+const native = require("nupp.runtime.vm.intrinsics")
 
 local struct Node
     value: int64

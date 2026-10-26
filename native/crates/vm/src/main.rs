@@ -213,6 +213,18 @@ pub(crate) fn main() {
         emit_object(&args[2], &args[3], frames, vector_only);
         return;
     }
+    #[cfg(feature = "aot")]
+    if args.get(1).map(String::as_str) == Some("native") {
+        use nupp_vm::native_glue;
+        let result = match (args.get(2).map(String::as_str), args.len()) {
+            (Some("layouts"), 4) => native_glue::write_layouts(&args[3]),
+            (Some("object"), 5) => native_glue::write_object(&args[3], &args[4]),
+            (Some("jit"), 5..) => native_glue::jit(&args[3], &args[4], &args[5..]),
+            _ => { eprintln!("usage: nupp-vm native (layouts OUT.json | object IN.clif OUT.o | jit IN.clif FUNCTION [ARG...])"); std::process::exit(2) }
+        };
+        if let Err(problem) = result { eprintln!("{problem}"); std::process::exit(1) }
+        return;
+    }
     if args.len() == 3 && args[1] == "verify" {
         let mut it = Interp::new();
         load_image_file(&mut it, &args[2]).unwrap_or_else(|e| { eprintln!("load: {e}"); std::process::exit(1) });

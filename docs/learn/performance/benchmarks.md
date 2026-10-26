@@ -102,6 +102,33 @@ a field of the `nupp.bench` module, so the result escapes the loop:
 bench.keep({x = 1})
 ```
 
+## Declaring a checksum
+
+A case that computes an answer can declare it, and then the answer is checked
+rather than only kept:
+
+```nupp:fragment
+bench.case("fib", function(b: bench.Case): nil
+    local value = 0
+    for _ = 1, b.n do
+        value = fib(30)
+    end
+    b.checksum = value
+end, 1)
+```
+
+The record carries it as text (`checksumText` renders whole numbers as
+integers, so two runtimes printing `3` and `3.0` agree). Every round in a
+process must produce the same value, every fork must agree, a `--baseline`
+that carries one must agree, and under `--against` both executables must
+agree. A disagreement fails the run and reports no verdict for that
+benchmark: a faster runtime that computes a different answer was not running
+the same benchmark.
+
+`bench/vm/workloads.bench.nupp` is the set a replacement interpreter is judged
+on this way, six workloads scaled by `BENCH_SCALE`, each declaring the
+checksum the original program printed.
+
 ## Comparing implementations
 
 A suite runs several implementations against the same workloads, expanding
@@ -323,8 +350,27 @@ nupp bench --against build/baseline/bin/nupp --forks 12 --margin 2
 
 Both executables run in one session, adjacent in the same shuffled permutation,
 so fork *k* of each meets the same thermal and scheduling state. That pairing
-licenses a causal reading. The comparison uses Hodges-Lehmann on the paired log
-ratios with an exact signed-rank interval.
+licenses a causal reading. The pair's order alternates by round -- the
+candidate first in odd rounds, the other executable first in even ones -- so
+neither is always the one that runs after the other has warmed the machine,
+and each fork entry records `againstFirst`. The comparison uses
+Hodges-Lehmann on the paired log ratios with an exact signed-rank interval;
+each verdict also carries `meanRatio`, the geometric mean of the paired
+candidate-over-baseline ratios, and `noninferiority`, whether the interval's
+upper end is within the margin. The comparison's `noninferiorityPass` is true
+only when every compared benchmark earned it.
+
+Each child is told the executable measuring it in `NUPP_BENCH_EXECUTABLE`: this
+executable for its own children, the `--against` executable for that side's,
+whose children also have the launcher's pinned image and root cleared so they
+run their own compiler. A benchmark that has to start the compiler it runs
+under reads that variable; `bench/vm/compilercheck.bench.nupp` does, checking a
+`git archive` of `BENCH_CHECK_REVISION` (default `HEAD`) cold and then warm.
+
+Where the platform's `time` reports it (`/usr/bin/time -l` on macOS, GNU
+`time -v` on Linux), every fork records its peak resident set in `maxRssBytes`
+and the summary the median fork's. `NUPP_BENCH_RSS=0` turns that off; a child
+killed at its deadline under `time` runs on until it ends on its own.
 
 ```text
 Durations: candidate vs build/baseline/bin/nupp  (interleaved, paired)
@@ -452,7 +498,8 @@ nupp bench --baseline build/bench-baseline.json --accept  # replace
 ```
 
 Durations, the calibrated `n`, allocated bytes and retained-heap delta are
-recorded but never gated. A run with no comparable baseline says so, which is a
+recorded but never gated; a declared checksum is, where both records carry
+one. A run with no comparable baseline says so, which is a
 result and a different one from a pass; a named baseline that is not there
 exits non-zero.
 

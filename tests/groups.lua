@@ -79,4 +79,8 @@ return {
     -- every change, so what this gates is the cost of starting processes rather than
     -- the cover for anything a compiler change can reach.
     ["measurement"] = {"benchrunnertest"},
+
+    -- The Nupp-authored interpreter core: the lowering, the glue and the object
+    -- it links. Both build Rust; the second runs the runtime crate's tests.
+    ["native-runtime"] = {"nativelowertest", "nativeruntimetest"},
 }

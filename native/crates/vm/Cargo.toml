@@ -19,18 +19,6 @@ path = "src/lib.rs"
 name = "nupp-vm"
 path = "src/main.rs"
 
-[[example]]
-name = "runtime_tail"
-required-features = ["aot", "c-headers"]
-
-[[example]]
-name = "runtime_slice"
-required-features = ["aot", "c-headers"]
-
-[[example]]
-name = "clif_run"
-required-features = ["aot"]
-
 [features]
 default = ["jit", "c-headers", "native-ffi", "compression", "net", "http", "regex", "markdown"]
 # The native facilities a program may reach. A program binary's runtime links
@@ -48,8 +36,10 @@ native-ffi = ["dep:libffi", "dep:libloading"]
 # the interpreter alone, which is what the browser build and a bootstrap
 # without Cranelift need.
 compiled-runtime = []
-# Opt-in authoring experiment. Requires an explicit native-runtime object.
-native-runtime-experiment = []
+# Links the Nupp-authored native core object named by
+# NUPP_NATIVE_RUNTIME_OBJECT (`nupp-vm native object`) in place of the Rust
+# handlers it defines.
+native-runtime = []
 jit = ["compiled-runtime", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 aot = ["jit", "aot-linked", "dep:cranelift-object", "dep:cranelift-reader"]
 # Run prebuilt native objects without shipping any code generator.

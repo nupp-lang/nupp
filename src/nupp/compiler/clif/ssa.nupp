@@ -1,0 +1,377 @@
+module nupp.compiler.clif.ssa
+
+--[[
+SSA construction for the native lowering, in Cranelift's textual form.
+
+A function is built as blocks of printed instructions. Mutable locals become
+SSA values by the sealed-block algorithm: a variable is whatever token or
+object the lowering chooses to key it by, a definition is the block that last
+assigned it, and a read that finds no definition in its block becomes a block
+parameter filled in from the predecessors once they are all known (`seal`).
+Block parameters stand for the phis. A parameter fed one value on every edge
+is that value: the printer drops it and lets every later reader see through it.
+
+The builder knows nothing about Nupp types: the lowering tells it each
+variable's machine type (`i64`, `f64`, `i8`) and what text each instruction
+is. Printing is in reverse postorder, so every value's definition precedes its
+uses and unreachable blocks never print.
+]]
+
+local ssa = {}
+
+local function need(ok: any, message: string): any
+    assert(ok, "lower: " .. message)
+    return ok
+end
+
+--- One basic block under construction.
+record ssa.Block
+    id: number
+    params: {string}
+    paramTypes: {string}
+    lines: {string}
+    term: any
+    preds: {ssa.Block}
+    sealed: boolean
+    defs: any
+    incomplete: any
+    phis: any
+end
+
+--- One function under construction. `current` is the block instructions are
+--- appended to; it is nil after a terminator, so code after one is
+--- unreachable and the lowering can refuse it.
+record ssa.Builder
+    current: ssa.Block?
+    fresh: function(): string
+    newBlock: function(): ssa.Block
+    addParam: function(block: ssa.Block, kind: string): string
+    emit: function(text: string): string
+    effect: function(text: string): nil
+    constant: function(kind: string, text: string): string
+    jump: function(to: ssa.Block, args: {string}): nil
+    branch: function(cond: string, yes: ssa.Block, no: ssa.Block): nil
+    finish: function(values: {string}): nil
+    terminate: function(text: string): nil
+    here: function(): ssa.Block
+    declare: function(variable: any, kind: string): nil
+    typeOf: function(variable: any): string?
+    read: function(variable: any, block: ssa.Block): string
+    write: function(variable: any, block: ssa.Block, value: string): nil
+    seal: function(block: ssa.Block): nil
+    print: function(name: string, signature: string, preamble: {string}): string
+end
+
+--- A builder for one function. The entry block is created sealed and made
+--- current.
+function ssa.new(): ssa.Builder
+    local blocks: {ssa.Block} = {}
+    local counter = 0
+    local varTypes: any = {}
+    local b: ssa.Builder
+
+    local function fresh(): string
+        local value = "v" .. tostring(counter)
+        counter = counter + 1
+        return value
+    end
+
+    local function newBlock(): ssa.Block
+        local block = new ssa.Block(
+            id = #blocks,
+            params = {},
+            paramTypes = {},
+            lines = {},
+            term = nil,
+            preds = {},
+            sealed = false,
+            defs = {},
+            incomplete = {},
+            phis = {}
+        )
+        blocks[#blocks + 1] = block
+
+        return block
+    end
+
+    local function addParam(block: ssa.Block, kind: string): string
+        local value = fresh()
+        block.params[#block.params + 1] = value
+        block.paramTypes[#block.paramTypes + 1] = kind
+        return value
+    end
+
+    local function here(): ssa.Block
+        return need(b.current, "emission outside a block") as ssa.Block
+    end
+
+    local function emit(text: string): string
+        local value = fresh()
+        local block = here()
+        block.lines[#block.lines + 1] = value .. " = " .. text
+        return value
+    end
+
+    local function effect(text: string): nil
+        local block = here()
+        block.lines[#block.lines + 1] = text
+    end
+
+    local function constant(kind: string, text: string): string
+        return emit("iconst." .. kind .. " " .. text)
+    end
+
+    local function link(from: ssa.Block, to: ssa.Block): nil
+        to.preds[#to.preds + 1] = from
+    end
+
+    local function jump(to: ssa.Block, args: {string}): nil
+        local block = here()
+        block.term = {kind = "jump", targets = {{block = to, args = args}}}
+        link(block, to)
+        b.current = nil
+    end
+
+    local function branch(cond: string, yes: ssa.Block, no: ssa.Block): nil
+        local block = here()
+        block.term = {kind = "brif", cond = cond, targets = {{block = yes, args = {}}, {block = no, args = {}}}}
+        link(block, yes)
+        link(block, no)
+        b.current = nil
+    end
+
+    local function finish(values: {string}): nil
+        local block = here()
+        block.term = {kind = "return", values = values}
+        b.current = nil
+    end
+
+    -- A terminator printed as written: a tail call.
+    local function terminate(text: string): nil
+        local block = here()
+        block.term = {kind = "text", text = text}
+        b.current = nil
+    end
+
+    local function declare(variable: any, kind: string): nil
+        varTypes[variable] = kind
+    end
+
+    local function typeOf(variable: any): string?
+        return varTypes[variable]
+    end
+
+    local read
+
+    local function write(variable: any, block: ssa.Block, value: string): nil
+        block.defs[variable] = value
+    end
+
+    local function addOperands(variable: any, block: ssa.Block, param: string): nil
+        for _, pred in ipairs(block.preds) do
+            local value = read(variable, pred)
+            for _, target in ipairs(pred.term.targets) do
+                if target.block == block then
+                    target.args[#target.args + 1] = value
+                end
+            end
+        end
+    end
+
+    read = function(variable: any, block: ssa.Block): string
+        local known = block.defs[variable]
+        if known then
+            return known
+        end
+        local kind = need(varTypes[variable], "read of an undeclared variable") as string
+        local value: string
+        if not block.sealed then
+            value = addParam(block, kind)
+            block.phis[value] = true
+            block.incomplete[variable] = value
+        elseif #block.preds == 1 then
+            value = read(variable, block.preds[1])
+        else
+            need(#block.preds > 0, "read of an unassigned variable")
+            value = addParam(block, kind)
+            block.phis[value] = true
+            write(variable, block, value)
+            addOperands(variable, block, value)
+        end
+        write(variable, block, value)
+
+        return value
+    end
+
+    local function seal(block: ssa.Block): nil
+        for variable, param in pairs(block.incomplete) do
+            addOperands(variable, block, param)
+        end
+        block.incomplete = {}
+        block.sealed = true
+    end
+
+    -- A block parameter fed the same value on every edge is that value: drop
+    -- it and its arguments, and let later readers see through it. Repeated
+    -- until nothing changes, since dropping one may make another trivial.
+    local function removeTrivialPhis(): function(string): string
+        local alias: {[string]: string} = {}
+
+        local function resolve(value: string): string
+            while alias[value] do
+                value = alias[value] as string
+            end
+            return value
+        end
+
+        local changed = true
+        while changed do
+            changed = false
+            for _, block in ipairs(blocks) do
+                local index: integer = 1
+                while index <= #block.params do
+                    local param = block.params[index]
+                    if block.phis[param] then
+                        local same: string? = nil
+                        local trivial = true
+                        for _, pred in ipairs(block.preds) do
+                            for _, t in ipairs(pred.term.targets) do
+                                if t.block == block then
+                                    local operand = resolve(t.args[index])
+                                    if operand ~= param and operand ~= same then
+                                        if same == nil then
+                                            same = operand
+                                        else
+                                            trivial = false
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if trivial and same ~= nil then
+                            alias[param] = same as string
+                            table.remove(block.params, index)
+                            table.remove(block.paramTypes, index)
+                            block.phis[param] = nil
+                            for _, pred in ipairs(block.preds) do
+                                for _, t in ipairs(pred.term.targets) do
+                                    if t.block == block then
+                                        table.remove(t.args, index)
+                                    end
+                                end
+                            end
+                            changed = true
+                        else
+                            index = index + 1
+                        end
+                    else
+                        index = index + 1
+                    end
+                end
+            end
+        end
+
+        return resolve
+    end
+
+    local function print(name: string, signature: string, preamble: {string}): string
+        local resolve = removeTrivialPhis()
+
+        local function substitute(text: string): string
+            return (text:gsub("v(%d+)", function(digits: string): string
+                return resolve("v" .. digits)
+            end))
+        end
+
+        local out = {}
+        out[#out + 1] = "function %" .. name .. signature .. " {"
+        for _, text in ipairs(preamble) do
+            out[#out + 1] = "    " .. text
+        end
+        -- Reverse postorder from the entry.
+        local order, visited = {}, {}
+
+        local function visit(block: ssa.Block): nil
+            if visited[block] then
+                return
+            end
+            visited[block] = true
+            if block.term then
+                for _, t in ipairs(block.term.targets or {}) do
+                    visit(t.block)
+                end
+            end
+            order[#order + 1] = block
+        end
+
+        visit(blocks[1])
+        for index = #order, 1, -1 do
+            local block = order[index]
+            local params = {}
+            for i, value in ipairs(block.params) do
+                params[i] = value .. ": " .. block.paramTypes[i]
+            end
+            out[#out + 1] = ""
+            out[#out + 1] = "block" .. tostring(block.id) .. "(" .. table.concat(params, ", ") .. "):"
+            for _, text in ipairs(block.lines) do
+                out[#out + 1] = "    " .. substitute(text)
+            end
+            local term = need(block.term, "block without a terminator in " .. name)
+
+            local function target(t: any): string
+                local args = {}
+                for i, arg in ipairs(t.args) do
+                    args[i] = resolve(arg)
+                end
+
+                return "block" .. tostring(t.block.id) .. "(" .. table.concat(args, ", ") .. ")"
+            end
+
+            if term.kind == "jump" then
+                out[#out + 1] = "    jump " .. target(term.targets[1])
+            elseif term.kind == "brif" then
+                out[
+                    #out + 1
+                ] = "    brif " .. resolve(
+                    term.cond
+                ) .. ", " .. target(term.targets[1]) .. ", " .. target(term.targets[2])
+            elseif term.kind == "text" then
+                out[#out + 1] = "    " .. substitute(term.text)
+            else
+                out[#out + 1] = "    return " .. substitute(table.concat(term.values, ", "))
+            end
+        end
+        out[#out + 1] = "}"
+        out[#out + 1] = ""
+
+        return table.concat(out, "\n")
+    end
+
+    b = new ssa.Builder(
+        current = nil,
+        fresh = fresh,
+        newBlock = newBlock,
+        addParam = addParam,
+        emit = emit,
+        effect = effect,
+        constant = constant,
+        jump = jump,
+        branch = branch,
+        finish = finish,
+        terminate = terminate,
+        here = here,
+        declare = declare,
+        typeOf = typeOf,
+        read = read,
+        write = write,
+        seal = seal,
+        print = print
+    )
+    local entry = newBlock()
+    entry.sealed = true
+    b.current = entry
+
+    return b
+end
+
+export = ssa
