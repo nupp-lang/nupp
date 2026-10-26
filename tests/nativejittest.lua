@@ -165,7 +165,7 @@ local function compiledRun(name, args, background, tasks)
         words[index] = quote(arg)
     end
     local runtime = jitRuntime()
-    local status, output, reported = answer(("NUPP_JIT_IMAGE=%s JIT_FRAME_THRESHOLD=1 JIT_BACKGROUND=%d %s run %s corpus %s %s %s"):format(
+    local status, output, reported = answer(("NUPP_JIT_IMAGE=%s JIT_VERIFY=1 JIT_FRAME_THRESHOLD=1 JIT_BACKGROUND=%d %s run %s corpus %s %s %s"):format(
         quote(runtime.image), background and 1 or 0, quote(runtime.runtime), quote(corpusImage().path), quote(name),
         table.concat(words, " "), tasks and "--tasks" or ""))
     assert(status == 0, ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))

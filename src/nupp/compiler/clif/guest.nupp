@@ -81,6 +81,10 @@ guest.CALL_PC = "-1"
 --- emit, but its entry block keeps every parameter in a register.
 guest.DIRECT_PARAMS = 6
 
+--- How many value registers a loop header keeps in registers across its
+--- back edge.
+guest.CARRIED_LIMIT = 12
+
 --- The entry's symbol for a function id.
 function guest.entryName(fid: integer): string
     return "guest_" .. tostring(fid)
@@ -688,6 +692,29 @@ local INELIGIBLE: {
 --- How long the last emission's printing took, for the profile.
 guest.lastPrintSeconds = 0
 
+--- Instructions that read their value registers only as numbers: a
+--- non-number there takes the interpreter's path in any case.
+local NUMERIC_USES: {
+    [string]: boolean
+} = {
+    Add = true,
+    Sub = true,
+    Mul = true,
+    Div = true,
+    Mod = true,
+    IDiv = true,
+    Lt = true,
+    Le = true,
+    Neg = true,
+    FUnbox = true,
+    IUnbox = true,
+    TagCheckNum = true
+}
+
+--- Instructions whose value result is a number whenever they complete in
+--- compiled code (a boxed float, a boxed integer in range).
+local NUMERIC_DEFS: {[string]: boolean} = {FBox = true, IBox = true}
+
 --- The limit on native nesting of compiled calls before the frame driver
 --- takes over, as the Rust frame code has it.
 guest.NESTED_LIMIT = 96
@@ -944,7 +971,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     end
 
     local function restore(saved: {any}): nil
-        local kept = snapshot()
         cache = {}
         dirty = {}
         for r, v in pairs(saved[1] as {[integer]: string}) do
@@ -953,7 +979,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         for r in pairs(saved[2] as {[integer]: boolean}) do
             dirty[r] = true
         end
-        local _ = kept
     end
 
     local function I(r: integer): string
@@ -1083,7 +1108,16 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         return emit("bor " .. notNan .. ", " .. canonical)
     end
 
+    -- The float a boxed value was made from, when the emitter made it: an
+    -- unbox of it is that float, with no conversion.
+    local floatOf: {[string]: string} = {}
+
     local function unbox(x: string): string
+        local known = floatOf[x]
+        if known then
+            return known
+        end
+
         return emit("bitcast.f64 " .. x)
     end
 
@@ -1094,6 +1128,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
         local boxed = emit("select " .. nan .. ", " .. k(guest.QNAN) .. ", " .. bits)
         numbers[boxed] = true
+        floatOf[boxed] = f
 
         return boxed
     end
@@ -1409,6 +1444,63 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local inherited: {[integer]: {any}} = {}
     local single: {[integer]: boolean} = {}
 
+    -- Loop headers keep the value registers their loop uses in registers
+    -- across the back edge: each such register is a parameter of the header
+    -- block, every edge into the header passes its current value, and the
+    -- header marks them written, so the frame sees them at the next
+    -- safepoint as at any other.
+    local carriedAt: {[integer]: {integer}} = {}
+    local carriedParams: {[integer]: {string}} = {}
+
+    -- Carried registers the loop uses only as numbers: their check is made
+    -- on every edge into the header, where a value not already known to be
+    -- a number is checked once, and a failure is a deoptimization exit, so
+    -- inside the loop they are numbers with no check at all.
+    local numericAt: {[integer]: {[integer]: boolean}} = {}
+
+    -- Jumps into a bytecode block: a loop header takes its carried registers
+    -- as arguments, and only the rest of what was written is stored first.
+    local function enterBlock(target: integer, from: integer): nil
+        local regs = carriedAt[target]
+        if regs == nil then
+            flush(true)
+            b.jump(need(blockAt[target], "jump target " .. tostring(target)) as ssa.Block, {})
+            return
+        end
+        local args: {string} = {}
+        local passed: {[integer]: boolean} = {}
+        local numeric = numericAt[target] or {}
+        for i, r in ipairs(regs as {integer}) do
+            local value = V(r)
+            if numeric[r] and not numbers[value] then
+                -- The deoptimization exit: the interpreter resumes at the
+                -- instruction that made the edge (the jump, or the header
+                -- itself for a fall into it), with the frame written.
+                local ok = newBlock()
+                local leave = newBlock()
+                b.branch(isNumber(value), ok, leave)
+                seal(ok)
+                seal(leave)
+                b.current = leave
+                exitAt(from)
+                b.current = ok
+            end
+            args[i] = value
+            passed[r] = true
+        end
+        local written: {integer} = {}
+        for r in pairs(dirty) do
+            if not passed[r] then
+                written[#written + 1] = r
+            end
+        end
+        table.sort(written)
+        for _, r in ipairs(written) do
+            effect("store notrap " .. (cache[r] as string) .. ", " .. slotText(0, r))
+        end
+        b.jump(blockAt[target] as ssa.Block, args)
+    end
+
     local function jumpTo(pc: integer, target: integer): nil
         if single[target] and target > pc then
             inherited[target] = snapshot()
@@ -1428,8 +1520,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             seal(go)
             ctxStore("budget", emit("iadd " .. budget .. ", " .. k("-1")))
         end
-        flush(true)
-        b.jump(need(blockAt[target], "jump target " .. tostring(target)) as ssa.Block, {})
+        enterBlock(target, pc)
     end
 
     -- A conditional jump: taken to `target` when `cond` holds.
@@ -1443,9 +1534,12 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         end
         seal(yes)
         seal(no)
-        -- Both sides store what the block wrote, from the same values.
+        -- Each side starts from the account at the branch: what one side
+        -- loads for its own jump is not defined on the other.
+        local saved = snapshot()
         b.current = yes
         jumpTo(pc, target)
+        restore(saved)
         b.current = no
         jumpTo(pc, pc + 1)
     end
@@ -2822,13 +2916,29 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             blockAt[pc] = newBlock()
         end
     end
+    -- The frame driver enters at pc 0 and at a taken back edge (contracts
+    -- 5.3), naming the jump's pc: the entry takes the jump itself and goes
+    -- to the loop header, which it reaches as the loop's own back edge does.
+    -- A back edge to pc 0 enters at the jump instead, since pc 0's block
+    -- takes a direct call's parameters.
     local entryPcs: {integer} = {0}
+    local entryTarget: {[integer]: integer} = {[0] = 0}
     for _, ins in ipairs(fn.code) do
         if isBackEdge(ins) then
             entryPcs[#entryPcs + 1] = ins.pc
-            if not blockAt[ins.pc] then
-                blockAt[ins.pc] = newBlock()
-                live.leaders[ins.pc] = true
+            local target = ins.pc
+            for _, next in ipairs(successors(fn, ins)) do
+                if next <= ins.pc then
+                    target = next
+                end
+            end
+            if target == 0 then
+                target = ins.pc
+            end
+            entryTarget[ins.pc] = target
+            if not blockAt[target] then
+                blockAt[target] = newBlock()
+                live.leaders[target] = true
             end
         end
     end
@@ -2866,26 +2976,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         end
         b.current = rest
     end
-    -- Dispatch on the pc: a chain of compares, one per entry point, then the
-    -- fallback that hands an unknown pc back.
-    for _, pc in ipairs(entryPcs) do
-        local load = newBlock()
-        local rest = newBlock()
-        b.branch(emit("icmp eq " .. pcArg .. ", " .. k(tostring(pc))), load, rest)
-        seal(load)
-        seal(rest)
-        b.current = load
-        loadSet(live.liveAt(pc))
-        local args: {string} = {}
-        if pc == 0 then
-            for i = 1, #startParams do
-                args[i] = emit("load.i64 notrap " .. slotText(0, i))
-            end
-        end
-        b.jump(blockAt[pc] as ssa.Block, args)
-        b.current = rest
-    end
-    finishWith({pcArg})
     -- Which leaders have one way in: one edge into them over the whole code,
     -- and no entry from the frame driver.
     do
@@ -2897,14 +2987,108 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         end
         local entered: {[integer]: boolean} = {}
         for _, pc in ipairs(entryPcs) do
-            entered[pc] = true
+            entered[entryTarget[pc] as integer] = true
         end
         for pc in pairs(blockAt) do
             if pc > 0 and pc < n and into[pc] == 1 and not entered[pc] then
                 single[pc] = true
             end
         end
+        -- Loop headers: the targets of back edges. A header at pc 0, whose
+        -- block takes a direct call's parameters, keeps its registers in the
+        -- frame.
+        local ends: {[integer]: integer} = {}
+        for _, ins in ipairs(fn.code) do
+            if isBackEdge(ins) then
+                for _, target in ipairs(successors(fn, ins)) do
+                    if target <= ins.pc and target > 0 then
+                        ends[target] = math.max(ends[target] or 0, ins.pc)
+                    end
+                end
+            end
+        end
+        for header, last in pairs(ends) do
+            local liveHere = live.liveAt(header)
+            local used: {[integer]: boolean} = {}
+            for at = header, last do
+                for r in pairs(live.uses(at)) do
+                    used[r] = true
+                end
+                for r in pairs(live.defs(at)) do
+                    used[r] = true
+                end
+            end
+            local regs: {integer} = {}
+            for r in pairs(liveHere) do
+                if r < 256 and used[r] then
+                    regs[#regs + 1] = r
+                end
+            end
+            table.sort(regs)
+            while #regs > guest.CARRIED_LIMIT do
+                table.remove(regs)
+            end
+            -- Which of them the loop uses only as numbers and defines only
+            -- as numbers.
+            local numeric: {[integer]: boolean} = {}
+            for _, r in ipairs(regs) do
+                numeric[r] = true
+            end
+            for at = header, last do
+                local ins = fn.code[at + 1]
+                local consumes = NUMERIC_USES[ins.name] == true
+                local produces = NUMERIC_DEFS[ins.name] == true
+                for r in pairs(live.uses(at)) do
+                    if numeric[r] and not consumes then
+                        numeric[r] = nil
+                    end
+                end
+                for r in pairs(live.defs(at)) do
+                    if numeric[r] and not produces then
+                        numeric[r] = nil
+                    end
+                end
+            end
+            numericAt[header] = numeric
+            if #regs > 0 then
+                carriedAt[header] = regs
+                local params: {string} = {}
+                for i = 1, #regs do
+                    params[i] = b.addParam(blockAt[header] as ssa.Block, "i64")
+                end
+                carriedParams[header] = params
+            end
+        end
     end
+    -- Dispatch on the pc: a chain of compares, one per entry point, then the
+    -- fallback that hands an unknown pc back.
+    for _, pc in ipairs(entryPcs) do
+        local target = entryTarget[pc] as integer
+        local load = newBlock()
+        local rest = newBlock()
+        b.branch(emit("icmp eq " .. pcArg .. ", " .. k(tostring(pc))), load, rest)
+        seal(load)
+        seal(rest)
+        b.current = load
+        forgetAll()
+        loadSet(live.liveAt(target))
+        if pc == 0 then
+            local args: {string} = {}
+            for i = 1, #startParams do
+                args[i] = emit("load.i64 notrap " .. slotText(0, i))
+            end
+            b.jump(blockAt[0] as ssa.Block, args)
+        elseif carriedAt[target] ~= nil then
+            -- A check that fails resumes the interpreter at the header,
+            -- which is where the taken jump goes.
+            enterBlock(target, target)
+        else
+            b.jump(blockAt[target] as ssa.Block, {})
+        end
+        b.current = rest
+    end
+    forgetAll()
+    finishWith({pcArg})
     -- The body.
     for pc = 0, n - 1 do
         local ins = fn.code[pc + 1]
@@ -2913,10 +3097,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             if b.current then
                 if single[pc] then
                     inherited[pc] = snapshot()
+                    b.jump(block, {})
+                elseif carriedAt[pc] ~= nil then
+                    enterBlock(pc, pc)
                 else
                     flush(false)
+                    b.jump(block, {})
                 end
-                b.jump(block, {})
             end
             b.current = block
             condOf = {}
@@ -2925,6 +3112,18 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 restore(carried as {any})
             else
                 forgetAll()
+            end
+            local params = carriedParams[pc]
+            if params ~= nil then
+                local numeric = numericAt[pc] or {}
+                for i, r in ipairs(carriedAt[pc] as {integer}) do
+                    local value = (params as {string})[i]
+                    cache[r] = value
+                    dirty[r] = true
+                    if numeric[r] then
+                        numbers[value] = true
+                    end
+                end
             end
             if pc == 0 then
                 for i, value in ipairs(startParams) do

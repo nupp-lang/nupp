@@ -357,7 +357,19 @@ impl Emitter {
             self.ctx.func = function;
             let listing = std::env::var_os("JIT_GUEST_DISASM").is_some();
             self.ctx.want_disasm = listing;
-            self.module.define_function(id, &mut self.ctx).map_err(|e| format!("{name}: {e}"))?;
+            // Cranelift panics on some malformed input (a value used where
+            // its definition does not dominate, in register allocation):
+            // such a function is refused, never a raise in the program.
+            let defined = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.module.define_function(id, &mut self.ctx)));
+            let defined = match defined {
+                Ok(result) => result.map_err(|e| format!("{name}: {e:?}")),
+                Err(payload) => {
+                    self.module.clear_context(&mut self.ctx);
+                    let why = payload.downcast_ref::<String>().cloned().or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default();
+                    Err(format!("{name}: code generator failed: {why}"))
+                }
+            };
+            defined?;
             if listing { eprintln!("{name}:\n{}", self.ctx.compiled_code().and_then(|c| c.vcode.clone()).unwrap_or_default()); }
             self.module.clear_context(&mut self.ctx);
         }
