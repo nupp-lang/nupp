@@ -408,7 +408,10 @@ local function observeCallSlow(pc: voidptr, context: voidptr, value: uint64, nar
     return callValue(pc, regs, ints, floats, context, frame, value, nargs)
 end
 
--- CallK and CallDyn share this body, as their Rust handlers share one.
+-- CallK and CallDyn share this body, as their Rust handlers share one. A
+-- CallK site carries the function id the compiler bound the name to: the
+-- callee word equal to that function is the common case, taken on one
+-- compare without decoding the tag or the kind.
 export function CallK(
     pc: voidptr,
     regs: voidptr,
@@ -423,6 +426,8 @@ export function CallK(
         return native.slow(pc, regs, ints, floats, context, frame)
     elseif native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
+    elseif value == 9222246136947933184ULL | native.load64(pc, 8) then
+        return dynamicCall(pc, regs, ints, floats, context, frame, native.load64(pc, 8), 9221401712017801216ULL, nargs)
     else
         return callValue(pc, regs, ints, floats, context, frame, value, nargs)
     end
