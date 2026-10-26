@@ -1,0 +1,639 @@
+module nupp.runtime.vm.collector
+
+--[[
+The collector (contracts 4): precise, incremental, non-moving tri-color
+mark-sweep with an insertion barrier, paced by allocation debt at safepoints,
+with the verification modes of 4.11 built in.
+
+Marking drains the gray stack, then rescans the mutable roots (4.6); when that
+grays nothing, sweeping walks the chunks in allocation order and the large
+list, freeing white objects and whitening black ones with the cycle's epoch
+(4.12). An object allocated while a cycle runs is black ahead of the sweep and
+white behind it (4.3), which `heap.allocRaw` decides.
+
+Roots (4.5, 4.7, 4.14, 5.1) are walked from the heap record: registered
+ranges of value words (the runtime's arena records with managed fields, for
+their `with` extent), registered handles with explicit release, the handle
+scope stack, immutable ranges (constant pools) walked when a cycle starts but
+not at the rescan, and task frame stacks followed through their frame
+headers. Every candidate is accepted only when it addresses a live slot, as
+a frame word may be stale.
+
+Where an object keeps its references follows `heap.rs`'s layouts where they
+are C (slots at the header's payload pointer, a table's hash part and
+metatable, a slice's source, a userdata's two values) and the Nupp layouts
+in `heap.nupp` where Rust's are not (a table's and a record's array part, a
+record's overflow, an iterator's keys).
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+
+--- A task's frame stack as the root walk reads it (5.1): the base of its
+--- words and the index of the top frame, or `NO_FRAME` once it is done.
+export struct Task
+    stack: uint64
+    top: uint64
+end
+
+--- The top frame index of a task that has none.
+export const NO_FRAME: uint64 = 0xffffffffffffffffULL
+
+--- Header word 1's low half at the entry frame.
+const NO_CALLER: uint64 = 0xffffffff
+
+--- A budget no step exhausts.
+const UNBOUNDED: uint64 = 0x1fffffffffffffffULL
+
+-- ---- roots -----------------------------------------------------------------------
+
+--- Registers `words` value words at `base` as roots, until `unregister`.
+--- Registrations nest: the last made is the first ended, as `with` extents
+--- do (4.14).
+export function register(h: heap.Heap*, base: uint64, words: uint64): nil
+    @unsafe do
+        heap.wordsPush(h.ranges, base)
+        heap.wordsPush(h.ranges, words)
+    end
+end
+
+export function unregister(takes h: heap.Heap*): nil
+    @unsafe do
+        heap.wordsPop(h.ranges)
+        heap.wordsPop(h.ranges)
+    end
+end
+
+--- Registers a range for the extent of a `with`, which ends the
+--- registration at every way out of its body:
+--- `with rooted = collector.rooted(h, base, words) do ... end`.
+export function rooted(h: heap.Heap*, base: uint64, words: uint64): affine(heap.Heap*, unregister)
+    register(h, base, words)
+    return h
+end
+
+--- Registers an immutable range, a function's constant pool: walked when a
+--- cycle starts and not at the rescan, since what joins it later is
+--- allocated black or grayed by the barrier.
+export function addConstants(h: heap.Heap*, base: uint64, words: uint64): nil
+    @unsafe do
+        heap.wordsPush(h.constants, base)
+        heap.wordsPush(h.constants, words)
+    end
+end
+
+--- Adds a task whose frames are roots; `windows` gives each function's
+--- value-window words (its registers and one).
+export function addTask(h: heap.Heap*, task: Task*): nil
+    @unsafe heap.wordsPush(h.tasks, native.address(task as voidptr))
+end
+
+export function setWindows(h: heap.Heap*, windows: uint64): nil
+    @unsafe h.windows = windows
+end
+
+--- A registered handle (4.7): a root until released, answering its index.
+export function handleRegister(h: heap.Heap*, value: uint64): uint64
+    @unsafe do
+        local index = heap.wordsPop(h.handleFree)
+        if index == 0 then
+            heap.wordsPush(h.handles, value)
+            return h.handles.count
+        end
+        heap.setWordAt(h.handles, index - 1, value)
+        return index
+    end
+end
+
+export function handleValue(h: heap.Heap*, index: uint64): uint64
+    @unsafe do
+        return heap.wordAt(h.handles, index - 1)
+    end
+end
+
+export function handleRelease(h: heap.Heap*, index: uint64): nil
+    @unsafe do
+        heap.setWordAt(h.handles, index - 1, values.NIL)
+        heap.wordsPush(h.handleFree, index)
+    end
+end
+
+--- Opens a handle scope (4.7), answering the mark `scopeClose` returns to;
+--- a value pushed into it is a root until then.
+export function scopeOpen(h: heap.Heap*): uint64
+    @unsafe do
+        return h.scope.count
+    end
+end
+
+export function scopePush(h: heap.Heap*, value: uint64): nil
+    @unsafe heap.wordsPush(h.scope, value)
+end
+
+export function scopeClose(h: heap.Heap*, mark: uint64): nil
+    @unsafe h.scope.count = mark
+end
+
+-- ---- marking -----------------------------------------------------------------------
+
+--- Grays a white object (the one marking step every path shares).
+export function shade(h: heap.Heap*, value: uint64): nil
+    @unsafe do
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            local o = native.pointer(value & values.PAYLOAD) as heap.Header*
+            if o.color as uint64 == heap.COLOR_WHITE then
+                o.color = heap.COLOR_GRAY
+                heap.grayPush(h, o)
+            end
+        end
+    end
+end
+
+--- A child reached by a walk: grayed when marking, pushed onto `stack` for
+--- the oracle.
+local function visit(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        if stack == nil then
+            shade(h, value)
+        elseif value & values.TAG_MASK == values.TAG_OBJ then
+            heap.wordsPush(stack, value)
+        end
+    end
+end
+
+local function visitRun(h: heap.Heap*, base: uint64, count: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < count do
+            visit(h, native.load64(native.pointer(base), native.index(i * 8)), stack)
+            i = i + 1
+        end
+    end
+end
+
+--- Both sides of every entry of an open-addressed part whose key and value
+--- are present (`heap.rs`'s `ValueTable`: key and value words per bucket).
+local function visitPairs(h: heap.Heap*, base: uint64, buckets: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < buckets do
+            local key = native.load64(native.pointer(base), native.index(i * 16))
+            local item = native.load64(native.pointer(base), native.index(i * 16 + 8))
+            if key ~= values.NIL and item ~= values.NIL then
+                visit(h, key, stack)
+                visit(h, item, stack)
+            end
+            i = i + 1
+        end
+    end
+end
+
+--- Every reference an object holds, by kind: the one walk marking and the
+--- oracle share (`Heap::each_child`).
+export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): nil
+    @unsafe do
+        local kind = o.kind as uint64
+        if kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
+            visitRun(h, o.auxPtr, o.auxLen, stack)
+        elseif kind == heap.KIND_TABLE then
+            local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+            visitRun(h, o.auxPtr, o.auxLen, stack)
+            if t.hashPtr ~= 0 then
+                visitPairs(h, t.hashPtr, t.hashCap, stack)
+            end
+            if t.meta ~= values.NIL then
+                visit(h, t.meta, stack)
+            end
+        elseif kind == heap.KIND_RECORD then
+            visitRun(h, o.auxPtr, o.auxLen, stack)
+            local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
+            if tail.arrayPtr ~= 0 then
+                visitRun(h, tail.arrayPtr, tail.arrayLen, stack)
+            end
+            if tail.extra ~= 0 then
+                local extra = native.pointer(tail.extra) as heap.RecordExtra*
+                visit(h, extra.meta, stack)
+                if extra.hashPtr ~= 0 then
+                    visitPairs(h, extra.hashPtr, extra.hashCap, stack)
+                end
+            end
+        elseif kind == heap.KIND_SLICE then
+            visit(h, native.load64(native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES), 0), stack)
+        elseif kind == heap.KIND_ITER then
+            local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+            visit(h, native.load64(body, 0), stack)
+            visit(h, native.load64(body, 8), stack)
+            visitRun(h, o.auxPtr, o.auxLen, stack)
+        elseif kind == heap.KIND_USERDATA then
+            local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+            visit(h, native.load64(body, 0), stack)
+            visit(h, native.load64(body, 8), stack)
+        end
+    end
+end
+
+--- Scans a gray object: its children grayed, itself black.
+local function scanObject(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        h.stats.scanned = h.stats.scanned + 1
+        eachChild(h, o, nil)
+        o.color = heap.COLOR_BLACK
+    end
+end
+
+--- Grays a root candidate when it addresses a live slot (5.1).
+local function shadeRoot(h: heap.Heap*, value: uint64): nil
+    @unsafe do
+        if value & values.TAG_MASK == values.TAG_OBJ then
+            h.stats.rootCandidates = h.stats.rootCandidates + 1
+            local address = value & values.PAYLOAD
+            if heap.isLiveSlot(h, address) then
+                shade(h, value)
+            end
+        end
+    end
+end
+
+--- A root word for the oracle: pushed when it addresses a live slot.
+local function rootFor(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        if stack == nil then
+            shadeRoot(h, value)
+        elseif value & values.TAG_MASK == values.TAG_OBJ and heap.isLiveSlot(h, value & values.PAYLOAD) then
+            heap.wordsPush(stack, value)
+        end
+    end
+end
+
+local function rootRun(h: heap.Heap*, base: uint64, count: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < count do
+            rootFor(h, native.load64(native.pointer(base), native.index(i * 8)), stack)
+            i = i + 1
+        end
+    end
+end
+
+--- Each (base, words) pair of a range vector.
+local function rootRanges(h: heap.Heap*, ranges: heap.Words*, stack: heap.Words*?): nil
+    @unsafe do
+        local i: uint64 = 0
+        while i < ranges.count do
+            rootRun(h, heap.wordAt(ranges, i), heap.wordAt(ranges, i + 1), stack)
+            i = i + 2
+        end
+    end
+end
+
+--- A task's frames (5.1), from the top frame down the caller chain: each
+--- frame's value window, its closure (header word 2), and the varargs that
+--- lie just below its header (their count in header word 3 from bit 49).
+local function rootFrames(h: heap.Heap*, task: Task*, stack: heap.Words*?): nil
+    @unsafe do
+        if task.top == NO_FRAME then
+            return
+        end
+        local words = task.stack
+        local s = task.top
+        while true do
+            local frame = words + s * 8
+            local h0 = native.load64(native.pointer(frame), 0)
+            local window = native.load64(native.pointer(h.windows), native.index((h0 & values.LOW_WORD) * 8))
+            rootRun(h, frame + 32, window, stack)
+            rootFor(h, native.load64(native.pointer(frame), 16), stack)
+            local varargs = native.load64(native.pointer(frame), 24) >> 49
+            rootRun(h, frame - varargs * 8, varargs, stack)
+            local caller = native.load64(native.pointer(frame), 8) & values.LOW_WORD
+            if caller == NO_CALLER then
+                break
+            end
+            s = caller
+        end
+    end
+end
+
+--- Walks every root; `constants` adds the immutable ranges, which a rescan
+--- leaves out (4.6).
+local function walkRoots(h: heap.Heap*, constants: boolean, stack: heap.Words*?): nil
+    @unsafe do
+        h.stats.rootWalks = h.stats.rootWalks + 1
+        rootRanges(h, h.ranges, stack)
+        rootRun(h, h.handles.base, h.handles.count, stack)
+        rootRun(h, h.scope.base, h.scope.count, stack)
+        local i: uint64 = 0
+        while i < h.tasks.count do
+            rootFrames(h, native.pointer(heap.wordAt(h.tasks, i)) as Task*, stack)
+            i = i + 1
+        end
+        if constants then
+            rootRanges(h, h.constants, stack)
+        end
+    end
+end
+
+-- ---- the barrier -------------------------------------------------------------------
+
+--- The insertion barrier (4.2): storing a white child into a black parent
+--- while marking grays the child. Every heap store runs it; outside a
+--- cycle it is one load and a branch.
+export function barrier(h: heap.Heap*, parent: heap.Header*, child: uint64): nil
+    @unsafe do
+        if h.marking as uint64 == 0 then
+            return
+        end
+        if parent.color as uint64 == heap.COLOR_BLACK and child & values.TAG_MASK == values.TAG_OBJ then
+            local c = native.pointer(child & values.PAYLOAD) as heap.Header*
+            if c.color as uint64 == heap.COLOR_WHITE then
+                c.color = heap.COLOR_GRAY
+                heap.grayPush(h, c)
+                h.stats.barrierGrays = h.stats.barrierGrays + 1
+            end
+        end
+    end
+end
+
+--- After a constructor has written an object's initial references (4.3a):
+--- an object allocated black while marking grays its white children, as a
+--- later store would through the barrier.
+export function initialized(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if h.phase == heap.PHASE_MARKING then
+            eachChild(h, o, nil)
+        end
+    end
+end
+
+-- ---- cycles
+-- --------------------------------------------------------------------------
+
+--- Starts a cycle: marking from every root, constants included.
+export function startCycle(h: heap.Heap*): nil
+    @unsafe do
+        h.phase = heap.PHASE_MARKING
+        h.marking = 1
+        h.stats.cycles = h.stats.cycles + 1
+        h.weak.count = 0
+        walkRoots(h, true, nil)
+    end
+end
+
+--- Frees a white object: its memory goes back to the allocator.
+local function freeObject(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe heap.reclaim(h, o)
+end
+
+local function sweepOne(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        h.stats.swept = h.stats.swept + 1
+        if o.color as uint64 == heap.COLOR_WHITE then
+            freeObject(h, o)
+        else
+            o.color = heap.COLOR_WHITE
+            o.epoch = h.stats.cycles
+        end
+    end
+end
+
+--- Drops the large list's freed entries, keeping each survivor's index.
+local function compactLarge(h: heap.Heap*): nil
+    @unsafe do
+        local kept: uint64 = 0
+        local i: uint64 = 0
+        while i < h.large.count do
+            local header = heap.wordAt(h.large, i)
+            if header ~= 0 then
+                heap.setWordAt(h.large, kept, header)
+                native.store64(native.pointer(header - heap.LARGE_PREFIX), 0, kept)
+                kept = kept + 1
+            end
+            i = i + 1
+        end
+        h.large.count = kept
+    end
+end
+
+--- Sweeps up to `work` objects; answers whether the sweep finished.
+local function sweepSome(h: heap.Heap*, work: uint64): boolean
+    @unsafe do
+        local left = work
+        while h.sweepChunk < h.chunks.count and left > 0 do
+            local base = heap.wordAt(h.chunks, h.sweepChunk)
+            local chunk = native.pointer(base) as heap.ChunkHeader*
+            local slot = chunk.slotSize as uint64
+            local used = heap.chunkUsed(h, base)
+            while h.sweepSlot < used and left > 0 do
+                local o = native.pointer(base + heap.CHUNK_HEADER_BYTES + h.sweepSlot * slot) as heap.Header*
+                h.sweepSlot = h.sweepSlot + 1
+                if o.kind as uint64 ~= heap.KIND_FREED then
+                    sweepOne(h, o)
+                    left = left - 1
+                end
+            end
+            if h.sweepSlot >= used then
+                h.sweepChunk = h.sweepChunk + 1
+                h.sweepSlot = 0
+            end
+        end
+        if h.sweepChunk < h.chunks.count then
+            return false
+        end
+        while h.sweepLarge < h.large.count and left > 0 do
+            local header = heap.wordAt(h.large, h.sweepLarge)
+            h.sweepLarge = h.sweepLarge + 1
+            if header ~= 0 then
+                local o = native.pointer(header) as heap.Header*
+                if o.kind as uint64 ~= heap.KIND_FREED then
+                    sweepOne(h, o)
+                    left = left - 1
+                end
+            end
+        end
+        return h.sweepLarge >= h.large.count
+    end
+end
+
+--- One increment of work (`Heap::step`): marking drains up to `budget` gray
+--- objects; when none remain the roots are rescanned, weak entries settled,
+--- and sweeping begins, which frees or whitens up to four times the budget.
+export function step(h: heap.Heap*, budget: uint64): nil
+    @unsafe do
+        h.stats.steps = h.stats.steps + 1
+        local left = budget
+        while true do
+            if h.phase == heap.PHASE_MARKING then
+                while left > 0 do
+                    local gray = heap.grayPop(h)
+                    if gray == 0 then
+                        break
+                    end
+                    scanObject(h, native.pointer(gray) as heap.Header*)
+                    left = left - 1
+                end
+                if left == 0 then
+                    return
+                end
+                walkRoots(h, false, nil)
+                if not heap.grayEmpty(h) then
+                    continue
+                end
+                h.phase = heap.PHASE_SWEEPING
+                h.marking = 0
+                h.sweepChunk = 0
+                h.sweepSlot = 0
+                h.sweepLarge = 0
+            elseif h.phase == heap.PHASE_SWEEPING then
+                local work = left * 4
+                if left > UNBOUNDED // 4 then
+                    work = UNBOUNDED
+                end
+                if sweepSome(h, work) then
+                    compactLarge(h)
+                    h.phase = heap.PHASE_IDLE
+                    if h.liveBytes > h.stats.peakLive then
+                        h.stats.peakLive = h.liveBytes
+                    end
+                    h.threshold = h.liveBytes * 2
+                    if h.threshold < 1048576 then
+                        h.threshold = 1048576
+                    end
+                end
+                return
+            else
+                return
+            end
+        end
+    end
+end
+
+--- Finishes a cycle in progress, then runs one whole cycle from the current
+--- roots, so an explicit collection also frees floating garbage.
+export function fullCycle(h: heap.Heap*): nil
+    @unsafe do
+        while h.phase ~= heap.PHASE_IDLE do
+            step(h, UNBOUNDED)
+        end
+        startCycle(h)
+        while h.phase ~= heap.PHASE_IDLE do
+            step(h, UNBOUNDED)
+        end
+        h.debt = 0
+    end
+end
+
+-- ---- the oracle
+-- -----------------------------------------------------------------------
+
+--- Recomputes reachability from every root without touching colors and
+--- compares it with the heap (`check_oracle_with`): a reachable object must
+--- not be freed, and when `exact`, every live object must be reachable.
+--- Answers the number of disagreements, which also accumulate in the heap.
+export function checkOracle(h: heap.Heap*, exact: boolean): uint64
+    @unsafe do
+        local stack = h.oracleStack
+        local failures: uint64 = 0
+        heap.setClear(h.seen)
+        stack.count = 0
+        walkRoots(h, true, stack)
+        while stack.count > 0 do
+            local value = heap.wordsPop(stack)
+            local address = value & values.PAYLOAD
+            if not heap.setHas(h.seen, address) then
+                heap.setAdd(h.seen, address)
+                local o = native.pointer(address) as heap.Header*
+                if o.kind as uint64 == heap.KIND_FREED then
+                    failures = failures + 1
+                else
+                    eachChild(h, o, stack)
+                end
+            end
+        end
+        if exact then
+            local i: uint64 = 0
+            while i < h.chunks.count do
+                local base = heap.wordAt(h.chunks, i)
+                local slot = (native.pointer(base) as heap.ChunkHeader*).slotSize as uint64
+                local used = heap.chunkUsed(h, base)
+                local k: uint64 = 0
+                while k < used do
+                    local address = base + heap.CHUNK_HEADER_BYTES + k * slot
+                    local o = native.pointer(address) as heap.Header*
+                    if o.kind as uint64 ~= heap.KIND_FREED and not heap.setHas(h.seen, address) then
+                        failures = failures + 1
+                    end
+                    k = k + 1
+                end
+                i = i + 1
+            end
+            i = 0
+            while i < h.large.count do
+                local address = heap.wordAt(h.large, i)
+                if address ~= 0 then
+                    local o = native.pointer(address) as heap.Header*
+                    if o.kind as uint64 ~= heap.KIND_FREED and not heap.setHas(h.seen, address) then
+                        failures = failures + 1
+                    end
+                end
+                i = i + 1
+            end
+        end
+        h.oracleFailures = h.oracleFailures + failures
+        return failures
+    end
+end
+
+-- ---- safepoints
+-- ------------------------------------------------------------------------
+
+--- Where collection may run (4.4): pays allocation debt with marking or
+--- sweeping work; under stress a whole cycle every time; interleaved, one
+--- small step, with the oracle at every cycle's end (4.8: safety after the
+--- incremental cycle, exactness after the atomic one that follows).
+export function safepoint(h: heap.Heap*): nil
+    @unsafe do
+        if not h.automatic then
+            return
+        end
+        if h.stress then
+            fullCycle(h)
+            if h.oracle then
+                checkOracle(h, true)
+            end
+            return
+        end
+        if h.interleave then
+            if h.phase == heap.PHASE_IDLE then
+                startCycle(h)
+            end
+            step(h, 2)
+            if h.phase == heap.PHASE_IDLE and h.oracle then
+                checkOracle(h, false)
+                fullCycle(h)
+                checkOracle(h, true)
+            end
+            return
+        end
+        if h.phase == heap.PHASE_IDLE then
+            if h.debt < h.threshold then
+                return
+            end
+            startCycle(h)
+        end
+        local budget = h.debt // 64
+        if budget < 256 then
+            budget = 256
+        end
+        step(h, budget)
+        h.debt = 0
+    end
+end
+
+--- Allocates an object at a safepoint: the collector may run first, so
+--- every value the caller still needs must be reachable from the roots.
+export function allocate(h: heap.Heap*, kind: uint64, inlineBytes: uint64): heap.Header*
+    @unsafe do
+        safepoint(h)
+        return heap.allocRaw(h, kind, inlineBytes)
+    end
+end

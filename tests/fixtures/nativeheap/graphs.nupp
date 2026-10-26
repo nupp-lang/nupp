@@ -1,0 +1,543 @@
+module graphs
+
+-- The collector over synthetic object graphs: lists, rings, wide fan-out and
+-- large objects, held by registered ranges, handles, handle scopes, constant
+-- pools and task frame stacks, collected whole and incrementally, under the
+-- stress, interleaved, oracle and quarantine modes. A node is a closure-kind
+-- object whose payload is its slots. Each function answers a count the suite
+-- checks: survivors, or a large negative number when the oracle disagreed.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+
+-- A node of `slots` value slots, every one nil, initialized for the barrier.
+local function node(h: heap.Heap*, slots: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CLOSURE, slots * 8)
+        o.auxLen = slots
+        local i: uint64 = 0
+        while i < slots do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8), values.NIL)
+            i = i + 1
+        end
+        collector.initialized(h, o)
+        return heap.objectValue(o)
+    end
+end
+
+-- A store into a node's slot, through the barrier.
+local function link(h: heap.Heap*, parent: uint64, slot: uint64, child: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(parent)
+        collector.barrier(h, o, child)
+        native.store64(native.pointer(o.auxPtr), native.index(slot * 8), child)
+    end
+end
+
+local function slotOf(parent: uint64, slot: uint64): uint64
+    @unsafe do
+        local o = heap.objectHeader(parent)
+        return native.load64(native.pointer(o.auxPtr), native.index(slot * 8))
+    end
+end
+
+-- Survivors, or minus a billion times the oracle's disagreements.
+local function verdict(h: heap.Heap*): int64
+    @unsafe do
+        local failures = h.oracleFailures + collector.checkOracle(h, true)
+        if failures > 0 then
+            return -1000000000 * native.index(failures)
+        end
+        return native.index(h.liveCount)
+    end
+end
+
+-- The roots record: `words` value words in the arena, registered while the
+-- heap lives.
+local function rootsIn(a: arena.Arena*, words: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, words * 8, 8)
+        if raw == nil then
+            error("graphs: no room for the roots")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0
+        while i < words do
+            native.store64(native.pointer(base), native.index(i * 8), values.NIL)
+            i = i + 1
+        end
+        return base
+    end
+end
+
+local function setRoot(base: uint64, i: uint64, value: uint64): nil
+    native.store64(native.pointer(base), native.index(i * 8), value)
+end
+
+local function getRoot(base: uint64, i: uint64): uint64
+    return native.load64(native.pointer(base), native.index(i * 8))
+end
+
+-- A list of `kept` nodes from a root and `dropped` nodes nothing holds:
+-- after a whole cycle the list survives.
+local function listSurvives(kept: uint64, dropped: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local roots = rootsIn(a, 1)
+            collector.register(h, roots, 1)
+            local i: uint64 = 0
+            while i < kept do
+                local n = node(h, 2)
+                link(h, n, 0, getRoot(roots, 0))
+                setRoot(roots, 0, n)
+                node(h, 1)
+                i = i + 1
+            end
+            i = kept
+            while i < dropped do
+                node(h, 3)
+                i = i + 1
+            end
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Rings: `rings` cycles of `size` nodes, every other one reachable from a
+-- root slot; the unreachable rings go whatever their cycles say.
+local function rings(count: uint64, size: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local roots = rootsIn(a, count)
+            collector.register(h, roots, count)
+            local r: uint64 = 0
+            while r < count do
+                local first = node(h, 1)
+                setRoot(roots, r, first)
+                local last = first
+                local i: uint64 = 1
+                while i < size do
+                    local n = node(h, 1)
+                    link(h, last, 0, n)
+                    last = n
+                    i = i + 1
+                end
+                link(h, last, 0, first)
+                r = r + 1
+            end
+            r = 1
+            while r < count do
+                setRoot(roots, r, values.NIL)
+                r = r + 2
+            end
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Wide fan-out: one node of `width` slots (a large object past 4,092), each
+-- slot a child with a payload of `bytes`; the children of odd slots are
+-- dropped before collecting.
+local function fanOut(width: uint64, bytes: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local roots = rootsIn(a, 1)
+            collector.register(h, roots, 1)
+            local hub = node(h, width)
+            setRoot(roots, 0, hub)
+            local i: uint64 = 0
+            while i < width do
+                local child = collector.allocate(h, heap.KIND_STR, bytes)
+                link(h, hub, i, heap.objectValue(child))
+                i = i + 1
+            end
+            i = 1
+            while i < width do
+                link(h, hub, i, values.NIL)
+                i = i + 2
+            end
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- A chain built while collection interleaves one small step with every
+-- allocation, the oracle at each cycle's end and tombstones for the freed:
+-- `heap.rs`'s interleaved test. Every seventh node also takes a fresh leaf.
+local function interleaved(count: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.interleave = true
+            h.oracle = true
+            h.quarantine = true
+            local roots = rootsIn(a, 1)
+            collector.register(h, roots, 1)
+            local root = node(h, 2)
+            setRoot(roots, 0, root)
+            local last = root
+            local i: uint64 = 0
+            while i < count do
+                local t = node(h, 2)
+                link(h, last, 0, t)
+                if i % 7 == 0 then
+                    local leaf = node(h, 1)
+                    link(h, t, 1, leaf)
+                end
+                -- Garbage between the links, so cycles have something to free.
+                node(h, 4)
+                last = t
+                i = i + 1
+            end
+            h.automatic = false
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Stress: a whole cycle at every allocation, with the exact oracle after
+-- each. A ternary tree of `count` nodes, node i under node (i - 1) // 3, its
+-- nodes listed in an arena array the collector does not see; then the root's
+-- first subtree unlinked and one more node allocated, so a stressed cycle
+-- runs on the smaller tree.
+local function stressed(count: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.stress = true
+            h.oracle = true
+            local raw = arena.alloc(a, count * 8 + 8, 8)
+            if raw == nil then
+                return -1
+            end
+            local list = native.address(raw)
+            local roots = rootsIn(a, 2)
+            collector.register(h, roots, 2)
+            setRoot(roots, 0, node(h, 3))
+            setRoot(list, 0, getRoot(roots, 0))
+            local i: uint64 = 1
+            while i < count do
+                local n = node(h, 3)
+                link(h, getRoot(list, (i - 1) // 3), (i - 1) % 3, n)
+                setRoot(list, i, n)
+                i = i + 1
+            end
+            link(h, getRoot(roots, 0), 0, values.NIL)
+            node(h, 1)
+            h.stress = false
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- 4.3a: an object allocated black while marking grays the children its
+-- constructor wrote. The child's only other path is unlinked before marking
+-- reaches it, so without the initial scan it would be freed. Answers 1 when
+-- the child survived.
+local function initializedBlack(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 1)
+            collector.register(h, roots, 1)
+            local child = node(h, 1)
+            local holder = node(h, 1)
+            link(h, holder, 0, child)
+            -- A long chain ahead of the holder keeps marking busy.
+            local chain = holder
+            local i: uint64 = 0
+            while i < 3000 do
+                local n = node(h, 1)
+                link(h, n, 0, chain)
+                chain = n
+                i = i + 1
+            end
+            setRoot(roots, 0, chain)
+            collector.startCycle(h)
+            collector.step(h, 10)
+            local made = node(h, 1)
+            native.store64(native.pointer(heap.objectHeader(made).auxPtr), 0, child)
+            collector.initialized(h, heap.objectHeader(made))
+            setRoot(roots, 0, made)
+            link(h, holder, 0, values.NIL)
+            collector.fullCycle(h)
+            local alive: int64 = 0
+            if heap.isLiveSlot(h, child & values.PAYLOAD) then
+                alive = 1
+            end
+            if collector.checkOracle(h, true) > 0 then
+                alive = -1
+            end
+            heap.destroy(h)
+            return alive
+        end
+    end
+end
+
+-- The insertion barrier (4.2): marking scans the root's node black, then
+-- the only path to a white node is moved into it. With the barrier the node
+-- survives; `skip` stores without it, and the node is lost. Answers 1 when
+-- it survived.
+local function barrierKeeps(skip: boolean): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 2)
+            collector.register(h, roots, 2)
+            local parent = node(h, 1)
+            local other = node(h, 1)
+            local white = node(h, 1)
+            link(h, other, 0, white)
+            -- The parent is grayed last, so it is the first scanned.
+            setRoot(roots, 0, other)
+            setRoot(roots, 1, parent)
+            collector.startCycle(h)
+            -- Scans the parent black; the other holder stays gray.
+            collector.step(h, 1)
+            if skip then
+                native.store64(native.pointer(heap.objectHeader(parent).auxPtr), 0, white)
+            else
+                link(h, parent, 0, white)
+            end
+            link(h, other, 0, values.NIL)
+            setRoot(roots, 0, values.NIL)
+            while h.phase ~= heap.PHASE_IDLE do
+                collector.step(h, 100)
+            end
+            local alive: int64 = 0
+            if heap.isLiveSlot(h, white & values.PAYLOAD) then
+                alive = 1
+            end
+            heap.destroy(h)
+            return alive
+        end
+    end
+end
+
+-- Frames (5.1): a task stack of two frames, the callee's caller link naming
+-- the entry frame, value windows by function, closures in header word 2,
+-- two varargs below the callee's header, and stale words: a number, a nil, a
+-- freed object's address and an address inside an object. Answers the
+-- survivors once the frames are the only roots.
+local function frames(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local raw = arena.alloc(a, 512, 8)
+            local windows = arena.alloc(a, 16, 8)
+            local taskRaw = arena.alloc(a, 16, 8)
+            if raw == nil or windows == nil or taskRaw == nil then
+                return -1
+            end
+            local stack = native.address(raw)
+            local task = taskRaw as collector.Task*
+            -- Function 0 has three value words, function 1 five.
+            native.store64(windows, 0, 3)
+            native.store64(windows, 8, 5)
+            collector.setWindows(h, native.address(windows))
+            local freed = heap.allocRaw(h, heap.KIND_CLOSURE, 8)
+            heap.reclaim(h, freed)
+            local inner = node(h, 1)
+            -- Entry frame at word 0: function 0, no caller.
+            native.store64(native.pointer(stack), 0, 0)
+            native.store64(native.pointer(stack), 8, 0xffffffff)
+            native.store64(native.pointer(stack), 16, node(h, 1))
+            native.store64(native.pointer(stack), 24, 0)
+            native.store64(native.pointer(stack), 32, node(h, 1))
+            native.store64(native.pointer(stack), 40, 0x4010000000000000ULL)
+            native.store64(native.pointer(stack), 48, heap.objectValue(freed))
+            -- Two varargs at words 7 and 8, then the callee's frame at 9:
+            -- function 1, caller 0, two varargs.
+            native.store64(native.pointer(stack), 56, node(h, 1))
+            native.store64(native.pointer(stack), 64, node(h, 1))
+            native.store64(native.pointer(stack), 72, 1)
+            native.store64(native.pointer(stack), 80, 0)
+            native.store64(native.pointer(stack), 88, values.NIL)
+            native.store64(native.pointer(stack), 96, 2ULL << 49)
+            native.store64(native.pointer(stack), 104, inner)
+            native.store64(native.pointer(stack), 112, values.NIL)
+            native.store64(native.pointer(stack), 120, inner + 8)
+            native.store64(native.pointer(stack), 128, node(h, 1))
+            native.store64(native.pointer(stack), 136, values.TRUE)
+            -- Past the callee's window: not a root.
+            native.store64(native.pointer(stack), 144, node(h, 1))
+            task.stack = stack
+            task.top = 9
+            collector.addTask(h, task)
+            -- Garbage nothing holds.
+            node(h, 1)
+            node(h, 2)
+            collector.fullCycle(h)
+            local answer = verdict(h)
+            -- Once the task is done its frames hold nothing.
+            task.top = collector.NO_FRAME
+            collector.fullCycle(h)
+            answer = answer * 100 + verdict(h)
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Handles (4.7), handle scopes and constant pools: each holds one node.
+-- Answers survivors with all three, then after a handle is released and the
+-- scope closed (the constant pool stays).
+local function handlesAndScopes(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local pool = rootsIn(a, 2)
+            setRoot(pool, 0, node(h, 1))
+            collector.addConstants(h, pool, 2)
+            local kept = collector.handleRegister(h, node(h, 1))
+            local released = collector.handleRegister(h, node(h, 1))
+            local mark = collector.scopeOpen(h)
+            collector.scopePush(h, node(h, 1))
+            node(h, 1)
+            collector.fullCycle(h)
+            local first = verdict(h)
+            collector.handleRelease(h, released)
+            collector.scopeClose(h, mark)
+            collector.fullCycle(h)
+            local second = verdict(h)
+            -- A released index is reused.
+            local again = collector.handleRegister(h, node(h, 1))
+            local reused: int64 = 0
+            if again == released and collector.handleValue(h, kept) ~= values.NIL then
+                reused = 1
+            end
+            heap.destroy(h)
+            return first * 10000 + second * 10 + reused
+        end
+    end
+end
+
+-- A registration scoped by `with`: the node is kept inside the extent and
+-- freed after it.
+local function scopedRegistration(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local record = rootsIn(a, 2)
+            local inside: int64 = 0
+            with rooted = collector.rooted(h, record, 2) do
+                setRoot(record, 0, node(h, 1))
+                setRoot(record, 1, node(h, 1))
+                collector.fullCycle(h)
+                inside = verdict(h)
+            end
+            collector.fullCycle(h)
+            local after = verdict(h)
+            heap.destroy(h)
+            return inside * 10 + after
+        end
+    end
+end
+
+-- Pacing (4.10): `count` allocations of which one in `keep` is linked into a
+-- bounded ring of survivors; collection runs from allocation debt alone.
+-- Answers cycles run, a thousand times, plus survivors after a final cycle;
+-- live bytes must stay under twice the threshold's floor or it answers -1.
+local function paced(count: uint64, keep: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local roots = rootsIn(a, 1)
+            collector.register(h, roots, 1)
+            local ring = node(h, 64)
+            setRoot(roots, 0, ring)
+            local i: uint64 = 0
+            local peak: uint64 = 0
+            while i < count do
+                local n = node(h, 2)
+                if i % keep == 0 then
+                    link(h, ring, (i // keep) % 64, n)
+                end
+                if h.liveBytes > peak then
+                    peak = h.liveBytes
+                end
+                i = i + 1
+            end
+            local cycles = h.stats.cycles
+            h.automatic = false
+            collector.fullCycle(h)
+            local answer = native.index(cycles) * 1000 + verdict(h)
+            if peak > 4194304 then
+                answer = -1
+            end
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
+
+-- Smoke numbers. Allocation through the collector's safepoint with pacing
+-- on, every object garbage: nanoseconds per thousand allocations.
+local function allocNanos(count: uint64, slots: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local started = os.monotonicNanos()
+            local i: uint64 = 0
+            while i < count do
+                node(h, slots)
+                i = i + 1
+            end
+            local elapsed = os.monotonicNanos() - started
+            heap.destroy(h)
+            return elapsed * 1000 // count
+        end
+    end
+end
+
+-- A whole cycle over `live` reachable nodes in lists and as many garbage
+-- ones: nanoseconds per thousand objects marked or swept.
+local function collectNanos(live: uint64): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = rootsIn(a, 64)
+            collector.register(h, roots, 64)
+            local i: uint64 = 0
+            while i < live do
+                local n = node(h, 2)
+                link(h, n, 0, getRoot(roots, i % 64))
+                setRoot(roots, i % 64, n)
+                node(h, 2)
+                i = i + 1
+            end
+            local started = os.monotonicNanos()
+            collector.fullCycle(h)
+            local elapsed = os.monotonicNanos() - started
+            heap.destroy(h)
+            return elapsed * 1000 // (2 * live)
+        end
+    end
+end

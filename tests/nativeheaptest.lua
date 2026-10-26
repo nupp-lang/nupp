@@ -1,5 +1,5 @@
 -- The heap and the collector written standalone in the native profile
--- (`nupp.runtime.vm.heap`), lowered by
+-- (`nupp.runtime.vm.heap`, `collector`, `gcweak`), lowered by
 -- `nupp.compiler.clif.lower` and run through the glue's just-in-time runner
 -- (`nupp-vm native jit`), each case in a process of its own. The fixtures
 -- under `tests/fixtures/nativeheap/` build synthetic heaps and answer counts
@@ -133,6 +133,64 @@ local ALLOCATOR = {
 
 function M.theAllocatorHandsOutSlotsBySizeClassAndKnowsItsOwn()
     check(compileFixture("allocator"), ALLOCATOR)
+end
+
+-- The nodes of a ternary tree of `count` left after the root's first
+-- subtree is unlinked.
+local function ternaryAfterCut(count)
+    local cut, stack = 0, {1}
+    while #stack > 0 do
+        local index = table.remove(stack)
+        if index < count then
+            cut = cut + 1
+            for child = 3 * index + 1, 3 * index + 3 do
+                stack[#stack + 1] = child
+            end
+        end
+    end
+    return count - cut
+end
+
+local GRAPHS = {
+    {"listSurvives", {1000, 5000}, 1000}, {"listSurvives", {0, 100}, 0},
+    {"rings", {10, 100}, 500}, {"rings", {1, 1000}, 1000},
+    -- A hub of 5,000 slots is a large object; children of 40,000 bytes are too.
+    {"fanOut", {100, 16}, 51}, {"fanOut", {5000, 16}, 2501}, {"fanOut", {50, 40000}, 26},
+    -- The chain, its root, and a leaf under every seventh node.
+    {"interleaved", {3000}, 1 + 3000 + 429}, {"interleaved", {500}, 1 + 500 + 72},
+    {"stressed", {200}, ternaryAfterCut(200)}, {"stressed", {1}, 1},
+    {"initializedBlack", {}, 1},
+    {"barrierKeeps", {"false"}, 1}, {"barrierKeeps", {"true"}, 0},
+    -- Six roots in the frames, none once the task is done.
+    {"frames", {}, 600},
+    -- Four held, then the constant and the kept handle; the released index reused.
+    {"handlesAndScopes", {}, 40021},
+    {"scopedRegistration", {}, 20},
+}
+
+function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
+    check(compileFixture("graphs", {"heap", "collector", "arena", "values"}), GRAPHS)
+end
+
+-- Pacing alone runs the cycles: a million allocations of 48 bytes keep a
+-- bounded ring live, and live bytes stay near the threshold's floor.
+function M.allocationDebtPacesTheCycles()
+    local clif = compileFixture("graphs", {"heap", "collector", "arena", "values"})
+    local answer = tonumber(run(clif, "paced", {1000000, 100}))
+    assert(answer and answer > 0, "paced answered " .. tostring(answer))
+    assert(answer % 1000 == 65, "the ring and its 64 nodes survive, got " .. answer)
+    assert(answer // 1000 >= 10, "allocation debt ran too few cycles: " .. answer // 1000)
+end
+
+-- Smoke numbers, read from the report rather than asserted.
+function M.allocationAndCollectionThroughputRun()
+    local clif = compileFixture("graphs", {"heap", "collector", "arena", "values"})
+    for _, case in ipairs({{"allocNanos", {1000000, 1}}, {"collectNanos", {500000}}}) do
+        local nanos = tonumber(run(clif, case[1], case[2]))
+        assert(nanos and nanos > 0, case[1] .. " answered no time")
+    end
+    local alloc = compileFixture("allocator")
+    assert(tonumber(run(alloc, "allocFreeNanos", {1000000, 16})) ~= nil)
 end
 
 return M
