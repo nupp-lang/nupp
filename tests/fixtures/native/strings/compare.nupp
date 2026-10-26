@@ -1,0 +1,79 @@
+-- String comparison through the native core's `Eq`, `Ne`, `Lt` and `Le`:
+-- interned against fresh, whole words and tails, unsigned bytes, prefixes,
+-- and the slow paths (numbers against strings, tables). Every line is checked
+-- against a literal here and printed for the differential run.
+local out: {string} = {}
+
+local function show(name: string, v: any, expected: any): nil
+    assert(v == expected, name .. ": got " .. tostring(v) .. ", expected " .. tostring(expected))
+    out[#out + 1] = name .. "=" .. tostring(v)
+end
+
+local long = string.rep("abc", 20)
+local long2 = string.rep("abc", 19) .. "abc"
+local short = "abc"
+local short2 = ("ab" .. "c")
+local hi = "\200\201"
+local lo = "\100\255"
+show("eqLong", long == long2, true)
+show("neLong", long ~= long2, false)
+show("eqShort", short == short2, true)
+show("eqMixed", short == long:sub(1, 3), true)
+show("neMixed", short ~= long:sub(1, 4), true)
+show("eqTail", string.rep("k", 41) == string.rep("k", 40) .. "k", true)
+show("neTail", string.rep("k", 41) == string.rep("k", 40) .. "j", false)
+show("neWord", string.rep("k", 41) == "j" .. string.rep("k", 40), false)
+show("ltPrefix", short < "abcd", true)
+show("lePrefix", "abcd" <= short, false)
+show("ltSame", short < short2, false)
+show("leSame", short <= short2, true)
+show("ltLong", long < long2, false)
+show("leLong", long <= long2, true)
+show("ltLongPrefix", long:sub(1, 59) < long, true)
+show("ltLongTail", string.rep("k", 40) .. "a" < string.rep("k", 40) .. "b", true)
+show("ltLongWord", "a" .. string.rep("k", 40) < "b" .. string.rep("k", 40), true)
+show("ltHi", lo < hi, true)
+show("ltHiRev", hi < lo, false)
+show("ltEmpty", "" < "a", true)
+show("leEmpty", "" <= "", true)
+show("ltNum", 1 < 2, true)
+show("lenLong", #long, 60)
+show("lenSlice", #long:sub(2, 5), 4)
+show("eqNumStr", 1 == "1", false)
+show("eqStrTable", "x" == {}, false)
+show(
+    "ltMixed",
+    (pcall(function(): boolean
+        local a: any = "a"
+        local b: any = 1
+
+        return a < b
+    end)),
+    false
+)
+show(
+    "ltTables",
+    (pcall(function(): boolean
+        local a: any = {}
+        local b: any = {}
+
+        return a < b
+    end)),
+    false
+)
+local counted = 0
+for i = 1, 20000 do
+    local a = "key" .. tostring(i % 7)
+    local b = string.rep("k", 50) .. tostring(i % 5)
+    if a == "key3" then
+        counted = counted + 1
+    end
+    if b < string.rep("k", 50) .. "3" then
+        counted = counted + 1
+    end
+    if b == string.rep("k", 50) .. "4" then
+        counted = counted + 1
+    end
+end
+show("counted", counted, 18857)
+print(table.concat(out, "\n"))
