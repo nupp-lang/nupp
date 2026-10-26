@@ -6,6 +6,7 @@ module nupp.runtime.vm.core
 -- `nupp.compiler.clif.lower` in handler mode. Unsupported instructions and
 -- OSR return to the Rust core before any helper can move a frame or collect.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 
 export function Move(
     pc: voidptr,
@@ -30,7 +31,7 @@ export function Nil(
     frame: voidptr
 ): uint64
     local a = native.load8(pc, 1) * 8
-    native.store64(regs, a, 9221401712017801216ULL)
+    native.store64(regs, a, values.NIL)
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -78,7 +79,7 @@ export function IMaskU32(
 ): uint64
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
-    native.store64(ints, a, native.load64(ints, b) & 4294967295)
+    native.store64(ints, a, native.load64(ints, b) & values.LOW_WORD)
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -598,8 +599,8 @@ export function FBox(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.bits(native.loadFloat(floats, b))
-    if bits & 9221120237041090560ULL == 9221120237041090560ULL then
-        native.store64(regs, a, 9221120237041090560ULL)
+    if bits & values.QNAN == values.QNAN then
+        native.store64(regs, a, values.QNAN)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         native.store64(regs, a, bits)
@@ -618,10 +619,10 @@ export function FUnbox(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9221120237041090560ULL ~= 9221120237041090560ULL then
+    if bits & values.QNAN ~= values.QNAN then
         native.storeFloat(floats, a, native.fromBits(bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    elseif bits == 9221120237041090560ULL then
+    elseif bits == values.QNAN then
         native.storeFloat(floats, a, native.fromBits(bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
@@ -641,8 +642,8 @@ export function GetCell(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 6 then
             local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
             native.store64(regs, a, native.load64(data, 0))
@@ -669,17 +670,13 @@ export function Add(
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p + q)
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
-        )
+        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -700,17 +697,13 @@ export function Sub(
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p - q)
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
-        )
+        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -731,17 +724,13 @@ export function Mul(
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p * q)
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
-        )
+        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -762,17 +751,13 @@ export function Mod(
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p - native.floor(p / q) * q)
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
-        )
+        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -786,11 +771,11 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local result = native.fromBits(x) < native.fromBits(y)
-        native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+        native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -804,11 +789,11 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local x = native.load64(regs, b)
     local y = native.load64(regs, c)
     if native.both(
-        native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL),
-        native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
+        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local result = native.fromBits(x) <= native.fromBits(y)
-        native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+        native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -826,13 +811,9 @@ export function Neg(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local x = native.load64(regs, b)
-    if native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL) then
+    if native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN) then
         local bits = native.bits(native.neg(native.fromBits(x)))
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(bits & 9221120237041090560ULL == 9221120237041090560ULL, 9221120237041090560ULL, bits)
-        )
+        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -850,8 +831,8 @@ export function Not(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local x = native.load64(regs, b)
-    local result = native.either(x == 9221401712017801216ULL, x == 9221683186994511872ULL)
-    native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+    local result = native.either(x == values.NIL, x == values.FALSE)
+    native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -867,7 +848,7 @@ export function Truthy(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local x = native.load64(regs, b)
-    native.store64(ints, a, native.asWord(native.both(x ~= 9221401712017801216ULL, x ~= 9221683186994511872ULL)))
+    native.store64(ints, a, native.asWord(native.both(x ~= values.NIL, x ~= values.FALSE)))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -883,7 +864,7 @@ export function BoolFromI(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local result = native.loadIndex(ints, b) ~= 0
-    native.store64(regs, a, native.chooseWord(result, 9221964661971222528ULL, 9221683186994511872ULL))
+    native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -899,8 +880,8 @@ export function GetUpval(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(frame, 16)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
         native.store64(regs, a, native.load64(data, b))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -912,7 +893,7 @@ end
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     local a = native.load8(pc, 1) * 8
     local index = native.load32(pc, 4) * 8
-    local fid = native.loadIndex(frame, 0) & 4294967295
+    local fid = native.loadIndex(frame, 0) & values.LOW_WORD
     local funcs = native.loadPointer(context, native.layout("funcs"))
     local info = native.offset(funcs, fid * native.layout("FuncInfo.size"))
     local consts = native.loadPointer(info, native.layout("FuncInfo.consts"))
@@ -931,7 +912,7 @@ export function JmpIf(
 ): uint64
     local a = native.load8(pc, 1) * 8
     local value = native.load64(regs, a)
-    if native.both(value ~= 9221401712017801216ULL, value ~= 9221683186994511872ULL) then
+    if native.both(value ~= values.NIL, value ~= values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
             local mode = native.load32(context, native.layout("frame_mode"))
@@ -974,7 +955,7 @@ export function JmpIfNot(
 ): uint64
     local a = native.load8(pc, 1) * 8
     local value = native.load64(regs, a)
-    if native.either(value == 9221401712017801216ULL, value == 9221683186994511872ULL) then
+    if native.either(value == values.NIL, value == values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
             local mode = native.load32(context, native.layout("frame_mode"))
@@ -1018,8 +999,8 @@ export function GetSlot(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         if native.both(
             native.load8(object, native.layout("Header.kind")) == 3,
             native.load32(object, native.layout("Header.aux")) == native.load32(pc, 4)
@@ -1027,10 +1008,7 @@ export function GetSlot(
             local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
             local slot = native.load8(pc, 3) * 8
             local value = native.load64(data, slot)
-            if native.either(
-                value ~= 9221401712017801216ULL,
-                native.load8(object, native.layout("Header.flags")) & 4 == 0
-            ) then
+            if native.either(value ~= values.NIL, native.load8(object, native.layout("Header.flags")) & 4 == 0) then
                 native.store64(regs, a, value)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
@@ -1055,8 +1033,8 @@ export function GetSlotF(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         if native.both(
             native.load8(object, native.layout("Header.kind")) == 3,
             native.load32(object, native.layout("Header.aux")) == native.load32(pc, 4)
@@ -1064,10 +1042,7 @@ export function GetSlotF(
             local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
             local slot = native.load8(pc, 3) * 8
             local value = native.load64(data, slot)
-            if native.either(
-                value & 9221120237041090560ULL ~= 9221120237041090560ULL,
-                value == 9221120237041090560ULL
-            ) then
+            if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
                 native.storeFloat(floats, a, native.fromBits(value))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
@@ -1092,15 +1067,15 @@ export function Len(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         local kind = native.load8(object, native.layout("Header.kind"))
         if native.either(kind == 1, kind == 9) then
             local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
             native.store64(regs, a, native.bits(length))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         elseif kind == 2 then
-            if native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL then
+            if native.load64(object, native.layout("Table.meta")) == values.NIL then
                 local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
                 native.store64(regs, a, native.bits(length))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -1127,15 +1102,15 @@ export function LenF(
     local a = native.load8(pc, 1) * 8
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         local kind = native.load8(object, native.layout("Header.kind"))
         if native.either(kind == 1, kind == 9) then
             local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
             native.storeFloat(floats, a, length)
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         elseif kind == 2 then
-            if native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL then
+            if native.load64(object, native.layout("Table.meta")) == values.NIL then
                 local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
                 native.storeFloat(floats, a, length)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -1164,18 +1139,18 @@ export function GetIdxF(
     local c = native.load8(pc, 3) * 8
     local index = native.loadFloat(floats, c)
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 2 then
             local length = native.load64(object, native.layout("Header.aux_len"))
-            if native.both(native.fromBits(4607182418800017408ULL) <= index, index <= native.unsignedFloat(length)) then
+            if native.both(native.fromBits(values.ONE_BITS) <= index, index <= native.unsignedFloat(length)) then
                 local integer = native.unsignedInt(index)
                 if index == native.unsignedFloat(integer) then
                     local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
                     local value = native.load64(data, native.index((integer - 1) * 8))
                     if native.either(
-                        value ~= 9221401712017801216ULL,
-                        native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL
+                        value ~= values.NIL,
+                        native.load64(object, native.layout("Table.meta")) == values.NIL
                     ) then
                         native.store64(regs, a, value)
                         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -1210,18 +1185,18 @@ export function GetIdxI(
     local signed = native.loadIndex(ints, c)
     local index = native.load64(ints, c)
     local bits = native.load64(regs, b)
-    if bits & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(bits & 281474976710655ULL)
+    if bits & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(bits & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 2 then
             local length = native.load64(object, native.layout("Header.aux_len"))
-            if native.both(1 <= signed, native.both(index <= length, index <= 9007199254740992ULL)) then
+            if native.both(1 <= signed, native.both(index <= length, index <= values.MAX_EXACT_INTEGER)) then
                 local integer = index
                 if integer == index then
                     local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
                     local value = native.load64(data, native.index((integer - 1) * 8))
                     if native.either(
-                        value ~= 9221401712017801216ULL,
-                        native.load64(object, native.layout("Table.meta")) == 9221401712017801216ULL
+                        value ~= values.NIL,
+                        native.load64(object, native.layout("Table.meta")) == values.NIL
                     ) then
                         native.store64(regs, a, value)
                         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)

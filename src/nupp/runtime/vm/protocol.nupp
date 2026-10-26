@@ -4,6 +4,7 @@ module nupp.runtime.vm.protocol
 -- helper, and after it checks the status and derives its windows again from
 -- the context, since the stack may have moved.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 
 export function publishPc(pc: voidptr, context: voidptr): nil
     local frame = native.offset(
@@ -13,7 +14,7 @@ export function publishPc(pc: voidptr, context: voidptr): nil
     local code = native.loadPointer(
         native.loadPointer(context, native.layout("funcs")),
         native.index(
-            native.load64(frame, 0) & 4294967295
+            native.load64(frame, 0) & values.LOW_WORD
         ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
     )
     native.store32(context, native.layout("pc"), native.index((native.address(pc) - native.address(code)) >> 4))
@@ -29,7 +30,7 @@ export function continueAfter(pc: voidptr, context: voidptr, slot: int64, value:
         local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
         local info = native.offset(
             native.loadPointer(context, native.layout("funcs")),
-            native.index(native.load64(frame, 0) & 4294967295) * native.layout("FuncInfo.size")
+            native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
         )
         local regs = native.offset(frame, 32)
         local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)

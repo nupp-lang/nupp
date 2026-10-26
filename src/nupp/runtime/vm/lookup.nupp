@@ -3,6 +3,7 @@ module nupp.runtime.vm.lookup
 -- Field and index lookups, stores, equality and cells: fast paths in Nupp
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
@@ -30,21 +31,21 @@ export function GetField(
         local consts = native.loadPointer(
             native.loadPointer(context, native.layout("funcs")),
             native.index(
-                native.load64(frame, 0) & 4294967295
+                native.load64(frame, 0) & values.LOW_WORD
             ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.consts")
         )
         local name = native.load64(consts, native.load32(pc, 4) * 8)
-        if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+        if object & values.TAG_MASK ~= values.TAG_OBJ then
             return native.slow(pc, regs, ints, floats, context, frame)
         else
-            local header = native.pointer(object & 281474976710655ULL)
+            local header = native.pointer(object & values.PAYLOAD)
             local kind = native.load8(header, native.layout("Header.kind"))
-            local hash = ((name >> 4) * 11400714819323198485ULL) >> 32
+            local hash = ((name >> 4) * values.HASH_MULTIPLIER) >> 32
             if kind == 3 then
                 local shape = native.offset(
                     native.loadPointer(context, native.layout("shapes")),
                     native.index(
-                        native.word(native.load32(header, native.layout("Header.aux")) & 4294967295)
+                        native.word(native.load32(header, native.layout("Header.aux")) & values.LOW_WORD)
                     ) * native.layout("ShapeInfo.size")
                 )
                 local table = native.loadPointer(shape, native.layout("ShapeInfo.table"))
@@ -53,10 +54,10 @@ export function GetField(
                 while true do
                     local bucket = native.load64(table, native.index(k * 16))
                     if bucket == name then
-                        local slot = native.load64(table, native.index(k * 16 + 8)) & 4294967295
+                        local slot = native.load64(table, native.index(k * 16 + 8)) & values.LOW_WORD
                         local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
                         local value = native.load64(data, native.index(slot * 8))
-                        if value ~= 9221401712017801216ULL then
+                        if value ~= values.NIL then
                             native.store64(regs, a, value)
                             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                         end
@@ -77,23 +78,23 @@ export function GetField(
                         local bucket = native.load64(buckets, native.index(k * 16))
                         if bucket == name then
                             local value = native.load64(buckets, native.index(k * 16 + 8))
-                            if value ~= 9221401712017801216ULL or meta == 9221401712017801216ULL then
+                            if value ~= values.NIL or meta == values.NIL then
                                 native.store64(regs, a, value)
                                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                             end
                             break
                         end
-                        if bucket == 9221401712017801216ULL then
-                            if meta == 9221401712017801216ULL then
-                                native.store64(regs, a, 9221401712017801216ULL)
+                        if bucket == values.NIL then
+                            if meta == values.NIL then
+                                native.store64(regs, a, values.NIL)
                                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                             end
                             break
                         end
                         k = (k + 1) & mask
                     end
-                elseif meta == 9221401712017801216ULL then
-                    native.store64(regs, a, 9221401712017801216ULL)
+                elseif meta == values.NIL then
+                    native.store64(regs, a, values.NIL)
                     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                 end
             end
@@ -105,7 +106,7 @@ end
 local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, negate: uint64): uint64
     protocol.publishPc(pc, context)
     local equal = helpers.eqSlow(context, left, right)
-    local answer = native.chooseWord((equal ~= 0) == (negate == 0), 9221964661971222528ULL, 9221683186994511872ULL)
+    local answer = native.chooseWord((equal ~= 0) == (negate == 0), values.TRUE, values.FALSE)
     return protocol.continueAfter(pc, context, native.load8(pc, 1), answer, true)
 end
 
@@ -123,35 +124,29 @@ local function equality(
     local a = native.load8(pc, 1) * 8
     local x = native.load64(regs, native.load8(pc, 2) * 8)
     local y = native.load64(regs, native.load8(pc, 3) * 8)
-    local xNumber = native.either(x & 9221120237041090560ULL ~= 9221120237041090560ULL, x == 9221120237041090560ULL)
-    local yNumber = native.either(y & 9221120237041090560ULL ~= 9221120237041090560ULL, y == 9221120237041090560ULL)
+    local xNumber = native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN)
+    local yNumber = native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     if native.both(xNumber, yNumber) then
         local equal = native.fromBits(x) == native.fromBits(y)
-        native.store64(
-            regs,
-            a,
-            native.chooseWord(equal == (negate == 0), 9221964661971222528ULL, 9221683186994511872ULL)
-        )
+        native.store64(regs, a, native.chooseWord(equal == (negate == 0), values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif x == y then
-        native.store64(regs, a, native.chooseWord(negate == 0, 9221964661971222528ULL, 9221683186994511872ULL))
+        native.store64(regs, a, native.chooseWord(negate == 0, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
-        local xObject = x & 9223090561878065152ULL == 9222527611924643840ULL
-        local yObject = y & 9223090561878065152ULL == 9222527611924643840ULL
+        local xObject = x & values.TAG_MASK == values.TAG_OBJ
+        local yObject = y & values.TAG_MASK == values.TAG_OBJ
         if native.both(xObject, yObject) then
-            local xInterned = native.load8(native.pointer(x & 281474976710655ULL), native.layout("Header.flags"))
-                & 1 ~= 0
-            local yInterned = native.load8(native.pointer(y & 281474976710655ULL), native.layout("Header.flags"))
-                & 1 ~= 0
+            local xInterned = native.load8(native.pointer(x & values.PAYLOAD), native.layout("Header.flags")) & 1 ~= 0
+            local yInterned = native.load8(native.pointer(y & values.PAYLOAD), native.layout("Header.flags")) & 1 ~= 0
             if native.both(xInterned, yInterned) then
-                native.store64(regs, a, native.chooseWord(negate ~= 0, 9221964661971222528ULL, 9221683186994511872ULL))
+                native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return eqSlow(pc, context, x, y, negate)
             end
         else
-            native.store64(regs, a, native.chooseWord(negate ~= 0, 9221964661971222528ULL, 9221683186994511872ULL))
+            native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         end
     end
@@ -184,14 +179,11 @@ export function GetIdx(
     local a = native.load8(pc, 1) * 8
     local object = native.load64(regs, native.load8(pc, 2) * 8)
     local key = native.load64(regs, native.load8(pc, 3) * 8)
-    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local header = native.pointer(object & 281474976710655ULL)
-        local keyNumber = native.either(
-            key & 9221120237041090560ULL ~= 9221120237041090560ULL,
-            key == 9221120237041090560ULL
-        )
+        local header = native.pointer(object & values.PAYLOAD)
+        local keyNumber = native.either(key & values.QNAN ~= values.QNAN, key == values.QNAN)
         if native.both(native.load8(header, native.layout("Header.kind")) == 2, keyNumber) then
             local d = native.fromBits(key)
             local length = native.load64(header, native.layout("Header.aux_len"))
@@ -203,8 +195,8 @@ export function GetIdx(
                 local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
                 local value = native.load64(data, native.index((whole - 1) * 8))
                 if native.either(
-                    value ~= 9221401712017801216ULL,
-                    native.load64(header, native.layout("Table.meta")) == 9221401712017801216ULL
+                    value ~= values.NIL,
+                    native.load64(header, native.layout("Table.meta")) == values.NIL
                 ) then
                     native.store64(regs, a, value)
                     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -245,15 +237,15 @@ export function SetIdxI(
     frame: voidptr
 ): uint64
     local position = native.loadIndex(ints, native.load8(pc, 2) * 8)
-    if native.either(position < -9007199254740992, 9007199254740992 < position) then
+    if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
         local object = native.load64(regs, native.load8(pc, 1) * 8)
         local value = native.load64(regs, native.load8(pc, 3) * 8)
-        if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+        if object & values.TAG_MASK ~= values.TAG_OBJ then
             return native.slow(pc, regs, ints, floats, context, frame)
         else
-            local header = native.pointer(object & 281474976710655ULL)
+            local header = native.pointer(object & values.PAYLOAD)
             if native.both(
                 native.load8(header, native.layout("Header.kind")) == 2,
                 native.load8(header, native.layout("Header.flags")) & 160 == 0
@@ -261,13 +253,13 @@ export function SetIdxI(
                 local length = native.loadIndex(header, native.layout("Header.aux_len"))
                 if native.both(
                     native.both(1 <= position, position <= length),
-                    native.either(value ~= 9221401712017801216ULL, position < length)
+                    native.either(value ~= values.NIL, position < length)
                 ) then
                     local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
                     local at = (position - 1) * 8
                     if native.either(
-                        native.load64(data, at) ~= 9221401712017801216ULL,
-                        native.load64(header, native.layout("Table.meta")) == 9221401712017801216ULL
+                        native.load64(data, at) ~= values.NIL,
+                        native.load64(header, native.layout("Table.meta")) == values.NIL
                     ) then
                         if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
                             return barrierStoreSlow(pc, context, object, value, data, at)
@@ -293,10 +285,10 @@ export function SetCell(
 ): uint64
     local cell = native.load64(regs, native.load8(pc, 1) * 8)
     local value = native.load64(regs, native.load8(pc, 2) * 8)
-    if cell & 9223090561878065152ULL ~= 9222527611924643840ULL then
+    if cell & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local header = native.pointer(cell & 281474976710655ULL)
+        local header = native.pointer(cell & values.PAYLOAD)
         if native.load8(header, native.layout("Header.kind")) ~= 6 then
             return native.slow(pc, regs, ints, floats, context, frame)
         else
@@ -323,10 +315,10 @@ export function SetSlot(
 ): uint64
     local object = native.load64(regs, native.load8(pc, 1) * 8)
     local value = native.load64(regs, native.load8(pc, 3) * 8)
-    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local header = native.pointer(object & 281474976710655ULL)
+        local header = native.pointer(object & values.PAYLOAD)
         local flags = native.load8(header, native.layout("Header.flags"))
         local at = native.load8(pc, 2) * 8
         local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
@@ -334,7 +326,7 @@ export function SetSlot(
             native.both(native.load8(header, native.layout("Header.kind")) == 3, flags & 160 == 0),
             native.load32(header, native.layout("Header.aux")) == native.load32(pc, 4)
         ) then
-            if native.both(flags & 4 ~= 0, native.load64(data, at) == 9221401712017801216ULL) then
+            if native.both(flags & 4 ~= 0, native.load64(data, at) == values.NIL) then
                 return native.slow(pc, regs, ints, floats, context, frame)
             elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
                 return barrierStoreSlow(pc, context, object, value, data, at)
@@ -358,10 +350,10 @@ export function SetSlotF(
 ): uint64
     local object = native.load64(regs, native.load8(pc, 1) * 8)
     local value = native.loadFloat(floats, native.load8(pc, 3) * 8)
-    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local header = native.pointer(object & 281474976710655ULL)
+        local header = native.pointer(object & values.PAYLOAD)
         local flags = native.load8(header, native.layout("Header.flags"))
         local at = native.load8(pc, 2) * 8
         local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
@@ -369,16 +361,13 @@ export function SetSlotF(
             native.both(native.load8(header, native.layout("Header.kind")) == 3, flags & 160 == 0),
             native.load32(header, native.layout("Header.aux")) == native.load32(pc, 4)
         ) then
-            if native.both(flags & 4 ~= 0, native.load64(data, at) == 9221401712017801216ULL) then
+            if native.both(flags & 4 ~= 0, native.load64(data, at) == values.NIL) then
                 return native.slow(pc, regs, ints, floats, context, frame)
             else
                 -- A NaN payload is boxed as the canonical quiet NaN.
                 local bits = native.bits(value)
-                local nan = native.both(
-                    bits & 9221120237041090560ULL == 9221120237041090560ULL,
-                    bits ~= 9221120237041090560ULL
-                )
-                native.store64(data, at, native.chooseWord(nan, 9221120237041090560ULL, bits))
+                local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
+                native.store64(data, at, native.chooseWord(nan, values.QNAN, bits))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             end
         else

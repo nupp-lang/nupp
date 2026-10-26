@@ -47,6 +47,7 @@ lower.HELPER_MODULES = {["nupp.runtime.vm.helpers"] = "nupp_rt_", ["nupp.runtime
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
 lower.RUNTIME_MODULES = {
+    "src/nupp/runtime/vm/values.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",
@@ -67,6 +68,11 @@ end
 local function need(ok: any, message: string): any
     assert(ok, "lower: " .. message)
     return ok
+end
+
+-- A number literal as CLIF spells it: without the width suffix.
+local function literalText(n: any): string
+    return (n.token.text:gsub("[Uu]?[Ll][Ll]$", ""))
 end
 
 -- A nullable pointer is a union with nil; the pointer is the representation.
@@ -277,12 +283,17 @@ local record Fn
     isSupport: boolean
 end
 
--- A module of the set: its functions by name, the exported ones by member.
+-- A module of the set: its functions by name, the exported ones by member,
+-- and its numeric constants (`const NAME = <literal>`), by the checker's
+-- definition of the name for the module's own code and by member for the
+-- exported ones.
 local record Scope
     name: string
     path: string
     functions: {[string]: Fn}
     exports: {[string]: Fn}
+    constants: {[any]: string}
+    exportedConstants: {[string]: string}
     order: {string}
 end
 
@@ -376,10 +387,6 @@ local function compileFunction(fn: Fn, options: any): string
     -- Expressions answer a typed value, or a literal still free to take the
     -- type its context asks for.
     local expression
-
-    local function literalText(n: any): string
-        return (n.token.text:gsub("[Uu]?[Ll][Ll]$", ""))
-    end
 
     local function materialize(e: any, kind: string): string
         if e.literal then
@@ -714,6 +721,8 @@ local function compileFunction(fn: Fn, options: any): string
             return {kind = "boolean", value = constant("i8", "0")}
         elseif n.kind == "nilExpr" then
             return {literal = "0"}
+        elseif n.kind == "name" and scope.constants[n.token.definition or n.token.text] ~= nil then
+            return {literal = scope.constants[n.token.definition or n.token.text]}
         elseif n.kind == "name" then
             local variable = variableOf(n.token)
             local value = readVariable(variable, b.here())
@@ -722,6 +731,16 @@ local function compileFunction(fn: Fn, options: any): string
                 kind = kindOfVariable(variable)
             end
             return {kind = kind, value = value, type = varDecl[variable] or n.inferredType}
+        elseif n.kind == "dotIndex"
+            and n.obj.kind == "name"
+            and n.obj.token.definition ~= nil
+            and n.obj.token.definition.requiredModule ~= nil
+            and modules[n.obj.token.definition.requiredModule] ~= nil
+        then
+            local other = modules[n.obj.token.definition.requiredModule] as Scope
+            local text = other.exportedConstants[n.name.text]
+            need(text ~= nil, "module " .. other.name .. " exports no constant " .. n.name.text)
+            return {literal = text}
         elseif n.kind == "dotIndex" then
             local access = fieldAddress(n)
             return {kind = access.field.kind, value = load(access.field.kind, access.address), type = access.field.type}
@@ -1206,7 +1225,15 @@ end
 -- One module's functions, from its checked tree. Requires are validated once
 -- every module of the set is known.
 local function describeModule(parsed: any, path: string, handlers: boolean): (Scope, {any})
-    local scope = new Scope(name = "", path = path, functions = {}, exports = {}, order = {})
+    local scope = new Scope(
+        name = "",
+        path = path,
+        functions = {},
+        exports = {},
+        constants = {},
+        exportedConstants = {},
+        order = {}
+    )
     local requires = {}
     for _, block in ipairs(parsed.root.blocks) do
         for _, stat in ipairs(block.stats) do
@@ -1217,6 +1244,26 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
                     names[index] = token.text
                 end
                 scope.name = table.concat(names, ".")
+            elseif node.kind == "localStmt"
+                and node.isConst
+                and #node.names == 1
+                and #node.exprs == 1
+                and node.exprs[1].kind == "number"
+            then
+                -- A named constant: every use is the literal.
+                scope.constants[node.names[1].definition or node.names[1].text] = literalText(node.exprs[1])
+            elseif node.kind == "exportStmt" and node.stat ~= nil and node.stat.kind == "localStmt" then
+                local declared = node.stat
+                need(
+                    declared.isConst
+                    and #declared.names == 1
+                    and #declared.exprs == 1
+                    and declared.exprs[1].kind == "number",
+                    "an exported module-level value is a numeric constant"
+                )
+                local text = literalText(declared.exprs[1])
+                scope.constants[declared.names[1].definition or declared.names[1].text] = text
+                scope.exportedConstants[declared.names[1].text] = text
             elseif node.kind == "localFuncStmt" or node.kind == "exportStmt" then
                 local declared = node.kind == "exportStmt" and node.stat or node
                 local exported = node.kind == "exportStmt"

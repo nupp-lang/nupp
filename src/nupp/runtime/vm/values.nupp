@@ -1,0 +1,54 @@
+module nupp.runtime.vm.values
+
+-- The value encoding (contracts 2.1), named once for every handler module. A
+-- value is a double unless its top sixteen bits spell a quiet NaN with a tag
+-- in the three bits below the quiet bit; the low 48 bits are the payload.
+-- These are the constants `value.rs` defines, in Nupp, checked against it by
+-- the object's generated sidecar.
+
+--- A quiet NaN with no tag: the number tag itself.
+export const QNAN = 0x7ff8000000000000ULL
+
+--- The quiet NaN and the three tag bits together: `value & TAG_MASK` is the
+--- value's tag when it is not a number.
+export const TAG_MASK = 0x7fff000000000000ULL
+
+--- The low 48 bits: an object address, a function id, or a boolean's nothing.
+export const PAYLOAD = 0x0000ffffffffffffULL
+
+export const NIL = 0x7ff9000000000000ULL
+
+export const FALSE = 0x7ffa000000000000ULL
+
+export const TRUE = 0x7ffb000000000000ULL
+
+--- A function value: `TAG_FUNC | image << 32 | index`.
+export const TAG_FUNC = 0x7ffc000000000000ULL
+
+--- A heap object: `TAG_OBJ | address`.
+export const TAG_OBJ = 0x7ffd000000000000ULL
+
+--- A frame guard that guards nothing (`NO_GUARD` in the Rust core).
+export const NO_GUARD = 0xffffffffffffffffULL
+
+--- The largest integer a double holds exactly, 2^53: the bound for an
+--- integer that may be boxed as a number without rounding.
+export const MAX_EXACT_INTEGER = 9007199254740992
+
+--- 2^63 as a double: a number in `[-INT64_RANGE, INT64_RANGE)` converts to
+--- a 64-bit integer without saturating.
+export const INT64_RANGE = 9223372036854775808.0
+
+--- The low 32 bits of a word: a frame header's function id, a function
+--- value's index, the resume pc's complement.
+export const LOW_WORD = 4294967295
+
+--- The low 16 bits of a word: a function value's image index.
+export const LOW_HALF = 65535
+
+--- The bits of the double 1.0.
+export const ONE_BITS = 0x3ff0000000000000ULL
+
+--- The multiplier of the interned-string hash (the golden ratio's fraction
+--- in 64 bits), as the shape table hashes it.
+export const HASH_MULTIPLIER = 0x9e3779b97f4a7c15ULL

@@ -4,6 +4,7 @@ module nupp.runtime.vm.calls
 -- A pushed or popped frame in frame mode exits to the frame driver with
 -- `reenter`; otherwise the chain continues in the new frame's windows.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 
 -- The callee's frame is in place and the context names it: continue there,
 -- or hand it to the frame driver.
@@ -65,8 +66,8 @@ local function pushFrame(
     supplied: int64
 ): uint64
     local current = native.load64(context, native.layout("cur"))
-    local next = current + ((native.load64(frame, 24) >> 33) & 65535)
-    local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & 4294967295
+    local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
+    local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
     if next + words > native.load64(context, native.layout("cap")) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -84,11 +85,11 @@ local function pushFrame(
             local caller = native.loadPointer(
                 native.loadPointer(context, native.layout("funcs")),
                 native.index(
-                    native.load64(frame, 0) & 4294967295
+                    native.load64(frame, 0) & values.LOW_WORD
                 ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.code")
             )
             local resume = ((native.address(pc) - native.address(caller)) >> 4) + 1
-            native.store64(frame, 0, (native.load64(frame, 0) & 4294967295) | (resume << 32))
+            native.store64(frame, 0, (native.load64(frame, 0) & values.LOW_WORD) | (resume << 32))
             local stack = native.loadPointer(context, native.layout("stack"))
             local pushed = native.offset(stack, native.index(next * 8))
             local arguments = current + 4 + native.word(base)
@@ -108,7 +109,7 @@ local function pushFrame(
             end
             local filled: int64 = supplied
             while filled < nparams do
-                native.store64(pushed, 40 + filled * 8, 9221401712017801216ULL)
+                native.store64(pushed, 40 + filled * 8, values.NIL)
                 filled = filled + 1
             end
             native.store64(context, native.layout("cur"), next)
@@ -143,7 +144,7 @@ local function dynamicCall(
                 native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0,
                 native.load32(callee, native.layout("FuncInfo.typed")) ~= 0
             ),
-            fid == native.word(native.load32(context, native.layout("unavailable_fid")) & 4294967295)
+            fid == native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD)
         ) then
             return native.slow(pc, regs, ints, floats, context, frame)
         else
@@ -185,19 +186,7 @@ export function Call(
     if native.either(native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0, nargs >= 64) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        return pushFrame(
-            pc,
-            regs,
-            ints,
-            floats,
-            context,
-            frame,
-            callee,
-            fid,
-            9221401712017801216ULL,
-            native.load8(pc, 1),
-            nargs
-        )
+        return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, values.NIL, native.load8(pc, 1), nargs)
     end
 end
 
@@ -214,8 +203,8 @@ export function CallK(
     local value = native.load64(regs, native.load8(pc, 1) * 8)
     if native.either(native.load32(context, native.layout("feedback")) ~= 0, nargs >= 64) then
         return native.slow(pc, regs, ints, floats, context, frame)
-    elseif value & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(value & 281474976710655ULL)
+    elseif value & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(value & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 5 then
             return dynamicCall(
                 pc,
@@ -224,15 +213,15 @@ export function CallK(
                 floats,
                 context,
                 frame,
-                native.word(native.load32(object, native.layout("Header.aux")) & 4294967295),
+                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
                 value,
                 nargs
             )
         else
             return native.slow(pc, regs, ints, floats, context, frame)
         end
-    elseif native.both(value & 9223090561878065152ULL == 9222246136947933184ULL, (value >> 32) & 65535 == 0) then
-        return dynamicCall(pc, regs, ints, floats, context, frame, value & 4294967295, 9221401712017801216ULL, nargs)
+    elseif native.both(value & values.TAG_MASK == values.TAG_FUNC, (value >> 32) & values.LOW_HALF == 0) then
+        return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
 
@@ -256,7 +245,7 @@ local function resumeCaller(
     local header = native.load64(resumed, 0)
     local callerInfo = native.offset(
         native.loadPointer(context, native.layout("funcs")),
-        native.index(header & 4294967295) * native.layout("FuncInfo.size")
+        native.index(header & values.LOW_WORD) * native.layout("FuncInfo.size")
     )
     local code = native.loadPointer(callerInfo, native.layout("FuncInfo.code"))
     local callerPc = native.offset(code, native.index((header >> 32) * 16))
@@ -286,13 +275,13 @@ export function Ret(
     local guard = native.load64(context, native.layout("guard"))
     local current = native.load64(context, native.layout("cur"))
     local link = native.load64(frame, 8)
-    local caller = link & 4294967295
-    if native.either(native.both(guard ~= 18446744073709551615ULL, guard >= current), caller == 4294967295) then
+    local caller = link & values.LOW_WORD
+    if native.either(native.both(guard ~= values.NO_GUARD, guard >= current), caller == values.LOW_WORD) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
         local value = native.load64(regs, native.load8(pc, 1) * 8)
         local flags = native.load64(frame, 24)
-        local slot = native.chooseWord((flags >> 32) & 1 ~= 0, flags & 4294967295, link >> 32)
+        local slot = native.chooseWord((flags >> 32) & 1 ~= 0, flags & values.LOW_WORD, link >> 32)
         native.store64(context, native.layout("result"), value)
         native.store64(native.loadPointer(context, native.layout("stack")), native.index(slot * 8), value)
         native.store64(context, native.layout("cur"), caller)
@@ -312,15 +301,11 @@ export function RetNil(
     local guard = native.load64(context, native.layout("guard"))
     local current = native.load64(context, native.layout("cur"))
     local link = native.load64(frame, 8)
-    local caller = link & 4294967295
-    if native.either(native.both(guard ~= 18446744073709551615ULL, guard >= current), caller == 4294967295) then
+    local caller = link & values.LOW_WORD
+    if native.either(native.both(guard ~= values.NO_GUARD, guard >= current), caller == values.LOW_WORD) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        native.store64(
-            native.loadPointer(context, native.layout("stack")),
-            native.index((link >> 32) * 8),
-            9221401712017801216ULL
-        )
+        native.store64(native.loadPointer(context, native.layout("stack")), native.index((link >> 32) * 8), values.NIL)
         native.store64(context, native.layout("cur"), caller)
         native.store64(context, native.layout("last_nres"), 0)
         return resumeCaller(pc, regs, ints, floats, context, frame, caller)
@@ -339,10 +324,10 @@ export function RetN(
     local guard = native.load64(context, native.layout("guard"))
     local current = native.load64(context, native.layout("cur"))
     local link = native.load64(frame, 8)
-    local caller = link & 4294967295
+    local caller = link & values.LOW_WORD
     if native.either(
-        native.either(count > 8, native.both(guard ~= 18446744073709551615ULL, guard >= current)),
-        caller == 4294967295
+        native.either(count > 8, native.both(guard ~= values.NO_GUARD, guard >= current)),
+        caller == values.LOW_WORD
     ) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -355,7 +340,7 @@ export function RetN(
             copied = copied + 1
         end
         if count == 0 then
-            native.store64(stack, results, 9221401712017801216ULL)
+            native.store64(stack, results, values.NIL)
         end
         native.store64(context, native.layout("cur"), caller)
         native.store64(context, native.layout("last_nres"), native.word(count))
@@ -378,7 +363,7 @@ export function PadResults(
         local base = native.load8(pc, 1)
         local filled: int64 = native.loadIndex(context, native.layout("last_nres"))
         while filled < wanted do
-            native.store64(regs, (base + filled) * 8, 9221401712017801216ULL)
+            native.store64(regs, (base + filled) * 8, values.NIL)
             filled = filled + 1
         end
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -406,8 +391,8 @@ export function CallDyn(
     local value = native.load64(regs, native.load8(pc, 1) * 8)
     if native.either(native.load32(context, native.layout("feedback")) ~= 0, nargs >= 64) then
         return native.slow(pc, regs, ints, floats, context, frame)
-    elseif value & 9223090561878065152ULL == 9222527611924643840ULL then
-        local object = native.pointer(value & 281474976710655ULL)
+    elseif value & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(value & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 5 then
             return dynamicCall(
                 pc,
@@ -416,15 +401,15 @@ export function CallDyn(
                 floats,
                 context,
                 frame,
-                native.word(native.load32(object, native.layout("Header.aux")) & 4294967295),
+                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
                 value,
                 nargs
             )
         else
             return native.slow(pc, regs, ints, floats, context, frame)
         end
-    elseif native.both(value & 9223090561878065152ULL == 9222246136947933184ULL, (value >> 32) & 65535 == 0) then
-        return dynamicCall(pc, regs, ints, floats, context, frame, value & 4294967295, 9221401712017801216ULL, nargs)
+    elseif native.both(value & values.TAG_MASK == values.TAG_FUNC, (value >> 32) & values.LOW_HALF == 0) then
+        return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
 

@@ -2,6 +2,7 @@ module nupp.runtime.vm.boxing
 
 -- Boxing, tag checks, string bytes and record allocation.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
@@ -14,7 +15,7 @@ export function TagCheckNum(
     frame: voidptr
 ): uint64
     local value = native.load64(regs, native.load8(pc, 2) * 8)
-    if native.either(value & 9221120237041090560ULL ~= 9221120237041090560ULL, value == 9221120237041090560ULL) then
+    if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
         native.store64(regs, native.load8(pc, 1) * 8, value)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
@@ -31,7 +32,7 @@ export function IBox(
     frame: voidptr
 ): uint64
     local value = native.loadIndex(ints, native.load8(pc, 2) * 8)
-    if native.either(value < -9007199254740992, 9007199254740992 < value) then
+    if native.either(value < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < value) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
         native.store64(regs, native.load8(pc, 1) * 8, native.bits(native.toFloat(value)))
@@ -48,9 +49,9 @@ export function IUnbox(
     frame: voidptr
 ): uint64
     local value = native.load64(regs, native.load8(pc, 2) * 8)
-    if native.either(value & 9221120237041090560ULL ~= 9221120237041090560ULL, value == 9221120237041090560ULL) then
+    if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
         local d = native.fromBits(value)
-        if native.both(native.both(-9223372036854775808.0 <= d, d < 9223372036854775808.0), native.floor(d) == d) then
+        if native.both(native.both(-values.INT64_RANGE <= d, d < values.INT64_RANGE), native.floor(d) == d) then
             native.storeIndex(ints, native.load8(pc, 1) * 8, native.toInt(d))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         else
@@ -71,10 +72,10 @@ export function StrByte(
 ): uint64
     local object = native.load64(regs, native.load8(pc, 2) * 8)
     local position = native.loadIndex(ints, native.load8(pc, 3) * 8)
-    if object & 9223090561878065152ULL ~= 9222527611924643840ULL then
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local header = native.pointer(object & 281474976710655ULL)
+        local header = native.pointer(object & values.PAYLOAD)
         local kind = native.load8(header, native.layout("Header.kind"))
         if native.either(native.both(kind ~= 1, kind ~= 9), position < 0) then
             return native.slow(pc, regs, ints, floats, context, frame)
@@ -87,7 +88,7 @@ export function StrByte(
                 local byte = native.load8(native.loadPointer(header, native.layout("Header.aux_ptr")), position - 1)
                 native.store64(regs, a, native.bits(native.toFloat(byte)))
             else
-                native.store64(regs, a, 9221401712017801216ULL)
+                native.store64(regs, a, values.NIL)
             end
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         end
