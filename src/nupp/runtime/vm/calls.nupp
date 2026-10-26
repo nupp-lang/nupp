@@ -40,7 +40,7 @@ end
 local function settle(context: voidptr, first: uint64): uint64
     local result = first
     while true do
-        if result == values.LOW_WORD then
+        if result == values.ST_REENTER then
             local stack = native.loadPointer(context, native.layout("stack"))
             local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
             local header = native.load64(frame, 0)
@@ -80,7 +80,7 @@ local function settle(context: voidptr, first: uint64): uint64
             else
                 return resumeTop(context, pcIndex)
             end
-        elseif result >= 4294967292ULL then
+        elseif result >= values.ST_ERROR then
             native.store32(context, native.layout("status"), native.index(result))
             return native.fail()
         else
@@ -105,7 +105,7 @@ end
 -- starts or resumes, or after Rust ran an instruction that changed the frame.
 -- Exported for the glue, which finds it by name; no handler calls it.
 export function resumeSlow(pc: voidptr, context: voidptr): uint64
-    return settle(context, values.LOW_WORD)
+    return settle(context, values.ST_REENTER)
 end
 
 -- The callee's frame is in place and the context names it: the policy for a

@@ -52,3 +52,10 @@ export const ONE_BITS = 0x3ff0000000000000ULL
 --- The multiplier of the interned-string hash (the golden ratio's fraction
 --- in 64 bits), as the shape table hashes it.
 export const HASH_MULTIPLIER = 0x9e3779b97f4a7c15ULL
+
+--- The core's status words, as `threaded.rs` numbers them: a frame changed
+--- under the driver's policy, and a raise is propagating. The other statuses
+--- (the task finished or parked) lie between them and above `ST_ERROR`.
+export const ST_REENTER = 0xffffffffULL
+
+export const ST_ERROR = 0xfffffffcULL
