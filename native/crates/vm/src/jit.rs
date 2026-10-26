@@ -114,28 +114,35 @@ impl FrameEntry {
 /// queued here and keep running interpreted until their entry is installed,
 /// so no run waits on a compile it may not live to use.
 pub struct Worker {
-    jobs: std::sync::mpsc::Sender<Job>,
-    done: std::sync::mpsc::Receiver<(u32, Result<FrameEntry, String>)>,
+    jobs: std::sync::mpsc::Sender<(u64, Job)>,
+    done: std::sync::mpsc::Receiver<(u64, u32, Result<FrameEntry, String>)>,
+    epoch: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub pending: Vec<bool>,
 }
 
 impl Worker {
     pub fn start() -> Worker {
-        let (jobs, inbox) = std::sync::mpsc::channel::<Job>();
+        let (jobs, inbox) = std::sync::mpsc::channel::<(u64, Job)>();
         let (outbox, done) = std::sync::mpsc::channel();
+        let epoch = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let compiling_epoch = epoch.clone();
         std::thread::Builder::new().name("nupp-jit".into()).stack_size(64 << 20).spawn(move || {
             let mut jit = Jit::new();
             // The smallest waiting function first: a small hot one (a loop
             // body, a recursive call) pays back at once, and a large one
             // would hold the queue for as long as it takes to compile.
-            let mut waiting: Vec<Job> = Vec::new();
+            let mut waiting: Vec<(u64, Job)> = Vec::new();
             loop {
                 if waiting.is_empty() {
                     match inbox.recv() { Ok(job) => waiting.push(job), Err(_) => break }
                 }
                 while let Ok(job) = inbox.try_recv() { waiting.push(job); }
-                let next = waiting.iter().enumerate().min_by_key(|(_, job)| job.func.code.len()).map(|(i, _)| i).unwrap();
-                let job = waiting.swap_remove(next);
+                let next = waiting.iter().enumerate().min_by_key(|(_, (_, job))| job.func.code.len()).map(|(i, _)| i).unwrap();
+                let (generation, job) = waiting.swap_remove(next);
+                if generation != compiling_epoch.load(std::sync::atomic::Ordering::Relaxed) {
+                    if outbox.send((generation, job.fid, Ok(FrameEntry::plain(0)))).is_err() { break; }
+                    continue;
+                }
                 jit.cur_closure_addr = job.closure;
                 jit.extra_addr = job.extra;
                 jit.last_nres_addr = job.last_nres;
@@ -148,10 +155,10 @@ impl Worker {
                 let result = if job.guest { crate::jit_glue::compile_here(&job.func, job.fid, &job.plan) } else { jit.compile_frame(&job.func, job.fid).map(|p| FrameEntry::plain(p as u64)) };
                 #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                 let result = jit.compile_frame(&job.func, job.fid).map(|p| FrameEntry::plain(p as u64));
-                if outbox.send((job.fid, result)).is_err() { break; }
+                if outbox.send((generation, job.fid, result)).is_err() { break; }
             }
         }).expect("cannot start the JIT compiler thread");
-        Worker { jobs, done, pending: Vec::new() }
+        Worker { jobs, done, epoch, pending: Vec::new() }
     }
     /// Whether `fid` is queued or compiling.
     pub fn queued(&self, fid: u32) -> bool { self.pending.get(fid as usize).copied().unwrap_or(false) }
@@ -161,13 +168,48 @@ impl Worker {
         if self.pending.len() <= fid { self.pending.resize(fid + 1, false); }
         if self.pending[fid] { return true; }
         self.pending[fid] = true;
-        self.jobs.send(job).is_ok()
+        self.jobs.send((self.epoch.load(std::sync::atomic::Ordering::Relaxed), job)).is_ok()
+    }
+    /// A loaded program starts a new execution phase. Keep installed code,
+    /// but let abandoned compilation work become hot again before spending
+    /// more time on it. An in-progress compile may finish; its result is
+    /// discarded on the VM thread too.
+    pub fn cancel_pending(&mut self) {
+        self.epoch.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     /// The compiles that finished since the last call.
     pub fn finished(&mut self) -> Vec<(u32, Result<FrameEntry, String>)> {
         let mut out = Vec::new();
-        while let Ok(done) = self.done.try_recv() { self.pending[done.0 as usize] = false; out.push(done); }
+        while let Ok((generation, fid, result)) = self.done.try_recv() {
+            self.pending[fid as usize] = false;
+            let result = if generation == self.epoch.load(std::sync::atomic::Ordering::Relaxed) {
+                result
+            } else { Ok(FrameEntry::plain(0)) };
+            out.push((fid, result));
+        }
         out
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_discards_finished_rows_and_keeps_functions_eligible() {
+        let (jobs, _) = std::sync::mpsc::channel();
+        let (sent, done) = std::sync::mpsc::channel();
+        let epoch = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut worker = Worker { jobs, done, epoch, pending: vec![true] };
+        assert!(sent.send((0, 0, Ok(FrameEntry { address: 17, direct: Some([23, 41]) }))).is_ok());
+        worker.cancel_pending();
+        let (_, result) = worker.finished().pop().unwrap();
+        let entry = result.unwrap();
+        assert_eq!(entry.address, 0);
+        assert!(entry.direct.is_none());
+        assert!(!worker.queued(0));
+        assert!(sent.send((1, 0, Ok(FrameEntry { address: 53, direct: Some([59, 61]) }))).is_ok());
+        assert_eq!(worker.finished().pop().unwrap().1.unwrap().address, 53);
     }
 }
 

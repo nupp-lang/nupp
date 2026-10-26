@@ -50,6 +50,12 @@ impl Interp {
     /// past the reserved room is refused rather than moving them.
     #[cfg(feature = "jit")]
     pub(crate) fn extend_jit_tables(&mut self) {
+        // The compiler's hot functions need not stay hot after it loads the
+        // program it just emitted. Do not keep compiling that old queue
+        // beside the program; still-needed functions can request again.
+        if self.guest_jit {
+            if let Some(worker) = self.jit_worker.as_mut() { worker.cancel_pending(); }
+        }
         let funcs = self.funcs.len();
         let shapes = self.heap.shapes.len();
         if funcs > self.entries.capacity() || funcs > self.calltab.capacity() || shapes > self.shape_probe.capacity() {
