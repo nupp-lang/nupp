@@ -1,11 +1,15 @@
 module nupp.runtime.vm.tables
 
--- Tables (contracts 2.4, 2.13, 4.2): construction, the hash part's lookup and
--- insertion, the array part and its border, written against the heap layout
--- the glue measures. Allocation is the heap's until N05: a new table, the
--- array part's length and a rehash are helpers; every other table operation
--- is here.
+-- Tables (contracts 2.4, 2.13, 4.2, 9): construction, the hash part's lookup
+-- and insertion, the array part and its border, written against the heap
+-- layout the glue measures. Allocation is the heap's until N05: a new table,
+-- the array part's length and a rehash are helpers, and a key that is not yet
+-- canonical (an uninterned string, a slice, an unsigned integer box) is made
+-- so by one; every other table operation is here. A receiver that is not a
+-- plain table (a record, a declaration or prototype table, a metatable's
+-- `__newindex`, an error) is the Rust step's for one instruction.
 const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
@@ -36,4 +40,560 @@ export function NewTableN(
     frame: voidptr
 ): uint64
     return newTableSlow(pc, context, native.load8(pc, 2), native.load8(pc, 3))
+end
+
+-- A read the table itself cannot answer: another kind of receiver, or an
+-- absent key under a metatable, whose `__index` the helper follows.
+local function indexSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64): uint64
+    protocol.publishPc(pc, context)
+    local value = helpers.getField(context, object, key)
+    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+end
+
+-- The insertion barrier (4.2) before a store made while marking; the barrier
+-- moves no stack and runs no code of the program.
+local function markedStoreSlow(
+    pc: voidptr,
+    context: voidptr,
+    parent: uint64,
+    child: uint64,
+    target: voidptr,
+    at: int64
+): uint64
+    helpers.barrier(context, parent, child)
+    native.store64(target, at, child)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- A new entry at bucket `k` of the hash part, found empty by the probe: the
+-- key and the value, then the entry's position in the insertion order
+-- (contracts 2.13).
+local function writeEntry(header: voidptr, key: uint64, value: uint64, k: int64): nil
+    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
+    local n = native.loadIndex(header, native.layout("Table.hash_len"))
+    native.store64(buckets, k * 16, key)
+    native.store64(buckets, k * 16 + 8, value)
+    native.store32(native.loadPointer(header, native.layout("Table.hash_order")), n * 4, k)
+    native.store32(native.loadPointer(header, native.layout("Table.hash_rank")), k * 4, n)
+    native.storeIndex(header, native.layout("Table.hash_len"), n + 1)
+end
+
+-- The insertion barrier for a new entry, while marking: the key when it is
+-- an object, and the value.
+local function barrierEntry(context: voidptr, object: uint64, key: uint64, value: uint64): nil
+    if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+        if key & values.TAG_MASK == values.TAG_OBJ then
+            helpers.barrier(context, object, key)
+        end
+        helpers.barrier(context, object, value)
+    end
+end
+
+local function insertSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64, k: int64): uint64
+    barrierEntry(context, object, key, value)
+    writeEntry(native.pointer(object & values.PAYLOAD), key, value, k)
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- A hash part with no room for the key: rehashed by the helper, which drops
+-- the entries whose values went nil and keeps the order of the rest, then the
+-- entry inserted at the first empty bucket of the key's probe sequence.
+local function growInsertSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    helpers.growHash(context, object)
+    local header = native.pointer(object & values.PAYLOAD)
+    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
+    local mask = native.load64(header, native.layout("Table.hash_mask"))
+    local k = (((key >> 4) * values.HASH_MULTIPLIER) >> 32) & mask
+    while native.load64(buckets, native.index(k * 16)) ~= values.NIL do
+        k = (k + 1) & mask
+    end
+    barrierEntry(context, object, key, value)
+    writeEntry(header, key, value, native.index(k))
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- A store by a canonical key into the hash part of a plain table: the probe
+-- sequence from the key's hash, the entry overwritten when the key has one
+-- (a key keeps its entry when its value becomes nil), inserted at the first
+-- empty bucket otherwise. Under a metatable only a present key is stored
+-- raw; an absent one may have a `__newindex` to call.
+local function hashStore(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    object: uint64,
+    header: voidptr,
+    meta: uint64,
+    key: uint64,
+    value: uint64
+): uint64
+    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
+    local mask = native.load64(header, native.layout("Table.hash_mask"))
+    local k = (((key >> 4) * values.HASH_MULTIPLIER) >> 32) & mask
+    if buckets ~= nil then
+        while true do
+            local bucket = native.load64(buckets, native.index(k * 16))
+            if bucket == key then
+                local at = native.index(k * 16 + 8)
+                if native.both(meta ~= values.NIL, native.load64(buckets, at) == values.NIL) then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+                    return markedStoreSlow(pc, context, object, value, buckets, at)
+                else
+                    native.store64(buckets, at, value)
+                    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                end
+            end
+            if bucket == values.NIL then
+                break
+            end
+            k = (k + 1) & mask
+        end
+    end
+    if meta ~= values.NIL then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    elseif value == values.NIL then
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    elseif native.either(
+        buckets == nil,
+        (
+            native.load64(header, native.layout("Table.hash_len")) + 1
+        ) * 4 > native.load64(header, native.layout("Table.hash_cap")) * 3
+    ) then
+        return growInsertSlow(pc, context, object, key, value)
+    elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+        return insertSlow(pc, context, object, key, value, native.index(k))
+    else
+        writeEntry(header, key, value, native.index(k))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+end
+
+-- `t[#t] = nil` (contracts 9): the last entry cleared, then the array part
+-- shrinks past every trailing nil.
+local function trimSlow(pc: voidptr, context: voidptr, object: uint64, last: int64): uint64
+    protocol.publishPc(pc, context)
+    local header = native.pointer(object & values.PAYLOAD)
+    local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+    native.store64(data, last * 8, values.NIL)
+    local n = last
+    while native.both(n > 0, native.load64(data, (n - 1) * 8) == values.NIL) do
+        n = n - 1
+    end
+    helpers.resizeArray(context, object, n)
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- The value stored at array position `n` (zero-based) of a table the helper
+-- just lengthened to hold it.
+local function fillArray(context: voidptr, object: uint64, n: int64, value: uint64): nil
+    local header = native.pointer(object & values.PAYLOAD)
+    if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+        helpers.barrier(context, object, value)
+    end
+    native.store64(native.loadPointer(header, native.layout("Header.aux_ptr")), n * 8, value)
+end
+
+-- A store at the border, `t[#t + 1] = v`: the key leaves the hash part if it
+-- was there, the array part grows by one for the value, and every key the
+-- growth made contiguous follows it out of the hash part.
+local function appendSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    local header = native.pointer(object & values.PAYLOAD)
+    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
+    local mask = native.load64(header, native.layout("Table.hash_mask"))
+    if buckets ~= nil then
+        local k = (((key >> 4) * values.HASH_MULTIPLIER) >> 32) & mask
+        while true do
+            local bucket = native.load64(buckets, native.index(k * 16))
+            if bucket == key then
+                native.store64(buckets, native.index(k * 16 + 8), values.NIL)
+                break
+            end
+            if bucket == values.NIL then
+                break
+            end
+            k = (k + 1) & mask
+        end
+    end
+    if value ~= values.NIL then
+        local n = native.loadIndex(header, native.layout("Header.aux_len"))
+        helpers.resizeArray(context, object, n + 1)
+        fillArray(context, object, n, value)
+        n = n + 1
+        if buckets ~= nil then
+            local migrating = true
+            while migrating do
+                migrating = false
+                local next = native.bits(native.toFloat(n + 1))
+                local k = (((next >> 4) * values.HASH_MULTIPLIER) >> 32) & mask
+                while true do
+                    local bucket = native.load64(buckets, native.index(k * 16))
+                    if bucket == next then
+                        local moved = native.load64(buckets, native.index(k * 16 + 8))
+                        if moved ~= values.NIL then
+                            native.store64(buckets, native.index(k * 16 + 8), values.NIL)
+                            helpers.resizeArray(context, object, n + 1)
+                            fillArray(context, object, n, moved)
+                            n = n + 1
+                            migrating = true
+                        end
+                        break
+                    end
+                    if bucket == values.NIL then
+                        break
+                    end
+                    k = (k + 1) & mask
+                end
+            end
+        end
+    end
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
+-- A key made canonical by the helper, then the store into the hash part with
+-- the windows derived again.
+local function storeInternSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    local canonical = helpers.internKey(context, key, 1)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local header = native.pointer(object & values.PAYLOAD)
+
+    return hashStore(
+        pc,
+        regs,
+        ints,
+        floats,
+        context,
+        frame,
+        object,
+        header,
+        native.load64(header, native.layout("Table.meta")),
+        canonical,
+        value
+    )
+end
+
+-- A store by any key into a table. A number key reaches the array part when
+-- it is a whole number inside it or just past its border, and the hash part
+-- with its bits otherwise, `-0` as `0`; nil and NaN keys are errors the step
+-- raises; a key that is not canonical is made so by the helper first.
+local function storeKeyed(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    object: uint64,
+    key: uint64,
+    value: uint64
+): uint64
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local header = native.pointer(object & values.PAYLOAD)
+    if native.either(
+        native.load8(header, native.layout("Header.kind")) ~= 2,
+        native.load8(header, native.layout("Header.flags")) & values.SPECIAL_TABLE_FLAGS ~= 0
+    ) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local meta = native.load64(header, native.layout("Table.meta"))
+    local bits = key
+    if native.either(key & values.QNAN ~= values.QNAN, key == values.QNAN) then
+        if key == values.QNAN then
+            return native.slow(pc, regs, ints, floats, context, frame)
+        end
+        bits = native.chooseWord(key == values.NEGATIVE_ZERO, 0, key)
+        local d = native.fromBits(bits)
+        local length = native.load64(header, native.layout("Header.aux_len"))
+        local whole = native.unsignedInt(d)
+        if native.unsignedFloat(whole) == d then
+            if native.both(1 <= whole, whole <= length) then
+                local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+                local at = native.index((whole - 1) * 8)
+                if native.both(meta ~= values.NIL, native.load64(data, at) == values.NIL) then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                elseif native.both(value == values.NIL, whole == length) then
+                    return trimSlow(pc, context, object, native.index(length) - 1)
+                elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+                    return markedStoreSlow(pc, context, object, value, data, at)
+                else
+                    native.store64(data, at, value)
+                    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                end
+            elseif whole == length + 1 then
+                if meta ~= values.NIL then
+                    return native.slow(pc, regs, ints, floats, context, frame)
+                else
+                    return appendSlow(pc, context, object, bits, value)
+                end
+            end
+        end
+    elseif key == values.NIL then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    elseif key & values.TAG_MASK == values.TAG_OBJ then
+        local keyHeader = native.pointer(key & values.PAYLOAD)
+        local keyKind = native.load8(keyHeader, native.layout("Header.kind"))
+        if native.either(
+            native.either(
+                native.both(keyKind == 1, native.load8(keyHeader, native.layout("Header.flags")) & 1 == 0),
+                keyKind == 9
+            ),
+            native.both(keyKind == 12, native.load32(keyHeader, native.layout("Header.aux")) ~= 0)
+        ) then
+            return storeInternSlow(pc, context, object, key, value)
+        end
+    end
+
+    return hashStore(pc, regs, ints, floats, context, frame, object, header, meta, bits, value)
+end
+
+export function SetIdx(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local key = native.load64(regs, native.load8(pc, 2) * 8)
+    local value = native.load64(regs, native.load8(pc, 3) * 8)
+    return storeKeyed(pc, regs, ints, floats, context, frame, object, key, value)
+end
+
+export function SetIdxF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local d = native.loadFloat(floats, native.load8(pc, 2) * 8)
+    local value = native.load64(regs, native.load8(pc, 3) * 8)
+    -- The key is the float boxed: a NaN payload as the canonical quiet NaN.
+    local bits = native.bits(d)
+    local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
+
+    return storeKeyed(pc, regs, ints, floats, context, frame, object, native.chooseWord(nan, values.QNAN, bits), value)
+end
+
+export function SetIdxI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local position = native.loadIndex(ints, native.load8(pc, 2) * 8)
+    -- An integer a double cannot hold exactly is boxed as an integer object.
+    if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local value = native.load64(regs, native.load8(pc, 3) * 8)
+
+    return storeKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)), value)
+end
+
+-- The receiver reported to the JIT's feedback, then the store itself.
+local function observeStoreSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64, value: uint64): uint64
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local fid = native.index(native.load64(frame, 0) & values.LOW_WORD)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        fid * native.layout("FuncInfo.size")
+    )
+    local code = native.loadPointer(info, native.layout("FuncInfo.code"))
+    helpers.observe(context, fid, native.index(native.address(pc) - native.address(code)) >> 4, object, 1)
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+
+    return storeKeyed(pc, regs, ints, floats, context, frame, object, name, value)
+end
+
+-- A store by an interned name (contracts 2.5): the table's hash part; a
+-- record's declared slot is the step's.
+export function SetField(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local object = native.load64(regs, native.load8(pc, 1) * 8)
+    local value = native.load64(regs, native.load8(pc, 2) * 8)
+    local consts = native.loadPointer(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(
+            native.load64(frame, 0) & values.LOW_WORD
+        ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.consts")
+    )
+    local name = native.load64(consts, native.load32(pc, 4) * 8)
+    if native.load32(context, native.layout("feedback")) ~= 0 then
+        return observeStoreSlow(pc, context, object, name, value)
+    else
+        return storeKeyed(pc, regs, ints, floats, context, frame, object, name, value)
+    end
+end
+
+-- A read by a canonical key from the hash part of a table: the entry's value
+-- when it has one, nil when the table has no metatable, and the helper's
+-- `__index` walk otherwise.
+local function hashLookup(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    object: uint64,
+    header: voidptr,
+    meta: uint64,
+    key: uint64
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
+    if buckets ~= nil then
+        local mask = native.load64(header, native.layout("Table.hash_mask"))
+        local k = (((key >> 4) * values.HASH_MULTIPLIER) >> 32) & mask
+        while true do
+            local bucket = native.load64(buckets, native.index(k * 16))
+            if bucket == key then
+                local value = native.load64(buckets, native.index(k * 16 + 8))
+                if native.either(value ~= values.NIL, meta == values.NIL) then
+                    native.store64(regs, a, value)
+                    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+                end
+                break
+            end
+            if bucket == values.NIL then
+                break
+            end
+            k = (k + 1) & mask
+        end
+    end
+    if meta == values.NIL then
+        native.store64(regs, a, values.NIL)
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    else
+        return indexSlow(pc, context, object, key)
+    end
+end
+
+-- A read by a key the helper makes canonical first: absent when no interned
+-- string has the key's bytes, which is a miss without an allocation.
+local function readInternSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64): uint64
+    protocol.publishPc(pc, context)
+    local canonical = helpers.internKey(context, key, 0)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local header = native.pointer(object & values.PAYLOAD)
+    local meta = native.load64(header, native.layout("Table.meta"))
+    if canonical == values.NIL then
+        if meta == values.NIL then
+            return protocol.continueAfter(pc, context, native.load8(pc, 1), values.NIL, true)
+        else
+            return indexSlow(pc, context, object, key)
+        end
+    end
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+
+    return hashLookup(pc, regs, ints, floats, context, frame, object, header, meta, canonical)
+end
+
+-- A read by any key (contracts 2.4): the array part for a whole number inside
+-- it, the hash part otherwise; another kind of receiver is the helper's.
+export function GetIdx(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.load8(pc, 1) * 8
+    local object = native.load64(regs, native.load8(pc, 2) * 8)
+    local key = native.load64(regs, native.load8(pc, 3) * 8)
+    if object & values.TAG_MASK ~= values.TAG_OBJ then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local header = native.pointer(object & values.PAYLOAD)
+    if native.load8(header, native.layout("Header.kind")) ~= 2 then
+        return indexSlow(pc, context, object, key)
+    end
+    local meta = native.load64(header, native.layout("Table.meta"))
+    local bits = key
+    if native.either(key & values.QNAN ~= values.QNAN, key == values.QNAN) then
+        bits = native.chooseWord(key == values.NEGATIVE_ZERO, 0, key)
+        local d = native.fromBits(bits)
+        local length = native.load64(header, native.layout("Header.aux_len"))
+        local whole = native.unsignedInt(d)
+        if native.both(native.both(1 <= whole, whole <= length), native.unsignedFloat(whole) == d) then
+            local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+            local value = native.load64(data, native.index((whole - 1) * 8))
+            if native.either(value ~= values.NIL, meta == values.NIL) then
+                native.store64(regs, a, value)
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+            else
+                return indexSlow(pc, context, object, bits)
+            end
+        end
+    elseif key == values.NIL then
+        if meta == values.NIL then
+            native.store64(regs, a, values.NIL)
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        else
+            return indexSlow(pc, context, object, key)
+        end
+    elseif key & values.TAG_MASK == values.TAG_OBJ then
+        local keyHeader = native.pointer(key & values.PAYLOAD)
+        local keyKind = native.load8(keyHeader, native.layout("Header.kind"))
+        if native.either(
+            native.either(
+                native.both(keyKind == 1, native.load8(keyHeader, native.layout("Header.flags")) & 1 == 0),
+                keyKind == 9
+            ),
+            native.both(keyKind == 12, native.load32(keyHeader, native.layout("Header.aux")) ~= 0)
+        ) then
+            return readInternSlow(pc, context, object, key)
+        end
+    end
+
+    return hashLookup(pc, regs, ints, floats, context, frame, object, header, meta, bits)
 end

@@ -85,7 +85,7 @@ codes! {
     GetField, GetIdxI, SetIdxI, SetCell, SetSlot, TagCheckNum, NewRecord, GetIdx,
     PadResults, IBox, GetIdxF, SetIdxF, SetIdx, Mod,
     Concat,
-    NewTable, NewTableN,
+    NewTable, NewTableN, SetField,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -180,6 +180,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::Concat(d, a, b) => i(Code::Concat, d, a, b),
         Op::NewTable(d) => i(Code::NewTable, d, 0, 0),
         Op::NewTableN(d, n, m) => i(Code::NewTableN, d, n, m),
+        Op::SetField(t, k, s) => Ins { imm: k as i32, ..i(Code::SetField, t, s, 0) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }
@@ -337,33 +338,6 @@ pub(crate) fn rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
     sync(ctx, it);
     v.0
 }
-/// A read by any value key outside the core's array fast path: hash part,
-/// record, or a key that is a slice or an uninterned string.
-pub(crate) fn rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
-    let ctx = unsafe { &mut *ctx };
-    let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.index_any(Value(obj), Value(key)));
-    if v == Value::ERROR { ctx.status = ST_ERROR; }
-    sync(ctx, it);
-    v.0
-}
-/// A table or record read by integer index outside the core's array fast path.
-pub(crate) fn rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
-    let ctx = unsafe { &mut *ctx };
-    let (it, _) = enter_rust(ctx);
-    let v = it.guarded(|it| it.index(Value(obj), Value::num(i as f64)));
-    if v == Value::ERROR { ctx.status = ST_ERROR; }
-    sync(ctx, it);
-    v.0
-}
-/// A store by integer index: the array part's growth, the hash part, a record's children.
-pub(crate) fn rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
-    let ctx = unsafe { &mut *ctx };
-    let (it, _) = enter_rust(ctx);
-    let r = it.guarded(|it| { it.newindex(Value(obj), Value::num(i as f64), Value(v)); Value::NIL });
-    if r == Value::ERROR { ctx.status = ST_ERROR; }
-    sync(ctx, it);
-}
 /// The insertion barrier (4.2) for a store the core makes while marking.
 pub(crate) fn rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
     let (it, _) = enter_rust(unsafe { &mut *ctx });
@@ -468,19 +442,4 @@ impl Interp {
             s => panic!("threaded core returned status {s:#x}"),
         }
     }
-}
-
-/// A value-key store the core's array path did not take: the key normalized
-/// first, so an existing long-string key finds its entry before `__newindex`
-/// is considered.
-pub(crate) unsafe fn store_index(ctx: *mut Ctx, obj: u64, key: u64, value: u64) {
-    let ctx = &mut *ctx;
-    let (it, _) = enter_rust(ctx);
-    let r = it.guarded(|it| {
-        let key = it.key_for_store(Value(key));
-        it.newindex(Value(obj), key, Value(value));
-        Value::NIL
-    });
-    if r == Value::ERROR { ctx.status = ST_ERROR; }
-    sync(ctx, it);
 }

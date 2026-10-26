@@ -75,3 +75,11 @@ export const F_INTERNED = 1
 
 --- The longest string that is interned (contracts 1.3), in bytes.
 export const INTERN_LIMIT = 40
+
+--- The bits of `-0.0`: as a table key it is the key `0`.
+export const NEGATIVE_ZERO = 0x8000000000000000ULL
+
+--- The header flags under which a table is not plain slots: a storage schema
+--- (32), a declaration (64) and a prototype (128), whose stores the Rust step
+--- accounts for.
+export const SPECIAL_TABLE_FLAGS = 224

@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 50] = [
+pub const LAYOUT_FIELDS: [&str; 54] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -30,7 +30,13 @@ pub const LAYOUT_FIELDS: [&str; 50] = [
     "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k", "pc", "status", "marking", "shapes",
     "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
     "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
+    "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
 ];
+
+/// A field of a table's hash part (`ValueTable`), from the object's start.
+fn hash_part(field: usize) -> usize {
+    crate::heap::HEADER + offset_of!(crate::heap::TablePayload, hash) + field
+}
 
 pub fn layout(field: &str) -> Result<usize, String> {
     Ok(match field {
@@ -86,6 +92,10 @@ pub fn layout(field: &str) -> Result<usize, String> {
         // An opcode number a handler reads from the instruction stream: the
         // return that pads the results of the call it answers.
         "Code.PadResults" => crate::threaded::Code::PadResults as usize,
+        "Table.hash_cap" => hash_part(offset_of!(crate::heap::ValueTable, cap)),
+        "Table.hash_len" => hash_part(offset_of!(crate::heap::ValueTable, len)),
+        "Table.hash_order" => hash_part(offset_of!(crate::heap::ValueTable, order)),
+        "Table.hash_rank" => hash_part(offset_of!(crate::heap::ValueTable, rank)),
         _ => return Err("unknown context field".into()),
     })
 }
@@ -301,6 +311,17 @@ fn metadata_header() -> String {
         crate::heap::OFF_T_HASH_MASK
     ));
     metadata.push_str("assert!(crate::heap::KIND_BYTES == 7 && crate::heap::KIND_INTEGER == 12 && crate::heap::F_INTERNED == 1);\n");
+    metadata.push_str("assert!((crate::heap::F_STORAGE_SCHEMA | crate::heap::F_DECLARATION | crate::heap::F_PROTO) == 224);\n");
+    for (field, offset) in [
+        ("cap", layout("Table.hash_cap").unwrap()),
+        ("len", layout("Table.hash_len").unwrap()),
+        ("order", layout("Table.hash_order").unwrap()),
+        ("rank", layout("Table.hash_rank").unwrap()),
+    ] {
+        metadata.push_str(&format!(
+            "assert!(crate::heap::HEADER + std::mem::offset_of!(crate::heap::TablePayload, hash) + std::mem::offset_of!(crate::heap::ValueTable, {field}) == {offset});\n"
+        ));
+    }
     metadata.push_str("assert!(crate::value::QNAN == 0x7ff8_0000_0000_0000 && crate::value::TAG_MASK == 0x0007_0000_0000_0000 && crate::value::T_OBJ == 0x0005_0000_0000_0000 && crate::value::PAYLOAD == 0x0000_ffff_ffff_ffff);\nassert!(Value::NIL.0 == 0x7ff9_0000_0000_0000 && Value::FALSE.0 == 0x7ffa_0000_0000_0000 && Value::TRUE.0 == 0x7ffb_0000_0000_0000);\n");
     metadata
 }

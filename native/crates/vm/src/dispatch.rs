@@ -7,39 +7,18 @@
 //! which the chain resumes from the frame driver's policy when that
 //! instruction changed the frame, and at the next instruction otherwise. A
 //! build without the object has no core and runs the Rust loop.
-use crate::heap::{F_DECLARATION, F_PROTO, F_STORAGE_SCHEMA, Header, KIND_TABLE};
+use crate::heap::Header;
+#[cfg(test)]
+use crate::heap::KIND_TABLE;
 use crate::threaded::*;
 use crate::value::{PAYLOAD, Value};
 
+#[cfg(test)]
 const NIL: u64 = Value::NIL.0;
 const HDR: usize = 4;
 #[inline(always)]
-fn is_num(x: u64) -> bool {
-    Value(x).is_num()
-}
-#[inline(always)]
-fn is_obj(x: u64) -> bool {
-    !is_num(x) && x & crate::value::TAG_MASK == crate::value::T_OBJ
-}
-#[inline(always)]
 fn header(v: u64) -> *mut Header {
     (v & PAYLOAD) as *mut Header
-}
-#[inline(always)]
-unsafe fn kind(v: u64) -> u8 {
-    (*header(v)).kind
-}
-#[inline(always)]
-unsafe fn flags(v: u64) -> u8 {
-    (*header(v)).flags
-}
-#[inline(always)]
-unsafe fn len(v: u64) -> u64 {
-    (*header(v)).aux_len
-}
-#[inline(always)]
-unsafe fn meta(v: u64) -> u64 {
-    (*header(v)).table_ref().meta.0
 }
 
 // The layouts the handlers were compiled against, asserted here.
@@ -80,22 +59,6 @@ mod native_helpers {
         rt_get_field(ctx, obj, name)
     }
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_get_index(ctx: *mut Ctx, obj: u64, key: u64) -> u64 {
-        rt_get_index(ctx, obj, key)
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_get_index_num(ctx: *mut Ctx, obj: u64, i: i64) -> u64 {
-        rt_get_index_num(ctx, obj, i)
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_set_index_num(ctx: *mut Ctx, obj: u64, i: i64, v: u64) {
-        rt_set_index_num(ctx, obj, i, v)
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_store_keyed(ctx: *mut Ctx, obj: u64, key: u64, v: u64) {
-        unsafe { store_index(ctx, obj, key, v) }
-    }
-    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
         rt_barrier(ctx, parent, child)
     }
@@ -114,10 +77,6 @@ mod native_helpers {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_call_builtin(ctx: *mut Ctx, id: u64, base: u64, nargs: u64) {
         rt_call_builtin(ctx, id as u32, base, nargs as u32)
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_append_plain(ctx: *mut Ctx, t: u64, d: f64, v: u64) -> u64 {
-        unsafe { append_plain(ctx, t, d, v) as u64 }
     }
     /// Feedback for the JIT at (`fid`, `pc`): `kind` 0 is a call target, 1 a
     /// receiver. Records into the specializer's own tables; moves no stack.
@@ -171,6 +130,51 @@ mod native_helpers {
         sync(ctx, it);
         v.0
     }
+    /// The canonical form of a table key (contracts 1.3, 2.9): an uninterned
+    /// string or a slice as the interned string with its bytes, an unsigned
+    /// integer box as the signed one. With `create` zero nothing is
+    /// allocated and nil answers for a key no live interned string spells,
+    /// which is a lookup miss.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_intern_key(ctx: *mut Ctx, key: u64, create: u64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let v = it.guarded(|it| {
+            if create != 0 { it.key_for_store(Value(key)) } else { it.key_of(Value(key)).unwrap_or(Value::NIL) }
+        });
+        if v == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        v.0
+    }
+    /// The array part of a plain table at `length` entries, lengthened with
+    /// nils or truncated: the handlers write the entries, the vector is the
+    /// heap's until N05.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_resize_array(ctx: *mut Ctx, table: u64, length: i64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let h = unsafe { &mut *header(table) };
+        let before = h.external_bytes();
+        h.table().array.resize(length as usize, Value::NIL);
+        h.refresh();
+        it.heap.account_resize(before, h.external_bytes());
+        sync(ctx, it);
+    }
+    /// The hash part of a plain table rehashed with room for one more entry:
+    /// the entries whose values went nil drop, the rest keep their insertion
+    /// order (contracts 2.13).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_grow_hash(ctx: *mut Ctx, table: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let h = unsafe { &mut *header(table) };
+        let before = h.external_bytes();
+        h.table().hash.grow();
+        it.heap.account_resize(before, h.external_bytes());
+        sync(ctx, it);
+    }
 }
 
 #[cfg(test)]
@@ -214,31 +218,4 @@ pub(crate) unsafe fn run(ctx: *mut Ctx) -> u32 {
             frame,
         );
     }
-}
-
-// A plain dense array can append without consulting metamethods, normalizing
-// keys, reloading frame windows, or recomputing cleanup state. Vec growth is
-// accounted for but is not a VM safepoint and cannot move the task stack.
-#[inline(always)]
-unsafe fn append_plain(ctx: *mut Ctx, t: u64, d: f64, v: u64) -> bool {
-    if !is_obj(t)
-        || kind(t) != KIND_TABLE
-        || v == NIL
-        || flags(t) & (F_STORAGE_SCHEMA | F_PROTO | crate::heap::F_DECLARATION) != 0
-        || meta(t) != NIL
-    {
-        return false;
-    }
-    let ptr = (t & PAYLOAD) as *mut crate::heap::Header;
-    if d != (len(t) + 1) as f64 || (*ptr).table_ref().hash.len() != 0 {
-        return false;
-    }
-    let it = &mut *((*ctx).interp as *mut crate::interp::Interp);
-    it.heap
-        .barrier(std::ptr::NonNull::new_unchecked(ptr), Value(v));
-    let before = (*ptr).external_bytes();
-    (*ptr).table().array.push(Value(v));
-    (*ptr).refresh();
-    it.heap.account_resize(before, (*ptr).external_bytes());
-    true
 }

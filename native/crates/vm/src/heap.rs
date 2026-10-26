@@ -109,7 +109,7 @@ pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
 /// lists slot indices in the order keys were first inserted, and `rank`
 /// gives each slot its position in `order`. Placement may depend on
 /// addresses; the order a program observes never does.
-pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64, order: *mut u32, rank: *mut u32 }
+pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64, pub(crate) order: *mut u32, pub(crate) rank: *mut u32 }
 pub const VT_EMPTY: u64 = Value::NIL.0;
 /// Optional overflow for a shaped table; the field map stays first for native probes.
 #[repr(C)]
@@ -147,7 +147,7 @@ impl ValueTable {
         }
         self.len += 1;
     }
-    fn grow(&mut self) {
+    pub(crate) fn grow(&mut self) {
         // Live entries in their insertion order; a key whose value went nil is
         // dropped here and only here, so the order of the rest is preserved.
         let live: Vec<(u64, u64)> = self.iter().map(|(k, v)| (k.0, v.0)).collect();

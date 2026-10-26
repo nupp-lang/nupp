@@ -1616,7 +1616,7 @@ impl Interp {
     /// A table key by content: a slice or an uninterned string is looked up
     /// as the interned string with those bytes, or none, in which case the
     /// key is absent.
-    fn key_of(&mut self, key: Value) -> Option<Value> {
+    pub(crate) fn key_of(&mut self, key: Value) -> Option<Value> {
         if key.is_num() && key.as_num() == 0.0 { return Some(Value::num(0.0)); }
         if let Some(i) = crate::numeric::integer(key) {
             if i.unsigned && i.bits <= i64::MAX as u64 { return self.heap.integer_lookup(crate::numeric::Integer { bits: i.bits, unsigned: false }); }

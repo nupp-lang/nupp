@@ -6,20 +6,18 @@
 -- here, its export in dispatch.rs and its name in the glue's allowlist.
 local record Helpers
     getField: function(context: voidptr, object: uint64, name: uint64): uint64
-    getIndex: function(context: voidptr, object: uint64, key: uint64): uint64
-    getIndexNum: function(context: voidptr, object: uint64, index: int64): uint64
-    setIndexNum: function(context: voidptr, object: uint64, index: int64, value: uint64): nil
-    storeKeyed: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
     barrier: function(context: voidptr, parent: uint64, child: uint64): nil
     newRecord: function(context: voidptr, shape: int64): uint64
     eqSlow: function(context: voidptr, left: uint64, right: uint64): uint64
     callIter: function(context: voidptr, iterator: uint64, base: uint64): nil
     callBuiltin: function(context: voidptr, id: int64, base: uint64, nargs: int64): nil
-    appendPlain: function(context: voidptr, table: uint64, key: number, value: uint64): uint64
     observe: function(context: voidptr, fid: int64, pc: int64, value: uint64, kind: int64): nil
     enterFrame: function(context: voidptr, pc: int64, hot: int64): uint64
     newString: function(context: voidptr, length: int64): uint64
     intern: function(context: voidptr, value: uint64): uint64
     newTable: function(context: voidptr, n: int64, m: int64): uint64
+    internKey: function(context: voidptr, key: uint64, create: int64): uint64
+    resizeArray: function(context: voidptr, table: uint64, length: int64): nil
+    growHash: function(context: voidptr, table: uint64): nil
 end
 return Helpers
