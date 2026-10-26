@@ -120,6 +120,9 @@ impl Worker {
                 jit.calltab_addr = job.calltab;
                 jit.probe_addr = job.probe;
                 jit.callee_info = job.callee_info;
+                #[cfg(all(feature = "aot", feature = "native-runtime"))]
+                let result = if crate::jit_glue::guest_mode() { crate::jit_glue::compile_here(&job.func, job.fid) } else { jit.compile_frame(&job.func, job.fid).map(|p| p as u64) };
+                #[cfg(not(all(feature = "aot", feature = "native-runtime")))]
                 let result = jit.compile_frame(&job.func, job.fid).map(|p| p as u64);
                 if outbox.send((job.fid, result)).is_err() { break; }
             }

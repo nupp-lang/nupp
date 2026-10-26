@@ -335,7 +335,13 @@ pub(crate) fn main() {
         it.shape_probe.clear();
         it.shape_probe.extend(probes);
         j.probe_addr = if std::env::var("NO_PROBE").is_ok() { 0 } else { it.shape_probe.as_ptr() as i64 };
-        let frame_entries = scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
+        #[cfg(feature = "aot")]
+        let guest = nupp_vm::jit_glue::guest_mode();
+        #[cfg(not(feature = "aot"))]
+        let guest = false;
+        // The Nupp emitter compiles frame entries only: with it, every
+        // function enters compiled code through the frame driver.
+        let frame_entries = guest || scheduled || it.funcs.iter().any(|f| f.code.iter().any(|op| matches!(op, nupp_vm::interp::Op::Simd(..) | nupp_vm::interp::Op::AffineEnter | nupp_vm::interp::Op::Defer(..) | nupp_vm::interp::Op::DeferMethod(..))));
         // Heap-frame entries compile once a function is warm (JIT_FRAME_THRESHOLD
         // entries or interpreted back edges, 0 for the first): compiling every
         // function a run reaches cost more than it saved on the compiler.

@@ -152,6 +152,16 @@ impl Interp {
                     if worker.submit(job) { return 0; }
                     self.jit_background = false;
                 }
+                #[cfg(all(feature = "aot", feature = "native-runtime"))]
+                if crate::jit_glue::guest_mode() {
+                    // The Nupp emitter compiles the frame entry; a function
+                    // it refuses stays interpreted.
+                    if self.jit.is_none() { return 0; }
+                    let result = crate::jit_glue::compile_here(&self.funcs[fid as usize], fid);
+                    if let Err(reason) = &result { if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: {} refused: {reason}", self.funcs[fid as usize].name); } }
+                    self.frame_entries[fid as usize] = result.unwrap_or(u64::MAX);
+                    return self.frame_entries[fid as usize];
+                }
                 let Some(mut jit) = self.jit.take() else {
                     return 0;
                 };
@@ -228,6 +238,8 @@ impl Interp {
             }
             return Ok(pc);
         }
+        #[cfg(all(feature = "aot", feature = "native-runtime"))]
+        if crate::jit_glue::guest_mode() { return self.run_guest_frame(tid, fid, pc, entry); }
         crate::compiled::CTX.store(self, Ordering::Relaxed);
         let frame = self.tasks[tid].cur();
         let header = unsafe { self.tasks[tid].stack.as_mut_ptr().add(frame) };

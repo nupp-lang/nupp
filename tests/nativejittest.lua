@@ -30,7 +30,7 @@ end
 -- failure's message.
 local function answer(command)
     local errors = os.tmpname()
-    local status, output = capture(command .. " 2>" .. errors)
+    local status, output = capture("( " .. command .. " 2>" .. quote(errors) .. " )")
     local file = io.open(errors, "rb")
     local reported = file and file:read("*a") or ""
     if file then
@@ -135,6 +135,43 @@ local function interpret(name, args)
     return (output:match("^([^\r\n]*)"))
 end
 
+-- A runtime with the code generator and the native core, which drives guest
+-- entries: `scripts/vm-cli runtime --link` builds it and the emitter image
+-- is emitted from these sources, so the whole JIT path runs from the tree.
+local jit = nil
+
+local function jitRuntime()
+    if not jit then
+        local status, output = capture(("cd %s && python3 scripts/vm-cli runtime --link"):format(quote(ROOT)))
+        assert(status == 0, "scripts/vm-cli runtime --link failed: " .. output)
+        local runtime = assert(output:match("([^\r\n]+)%s*$"), "scripts/vm-cli runtime named no runtime")
+        local extras = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
+            .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
+            .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
+            .. "nupp.runtime.provider.nativepath,nupp.runtime.provider.nativefiles"
+        local image = tempDirectory() .. "/guest.image"
+        write(image, project.emit(ROOT, "nupp.compiler.clif.guest", extras, "src"))
+        jit = {runtime = runtime, image = image}
+    end
+    return jit
+end
+
+-- The answer of the JIT runtime in guest mode: every function compiled at
+-- its first entry, on the compiler thread or in line, under the scheduler or
+-- a plain call.
+local function compiledRun(name, args, background, tasks)
+    local words = {}
+    for index, arg in ipairs(args) do
+        words[index] = quote(arg)
+    end
+    local runtime = jitRuntime()
+    local status, output, reported = answer(("NUPP_JIT_IMAGE=%s JIT_FRAME_THRESHOLD=1 JIT_BACKGROUND=%d %s run %s corpus %s %s %s"):format(
+        quote(runtime.image), background and 1 or 0, quote(runtime.runtime), quote(corpusImage().path), quote(name),
+        table.concat(words, " "), tasks and "--tasks" or ""))
+    assert(status == 0, ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
+    return (output:match("^([^\r\n]*)"))
+end
+
 local compiled = {}
 
 -- The CLIF of a function with its harness, written once per function.
@@ -206,6 +243,29 @@ function M.booleanFunctionsAnswerAsTheInterpreterDoes()
         local want = expected == "true" and TRUE or (expected == "false" and FALSE or nil)
         assert(want, label .. ": the interpreter answered " .. expected)
         assert(got == want, label .. ": interpreter " .. expected .. ", compiled word " .. got)
+    end
+end
+
+-- Every corpus function, called as the runner calls it: through the frame
+-- driver, with calls nested natively where the callee has an entry and
+-- handed to the interpreter where it does not.
+local GUEST = {
+    {"sum", {1000}}, {"collatz", {97}}, {"nested", {25}}, {"clamp", {7, 0, 1}}, {"between", {5, 1, 10}},
+    {"mean", {1, 2}}, {"floorMod", {-7, 3}}, {"scaled", {2}}, {"same", {1, 2}}, {"differ", {1, 2}},
+    {"countdown", {5}}, {"firstSquareAbove", {50}},
+    {"fibonacci", {20}}, {"viaHelper", {100}}, {"viaClosure", {50}}, {"viaBuiltin", {100}},
+    {"concatLoop", {10}}, {"tableSum", {100}}, {"multi", {7}}, {"varargs", {4}}, {"depth", {300}},
+}
+
+function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
+    for _, case in ipairs(GUEST) do
+        local name, args = case[1], case[2]
+        local expected = interpret(name, args)
+        local label = ("%s(%s)"):format(name, table.concat(args, ", "))
+        local inline = compiledRun(name, args, false, false)
+        assert(inline == expected, label .. ": in line, plain call: interpreter " .. expected .. ", compiled " .. inline)
+        local scheduled = compiledRun(name, args, true, true)
+        assert(scheduled == expected, label .. ": compiler thread, scheduled: interpreter " .. expected .. ", compiled " .. scheduled)
     end
 end
 

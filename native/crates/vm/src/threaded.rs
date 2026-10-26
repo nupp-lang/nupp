@@ -446,6 +446,10 @@ impl Interp {
         // The core reports call targets and receivers while feedback is on.
         #[cfg(feature = "jit")]
         { ctx.feedback = self.spec.feedback as u32; }
+        // The JIT's glue reaches the context of the task the core is running
+        // on this thread when a compiled frame is entered.
+        #[cfg(feature = "aot")]
+        let _current = crate::jit_glue::ContextGuard::enter(&mut ctx);
         let status = unsafe { crate::dispatch::run(&mut ctx) };
         // The core's pops do not touch the task record; its state, last
         // result count and what it took of the budgets are brought over here.
