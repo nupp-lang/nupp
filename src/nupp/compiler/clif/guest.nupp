@@ -608,6 +608,7 @@ local HELPERS: {
     nupp_rt_observe = {"(i64, i64, i64, i64, i64)"},
     nupp_rt_call_builtin = {"(i64, i64, i64, i64)"},
     nupp_rt_call_iter = {"(i64, i64, i64)"},
+    nupp_rt_resize_array = {"(i64, i64, i64)"},
     nupp_jit_step = {"(i64, i64) -> i64"},
     nupp_jit_field_miss = {"(i64, i64, i64, i64) -> i64"},
     nupp_jit_field_store = {"(i64, i64, i64, i64, i64)"},
@@ -1200,33 +1201,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     -- after the main path's values are stored, and answers the value of the
     -- instruction's one defined register, or nil for an instruction that
     -- defines none.
-    local fallbackBlocks: {ssa.Block} = {}
-
-    local function helperFallbackAt(pc: integer, body: function(): string?): ssa.Block
-        local block = newBlock()
-        fallbackBlocks[#fallbackBlocks + 1] = block
-        local outer = b.current
-        b.current = block
-        local saved = snapshot()
-        flush(true)
-        cache, dirty = {}, {}
-        local value = body()
-        local cont = continuationOf(pc)
-        local args: {string} = {}
-        if value ~= nil then
-            need(#(cont.defs as {integer}) == 1, "one result")
-            args[1] = value as string
-            args[2] = truthy(value as string)
-        else
-            need(#(cont.defs as {integer}) == 0, "no result")
-        end
-        b.jump(cont.block as ssa.Block, args)
-        restore(saved)
-        b.current = outer
-
-        return block
-    end
-
     local function guardTo(cond: string, fallback: ssa.Block): nil
         local ok = newBlock()
         b.branch(cond, ok, fallback)
@@ -2259,10 +2233,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             -- index helper with the key boxed, as the handler's slow path.
             local x = V(num(ins, 2))
             local index = I(num(ins, 3))
-            local miss = helperFallbackAt(pc, function(): string?
-                local boxed = emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. index))
-                return helper(pc, "nupp_rt_get_index", {ctxValue, x, boxed}, true)
-            end)
+            local miss = stepBlockAt(pc)
             guardTo(isObject(x), miss)
             local object = objectOf(x)
             guardTo(emit("icmp eq " .. headerByte(object, "Header.kind") .. ", " .. k("2")), miss)
@@ -2291,9 +2262,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             else
                 keyWord = V(num(ins, 3))
             end
-            local miss = helperFallbackAt(pc, function(): string?
-                return helper(pc, "nupp_rt_get_index", {ctxValue, x, keyWord}, true)
-            end)
+            local miss = stepBlockAt(pc)
             guard(isObject(x), pc)
             if name == "GetIdx" then
                 guardTo(isNumber(keyWord), miss)
@@ -2332,10 +2301,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             else
                 keyWord = V(num(ins, 2))
             end
-            local miss = helperFallbackAt(pc, function(): string?
-                helper(pc, "nupp_rt_store_keyed", {ctxValue, x, keyWord, value}, false)
-                return nil
-            end)
+            local miss = stepBlockAt(pc)
             guard(isObject(x), pc)
             if name == "SetIdx" then
                 guardTo(isNumber(keyWord), miss)
@@ -2349,11 +2315,62 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 ) .. ", " .. emit("icmp eq " .. emit("band " .. flags .. ", " .. k("224")) .. ", " .. k("0"))
             )
             guardTo(plainTable, miss)
-            local length = emit("fcvt_from_uint.f64 " .. headerWord(object, "Header.aux_len"))
+            local count = headerWord(object, "Header.aux_len")
+            local length = emit("fcvt_from_uint.f64 " .. count)
             local atLeastOne = emit("fcmp ge " .. d .. ", " .. emit("f64const 0x1.0000000000000p0"))
             local within = emit("fcmp le " .. d .. ", " .. length)
             local whole = emit("fcvt_to_uint_sat.i64 " .. d)
             local exact = emit("fcmp eq " .. emit("fcvt_from_uint.f64 " .. whole) .. ", " .. d)
+            -- `t[#t + 1] = v` on a table without a metatable or a hash part
+            -- (nothing to migrate out of it): the array part grows by one
+            -- through the helper the tables handler calls, and the value is
+            -- stored. Anything else past the border is the handler's.
+            do
+                local border = emit("icmp eq " .. whole .. ", " .. emit("iadd " .. count .. ", " .. k("1")))
+                local appendable = emit(
+                    "band " .. emit(
+                        "band " .. border .. ", " .. exact
+                    ) .. ", " .. emit(
+                        "band " .. emit(
+                            "icmp eq " .. headerWord(object, "Table.meta") .. ", " .. k(guest.NIL)
+                        ) .. ", " .. emit(
+                            "band " .. emit(
+                                "icmp eq " .. headerWord(object, "Table.hash_ptr") .. ", " .. k("0")
+                            ) .. ", " .. emit("icmp ne " .. value .. ", " .. k(guest.NIL))
+                        )
+                    )
+                )
+                local append = newBlock()
+                local other = newBlock()
+                b.branch(appendable, append, other)
+                seal(append)
+                seal(other)
+                b.current = append
+                local saved = snapshot()
+                helper(pc, "nupp_rt_resize_array", {ctxValue, x, whole}, false)
+                local grown = headerWord(object, "Header.aux_ptr")
+                local marked = emit("uload8.i64 notrap " .. ctxLoad("marking") .. "+0")
+                local fence = newBlock()
+                local put = newBlock()
+                b.branch(emit("icmp ne " .. marked .. ", " .. k("0")), fence, put)
+                seal(fence)
+                seal(put)
+                b.current = fence
+                effect("call " .. helperRef("nupp_rt_barrier") .. "(" .. ctxValue .. ", " .. x .. ", " .. value .. ")")
+                b.jump(put, {})
+                b.current = put
+                effect(
+                    "store notrap " .. value .. ", " .. emit(
+                        "iadd " .. grown .. ", " .. emit("ishl " .. whole .. ", " .. k("3"))
+                    ) .. "-8"
+                )
+                -- Joins the instruction's continuation; the helper stored
+                -- what the account held, so nothing written is pending.
+                local cont = continuationOf(pc)
+                b.jump(cont.block as ssa.Block, {})
+                restore(saved)
+                b.current = other
+            end
             local keeps = emit(
                 "bor " .. emit(
                     "icmp ne " .. value .. ", " .. k(guest.NIL)
@@ -2599,9 +2616,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         seal(block)
     end
     for _, block in pairs(stepBlocks) do
-        seal(block)
-    end
-    for _, block in ipairs(fallbackBlocks) do
         seal(block)
     end
     for _, cont in pairs(continuations) do

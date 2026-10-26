@@ -478,13 +478,45 @@ fn finish(ctx: &mut Ctx, stop: u64, word: u64) -> u64 {
 #[cfg(feature = "native-runtime")]
 mod exported {
     use super::*;
-    /// The interpreter runs the instruction at `pc` of the frame on top; the
-    /// next pc, or the exit word that ends the activation.
+    unsafe extern "C" {
+        /// The native core's one-instruction entry (`native_glue`): the
+        /// handler of the instruction at `pc`, stopped at its next dispatch.
+        fn nupp_native_runtime_step(pc: *const crate::threaded::Ins, regs: *mut u64, ints: *mut u64, floats: *mut u64, ctx: *mut Ctx, frame: *mut u64) -> u64;
+    }
+    /// The instruction at `pc` of the frame on top, run by its handler in
+    /// the native core, which is the one implementation of it; an instruction
+    /// the handler hands to Rust runs on the Rust step. The next pc, or the
+    /// exit word that ends the activation.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_jit_step(ctx: *mut Ctx, pc: u64) -> u64 {
-        let status = crate::threaded::rt_exec_op(ctx, pc as u32);
-        if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: step {pc} -> {status:#x}"); }
-        exit_word(unsafe { &mut *ctx }, status)
+        let context = unsafe { &mut *ctx };
+        let (frame, code, len, regs, ints, floats) = unsafe {
+            let frame = context.stack.add(context.cur as usize);
+            let info = &*context.funcs.add((*frame & 0xffff_ffff) as usize);
+            (frame, info.code, info.ncode as u64, frame.add(4), frame.add(info.off_i as usize), frame.add(info.off_f as usize))
+        };
+        let at = unsafe { code.add(pc as usize) };
+        let cur = context.cur;
+        let exit = unsafe { nupp_native_runtime_step(at, regs, ints, floats, ctx, frame) };
+        let answer = if exit == 0 {
+            context.status = ST_ERROR;
+            ERROR
+        } else if exit == at as u64 {
+            // The handler handed it to Rust before any effect.
+            let status = crate::threaded::rt_exec_op(ctx, pc as u32);
+            exit_word(context, status)
+        } else if context.cur == cur && exit >= code as u64 && exit < code as u64 + len * 16 {
+            // The next instruction, or a jump within the function: the
+            // compiled code continues at the one after, else the
+            // interpreter at that pc.
+            (exit - code as u64) / 16
+        } else {
+            // The frame changed under the handler (a call entered its callee,
+            // a return its caller): the frame driver decides.
+            EXIT_REENTER
+        };
+        if std::env::var_os("JIT_GUEST_TRACE").is_some() { eprintln!("guest jit: step {pc} -> {answer:#x}"); }
+        answer
     }
     /// A callee frame compiled code pushed, without a compiled entry: the
     /// frame driver's service enters it (compiling it first when `hot`), and
@@ -563,6 +595,7 @@ fn helper_table() -> Vec<(&'static str, *const u8)> {
         ("nupp_rt_eq_slow", nupp_rt_eq_slow as *const u8),
         ("nupp_rt_call_builtin", nupp_rt_call_builtin as *const u8),
         ("nupp_rt_call_iter", nupp_rt_call_iter as *const u8),
+        ("nupp_rt_resize_array", crate::dispatch::native_helpers::nupp_rt_resize_array as *const u8),
         ("nupp_rt_observe", nupp_rt_observe as *const u8),
     ]
 }

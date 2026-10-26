@@ -128,6 +128,10 @@ pub fn write_layouts(path: &str) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
+/// The platform-convention signature of the object's exported entries:
+/// six words in, one out.
+fn entry_sig_of(cc: CallConv) -> Signature { signature(cc) }
+
 fn signature(cc: CallConv) -> Signature {
     let mut sig = Signature::new(cc);
     sig.params = vec![AbiParam::new(types::I64); 6];
@@ -523,7 +527,7 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     module.clear_context(&mut ctx);
     // `leave`: the table entry of every opcode without a handler, handing the
     // instruction back to Rust.
-    ctx.func.signature = tail;
+    ctx.func.signature = tail.clone();
     ctx.want_disasm = true;
     {
         let mut fbc = FunctionBuilderContext::new();
@@ -552,6 +556,59 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         data.write_function_addr((op * 8) as u32, function);
     }
     module.define_data(table_id, &data).map_err(|e| e.to_string())?;
+    // The step table: `leave` for every opcode. A handler entered with it as
+    // its table runs its own instruction and stops at the next dispatch,
+    // answering the next instruction's address (or its own, when it hands
+    // the instruction to Rust): the JIT's way to run one instruction on the
+    // handlers without a second implementation of it.
+    let step_table_id = module
+        .declare_data("native_runtime_step_table", Linkage::Local, false, false)
+        .unwrap();
+    let mut data = DataDescription::new();
+    data.define(vec![0; 256 * 8].into_boxed_slice());
+    data.set_align(8);
+    for op in 0..256 {
+        let function = module.declare_func_in_data(leave, &mut data);
+        data.write_function_addr((op * 8) as u32, function);
+    }
+    module.define_data(step_table_id, &data).map_err(|e| e.to_string())?;
+    // `nupp_native_runtime_step(pc, regs, ints, floats, ctx, frame)`: the
+    // instruction at `pc` through its handler, with the step table; the
+    // handler's exit word comes back.
+    let step = module
+        .declare_function("nupp_native_runtime_step", Linkage::Export, &entry_sig_of(conv))
+        .unwrap();
+    ctx.func.signature = entry_sig_of(conv);
+    ctx.want_disasm = true;
+    {
+        let mut fbc = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
+        let start = b.create_block();
+        b.append_block_params_for_function_params(start);
+        b.switch_to_block(start);
+        let params = b.block_params(start).to_vec();
+        let sig = b.import_signature(tail.clone());
+        let real = module.declare_data_in_func(table_id, b.func);
+        let real = b.ins().symbol_value(types::I64, real);
+        let steps = module.declare_data_in_func(step_table_id, b.func);
+        let steps = b.ins().symbol_value(types::I64, steps);
+        let flags = MemFlagsData::new().with_notrap();
+        let op = b.ins().uload8(types::I64, flags, params[0], 0);
+        let offset = b.ins().ishl_imm_u(op, 3);
+        let slot = b.ins().iadd(real, offset);
+        let target = b.ins().load(types::I64, flags, slot, 0);
+        let mut arguments = params.clone();
+        arguments[5] = steps;
+        let call = b.ins().call_indirect(sig, target, &arguments);
+        let value = b.inst_results(call)[0];
+        b.ins().return_(&[value]);
+        b.seal_all_blocks();
+        b.finalize(module.target_config());
+    }
+    listings.push_str(&format!("\n{}\n", ctx.func.display()));
+    module.define_function(step, &mut ctx).map_err(|e| e.to_string())?;
+    listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
+    module.clear_context(&mut ctx);
     let bytes = module.finish().emit().map_err(|e| e.to_string())?;
     std::fs::write(output, bytes).map_err(|e| e.to_string())?;
     std::fs::write(format!("{output}.rs"), metadata).map_err(|e| e.to_string())?;

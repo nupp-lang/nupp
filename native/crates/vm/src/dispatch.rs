@@ -52,7 +52,7 @@ const EXIT_ERROR: u64 = 0;
 /// reloads the task record as its Rust caller would; the handler publishes
 /// `ctx.pc` before the call, checks `ctx.status` after it, and re-derives its
 /// windows from the context, since the stack may have moved.
-mod native_helpers {
+pub(crate) mod native_helpers {
     use super::*;
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
