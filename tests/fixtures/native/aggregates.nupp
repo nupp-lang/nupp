@@ -1,0 +1,128 @@
+module aggregates
+
+-- Struct values in stack slots, nested structs and fixed arrays of them in
+-- place, copies by value into fields and elements, counted arrays, and byte
+-- spans with checked and unchecked access. Stores through raw pointers sit in
+-- one `@unsafe do` region rather than carrying an annotation each.
+const native = require("nupp.runtime.vm.intrinsics")
+const bytes = require("nupp.runtime.vm.bytes")
+
+local struct Vec3
+    x: number
+    y: number
+    z: number
+end
+
+local struct Body
+    position: Vec3
+    velocity: Vec3
+    mass: int64
+end
+
+local struct Mesh
+    corners: Vec3[4]
+    count: int64
+end
+
+local function dot(a: Vec3, b: Vec3): number
+    return a.x * b.x + a.y * b.y + a.z * b.z
+end
+
+-- A struct value built in the frame, read through its own fields.
+local function lengthSquared(x: number, y: number, z: number): number
+    local v = new Vec3(x, y, z)
+
+    return dot(v, v)
+end
+
+-- Built empty, every field is zero.
+local function partial(x: number): number
+    local v = new Vec3()
+    v.x = x
+
+    return v.x + v.y + v.z
+end
+
+-- A struct copied by value into a field of another, in the caller's buffer.
+local function step(base: voidptr, dt: number): number
+    local body = base as Body*
+    local position = new Vec3(1, 2, 3)
+    local velocity = new Vec3(10, 20, 30)
+    @unsafe do
+        body.position = position
+        body.velocity = velocity
+        body.mass = 2
+        body.position.x = body.position.x + body.velocity.x * dt
+        body.position.y = body.position.y + body.velocity.y * dt
+        body.position.z = body.position.z + body.velocity.z * dt
+    end
+    -- The copy was a copy: the original is unchanged.
+    position.x = 100
+
+    return body.position.x + body.position.y + body.position.z + native.toFloat(body.mass)
+end
+
+-- Fixed arrays of structs, indexed in place.
+local function perimeter(base: voidptr): number
+    local mesh = base as Mesh*
+    @unsafe do
+        mesh.corners[0] = new Vec3(0, 0, 0)
+        mesh.corners[1] = new Vec3(3, 0, 0)
+        mesh.corners[2] = new Vec3(3, 4, 0)
+        mesh.corners[3].x = 0
+        mesh.corners[3].y = 4
+        mesh.count = 4
+    end
+    local total = 0
+    local i: int64 = 0
+    while i < mesh.count do
+        local here = @unsafe mesh.corners[i]
+        local next = @unsafe mesh.corners[(i + 1) % 4]
+        local dx = next.x - here.x
+        local dy = next.y - here.y
+        total = total + (dx * dx + dy * dy)
+        i = i + 1
+    end
+
+    return total
+end
+
+-- A counted array: a pointer with the count the caller knows.
+local function sumWords(items: int64[?], count: int64): int64
+    local total: int64 = 0
+    local i: int64 = 0
+    while i < count do
+        @unsafe do
+            items[i] = i * 3
+            total = total + items[i]
+        end
+        i = i + 1
+    end
+
+    return total
+end
+
+-- Byte spans: checked access traps outside the span; unchecked trusts.
+local function checksum(base: voidptr, count: uint64): uint64
+    local span = new bytes.Span(base as bytes.Byte*, count)
+    local i: uint64 = 0
+    while i < count do
+        bytes.put(span, i, nupp.math.u32.wrap(math.floor(native.unsignedFloat(i * 7))))
+        i = i + 1
+    end
+
+    return bytes.sum(span) + bytes.at(span, 0) + bytes.atUnchecked(span, count - 1)
+end
+
+local function outside(base: voidptr, count: uint64): uint32
+    local span = new bytes.Span(base as bytes.Byte*, count)
+
+    return bytes.at(span, count)
+end
+
+local function filled(base: voidptr, count: uint64, value: uint32): uint64
+    local span = new bytes.Span(base as bytes.Byte*, count)
+    bytes.fill(span, value)
+
+    return bytes.sum(span)
+end

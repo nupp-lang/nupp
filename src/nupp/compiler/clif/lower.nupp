@@ -126,6 +126,11 @@ local function tag(t: any): string
     if pointerMembers(t) then
         return "ptr"
     end
+    if t and t.tag == "nominal" and t.declKind == "struct" then
+        -- A struct value is its address: memory in a stack slot or inline in
+        -- its parent, never a register.
+        return "struct"
+    end
     local kind = t and t.tag or "missing"
     -- An integer-valued number is a number here: the refinement changes no
     -- representation.
@@ -174,6 +179,14 @@ end
 local layoutKey = targetLayout.hostKey() or "aarch64-apple-darwin"
 local fieldCache = {}
 
+-- The size and alignment of an aggregate type under the host layout.
+local function sizeOf(t: any): (number, number)
+    local measured, reason = targetLayout.of(raw(t), layoutKey)
+    need(measured ~= nil, "layout: " .. tostring(reason))
+
+    return measured.size, measured.alignment
+end
+
 -- The scalar kind a struct field is loaded and stored as. A tag field (an
 -- integer literal type) and an `integer` field occupy the `int32` a C
 -- enumerator does, whatever the checker reads them back as.
@@ -209,6 +222,10 @@ end
 -- union.
 local function fieldThrough(t: any, member: string): any
     local struct = pointee(t)
+    local value = raw(t)
+    if not struct and value and value.tag == "nominal" and value.declKind == "struct" then
+        struct = value
+    end
     if struct then
         return fieldOf(struct, member)
     end
@@ -242,6 +259,8 @@ local function machine(kind: string): string
         or kind == "uint8"
         or kind == "int16"
         or kind == "uint16"
+        or kind == "struct"
+        or kind == "carray"
     then
         return "i64"
     elseif kind == "number" then
@@ -477,6 +496,18 @@ local function compileFunction(fn: Fn, options: any): string
         return ref
     end
 
+    -- A stack slot for a struct value built in this function.
+    local slotCount = 0
+
+    local function declareSlot(size: number, alignment: number): string
+        need(not handlers, "a handler keeps no struct values")
+        local slot = "ss" .. tostring(slotCount)
+        slotCount = slotCount + 1
+        preamble[#preamble + 1] = slot .. " = explicit_slot " .. tostring(size) .. ", align = " .. tostring(alignment)
+
+        return slot
+    end
+
     -- The CLIF signature of a function type: its parameters and result as the
     -- machine types their kinds lower to.
     local function signatureOf(fnType: any): string
@@ -599,6 +630,49 @@ local function compileFunction(fn: Fn, options: any): string
             effect("istore16 notrap " .. value .. ", " .. address)
         else
             effect("store notrap " .. value .. ", " .. address)
+        end
+    end
+
+    local WIDTHS = {8, 4, 2, 1}
+    local LOADS = {[8] = "load.i64", [4] = "load.i32", [2] = "load.i16", [1] = "load.i8"}
+    local STORES = {[8] = "store", [4] = "istore32", [2] = "istore16", [1] = "istore8"}
+
+    -- Copies `size` bytes from one address to another, in words and then the
+    -- tail, which is how a struct or fixed array is stored by value.
+    local function copyBytes(to: string, from: string, size: number): nil
+        local offset = 0
+        for _, width in ipairs(WIDTHS) do
+            while size - offset >= width do
+                local at = constant("i64", tostring(offset))
+                local source = emit("iadd " .. from .. ", " .. at)
+                local target = emit("iadd " .. to .. ", " .. at)
+                local word = emit(LOADS[width] .. " notrap " .. source)
+                effect("store notrap " .. word .. ", " .. target)
+                offset = offset + width
+            end
+        end
+    end
+
+    -- Zeroes `size` bytes at an address.
+    local function zeroBytes(to: string, size: number): nil
+        local offset = 0
+        local zero = constant("i64", "0")
+        for _, width in ipairs(WIDTHS) do
+            while size - offset >= width do
+                local target = emit("iadd " .. to .. ", " .. constant("i64", tostring(offset)))
+                effect(STORES[width] .. " notrap " .. zero .. ", " .. target)
+                offset = offset + width
+            end
+        end
+    end
+
+    -- Stores a value of `kind` into a slot: a scalar as itself, a struct or
+    -- fixed array by copying its bytes.
+    local function storeInto(kind: string, fieldType: any, value: any, address: string): nil
+        if kind == "struct" or kind == "carray" then
+            copyBytes(address, materialize(value, kind), (sizeOf(fieldType)))
+        else
+            store(kind, materialize(value, kind), address)
         end
     end
 
@@ -810,7 +884,7 @@ local function compileFunction(fn: Fn, options: any): string
             "indexing needs a fixed array or a pointer"
         )
         local elem = container.elem
-        local measured, reason = targetLayout.of(elem, layoutKey)
+        local measured, reason = targetLayout.of(raw(elem), layoutKey)
         need(measured ~= nil, "element layout: " .. tostring(reason))
         local index = materialize(expression(n.expr), "int64")
         if n.carrayBound and not n.unsafeOwnershipOperation then
@@ -1033,10 +1107,10 @@ local function compileFunction(fn: Fn, options: any): string
             return {literal = text}
         elseif n.kind == "dotIndex" then
             local access = fieldAddress(n)
-            local fieldRaw = raw(access.field.type)
-            if fieldRaw and fieldRaw.tag == "carray" then
-                -- A fixed array field is its address, as a C array decays.
-                return {kind = "ptr", value = access.address, type = access.field.type}
+            if access.field.kind == "carray" or access.field.kind == "struct" then
+                -- An inline aggregate is its address: a fixed array as a C array
+                -- decays, a struct as the memory it is.
+                return {kind = access.field.kind, value = access.address, type = access.field.type}
             end
             return {
                 kind = loadedKind(access.field.kind),
@@ -1045,7 +1119,28 @@ local function compileFunction(fn: Fn, options: any): string
             }
         elseif n.kind == "bracketIndex" then
             local element = elementAddress(n)
+            if element.kind == "carray" or element.kind == "struct" then
+                return {kind = element.kind, value = element.address, type = element.type}
+            end
             return {kind = loadedKind(element.kind), value = load(element.kind, element.address), type = element.type}
+        elseif n.kind == "newExpr" then
+            -- A struct value: a stack slot of its layout, zeroed, with the fields
+            -- the construction names stored into it.
+            local call = n.call
+            local struct = raw(n.inferredType or call.inferredType or call.signatureType)
+            need(struct and struct.tag == "nominal" and struct.declKind == "struct", "new builds a struct here")
+            local size, alignment = sizeOf(struct)
+            local address = emit("stack_addr.i64 " .. declareSlot(size, alignment))
+            zeroBytes(address, size)
+            for _, binding in ipairs(call.recordFields or {}) do
+                local field = fieldOf(struct, binding.name)
+                local initializer = binding.node or binding.defaultValue
+                if initializer then
+                    local at = emit("iadd " .. address .. ", " .. constant("i64", tostring(field.offset)))
+                    storeInto(field.kind, field.type, expression(initializer), at)
+                end
+            end
+            return {kind = "struct", value = address, type = n.inferredType}
         elseif n.kind == "castExpr" then
             -- An erased assertion between types of one representation.
             local inner = expression(n.expr)
@@ -1339,10 +1434,10 @@ local function compileFunction(fn: Fn, options: any): string
                 local value = need(values[index], "assignment needs a value")
                 if target.kind == "dotIndex" then
                     local access = fieldAddress(target)
-                    store(access.field.kind, materialize(value, access.field.kind), access.address)
+                    storeInto(access.field.kind, access.field.type, value, access.address)
                 elseif target.kind == "bracketIndex" then
                     local element = elementAddress(target)
-                    store(element.kind, materialize(value, element.kind), element.address)
+                    storeInto(element.kind, element.type, value, element.address)
                 else
                     need(target.kind == "name", "assignment to a local, a field or an element")
                     assign(target.token, value)
@@ -1615,6 +1710,7 @@ local function describe(fnName: string, node: any, body: any, scope: Scope, hand
     if resultKind == "nil" then
         resultKind = nil
     end
+    need(resultKind ~= "struct", fnName .. ": a struct value lives where it was built; answer a pointer to it")
     local isHandler = handlers and #paramKinds == 6 and resultKind == "uint64"
     for _, kind in ipairs(paramKinds) do
         if kind ~= "voidptr" then

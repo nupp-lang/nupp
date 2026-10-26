@@ -1177,6 +1177,60 @@ return m
     ),
 
     new reference.Section(
+        title = "Struct values and arrays in native code",
+        codes = {"NUPP2202", "NUPP2604", "NUPP2619"},
+        body = [=[
+A struct value is memory, not a register. In the native profile `new S(...)`
+builds one in the function's frame: a stack slot of the struct's layout, zeroed,
+with the fields the construction names stored into it, positionally as a struct
+is built. A local holding one holds its address, so `local w = v` names the
+same memory, as a struct's reference semantics say, and a field read of a
+nested struct or a fixed array is the address of the bytes inside its parent,
+usable in place. Storing a struct or a fixed array into a field or an element
+copies its bytes, which is the one place a struct is copied. A function answers
+a pointer to a struct and never the value, since the value lives where it was
+built.
+
+`T[N]` is N elements inline, indexed by their stride; an index the checker
+did not prove in bounds is checked and traps outside `@unsafe`. `T[?]` is a
+pointer with a count the program carries, indexed under `@unsafe`. The runtime's
+`nupp.runtime.vm.bytes` is a byte span over that: `Span` holds a base and a
+count, `at` and `put` trap on an index outside the span, `atUnchecked` and
+`putUnchecked` trust their caller, and `sum` and `fill` walk it.
+]=],
+        example = [=[
+local m = {}
+
+struct m.Vec3
+    x: number
+    y: number
+    z: number
+end
+
+struct m.Mesh
+    corners: m.Vec3[4]
+    count: int64
+end
+
+local function dot(a: m.Vec3, b: m.Vec3): number
+    return a.x * b.x + a.y * b.y + a.z * b.z
+end
+
+function m.lengthSquared(x: number, y: number, z: number): number
+    local v = new m.Vec3(x, y, z)
+    return dot(v, v)
+end
+
+function m.first(mesh: m.Mesh*): number
+    @unsafe mesh.corners[0] = new m.Vec3(1, 2, 3)
+    return mesh.corners[0].x
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[

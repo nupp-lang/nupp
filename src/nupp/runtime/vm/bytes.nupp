@@ -1,0 +1,73 @@
+module nupp.runtime.vm.bytes
+
+--[[
+Byte spans in the native profile: a base and a count, with checked access that
+traps on an index outside the span and unchecked access that trusts its caller.
+A span is a struct value the caller builds, `new bytes.Span(base, count)`, so it
+lives in the caller's frame and is passed as the memory it is.
+]]
+
+const native = require("nupp.runtime.vm.intrinsics")
+
+--- One byte of the span, as the struct field it is loaded and stored through.
+export struct Byte
+    value: uint8
+end
+
+export struct Span
+    base: Byte*
+    count: uint64
+end
+
+local function slot(s: Span, index: uint64): Byte*
+    return native.offset(s.base as voidptr, native.index(index)) as Byte*
+end
+
+--- The byte at `index`, which must be inside the span: an index outside it
+--- traps.
+export function at(s: Span, index: uint64): uint32
+    if index >= s.count then
+        error("bytes: index outside the span")
+    end
+
+    return @unsafe slot(s, index).value
+end
+
+--- Stores the low byte of `value` at `index`, which must be inside the span.
+export function put(s: Span, index: uint64, value: uint32): nil
+    if index >= s.count then
+        error("bytes: index outside the span")
+    end
+    @unsafe slot(s, index).value = value
+end
+
+--- The byte at `index`, trusting the caller that it is inside the span.
+export function atUnchecked(s: Span, index: uint64): uint32
+    return @unsafe slot(s, index).value
+end
+
+--- Stores the low byte of `value` at `index`, trusting the caller.
+export function putUnchecked(s: Span, index: uint64, value: uint32): nil
+    @unsafe slot(s, index).value = value
+end
+
+--- The sum of every byte.
+export function sum(s: Span): uint64
+    local total: uint64 = 0
+    local i: uint64 = 0
+    while i < s.count do
+        total = total + atUnchecked(s, i)
+        i = i + 1
+    end
+
+    return total
+end
+
+--- Fills the span with the low byte of `value`.
+export function fill(s: Span, value: uint32): nil
+    local i: uint64 = 0
+    while i < s.count do
+        putUnchecked(s, i, value)
+        i = i + 1
+    end
+end

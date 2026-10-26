@@ -200,6 +200,16 @@ local FIXED = {
     {"halfWord", {"buffer:16", 65535}, "65535"}, {"halfWord", {"buffer:16", 65536}, "0"},
 }
 
+-- Struct values and aggregates: ((1+10dt)+(2+20dt)+(3+30dt)) + 2 at dt = 0.5 is 38;
+-- the mesh is a 3-4-5 triangle plus the fourth corner, squared edges 9+16+9+16.
+local AGGREGATES = {
+    {"lengthSquared", {1.0, 2.0, 3.0}, 14.0}, {"partial", {2.5}, 2.5},
+    {"step", {"buffer:64", 0.5}, 38.0}, {"step", {"buffer:64", 0.0}, 8.0},
+    {"perimeter", {"buffer:128"}, 50.0},
+    {"sumWords", {"buffer:80", 10}, "135"}, {"sumWords", {"buffer:80", 0}, "0"},
+    {"checksum", {"buffer:64", 10}, "378"}, {"filled", {"buffer:64", 16, 300}, "704"},
+}
+
 local function check(clif, cases)
     for _, case in ipairs(cases) do
         local name, args, expected = case[1], case[2], case[3]
@@ -234,6 +244,15 @@ end
 function M.fixedWidthArithmeticWrapsAndNarrowFieldsLoadAtTheirWidth()
     check(compileFixture("fixedwidth"), FIXED)
 end
+
+function M.structValuesArraysAndByteSpansLowerInPlace()
+    local clif = compileFixture("aggregates", {"bytes"})
+    check(clif, AGGREGATES)
+    -- A checked access outside the span traps rather than reading.
+    local status = capture(("%s native jit %s %s %s %s"):format(quote(glueTool()), quote(clif), "outside", "buffer:64", 8))
+    assert(status ~= 0, "the checked access outside the span did not trap")
+end
+
 
 function M.arenasOverMappedPagesOpenForAnExtentAndClose()
     check(compileFixture("arenas", {"arena"}), ARENAS)
