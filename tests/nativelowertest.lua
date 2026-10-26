@@ -427,10 +427,12 @@ function M.theRuntimeCoreCompilesToOneObjectWithItsSidecar()
     local status, output = capture(("%s native object %s %s"):format(quote(glueTool()), quote(dir .. "/runtime.clif"), quote(dir .. "/runtime.o")))
     assert(status == 0, "native object failed: " .. output)
     local sidecar = read(dir .. "/runtime.o.rs")
+    -- The sidecar pins each handler's opcode number, which is how the glue's
+    -- table and the handlers agree on who answers what.
     for _, name in ipairs({"IAdd", "CallK", "CallDyn", "Ret", "GetField", "NewRecord"}) do
-        assert(sidecar:find("table[Code::" .. name .. " as usize] = native_segment", 1, true), name .. " is not in the dispatch table")
+        assert(sidecar:find("assert!(Code::" .. name .. " as u8 == ", 1, true), name .. " is not in the dispatch table")
     end
-    assert(not sidecar:find("Code::Slow as usize] = native_segment", 1, true), "Slow stays Rust by definition")
+    assert(not sidecar:find("Code::Slow as u8", 1, true), "Slow stays Rust by definition")
 end
 
 return M
