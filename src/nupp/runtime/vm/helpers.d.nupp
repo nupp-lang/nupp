@@ -16,5 +16,7 @@ local record Helpers
     callIter: function(context: voidptr, iterator: uint64, base: uint64): nil
     callBuiltin: function(context: voidptr, id: int64, base: uint64, nargs: int64): nil
     appendPlain: function(context: voidptr, table: uint64, key: number, value: uint64): uint64
+    observe: function(context: voidptr, fid: int64, pc: int64, value: uint64, kind: int64): nil
+    enterFrame: function(context: voidptr, pc: int64, hot: int64): uint64
 end
 return Helpers

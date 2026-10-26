@@ -292,6 +292,23 @@ mod native_helpers {
     pub unsafe extern "C" fn nupp_rt_append_plain(ctx: *mut Ctx, t: u64, d: f64, v: u64) -> u64 {
         unsafe { append_plain(ctx, t, d, v) as u64 }
     }
+    /// Feedback for the JIT at (`fid`, `pc`): `kind` 0 is a call target, 1 a
+    /// receiver. Records into the specializer's own tables; moves no stack.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_observe(ctx: *mut Ctx, fid: u64, pc: u64, value: u64, kind: u64) {
+        #[cfg(feature = "jit")]
+        crate::specialize::rt_observe((*ctx).interp, fid as u32, pc as u32, value, kind as u32);
+        #[cfg(not(feature = "jit"))]
+        let _ = (ctx, fid, pc, value, kind);
+    }
+    /// The frame driver's service: enters the compiled frame of the function
+    /// on top at `pc`, compiling it first when the core counted it `hot`, or
+    /// applies the interpreter's policy for vector code. Answers the pc to go
+    /// on interpreting at, or a status word.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_enter_frame(ctx: *mut Ctx, pc: u64, hot: u64) -> u64 {
+        rt_enter_frame(ctx, pc as u32, hot as u32) as u64
+    }
 }
 
 /// A native segment retains no managed values outside the VM stack and

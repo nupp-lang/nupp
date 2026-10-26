@@ -994,9 +994,6 @@ fn native_calls_push_the_frame_rust_pushes() {
 fn native_calls_leave_unsupported_calls_untouched() {
     let mut closure = closure_header(1);
     let closure_value = Value::obj(std::ptr::NonNull::from(&mut *closure)).0;
-    let mut iter = closure_header(1);
-    iter.kind = KIND_ITER;
-    let iter_value = Value::obj(std::ptr::NonNull::from(&mut *iter)).0;
     let call = Ins { op: Code::Call as u8, a: 2, b: 1, k: 1, ..Ins::default() };
     let callk = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
     type Setup = fn(&mut Machine);
@@ -1006,12 +1003,11 @@ fn native_calls_leave_unsupported_calls_untouched() {
         ("typed dynamic", callk, Value::func(1).0, |m| m.funcs[1].typed = 1),
         ("unavailable", callk, closure_value, |m| m.ctx.unavailable_fid = 1),
         ("compiled entry", callk, closure_value, |m| m.entries[1] = 0x1000),
-        ("feedback", callk, closure_value, |m| m.ctx.feedback = 1),
         // Builtins run through the helper, except a host service and one the
-        // slow-call table names; an iterator runs through its helper too.
+        // slow-call table names; an iterator runs through its helper too, as
+        // does feedback, so none of those leaves anything untouched here.
         ("host service", callk, Value::builtin(1000).0, |_| {}),
         ("slow builtin", callk, Value::builtin(3).0, |m| { m.slow_calls = vec![0, 0, 0, 1]; m.sync(); }),
-        ("iterator with feedback", callk, iter_value, |m| m.ctx.feedback = 1),
         ("not callable", callk, Value::num(1.0).0, |_| {}),
         ("unknown function", callk, Value::func(9).0, |_| {}),
         ("wide argument count", Ins { c: 64, ..callk }, closure_value, |_| {}),
