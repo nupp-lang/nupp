@@ -641,11 +641,8 @@ local function compileFunction(fn: Fn, options: any): string
         if resultKind == "nil" then
             resultKind = nil
         end
-        local text = "call " .. importHelper(
-            helperSymbol(member),
-            paramKinds,
-            resultKind
-        ) .. "(" .. table.concat(words, ", ") .. ")"
+        local symbol = helperSymbol(prefix, member)
+        local text = "call " .. importHelper(symbol, paramKinds, resultKind) .. "(" .. table.concat(words, ", ") .. ")"
         if resultKind then
             return {kind = resultKind, value = emit(text)}
         end
