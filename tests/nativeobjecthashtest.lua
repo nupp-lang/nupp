@@ -86,6 +86,7 @@ local struct Payload
     word: uint64
 end
 local type Alias = Payload
+local type Pointer = Payload*
 export function slotHash(unused: uint64): uint64
     return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
 end
@@ -93,7 +94,7 @@ local function ordinary(): uint64
     return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
 end
 local function pointerLayout(): uint64
-    return native.sizeOf<Payload*>() + native.alignmentOf<Payload*>()
+    return native.sizeOf<Pointer>() + native.alignmentOf<Pointer>()
 end
 ]]
     assert(fs.writeFile(path, source))
