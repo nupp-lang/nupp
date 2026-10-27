@@ -124,8 +124,8 @@ def cold():
     env = dict(environment(), NUPP_BOOTSTRAP_SEED_MANIFEST=str(OUT / "local-pins.json"),
                NUPP_TOOLCHAIN_DIR=str(ROOT / "build/cold-seed-cache"))
     run([sys.executable, "scripts/vm-cli", "build", "--seed", "image", "--no-aot", "--no-cache"], "cold-build", env=env)
-    run(["bash", "./bin/nupp", "test", "bootstrapseedtest", "rustabitest", "--jobs=1", "--json"], "cold-tests", env=env)
-    run(["bash", "./bin/nupp", "fixpoint"], "fixpoint", env=env)
+    run([os.environ.get("CONFIG_SHELL", "sh"), "./bin/nupp", "test", "bootstrapseedtest", "rustabitest", "--jobs=1", "--json"], "cold-tests", env=env)
+    run([os.environ.get("CONFIG_SHELL", "sh"), "./bin/nupp", "fixpoint"], "fixpoint", env=env)
     generation = (ROOT / ".nupp/vm-cli/current").read_text().strip()
     installed = ROOT / ".nupp/vm-cli" / generation
     runtime, image = installed / "runtime", installed / "compiler.image"
@@ -140,7 +140,7 @@ def cold():
     for name in ("NO_JIT", "NO_AOT", "SIMD_INTERPRET"):
         normal_env.pop(name, None)
     run([sys.executable, "scripts/vm-cli", "link"], "aot-link", env=normal_env)
-    run(["bash", "./bin/nupp", "--help"], "aot-help", env=normal_env)
+    run([os.environ.get("CONFIG_SHELL", "sh"), "./bin/nupp", "--help"], "aot-help", env=normal_env)
     receipt = {"factorySource": SOURCE, "consumerSource": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
                "host": os.environ["SEED_HOST"], "seedImage": IMAGE, "generation": generation,
                "sha256": {str(path.relative_to(ROOT)): digest(path) for path in [OUT / "seed-runtime", OUT / "compiler.image",
