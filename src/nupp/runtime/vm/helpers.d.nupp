@@ -44,7 +44,7 @@ local record Helpers
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     resolveMethod: function(context: voidptr, receiver: uint64, name: uint64): uint64
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
-    callResolved: function(context: voidptr, base: int64, nargs: int64): uint64
+    callResolved: function(context: voidptr, base: int64, nargs: int64, budgeted: int64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     defer: function(context: voidptr, value: uint64, callback: uint64): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

@@ -2315,7 +2315,7 @@ fn native_resolved_call_boundary_charges_once_and_does_not_run_at_zero() {
             ctx.pc = 2;
             crate::threaded::sync(&mut ctx, &mut vm);
             let before = vm.tasks[tid].stack[HDR + 3];
-            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1) };
+            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1, 1) };
             if budget == 0 {
                 assert_eq!(vm.tasks[tid].stack[HDR + 3], before);
                 if scheduled {
@@ -2689,6 +2689,121 @@ entry 0
                 );
                 assert_eq!(vm.tasks[tid].stack[0] >> 32, 1);
             }
+        }
+    }
+}
+#[test]
+fn native_finite_method_calls_charge_before_resolution_and_stay_native() {
+    let source = r#"
+function caller 0 1 8 2 v:v
+const 0 str "target"
+CallMethod 0 0 1
+Ret 0
+end
+function identity 1 1 4 2 v:v
+Ret 1
+end
+function variable 2 1 4 2 v:v vararg
+Ret 1
+end
+entry 0
+"#;
+    for scheduled in [false, true] {
+        for budget in [1usize, 2, 7] {
+            for mode in 0..4 {
+                let mut vm = Box::new(crate::interp::Interp::new());
+                crate::image::load(&mut vm, source).unwrap();
+                let target = match mode {
+                    0 => Value::func(1),
+                    1 => vm.new_closure(1, &[]),
+                    2 => Value::builtin(crate::builtins::id_of("type").unwrap()),
+                    _ => Value::func(2),
+                };
+                vm.registered.push(target);
+                let receiver = vm.new_table();
+                vm.registered.push(receiver);
+                let name = vm.intern("target");
+                vm.set_index(receiver, name, target);
+                vm.entries.resize(vm.funcs.len(), 0);
+                vm.prepare_threaded();
+                let tid = if scheduled {
+                    vm.enable_scheduler().unwrap();
+                    vm.schedule(Value::func(0), &[receiver], None)
+                        .unwrap()
+                        .index
+                } else {
+                    vm.spawn(0, &[receiver])
+                };
+                vm.execution_limit = Some(budget);
+                vm.instruction_budget = scheduled.then_some(budget);
+                let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+                ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+                ctx.tid = tid as u64;
+                let slow_calls = vec![0u8; crate::builtins::NAMES.len()];
+                ctx.slow_calls = slow_calls.as_ptr();
+                ctx.nslow_calls = slow_calls.len() as u64;
+                crate::threaded::sync(&mut ctx, &mut vm);
+                let frame = ctx.stack;
+                let pc = vm.finfo[0].code;
+                let next = unsafe {
+                    nupp_native_runtime_entry(
+                        pc,
+                        frame.add(HDR),
+                        frame.add(vm.funcs[0].off_i()).cast(),
+                        frame.add(vm.funcs[0].off_f()).cast(),
+                        &mut ctx,
+                        frame,
+                    )
+                };
+                // The first handoff is the caller's terminal Ret, after the
+                // method already executed. CallMethod itself stayed in Nupp.
+                assert_eq!(
+                    next,
+                    unsafe { pc.add(1) } as u64,
+                    "scheduled {scheduled}, budget {budget}, mode {mode}"
+                );
+                assert_eq!(ctx.cur, 0);
+                assert_eq!(ctx.budget, (budget - 1) as u64);
+                assert_eq!(vm.execution_limit, Some(budget - 1));
+                assert_eq!(vm.instruction_budget, scheduled.then_some(budget - 1));
+                let result = Value(vm.tasks[tid].stack[HDR]);
+                if mode == 2 {
+                    assert_eq!(vm.bytes_of(result), b"table");
+                } else {
+                    assert_eq!(result, receiver);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_precharged_resolved_call_does_not_charge_again() {
+    for scheduled in [false, true] {
+        for budget in [0usize, 1, 7] {
+            let mut vm = call_budget_vm(true);
+            let tid = if scheduled {
+                vm.enable_scheduler().unwrap();
+                vm.schedule(Value::func(0), &[], None).unwrap().index
+            } else {
+                vm.spawn(0, &[])
+            };
+            vm.tasks[tid].stack[HDR + 3] =
+                Value::builtin(crate::builtins::id_of("math.floor").unwrap()).0;
+            vm.tasks[tid].stack[HDR + 4] = Value::num(41.75).0;
+            vm.execution_limit = Some(budget);
+            vm.instruction_budget = scheduled.then_some(budget);
+            let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+            ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+            ctx.tid = tid as u64;
+            ctx.pc = 2;
+            crate::threaded::sync(&mut ctx, &mut vm);
+            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1, 0) };
+            assert_eq!(result, 3);
+            assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::num(41.0).0);
+            assert_eq!(vm.execution_limit, Some(budget));
+            assert_eq!(vm.instruction_budget, scheduled.then_some(budget));
+            assert_eq!(ctx.budget, budget as u64);
         }
     }
 }

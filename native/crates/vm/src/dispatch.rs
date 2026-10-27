@@ -238,9 +238,10 @@ pub(crate) mod native_helpers {
     /// The rest of a dynamic call whose callee is already at `base` of the
     /// top frame, at the published pc, as the step runs `CallDyn base base
     /// nargs`: answers the pc to go on at, or a status, as the frame driver's
-    /// service does.
+    /// service does. `budgeted` is zero when Nupp already charged before
+    /// resolving the callee; a plain boundary charges here.
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_call_resolved(ctx: *mut Ctx, base: u64, nargs: u64) -> u64 {
+    pub unsafe extern "C" fn nupp_rt_call_resolved(ctx: *mut Ctx, base: u64, nargs: u64, budgeted: u64) -> u64 {
         use crate::interp::{Flow, Outcome};
         let ctx = unsafe { &mut *ctx };
         let (it, tid) = enter_rust(ctx);
@@ -249,7 +250,7 @@ pub(crate) mod native_helpers {
         let (win, _) = it.window(tid);
         let mark = it.handles.len();
         let flow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if !it.take_budget_point(tid, pc) { return Flow::Return(Outcome::Parked(0)); }
+            if budgeted != 0 && !it.take_budget_point(tid, pc) { return Flow::Return(Outcome::Parked(0)); }
             it.op_call_dyn(tid, &win, pc + 1, base as u8, base as u8, nargs as u8)
         }));
         if flow.is_err() {

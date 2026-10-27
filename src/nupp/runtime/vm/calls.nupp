@@ -253,7 +253,7 @@ end
 -- service's is.
 local function callResolvedSlow(pc: voidptr, context: voidptr, base: int64, nargs: int64): uint64
     protocol.publishPc(pc, context)
-    return settle(context, helpers.callResolved(context, base, nargs))
+    return settle(context, helpers.callResolved(context, base, nargs, 0))
 end
 
 -- A call whose argument count is flagged, or whose callee takes varargs
@@ -307,7 +307,7 @@ local function pushSpreadSlow(
     local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF) + native.word(nvar)
     local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
     if native.either(
-        native.either(refused, budget == 0),
+        native.either(refused, native.both(resolved == 0, budget == 0)),
         next + words > native.load64(context, native.layout("cap"))
     ) then
         if resolved ~= 0 then
@@ -315,7 +315,9 @@ local function pushSpreadSlow(
         end
         return native.slow(pc, regs, regs, regs, context, frame)
     end
-    chargeBudget(context, budget)
+    if resolved == 0 then
+        chargeBudget(context, budget)
+    end
     local caller = native.loadPointer(
         native.loadPointer(context, native.layout("funcs")),
         native.index(
@@ -434,12 +436,20 @@ end
 -- and its results delivered from `base` by the helper, which may grow the
 -- stack. The protected calls and the task API, which park or run frames of
 -- their own, are the slow-call table's and go to Rust whole.
--- CallK/CallDyn gate zero before reaching this helper; native CallMethod
--- reaches it only with the unlimited sentinel. The destination need not
+-- CallK/CallDyn gate zero before reaching this helper; CallMethod has
+-- already charged before resolving its target. The destination need not
 -- contain the callee, so it cannot stand in for a resolved-call boundary.
-local function callBuiltinSlow(pc: voidptr, context: voidptr, id: int64, base: uint64, nargs: int64): uint64
-    local budget = native.load64(context, native.layout("budget"))
-    chargeBudget(context, budget)
+local function callBuiltinSlow(
+    pc: voidptr,
+    context: voidptr,
+    id: int64,
+    base: uint64,
+    nargs: int64,
+    budgeted: int64
+): uint64
+    if budgeted ~= 0 then
+        chargeBudget(context, native.load64(context, native.layout("budget")))
+    end
     protocol.publishPc(pc, context)
     helpers.callBuiltin(context, id, base, nargs)
 
@@ -515,7 +525,8 @@ local function callValue(
                     context,
                     id,
                     native.load64(context, native.layout("cur")) + 4 + native.word(program.readByte(pc, 2)),
-                    nargs
+                    nargs,
+                    1
                 )
             end
         else
@@ -917,7 +928,7 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
                     native.load8(native.loadPointer(context, native.layout("slow_calls")), id) == 0
                 )
             ) then
-                return callBuiltinSlow(pc, context, id, current + 4 + native.word(base), nargs)
+                return callBuiltinSlow(pc, context, id, current + 4 + native.word(base), nargs, 0)
             end
         end
     elseif method & values.TAG_MASK == values.TAG_OBJ then
@@ -943,13 +954,10 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
             -- the instruction back to be resolved a second time.
             local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
             local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-            if native.both(
-                native.load64(context, native.layout("budget")) ~= 0,
-                next + words <= native.load64(context, native.layout("cap"))
-            ) then
+            if next + words <= native.load64(context, native.layout("cap")) then
                 local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
                 local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied, true)
+                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied, false)
             end
         end
     end
@@ -967,11 +975,14 @@ export function CallMethod(
     context: voidptr,
     frame: voidptr
 ): uint64
-    -- A finite call is gated before an __index callback can resolve its
-    -- target. The whole-op boundary charges before resolving and calling.
-    if native.load64(context, native.layout("budget")) ~= 0xffffffffffffffffULL then
+    -- A spent call is gated before an __index callback can resolve its
+    -- target. Otherwise charge now; resolving may itself run guest calls,
+    -- and the selected target must not charge this instruction again.
+    local budget = native.load64(context, native.layout("budget"))
+    if budget == 0 then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
+    chargeBudget(context, budget)
     local info = native.offset(
         native.loadPointer(context, native.layout("funcs")),
         native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
