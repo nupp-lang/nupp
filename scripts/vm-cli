@@ -358,7 +358,7 @@ def execution_environment(cache=None):
 def build_from(args, out, target, image):
     # Per-module lowering kept between emits (nupp.tools.vm.emitcache).
     cache = None if args.no_cache else (args.cache or out / "emit-cache")
-    cached = {"NUPP_VM_EMIT_CACHE": str(cache)} if cache else {}
+    cached = {"NUPP_VM_EMIT_CACHE": str(cache) if cache else ""}
     installed = (PACKAGES / "current").exists()
     seed = args.seed or ("vm" if installed else "image")
     if seed == "pinned" and not installed:
@@ -443,8 +443,7 @@ def compiler_environment(cache):
     for name in ("GC_STRESS", "GC_INTERLEAVE", "GC_ORACLE", "GC_QUARANTINE", "NUPP_VM_CLI_IMAGE", "NUPP_VM_BINARY",
                  "NUPP_NATIVE_RUNTIME_OBJECT", "NUPP_AOT_OBJECT"):
         env.pop(name, None)
-    if cache:
-        env["NUPP_VM_EMIT_CACHE"] = str(cache)
+    env["NUPP_VM_EMIT_CACHE"] = str(cache) if cache else ""
     return env
 
 

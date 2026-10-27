@@ -113,6 +113,10 @@ class Delivery(unittest.TestCase):
 
 
 class Routing(unittest.TestCase):
+    def test_no_cache_cannot_replay_an_inherited_emitter_cache(self):
+        with patch.dict(os.environ, {"NUPP_VM_EMIT_CACHE": "older-compiler-cache"}):
+            self.assertEqual(cli.compiler_environment(None)["NUPP_VM_EMIT_CACHE"], "")
+
     def test_lowering_caches_are_separated_by_executing_image_not_source(self):
         with tempfile.TemporaryDirectory() as temp:
             image = Path(temp) / "compiler.image"
