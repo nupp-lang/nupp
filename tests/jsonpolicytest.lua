@@ -114,6 +114,40 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
     end
 end
 
+function M.providersRoundTripExactSignedIntegers()
+    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+        for _, token in ipairs({
+            "9007199254740993",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "-9223372036854775807",
+            "0",
+            "1",
+            "-1",
+            "42",
+        }) do
+            local value = assert(tonumber(token))
+            assert(math.type(value) == "integer" and tostring(value) == token, "invalid integer fixture: " .. token)
+            local encoded = provider.encode(value)
+            assert(encoded == token, "integer precision lost: " .. token .. " encoded as " .. encoded)
+            local decoded = provider.decode(encoded)
+            assert(
+                math.type(decoded) == "integer" and tostring(decoded) == token,
+                "integer did not round-trip: " .. token
+            )
+        end
+        for _, value in ipairs({0.1, 1.25}) do
+            assert(math.type(value) == "float")
+            local encoded = provider.encode(value)
+            assert(encoded == string.format("%.17g", value), "float encoding changed: " .. encoded)
+            local decoded = provider.decode(encoded)
+            assert(math.type(decoded) == "float" and decoded == value, "float did not round-trip: " .. encoded)
+        end
+        local encoded = provider.encode(-0.0)
+        assert(encoded == "-0" and 1 / provider.decode(encoded) == -math.huge, "negative zero did not round-trip")
+    end
+end
+
 function M.providersPreserveNegativeZero()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local encoded = provider.encode(-0.0)
