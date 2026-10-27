@@ -800,4 +800,14 @@ function M.floorKeepsExactIntegerMachineValues()
     assert(not accepted, "generic numeric values have no unboxed native ABI")
 end
 
+function M.floatConstantsNormalizeIntegerMinimumBeforeFormatting()
+    local path = compileFixture("numericfloor")
+    local clif = read(path)
+    assert(clif:find("f64const -0x1.0000000000000p63", 1, true), "integer MIN must become exactly -2^63")
+    assert(not clif:find("f64const -0xf.", 1, true), "negating integer MIN must not wrap during formatting")
+    assert(tonumber(run(path, "minimumFloat", {})) == -9223372036854775808.0)
+    assert(clif:find("f64const -0.0", 1, true), "normalizing a floating constant must preserve negative zero")
+    assert(run(path, "negativeZero", {}) == "-0")
+end
+
 return M

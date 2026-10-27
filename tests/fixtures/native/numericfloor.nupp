@@ -11,3 +11,12 @@ end
 local function floating(value: float): float
     return math.floor(value) as float
 end
+
+local function minimumFloat(): float64
+    local value: float64 = -9223372036854775808
+    return value
+end
+
+local function negativeZero(): float64
+    return -0.0
+end

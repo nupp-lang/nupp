@@ -313,7 +313,7 @@ local function machine(kind: string): string
 end
 
 -- A double as CLIF spells it: a hexadecimal significand and a binary exponent.
-local function hexFloat(x: number): string
+local function hexFloat(x: float64): string
     if x ~= x then
         return "NaN"
     elseif x == math.huge then
@@ -657,7 +657,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
     local function materialize(e: any, kind: string): string
         if e.literal then
             if kind == "float64" then
-                return emit("f64const " .. hexFloat(tonumber(e.literal) as number))
+                return emit("f64const " .. hexFloat((tonumber(e.literal) as number) * 1.0))
             elseif kind == "boolean" then
                 error("lower: a number is not a boolean", 0)
             end
