@@ -1639,7 +1639,10 @@ fn load_graph_mode(
                     it.pos = *pos;
                     it.obj = resolve(obj, &objects)?;
                     it.pattern = resolve(pattern, &objects)?;
-                    it.keys = resolve_all(keys, &objects)?;
+                    let keys = resolve_all(keys, &objects)?;
+                    it.keys.reserve(keys.len().saturating_sub(it.keys.len()));
+                    it.keys.truncate(0);
+                    it.keys.extend(keys);
                     h.refresh();
                 }
                 _ => {}

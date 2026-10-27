@@ -31,6 +31,8 @@ export function constructorPayload(kind: uint64, count: uint64): uint64
         return count * word + tail
     elseif kind == heap.KIND_INTEGER then
         return 0ULL
+    elseif kind == heap.KIND_ITER then
+        return native.sizeOf<heap.IteratorBody>()
     elseif kind == heap.KIND_CELL then
         return native.sizeOf<heap.CellBody>()
     elseif kind == heap.KIND_SLICE then
@@ -215,6 +217,84 @@ export function integerInitialize(header: voidptr, bits: uint64): uint64
     end
     native.store32(header, native.fieldOffset<heap.Header>("aux"), 0)
     native.store64(header, native.fieldOffset<heap.Header>("auxLen"), bits)
+
+    return 0ULL
+end
+
+-- Takes a prepared key descriptor after every fallible backing operation has
+-- completed. Header publication therefore cannot strand uninitialized payloads.
+-- The caller exclusively borrows both allocations and keeps all edges rooted.
+export function iteratorInitialize(
+    header: voidptr,
+    kind: uint64,
+    object: uint64,
+    pattern: uint64,
+    keys: voidptr
+): uint64
+    if kind > 0xffULL then
+        return 1ULL
+    end
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_ITER then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.IteratorBody>()
+    then
+        return 1ULL
+    end
+    local owner = native.load64(keys, native.fieldOffset<heap.ValueArray>("owner"))
+    local base = native.load64(keys, native.fieldOffset<heap.ValueArray>("base"))
+    local length = native.load64(keys, native.fieldOffset<heap.ValueArray>("length"))
+    local capacity = native.load64(keys, native.fieldOffset<heap.ValueArray>("capacity"))
+    if owner == 0ULL then
+        return 1ULL
+    end
+    if length > capacity then
+        return 1ULL
+    end
+    if capacity > 0ULL then
+        if base == 0ULL then
+            return 1ULL
+        end
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("object"), object)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("pattern"), pattern)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("position"), 0ULL)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("keysOwner"), owner)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("keysPtr"), base)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("keysLen"), length)
+    native.store64(body, native.fieldOffset<heap.IteratorBody>("keysCap"), capacity)
+    native.store32(header, native.fieldOffset<heap.Header>("aux"), native.index(kind))
+    native.store64(header, native.fieldOffset<heap.Header>("auxPtr"), base)
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), length)
+    native.store64(keys, native.fieldOffset<heap.ValueArray>("base"), 0ULL)
+    native.store64(keys, native.fieldOffset<heap.ValueArray>("length"), 0ULL)
+    native.store64(keys, native.fieldOffset<heap.ValueArray>("capacity"), 0ULL)
+
+    return 0ULL
+end
+
+export function iteratorRefresh(header: voidptr): uint64
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_ITER then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.IteratorBody>()
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(
+        header,
+        native.fieldOffset<heap.Header>("auxPtr"),
+        native.load64(body, native.fieldOffset<heap.IteratorBody>("keysPtr"))
+    )
+    native.store64(
+        header,
+        native.fieldOffset<heap.Header>("auxLen"),
+        native.load64(body, native.fieldOffset<heap.IteratorBody>("keysLen"))
+    )
 
     return 0ULL
 end

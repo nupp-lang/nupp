@@ -170,6 +170,17 @@ export struct ValueArray
     capacity: uint64
 end
 
+-- Iterator edges and cursor precede the canonical owned key descriptor.
+export struct IteratorBody
+    object: uint64
+    pattern: uint64
+    position: uint64
+    keysOwner: uint64
+    keysPtr: uint64
+    keysLen: uint64
+    keysCap: uint64
+end
+
 -- One canonical hash descriptor. The initial six fields retain their probe ABI.
 export struct ValueTable
     ptr: uint64

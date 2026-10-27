@@ -167,14 +167,15 @@ impl std::ops::DerefMut for ByteBuffer {
     fn deref_mut(&mut self) -> &mut [u8] { match self { Self::Bytes(b) => b, Self::Aligned(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer.as_ptr(), b.length) }, Self::Shared(b) => unsafe { std::slice::from_raw_parts_mut(b.pointer(), b.len()) }, Self::Moved => &mut [] } }
 }
 pub struct BytesPayload { pub data: ByteBuffer }
-/// Iteration state for `pairs` (1, over a key snapshot), `ipairs` (2) and
-/// `gmatch` (3, `pattern` holds the pattern string).
 #[repr(C)]
 /// A userdata's payload: its metatable, its user value (traced) and the
 /// native data behind it (dropped when the object is freed). `external`
 /// is what the data owns outside the heap, fixed at creation.
 pub struct UserdataPayload { pub meta: Value, pub uservalue: Value, pub data: Box<dyn std::any::Any>, pub external: usize }
-pub struct IterPayload { pub obj: Value, pub pattern: Value, pub pos: usize, pub keys: Vec<Value> }
+/// Iteration state shared by table, pattern, and file iterators.
+/// Nupp owns the descriptor and backing of the ordered key snapshot.
+#[repr(C)]
+pub struct IterPayload { pub obj: Value, pub pattern: Value, pub pos: usize, pub keys: crate::native_value_array::ValueArray }
 
 impl Header {
     #[inline]
@@ -253,7 +254,12 @@ impl Header {
             KIND_TABLE => { let t = self.table(); let (p, n) = (t.array.as_mut_ptr() as *mut u8, t.array.len() as u64); self.aux_ptr = p; self.aux_len = n; }
             KIND_STORAGE => { let s = self.storage(); let (p, n) = (s.data.as_mut_ptr() as *mut u8, s.data.len() as u64); self.aux_ptr = p; self.aux_len = n; }
             KIND_BYTES => { let b = self.byte_buffer(); let (p, n) = (b.data.as_mut_ptr(), b.data.len() as u64); self.aux_ptr = p; self.aux_len = n; }
-            KIND_ITER => { let i = self.iter(); let (p, n) = (i.keys.as_mut_ptr() as *mut u8, i.keys.len() as u64); self.aux_ptr = p; self.aux_len = n; }
+            KIND_ITER => {
+                #[cfg(feature = "native-runtime")]
+                assert_eq!(unsafe { nupp_object_iterator_refresh(self) }, 0, "invalid iterator payload");
+                #[cfg(not(feature = "native-runtime"))]
+                panic!("iterator payloads require a linked Nupp core");
+            }
             _ => {}
         }
     }
@@ -273,6 +279,8 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 }
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
+    fn nupp_object_iterator_initialize(header: *mut Header, kind: u64, object: u64, pattern: u64, keys: *mut crate::native_value_array::ValueArray) -> u64;
+    fn nupp_object_iterator_refresh(header: *mut Header) -> u64;
     fn nupp_object_slot_hash(bits: u64) -> u64;
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
     fn nupp_object_integer_initialize(header: *mut Header, bits: u64) -> u64;
@@ -287,8 +295,10 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 16);
+    assert!(crate::dispatch::OBJECT_ABI == 17);
     assert!(std::mem::size_of::<Value>() == 8);
+    assert!(std::mem::size_of::<IterPayload>() == 56);
+    assert!(std::mem::offset_of!(IterPayload, keys) == 24);
     assert!(std::mem::size_of::<RecordTail>() == 40);
     assert!(std::mem::size_of::<RecordExtra>() == 64);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
@@ -684,8 +694,28 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_iter(&mut self, kind: u8, obj: Value, pattern: Value, keys: Vec<Value>, roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_ITER, std::mem::size_of::<IterPayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = kind as u32; (h.payload() as *mut IterPayload).write(IterPayload { obj, pattern, pos: 0, keys }); h.refresh(); }
+        let extent = constructor_payload(KIND_ITER, 0);
+        // Finish fallible backing work before publishing the managed header.
+        let mut owned = self.allocator.value_array(keys.len());
+        owned.extend(&keys);
+        struct IteratorRoots<'a> { caller: &'a dyn Roots, obj: Value, pattern: Value, keys: &'a [Value] }
+        impl Roots for IteratorRoots<'_> {
+            fn each_root(&self, f: &mut dyn FnMut(Value)) {
+                self.caller.each_root(f);
+                f(self.obj);
+                f(self.pattern);
+                for &key in self.keys { f(key); }
+            }
+            fn each_mutable_root(&self, f: &mut dyn FnMut(Value)) {
+                self.caller.each_mutable_root(f);
+                f(self.obj);
+                f(self.pattern);
+                for &key in self.keys { f(key); }
+            }
+        }
+        let roots = IteratorRoots { caller: roots, obj, pattern, keys: &owned };
+        let p = self.alloc(KIND_ITER, extent, &roots);
+        initialize_object!(nupp_object_iterator_initialize(p.as_ptr(), kind as u64, obj.0, pattern.0, &mut owned));
         // Allocation is black during marking; initial references need the
         // same insertion barrier as later stores.
         if self.phase == Phase::Marking { self.scan(p); }
