@@ -441,4 +441,32 @@ function M.nativeScalarConversionsRejectErasedWidthsAndSignedness()
     )
 end
 
+function M.nativeSelectionsRetainBoxedBitsAndRefuseMixedKinds()
+    local g, b = fresh()
+    local condition = G.emitNative(g, b, "NativeBoolean", {true}, "boolean")
+    local yes = constant(g, b, "18446744073709551615", "uint64")
+    local no = constant(g, b, "0x7ff9000000000000", "uint64")
+    local selected = G.emitNative(g, b, "NativeSelect", {condition, yes, no}, "uint64")
+    G.emitNative(g, b, "FrameSlotWrite", {
+        6,
+        2,
+        constant(g, b, "0"),
+        selected,
+        {class = "v", kind = "uint64", write = true, width = 8}
+    })
+    dispatch(b)
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(g.exactTypes[selected] == "uint64")
+    local signed = G.emitNative(g, b, "NativeWordCast", {yes}, "int64")
+    G.emitNative(g, b, "NativeSelect", {condition, yes, signed}, "uint64")
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "operand kind mismatch"
+    )
+end
+
 return M

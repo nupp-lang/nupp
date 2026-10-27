@@ -7,6 +7,11 @@ local slotcontract = require("nupp.compiler.vm.slotcontract")
 
 local nativegraph = {}
 local admitted = {
+    Move = true,
+    Nil = true,
+    Not = true,
+    Truthy = true,
+    BoolFromI = true,
     IK = true,
     IMov = true,
     IAddK = true,
@@ -67,6 +72,12 @@ local intrinsicUnary = {
     unsignedInt = {"NativeFloatToInt", "float64", "uint64"},
     bits = {"NativeFloatBits", "float64", "uint64"},
     fromBits = {"NativeFloatFromBits", "uint64", "float64"}
+}
+local intrinsicCalls = {
+    both = {op = "IAnd", params = {"boolean", "boolean"}, result = "boolean"},
+    either = {op = "IOr", params = {"boolean", "boolean"}, result = "boolean"},
+    chooseWord = {op = "NativeSelect", params = {"boolean", "uint64", "uint64"}, result = "uint64"},
+    chooseIndex = {op = "NativeSelect", params = {"boolean", "int64", "int64"}, result = "int64"}
 }
 local wrappers = {literal = "base", const = "inner"}
 
@@ -169,7 +180,7 @@ function nativegraph.compile(fn: any, options: any): any
             return value as integer
         elseif n.kind == "dotIndex" then
             local moduleName, name = member(n)
-            need(moduleName == "nupp.runtime.vm.values" and name == "LOW_WORD", "unsupported module constant")
+            need(moduleName == "nupp.runtime.vm.values", "unsupported module constant")
             local home = options.modules and options.modules[moduleName]
             local text = home and home.exportedConstants and home.exportedConstants[name]
             need(
@@ -234,6 +245,15 @@ function nativegraph.compile(fn: any, options: any): any
                 local window = expression(args[2], "voidptr")
                 local slot = expression(args[3], "int64")
                 return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicCalls[name] then
+                local operation = intrinsicCalls[name]
+                signature(n, operation.params, operation.result)
+                need(expected == nil or expected == operation.result, "intrinsic changes exact result kind")
+                local operands = {}
+                for index, kind in ipairs(operation.params) do
+                    operands[index] = expression(args[index], kind)
+                end
+                return emit(n, operation.op, operands, operation.result) as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicUnary[name] then
                 local operation = intrinsicUnary[name]
                 signature(n, {operation[2]}, operation[3])

@@ -110,6 +110,7 @@ signatures.NativeIMul = "Iii"
 signatures.NativeICmp = "Iii#"
 signatures.NativeFCmp = "Iff#"
 signatures.NativeAsWord = "Ii"
+signatures.NativeSelect = "Iiaa"
 signatures.NativeWordCast = "Ii"
 signatures.NativeIntToFloat = "Fi"
 signatures.NativeFloatToInt = "If"
@@ -133,6 +134,7 @@ local nativeOnly = {
     NativeICmp = true,
     NativeFCmp = true,
     NativeAsWord = true,
+    NativeSelect = true,
     NativeWordCast = true,
     NativeIntToFloat = true,
     NativeFloatToInt = true,
@@ -416,6 +418,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     elseif op == "NativeAsWord" then
         hasKind(args[1], "boolean")
         assert(kind == "uint64", "native boolean conversion produces a word")
+    elseif op == "NativeSelect" then
+        hasKind(args[1], "boolean")
+        assert(nativeClasses[kind], "native selection requires an exact result kind")
+        hasKind(args[2], kind)
+        hasKind(args[3], kind)
     elseif op == "NativeWordCast" then
         local source = kinds[args[1]]
         assert(
@@ -498,7 +505,8 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     elseif nativeArithmetic[op] then
         assert(
             op:sub(1, 1) == "F" and nativeFloatKinds[kind]
-            or (op:sub(1, 1) == "I" or op == "NativeIMul") and (kind == "int64" or kind == "uint64"),
+            or (op:sub(1, 1) == "I" or op == "NativeIMul") and (kind == "int64" or kind == "uint64")
+            or (op == "IAnd" or op == "IOr") and kind == "boolean",
             "native arithmetic result kind"
         )
         for _, value in ipairs(args) do

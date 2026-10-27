@@ -140,6 +140,8 @@ function emitter.emit(g: any, options: any): string
                 )
             elseif op == "NativeAsWord" then
                 line(result .. " = uextend.i64 " .. value(args[1]))
+            elseif op == "NativeSelect" then
+                line(result .. " = select " .. value(args[1]) .. ", " .. value(args[2]) .. ", " .. value(args[3]))
             elseif op == "NativeWordCast" then
                 line(result .. " = iadd_imm " .. value(args[1]) .. ", 0")
             elseif op == "NativeIntToFloat" then

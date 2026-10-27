@@ -89,6 +89,11 @@ end
 function M.exactScalarHandlersProduceTheSharedGraph()
     local functions, options = checked(read(CORE))
     local admitted = {
+        "Move",
+        "Nil",
+        "Not",
+        "Truthy",
+        "BoolFromI",
         "IK",
         "IMov",
         "IAddK",
@@ -151,9 +156,9 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         assert(g.exactTypes[block.dst[index]] == "int64")
         block, index = operation(g, "FrameSlotWrite")
         contract = block.args[index][5]
-        assert(contract.write and (contract.class == "i" or contract.class == "f"))
+        assert(contract.write and (contract.class == "v" or contract.class == "i" or contract.class == "f"))
         assert(contract.class ~= "f" or contract.kind == "float64")
-        assert(block.args[index][1] == 6 and block.args[index][2] == (contract.class == "f" and 4 or 3))
+        assert(block.args[index][1] == 6 and block.args[index][2] == ({v = 2, i = 3, f = 4})[contract.class])
         for _, position in ipairs(block.pos) do
             assert(position > 0 and g.positions[position].line > 0)
         end
@@ -161,7 +166,7 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         graph.verify(g)
         operation(g, "FrameSlotWrite")
     end
-    assert(not nativegraph.admits(functions.Move))
+    assert(not nativegraph.admits(functions.Jmp))
     assert(not nativegraph.admits({name = "IAdd", scope = {name = "other"}}))
 end
 
