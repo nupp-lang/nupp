@@ -39,6 +39,7 @@ if args.luarocks:
     env["NUPP_LUAROCKS"] = str(args.luarocks.resolve())
     env["PATH"] = str(args.luarocks.resolve().parent) + os.pathsep + env.get("PATH", "")
 results = []
+packaged_program_executed = False
 
 def case(name, argv, cwd, status=0, json_output=False, contains=None, stdin=None, timeout=180):
     if args.case and name not in args.case:
@@ -84,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix="nupp-vm-root-cli-") as directory:
     (work / "src").mkdir()
     (work / "nupp.lua").write_text(
         'return {include = {"src"}, build = {outDir = "build", default = "app", '
-        'targets = {app = {kind = "modules", entries = {"main"}, layoutTarget = "x86_64-unknown-linux-gnu"}}}, '
+        'targets = {app = {kind = "binary", stub = "nupp", entries = {"main"}}}}, '
         'test = {build = "app", argv = {' + json.dumps(str(root / "bin/nupp")) + ', "run", "src/main.nupp"}}, '
         'tasks = {answer = {argv = {' + json.dumps(str(root / "bin/nupp")) + ', "run", "src/main.nupp"}}}}\n')
     (work / "src/main.nupp").write_text('module main\nlocal answer: integer = 42\nprint(answer)\nexport = answer\n')
@@ -170,7 +171,7 @@ print(42)
         ("check-project-cached", ["check", "--json"], 0, True, '"compiledModules":0'),
         ("check-invalid", ["check", "--json", "invalid.nupp"], 1, True, None),
         ("check-missing", ["check", "--json", "missing.nupp"], 1, True, None),
-        ("build-file", ["build", "--json", "--output", "generated", "src/main.nupp"], 0, True, None),
+        ("build-target", ["build", "--json", "--target", "app"], 0, True, None),
         ("fmt-file", ["fmt", "--write", "src/main.nupp"], 0, False, None),
         ("lints-json", ["lints", "--json"], 0, True, None),
         ("ownership-file", ["ownership-audit", "--json", "src/main.nupp"], 0, True, None),
@@ -189,10 +190,10 @@ print(42)
         ("source-sandbox", ["run", "sandbox.lua"], 0, False, "42"),
         ("task-run", ["task", "answer"], 0, False, "42"),
         ("test-run", ["test"], 0, False, "42"),
-        ("aot-file", ["aot", "--json", "src/kernel.nupp"], 0, True, None),
+        ("retired-aot-command", ["aot", "--json", "src/kernel.nupp"], 2, False, None),
         ("bc-file", ["bc", "--json", "src/main.nupp"], 0, True, '"backend":"vm"'),
-        ("bc-text", ["bc", "src/main.nupp"], 0, False, "Ret"),
-        ("bc-check", ["bc", "--check", "--json", "src/main.nupp"], 0, True, '"backend":"vm"'),
+        ("bc-text", ["bc", "src/main.nupp"], 0, False, "CallDyn"),
+        ("retired-bc-check", ["bc", "--check", "--json", "src/main.nupp"], 2, False, None),
         ("bc-invalid", ["bc", "--json", "invalid.nupp"], 1, True, None),
         ("doc-file", ["doc", "--kind", "markdown", "--json", "-o", "api.md", "src/main.nupp"], 0, True, None),
         ("export-header", ["export-c", "--json", "-o", "game.h", "src/game.nupp", "game.Position"], 0, True, None),
@@ -200,10 +201,19 @@ print(42)
         ("bench-protocol", ["bench", "--json", "--forks", "1", "--file", str(root / "tests/fixtures/bench_protocol.nupp")], 0, True, "protocol"),
         ("bench-run", ["bench", "--json", "--forks", "1", "--case", "fixed", "--file", str(root / "tests/fixtures/bench_fixed_records.nupp")], 0, True, "fixed"),
         ("fixpoint-unconfigured", ["fixpoint", "--json"], 1, True, None),
-        ("rock-missing", ["rock", "pack"], 1, False, None),
+        ("retired-rock-command", ["rock", "pack"], 2, False, None),
         ("clean-dry", ["clean", "--dry-run", "--json"], 0, True, None),
     ]:
         case(name, argv, work, status, json_output, contains)
+        if name == "build-target" and results and results[-1]["name"] == name and results[-1]["status"] == "passed":
+            executable = work / "build" / ("app.exe" if os.name == "nt" else "app")
+            result = subprocess.run([str(executable)], cwd=work, env=env,
+                                    capture_output=True, text=True, timeout=60)
+            (args.output / "packaged-program.stdout").write_text(result.stdout)
+            (args.output / "packaged-program.stderr").write_text(result.stderr)
+            assert result.returncode == 0 and result.stdout.strip() == "42", (
+                result.returncode, result.stdout, result.stderr[-6000:])
+            packaged_program_executed = True
     if args.luarocks:
         case("template-library", ["init", "lib", "sample-lib", "--json"], work, json_output=True)
         case("rock-pack", ["rock", "pack"], work / "sample-lib", contains="Packed ")
@@ -266,6 +276,7 @@ if args.case:
 summary = dict(launcherMode="installed" if args.installed else "explicit-image", package=str(package) if package else None,
                imageSha256=hashlib.sha256(image.read_bytes()).hexdigest(),
                binarySha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-               commands=commands, cases=len(results), passed=sum(row["status"] == "passed" for row in results))
+               commands=commands, cases=len(results), passed=sum(row["status"] == "passed" for row in results),
+               packagedProgramExecuted=packaged_program_executed)
 (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
 assert summary["passed"] == summary["cases"], "root CLI failures; see results.json"
