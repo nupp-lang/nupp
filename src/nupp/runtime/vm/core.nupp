@@ -643,29 +643,6 @@ export function FBox(
     end
 end
 
-export function FUnbox(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local bits = slots.readValue(frame, regs, b)
-    if bits & values.QNAN ~= values.QNAN then
-        slots.writeFloat(frame, floats, a, native.fromBits(bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    elseif bits == values.QNAN then
-        slots.writeFloat(frame, floats, a, native.fromBits(bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-
-    end
-end
-
 export function GetCell(
     pc: voidptr,
     regs: voidptr,

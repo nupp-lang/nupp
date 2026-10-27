@@ -529,3 +529,73 @@ fn native_numeric_arithmetic_errors_and_metamethod_precedence_match_reference() 
         }
     }
 }
+
+#[test]
+fn native_numeric_unbox_and_number_tag_never_escape_for_boxed_values_or_errors() {
+    for (kind, bits) in [
+        (-1, (-0.0f64).to_bits()),
+        (-1, f64::NAN.to_bits()),
+        (0, 9007199254740993),
+        (1, u64::MAX),
+    ] {
+        let (mut vm, tid) = fixture(Op::FUnbox(0, 1));
+        let input = number(&mut vm, kind, bits);
+        let expected = numeric::double(&vm, input);
+        put(&mut vm, tid, 1, input);
+        assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        let at = vm.tasks[tid].cur() + vm.funcs[0].off_f();
+        assert_eq!(vm.tasks[tid].stack[at], expected.to_bits());
+        let (mut vm, tid) = fixture(Op::TagCheckNum(0, 1));
+        let input = number(&mut vm, kind, bits);
+        put(&mut vm, tid, 1, input);
+        assert_eq!(direct(&mut vm, tid, 1).status == ST_ERROR, !input.is_num());
+        if input.is_num() {
+            assert_eq!(value(&vm, tid, 0), input);
+        } else {
+            let error = vm.pending_error.take().unwrap();
+            assert_eq!(vm.bytes_of(error), b"runtime error: value is not a number");
+        }
+    }
+    for op in [Op::FUnbox(0, 1), Op::TagCheckNum(0, 1)] {
+        let (mut vm, tid) = fixture(op);
+        put(&mut vm, tid, 1, Value::TRUE);
+        assert_eq!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        let error = vm.pending_error.take().unwrap();
+        assert_eq!(
+            vm.bytes_of(error),
+            if matches!(op, Op::FUnbox(..)) {
+                b"runtime error: expected a number".as_slice()
+            } else {
+                b"runtime error: value is not a number".as_slice()
+            }
+        );
+    }
+}
+
+#[test]
+fn native_numeric_string_byte_negative_indices_match_exact_oracle() {
+    for slice in [false, true] {
+        for index in [i64::MIN, -5, -4, -3, -1, 0, 1, 3, 4, 5, i64::MAX] {
+            let (mut vm, tid) = fixture(Op::StrByte(0, 1, 0));
+            let text = vm.intern("ABCD");
+            let input = if slice {
+                vm.new_slice(text, 1, 3)
+            } else {
+                text
+            };
+            put(&mut vm, tid, 1, input);
+            intput(&mut vm, tid, 0, index as u64);
+            let expected = vm.str_byte(input, index);
+            assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+            assert_eq!(value(&vm, tid, 0), expected, "slice={slice} index={index}");
+        }
+    }
+    for object in [false, true] {
+        let (mut vm, tid) = fixture(Op::StrByte(0, 1, 0));
+        let input = if object { vm.new_table() } else { Value::NIL };
+        put(&mut vm, tid, 1, input);
+        assert_eq!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        let error = vm.pending_error.take().unwrap();
+        assert_eq!(vm.bytes_of(error), b"runtime error: byte of a non-string");
+    }
+}

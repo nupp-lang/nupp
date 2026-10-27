@@ -88,6 +88,8 @@ pub unsafe extern "C" fn nupp_rt_numeric_error(ctx: *mut Ctx, error: i64) {
             1 => "value is not a string",
             2 => "scalar intrinsic on a non-number",
             3 => "integer division by zero",
+            4 => "value is not a number",
+            5 => "byte of a non-string",
             _ => "invalid numeric error",
         })
     });

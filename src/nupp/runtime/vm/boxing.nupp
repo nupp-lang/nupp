@@ -7,6 +7,7 @@ const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const numeric = require("nupp.runtime.vm.numerichelpers")
 
 export function TagCheckNum(
     pc: voidptr,
@@ -21,7 +22,9 @@ export function TagCheckNum(
         slots.writeValue(frame, regs, program.readByte(pc, 1), value)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        protocol.publishPc(pc, context)
+        numeric.numericError(context, 4)
+        return native.fail()
     end
 end
 
@@ -35,27 +38,36 @@ export function StrByte(
 ): uint64
     local object = slots.readValue(frame, regs, program.readByte(pc, 2))
     local position = slots.readInteger(frame, ints, program.readByte(pc, 3))
-    if object & values.TAG_MASK ~= values.TAG_OBJ then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local header = native.pointer(object & values.PAYLOAD)
-        local kind = native.load8(header, native.layout("Header.kind"))
-        if native.either(native.both(kind ~= 1, kind ~= 9), position < 0) then
-            return native.slow(pc, regs, ints, floats, context, frame)
-        else
-            local a = program.readByte(pc, 1)
-            if native.both(
-                position >= 1,
-                native.word(position) <= native.load64(header, native.layout("Header.aux_len"))
-            ) then
-                local byte = native.load8(native.loadPointer(header, native.layout("Header.aux_ptr")), position - 1)
-                slots.writeValue(frame, regs, a, native.bits(native.toFloat(byte)))
-            else
-                slots.writeValue(frame, regs, a, values.NIL)
-            end
-            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    local valid: boolean = false
+    if object & values.TAG_MASK == values.TAG_OBJ then
+        local kind = native.load8(native.pointer(object & values.PAYLOAD), native.layout("Header.kind"))
+        valid = kind == values.KIND_STRING or kind == values.KIND_SLICE
+    end
+    if not valid then
+        protocol.publishPc(pc, context)
+        numeric.numericError(context, 5)
+        return native.fail()
+    end
+    local header = native.pointer(object & values.PAYLOAD)
+    local length = native.load64(header, native.layout("Header.aux_len"))
+    local offset = values.NO_GUARD
+    if position > 0 then
+        offset = native.word(position - 1)
+    elseif position < 0 then
+        -- Unsigned magnitude also covers the minimum signed integer.
+        local back = 0ULL - native.word(position)
+        if back <= length then
+            offset = length - back
         end
     end
+    local result = values.NIL
+    if offset < length then
+        local byte = native.load8(native.loadPointer(header, native.layout("Header.aux_ptr")), native.index(offset))
+        result = native.bits(native.toFloat(byte))
+    end
+    slots.writeValue(frame, regs, program.readByte(pc, 1), result)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 -- A record allocation: the collector may run, so the frame is published

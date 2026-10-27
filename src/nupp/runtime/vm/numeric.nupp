@@ -415,3 +415,42 @@ export function IJmpIfUlt(
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
+
+local function floatUnboxSlow(pc: voidptr, context: voidptr, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    local number = managed.numericDouble(context, value)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    slots.writeFloat(frame, floats, program.readByte(pc, 1), number)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function FUnbox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    if isNumber(value) then
+        slots.writeFloat(frame, floats, program.readByte(pc, 1), native.fromBits(value))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+
+    return floatUnboxSlow(pc, context, value)
+end
