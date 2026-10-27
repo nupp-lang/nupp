@@ -1,69 +1,66 @@
+-- Bootstrap execution uses a verified runtime/image pair. The machine bridge
+-- may decode images and emit objects; it never supplies the execution loop.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
-
 local M = {}
 
 local function quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function read(path)
-    local file = assert(io.open(path, "rb"), "cannot read " .. path)
-    local text = file:read("*a")
-    file:close()
-    return text
-end
-
-local function lastLine(command)
-    local pipe = assert(io.popen(("cd %s && %s 2>/dev/null"):format(quote(ROOT), command)))
-    local line = pipe:read("*a"):match("([^\r\n]+)%s*$")
-    pipe:close()
-    return line
-end
-
--- A cold checkout runs the pinned stage-zero image on a runtime built from its
--- own sources, so that runtime has to keep loading the pinned image's format
--- until the pin moves past it. Verifying it is the whole of what loading asks:
--- every function decodes and passes the checks a run would make.
-function M.theRuntimeLoadsThePinnedStageZeroImage()
-    local image = lastLine("./scripts/toolchain stage0-image")
-    assert(image, "no stage-zero image; run scripts/toolchain stage0-image")
-    local runtime = lastLine("./scripts/toolchain vm-runtime ''")
-    assert(runtime, "no VM runtime; run scripts/toolchain vm-runtime ''")
-    local pipe = assert(io.popen(("%s verify %s 2>&1; echo __exit__:$?"):format(quote(runtime), quote(image))))
+local function capture(command)
+    local pipe = assert(io.popen(("cd %s && %s 2>&1; echo __exit__:$?"):format(quote(ROOT), command)))
     local output = pipe:read("*a")
     pipe:close()
-    assert(output:match("__exit__:0%s*$"), "this runtime refuses the pinned stage-zero image: " .. output)
+    local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
+    return status, output:gsub("__exit__:%d+%s*$", "")
 end
 
--- The pinned stage-zero image binds this checkout's freshly built provider by
--- name, so the provider may only grow while it is pinned: every provider symbol
--- the image names is still declared. A deleted one breaks a cold build the
--- moment the image reaches it, and nothing but the image's own strings says
--- whether it can.
-function M.theProviderKeepsWhatThePinnedStageZeroNames()
-    local image = lastLine("./scripts/toolchain stage0-image")
-    assert(image, "no stage-zero image; run scripts/toolchain stage0-image")
-    local bytes = read(image)
-    local header = read(ROOT .. "/native/include/nupp_native.h")
-    local declared = {}
-    for name in header:gmatch("NUPP_NATIVE_EXPORT[^;(]-([%w_]+)%s*%(") do
-        declared[name] = true
-    end
-    local missing, seen = {}, {}
-    -- A whole word, and not a doc comment's `nuppNativeGpu*` family: the image
-    -- carries the compiler's resources as well as its code.
-    for name, after in bytes:gmatch("%f[%w_](nuppNative[%w_]+)(.?)") do
-        if after ~= "*" and not seen[name] then
-            seen[name] = true
-            if not declared[name] then
-                missing[#missing + 1] = name
-            end
-        end
-    end
-    table.sort(missing)
-    assert(next(seen), "the image names no provider symbol, so this check reads the wrong bytes")
-    assert(#missing == 0, "the pinned stage zero names provider symbols the header lost: " .. table.concat(missing, ", "))
+local function pair()
+    local status, output = capture("./scripts/toolchain stage0-seed")
+    assert(status == 0, "no verified bootstrap execution seed: " .. output)
+    return assert(output:match("([^\r\n]+)%s*$"))
+end
+
+function M.thePinnedSeedExecutesItsMatchingCompilerWithoutAot()
+    local seed = pair()
+    local status, output = capture("python3 scripts/bootstrap-seed verify " .. quote(seed) .. " --execute")
+    assert(status == 0, output)
+    -- A second fetch rechecks both artifact digests without downloading or building.
+    assert(pair() == seed, "warm bootstrap selected a different seed pair")
+end
+
+function M.thePinnedSeedExecutesANewlyEmittedImageWithoutARustBuild()
+    local seed = pair()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. quote(dir .. "/src")) == 0)
+    local source = assert(io.open(dir .. "/src/bootstrapprobe.nupp", "wb"))
+    source:write(
+        [=[module bootstrapprobe
+local probe = {}
+function probe.answer(): string
+    local values: {integer} = {40, 2}
+    collectgarbage("collect")
+    return tostring(values[1] + values[2])
+end
+export = probe
+]=]
+    )
+    source:close()
+    local image = dir .. "/probe.image"
+    local command = "python3 scripts/bootstrap-seed run " .. quote(seed)
+    local status, output = capture(
+        command .. " run " .. quote(
+            seed .. "/compiler.image"
+        ) .. " nupp.tools.vm.project emit " .. quote(dir) .. " bootstrapprobe '' src --output " .. quote(image)
+    )
+    assert(status == 0, "the seed failed to emit fresh source: " .. output)
+    status, output = capture(command .. " run " .. quote(image) .. " bootstrapprobe answer")
+    assert(status == 0, "the seed failed to execute the newly emitted image: " .. output)
+    assert(output:match('^"42"[\r\n]'), "the newly emitted image answered incorrectly: " .. output)
+    assert(os.execute("rm -rf " .. quote(dir)) == 0)
 end
 
 return M

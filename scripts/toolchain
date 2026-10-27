@@ -39,7 +39,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks stage0-image
+Components: luajit luarocks stage0-image stage0-seed
             rust-vendor OUTPUT
             vm-runtime FACILITIES, vm-program FACILITIES PAYLOAD
             archive DIRECTORY OUTPUT
@@ -752,12 +752,18 @@ build_rust_vm_runtime() {
         esac
     done
     select_rust_tools
-    vm_features=aot-linked,native-ffi${facilities:+,$facilities}
+    # The execution core is built before this runtime is linked; Cargo's
+    # machine tool never supplies an interpreter during bootstrap.
+    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+        || die "cannot build the Nupp execution core"
+    [ -f "$core" ] || die "native core builder named no object"
+    vm_features=aot-linked,native-ffi,native-runtime${facilities:+,$facilities}
     rust_environment=$(rust_environment_material)
     digest=$({
         printf '%s|%s|%s|%s|%s\n' \
             nupp-vm-runtime "$vm_features" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
         printf '%s\n' "$rust_environment"
+        printf 'native-core %s\n' "$(sha256 "$core")"
     } | sha256_stdin | cut -c1-16)
     executable=nupp-vm
     [ "$PLATFORM" = windows ] && executable=nupp-vm.exe
@@ -797,7 +803,7 @@ EOF
     set -- "$@" --config "$(rust_remap_arguments)"
     # A linked compiler object belongs to the compiler's runtime, never to a
     # program's: an object for one image refuses every other at startup.
-    (unset NUPP_AOT_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
+    (unset NUPP_AOT_OBJECT; NUPP_NATIVE_RUNTIME_OBJECT="$core" CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
         || die "Cargo could not build the VM program runtime"
     built="$target/release/$executable"
     [ -f "$built" ] || die "Cargo built nupp-vm but did not write $built"
@@ -859,12 +865,16 @@ vm_program_archive_ready() {
 build_rust_vm_program_archive() {
     facilities=$1
     select_rust_tools
-    features=native-ffi${facilities:+,$facilities}
+    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+        || die "cannot build the Nupp execution core"
+    [ -f "$core" ] || die "native core builder named no object"
+    features=native-ffi,native-runtime${facilities:+,$facilities}
     rust_environment=$(rust_environment_material)
     digest=$({
         printf '%s|%s|%s|%s|%s\n' \
             nupp-vm-program "$features" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
         printf '%s\n' "$rust_environment"
+        printf 'native-core %s\n' "$(sha256 "$core")"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/vm-program/$digest"
     target="$RUST_BUILD_ROOT/vm-program/target-${facilities:-base}"
@@ -893,7 +903,7 @@ EOF
     fi
     set -- "$@" --config "$(rust_remap_arguments)" -- -C "metadata=$digest" --print native-static-libs
     mkdir -p "$out"
-    (unset NUPP_AOT_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" 2>"$out/cargo.log") \
+    (unset NUPP_AOT_OBJECT; NUPP_NATIVE_RUNTIME_OBJECT="$core" CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" 2>"$out/cargo.log") \
         || { cat "$out/cargo.log" >&2; die "Cargo could not build the VM program archive"; }
     libraries=$(sed -n 's/.*native-static-libs: //p' "$out/cargo.log" | tail -n 1)
     [ -n "$libraries" ] || die "rustc did not name the VM program archive's native libraries"
@@ -952,7 +962,7 @@ build_vm_program() {
         *) strip_unused=-Wl,--gc-sections ;;
     esac
     # shellcheck disable=SC2046 # rustc's library list is words for the linker.
-    "$CC" "$strip_unused" "$work/main.o" "$work/program.o" "$RUST_VM_PROGRAM_ARCHIVE" \
+    "$CC" "$strip_unused" "$work/main.o" "$work/program.o" "$core" "$RUST_VM_PROGRAM_ARCHIVE" \
         $(cat "$RUST_VM_PROGRAM_LIBRARIES") -o "$work/nupp-vm" 2>"$work/link.log" \
         || { cat "$work/link.log" >&2; die "cannot link the program runtime"; }
     strip "$work/nupp-vm" || die "cannot strip the program runtime"
@@ -1226,6 +1236,7 @@ for component in "$@"; do
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         stage0-image) stage0_image ;;
+        stage0-seed) python3 "$ROOT/scripts/bootstrap-seed" fetch --cache "$CACHE" ;;
         *) note "unknown component $component"; usage ;;
     esac
 done
