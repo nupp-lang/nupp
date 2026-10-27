@@ -2657,12 +2657,12 @@ function types.packvar(name: string, identity: string?): types.PackVar
     return made
 end
 
---- The spelling a literal value is interned under. `tostring` on a number is
---- %.14g, which gives 1e15 and 1e15 + 1 one spelling and so one interned type:
---- distinct admitted integers would become the same literal and the same const.
---- %.17g round-trips every binary64 value, so the arena tells them apart.
-local function internSpelling(value: string | number | boolean): string
+-- Literal identities preserve integer bits and round-trip floating text.
+local function literalText(value: string | number | boolean): string
     if type(value) == "number" then
+        if math.type(value as number) == "integer" then
+            return tostring(value)
+        end
         return string.format("%.17g", value as number)
     end
 
@@ -2670,7 +2670,7 @@ local function internSpelling(value: string | number | boolean): string
 end
 
 function types.constLiteral(domain: string, value: string | boolean | integer): types.ConstLiteral
-    local key = "cl(" .. domain .. ":" .. internSpelling(value) .. ")"
+    local key = "cl(" .. domain .. ":" .. literalText(value) .. ")"
     local found = constArena[key]
     if found then
         return found as types.ConstLiteral
@@ -3394,7 +3394,7 @@ end
 -- a discriminant comparison.
 function types.literal(value: string | number | boolean, base: types.Type?): types.Type
     local of = base or types.string
-    local internKey = "lit(" .. of.id .. ":" .. internSpelling(value) .. ")"
+    local internKey = "lit(" .. of.id .. ":" .. literalText(value) .. ")"
 
     local existing = interned(internKey)
     if existing then

@@ -68,6 +68,30 @@ end
 
 local M = {}
 
+function M.integerLiteralIdentitiesPreserveTheWholeSignedDomain()
+    for _, pair in ipairs({
+        {"9007199254740992", "9007199254740993"},
+        {"9223372036854775806", "9223372036854775807"},
+        {"-9223372036854775808", "-9223372036854775807"},
+    }) do
+        local left, right = assert(tonumber(pair[1])), assert(tonumber(pair[2]))
+        testAssert.equal(math.type(left), "integer")
+        testAssert.equal(math.type(right), "integer")
+        local first, second = types.literal(left, types.integer), types.literal(right, types.integer)
+        assert(first ~= second, "distinct integer literals share an identity")
+        testAssert.equal(first.constant, left)
+        testAssert.equal(second.constant, right)
+        assert(
+            types.constLiteral("integer", left) ~= types.constLiteral("integer", right),
+            "distinct integer constants share an identity"
+        )
+    end
+    assert(
+        types.literal(1, types.integer) ~= types.literal(1.0, types.float),
+        "literal type identity must preserve the numeric subtype"
+    )
+end
+
 function M.closedComptimeTypeFunctionsConstructTypes()
     clean(
         table.concat(
