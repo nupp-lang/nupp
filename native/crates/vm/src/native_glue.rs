@@ -382,11 +382,227 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     Ok(())
 }
 
+// This label transports checked source selection and ABI names. It grants
+// no semantic facts to the machine IR and never changes an instruction.
+fn allocator_support_names(
+    text: &str,
+    definitions: &BTreeMap<String, Signature>,
+) -> Result<BTreeSet<String>, String> {
+    const PREFIX: &str = "; Nupp allocator support: ";
+    let mut labels = text.lines().filter_map(|line| line.strip_prefix(PREFIX));
+    let Some(label) = labels.next() else {
+        return Ok(BTreeSet::new());
+    };
+    if labels.next().is_some()
+        || !text
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with(PREFIX))
+    {
+        return Err("allocator support selection must appear once on the first line".into());
+    }
+    let mut names = BTreeSet::new();
+    for name in label.split(',') {
+        if name.is_empty()
+            || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+            || name.as_bytes()[0].is_ascii_digit()
+            || !names.insert(name.to_owned())
+        {
+            return Err("allocator support names must be unique source names".into());
+        }
+        if !definitions.contains_key(name)
+            || object_leaf(name).is_some()
+            || code_by_name(name).is_some()
+        {
+            return Err(format!(
+                "{name}: allocator support must name an ordinary local definition"
+            ));
+        }
+    }
+    Ok(names)
+}
+
+fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
+    Some(match name {
+        "allocatorArenaOpen" => ("nupp_allocator_arena_open", 1, true),
+        "allocatorArenaClose" => ("nupp_allocator_arena_close", 1, false),
+        "allocatorCreate" => ("nupp_allocator_create", 1, true),
+        "allocatorDestroy" => ("nupp_allocator_destroy", 1, false),
+        "allocatorAllocate" => ("nupp_allocator_allocate", 8, true),
+        "allocatorResize" => ("nupp_allocator_resize", 4, false),
+        "allocatorReclaim" => ("nupp_allocator_reclaim", 4, false),
+        "allocatorSnapshot" => ("nupp_allocator_snapshot", 2, false),
+        "allocatorChunkCount" => ("nupp_allocator_chunk_count", 1, true),
+        "allocatorChunk" => ("nupp_allocator_chunk", 3, false),
+        "allocatorLargeCount" => ("nupp_allocator_large_count", 1, true),
+        "allocatorLarge" => ("nupp_allocator_large", 2, true),
+        "allocatorCompactLarge" => ("nupp_allocator_compact_large", 1, false),
+        "allocatorIsLiveSlot" => ("nupp_allocator_is_live_slot", 2, true),
+        "allocatorSlotBytes" => ("nupp_allocator_slot_bytes", 1, true),
+        _ => return None,
+    })
+}
+
+fn allocator_os_signature(name: &str, call_conv: CallConv) -> Option<Signature> {
+    let (arity, result) = match name {
+        "nupp_os_map_pages" => (1, true),
+        "nupp_os_unmap_pages" => (2, false),
+        "nupp_os_advise_pages" => (3, false),
+        "nupp_os_page_size" | "nupp_os_monotonic_nanos" => (0, true),
+        "nupp_os_read_input" | "nupp_os_write_output" => (2, true),
+        _ => return None,
+    };
+    let mut signature = Signature::new(call_conv);
+    signature.params = vec![AbiParam::new(types::I64); arity];
+    if result {
+        signature.returns.push(AbiParam::new(types::I64));
+    }
+    Some(signature)
+}
+
+fn require_allocator_support(
+    f: &Function,
+    support: &BTreeSet<String>,
+    definitions: &BTreeMap<String, Signature>,
+    platform: CallConv,
+) -> Result<(), String> {
+    let scalar = |ty| {
+        matches!(
+            ty,
+            types::I8 | types::I16 | types::I32 | types::I64 | types::F32 | types::F64
+        )
+    };
+    if !support.contains(&name_of(f))
+        || f.signature.call_conv != CallConv::Tail
+        || f.signature.params.len() > 8
+        || f.signature.returns.len() > 1
+        || f.signature
+            .params
+            .iter()
+            .chain(&f.signature.returns)
+            .any(|p| {
+                !scalar(p.value_type) || p.purpose != cranelift_codegen::ir::ArgumentPurpose::Normal
+            })
+    {
+        return Err(format!(
+            "{}: allocator support requires its exact scalar Tail signature",
+            f.name
+        ));
+    }
+    if let Some((_, arity, result)) = allocator_entry(&name_of(f)) {
+        if f.signature.params.len() != arity
+            || f.signature
+                .params
+                .iter()
+                .any(|p| p.value_type != types::I64)
+            || f.signature.returns.len() != usize::from(result)
+            || f.signature
+                .returns
+                .iter()
+                .any(|p| p.value_type != types::I64)
+        {
+            return Err(format!(
+                "{}: allocator entry signature differs from its C transport",
+                f.name
+            ));
+        }
+    }
+    if !f.global_values.is_empty() || !f.dynamic_stack_slots.is_empty() {
+        return Err(format!(
+            "{}: allocator support has no global symbols or dynamic stack",
+            f.name
+        ));
+    }
+    let mut scratch = 0u64;
+    for slot in f.sized_stack_slots.values() {
+        scratch += slot.size as u64;
+        if slot.kind != cranelift_codegen::ir::StackSlotKind::ExplicitSlot
+            || slot.size == 0
+            || slot.size > 4096
+            || slot.align_shift > 4
+            || scratch > 4096
+        {
+            return Err(format!(
+                "{}: allocator scratch must be fixed and bounded by 4096 bytes and 16-byte alignment",
+                f.name
+            ));
+        }
+    }
+    for (_, declaration) in f.dfg.ext_funcs.iter() {
+        let ExternalName::TestCase(target) = &declaration.name else {
+            return Err(format!(
+                "{}: allocator support needs named checked callees",
+                f.name
+            ));
+        };
+        let target = target.to_string();
+        let target = target.trim_start_matches('%');
+        let signature = &f.dfg.signatures[declaration.signature];
+        if support.contains(target) || object_leaf(target).is_some() {
+            let expected = definitions
+                .get(target)
+                .ok_or_else(|| format!("{target}: allocator callee has no local definition"))?;
+            if signature != expected || signature.call_conv != CallConv::Tail {
+                return Err(format!(
+                    "{target}: allocator local callee signature differs from its definition"
+                ));
+            }
+        } else {
+            // An unspecified CLIF convention is Fast until import transport
+            // selects the host C convention. It must never request Tail here.
+            if signature.call_conv != CallConv::Fast && signature.call_conv != platform
+                || allocator_os_signature(target, signature.call_conv).as_ref() != Some(signature)
+            {
+                return Err(format!(
+                    "{target}: allocator support may import only exact OS edges or selected local helpers"
+                ));
+            }
+        }
+    }
+    for block in f.layout.blocks() {
+        for inst in f.layout.block_insts(block) {
+            let data = &f.dfg.insts[inst];
+            if data.opcode().is_call() {
+                if !matches!(data.opcode(), Opcode::Call | Opcode::ReturnCall) {
+                    return Err(format!(
+                        "{}: allocator support cannot dispatch or call indirectly",
+                        f.name
+                    ));
+                }
+                if data.opcode() == Opcode::ReturnCall {
+                    let InstructionData::Call { func_ref, .. } = data else {
+                        return Err("allocator tail call must name a local function".into());
+                    };
+                    let ExternalName::TestCase(name) = &f.dfg.ext_funcs[*func_ref].name else {
+                        return Err("allocator tail call must name a local function".into());
+                    };
+                    if name
+                        .to_string()
+                        .trim_start_matches('%')
+                        .starts_with("nupp_os_")
+                    {
+                        return Err(
+                            "allocator support cannot tail-transfer to the C OS boundary".into(),
+                        );
+                    }
+                }
+            }
+            if data.opcode() == Opcode::FuncAddr {
+                return Err(format!(
+                    "{}: allocator support cannot expose code addresses",
+                    f.name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The build-time sidecar: every layout the handlers were compiled against,
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 6;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 7;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -553,6 +769,13 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         .unwrap();
     let mut metadata = metadata_header();
     let names: Vec<String> = sources.iter().map(name_of).collect();
+    let mut definitions = BTreeMap::new();
+    for function in &sources {
+        if definitions.insert(name_of(function), function.signature.clone()).is_some() {
+            return Err(format!("{}: duplicate native definition", function.name));
+        }
+    }
+    let allocator_support = allocator_support_names(&text, &definitions)?;
     let locals: BTreeSet<String> = names.iter().cloned().collect();
     let mut handled: Vec<(u8, FuncId)> = Vec::new();
     let mut function_ids = Vec::new();
@@ -560,7 +783,9 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         let name = name_of(function);
         let opcode = code_by_name(&name);
         if name == "Simd" && simd_abi.is_none() { return Err("Simd handler requires its descriptor ABI".into()); }
-        if let Some((_, arity)) = object_leaf(&name) {
+        if allocator_support.contains(&name) {
+            require_allocator_support(function, &allocator_support, &definitions, conv)?;
+        } else if let Some((_, arity)) = object_leaf(&name) {
             require_object_leaf(function, arity)?;
         } else {
             require_handler_clif(function, &tail, opcode.is_some(), &locals)?;
@@ -637,7 +862,11 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
     // Object-library leaves have ordinary C entry points and exact Tail
     // implementations. Only this mechanical ABI transport is generated here.
     for (index, name) in names.iter().enumerate() {
-        let Some((symbol, _)) = object_leaf(name) else { continue; };
+        let symbol = if let Some((symbol, _)) = object_leaf(name) { symbol }
+            else if allocator_support.contains(name) {
+                let Some((symbol, _, _)) = allocator_entry(name) else { continue; };
+                symbol
+            } else { continue; };
         let mut signature = sources[index].signature.clone();
         signature.call_conv = conv;
         let wrapper = module.declare_function(symbol, Linkage::Export, &signature)
@@ -652,8 +881,8 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
             let args = b.block_params(entry).to_vec();
             let target = module.declare_func_in_func(function_ids[index], b.func);
             let call = b.ins().call(target, &args);
-            let result = b.inst_results(call)[0];
-            b.ins().return_(&[result]);
+            let results = b.inst_results(call).to_vec();
+            b.ins().return_(&results);
             b.seal_all_blocks();
             b.finalize(module.target_config());
         }
@@ -958,4 +1187,185 @@ mod object_leaf_tests {
         assert!(require_object_leaf(&parse(indirect), 4).is_err());
     }
 
+}
+
+#[cfg(test)]
+mod allocator_support_tests {
+    use super::*;
+
+    fn check(text: &str, name: &str) -> Result<(), String> {
+        let sources = cranelift_reader::parse_functions(text).unwrap();
+        let definitions = sources
+            .iter()
+            .map(|f| (name_of(f), f.signature.clone()))
+            .collect();
+        let support = allocator_support_names(text, &definitions)?;
+        let function = sources.iter().find(|f| name_of(f) == name).unwrap();
+        require_allocator_support(function, &support, &definitions, CallConv::SystemV)
+    }
+
+    #[test]
+    fn allocator_selection_requires_unique_local_ordinary_source_names() {
+        let valid = "; Nupp allocator support: allocatorCreate\nfunction %allocatorCreate(i64) -> i64 tail { block0(v0:i64): return v0 }";
+        check(valid, "allocatorCreate").unwrap();
+        for invalid in [
+            valid.replace(
+                "allocator support: allocatorCreate",
+                "allocator support: allocatorCreate,allocatorCreate",
+            ),
+            valid.replace(
+                "allocator support: allocatorCreate",
+                "allocator support: absent",
+            ),
+            valid.replace(
+                "allocator support: allocatorCreate",
+                "allocator support: allocatorCreate,",
+            ),
+            format!("; another comment\n{valid}"),
+            format!("{valid}\n; Nupp allocator support: allocatorCreate"),
+            valid.replace("allocatorCreate", "slotHash"),
+        ] {
+            assert!(
+                check(
+                    &invalid,
+                    if invalid.contains("%slotHash") {
+                        "slotHash"
+                    } else {
+                        "allocatorCreate"
+                    }
+                )
+                .is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn allocator_support_preserves_scalar_widths_zero_arguments_and_nil_results() {
+        let valid = "; Nupp allocator support: allocatorDestroy,ready\nfunction %ready() -> i8 tail { block0: v0=iconst.i8 1 return v0 }\nfunction %allocatorDestroy(i64) tail { sig0=() -> i8 tail fn0=%ready sig0 block0(v0:i64): v1=call fn0() return }";
+        check(valid, "allocatorDestroy").unwrap();
+        check(valid, "ready").unwrap();
+        assert!(
+            check(
+                &valid.replace("sig0=() -> i8 tail", "sig0=() -> i32 tail"),
+                "allocatorDestroy"
+            )
+            .is_err()
+        );
+        assert!(
+            check(
+                &valid
+                    .replace(
+                        "%allocatorDestroy(i64) tail",
+                        "%allocatorDestroy(i64) -> i8 tail"
+                    )
+                    .replace("v1=call fn0() return", "v1=call fn0() return v1"),
+                "allocatorDestroy"
+            )
+            .is_err()
+        );
+        let narrow = "; Nupp allocator support: narrow\nfunction %narrow(i32,i16,i8) -> i32 tail { block0(v0:i32,v1:i16,v2:i8): return v0 }";
+        check(narrow, "narrow").unwrap();
+        assert!(check(&narrow.replace("tail", "system_v"), "narrow").is_err());
+    }
+
+    #[test]
+    fn allocator_calls_match_selected_local_definitions_and_known_os_signatures() {
+        let local = "; Nupp allocator support: caller,helper\nfunction %helper(i64) -> i64 tail { block0(v0:i64): return v0 }\nfunction %caller(i64) -> i64 tail { sig0=(i64) -> i64 tail fn0=%helper sig0 block0(v0:i64): v1=call fn0(v0) return v1 }";
+        check(local, "caller").unwrap();
+        assert!(
+            check(
+                &local.replace("support: caller,helper", "support: caller"),
+                "caller"
+            )
+            .is_err()
+        );
+        assert!(
+            check(
+                &local.replace("sig0=(i64) -> i64 tail", "sig0=(i64) -> i32 tail"),
+                "caller"
+            )
+            .is_err()
+        );
+        for name in ["nupp_rt_alloc", "nupp_rt_any", "nupp_os_unknown"] {
+            assert!(
+                check(
+                    &local.replace("fn0=%helper", &format!("fn0=%{name}")),
+                    "caller"
+                )
+                .is_err()
+            );
+        }
+        let os = "; Nupp allocator support: caller\nfunction %caller(i64) -> i64 tail { sig0=(i64) -> i64 fn0=%nupp_os_map_pages sig0 block0(v0:i64): v1=call fn0(v0) return v1 }";
+        check(os, "caller").unwrap();
+        assert!(
+            check(
+                &os.replace("sig0=(i64) -> i64", "sig0=(i32) -> i64"),
+                "caller"
+            )
+            .is_err()
+        );
+        assert!(
+            check(
+                &os.replace("sig0=(i64) -> i64", "sig0=(i64) -> i64 tail"),
+                "caller"
+            )
+            .is_err()
+        );
+        let leaf = local
+            .replace("caller,helper", "caller")
+            .replace("%helper", "%slotHash");
+        check(&leaf, "caller").unwrap();
+    }
+
+    #[test]
+    fn allocator_scratch_is_bounded_and_globals_are_refused() {
+        let base = "; Nupp allocator support: caller\nfunction %caller(i64) -> i64 tail { DECL block0(v0:i64): return v0 }";
+        check(
+            &base.replace("DECL", "ss0=explicit_slot 4096, align=16"),
+            "caller",
+        )
+        .unwrap();
+        for declaration in [
+            "ss0=explicit_slot 0",
+            "ss0=explicit_slot 4097",
+            "ss0=explicit_slot 16, align=32",
+            "ss0=explicit_slot 4096 ss1=explicit_slot 1",
+            "dss0=explicit_dynamic_slot dt0",
+            "gv0=symbol %external",
+        ] {
+            assert!(
+                check(&base.replace("DECL", declaration), "caller").is_err(),
+                "{declaration}"
+            );
+        }
+    }
+
+    #[test]
+    fn allocator_support_refuses_indirect_and_exception_calls() {
+        let indirect = "; Nupp allocator support: caller\nfunction %caller(i64) -> i64 tail { sig0=(i64) -> i64 tail block0(v0:i64): v1=call_indirect sig0,v0(v0) return v1 }";
+        assert!(check(indirect, "caller").is_err());
+        let exceptional = "; Nupp allocator support: caller\nfunction %caller(i64) -> i64 tail { sig0=(i64) -> i64 tail block0(v0:i64): try_call_indirect v0(v0),sig0,block1(ret0),[] block1(v1:i64): return v1 }";
+        assert!(check(exceptional, "caller").is_err());
+    }
+
+    #[test]
+    fn allocator_c_wrappers_compile_actual_word_and_void_results() {
+        let text = "; Nupp allocator support: allocatorCreate,allocatorDestroy,zeroArguments\nfunction %allocatorCreate(i64) -> i64 tail { block0(v0:i64): return v0 }\nfunction %allocatorDestroy(i64) tail { block0(v0:i64): return }\nfunction %zeroArguments() -> i8 tail { block0: v0=iconst.i8 1 return v0 }\nfunction %resumeSlow(i64,i64,i64) -> i64 tail { block0(v0:i64,v1:i64,v2:i64): return v0 }";
+        let directory =
+            std::env::temp_dir().join(format!("nupp-allocator-wrappers-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let input = directory.join("source.clif");
+        let output = directory.join("allocator.o");
+        std::fs::write(&input, text).unwrap();
+        write_object(input.to_str().unwrap(), output.to_str().unwrap()).unwrap();
+        let object = std::fs::read(&output).unwrap();
+        for name in [
+            b"nupp_allocator_create".as_slice(),
+            b"nupp_allocator_destroy".as_slice(),
+        ] {
+            assert!(object.windows(name.len()).any(|part| part == name));
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }
