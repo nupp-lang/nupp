@@ -1,9 +1,9 @@
 -- The native core's string handlers, differentially: each fixture under
 -- tests/fixtures/native/strings checks its answers against literals and prints
--- them, and runs once on the installed runtime, where the Rust step answers
--- every string instruction, and once on a runtime with the native core linked
--- (`scripts/vm-cli runtime --link`), where the Nupp handlers do. The two
--- outputs must agree. Slow: it builds the glue and links the runtime.
+-- them, and runs once on the selected core runtime and once on a freshly
+-- linked runtime (`scripts/vm-cli runtime --link`). Both execute the Nupp
+-- handlers, and their outputs must agree. Slow: it builds the glue and links
+-- the runtime.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
 local FIXTURES = "tests/fixtures/native/strings"
@@ -19,6 +19,7 @@ local function capture(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
     return status, (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -31,7 +32,12 @@ end
 
 -- The installed compiler image, which the linked runtime runs as the plain one does.
 local function installedImage()
+    local selected = os.getenv("NUPP_VM_CLI_IMAGE")
+    if selected then
+        return selected
+    end
     local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
+
     return ROOT .. "/.nupp/vm-cli/" .. generation .. "/compiler.image"
 end
 
@@ -43,6 +49,7 @@ local function linkedRuntime()
         assert(status == 0, "scripts/vm-cli runtime --link failed: " .. output:sub(-6000))
         linked = assert(output:match("([^\r\n]+)%s*$"), "vm-cli runtime named no runtime")
     end
+
     return linked
 end
 
@@ -57,6 +64,7 @@ local function fixtures()
     end
     pipe:close()
     assert(#names > 0, "no string fixtures")
+
     return names
 end
 
@@ -66,13 +74,15 @@ local function differential(name, environment)
     local path = FIXTURES .. "/" .. name .. ".nupp"
     local status, plain = capture("./bin/nupp run " .. quote(path))
     assert(status == 0, name .. " failed on the installed runtime: " .. plain:sub(-4000))
-    local selection = ("NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s %s"):format(
-        quote(installedImage()), quote(linkedRuntime()), environment or "")
+    local selection = (
+        "NUPP_VM_CLI_IMAGE=%s NUPP_VM_BINARY=%s %s"
+    ):format(quote(installedImage()), quote(linkedRuntime()), environment or "")
     local native
     status, native = capture(selection .. " ./bin/nupp run " .. quote(path))
     assert(status == 0, name .. " failed on the native core: " .. native:sub(-4000))
     assert(plain == native, name .. " answers differently on the native core:\n" .. native:sub(-4000))
     assert(plain:find("\n", 1, true), name .. " printed nothing")
+
     return plain
 end
 

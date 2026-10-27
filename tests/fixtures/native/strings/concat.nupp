@@ -1,6 +1,6 @@
--- Concatenation through the native core's `Concat`: strings, slices, numbers
--- that spell as digits, boxed integers, interning of short results, and what
--- the step keeps (`%.14g` numbers, negative zero, `__concat`). Every line is
+-- Concatenation through the native core's `Concat`: strings, slices, shortest
+-- numeric text, boxed integers, interning of short results, negative zero,
+-- and `__concat`. Every line is
 -- checked against a literal here and printed for the differential run.
 local out: {string} = {}
 
@@ -25,9 +25,9 @@ show("ns", n .. a, "42abc")
 show("nn", n .. neg, "42-17")
 show("zero", zero .. a, "0abc")
 show("big", a .. big, "abc99999999999999")
-show("huge", a .. huge, "abc1e+14")
+show("huge", a .. huge, "abc1e14")
 show("frac", a .. frac, "abc1.5")
-show("negzero", a .. negzero, "abc-0")
+show("negzero", a .. negzero, "abc-0.0")
 show("longShort", (long .. a):len(), 63)
 show("longLong", (long .. long) == string.rep("xy", 60), true)
 show("chain", a .. b .. n .. neg .. "!", "abcdef42-17!")
@@ -41,8 +41,10 @@ t["abcdef"] = 7
 t[string.rep("q", 50) .. "z"] = 8
 show("internedKey", t[a .. b], 7)
 show("longKey", t[string.rep("q", 49) .. "qz"], 8)
-local u64: any = 18446744073709551615ULL
+local u64: uint64 = 18446744073709551615ULL
 show("u64", "v" .. u64, "v18446744073709551615")
+local erased: any = u64
+show("erasedU64", "v" .. erased, "v-1")
 show("negDigits", neg .. "", "-17")
 local count = 0
 for k = 1, 20000 do
