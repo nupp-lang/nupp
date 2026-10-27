@@ -5,6 +5,9 @@ local numbertext = {}
 
 function numbertext.literal(value: number): string
     if math.type(value) == "integer" then
+        if value == math.mininteger then
+            return "0x8000000000000000"
+        end
         return tostring(value)
     end
     if value == 0 and 1 / value < 0 then

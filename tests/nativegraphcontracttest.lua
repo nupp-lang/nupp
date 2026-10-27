@@ -31,6 +31,50 @@ local function rejects(call, message)
     end
 end
 
+function M.floatingConstantPoolsPreserveSignedZero()
+    local positive, negative = assert(tonumber("0.0")), assert(tonumber("-0.0"))
+    assert(math.type(positive) == "float" and math.type(negative) == "float")
+    local encoder = image.encoder()
+    encoder.addRegisters({
+        name = "zeros",
+        nparams = 0,
+        positions = {},
+        blocks = {},
+        constants = {
+            {kind = "num", value = positive},
+            {kind = "num", value = negative},
+            {kind = "num", value = positive},
+        },
+    })
+    local encoded = encoder.finish({})
+    local offset = #image.MAGIC + 1
+
+    local function varint()
+        local value, factor = 0, 1
+        while true do
+            local byte = assert(encoded:byte(offset))
+            offset = offset + 1
+            value = value + (byte % 128) * factor
+            if byte < 128 then
+                return value
+            end
+            factor = factor * 128
+        end
+    end
+
+    assert(varint() == image.VERSION)
+    local strings = varint()
+    for _ = 1, strings do
+        local length = varint()
+        offset = offset + length
+    end
+    local wides = varint()
+    offset = offset + wides * 8
+    assert(varint() == 2, "floating constants lost zero sign or failed to intern")
+    assert(encoded:sub(offset, offset + 7) == image.floatBytes(positive))
+    assert(encoded:sub(offset + 8, offset + 15) == image.floatBytes(negative))
+end
+
 function M.nativeLeafGraphsRetainExactKindsContractsAndPositions()
     local g, b = fresh()
     local pos = G.position(g, 17, 9)

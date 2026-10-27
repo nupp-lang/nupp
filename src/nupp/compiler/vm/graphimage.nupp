@@ -197,12 +197,12 @@ function image.encoder(): any
     end
 
     local function float(x: number): integer
-        local key = x == x and x or "nan"
-        local at = floatIndex[key]
+        local bytes = floatBytes(x)
+        local at = floatIndex[bytes]
         if at == nil then
             at = nfloats
             nfloats = nfloats + 1
-            floats[nfloats], floatIndex[key] = floatBytes(x), at
+            floats[nfloats], floatIndex[bytes] = bytes, at
         end
 
         return at

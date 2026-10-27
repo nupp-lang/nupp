@@ -217,6 +217,9 @@ export record Fn
     curStmt: Node?
 
     function const(self, kind: string, value: string | number | boolean): integer
+        if kind == "num" and math.type(value as number) == "integer" then
+            kind, value = "int64", tostring(value)
+        end
         local key = kind .. "\0" .. (kind == "num" and numbertext.key(value as number) or tostring(value))
         local known = self.constIndex[key]
         if known then
