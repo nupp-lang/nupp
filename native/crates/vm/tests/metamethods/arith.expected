@@ -5,7 +5,7 @@ string op table add(s,v1) mul(3,v1)
 unary minus unm(v1,v1)
 left operand first left right
 right operand when left has none right right
-numeric strings 11 12 8 1 -2 16
+numeric strings 11 12 8.0 1 -2 16
 missing handler false attempt to perform arithmetic on a table value
 missing on both false attempt to perform arithmetic on a table value
 bad string false attempt to perform arithmetic on a string value

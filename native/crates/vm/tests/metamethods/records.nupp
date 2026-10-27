@@ -1,6 +1,5 @@
---- Metamethods declared on a typed record, which the VM keeps on the
---- record's shape rather than as a metatable on each instance. `__len` is
---- left to `len.lua`: the LuaJIT host this is compared against ignores it.
+--- Exercises metamethods declared on a typed record and stored on its shape.
+--- Length handlers are covered in `len.lua`.
 local M = {}
 
 local record V

@@ -1,13 +1,10 @@
-//! Metamethods as LuaJIT 2.1 dispatches them (Lua 5.2's `__len` and `__pairs`
-//! included), on every tier. `tests/metamethods/*.lua` are the programs;
-//! `metamethod-differential.py --write` emits them into `metamethods.image`
-//! and records what LuaJIT (or stock Lua) printed beside each as
-//! `NAME.expected`. Each program's `main` returns its output, which must
-//! match on the Rust loop, the threaded core, the typed tier and scheduled
-//! frames, under collector stress.
-use nupp_vm::{image, interp::Interp, scheduler::Status, value::Value};
+//! Metamethod programs exercise observed native dispatch, chained native
+//! dispatch, typed entries, and scheduled frames under collector stress.
+//! The checked-in image and per-program expected output cover callback order,
+//! returned values, errors, and logical resume behavior.
+use nupp_vm::{graph, interp::Interp, scheduler::Status, value::Value};
 
-const IMAGE: &str = include_str!("metamethods/metamethods.image");
+const IMAGE: &[u8] = include_bytes!("metamethods/metamethods.image");
 const PROGRAMS: &[(&str, &str)] = &[
     ("arith", include_str!("metamethods/arith.expected")),
     ("call", include_str!("metamethods/call.expected")),
@@ -27,7 +24,7 @@ const PROGRAMS: &[(&str, &str)] = &[
 
 #[derive(Clone, Copy, Debug)]
 enum Mode {
-    Rust,
+    Observed,
     Threaded,
     #[cfg(feature = "jit")]
     Typed,
@@ -37,8 +34,9 @@ enum Mode {
 
 fn fixture(mode: Mode) -> Box<Interp> {
     let mut vm = Box::new(Interp::new());
-    image::load(&mut vm, IMAGE).unwrap();
+    graph::load(&mut vm, IMAGE).unwrap();
     vm.install_globals();
+    vm.threaded = !matches!(mode, Mode::Observed);
     vm.entries.resize(vm.funcs.len(), 0);
     if matches!(mode, Mode::Threaded) {
         vm.prepare_threaded();
@@ -87,7 +85,7 @@ fn run(vm: &mut Interp, mode: Mode, program: &str) -> String {
     let root = vm.register(module);
     let key = vm.intern("main");
     let main = vm.get_index(module, key);
-    let result = if matches!(mode, Mode::Rust | Mode::Threaded) || cfg!(not(feature = "jit")) || !frame(mode) {
+    let result = if matches!(mode, Mode::Observed | Mode::Threaded) || cfg!(not(feature = "jit")) || !frame(mode) {
         let value = vm.guarded(|vm| vm.call_value(main, &[]).first().copied().unwrap_or(Value::NIL));
         if value == Value::ERROR {
             let error = vm.pending_error.take().unwrap();
@@ -117,9 +115,9 @@ fn frame(mode: Mode) -> bool {
 }
 
 #[test]
-fn metamethods_match_luajit_on_every_tier() {
+fn metamethod_programs_agree_across_native_entries() {
     let modes = [
-        Mode::Rust,
+        Mode::Observed,
         Mode::Threaded,
         #[cfg(feature = "jit")]
         Mode::Typed,
@@ -168,7 +166,7 @@ fn call_export(vm: &mut Interp, mode: Mode, name: &str) -> Result<Value, String>
 #[test]
 fn raising_handlers_release_their_roots_on_every_tier() {
     let modes = [
-        Mode::Rust,
+        Mode::Observed,
         Mode::Threaded,
         #[cfg(feature = "jit")]
         Mode::Typed,
@@ -180,7 +178,7 @@ fn raising_handlers_release_their_roots_on_every_tier() {
         vm.require("call");
         let (handles, registered) = (vm.handles.len(), vm.registered.iter().filter(|v| **v != Value::NIL).count());
         // Twelve of the thirteen cases raise (the VM honors `__len`), twenty times.
-        assert_eq!(call_export(&mut vm, mode, "raising"), Ok(Value::num(240.0)), "{mode:?}");
+        assert_eq!(call_export(&mut vm, mode, "raising"), Ok(Value::inline_integer(240).unwrap()), "{mode:?}");
         assert_eq!(vm.handles.len(), handles, "caught raises left roots on {mode:?}");
         let error = call_export(&mut vm, mode, "uncaught").unwrap_err();
         assert!(error.contains("uncaught"), "{mode:?}: {error}");

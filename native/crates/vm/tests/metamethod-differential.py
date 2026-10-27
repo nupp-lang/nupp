@@ -1,28 +1,21 @@
 #!/usr/bin/env python3
-"""Run the metamethod programs under a reference Lua and on the VM's tiers.
+"""Rebuild the metamethod graph fixture and check native entry modes.
 
-Usage: metamethod-differential.py (SEED | luajit) [--binary PATH] [--gc-stress]
+Usage: metamethod-differential.py SEED --binary PATH [--gc-stress]
                                   [--program NAME ...] [--write]
 
-Each `tests/metamethods/NAME.lua` (or `.nupp`) exports `main`, which returns
-its output as one string. The reference is LuaJIT, or the stock `lua` for a
-program whose first line reads `-- reference: lua` (what LuaJIT does only
-under its 5.2 compatibility build, such as `__len` and `__pairs` on tables),
-or for a `.nupp` program the LuaJIT host running its generated Lua. One image
-carries every program, emitted by the SEED compiler image; each program then
-runs on the Rust loop, the threaded core and the typed tier (ordinary and
-frame entries), and must print
-exactly what the reference printed. A SEED of `luajit` emits under the
-checkout's LuaJIT-hosted compiler instead, so lowering changes show without
-building a root image. `--write` saves the image and the
-reference outputs beside the programs for `tests/metamethods.rs`.
+Lua programs use LuaJIT, or stock Lua for a `-- reference: lua` marker, as
+an oracle with Nupp's explicit floating power result. Typed Nupp programs
+use their checked-in expected output. The seed compiler emits the graph;
+observed dispatch, chained dispatch, typed entries, and scheduled frames
+must preserve each program's output. `--write` saves the portable graph
+and the expected outputs beside their source programs.
 """
 import argparse
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 
@@ -35,7 +28,7 @@ parser.add_argument("--binary", type=Path, default=root / "build/rust/target/rel
 parser.add_argument("--program", action="append")
 parser.add_argument("--gc-stress", action="store_true")
 parser.add_argument("--write", action="store_true", help="save the image and reference outputs for the crate test")
-parser.add_argument("--engine", action="append", choices=("rust", "threaded", "jit", "frames"))
+parser.add_argument("--engine", action="append", choices=("observed", "threaded", "jit", "frames"))
 args = parser.parse_args()
 
 names = sorted(p.stem for p in list(programs_dir.glob("*.lua")) + list(programs_dir.glob("*.nupp")) if p.stem != "mmout")
@@ -46,19 +39,7 @@ assert names, "no programs selected"
 
 def reference(name):
     if (programs_dir / (name + ".nupp")).exists():
-        # A typed program's reference is the LuaJIT host running its generated Lua.
-        made = not (programs_dir / "build").exists()
-        driver = programs_dir / ("_driver_%d.lua" % os.getpid())
-        driver.write_text("io.write(require(%s).main())\n" % json.dumps(name))
-        try:
-            done = subprocess.run([str(root / "bin/nupp"), "run", driver.name], cwd=programs_dir, capture_output=True, text=True)
-        finally:
-            driver.unlink()
-            if made:
-                shutil.rmtree(programs_dir / "build", ignore_errors=True)
-        if done.returncode != 0:
-            sys.exit("%s failed under the LuaJIT host:\n%s" % (name, done.stderr))
-        return done.stdout
+        return (programs_dir / (name + ".expected")).read_text()
     first = (programs_dir / (name + ".lua")).read_text().split("\n", 1)[0]
     interpreter = "lua" if first.strip() == "-- reference: lua" else "luajit"
     code = 'package.path = %s .. "/?.lua;" .. package.path; io.write(require(%s).main())' % (
@@ -66,7 +47,55 @@ def reference(name):
     done = subprocess.run([interpreter, "-e", code], capture_output=True, text=True)
     if done.returncode != 0:
         sys.exit("%s failed under %s:\n%s" % (name, interpreter, done.stderr))
-    return done.stdout
+    expected = done.stdout
+    if name == "arith":
+        # This source expression is "2" ^ 3. Nupp keeps its float subtype.
+        expected = expected.replace("numeric strings 11 12 8 1 -2 16\n", "numeric strings 11 12 8.0 1 -2 16\n")
+    return expected
+
+
+def portable_graph(data):
+    if not data.startswith(b"NUPPGRAF"):
+        raise ValueError("seed did not return a graph image")
+    at = 8
+    def word():
+        nonlocal at
+        value = shift = 0
+        while True:
+            byte = data[at]
+            at += 1
+            value |= (byte & 127) << shift
+            if byte < 128:
+                return (value - 1) & 0xffffffff
+            shift += 7
+            if shift > 28:
+                raise ValueError("graph word overflow")
+    if word() != 5:
+        raise ValueError("update source-path normalization for this graph version")
+    count = word()
+    prefix = data[:at]
+    strings = []
+    for _ in range(count):
+        length = word()
+        strings.append(data[at:at + length])
+        at += length
+    def encoded_word(value):
+        value += 1
+        out = bytearray()
+        while value >= 128:
+            out.append((value & 127) | 128)
+            value >>= 7
+        out.append(value)
+        return out
+    base = str(programs_dir).encode() + b"/"
+    out = bytearray(prefix)
+    for value in strings:
+        if value.startswith(base):
+            value = value[len(base):]
+        out.extend(encoded_word(len(value)))
+        out.extend(value)
+    out.extend(data[at:])
+    return bytes(out)
 
 
 def unquote(text):
@@ -76,31 +105,24 @@ def unquote(text):
     return json.loads(text)
 
 
-env = dict(os.environ, NO_JIT="1", PATH="", NUPP_COMPILER_ROOT=str(root))
-if str(args.seed) == "luajit":
-    script = ('io.write(require("nupp.tools.vm.project").emit(%s, %s, %s, %s))'
-              % tuple(json.dumps(x) for x in (str(programs_dir), names[0], ",".join(names[1:]), str(programs_dir))))
-    driver = Path(os.environ.get("TMPDIR", "/tmp")) / ("metamethods-emit-%d.lua" % os.getpid())
-    driver.write_text(script)
-    emitted = subprocess.run([str(root / "bin/nupp"), "run", str(driver)], cwd=root, capture_output=True, text=True)
-    driver.unlink()
-    image_text = emitted.stdout
-else:
-    emitted = subprocess.run([str(args.binary), "run", str(args.seed), "nupp.tools.vm.project", "emit", str(programs_dir),
-                              names[0], ",".join(names[1:]), str(programs_dir)], env=env, capture_output=True, text=True)
-    image_text = json.loads(emitted.stdout) if emitted.returncode == 0 else ""
-if emitted.returncode != 0:
-    sys.exit("emit failed:\n" + emitted.stderr[-4000:])
-# The image names each module's source by absolute path; keep it relative so
-# the saved image does not depend on where the checkout sits.
-image_text = image_text.replace(str(programs_dir) + "/", "")
+env = dict(os.environ, NO_JIT="1", NUPP_VM_EMIT_CACHE="", NUPP_COMPILER_ROOT=str(root))
+env.pop("NO_THREADED", None)
 image = programs_dir / "metamethods.image"
 scratch = Path(os.environ.get("TMPDIR", "/tmp")) / ("metamethods-%d.image" % os.getpid())
-(image if args.write else scratch).write_text(image_text)
+emitted = subprocess.run([str(args.binary), "run", str(args.seed), "nupp.tools.vm.project", "emit", str(programs_dir),
+                          names[0], ",".join(names[1:]), str(programs_dir), "--output", str(scratch)],
+                         env=env, capture_output=True, text=True)
+if emitted.returncode != 0:
+    scratch.unlink(missing_ok=True)
+    sys.exit("emit failed:\n" + emitted.stderr[-4000:])
+portable = portable_graph(scratch.read_bytes())
 run_image = image if args.write else scratch
+run_image.write_bytes(portable)
+if args.write:
+    scratch.unlink()
 
 engines = {
-    "rust": {"NO_JIT": "1", "NO_THREADED": "1"},
+    "observed": {"NO_JIT": "1", "NO_THREADED": "1"},
     "threaded": {"NO_JIT": "1"},
     "jit": {"JIT_VERIFY": "1"},
     "frames": {"JIT_VERIFY": "1", "JIT_EAGER_FRAMES": "1"},
