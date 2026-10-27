@@ -770,10 +770,13 @@ impl Heap {
 
     pub fn new_table_sized(&mut self, n: usize, m: usize, roots: &dyn Roots) -> Value {
         if crate::interp::TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { crate::interp::TABLE_COUNTS[if n + m == 0 { 4 } else { 4 }].fetch_add(0, std::sync::atomic::Ordering::Relaxed); NEW_TABLES.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+        // Backing reservation can fail. Finish it before publishing a live
+        // header; this empty payload holds no guest edges across alloc's GC.
+        let payload = TablePayload { array: self.allocator.value_array(n), hash: ValueTable::with_capacity(m), meta: Value::NIL };
         let p = self.alloc(KIND_TABLE, std::mem::size_of::<TablePayload>(), roots);
         unsafe {
             let h = &mut *p.as_ptr();
-            (h.payload() as *mut TablePayload).write(TablePayload { array: self.allocator.value_array(n), hash: ValueTable::with_capacity(m), meta: Value::NIL });
+            (h.payload() as *mut TablePayload).write(payload);
             h.refresh();
         }
         self.account_resize(0, unsafe { p.as_ref().external_bytes() });
@@ -1330,6 +1333,77 @@ mod tests {
     use super::*;
     struct R(std::cell::RefCell<Vec<Value>>);
     impl Roots for R { fn each_root(&self, f: &mut dyn FnMut(Value)) { for &v in self.0.borrow().iter() { f(v); } } }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn table_constructor_refusal_leaves_recycled_slots_dead() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        for (array, hash) in [(usize::MAX, 0), (4, usize::MAX)] {
+            let mut heap = Heap::new();
+            heap.automatic_collection = false;
+            let roots = R(std::cell::RefCell::new(Vec::new()));
+            let old = heap.new_table_sized(8, 8, &roots).as_obj().unwrap();
+            heap.full_cycle(&roots);
+            let before = (heap.live_count, heap.live_bytes, heap.stats.allocated);
+            assert!(!heap.is_live_slot(old));
+            let failed = catch_unwind(AssertUnwindSafe(|| {
+                heap.new_table_sized(array, hash, &roots);
+            }));
+            let after = (heap.live_count, heap.live_bytes, heap.stats.allocated);
+            let valid = failed.is_err() && after == before && !heap.is_live_slot(old);
+            if !valid {
+                // A regressed constructor may leave dangling payload owners.
+                // Do not scan/drop that invalid state while reporting failure.
+                std::mem::forget(heap);
+                panic!("refused table published a header: {before:?} -> {after:?}");
+            }
+            let table = heap.new_table_sized(8, 8, &roots);
+            assert_eq!(table.as_obj().unwrap(), old);
+            roots.0.borrow_mut().push(table);
+            heap.full_cycle(&roots);
+            unsafe {
+                let header = table.as_obj().unwrap().as_ref();
+                let payload = header.table_ref();
+                assert!(payload.array.is_empty());
+                assert!(payload.array.capacity() >= 8);
+                assert_eq!(payload.hash.len(), 0);
+                assert_eq!(payload.meta, Value::NIL);
+                assert_eq!(header.aux_ptr, payload.array.as_ptr() as *mut u8);
+                assert_eq!(header.aux_len, 0);
+            }
+        }
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn table_constructor_reservation_survives_its_allocation_safepoint() {
+        let mut heap = Heap::new();
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let child = heap.new_string("rooted across reservation", &roots);
+        roots.0.borrow_mut().push(child);
+        heap.stress = true;
+        let cycles = heap.stats.cycles;
+        let table = heap.new_table_sized(8, 8, &roots);
+        assert!(heap.stats.cycles > cycles);
+        assert!(heap.is_live_slot(child.as_obj().unwrap()));
+        unsafe {
+            let header = &mut *table.as_obj().unwrap().as_ptr();
+            let payload = header.table();
+            assert!(payload.array.is_empty());
+            assert_eq!(payload.hash.len(), 0);
+            payload.array.push(child);
+            payload.hash.insert(Value::TRUE, child);
+            header.refresh();
+        }
+        *roots.0.borrow_mut() = vec![table];
+        heap.full_cycle(&roots);
+        unsafe {
+            let payload = table.as_obj().unwrap().as_ref().table_ref();
+            assert_eq!(&*payload.array, &[child]);
+            assert_eq!(payload.hash.get(&Value::TRUE), Some(&child));
+        }
+        assert!(heap.is_live_slot(child.as_obj().unwrap()));
+    }
 
     #[cfg(feature = "allocation-metrics")]
     #[test]
