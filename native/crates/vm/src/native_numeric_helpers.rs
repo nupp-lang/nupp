@@ -99,3 +99,8 @@ pub unsafe extern "C" fn nupp_rt_numeric_error(ctx: *mut Ctx, error: i64) {
 pub extern "C" fn nupp_rt_power(left: f64, right: f64) -> f64 {
     left.powf(right)
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nupp_rt_numeric_kind(value: u64) -> i64 {
+    numeric::integer(Value(value)).map_or(-1, |value| value.unsigned as i64)
+}

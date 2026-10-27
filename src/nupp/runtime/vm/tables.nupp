@@ -17,6 +17,8 @@ const specialization = require("nupp.runtime.vm.specialization")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const managed = require("nupp.runtime.vm.recordhelpers")
+const numeric = require("nupp.runtime.vm.numerichelpers")
 
 -- A new table in register `a`, with room for `n` array and `m` hash entries.
 local function newTableSlow(pc: voidptr, context: voidptr, n: int64, m: int64): uint64
@@ -320,6 +322,38 @@ local function storeInternSlow(pc: voidptr, context: voidptr, object: uint64, ke
     )
 end
 
+-- Numeric keys share the object library's canonical representation, including
+-- integral floats, inline integers and signed/unsigned wide integers.
+local function integralKey(key: uint64): boolean
+    if numeric.numericKind(key) >= 0 then
+        return true
+    end
+    if native.either(key & values.QNAN ~= values.QNAN, key == values.QNAN) then
+        local number = native.fromBits(key)
+        return native.floor(number) == number
+    end
+
+    return false
+end
+
+local function storeFallbackSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    if program.readByte(pc, 0) == native.layout("Code.SetField") then
+        helpers.storeField(context, object, key, value)
+    else
+        local canonical = key
+        if program.readByte(pc, 0) == native.layout("Code.SetIdx") then
+            canonical = helpers.internKey(context, key, 1)
+            if native.load32(context, native.layout("status")) == -4 then
+                return native.fail()
+            end
+        end
+        helpers.newIndex(context, object, canonical, value)
+    end
+
+    return protocol.continueAfter(pc, context, 0, 0, false)
+end
+
 -- A store by any key into a table. A number key reaches the array part when
 -- it is a whole number inside it or just past its border, and the hash part
 -- with its bits otherwise, `-0` as `0`; nil and NaN keys are errors the step
@@ -335,21 +369,24 @@ local function storeKeyed(
     key: uint64,
     value: uint64
 ): uint64
+    if integralKey(key) then
+        return storeFallbackSlow(pc, context, object, key, value)
+    end
     if object & values.TAG_MASK ~= values.TAG_OBJ then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return storeFallbackSlow(pc, context, object, key, value)
     end
     local header = native.pointer(object & values.PAYLOAD)
     if native.either(
         native.load8(header, native.layout("Header.kind")) ~= 2,
         native.load8(header, native.layout("Header.flags")) & values.SPECIAL_TABLE_FLAGS ~= 0
     ) then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return storeFallbackSlow(pc, context, object, key, value)
     end
     local meta = native.load64(header, native.layout("Table.meta"))
     local bits = key
     if native.either(key & values.QNAN ~= values.QNAN, key == values.QNAN) then
         if key == values.QNAN then
-            return native.slow(pc, regs, ints, floats, context, frame)
+            return storeFallbackSlow(pc, context, object, key, value)
         end
         bits = native.chooseWord(key == values.NEGATIVE_ZERO, 0, key)
         local d = native.fromBits(bits)
@@ -378,7 +415,7 @@ local function storeKeyed(
             end
         end
     elseif key == values.NIL then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return storeFallbackSlow(pc, context, object, key, value)
     elseif key & values.TAG_MASK == values.TAG_OBJ then
         local keyHeader = native.pointer(key & values.PAYLOAD)
         local keyKind = native.load8(keyHeader, native.layout("Header.kind"))
@@ -426,25 +463,6 @@ export function SetIdxF(
     local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
 
     return storeKeyed(pc, regs, ints, floats, context, frame, object, native.chooseWord(nan, values.QNAN, bits), value)
-end
-
-export function SetIdxI(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local position = slots.readInteger(frame, ints, program.readByte(pc, 2))
-    -- An integer a double cannot hold exactly is boxed as an integer object.
-    if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
-    local value = slots.readValue(frame, regs, program.readByte(pc, 3))
-
-    return storeKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)), value)
 end
 
 -- The receiver reported to the JIT's feedback, then the store itself.
@@ -577,9 +595,12 @@ local function readKeyed(
     object: uint64,
     key: uint64
 ): uint64
+    if integralKey(key) then
+        return indexSlow(pc, context, object, key)
+    end
     local a = program.readByte(pc, 1)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return indexSlow(pc, context, object, key)
     end
     local header = native.pointer(object & values.PAYLOAD)
     if native.load8(header, native.layout("Header.kind")) ~= 2 then
@@ -656,6 +677,51 @@ export function GetIdxF(
     return readKeyed(pc, regs, ints, floats, context, frame, object, native.chooseWord(nan, values.QNAN, bits))
 end
 
+local function integerIndexSlow(pc: voidptr, context: voidptr, position: int64, storing: int64): uint64
+    protocol.publishPc(pc, context)
+    local key = managed.boxInteger(context, native.word(position), 0)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    if storing ~= 0 then
+        return storeKeyed(
+            pc,
+            regs,
+            ints,
+            floats,
+            context,
+            frame,
+            slots.readValue(frame, regs, program.readByte(pc, 1)),
+            key,
+            slots.readValue(frame, regs, program.readByte(pc, 3))
+        )
+    end
+
+    return readKeyed(pc, regs, ints, floats, context, frame, slots.readValue(frame, regs, program.readByte(pc, 2)), key)
+end
+
+export function SetIdxI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return integerIndexSlow(pc, context, slots.readInteger(frame, ints, program.readByte(pc, 2)), 1)
+end
+
 export function GetIdxI(
     pc: voidptr,
     regs: voidptr,
@@ -664,12 +730,5 @@ export function GetIdxI(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local position = slots.readInteger(frame, ints, program.readByte(pc, 3))
-    -- An integer a double cannot hold exactly is boxed as an integer object.
-    if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
-
-    return readKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)))
+    return integerIndexSlow(pc, context, slots.readInteger(frame, ints, program.readByte(pc, 3)), 0)
 end

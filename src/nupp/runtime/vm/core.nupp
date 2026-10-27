@@ -12,6 +12,8 @@ const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const calls = require("nupp.runtime.vm.calls")
 const strings = require("nupp.runtime.vm.strings")
+const helpers = require("nupp.runtime.vm.helpers")
+const protocol = require("nupp.runtime.vm.protocol")
 
 export function Move(
     pc: voidptr,
@@ -654,18 +656,21 @@ export function GetCell(
     local a = program.readByte(pc, 1)
     local b = program.readByte(pc, 2)
     local bits = slots.readValue(frame, regs, b)
-    if bits & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(bits & values.PAYLOAD)
-        if native.load8(object, native.layout("Header.kind")) == 6 then
-            local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
-            slots.writeValue(frame, regs, a, native.load64(data, 0))
-            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
+    if bits & values.TAG_MASK ~= values.TAG_OBJ then
+        protocol.publishPc(pc, context)
+        helpers.cellError(context, bits, 0, b)
+        return native.fail()
     end
+    local object = native.pointer(bits & values.PAYLOAD)
+    if native.load8(object, native.layout("Header.kind")) ~= 6 then
+        protocol.publishPc(pc, context)
+        helpers.cellError(context, bits, 1, b)
+        return native.fail()
+    end
+    local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+    slots.writeValue(frame, regs, a, native.load64(data, 0))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 export function Add(
@@ -892,14 +897,21 @@ export function GetUpval(
     local a = program.readByte(pc, 1)
     local b = program.readByte(pc, 2) * 8
     local bits = native.load64(frame, 16)
-    if bits & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(bits & values.PAYLOAD)
-        local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
-        slots.writeValue(frame, regs, a, native.load64(data, b))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
+    if bits & values.TAG_MASK ~= values.TAG_OBJ then
+        protocol.publishPc(pc, context)
+        helpers.cellError(context, bits, 3, 0)
+        return native.fail()
     end
+    local object = native.pointer(bits & values.PAYLOAD)
+    if native.load8(object, native.layout("Header.kind")) ~= 5 then
+        protocol.publishPc(pc, context)
+        helpers.cellError(context, bits, 4, 0)
+        return native.fail()
+    end
+    local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
+    slots.writeValue(frame, regs, a, native.load64(data, b))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64

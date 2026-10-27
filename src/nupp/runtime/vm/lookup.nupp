@@ -31,7 +31,7 @@ local function getField(
 ): uint64
     local a = program.readByte(pc, 1)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return getFieldSlow(pc, context, object, name)
     else
         local header = native.pointer(object & values.PAYLOAD)
         local kind = native.load8(header, native.layout("Header.kind"))
@@ -214,11 +214,15 @@ export function SetCell(
     local cell = slots.readValue(frame, regs, program.readByte(pc, 1))
     local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     if cell & values.TAG_MASK ~= values.TAG_OBJ then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        protocol.publishPc(pc, context)
+        helpers.cellError(context, cell, 2, 0)
+        return native.fail()
     else
         local header = native.pointer(cell & values.PAYLOAD)
         if native.load8(header, native.layout("Header.kind")) ~= 6 then
-            return native.slow(pc, regs, ints, floats, context, frame)
+            protocol.publishPc(pc, context)
+            helpers.cellError(context, cell, 2, 0)
+            return native.fail()
         else
             local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
             if native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then

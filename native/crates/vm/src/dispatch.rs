@@ -216,8 +216,37 @@ pub(crate) mod native_helpers {
         })
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_store_field(ctx: *mut Ctx, object: u64, name: u64, value: u64) {
+        record_service(ctx, |it| {
+            let scope = it.open_scope();
+            it.handles.extend([Value(object), Value(name), Value(value)]);
+            it.store_field(Value(object), Value(name), Value(value));
+            it.close_scope(scope);
+            0
+        });
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_cell_error(ctx: *mut Ctx, value: u64, kind: i64, slot: i64) {
+        let context = unsafe { &*ctx };
+        let pc = context.pc as usize + 1;
+        let fid = unsafe { *context.stack.add(context.cur as usize) } as u32;
+        record_service(ctx, |it| match kind {
+            0 => it.err(&format!("GetCell of a non-object {:#x} in {} at pc {} register {}", value, it.funcs[fid as usize].name, pc, slot)),
+            1 => it.err(&format!("GetCell of a non-cell in {} at pc {} register {}", it.funcs[fid as usize].name, pc, slot)),
+            2 => it.err("not a cell"),
+            3 => it.err("upvalue outside a closure"),
+            _ => it.err("not a closure"),
+        });
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
-        rt_get_field(ctx, obj, name)
+        record_service(ctx, |it| {
+            let scope = it.open_scope();
+            it.handles.extend([Value(obj), Value(name)]);
+            let value = it.field(Value(obj), Value(name));
+            it.close_scope(scope);
+            value.0
+        })
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_barrier(ctx: *mut Ctx, parent: u64, child: u64) {
@@ -331,7 +360,10 @@ pub(crate) mod native_helpers {
         let ctx = unsafe { &mut *ctx };
         let (it, _) = enter_rust(ctx);
         let r = it.guarded(|it| {
+            let scope = it.open_scope();
+            it.handles.extend([Value(obj), Value(key), Value(value)]);
             it.newindex(Value(obj), Value(key), Value(value));
+            it.close_scope(scope);
             Value::NIL
         });
         if r == Value::ERROR {
@@ -554,3 +586,7 @@ mod native_byte_tests;
 #[cfg(test)]
 #[path = "native_calltyped_tests.rs"]
 mod native_calltyped_tests;
+
+#[cfg(test)]
+#[path = "native_object_tests.rs"]
+mod native_object_tests;

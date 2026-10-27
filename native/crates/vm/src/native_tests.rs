@@ -380,6 +380,9 @@ fn native_float_moves_boxes_and_conversions_match_value_contract() {
     }
     words.extend([Value::NIL.0, Value::FALSE.0, Value::TRUE.0]);
     for word in words {
+        // Managed values and invalid types use the context-backed numeric
+        // contract suite. Raw leaf fixtures cannot invoke managed services.
+        if !(word & crate::value::QNAN != crate::value::QNAN || word == crate::value::QNAN) { continue; }
         for dest in [0, 1, 255] {
             let mut floats = [19.25; 258];
             let mut expected = floats.map(f64::to_bits);
@@ -426,41 +429,7 @@ fn native_float_moves_boxes_and_conversions_match_value_contract() {
 
 #[test]
 fn native_cell_read_checks_tag_and_kind_before_loading_payload() {
-    let mut payload = Value::num(-42.5).0;
-    let mut header: Header = unsafe { std::mem::zeroed() };
-    header.aux_ptr = (&mut payload as *mut u64).cast();
-    for kind in [KIND_CELL, KIND_CLOSURE, KIND_STR] {
-        header.kind = kind;
-        let object = Value::obj(std::ptr::NonNull::from(&mut header)).0;
-        for word in [
-            object,
-            Value::NIL.0,
-            Value::FALSE.0,
-            Value::num(1.0).0,
-            crate::value::QNAN,
-        ] {
-            for dest in [0, 1, 255] {
-                let valid = kind == KIND_CELL && word == object;
-                let mut regs = [0xa5a5; 258];
-                regs[1] = word;
-                let mut expected = regs;
-                if valid {
-                    expected[dest + 1] = payload;
-                }
-                let mut ints = [-123; 258];
-                let mut floats = [19.25; 258];
-                assert_eq!(
-                    unsafe {
-                        execute_leaf(Code::GetCell, dest, &mut regs, &mut ints, &mut floats, 0)
-                    },
-                    valid
-                );
-                assert_eq!(regs, expected);
-                assert_eq!(ints, [-123; 258]);
-                assert_eq!(floats, [19.25; 258]);
-            }
-        }
-    }
+    super::native_object_tests::cell_alias_contract();
 }
 
 #[test]
@@ -546,7 +515,8 @@ fn native_constants_and_upvalues_use_the_entry_context_and_frame() {
     closure.kind = KIND_CLOSURE;
     closure.aux_ptr = captured.as_mut_ptr().cast();
     let object = Value::obj(std::ptr::NonNull::from(&mut closure)).0;
-    for value in [object, Value::NIL.0, Value::num(123.0).0] {
+    // Invalid closure diagnostics use real VM contexts in native_object_tests.
+    for value in [object] {
         let program = [
             Ins {
                 op: Code::K as u8,
@@ -771,72 +741,7 @@ impl NativeTableFixture {
 
 #[test]
 fn native_array_reads_answer_the_array_part_and_misses_in_place() {
-    let mut table = NativeTableFixture::new(&[Value::num(12.0), Value::NIL, Value::TRUE]);
-    for kind in [KIND_TABLE, KIND_RECORD] {
-        for meta in [Value::NIL, Value::TRUE] {
-            table.header.kind = kind;
-            table.payload.meta = meta;
-            for word in [table.value(), Value::NIL.0, Value::num(4.0).0] {
-                for index in [
-                    -1.0,
-                    -0.0,
-                    0.5,
-                    1.0,
-                    1.5,
-                    2.0,
-                    3.0,
-                    4.0,
-                    f64::NAN,
-                    f64::INFINITY,
-                    9223372036854775808.0,
-                ] {
-                    for code in [Code::GetIdxF, Code::GetIdxI] {
-                        for dest in [0, 1, 255] {
-                            let mut regs = [0xa5a5; 258];
-                            regs[1] = word;
-                            let mut ints = [-123; 258];
-                            ints[2] = index as i64;
-                            let mut floats = [19.25; 258];
-                            floats[2] = index;
-                            let oldints = ints;
-                            let oldfloats = floats.map(f64::to_bits);
-                            let d = if matches!(code, Code::GetIdxI) {
-                                ints[2] as f64
-                            } else {
-                                index
-                            };
-                            let slot = d as usize;
-                            let in_array = d >= 1.0 && d <= 3.0 && d == slot as f64;
-                            let present = in_array && table.payload.array[slot - 1] != Value::NIL;
-                            // A record, and a table with a metatable whose
-                            // array part does not answer, go to the helper,
-                            // which this fixture has no runtime for.
-                            if word == table.value() && (kind != KIND_TABLE || (meta != Value::NIL && !present)) {
-                                continue;
-                            }
-                            // An integer a double cannot hold is a boxed key: Rust's.
-                            let boxed = matches!(code, Code::GetIdxI) && ints[2].unsigned_abs() > 1 << 53;
-                            let valid = word == table.value() && !boxed;
-                            let mut expected = regs;
-                            if valid {
-                                // The array part, or a miss in the empty hash part.
-                                expected[dest + 1] = if in_array { table.payload.array[slot - 1].0 } else { Value::NIL.0 };
-                            }
-                            assert_eq!(
-                                unsafe {
-                                    execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 0)
-                                },
-                                valid
-                            );
-                            assert_eq!(regs, expected);
-                            assert_eq!(ints, oldints);
-                            assert_eq!(floats.map(f64::to_bits), oldfloats);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    super::native_object_tests::array_contract();
 }
 
 #[test]

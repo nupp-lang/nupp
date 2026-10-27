@@ -5,7 +5,7 @@ use crate::{
     value::Value,
 };
 
-fn fixture(op: Op) -> (Box<Interp>, usize) {
+pub(super) fn fixture(op: Op) -> (Box<Interp>, usize) {
     let mut vm = Box::new(Interp::new());
     crate::image::load(
         &mut vm,
@@ -21,21 +21,21 @@ fn fixture(op: Op) -> (Box<Interp>, usize) {
     let tid = vm.spawn(0, &[]);
     (vm, tid)
 }
-fn put(vm: &mut Interp, tid: usize, slot: usize, value: Value) {
+pub(super) fn put(vm: &mut Interp, tid: usize, slot: usize, value: Value) {
     let at = vm.tasks[tid].cur() + 4 + slot;
     vm.tasks[tid].stack[at] = value.0;
 }
-fn value(vm: &Interp, tid: usize, slot: usize) -> Value {
+pub(super) fn value(vm: &Interp, tid: usize, slot: usize) -> Value {
     Value(vm.tasks[tid].stack[vm.tasks[tid].cur() + 4 + slot])
 }
-fn intput(vm: &mut Interp, tid: usize, slot: usize, value: u64) {
+pub(super) fn intput(vm: &mut Interp, tid: usize, slot: usize, value: u64) {
     let at = vm.tasks[tid].cur() + vm.funcs[0].off_i() + slot;
     vm.tasks[tid].stack[at] = value;
 }
-fn intget(vm: &Interp, tid: usize, slot: usize) -> u64 {
+pub(super) fn intget(vm: &Interp, tid: usize, slot: usize) -> u64 {
     vm.tasks[tid].stack[vm.tasks[tid].cur() + vm.funcs[0].off_i() + slot]
 }
-fn direct(vm: &mut Interp, tid: usize, expected: usize) -> Ctx {
+pub(super) fn direct(vm: &mut Interp, tid: usize, expected: usize) -> Ctx {
     let mut ctx: Ctx = unsafe { std::mem::zeroed() };
     ctx.interp = (vm as *mut Interp).cast();
     ctx.tid = tid as u64;
