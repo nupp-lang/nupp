@@ -4499,138 +4499,105 @@ function lower.emit(
             f:pop()
             f:branch("JmpIfNot", c, top)
             loopEnd(f)
-        elseif k == "fornumStmt" and wideKind(node.var.inferredType) then
-            -- A loop over a 64-bit box counts in the box: the counter is a value
-            -- register and the wide helpers compare and advance it. The checker
-            -- holds the step to a literal, whose sign chooses the exit test.
-            local family = wideKind(node.var.inferredType)
+        elseif k == "fornumStmt" then
             f:push()
+            -- Evaluate all three controls before binding the body variable.
+            -- It may shadow a name used by any of these expressions.
+            local counter, limit = f:reg(), f:reg()
+            exprAs(f, node.start, "v", counter)
+            exprAs(f, node.stop, "v", limit)
+            local step = f:reg()
+            if node.step then
+                exprAs(f, node.step, "v", step)
+            else
+                f:op("K", step, f:const("int64", "1"))
+            end
+            local zero, isZero = f:reg(), f:reg()
+            f:op("K", zero, f:const("int64", "0"))
+            f:op("Eq", isZero, step, zero)
+            local validStep = f:label()
+            f:branch("JmpIfNot", isZero, validStep)
+            f:op("Raise", f:const("str", "'for' step is zero"))
+            f:place(validStep)
+
+            -- Lua's integer mode depends on the initial value and step,
+            -- independently of the limit. Unknown numeric subtypes are
+            -- inspected once; there is no guessed sign or repeated coercion.
+            local integerMode = f:reg()
+            local knownStart = wideKind(node.start.inferredType)
+            local knownStep = not node.step or wideKind(node.step.inferredType)
+            if knownStart and knownStep then
+                f:op("K", integerMode, f:const("bool", true))
+            else
+                local integerName = f:reg()
+                f:op("K", integerName, f:const("str", "integer"))
+                local startType = wideOperation(f, "math.type", {{kind = "vmRegister", reg = counter}})
+                f:op("Eq", integerMode, startType, integerName)
+                if node.step then
+                    local stepType = wideOperation(f, "math.type", {{kind = "vmRegister", reg = step}})
+                    local integerStep = f:reg()
+                    f:op("Eq", integerStep, stepType, integerName)
+                    local noninteger = f:label()
+                    f:branch("JmpIfNot", integerStep, noninteger)
+                    local classified = f:label()
+                    f:jump(classified)
+                    f:place(noninteger)
+                    f:op("K", integerMode, f:const("bool", false))
+                    f:place(classified)
+                end
+            end
+            local initialized = f:label()
+            f:branch("JmpIf", integerMode, initialized)
+            local floating = f:freg()
+            f:op("FUnbox", floating, counter)
+            f:op("FBox", counter, floating)
+            f:op("FUnbox", floating, limit)
+            f:op("FBox", limit, floating)
+            f:op("FUnbox", floating, step)
+            f:op("FBox", step, floating)
+            f:place(initialized)
+            local ascending = f:reg()
+            f:op("Lt", ascending, zero, step)
+
             local varName = tokText(node.var)
             local varCell = f.captured[varName]
             local var = f:declare(varCell and "\0for" or varName, "v")
-            exprAs(f, node.start, "v", var)
-            local limit = f:reg()
-            exprAs(f, node.stop, "v", limit)
-            local step = f:reg()
-            local descending = false
-            if node.step then
-                exprAs(f, node.step, "v", step)
-                local text = node.step.kind == "unop"
-                    and tokText(node.step.op) == "-"
-                    and "-"
-                    or node.step.kind == "number"
-                    and tokText(node.step.token):sub(1, 1)
-                    or ""
-                descending = text == "-"
-            else
-                f:op("K", step, f:const(family == "u64" and "uint64" or "int64", "1"))
-            end
-            local counter = {kind = "vmRegister", reg = var}
-            local bound = {kind = "vmRegister", reg = limit}
-            local top, finished = f:label(), f:label()
+            local top, finished, descending, body = f:label(), f:label(), f:label(), f:label()
             f:place(top)
-            local continuing = wideOperation(
-                f,
-                "wide." .. family .. ".le",
-                descending and {bound, counter} or {counter, bound}
-            )
+            local continuing = f:reg()
+            f:branch("JmpIfNot", ascending, descending)
+            f:op("Le", continuing, counter, limit)
+            f:jump(body)
+            f:place(descending)
+            f:op("Le", continuing, limit, counter)
+            f:place(body)
             f:branch("JmpIfNot", continuing, finished)
+            f:op("Move", var, counter)
             loopBegin(f)
             if varCell then
                 f:push()
-                local cr = f:declare(varName, "v")
-                f:op("NewCell", cr, var)
+                local cell = f:declare(varName, "v")
+                f:op("NewCell", cell, var)
             end
             block(f, node.body)
             if varCell then
                 f:pop()
             end
             loopContinue(f)
-            wideOperation(f, "wide." .. family .. ".add", {counter, {kind = "vmRegister", reg = step}}, var)
-            f:jump(top)
-            f:place(finished)
-            loopEnd(f)
-            f:pop()
-        elseif k == "fornumStmt" then
-            f:push()
-            local varName = tokText(node.var)
-            local varCell = f.captured[varName]
-            -- A captured loop variable is a fresh cell each round, holding the
-            -- counter's value; the counter itself stays a float register.
-            local var = f:declare(varCell and "\0for" or varName, "f")
-            exprAs(f, node.start, "f", var)
-            local limit = exprAs(f, node.stop, "f")
-            local step = f:freg();
-            if node.step then
-                exprAs(f, node.step, "f", step)
-            else
-                f:op("FK", step, 1)
-            end
-
-            -- The exit test follows the step's sign: `var <= limit` counting up,
-            -- `limit <= var` counting down. A literal step settles it here; any
-            -- other is tested once before the loop and selects per round.
-            local function stepSign(e)
-                if not e then
-                    return 1
-                end
-                if e.kind == "number" then
-                    local n = tonumber(tokText(e.token));
-                    return n and (n < 0 and -1 or 1) or 0
-                end
-                if e.kind == "unop" and tokText(e.op) == "-" and e.operand.kind == "number" then
-                    return -1
-                end
-                if e.kind == "paren" and e.expr then
-                    return stepSign(e.expr)
-                end
-
-                return 0
-            end
-
-            local sign = stepSign(node.step)
-            local up, down
-            if sign == 0 then
-                local zero = f:freg();
-                f:op("FK", zero, 0)
-                up = f:freg();
-                f:op("FCmpLe", up, zero, step)
-                local one = f:freg();
-                f:op("IK", one, 1)
-                down = f:freg();
-                f:op("ISub", down, one, up)
-            end
-            local top, finished = f:label(), f:label()
-            f:place(top)
-            local c = f:freg()
-            if sign > 0 then
-                f:op("FCmpLe", c, var, limit)
-            elseif sign < 0 then
-                f:op("FCmpLe", c, limit, var)
-            else
-                local c1 = f:freg();
-                f:op("FCmpLe", c1, var, limit);
-                f:op("IAnd", c1, c1, up)
-                local c2 = f:freg();
-                f:op("FCmpLe", c2, limit, var);
-                f:op("IAnd", c2, c2, down)
-                f:op("IOr", c, c1, c2)
-            end
-            f:branch("JmpIfIZero", c, finished)
-            loopBegin(f)
-            if varCell then
-                f:push();
-                local boxed = f:reg();
-                f:op("FBox", boxed, var);
-                local cr = f:declare(varName, "v");
-                f:op("NewCell", cr, boxed)
-            end
-            block(f, node.body)
-            if varCell then
-                f:pop()
-            end
-            loopContinue(f)
-            f:op("FAdd", var, var, step)
+            local nextCounter = f:reg()
+            f:op("Add", nextCounter, counter, step)
+            local advanced, descendingAdvance = f:label(), f:label()
+            f:branch("JmpIfNot", integerMode, advanced)
+            f:branch("JmpIfNot", ascending, descendingAdvance)
+            local overflow = f:reg()
+            f:op("Lt", overflow, nextCounter, counter)
+            f:branch("JmpIf", overflow, finished)
+            f:jump(advanced)
+            f:place(descendingAdvance)
+            f:op("Lt", overflow, counter, nextCounter)
+            f:branch("JmpIf", overflow, finished)
+            f:place(advanced)
+            f:op("Move", counter, nextCounter)
             f:jump(top)
             f:place(finished)
             loopEnd(f)

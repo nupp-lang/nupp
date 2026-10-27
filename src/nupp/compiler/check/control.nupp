@@ -1809,10 +1809,10 @@ function control.install(c: state.Checker): state.StatHandlers
             c.numericOperand(stepT, stat.step, "for")
         end
 
-        -- Signed integer loops use the integer counter only when all
-        -- operands are known integral. A generic number bound or step keeps
-        -- the ordinary numeric loop. Unsigned counters retain their explicit
-        -- fixed-width operand contract.
+        -- Signed integer loops use the integer counter when their initial value and
+        -- step are known integral. The limit may be any number, as it only bounds the
+        -- sequence. Unsigned counters retain their explicit fixed-width operand
+        -- contract.
         local function wideOf(t)
             local raw = T.unwrapOwnership(t)
             return (raw.tag == "int64" or raw.tag == "uint64") and raw or nil
@@ -1839,7 +1839,7 @@ function control.install(c: state.Checker): state.StatHandlers
             return t and (wideOf(t) ~= nil or isA(t, T.integer))
         end
 
-        local integerLoop = knownInteger(st) and knownInteger(et) and (not stepT or knownInteger(stepT))
+        local integerLoop = knownInteger(st) and (not stepT or knownInteger(stepT))
         local firstWide, lastWide, stepWide = wideOf(st), wideOf(et), stepT and wideOf(stepT) or nil
         local unsigned = (firstWide and firstWide.tag == "uint64" and firstWide)
             or (lastWide and lastWide.tag == "uint64" and lastWide)
@@ -1877,7 +1877,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
-        c.bindVar(var.text, wide or (integerLoop and T.integer) or T.number, false, var)
+        c.bindVar(var.text, wide or (integerLoop and T.integer) or T.number, false, var, nil, true)
 
         -- A range witness dominates this loop only when both bounds name the same
         -- const range and the loop uses the ordinary ascending unit step.

@@ -62,11 +62,11 @@ local quotient: uint32 = nupp.math.u32.div(17, 5)
 local remainder: uint32 = nupp.math.u32.mod(17, 5)
 local shifted: uint32 = nupp.math.u32.wrap(0x80000000) >> 31
 local compared: boolean = nupp.math.u32.wrap(0xffffffff) < 0
-local rounded: float = nupp.math.f32.fma(1.0, 2.0, 3.0)
-local exponential: float = nupp.math.f32.exp(-1.0)
+local rounded: float32 = nupp.math.f32.fma(1.0, 2.0, 3.0)
+local exponential: float32 = nupp.math.f32.exp(-1.0)
 local floatBits: uint32 = nupp.math.f32.toBits(rounded)
 local halfBits: uint32 = nupp.math.f32.toF16Bits(rounded)
-local widened: float = nupp.math.f32.fromF16Bits(halfBits)
+local widened: float32 = nupp.math.f32.fromF16Bits(halfBits)
 return si, ui, quotient, remainder, shifted, compared, rounded, exponential, floatBits, halfBits, widened
 ]]
     local result = parser.parse(source, "fixed-width.nupp")
@@ -84,11 +84,11 @@ function M.valueRefinementsRequireEstablishment()
         errorCodes(
             [[
 local input: number = 0.1
-local exact: float = 0.5
-local decimal: float = 0.1
-local claimed = input as float
-local copied: float = claimed
-local function returnsFloat(): float
+local exact: float32 = 0.5
+local decimal: float32 = 0.1
+local claimed = input as float32
+local copied: float32 = claimed
+local function returnsFloat(): float32
     return input
 end
 return exact, decimal, copied, returnsFloat
@@ -101,7 +101,7 @@ return exact, decimal, copied, returnsFloat
     checkedTree(
         [[
 local input: number = 0.1
-local f: float = nupp.math.f32.narrow(input)
+local f: float32 = nupp.math.f32.narrow(input)
 local i: int32 = nupp.math.i32.wrap(2147483648)
 local u: uint32 = nupp.math.u32.wrap(-1)
 local wide: number = f + f
@@ -166,7 +166,7 @@ local span = require("nupp.mem.span")
 local struct Bytes
     signed: int8
     unsigned: uint16
-    value: float
+    value: float32
 end
 cdef function byte_identity(value: uint8): int8
 local function read(values: span.Span<uint8>, bytes: Bytes, input: number): (uint32, int32)
@@ -200,9 +200,9 @@ function M.recordFactsDoNotSurviveGradualErasure()
         errorCodes(
             [[
 local record Reading
-    value: float
+    value: float32
 end
-local function bad(reading: Reading): float
+local function bad(reading: Reading): float32
     local erased: any = reading
     local forged = erased as Reading
     return forged.value
@@ -217,9 +217,9 @@ return bad
     checkedTree(
         [[
 local record Reading
-    value: float
+    value: float32
 end
-local function keep(reading: Reading): float
+local function keep(reading: Reading): float32
     reading.value = nupp.math.f32.narrow(0.1)
     return reading.value
 end
@@ -233,8 +233,8 @@ function M.foreignCallableAssertionsDoNotEstablishResults()
         errorCodes(
             [[
 local raw: any = function(): number return 0.1 end
-local claimed = raw as function(): float
-local value: float = claimed()
+local claimed = raw as function(): float32
+local value: float32 = claimed()
 return value
 ]]
         ),
@@ -248,8 +248,8 @@ function M.contextualFunctionResultsConsumeFacts()
         errorCodes(
             [[
 local input: number = 0.1
-local f: function(): float = || -> input as float
-local value: float = f()
+local f: function(): float32 = || -> input as float32
+local value: float32 = f()
 return value
 ]]
         ),
@@ -261,10 +261,10 @@ return value
         errorCodes(
             [[
 local input: number = 0.1
-local f: function(): float = function()
-    return input as float
+local f: function(): float32 = function()
+    return input as float32
 end
-local value: float = f()
+local value: float32 = f()
 return value
 ]]
         ),
@@ -311,12 +311,12 @@ end
 function M.fixedWidthFactsFollowEveryCallResult()
     checkedTree(
         [[
-local function pair(): (float, uint32)
+local function pair(): (float32, uint32)
     return 0.5, 7
 end
-local a: float, b: uint32 = pair()
+local a: float32, b: uint32 = pair()
 a, b = pair()
-local function forward(): (float, uint32)
+local function forward(): (float32, uint32)
     return pair()
 end
 return a, b, forward
@@ -331,8 +331,8 @@ function M.assignmentKeepsAFixedWidthValueEstablished()
     -- wrote to it -- which is every accumulator in an iterative kernel.
     checkedTree(
         [[
-local function step(v: number): (float, int32)
-    local x: float = 0.0
+local function step(v: number): (float32, int32)
+    local x: float32 = 0.0
     x = nupp.math.f32.narrow(v)
     x = nupp.math.f32.mul(x, x)
     local n: int32 = 0
@@ -354,9 +354,9 @@ function M.assignmentDoesNotInventEstablishment()
         errorCodes(
             [[
 local input: number = 0.1
-local x: float = 0.0
-x = input as float
-local y: float = nupp.math.f32.mul(x, x)
+local x: float32 = 0.0
+x = input as float32
+local y: float32 = nupp.math.f32.mul(x, x)
 return y
 ]]
         ),
@@ -824,7 +824,7 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
             "local struct S",
             "   a: int32",
             "   b: uint8",
-            "   f: float",
+            "   f: float32",
             "   big: int64",
             "   ubig: uint64",
             "end",
@@ -847,7 +847,7 @@ function M.physicalStoresRefuseLiteralsTheSlotCannotHold()
                     "local struct S",
                     "   a: int32",
                     "   b: uint8",
-                    "   f: float",
+                    "   f: float32",
                     "end",
                     "local s = new S(1.9, 300, 1e40)",
                     "return s",
@@ -1077,6 +1077,7 @@ for i = 1LL, 3LL, 1LL do end
         ""
     )
     testAssert.equal(errorCodes("local stop: number = 3\nfor i = 1ULL, stop do end"), "NUPP2001")
+    testAssert.equal(errorCodes("for i = 1LL, 3LL do i = 2LL end"), "NUPP2008")
 end
 
 return M
