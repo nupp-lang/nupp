@@ -168,6 +168,7 @@ function nativegraph.isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
             fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
+            or fn.scope.name == "nupp.runtime.vm.objecttable" and fn.name == "tableProbe"
             or fn.scope.name == "nupp.runtime.vm.objectshape"
             and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")
         )

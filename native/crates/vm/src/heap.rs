@@ -121,17 +121,25 @@ impl ValueTable {
     pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0, order: std::ptr::null_mut(), rank: std::ptr::null_mut() } }
     pub fn with_capacity(m: usize) -> ValueTable { let mut t = ValueTable::new(); if m > 0 { let mut c = 8; while c * 3 < m * 4 { c *= 2; } t.alloc(c); } t }
     fn alloc(&mut self, cap: usize) {
+        assert!(cap as u64 <= u32::MAX as u64 + 1, "table exceeds the insertion order index range");
         let v: Vec<u64> = (0..cap * 2).map(|i| if i % 2 == 0 { VT_EMPTY } else { 0 }).collect();
         self.ptr = Box::leak(v.into_boxed_slice()).as_mut_ptr();
         self.order = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
         self.rank = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
         self.cap = cap as u64; self.mask = (cap - 1) as u64;
     }
+    #[inline] fn probe(&self, bits: u64) -> Option<usize> {
+        #[cfg(feature = "native-runtime")]
+        {
+            let bucket = unsafe { nupp_object_table_probe(self.ptr, self.cap, self.mask, bits) };
+            (bucket != u64::MAX).then_some(bucket as usize)
+        }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = bits; panic!("table probing requires a linked Nupp core") }
+    }
     #[inline] fn slot(&self, bits: u64) -> Option<usize> {
-        // nil is never a key: its bits are the empty marker.
-        if self.ptr.is_null() || bits == VT_EMPTY { return None; }
-        let mut k = slot_hash(bits) & self.mask;
-        loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == bits { return Some(k as usize); } if b == VT_EMPTY { return None; } k = (k + 1) & self.mask; }
+        let bucket = self.probe(bits)?;
+        (unsafe { *self.ptr.add(2 * bucket) } == bits).then_some(bucket)
     }
     pub fn get(&self, key: &Value) -> Option<&Value> { let k = self.slot(key.0)?; let v = unsafe { &*(self.ptr.add(2 * k + 1) as *const Value) }; if *v == Value::NIL { None } else { Some(v) } }
     pub fn insert(&mut self, key: Value, v: Value) {
@@ -139,8 +147,7 @@ impl ValueTable {
         if let Some(k) = self.slot(key.0) { unsafe { *self.ptr.add(2 * k + 1) = v.0; } return; }
         if v == Value::NIL { return; }
         if self.ptr.is_null() || (self.len + 1) * 4 > self.cap * 3 { self.grow(); }
-        let mut k = slot_hash(key.0) & self.mask;
-        loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; }
+        let k = self.probe(key.0).expect("allocated table has an empty bucket") as u64;
         unsafe {
             *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0;
             *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32;
@@ -154,8 +161,7 @@ impl ValueTable {
         let want = live.len() + 1; let mut c = 8; while c * 3 < want * 4 { c *= 2; } if c <= self.cap as usize && (want * 4 > (self.cap as usize) * 3) { c = (self.cap as usize) * 2; }
         self.free(); self.alloc(c); self.len = 0;
         for (kb, vb) in live {
-            let mut k = slot_hash(kb) & self.mask;
-            loop { let b = unsafe { *self.ptr.add(2 * k as usize) }; if b == VT_EMPTY { break; } k = (k + 1) & self.mask; }
+            let k = self.probe(kb).expect("rehash table has an empty bucket") as u64;
             unsafe { *self.ptr.add(2 * k as usize) = kb; *self.ptr.add(2 * k as usize + 1) = vb; *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32; }
             self.len += 1;
         }
@@ -390,13 +396,14 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
+    fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
     fn nupp_object_shape_capacity(count: u64) -> u64;
     fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
     fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 3);
+    assert!(crate::dispatch::OBJECT_ABI == 4);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);

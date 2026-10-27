@@ -1,0 +1,46 @@
+module nupp.runtime.vm.objecttable
+
+const native = require("nupp.runtime.vm.intrinsics")
+const objecthash = require("nupp.runtime.vm.objecthash")
+const values = require("nupp.runtime.vm.values")
+
+-- One canonical probe for hash tables and record overflow. A deleted value
+-- keeps its key, so only a NIL key terminates the search. The returned bucket
+-- either holds the key or is empty; MAX means no valid bucket was available.
+export function tableProbe(table: voidptr, capacity: uint64, mask: uint64, key: uint64): uint64
+    if native.address(table) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if key == values.NIL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity < 8ULL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity > 0x100000000ULL then
+        return 0xffffffffffffffffULL
+    end
+    local below: uint64 = capacity - 1ULL
+    if mask ~= below then
+        return 0xffffffffffffffffULL
+    end
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local bucket: uint64 = objecthash.slotHash(key) & mask
+    local probes: uint64 = 0ULL
+    while probes < capacity do
+        local found = native.load64(table, native.index(bucket * 16ULL))
+        if found == key then
+            return bucket
+        end
+        if found == values.NIL then
+            return bucket
+        end
+        bucket = (bucket + 1ULL) & mask
+        probes = probes + 1ULL
+    end
+
+    return 0xffffffffffffffffULL
+end

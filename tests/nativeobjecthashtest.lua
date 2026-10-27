@@ -197,4 +197,20 @@ function M.stringHashUsesBorrowedBytesAndKeepsItsStateInTheNuppGraph()
     assert(not body:find("notrap", 1, true) and not body:find("call", 1, true), body)
 end
 
+function M.tableProbeUsesTheSharedLeafGraphAndNilBucketContract()
+    local text = lower.compile(
+        ROOT,
+        {
+            ROOT .. "/src/nupp/runtime/vm/values.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objecthash.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objecttable.nupp"
+        },
+        {include = {"src"}}
+    )
+    local body = assert(text:match("function %%tableProbe%b()%s*%-%>%s*i64%s+tail%s*(%b{})"), text)
+    assert(body:find("Nupp native graph: tableProbe", 1, true), body)
+    assert(body:find(" = %slotHash sig", 1, true) and body:find("load.i64 v", 1, true), body)
+    assert(not body:find("notrap", 1, true) and not body:find("store", 1, true), body)
+end
+
 return M

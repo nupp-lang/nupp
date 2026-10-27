@@ -81,6 +81,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/values.nupp",
     "src/nupp/runtime/vm/objecthash.nupp",
     "src/nupp/runtime/vm/objectshape.nupp",
+    "src/nupp/runtime/vm/objecttable.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",

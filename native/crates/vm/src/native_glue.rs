@@ -315,6 +315,7 @@ fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
     match name {
         "slotHash" => Some(("nupp_object_slot_hash", 1)),
         "stringHash" => Some(("nupp_object_string_hash", 3)),
+        "tableProbe" => Some(("nupp_object_table_probe", 4)),
         "shapeCapacity" => Some(("nupp_object_shape_capacity", 1)),
         "shapeFill" => Some(("nupp_object_shape_fill", 4)),
         "shapeFind" => Some(("nupp_object_shape_find", 4)),
@@ -332,7 +333,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
         return Err(format!("{}: object leaf word signature required", f.name));
     }
     let name = name_of(f);
-    let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind");
+    let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind" | "tableProbe");
     let memory = hash_call || name == "stringHash";
     let write = name == "shapeFill";
     if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty()
@@ -373,7 +374,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 3;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 4;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -917,6 +918,8 @@ mod object_leaf_tests {
         require_object_leaf(&parse(fill), 4).unwrap();
         let find = fill.replace("%shapeFill", "%shapeFind").replace(" store v5, v2", "");
         require_object_leaf(&parse(&find), 4).unwrap();
+        require_object_leaf(&parse(&find.replace("%shapeFind", "%tableProbe")), 4).unwrap();
+        assert!(require_object_leaf(&parse(&fill.replace("%shapeFill", "%tableProbe")), 4).is_err());
         assert!(require_object_leaf(&parse(&fill.replace("%shapeFill", "%shapeFind")), 4).is_err());
         assert!(require_object_leaf(&parse(&fill.replace("%slotHash", "%nupp_rt_new_table")), 4).is_err());
         assert!(require_object_leaf(&parse(&fill.replace("(i64) -> i64 tail", "(i64) -> i64 system_v")), 4).is_err());

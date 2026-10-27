@@ -4,6 +4,7 @@ module nupp.runtime.vm.lookup
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
 const objecthash = require("nupp.runtime.vm.objecthash")
+const objecttable = require("nupp.runtime.vm.objecttable")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const specialization = require("nupp.runtime.vm.specialization")
@@ -71,25 +72,23 @@ local function getField(
             local meta = native.load64(header, native.layout("Table.meta"))
             if buckets ~= nil then
                 local mask = native.load64(header, native.layout("Table.hash_mask"))
-                local k = hash & mask
-                while true do
-                    local bucket = native.load64(buckets, native.index(k * 16))
-                    if bucket == name then
+                local k = objecttable.tableProbe(
+                    buckets,
+                    native.load64(header, native.layout("Table.hash_cap")),
+                    mask,
+                    name
+                )
+                if k ~= 0xffffffffffffffffULL then
+                    if native.load64(buckets, native.index(k * 16)) == name then
                         local value = native.load64(buckets, native.index(k * 16 + 8))
                         if value ~= values.NIL or meta == values.NIL then
                             slots.writeValue(frame, regs, a, value)
                             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                         end
-                        break
+                    elseif meta == values.NIL then
+                        slots.writeValue(frame, regs, a, values.NIL)
+                        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                     end
-                    if bucket == values.NIL then
-                        if meta == values.NIL then
-                            slots.writeValue(frame, regs, a, values.NIL)
-                            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-                        end
-                        break
-                    end
-                    k = (k + 1) & mask
                 end
             elseif meta == values.NIL then
                 slots.writeValue(frame, regs, a, values.NIL)

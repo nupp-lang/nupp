@@ -12,6 +12,7 @@ module nupp.runtime.vm.tables
 -- for records, declaration tables, prototypes and diagnostics.
 const native = require("nupp.runtime.vm.intrinsics")
 const objecthash = require("nupp.runtime.vm.objecthash")
+const objecttable = require("nupp.runtime.vm.objecttable")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const specialization = require("nupp.runtime.vm.specialization")
@@ -127,10 +128,7 @@ local function growInsertSlow(pc: voidptr, context: voidptr, object: uint64, key
     local header = native.pointer(object & values.PAYLOAD)
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     local mask = native.load64(header, native.layout("Table.hash_mask"))
-    local k = objecthash.slotHash(key) & mask
-    while native.load64(buckets, native.index(k * 16)) ~= values.NIL do
-        k = (k + 1) & mask
-    end
+    local k = objecttable.tableProbe(buckets, native.load64(header, native.layout("Table.hash_cap")), mask, key)
     barrierEntry(context, object, key, value)
     writeEntry(header, key, value, native.index(k))
 
@@ -165,25 +163,18 @@ local function hashStore(
 ): uint64
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     local mask = native.load64(header, native.layout("Table.hash_mask"))
-    local k = objecthash.slotHash(key) & mask
-    if buckets ~= nil then
-        while true do
-            local bucket = native.load64(buckets, native.index(k * 16))
-            if bucket == key then
-                local at = native.index(k * 16 + 8)
-                if native.both(meta ~= values.NIL, native.load64(buckets, at) == values.NIL) then
-                    return newIndexSlow(pc, context, object, key, value)
-                elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
-                    return markedStoreSlow(pc, context, object, value, buckets, at)
-                else
-                    native.store64(buckets, at, value)
-                    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-                end
+    local k = objecttable.tableProbe(buckets, native.load64(header, native.layout("Table.hash_cap")), mask, key)
+    if k ~= 0xffffffffffffffffULL then
+        if native.load64(buckets, native.index(k * 16)) == key then
+            local at = native.index(k * 16 + 8)
+            if native.both(meta ~= values.NIL, native.load64(buckets, at) == values.NIL) then
+                return newIndexSlow(pc, context, object, key, value)
+            elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then
+                return markedStoreSlow(pc, context, object, value, buckets, at)
+            else
+                native.store64(buckets, at, value)
+                return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             end
-            if bucket == values.NIL then
-                break
-            end
-            k = (k + 1) & mask
         end
     end
     if meta ~= values.NIL then
@@ -191,7 +182,7 @@ local function hashStore(
     elseif value == values.NIL then
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif native.either(
-        buckets == nil,
+        k == 0xffffffffffffffffULL,
         (
             native.load64(header, native.layout("Table.hash_len")) + 1
         ) * 4 > native.load64(header, native.layout("Table.hash_cap")) * 3
@@ -529,21 +520,15 @@ local function hashLookup(
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     if buckets ~= nil then
         local mask = native.load64(header, native.layout("Table.hash_mask"))
-        local k = objecthash.slotHash(key) & mask
-        while true do
-            local bucket = native.load64(buckets, native.index(k * 16))
-            if bucket == key then
+        local k = objecttable.tableProbe(buckets, native.load64(header, native.layout("Table.hash_cap")), mask, key)
+        if k ~= 0xffffffffffffffffULL then
+            if native.load64(buckets, native.index(k * 16)) == key then
                 local value = native.load64(buckets, native.index(k * 16 + 8))
                 if native.either(value ~= values.NIL, meta == values.NIL) then
                     slots.writeValue(frame, regs, a, value)
                     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                 end
-                break
             end
-            if bucket == values.NIL then
-                break
-            end
-            k = (k + 1) & mask
         end
     end
     if meta == values.NIL then
