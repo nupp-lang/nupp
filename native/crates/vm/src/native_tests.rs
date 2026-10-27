@@ -1360,6 +1360,133 @@ fn native_returns_deliver_results_and_resume_the_caller() {
     }
 }
 
+// The return ABI stores absolute words; the Nupp handlers translate them to
+// a caller frame plus a logical value or float slot before delivery.
+#[test]
+fn native_returns_use_the_resumed_frames_logical_windows() {
+    let bits = [
+        Value::TRUE.0,
+        (-0.0f64).to_bits(),
+        0x7ff8_0000_0000_0042,
+        Value::NIL.0,
+        5,
+        6,
+        7,
+        8,
+    ];
+    for caller in [0usize, 23] {
+        for value_slot in [0usize, 5] {
+            for indirect in [false, true] {
+                for (pc, count) in [(0usize, 1usize), (1, 0), (2, 0), (2, 1), (2, 8)] {
+                    let mut m = returning(&bits, indirect);
+                    let callee = 128usize;
+                    let caller_header = m.stack[..HDR].to_vec();
+                    let callee_words = m.stack[TEST_FRAME_WORDS as usize
+                        ..TEST_FRAME_WORDS as usize + TEST_FRAME_WORDS as usize]
+                        .to_vec();
+                    m.stack[caller..caller + HDR].copy_from_slice(&caller_header);
+                    m.stack[callee..callee + callee_words.len()].copy_from_slice(&callee_words);
+                    // Deliberately use a different float-window displacement.
+                    let off_f = 40usize;
+                    let float_slot = 3usize;
+                    m.funcs[0].nregs = 16;
+                    m.funcs[0].off_i = 21;
+                    m.funcs[0].off_f = off_f as u32;
+                    m.funcs[0].frame_words = 64;
+                    m.stack[caller + 3] = 64 << 33;
+                    let source = if value_slot == 0 { 1 } else { 2 };
+                    m.codes[1][0].a = source as u8;
+                    m.stack[callee + 1] =
+                        caller as u64 | (((caller + HDR + value_slot) as u64) << 32);
+                    m.stack[callee + 3] = ((TEST_FRAME_WORDS as u64) << 33)
+                        | if indirect {
+                            (1 << 32) | (caller + off_f + float_slot) as u64
+                        } else {
+                            0
+                        };
+                    m.codes[1][2].b = count as u8;
+                    m.ctx.cur = callee as u64;
+                    let mut expected = m.stack.clone();
+                    if pc == 0 {
+                        expected[caller
+                            + if indirect {
+                                off_f + float_slot
+                            } else {
+                                HDR + value_slot
+                            }] = bits[source];
+                    } else if count == 0 {
+                        // Nil and multi-result returns always target values,
+                        // including a frame with the float-return flag set.
+                        expected[caller + HDR + value_slot] = NIL;
+                    } else {
+                        expected[caller + HDR + value_slot..caller + HDR + value_slot + count]
+                            .copy_from_slice(&bits[..count]);
+                    }
+                    let exit = unsafe { m.run(pc) };
+                    assert_eq!(exit, m.code(0, 6));
+                    assert_eq!(m.ctx.cur, caller as u64);
+                    assert_eq!(m.ctx.last_nres, count as u64);
+                    assert_eq!(
+                        m.stack, expected,
+                        "caller {caller} slot {value_slot} indirect {indirect} pc {pc} count {count}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_single_return_padding_matches_logical_slot_zero() {
+    for (destination, pad_slot, indirect) in [
+        (0usize, 0usize, false),
+        (5, 5, false),
+        (0, 5, false),
+        (0, 0, true),
+    ] {
+        let mut m = returning(&[Value::TRUE.0, Value::num(-0.0).0], indirect);
+        let caller = 31usize;
+        let callee = 128usize;
+        let caller_header = m.stack[..HDR].to_vec();
+        let callee_words = m.stack
+            [TEST_FRAME_WORDS as usize..TEST_FRAME_WORDS as usize + TEST_FRAME_WORDS as usize]
+            .to_vec();
+        m.stack[caller..caller + HDR].copy_from_slice(&caller_header);
+        m.stack[callee..callee + callee_words.len()].copy_from_slice(&callee_words);
+        m.stack[callee + 1] = caller as u64 | (((caller + HDR + destination) as u64) << 32);
+        m.stack[callee + 3] = ((TEST_FRAME_WORDS as u64) << 33)
+            | if indirect {
+                (1 << 32) | (caller + m.funcs[0].off_f as usize + 1) as u64
+            } else {
+                0
+            };
+        m.codes[0][6] = Ins {
+            op: Code::PadResults as u8,
+            a: pad_slot as u8,
+            b: 3,
+            ..Ins::default()
+        };
+        m.ctx.cur = callee as u64;
+        let mut expected = m.stack.clone();
+        let target = caller
+            + if indirect {
+                m.funcs[0].off_f as usize + 1
+            } else {
+                HDR + destination
+            };
+        expected[target] = Value::num(-0.0).0;
+        // A nonmatching or float destination leaves PadResults to dispatch;
+        // it still pads according to last_nres. Both routes resume at pc 7.
+        expected[caller + HDR + pad_slot + 1] = NIL;
+        expected[caller + HDR + pad_slot + 2] = NIL;
+        let exit = unsafe { m.run(0) };
+        assert_eq!(exit, m.code(0, 7));
+        assert_eq!(m.ctx.cur, caller as u64);
+        assert_eq!(m.ctx.last_nres, 1);
+        assert_eq!(m.stack, expected);
+    }
+}
+
 #[test]
 fn native_result_padding_fills_only_missing_results() {
     for wanted in 0..=9u8 {
