@@ -1192,6 +1192,31 @@ function M.quotesNumbersThatReadBackUnchanged()
     end
 end
 
+function M.quotesExactIntegerAndFloatSubtypes()
+    for _, text in ipairs({
+        "9007199254740993",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "-9223372036854775807",
+        "1",
+        "1.0",
+        "0",
+        "0.0",
+        "-0.0",
+    }) do
+        local expected = assert(tonumber(text))
+        local answer = run(
+            "comptimetest.quotesExactIntegerAndFloatSubtypes",
+            "return comptime do return " .. text .. " end"
+        )
+        testAssert.equal(math.type(answer), math.type(expected), "comptime preserves numeric subtype for " .. text)
+        testAssert.equal(answer, expected, "comptime preserves exact value for " .. text)
+        if expected == 0 then
+            testAssert.equal(1 / answer, 1 / expected, "comptime preserves zero sign")
+        end
+    end
+end
+
 function M.quotesNegativeZeroApart()
     local answer = run("comptimetest.quotesNegativeZeroApart", "return comptime do return -0.0 end")
     testAssert.equal(1 / answer, -math.huge, "negative zero keeps its sign")

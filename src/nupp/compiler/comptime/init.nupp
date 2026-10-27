@@ -26,6 +26,7 @@ local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.comptime.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
 local hash = require("nupp.compiler.hash")
+local numbertext = require("nupp.compiler.numbertext")
 local bit = require("nupp.compiler.bitops")
 local hostOs: any = rawget(_G, "os")
 local getenv = hostOs and hostOs.getenv or function(): nil
@@ -233,13 +234,7 @@ local function arrayLength(t)
     return n
 end
 
---- A number as source that reads back as the same number.
----
---- An integral value in the exact range prints as an integer, matching `OPT-3`.
---- Anything
---- else needs a round trip rather than a tidy literal: LuaJIT's default `%.14g` loses
---- the last bits of a double, so the shortest literal that reads back identically is
---- searched for and `%.17g` is the fallback that always works.
+--- Formats a number as source while preserving its subtype and exact value.
 local function quoteNumber(value, node)
     if value ~= value then
         fail("NUPP2413", node, "NaN has no source literal")
@@ -247,22 +242,8 @@ local function quoteNumber(value, node)
     if value == math.huge or value == -math.huge then
         fail("NUPP2413", node, "an infinity has no source literal")
     end
-    if value == 0 then
-        -- Negative zero is a different value from zero and the sign is the whole of the
-        -- difference, so it cannot be printed by the integer path.
-        return 1 / value < 0 and "-0.0" or "0"
-    end
-    if value == math.floor(value) and math.abs(value) <= MAX_EXACT_INTEGER then
-        return ("%.0f"):format(value)
-    end
-    for _, format in ipairs({"%.14g", "%.15g", "%.16g", "%.17g"}) do
-        local text = format:format(value)
-        if tonumber(text) == value then
-            return text
-        end
-    end
 
-    fail("NUPP2413", node, "this number has no source literal that reads back unchanged")
+    return numbertext.literal(value)
 end
 
 --- A value as canonical Lua source.
