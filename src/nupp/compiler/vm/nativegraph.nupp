@@ -60,6 +60,17 @@ local admitted = {
     FCmpLt = true,
     FCmpLe = true
 }
+local controlAdmitted = {
+    PCall = true,
+    Raise = true,
+    Defer = true,
+    DeferMethod = true,
+    CleanupLive = true,
+    DisarmAt = true,
+    RearmAt = true,
+    Unwind = true,
+    Switch = true
+}
 local arithmetic = {
     ["+"] = "IAdd",
     ["-"] = "ISub",
@@ -171,8 +182,12 @@ end
 --- Admission is independent of the signature so a changed signature fails
 --- graph compilation instead of selecting the temporary direct lowering.
 function nativegraph.admits(fn: any): boolean
-    return fn.scope ~= nil
-        and (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true or nativegraph.isLeaf(fn))
+    if fn.scope == nil then
+        return false
+    end
+    return (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true)
+        or (fn.scope.name == "nupp.runtime.vm.control" and controlAdmitted[fn.name] == true)
+        or nativegraph.isLeaf(fn)
 end
 
 function nativegraph.isLeaf(fn: any): boolean

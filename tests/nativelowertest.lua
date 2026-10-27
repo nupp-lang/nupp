@@ -818,6 +818,24 @@ function M.wholeCoreHandlersUseTheNuppGraph()
     end
 end
 
+function M.wholeControlHandlersUseTheNuppGraph()
+    local clif = coreClif()
+    for _, name in ipairs({
+        "PCall",
+        "Raise",
+        "Defer",
+        "DeferMethod",
+        "CleanupLive",
+        "DisarmAt",
+        "RearmAt",
+        "Unwind",
+        "Switch"
+    }) do
+        local text = functionText(clif, name)
+        assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
+    end
+end
+
 function M.theRuntimeCoreCompilesToOneObjectWithItsSidecar()
     local dir = tempDirectory()
     write(dir .. "/runtime.clif", coreClif())

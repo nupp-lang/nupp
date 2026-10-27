@@ -31,6 +31,12 @@ local function functionsFrom(parsed, scope)
                     kinds[index] = parameter.type.resolvedType.tag
                 end
                 local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                local handler = result == "uint64" and #kinds == 6
+                for _, kind in ipairs(kinds) do
+                    if kind ~= "voidptr" then
+                        handler = false
+                    end
+                end
                 local fn = {
                     name = name,
                     node = node,
@@ -38,8 +44,8 @@ local function functionsFrom(parsed, scope)
                     scope = scope,
                     paramKinds = kinds,
                     resultKind = result ~= "nil" and result or nil,
-                    isHandler = scope.name == "nupp.runtime.vm.core" and result == "uint64" and #kinds == 6,
-                    isSupport = name:match("Slow$") ~= nil
+                    isHandler = handler,
+                    isSupport = not handler and name:match("Slow$") ~= nil
                 }
                 scope.functions[name] = fn
                 if stat.kind == "exportStmt" then
@@ -106,6 +112,74 @@ end
 
 local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
+end
+
+function M.controlHandlersKeepCleanupLoopsProtectedTransfersAndSwitchLoads()
+    local _, options = checkedWithModules({"control", "calls"})
+    local scope = options.modules["nupp.runtime.vm.control"]
+    local count = 0
+    for name, fn in pairs(scope.exports) do
+        if fn.isHandler then
+            count = count + 1
+            assert(nativegraph.admits(fn), name .. " was not admitted")
+            local g = nativegraph.compile(fn, options)
+            graph.verify(g)
+            graph.prune(g)
+            graph.verify(g)
+            assert(g.source.module == scope.name and g.source.name == name)
+            local tails, loops, appended = 0, 0, 0
+            for _, block in ipairs(g.blocks) do
+                if block.term.kind == "nativeTail" then
+                    tails = tails + 1
+                    assert(block.term.args[1] == 1 and block.term.args[2] == 5)
+                    assert(block.term.callee.effects.mayCollect and block.term.callee.effects.mayPark)
+                    if name == "PCall" then
+                        assert(block.term.callee.moduleName == "nupp.runtime.vm.calls")
+                        assert(block.term.callee.name == "protectedCallSlow")
+                    end
+                end
+                for _, edge in ipairs(block.term.edges) do
+                    if edge.target <= block.id then
+                        loops = loops + 1
+                    end
+                end
+                for index, op in ipairs(block.op) do
+                    if op == "ProgramLoad" and block.args[index][1] ~= 1 then
+                        local contract = block.args[index][3]
+                        assert(contract.source == "code" and contract.lifetime == "body")
+                        appended = appended + 1
+                    end
+                end
+            end
+            if name == "Switch" then
+                assert(tails == 0 and appended >= 3, "switch table reads lost their retained code contract")
+            elseif name == "CleanupLive" then
+                assert(tails == 0 and loops > 0)
+            else
+                assert(tails > 0, name .. " lost its checked support transfer")
+                if name == "DisarmAt" or name == "RearmAt" or name == "Unwind" then
+                    assert(loops > 0)
+                end
+            end
+        end
+    end
+    assert(count == 9)
+    assert(not nativegraph.admits({scope = {name = "nupp.runtime.vm.core"}, name = "PCall"}))
+    assert(not nativegraph.admits({scope = {name = "nupp.runtime.vm.control"}, name = "Move"}))
+    assert(not nativegraph.admits({scope = {name = "other"}, name = "PCall"}))
+end
+
+function M.controlAdmissionRejectsChangedHandlerSignaturesAndSyntax()
+    local _, options = checkedWithModules({"control", "calls"})
+    local fn = options.modules["nupp.runtime.vm.control"].exports.PCall
+    assert(nativegraph.admits(fn))
+    fn.paramKinds[1] = "uint64"
+    local ok, problem = pcall(nativegraph.compile, fn, options)
+    assert(not ok and tostring(problem):find("parameter", 1, true), tostring(problem))
+    fn.paramKinds[1] = "voidptr"
+    fn.body.body.stats[1].kind = "unsupportedCheckedStmt"
+    ok, problem = pcall(nativegraph.compile, fn, options)
+    assert(not ok and tostring(problem):find("unsupported checked statement", 1, true), tostring(problem))
 end
 
 function M.remainingCoreHandlersUseCheckedLoadsLoopsAndManagedTransfers()
