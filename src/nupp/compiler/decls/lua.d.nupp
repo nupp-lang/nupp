@@ -1019,7 +1019,7 @@ local math: {
     tointeger: @nosuspend function(value: any): integer?,
 
     --- Returns the numeric subtype, or nil for a nonnumeric value.
-    type: @nosuspend function(value: any): ("integer" | "float")?
+    type: @nosuspend function(value: any): ("integer" | "float" | nil)
 }
 
 --- The fields `os.date("*t")` returns.
@@ -1323,7 +1323,7 @@ local io: {
     --- Classifies an open or closed file handle.
     --- @param value the value to inspect
     --- @return "file", "closed file", or nil for another value
-    type: @nosuspend function(value: any): ("file" | "closed file")?,
+    type: @nosuspend function(value: any): ("file" | "closed file" | nil),
 
     --- Sets the default input file, opening `f` first when it is a name. With no
     --- argument it returns the current one instead.
