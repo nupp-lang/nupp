@@ -348,18 +348,6 @@ pub(crate) fn rt_enter_frame(ctx: *mut Ctx, pc: u32, flags: u32) -> u32 {
     r
 }
 
-/// Grows the task's stack to hold `needed` words and re-points the context.
-pub(crate) fn rt_grow(ctx: *mut Ctx, needed: u64) {
-    let ctx = unsafe { &mut *ctx };
-    let it = unsafe { &mut *(ctx.interp as *mut Interp) };
-    charge(ctx, it);
-    let t = &mut it.tasks[ctx.tid as usize];
-    t.set_cur(ctx.cur as usize);
-    let n = (needed as usize).max(t.stack.len() * 2);
-    t.stack.resize(n, 0);
-    sync(ctx, it);
-}
-
 /// Brings the task record up to date with the core before Rust touches it.
 #[inline]
 pub(crate) fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
