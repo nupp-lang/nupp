@@ -315,6 +315,7 @@ fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
     match name {
         "slotHash" => Some(("nupp_object_slot_hash", 1)),
         "stringHash" => Some(("nupp_object_string_hash", 3)),
+        "weakLookupAction" => Some(("nupp_object_weak_lookup_action", 7)),
         "tableProbe" => Some(("nupp_object_table_probe", 4)),
         "tableCapacity" => Some(("nupp_object_table_capacity", 1)),
         "tableNeedsGrowth" => Some(("nupp_object_table_needs_growth", 2)),
@@ -385,7 +386,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 5;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 6;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -922,6 +923,15 @@ mod object_leaf_tests {
         assert!(require_object_leaf(&parse(&store), 3).is_err());
         let call = "function %stringHash(i64, i64, i64) -> i64 tail { sig0 = (i64) -> i64 tail fn0 = %slotHash sig0 block0(v0:i64, v1:i64, v2:i64): v3 = call fn0(v2) return v3 }";
         assert!(require_object_leaf(&parse(call), 3).is_err());
+    }
+    #[test]
+    fn weak_lookup_leaf_accepts_scalar_state_without_memory_or_calls() {
+        let valid = "function %weakLookupAction(i64,i64,i64,i64,i64,i64,i64) -> i64 tail { block0(v0:i64,v1:i64,v2:i64,v3:i64,v4:i64,v5:i64,v6:i64): return v3 }";
+        require_object_leaf(&parse(valid), 7).unwrap();
+        let load = valid.replace("return v3", "v7 = load.i64 v0 return v7");
+        assert!(require_object_leaf(&parse(&load), 7).is_err());
+        let store = valid.replace("return v3", "store v3,v0 return v3");
+        assert!(require_object_leaf(&parse(&store), 7).is_err());
     }
     #[test]
     fn rehash_leaf_accepts_only_its_checked_raw_helpers() {

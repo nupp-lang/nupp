@@ -420,6 +420,7 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
+    fn nupp_object_weak_lookup_action(phase: u64, color: u64, epoch: u64, cycle: u64, white: u64, marking: u64, sweeping: u64) -> u64;
     fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
     fn nupp_object_table_capacity(wanted: u64) -> u64;
     fn nupp_object_table_needs_growth(length: u64, capacity: u64) -> u64;
@@ -432,7 +433,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 5);
+    assert!(crate::dispatch::OBJECT_ABI == 6);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
@@ -770,14 +771,25 @@ impl Heap {
     pub fn intern_lookup(&mut self, s: &str) -> Option<Value> { self.intern_lookup_bytes(s.as_bytes()) }
     pub fn intern_lookup_bytes(&mut self, s: &[u8]) -> Option<Value> {
         let p = *self.interned.get(s)?;
+        if !self.weak_lookup_hit(p) { self.interned.remove(s); return None; }
+        Some(Value::obj(p))
+    }
+    // The map/header stay owned throughout this scalar call. Gray queue
+    // allocation is host backing only; no guest callback or collection runs.
+    fn weak_lookup_hit(&mut self, p: NonNull<Header>) -> bool {
+        #[cfg(feature = "native-runtime")]
         unsafe {
             let h = &mut *p.as_ptr();
-            match (self.phase, h.color) {
-                (Phase::Marking, COLOR_WHITE) => { h.color = COLOR_GRAY; self.gray.push(p); self.stats.barrier_grays += 1; Some(Value::obj(p)) }
-                (Phase::Sweeping, COLOR_WHITE) if (h.epoch as u64) < self.stats.cycles => { self.interned.remove(s); None }
-                _ => Some(Value::obj(p)),
+            let action = nupp_object_weak_lookup_action(self.phase as u64, h.color as u64, h.epoch as u64, self.stats.cycles, COLOR_WHITE as u64, Phase::Marking as u64, Phase::Sweeping as u64);
+            match action {
+                0 => true,
+                1 => { h.color = COLOR_GRAY; self.gray.push(p); self.stats.barrier_grays += 1; true }
+                2 => false,
+                _ => panic!("invalid Nupp weak lookup action"),
             }
         }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = p; panic!("weak lookup policy requires a linked Nupp core") }
     }
 
     pub fn integer_key(&self, bits: u64) -> Option<Value> { self.integers.get(&(false, bits)).map(|p| Value::obj(*p)) }
@@ -785,14 +797,7 @@ impl Heap {
     pub fn integer_lookup(&mut self, value: crate::numeric::Integer) -> Option<Value> {
         let key = (value.unsigned, value.bits);
         let p = *self.integers.get(&key)?;
-        unsafe {
-            let h = &mut *p.as_ptr();
-            match (self.phase, h.color) {
-                (Phase::Marking, COLOR_WHITE) => { h.color = COLOR_GRAY; self.gray.push(p); self.stats.barrier_grays += 1; }
-                (Phase::Sweeping, COLOR_WHITE) if (h.epoch as u64) < self.stats.cycles => { self.integers.remove(&key); return None; }
-                _ => {}
-            }
-        }
+        if !self.weak_lookup_hit(p) { self.integers.remove(&key); return None; }
         Some(Value::obj(p))
     }
     pub fn box_integer(&mut self, value: crate::numeric::Integer, roots: &dyn Roots) -> Value {
@@ -1492,6 +1497,54 @@ mod tests {
         assert_eq!(m.sweep_live_objects, 3);
         assert_eq!(m.sweep_large_slots, 0);
         assert!(m.sweep_chunk_slots > m.sweep_live_objects);
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn weak_intern_hits_preserve_gc_actions_with_collection_stopped() {
+        for integer in [false, true] {
+            let mut h = Heap::new();
+            h.automatic_collection = false;
+            let roots = R(std::cell::RefCell::new(Vec::new()));
+            let key = crate::numeric::Integer { bits: i64::MAX as u64, unsigned: false };
+            let make = |heap: &mut Heap| if integer { heap.box_integer(key, &roots) } else { heap.intern("weak-barrier", &roots) };
+            let lookup = |heap: &mut Heap| if integer { heap.integer_lookup(key) } else { heap.intern_lookup("weak-barrier") };
+            let first = make(&mut h);
+            let p = first.as_obj().unwrap();
+            h.stats.cycles = 4;
+            unsafe { (*p.as_ptr()).color = COLOR_WHITE; (*p.as_ptr()).epoch = 1; }
+            assert_eq!(lookup(&mut h), Some(first));
+            assert!(h.gray.is_empty());
+            let barriers = h.stats.barrier_grays;
+            h.phase = Phase::Marking;
+            assert_eq!(lookup(&mut h), Some(first));
+            assert_eq!(unsafe { (*p.as_ptr()).color }, COLOR_GRAY);
+            assert_eq!(h.gray, vec![p]);
+            assert_eq!(h.stats.barrier_grays, barriers + 1);
+            assert_eq!(lookup(&mut h), Some(first));
+            assert_eq!(h.gray.len(), 1, "already-gray hit is not queued twice");
+            h.gray.clear();
+            h.phase = Phase::Sweeping;
+            unsafe { (*p.as_ptr()).color = COLOR_WHITE; (*p.as_ptr()).epoch = 4; }
+            assert_eq!(lookup(&mut h), Some(first), "white survivor from this sweep stands");
+            assert_eq!(h.stats.barrier_grays, barriers + 1);
+            unsafe { (*p.as_ptr()).epoch = 3; }
+            assert_eq!(lookup(&mut h), None, "old white hit cannot resurrect");
+            assert_eq!(lookup(&mut h), None, "dead hit is removed from its weak map");
+            assert_eq!(unsafe { (*p.as_ptr()).color }, COLOR_WHITE);
+            assert!(h.gray.is_empty());
+            let replacement = make(&mut h);
+            assert_ne!(replacement, first);
+            assert_eq!(lookup(&mut h), Some(replacement));
+            let replacement_pointer = replacement.as_obj().unwrap();
+            unsafe { (*replacement_pointer.as_ptr()).color = COLOR_BLACK; (*replacement_pointer.as_ptr()).epoch = 0; }
+            assert_eq!(lookup(&mut h), Some(replacement), "nonwhite hit stands despite old epoch");
+            h.phase = Phase::Marking;
+            unsafe { (*replacement_pointer.as_ptr()).color = COLOR_WHITE; }
+            assert_eq!(lookup(&mut h), Some(replacement));
+            assert_eq!(h.gray, vec![replacement_pointer]);
+            assert_eq!(h.stats.barrier_grays, barriers + 2);
+        }
     }
 
     #[test]

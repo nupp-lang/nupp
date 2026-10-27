@@ -1,0 +1,28 @@
+module nupp.runtime.vm.objectweak
+
+-- The caller keeps the candidate header owned and uncollected while
+-- applying the result: 0 keeps the hit, 1 grays it, 2 forgets it. The
+-- collector constants travel with this scalar snapshot, not a second enum.
+export function weakLookupAction(
+    phase: uint64,
+    color: uint64,
+    epoch: uint64,
+    cycle: uint64,
+    white: uint64,
+    marking: uint64,
+    sweeping: uint64
+): uint64
+    if color ~= white then
+        return 0ULL
+    end
+    if phase == marking then
+        return 1ULL
+    end
+    if phase == sweeping then
+        if epoch < cycle then
+            return 2ULL
+        end
+    end
+
+    return 0ULL
+end

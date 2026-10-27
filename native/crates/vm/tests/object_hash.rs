@@ -102,3 +102,43 @@ fn binary_interned_strings_keep_identity_and_cached_hashes_through_collection() 
         }
     }
 }
+
+#[test]
+fn weak_lookup_leaf_preserves_unsigned_epochs_and_transported_collector_constants() {
+    unsafe extern "C" {
+        fn nupp_object_weak_lookup_action(
+            phase: u64,
+            color: u64,
+            epoch: u64,
+            cycle: u64,
+            white: u64,
+            marking: u64,
+            sweeping: u64,
+        ) -> u64;
+    }
+    for (white, marking, sweeping) in [(0, 1, 2), (17, 31, 47)] {
+        for phase in [0, marking, sweeping, u64::MAX] {
+            for color in [white, white + 1, u64::MAX] {
+                for epoch in [0, 1, u32::MAX as u64, 1 << 32, u64::MAX] {
+                    for cycle in [0, 1, u32::MAX as u64, 1 << 32, u64::MAX] {
+                        let expected = if color == white && phase == marking {
+                            1
+                        } else if color == white && phase == sweeping && epoch < cycle {
+                            2
+                        } else {
+                            0
+                        };
+                        assert_eq!(
+                            unsafe {
+                                nupp_object_weak_lookup_action(
+                                    phase, color, epoch, cycle, white, marking, sweeping,
+                                )
+                            },
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

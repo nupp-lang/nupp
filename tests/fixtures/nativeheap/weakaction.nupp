@@ -1,0 +1,15 @@
+module weakaction
+
+const objectweak = require("nupp.runtime.vm.objectweak")
+
+export function probe(
+    phase: uint64,
+    color: uint64,
+    epoch: uint64,
+    cycle: uint64,
+    white: uint64,
+    marking: uint64,
+    sweeping: uint64
+): uint64
+    return objectweak.weakLookupAction(phase, color, epoch, cycle, white, marking, sweeping)
+end

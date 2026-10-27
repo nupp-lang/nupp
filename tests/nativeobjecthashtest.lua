@@ -259,4 +259,13 @@ function M.rawLeafCallContractsKeepPointersAndEveryTransportedWord()
     assert(next.params[1] == "voidptr", "call-site metadata cannot mutate the approved contract")
 end
 
+function M.weakLookupPolicyIsAWordOnlySharedGraphLeaf()
+    local text = lower.compile(ROOT, {ROOT .. "/src/nupp/runtime/vm/objectweak.nupp"}, {include = {"src"}})
+    local body = assert(text:match("function %%weakLookupAction%b()%s*%-%>%s*i64%s+tail%s*(%b{})"), text)
+    assert(body:find("Nupp native graph: weakLookupAction", 1, true), body)
+    for _, operation in ipairs({"load", "store", "call", "notrap"}) do
+        assert(not body:find(operation, 1, true), body)
+    end
+end
+
 return M

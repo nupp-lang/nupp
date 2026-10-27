@@ -126,7 +126,7 @@ impl Hasher for StrHasher {
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" { fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64; }
 #[cfg(feature = "native-runtime")]
-const _: () = assert!(crate::dispatch::OBJECT_ABI == 5);
+const _: () = assert!(crate::dispatch::OBJECT_ABI == 6);
 fn string_hash(bytes: &[u8], state: u64) -> u64 {
     #[cfg(feature = "native-runtime")]
     { unsafe { nupp_object_string_hash(bytes.as_ptr(), bytes.len() as u64, state) } }

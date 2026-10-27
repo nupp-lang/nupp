@@ -33,6 +33,7 @@ runtime takes it from the released list and recycles it.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
+const objectweak = require("nupp.runtime.vm.objectweak")
 
 export const WEAK_KEYS: uint64 = 1
 export const WEAK_VALUES: uint64 = 2
@@ -218,16 +219,20 @@ end
 --- white hit an earlier cycle whitened is a miss, never a resurrection.
 export function lookupHit(h: heap.Heap*, o: heap.Header*): boolean
     @unsafe do
-        if o.color as uint64 ~= heap.COLOR_WHITE then
-            return true
-        end
-        if h.phase == heap.PHASE_MARKING then
+        local action = objectweak.weakLookupAction(
+            native.word(h.phase),
+            o.color as uint64,
+            o.epoch as uint64,
+            h.stats.cycles,
+            heap.COLOR_WHITE,
+            heap.PHASE_MARKING,
+            heap.PHASE_SWEEPING
+        )
+        if action == 1ULL then
             o.color = heap.COLOR_GRAY
             heap.grayPush(h, o)
             h.stats.barrierGrays = h.stats.barrierGrays + 1
-            return true
-        end
-        if h.phase == heap.PHASE_SWEEPING and (o.epoch as uint64) < h.stats.cycles then
+        elseif action == 2ULL then
             return false
         end
         return true
