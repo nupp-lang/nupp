@@ -92,7 +92,7 @@ codes! {
     VarargN,
     CallMethod,
     PCall, Raise, Defer, DeferMethod, DisarmAt, RearmAt, CleanupLive, Unwind,
-    Switch, IXor, INot, IBswap32,
+    Switch, IXor, INot, IBswap32, TagCheckRec, IsRec, GetPhys, GetPhysF, GetPhysI, GetPhysU, SetPhys, SetPhysF, SetPhysI,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -162,9 +162,9 @@ pub fn encode(op: &Op) -> Ins {
         Op::FCmpLt(d, a, b) => i(Code::FCmpLt, d, a, b),
         Op::GetUpval(d, u) => i(Code::GetUpval, d, u, 0),
         Op::GetCell(d, c) => i(Code::GetCell, d, c, 0),
-        Op::GetSlot(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::GetSlot, d, t, s as u8) },
-        Op::GetSlotF(d, t, s, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::GetSlotF, d, t, s as u8) },
-        Op::SetSlotF(t, s, a, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::SetSlotF, t, s as u8, a) },
+        Op::GetSlot(d, t, s, sh) => Ins { imm: sh as i32, k: s as i64, ..i(Code::GetSlot, d, t, s as u8) },
+        Op::GetSlotF(d, t, s, sh) => Ins { imm: sh as i32, k: s as i64, ..i(Code::GetSlotF, d, t, s as u8) },
+        Op::SetSlotF(t, s, a, sh) => Ins { imm: sh as i32, k: s as i64, ..i(Code::SetSlotF, t, s as u8, a) },
         Op::Len(d, a) => i(Code::Len, d, a, 0),
         Op::LenF(d, a) => i(Code::LenF, d, a, 0),
         Op::StrByte(d, s, ix) => i(Code::StrByte, d, s, ix),
@@ -178,7 +178,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::GetIdxI(d, t, ix) => i(Code::GetIdxI, d, t, ix),
         Op::SetIdxI(t, ix, v) => i(Code::SetIdxI, t, ix, v),
         Op::SetCell(c, v) => i(Code::SetCell, c, v, 0),
-        Op::SetSlot(t, s, v, sh) if s < 256 => Ins { imm: sh as i32, ..i(Code::SetSlot, t, s as u8, v) },
+        Op::SetSlot(t, s, v, sh) => Ins { imm: sh as i32, k: s as i64, ..i(Code::SetSlot, t, s as u8, v) },
         Op::PadResults(base, n) => i(Code::PadResults, base, n, 0),
         Op::TagCheckNum(d, a) => i(Code::TagCheckNum, d, a, 0),
         Op::NewRecord(d, shape) => Ins { k: shape as i64, ..i(Code::NewRecord, d, 0, 0) },
@@ -204,6 +204,15 @@ pub fn encode(op: &Op) -> Ins {
         Op::CleanupLive(d, depth) => Ins { imm: depth as i32, ..i(Code::CleanupLive, d, 0, 0) },
         Op::Unwind(depth) => Ins { imm: depth as i32, ..i(Code::Unwind, 0, 0, 0) },
         Op::Switch(r, t) => Ins { imm: t as i32, ..i(Code::Switch, r, 0, 0) },
+        Op::TagCheckRec(d, a, shape) => Ins { imm: shape as i32, ..i(Code::TagCheckRec, d, a, 0) },
+        Op::IsRec(d, a, shape) => Ins { imm: shape as i32, ..i(Code::IsRec, d, a, 0) },
+        Op::GetPhys(a, b, p) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(false) as i64, ..i(Code::GetPhys, a, b, 0) },
+        Op::GetPhysF(a, b, p) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(false) as i64, ..i(Code::GetPhysF, a, b, 0) },
+        Op::GetPhysI(a, b, p) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(false) as i64, ..i(Code::GetPhysI, a, b, 0) },
+        Op::GetPhysU(a, b, p) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(false) as i64, ..i(Code::GetPhysU, a, b, 0) },
+        Op::SetPhys(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhys, a, b, 0) },
+        Op::SetPhysF(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhysF, a, b, 0) },
+        Op::SetPhysI(a, p, b) => Ins { imm: (p.identity as u32 | ((p.name as u32) << 16)) as i32, k: p.packed(true) as i64, ..i(Code::SetPhysI, a, b, 0) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

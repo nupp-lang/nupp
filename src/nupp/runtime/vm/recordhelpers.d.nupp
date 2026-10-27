@@ -1,0 +1,28 @@
+-- Temporary record, storage and numeric subsystem services. They accept values
+-- and explicit descriptors, never an instruction or a guest opcode.
+local record RecordHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    recordIndex: function(context: voidptr, object: uint64, name: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    recordMismatch: function(context: voidptr, value: uint64, shape: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    slotNumberError: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    physicalGet: function(context: voidptr, object: uint64, identity: uint64, name: uint64, plan: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    physicalSet: function(
+        context: voidptr,
+        object: uint64,
+        identity: uint64,
+        name: uint64,
+        plan: uint64,
+        value: uint64
+    ): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    numericDouble: function(context: voidptr, value: uint64): number
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    numericBits: function(context: voidptr, value: uint64, unsigned: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    boxInteger: function(context: voidptr, bits: uint64, unsigned: int64): uint64
+end
+return RecordHelpers

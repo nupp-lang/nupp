@@ -1,4 +1,5 @@
 use super::*;
+use crate::interp::Op;
 use crate::heap::{F_METATABLE, KIND_CELL, KIND_CLOSURE, KIND_RECORD, KIND_SLICE, KIND_STR};
 
 fn num(x: f64) -> u64 {
@@ -830,7 +831,7 @@ fn native_array_reads_answer_the_array_part_and_misses_in_place() {
 }
 
 #[test]
-fn native_record_reads_check_shape_number_and_nil_metamethods() {
+fn native_record_leaf_reads_preserve_aliasing_and_numeric_bits() {
     let mut record = NativeTableFixture::new(&[Value::NIL, Value::NIL]);
     for kind in [KIND_RECORD, KIND_TABLE] {
         for shape in [0, 1, u32::MAX] {
@@ -860,6 +861,7 @@ fn native_record_reads_check_shape_number_and_nil_metamethods() {
                                 } else {
                                     value != Value::NIL || flags & F_METATABLE == 0
                                 };
+                            if !valid { continue; }
                             if valid {
                                 if matches!(code, Code::GetSlotF) {
                                     expected_f[dest + 1] = value.0;
@@ -869,7 +871,7 @@ fn native_record_reads_check_shape_number_and_nil_metamethods() {
                             }
                             assert_eq!(
                                 unsafe {
-                                    execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 0)
+                                    execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 1)
                                 },
                                 valid
                             );
@@ -2804,6 +2806,223 @@ fn native_precharged_resolved_call_does_not_charge_again() {
             assert_eq!(vm.execution_limit, Some(budget));
             assert_eq!(vm.instruction_budget, scheduled.then_some(budget));
             assert_eq!(ctx.budget, budget as u64);
+        }
+    }
+}
+
+
+#[test]
+fn record_and_physical_encodings_have_native_owners() {
+    let field = crate::storage::PhysicalField {
+        identity: 65534,
+        name: 65535,
+        ordinal: 32768,
+        offset: 0x87654321,
+        kind: 8,
+    };
+    for op in [
+        Op::GetSlot(3, 1, 65535, 0x87654321),
+        Op::GetSlotF(3, 1, 65535, 0x87654321),
+        Op::SetSlot(1, 65535, 3, 0x87654321),
+        Op::SetSlotF(1, 65535, 3, 0x87654321),
+        Op::TagCheckRec(3, 1, 0x87654321),
+        Op::IsRec(3, 1, 0x87654321),
+        Op::GetPhys(3, 1, field),
+        Op::GetPhysF(3, 1, field),
+        Op::GetPhysI(3, 1, field),
+        Op::GetPhysU(3, 1, field),
+        Op::SetPhys(1, field, 3),
+        Op::SetPhysF(1, field, 3),
+        Op::SetPhysI(1, field, 3),
+    ] {
+        let encoded = crate::threaded::encode(&op);
+        assert_ne!(encoded.op, Code::Slow as u8);
+        match op {
+            Op::GetSlot(..) | Op::GetSlotF(..) | Op::SetSlot(..) | Op::SetSlotF(..) => {
+                assert_eq!(encoded.k, 65535);
+                assert_eq!(encoded.imm as u32, 0x87654321);
+            }
+            Op::GetPhys(..)
+            | Op::GetPhysF(..)
+            | Op::GetPhysI(..)
+            | Op::GetPhysU(..)
+            | Op::SetPhys(..)
+            | Op::SetPhysF(..)
+            | Op::SetPhysI(..) => {
+                assert_eq!(encoded.imm as u32, 0xfffffffe);
+                assert_eq!(encoded.k as u64 & 0x00ffffffffffffff, field.packed(false));
+            }
+            _ => (),
+        }
+    }
+}
+
+fn record_contract_vm(threaded: bool) -> Box<crate::interp::Interp> {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    let fields = (0..300)
+        .map(|i| format!("f{i}:any"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let source = format!(
+        r#"
+shape 0 Wide {fields}
+shape 1 Other f299:any
+function read 0 1 8 3 v:v
+GetSlot 3 1 299 0
+Ret 3
+end
+function readf 1 1 8 3 v:v
+GetSlotF 0 1 299 0
+FBox 3 0
+Ret 3
+end
+function write 2 2 8 3 vv:v
+SetSlot 1 299 2 0
+Ret 1
+end
+function writef 3 2 8 3 vv:v
+FUnbox 0 2
+SetSlotF 1 299 0 0
+Ret 1
+end
+function check 4 1 8 3 v:v
+TagCheckRec 3 1 0
+Ret 3
+end
+function isrec 5 1 8 3 v:v
+IsRec 3 1 0
+Ret 3
+end
+function index 6 2 8 3 vv:v
+NewTable 3
+const 0 num 42
+K 4 0
+Ret 4
+end
+function newindex 7 3 12 3 vvv:v
+const 0 builtin rawset
+const 1 str "seen"
+NewTable 9
+K 4 0
+Move 6 1
+K 7 1
+Move 8 3
+CallDyn 4 5 3
+RetNil
+end
+entry 0
+"#
+    );
+    crate::image::load(&mut vm, &source).unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    vm.prepare_threaded();
+    vm.threaded = threaded;
+    vm
+}
+
+#[test]
+fn native_wide_record_slots_match_shape_misses_and_metatable_callbacks() {
+    for threaded in [false, true] {
+        for carrier in [0u32, 1, 2] {
+            let mut vm = record_contract_vm(threaded);
+            let object = if carrier == 2 {
+                vm.new_table()
+            } else {
+                vm.new_record(carrier)
+            };
+            vm.registered.push(object);
+            let name = vm.intern("f299");
+            vm.set_index(object, name, Value::num(-0.0));
+            vm.execution_limit = Some(17);
+            vm.instruction_budget = Some(0);
+            assert_eq!(vm.call_value(Value::func(0), &[object])[0].0, num(-0.0));
+            assert_eq!(vm.call_value(Value::func(1), &[object])[0].0, num(-0.0));
+            assert_eq!(
+                vm.execution_limit,
+                Some(17),
+                "leaf slots do not charge source budget"
+            );
+            assert_eq!(
+                vm.instruction_budget,
+                Some(0),
+                "leaf slots do not park at zero slice budget"
+            );
+            vm.instruction_budget = None;
+            vm.call_value(Value::func(2), &[object, Value::TRUE]);
+            assert_eq!(vm.get_index(object, name), Value::TRUE);
+            vm.call_value(Value::func(3), &[object, Value::num(3.25)]);
+            assert_eq!(vm.get_index(object, name), Value::num(3.25));
+            assert_eq!(
+                vm.call_value(Value::func(5), &[object])[0],
+                Value::boolean(carrier == 0)
+            );
+            if carrier == 0 {
+                assert_eq!(vm.call_value(Value::func(4), &[object])[0], object);
+            } else {
+                assert_eq!(
+                    vm.guarded(|vm| vm.call_value(Value::func(4), &[object])[0]),
+                    Value::ERROR
+                );
+                let error = vm.pending_error.take().unwrap();
+                assert!(
+                    String::from_utf8_lossy(vm.bytes_of(error)).contains("expected record (Wide)")
+                );
+            }
+            vm.set_index(object, name, Value::NIL);
+            let meta = vm.new_table();
+            vm.registered.push(meta);
+            let index = vm.intern("__index");
+            vm.set_index(meta, index, Value::func(6));
+            let newindex = vm.intern("__newindex");
+            vm.set_index(meta, newindex, Value::func(7));
+            vm.set_metatable(object, meta);
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            assert_eq!(
+                vm.call_value(Value::func(0), &[object])[0],
+                Value::num(42.0)
+            );
+            assert_eq!(
+                vm.call_value(Value::func(1), &[object])[0],
+                Value::num(42.0)
+            );
+            vm.call_value(Value::func(2), &[object, Value::num(99.0)]);
+            let seen = vm.intern("seen");
+            assert_eq!(vm.get_index(object, seen), Value::num(99.0));
+            // A nil slot follows __newindex even on the expected shape.
+            vm.call_value(Value::func(3), &[object, Value::num(101.5)]);
+            assert_eq!(
+                vm.get_index(object, seen),
+                Value::num(101.5), "threaded {threaded}, carrier {carrier}"
+            );
+            vm.full_cycle();
+            vm.check_oracle();
+        }
+    }
+}
+
+#[test]
+fn native_slot_float_errors_match_reference_after_name_resolution() {
+    for threaded in [false, true] {
+        for carrier in [0u32, 1, 2] {
+            let mut vm = record_contract_vm(threaded);
+            let object = if carrier == 2 {
+                vm.new_table()
+            } else {
+                vm.new_record(carrier)
+            };
+            vm.registered.push(object);
+            let name = vm.intern("f299");
+            vm.set_index(object, name, Value::TRUE);
+            assert_eq!(
+                vm.guarded(|vm| vm.call_value(Value::func(1), &[object])[0]),
+                Value::ERROR
+            );
+            let error = vm.pending_error.take().unwrap();
+            assert_eq!(vm.bytes_of(error), b"runtime error: slot is not a number");
         }
     }
 }

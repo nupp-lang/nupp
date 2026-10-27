@@ -802,6 +802,17 @@ fn physical_field_opcodes_match_dynamic_access_and_mutable_guards() {
         let entry = image::load(&mut vm, &program).unwrap();
         if mode == 1 {
             vm.prepare_threaded();
+            // This tier must exercise Nupp handlers, never the Rust step.
+            for function in &vm.funcs[entry as usize..entry as usize + 44] {
+                for (op, ins) in function.code.iter().zip(&function.ins) {
+                    if matches!(op, nupp_vm::interp::Op::GetPhys(..) | nupp_vm::interp::Op::GetPhysF(..)
+                        | nupp_vm::interp::Op::GetPhysI(..) | nupp_vm::interp::Op::GetPhysU(..)
+                        | nupp_vm::interp::Op::SetPhys(..) | nupp_vm::interp::Op::SetPhysF(..)
+                        | nupp_vm::interp::Op::SetPhysI(..)) {
+                        assert_ne!(ins.op, nupp_vm::threaded::code_by_name("Slow").unwrap());
+                    }
+                }
+            }
         }
         #[cfg(feature = "jit")]
         if mode == 2 {

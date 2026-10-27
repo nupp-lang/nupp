@@ -64,7 +64,11 @@ lower.ATOMICS = "nupp.runtime.vm.atomic"
 --- is the symbol `<prefix><name in snake case>`, with the kinds its declared
 --- signature says. `helpers` are the interpreter's Rust helpers; `os` the
 --- operating-system edges (pages, threads, files).
-lower.HELPER_MODULES = {["nupp.runtime.vm.helpers"] = "nupp_rt_", ["nupp.runtime.vm.os"] = "nupp_os_"}
+lower.HELPER_MODULES = {
+    ["nupp.runtime.vm.helpers"] = "nupp_rt_",
+    ["nupp.runtime.vm.recordhelpers"] = "nupp_rt_",
+    ["nupp.runtime.vm.os"] = "nupp_os_"
+}
 
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
@@ -78,7 +82,8 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/strings.nupp",
     "src/nupp/runtime/vm/tables.nupp",
     "src/nupp/runtime/vm/closures.nupp",
-    "src/nupp/runtime/vm/control.nupp"
+    "src/nupp/runtime/vm/control.nupp",
+    "src/nupp/runtime/vm/records.nupp"
 }
 
 local INTRINSICS = lower.INTRINSICS

@@ -55,6 +55,124 @@ const EXIT_ERROR: u64 = 0;
 /// that cannot enter the VM leave the frame state in the native context.
 pub(crate) mod native_helpers {
     use super::*;
+    // Temporary subsystem boundary: these services consume values and storage
+    // descriptors, never decode a guest instruction or call Interp::step.
+    fn record_service(ctx: *mut Ctx, body: impl FnOnce(&mut crate::interp::Interp) -> u64) -> u64 {
+        let ctx = unsafe { &mut *ctx };
+        let (it, _) = enter_rust(ctx);
+        let mut result = 0;
+        let r = it.guarded(|it| {
+            result = body(it);
+            Value::NIL
+        });
+        if r == Value::ERROR {
+            ctx.status = ST_ERROR;
+        }
+        sync(ctx, it);
+        result
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_record_index(ctx: *mut Ctx, object: u64, name: u64) -> u64 {
+        record_service(ctx, |it| it.index(Value(object), Value(name)).0)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_record_mismatch(ctx: *mut Ctx, value: u64, shape: u64) {
+        record_service(ctx, |it| {
+            let value = Value(value);
+            let what = match value.as_obj() {
+                Some(p) => crate::heap::Heap::describe(unsafe { p.as_ref() }),
+                None => format!("{:#x}", value.0),
+            };
+            it.err(&format!(
+                "value is not an instance of the expected record ({}): {what}",
+                it.heap.shapes[shape as u32 as usize].name
+            ))
+        });
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_slot_number_error(ctx: *mut Ctx) {
+        record_service(ctx, |it| it.err("slot is not a number"));
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_physical_get(
+        ctx: *mut Ctx,
+        object: u64,
+        identity: u64,
+        name: u64,
+        packed: u64,
+    ) -> u64 {
+        record_service(ctx, |it| {
+            crate::storage::physical_get(
+                it,
+                Value(object),
+                Value(identity),
+                Value(name),
+                crate::storage::PhysicalField {
+                    identity: 0,
+                    name: 0,
+                    ordinal: (packed >> 32) as u16,
+                    offset: packed as u32,
+                    kind: (packed >> 48) as u8,
+                },
+            )
+            .0
+        })
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_physical_set(
+        ctx: *mut Ctx,
+        object: u64,
+        identity: u64,
+        name: u64,
+        packed: u64,
+        value: u64,
+    ) {
+        record_service(ctx, |it| {
+            // SetPhysI may supply a newly boxed wide integer absent from any
+            // value slot. Retain every argument across dynamic __newindex.
+            let scope = it.open_scope();
+            it.handles
+                .extend([Value(object), Value(identity), Value(name), Value(value)]);
+            crate::storage::physical_set(
+                it,
+                Value(object),
+                Value(identity),
+                Value(name),
+                crate::storage::PhysicalField {
+                    identity: 0,
+                    name: 0,
+                    ordinal: (packed >> 32) as u16,
+                    offset: packed as u32,
+                    kind: (packed >> 48) as u8,
+                },
+                Value(value),
+            );
+            it.close_scope(scope);
+            0
+        });
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_numeric_double(ctx: *mut Ctx, value: u64) -> f64 {
+        f64::from_bits(record_service(ctx, |it| {
+            crate::numeric::double(it, Value(value)).to_bits()
+        }))
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_numeric_bits(ctx: *mut Ctx, value: u64, unsigned: u64) -> u64 {
+        record_service(ctx, |it| {
+            crate::numeric::bits(it, Value(value), unsigned != 0)
+        })
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_box_integer(ctx: *mut Ctx, bits: u64, unsigned: u64) -> u64 {
+        record_service(ctx, |it| {
+            it.box_integer(crate::numeric::Integer {
+                bits,
+                unsigned: unsigned != 0,
+            })
+            .0
+        })
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_get_field(ctx: *mut Ctx, obj: u64, name: u64) -> u64 {
         rt_get_field(ctx, obj, name)

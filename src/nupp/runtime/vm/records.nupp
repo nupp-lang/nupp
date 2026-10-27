@@ -1,0 +1,423 @@
+module nupp.runtime.vm.records
+
+-- Record slots and physical fields keep their instruction semantics here.
+-- Allocation, dynamic object dispatch and storage codecs remain named services.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const records = require("nupp.runtime.vm.recordhelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+-- Every collecting/callback service invalidates window pointers. Result kinds
+-- select a logical window only after recovering the current published frame.
+local function finish(pc: voidptr, context: voidptr, value: uint64, kind: int64): uint64
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local frame = native.offset(
+        native.loadPointer(context, native.layout("stack")),
+        native.index(native.load64(context, native.layout("cur")) * 8)
+    )
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local dest = program.readByte(pc, 1)
+    if kind == 0 then
+        slots.writeValue(frame, regs, dest, value)
+    elseif kind == 1 then
+        slots.writeFloat(frame, floats, dest, native.fromBits(value))
+    elseif kind == 2 then
+        slots.writeIntegerBits(frame, ints, dest, value)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function slotRead(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    floating: int64
+): uint64
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local value: uint64 = values.NIL
+    local fast: int64 = 0
+    local matching: int64 = 0
+    if object & values.TAG_MASK == values.TAG_OBJ then
+        local header = native.pointer(object & values.PAYLOAD)
+        matching = native.chooseIndex(
+            native.both(
+                native.load8(header, native.layout("Header.kind")) == 3,
+                native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
+            ),
+            1,
+            0
+        )
+    end
+    if matching ~= 0 then
+        local header = native.pointer(object & values.PAYLOAD)
+        value = native.load64(
+            native.loadPointer(header, native.layout("Header.aux_ptr")),
+            program.readInteger(pc, 8) * 8
+        )
+        fast = native.chooseIndex(
+            native.either(value ~= values.NIL, native.load8(header, native.layout("Header.flags")) & 4 == 0),
+            1,
+            0
+        )
+    end
+    if fast == 0 then
+        protocol.publishPc(pc, context)
+        local shape = native.offset(
+            native.loadPointer(context, native.layout("shapes")),
+            native.index(native.word(program.readSigned32(pc, 4)) & values.LOW_WORD) * native.layout("ShapeInfo.size")
+        )
+        local name = native.load64(
+            native.loadPointer(shape, native.layout("ShapeInfo.names")),
+            program.readInteger(pc, 8) * 8
+        )
+        value = records.recordIndex(context, object, name)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+    end
+    if floating ~= 0 then
+        if not native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
+            protocol.publishPc(pc, context)
+            records.slotNumberError(context)
+            return native.fail()
+        end
+        if fast == 0 then
+            return finish(pc, context, value, 1)
+        end
+        slots.writeFloat(frame, floats, program.readByte(pc, 1), native.fromBits(value))
+    else
+        if fast == 0 then
+            return finish(pc, context, value, 0)
+        end
+        slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function slotWrite(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    floating: int64
+): uint64
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value: uint64 = values.NIL
+    if floating ~= 0 then
+        local number = slots.readFloat(frame, floats, program.readByte(pc, 3))
+        value = native.chooseWord(number ~= number, values.QNAN, native.bits(number))
+    else
+        value = slots.readValue(frame, regs, program.readByte(pc, 3))
+    end
+    local matching: int64 = 0
+    if object & values.TAG_MASK == values.TAG_OBJ then
+        local header = native.pointer(object & values.PAYLOAD)
+        matching = native.chooseIndex(
+            native.both(
+                native.load8(header, native.layout("Header.kind")) == 3,
+                native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
+            ),
+            1,
+            0
+        )
+    end
+    if matching ~= 0 then
+        local header = native.pointer(object & values.PAYLOAD)
+        local flags = native.load8(header, native.layout("Header.flags"))
+        local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+        local at = program.readInteger(pc, 8) * 8
+        if native.either(flags & 4 == 0, native.both(native.load64(data, at) ~= values.NIL, flags & 32 == 0)) then
+            -- The barrier also invalidates storage-schema and declaration caches.
+            if native.either(
+                flags & 160 ~= 0,
+                native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0
+            ) then
+                protocol.publishPc(pc, context)
+                helpers.barrier(context, object, value)
+            end
+            native.store64(data, at, value)
+            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+        end
+    end
+    protocol.publishPc(pc, context)
+    local shape = native.offset(
+        native.loadPointer(context, native.layout("shapes")),
+        native.index(native.word(program.readSigned32(pc, 4)) & values.LOW_WORD) * native.layout("ShapeInfo.size")
+    )
+    local name = native.load64(
+        native.loadPointer(shape, native.layout("ShapeInfo.names")),
+        program.readInteger(pc, 8) * 8
+    )
+    helpers.newIndex(context, object, name, value)
+
+    return finish(pc, context, values.NIL, 3)
+end
+
+export function GetSlot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return slotRead(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function GetSlotF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return slotRead(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function SetSlot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return slotWrite(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function SetSlotF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return slotWrite(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function IsRec(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local matching: int64 = 0
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local header = native.pointer(value & values.PAYLOAD)
+        matching = native.chooseIndex(
+            native.both(
+                native.load8(header, native.layout("Header.kind")) == 3,
+                native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
+            ),
+            1,
+            0
+        )
+    end
+    local yes = matching ~= 0
+    slots.writeValue(frame, regs, program.readByte(pc, 1), native.chooseWord(yes, values.TRUE, values.FALSE))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function TagCheckRec(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local matching: int64 = 0
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local header = native.pointer(value & values.PAYLOAD)
+        matching = native.chooseIndex(
+            native.both(
+                native.load8(header, native.layout("Header.kind")) == 3,
+                native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
+            ),
+            1,
+            0
+        )
+    end
+    if matching == 0 then
+        protocol.publishPc(pc, context)
+        records.recordMismatch(context, value, program.readSigned32(pc, 4))
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function physicalRead(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    kind: int64
+): uint64
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local indices = program.readSigned32(pc, 4)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local constants = native.loadPointer(info, native.layout("FuncInfo.consts"))
+    local identity = native.load64(constants, (indices & 65535) * 8)
+    local name = native.load64(constants, ((indices >> 16) & 65535) * 8)
+    protocol.publishPc(pc, context)
+    local value = records.physicalGet(context, object, identity, name, program.readWord(pc, 8))
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    if kind == 1 then
+        value = native.bits(records.numericDouble(context, value))
+    elseif kind >= 2 then
+        value = records.numericBits(context, value, native.chooseIndex(kind == 3, 1, 0))
+    end
+
+    return finish(pc, context, value, native.chooseIndex(kind == 3, 2, kind))
+end
+
+local function physicalWrite(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    kind: int64
+): uint64
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local indices = program.readSigned32(pc, 4)
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local constants = native.loadPointer(info, native.layout("FuncInfo.consts"))
+    local identity = native.load64(constants, (indices & 65535) * 8)
+    local name = native.load64(constants, ((indices >> 16) & 65535) * 8)
+    local plan = program.readWord(pc, 8)
+    local source = program.readByte(pc, 2)
+    local value: uint64 = values.NIL
+    if kind == 1 then
+        local number = slots.readFloat(frame, floats, source)
+        value = native.chooseWord(number ~= number, values.QNAN, native.bits(number))
+    elseif kind == 2 then
+        local bits = slots.readIntegerBits(frame, ints, source)
+        protocol.publishPc(pc, context)
+        value = records.boxInteger(context, bits, native.chooseIndex((plan >> 48) & 255 == 8, 1, 0))
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+    else
+        value = slots.readValue(frame, regs, source)
+    end
+    protocol.publishPc(pc, context)
+    records.physicalSet(context, object, identity, name, plan, value)
+
+    return finish(pc, context, values.NIL, 3)
+end
+
+export function GetPhys(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalRead(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function GetPhysF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalRead(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function GetPhysI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalRead(pc, regs, ints, floats, context, frame, 2)
+end
+
+export function GetPhysU(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalRead(pc, regs, ints, floats, context, frame, 3)
+end
+
+export function SetPhys(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalWrite(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function SetPhysF(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalWrite(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function SetPhysI(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return physicalWrite(pc, regs, ints, floats, context, frame, 2)
+end

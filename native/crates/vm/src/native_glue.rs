@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 61] = [
+pub const LAYOUT_FIELDS: [&str; 62] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -32,7 +32,7 @@ pub const LAYOUT_FIELDS: [&str; 61] = [
     "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
     "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
     "cleanups", "ncleanups", "Cleanup.size", "Cleanup.frame", "Cleanup.value", "Cleanup.callback",
-    "FuncInfo.ncode",
+    "FuncInfo.ncode", "ShapeInfo.names",
 ];
 
 /// A field of a table's hash part (`ValueTable`), from the object's start.
@@ -83,6 +83,7 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "marking" => offset_of!(Ctx, marking),
         "shapes" => offset_of!(Ctx, shapes),
         "ShapeInfo.size" => std::mem::size_of::<ShapeInfo>(),
+        "ShapeInfo.names" => offset_of!(ShapeInfo, names),
         "ShapeInfo.table" => offset_of!(ShapeInfo, table),
         "ShapeInfo.mask" => offset_of!(ShapeInfo, mask),
         "Table.hash_ptr" => crate::heap::OFF_T_HASH_PTR as usize,
