@@ -3,6 +3,7 @@ module nupp.runtime.vm.lookup
 -- Field and index lookups, stores, equality and cells: fast paths in Nupp
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -12,7 +13,7 @@ const strings = require("nupp.runtime.vm.strings")
 local function getFieldSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
     local value = helpers.getField(context, object, name)
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
 end
 
 -- A field read by an interned name: a record's shape table, a table's hash
@@ -27,7 +28,7 @@ local function getField(
     object: uint64,
     name: uint64
 ): uint64
-    local a = native.load8(pc, 1)
+    local a = program.readByte(pc, 1)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -121,14 +122,14 @@ export function GetField(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 2))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
     local consts = native.loadPointer(
         native.loadPointer(context, native.layout("funcs")),
         native.index(
             native.load64(frame, 0) & values.LOW_WORD
         ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.consts")
     )
-    local name = native.load64(consts, native.load32(pc, 4) * 8)
+    local name = native.load64(consts, program.readSigned32(pc, 4) * 8)
     if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeFieldSlow(pc, context, object, name)
     else
@@ -147,9 +148,9 @@ local function equality(
     frame: voidptr,
     negate: uint64
 ): uint64
-    local a = native.load8(pc, 1)
-    local x = slots.readValue(frame, regs, native.load8(pc, 2))
-    local y = slots.readValue(frame, regs, native.load8(pc, 3))
+    local a = program.readByte(pc, 1)
+    local x = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local y = slots.readValue(frame, regs, program.readByte(pc, 3))
     local xNumber = native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN)
     local yNumber = native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     if native.both(xNumber, yNumber) then
@@ -209,8 +210,8 @@ export function SetCell(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local cell = slots.readValue(frame, regs, native.load8(pc, 1))
-    local value = slots.readValue(frame, regs, native.load8(pc, 2))
+    local cell = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     if cell & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -239,18 +240,18 @@ export function SetSlot(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local value = slots.readValue(frame, regs, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 3))
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
         local header = native.pointer(object & values.PAYLOAD)
         local flags = native.load8(header, native.layout("Header.flags"))
-        local at = native.load8(pc, 2) * 8
+        local at = program.readByte(pc, 2) * 8
         local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
         if native.both(
             native.both(native.load8(header, native.layout("Header.kind")) == 3, flags & 160 == 0),
-            native.load32(header, native.layout("Header.aux")) == native.load32(pc, 4)
+            native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
         ) then
             if native.both(flags & 4 ~= 0, native.load64(data, at) == values.NIL) then
                 return native.slow(pc, regs, ints, floats, context, frame)
@@ -274,18 +275,18 @@ export function SetSlotF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local value = slots.readFloat(frame, floats, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value = slots.readFloat(frame, floats, program.readByte(pc, 3))
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
         local header = native.pointer(object & values.PAYLOAD)
         local flags = native.load8(header, native.layout("Header.flags"))
-        local at = native.load8(pc, 2) * 8
+        local at = program.readByte(pc, 2) * 8
         local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
         if native.both(
             native.both(native.load8(header, native.layout("Header.kind")) == 3, flags & 160 == 0),
-            native.load32(header, native.layout("Header.aux")) == native.load32(pc, 4)
+            native.load32(header, native.layout("Header.aux")) == program.readSigned32(pc, 4)
         ) then
             if native.both(flags & 4 ~= 0, native.load64(data, at) == values.NIL) then
                 return native.slow(pc, regs, ints, floats, context, frame)

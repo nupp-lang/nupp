@@ -1,0 +1,23 @@
+module programloads
+
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+
+local function decode(code: voidptr, byte: int64, displacement: int64, bits: uint64): boolean
+    -- Construct a code buffer before its immutable read interval.
+    native.store64(code, 0, native.word(byte))
+    native.store32(code, 4, displacement)
+    native.store64(code, 8, bits)
+    return program.readByte(code, 0) == byte
+        and program.readSigned32(code, 4) == displacement
+        and program.readWord(code, 8) == bits
+        and native.word(program.readInteger(code, 8)) == bits
+        and native.bits(program.readFloat(code, 8)) == bits
+end
+
+local function bodyIdentity(first: voidptr, second: voidptr): boolean
+    -- Distinct retained bodies can use the same logical instruction offset.
+    native.store32(first, 4, -19)
+    native.store32(second, 4, 27)
+    return program.readSigned32(first, 4) == -19 and program.readSigned32(second, 4) == 27
+end

@@ -2,6 +2,7 @@ module nupp.runtime.vm.boxing
 
 -- Boxing, tag checks, string bytes and record allocation.
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -15,9 +16,9 @@ export function TagCheckNum(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local value = slots.readValue(frame, regs, native.load8(pc, 2))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
-        slots.writeValue(frame, regs, native.load8(pc, 1), value)
+        slots.writeValue(frame, regs, program.readByte(pc, 1), value)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -32,11 +33,11 @@ export function IBox(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local value = slots.readInteger(frame, ints, native.load8(pc, 2))
+    local value = slots.readInteger(frame, ints, program.readByte(pc, 2))
     if native.either(value < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < value) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        slots.writeValue(frame, regs, native.load8(pc, 1), native.bits(native.toFloat(value)))
+        slots.writeValue(frame, regs, program.readByte(pc, 1), native.bits(native.toFloat(value)))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     end
 end
@@ -49,11 +50,11 @@ export function IUnbox(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local value = slots.readValue(frame, regs, native.load8(pc, 2))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
         local d = native.fromBits(value)
         if native.both(native.both(-values.INT64_RANGE <= d, d < values.INT64_RANGE), native.floor(d) == d) then
-            slots.writeInteger(frame, ints, native.load8(pc, 1), native.toInt(d))
+            slots.writeInteger(frame, ints, program.readByte(pc, 1), native.toInt(d))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         else
             return native.slow(pc, regs, ints, floats, context, frame)
@@ -71,8 +72,8 @@ export function StrByte(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 2))
-    local position = slots.readInteger(frame, ints, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local position = slots.readInteger(frame, ints, program.readByte(pc, 3))
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -81,7 +82,7 @@ export function StrByte(
         if native.either(native.both(kind ~= 1, kind ~= 9), position < 0) then
             return native.slow(pc, regs, ints, floats, context, frame)
         else
-            local a = native.load8(pc, 1)
+            local a = program.readByte(pc, 1)
             if native.both(
                 position >= 1,
                 native.word(position) <= native.load64(header, native.layout("Header.aux_len"))
@@ -107,6 +108,6 @@ export function NewRecord(
     frame: voidptr
 ): uint64
     protocol.publishPc(pc, context)
-    local value = helpers.newRecord(context, native.loadIndex(pc, 8))
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+    local value = helpers.newRecord(context, program.readInteger(pc, 8))
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
 end

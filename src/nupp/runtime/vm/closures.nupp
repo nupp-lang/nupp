@@ -11,6 +11,7 @@ greys the child, as every later store does.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -40,7 +41,7 @@ local function newClosureSlow(pc: voidptr, context: voidptr, fid: uint64, base: 
         i = i + 1
     end
 
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), closure, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), closure, true)
 end
 
 -- `NewClosure d fid base n`: a closure over the function capturing the `n`
@@ -53,7 +54,7 @@ export function NewClosure(
     context: voidptr,
     frame: voidptr
 ): uint64
-    return newClosureSlow(pc, context, native.load64(pc, 8), native.load8(pc, 2), native.load8(pc, 3))
+    return newClosureSlow(pc, context, program.readWord(pc, 8), program.readByte(pc, 2), program.readByte(pc, 3))
 end
 
 local function newCellSlow(pc: voidptr, context: voidptr, value: uint64): uint64
@@ -68,7 +69,7 @@ local function newCellSlow(pc: voidptr, context: voidptr, value: uint64): uint64
         helpers.barrier(context, cell, value)
     end
 
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), cell, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), cell, true)
 end
 
 -- `NewCell d v`: a cell holding the value.
@@ -80,5 +81,5 @@ export function NewCell(
     context: voidptr,
     frame: voidptr
 ): uint64
-    return newCellSlow(pc, context, slots.readValue(frame, regs, native.load8(pc, 2)))
+    return newCellSlow(pc, context, slots.readValue(frame, regs, program.readByte(pc, 2)))
 end

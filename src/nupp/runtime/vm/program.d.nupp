@@ -1,0 +1,22 @@
+-- Reads bytes of an encoded function body retained for its active execution.
+-- Offsets count bytes from the supplied instruction or jump-table pointer.
+-- A pointer identifies that body allocation, not a replaceable function id.
+-- The caller must retain the body across these reads. A load does not grant
+-- permission to reuse a pointer after that lifetime or cache a live table.
+-- Folding also requires proof of the owning body identity and retained
+-- lifetime in the Nupp graph; this declaration alone supplies no such proof.
+-- Function tables, constants with heap addresses, heat and GC state do not
+-- satisfy this contract. The native compiler consumes these declarations.
+local record Program
+    @vmProgramLoad(source = "code", kind = "uint8", lifetime = "body")
+    readByte: function(code: voidptr, offset: int64): int64
+    @vmProgramLoad(source = "code", kind = "int32", lifetime = "body")
+    readSigned32: function(code: voidptr, offset: int64): int64
+    @vmProgramLoad(source = "code", kind = "uint64", lifetime = "body")
+    readWord: function(code: voidptr, offset: int64): uint64
+    @vmProgramLoad(source = "code", kind = "int64", lifetime = "body")
+    readInteger: function(code: voidptr, offset: int64): int64
+    @vmProgramLoad(source = "code", kind = "number", lifetime = "body")
+    readFloat: function(code: voidptr, offset: int64): number
+end
+return Program

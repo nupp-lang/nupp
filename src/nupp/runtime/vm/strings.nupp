@@ -9,6 +9,7 @@ string is allocated through a helper until N05 and filled here.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -37,7 +38,7 @@ export function order(
             native.either(xk == values.KIND_STRING, xk == values.KIND_SLICE),
             native.either(yk == values.KIND_STRING, yk == values.KIND_SLICE)
         ) then
-            local a = native.load8(pc, 1)
+            local a = program.readByte(pc, 1)
             local xn = native.load64(xh, native.layout("Header.aux_len"))
             local yn = native.load64(yh, native.layout("Header.aux_len"))
             local xp = native.loadPointer(xh, native.layout("Header.aux_ptr"))
@@ -75,7 +76,7 @@ local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64
     protocol.publishPc(pc, context)
     local equal = helpers.eqSlow(context, left, right)
     local answer = native.chooseWord((equal ~= 0) == (negate == 0), values.TRUE, values.FALSE)
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), answer, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), answer, true)
 end
 
 -- Equality of two objects of different words that are not both interned: two
@@ -124,7 +125,7 @@ export function equal(
         end
         native.store64(
             regs,
-            native.load8(pc, 1) * 8,
+            program.readByte(pc, 1) * 8,
             native.chooseWord(same == (negate == 0), values.TRUE, values.FALSE)
         )
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -167,7 +168,7 @@ local function deliver(pc: voidptr, context: voidptr, value: uint64, n: uint64):
     if n <= values.INTERN_LIMIT then
         value = helpers.intern(context, value)
     end
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
 end
 
 --[[
@@ -280,8 +281,8 @@ export function Concat(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local x = slots.readValue(frame, regs, native.load8(pc, 2))
-    local y = slots.readValue(frame, regs, native.load8(pc, 3))
+    local x = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local y = slots.readValue(frame, regs, program.readByte(pc, 3))
     local plain = true
     local side: int64 = 0
     while side < 2 do

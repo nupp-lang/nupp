@@ -11,6 +11,7 @@ module nupp.runtime.vm.tables
 -- receiver that is not a plain table (a record, a declaration or prototype
 -- table, an error) is the Rust step's for one instruction.
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -20,7 +21,7 @@ const protocol = require("nupp.runtime.vm.protocol")
 local function newTableSlow(pc: voidptr, context: voidptr, n: int64, m: int64): uint64
     protocol.publishPc(pc, context)
     local table = helpers.newTable(context, n, m)
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), table, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), table, true)
 end
 
 export function NewTable(
@@ -42,7 +43,7 @@ export function NewTableN(
     context: voidptr,
     frame: voidptr
 ): uint64
-    return newTableSlow(pc, context, native.load8(pc, 2), native.load8(pc, 3))
+    return newTableSlow(pc, context, program.readByte(pc, 2), program.readByte(pc, 3))
 end
 
 -- A read the table itself cannot answer: another kind of receiver, or an
@@ -50,7 +51,7 @@ end
 local function indexSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64): uint64
     protocol.publishPc(pc, context)
     local value = helpers.getField(context, object, key)
-    return protocol.continueAfter(pc, context, native.load8(pc, 1), value, true)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
 end
 
 -- The insertion barrier (4.2) before a store made while marking; the barrier
@@ -387,9 +388,9 @@ export function SetIdx(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local key = slots.readValue(frame, regs, native.load8(pc, 2))
-    local value = slots.readValue(frame, regs, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local key = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 3))
     return storeKeyed(pc, regs, ints, floats, context, frame, object, key, value)
 end
 
@@ -401,9 +402,9 @@ export function SetIdxF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local d = slots.readFloat(frame, floats, native.load8(pc, 2))
-    local value = slots.readValue(frame, regs, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local d = slots.readFloat(frame, floats, program.readByte(pc, 2))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 3))
     -- The key is the float boxed: a NaN payload as the canonical quiet NaN.
     local bits = native.bits(d)
     local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
@@ -419,13 +420,13 @@ export function SetIdxI(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local position = slots.readInteger(frame, ints, native.load8(pc, 2))
+    local position = slots.readInteger(frame, ints, program.readByte(pc, 2))
     -- An integer a double cannot hold exactly is boxed as an integer object.
     if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local value = slots.readValue(frame, regs, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 3))
 
     return storeKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)), value)
 end
@@ -458,15 +459,15 @@ export function SetField(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 1))
-    local value = slots.readValue(frame, regs, native.load8(pc, 2))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     local consts = native.loadPointer(
         native.loadPointer(context, native.layout("funcs")),
         native.index(
             native.load64(frame, 0) & values.LOW_WORD
         ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.consts")
     )
-    local name = native.load64(consts, native.load32(pc, 4) * 8)
+    local name = native.load64(consts, program.readSigned32(pc, 4) * 8)
     if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeStoreSlow(pc, context, object, name, value)
     else
@@ -489,7 +490,7 @@ local function hashLookup(
     meta: uint64,
     key: uint64
 ): uint64
-    local a = native.load8(pc, 1)
+    local a = program.readByte(pc, 1)
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     if buckets ~= nil then
         local mask = native.load64(header, native.layout("Table.hash_mask"))
@@ -530,7 +531,7 @@ local function readInternSlow(pc: voidptr, context: voidptr, object: uint64, key
     local meta = native.load64(header, native.layout("Table.meta"))
     if canonical == values.NIL then
         if meta == values.NIL then
-            return protocol.continueAfter(pc, context, native.load8(pc, 1), values.NIL, true)
+            return protocol.continueAfter(pc, context, program.readByte(pc, 1), values.NIL, true)
         else
             return indexSlow(pc, context, object, key)
         end
@@ -560,7 +561,7 @@ local function readKeyed(
     object: uint64,
     key: uint64
 ): uint64
-    local a = native.load8(pc, 1)
+    local a = program.readByte(pc, 1)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
@@ -617,8 +618,8 @@ export function GetIdx(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 2))
-    local key = slots.readValue(frame, regs, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local key = slots.readValue(frame, regs, program.readByte(pc, 3))
     return readKeyed(pc, regs, ints, floats, context, frame, object, key)
 end
 
@@ -630,8 +631,8 @@ export function GetIdxF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = slots.readValue(frame, regs, native.load8(pc, 2))
-    local d = slots.readFloat(frame, floats, native.load8(pc, 3))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local d = slots.readFloat(frame, floats, program.readByte(pc, 3))
     -- The key is the float boxed: a NaN payload as the canonical quiet NaN.
     local bits = native.bits(d)
     local nan = native.both(bits & values.QNAN == values.QNAN, bits ~= values.QNAN)
@@ -647,12 +648,12 @@ export function GetIdxI(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local position = slots.readInteger(frame, ints, native.load8(pc, 3))
+    local position = slots.readInteger(frame, ints, program.readByte(pc, 3))
     -- An integer a double cannot hold exactly is boxed as an integer object.
     if native.either(position < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < position) then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
-    local object = slots.readValue(frame, regs, native.load8(pc, 2))
+    local object = slots.readValue(frame, regs, program.readByte(pc, 2))
 
     return readKeyed(pc, regs, ints, floats, context, frame, object, native.bits(native.toFloat(position)))
 end

@@ -1,0 +1,62 @@
+module nupp.compiler.vm.programcontract
+
+local contract = {}
+local kinds = {
+    uint8 = {result = "int64", width = 1},
+    int32 = {result = "int64", width = 4},
+    uint64 = {result = "uint64", width = 8},
+    int64 = {result = "int64", width = 8},
+    number = {result = "number", width = 8}
+}
+
+--- Returns a program load from its checked Nupp declaration.
+---
+--- Code bytes are immutable within their retained body allocation's lifetime.
+--- The code pointer identifies that allocation, not a replaceable function id.
+--- This contract does not classify function tables or heap-bearing constants.
+--- Folding still requires a proven retained body identity in the Nupp graph.
+--- @raises string when the declaration is missing or inconsistent
+function contract.read(definition: any, name: string): {
+    source: string,
+    kind: string,
+    lifetime: string,
+    result: string,
+    width: number
+}
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmProgramLoad" then
+            assert(found == nil, "program load " .. name .. " has duplicate contracts")
+            found = annotation
+        end
+    end
+    assert(found ~= nil, "program load " .. name .. " has no declared contract")
+    local fields: {[string]: any} = {}
+    for _, argument in ipairs(found.arguments or {}) do
+        local field = argument.name
+        assert(
+            field == "source" or field == "kind" or field == "lifetime",
+            "program load " .. name .. " has an unknown field"
+        )
+        assert(fields[field] == nil, "program load " .. name .. " has a duplicate field")
+        assert(argument.kind == "value", "program load " .. name .. " requires literal metadata")
+        fields[field] = argument.value
+    end
+    assert(fields.source == "code", "program load " .. name .. " has an invalid source")
+    assert(fields.lifetime == "body", "program load " .. name .. " has an invalid lifetime")
+    assert(
+        type(fields.kind) == "string" and kinds[fields.kind] ~= nil,
+        "program load " .. name .. " has an invalid kind"
+    )
+    local kind = kinds[fields.kind]
+
+    return {
+        source = fields.source,
+        kind = fields.kind,
+        lifetime = fields.lifetime,
+        result = kind.result,
+        width = kind.width
+    }
+end
+
+export = contract

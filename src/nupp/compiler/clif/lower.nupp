@@ -33,6 +33,7 @@ local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
+local programcontract = require("nupp.compiler.vm.programcontract")
 
 local lower = {}
 
@@ -41,6 +42,9 @@ lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
 
 -- Logical frame accesses retain their contract in Nupp until machine emission.
 lower.SLOTS = "nupp.runtime.vm.slots"
+
+-- Frozen code bytes retain their owning body lifetime through the Nupp graph.
+lower.PROGRAM = "nupp.runtime.vm.program"
 
 --- The atomics declaration: loads, stores, exchanges and fences on words the
 --- lowering emits as Cranelift's sequentially consistent atomic instructions.
@@ -1038,6 +1042,34 @@ local function compileFunction(fn: Fn, options: any): string
         return {kind = access.kind, value = load(access.kind, address)}
     end
 
+    -- Emission preserves ordinary loads. Version and lifetime reasoning stays
+    -- in Nupp; no machine readonly flag promises process-wide immutability.
+    local function programCall(n: any): any
+        local member = n.obj.name.text
+        local access = programcontract.read(n.obj.name.definition, member)
+        local signature = raw(n.obj.inferredType)
+        local args = n.args.exprs or {}
+        need(
+            signature and signature.tag == "func" and #signature.params == 2 and #args == 2,
+            member .. ": program argument count"
+        )
+        need(
+            tag(signature.params[1]) == "voidptr" and tag(signature.params[2]) == "int64",
+            member .. ": program argument kind"
+        )
+        need(#signature.rets == 1 and tag(signature.rets[1]) == access.result, member .. ": program result kind")
+        local base = materialize(expression(args[1]), "voidptr")
+        local offset = materialize(expression(args[2]), "int64")
+        local address = emit("iadd " .. base .. ", " .. offset)
+        if access.kind == "uint8" then
+            return {kind = access.result, value = emit("uload8.i64 notrap " .. address)}
+        elseif access.kind == "int32" then
+            return {kind = access.result, value = emit("sload32.i64 notrap " .. address)}
+        end
+
+        return {kind = access.result, value = load(access.result, address)}
+    end
+
     local function intrinsic(intrinsicName: string, args: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
@@ -1287,6 +1319,8 @@ local function compileFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
+        elseif calledModule(n) == lower.PROGRAM then
+            return programCall(n)
         elseif calledModule(n) == lower.SLOTS then
             return slotCall(n)
         elseif calledModule(n) == ATOMICS then
@@ -1960,6 +1994,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         for _, required in ipairs(entry.requires) do
             need(
                 required == INTRINSICS
+                or required == lower.PROGRAM
                 or required == lower.SLOTS
                 or required == ATOMICS
                 or HELPER_MODULES[required] ~= nil

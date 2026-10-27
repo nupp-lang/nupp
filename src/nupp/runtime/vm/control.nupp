@@ -13,6 +13,7 @@ counts from the first of them.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
@@ -65,8 +66,8 @@ export function PCall(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local base = native.load8(pc, 1)
-    local nargs = native.load8(pc, 2)
+    local base = program.readByte(pc, 1)
+    local nargs = program.readByte(pc, 2)
     local value = slots.readValue(frame, regs, base + 1)
     local fid = values.NO_GUARD
     local closure = values.NIL
@@ -133,7 +134,7 @@ export function Raise(
     return raiseSlow(
         pc,
         context,
-        native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), native.load32(pc, 4) * 8)
+        native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), program.readSigned32(pc, 4) * 8)
     )
 end
 
@@ -155,8 +156,8 @@ export function Defer(
     return deferSlow(
         pc,
         context,
-        slots.readValue(frame, regs, native.load8(pc, 1)),
-        slots.readValue(frame, regs, native.load8(pc, 2))
+        slots.readValue(frame, regs, program.readByte(pc, 1)),
+        slots.readValue(frame, regs, program.readByte(pc, 2))
     )
 end
 
@@ -182,7 +183,7 @@ export function DeferMethod(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local value = slots.readValue(frame, regs, native.load8(pc, 1))
+    local value = slots.readValue(frame, regs, program.readByte(pc, 1))
     if value == values.NIL then
         return deferSlow(pc, context, value, values.NIL)
     elseif value & values.TAG_MASK == values.TAG_OBJ then
@@ -196,7 +197,10 @@ export function DeferMethod(
                 pc,
                 context,
                 value,
-                native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), native.load32(pc, 4) * 8)
+                native.load64(
+                    native.loadPointer(info, native.layout("FuncInfo.consts")),
+                    program.readSigned32(pc, 4) * 8
+                )
             )
         end
     end
@@ -224,12 +228,12 @@ export function CleanupLive(
         end
         start = start - 1
     end
-    local slot = start + native.load32(pc, 4)
+    local slot = start + program.readSigned32(pc, 4)
     local live = false
     if slot < n then
         live = native.load64(records, slot * size + native.layout("Cleanup.value")) ~= values.NIL
     end
-    slots.writeValue(frame, regs, native.load8(pc, 1), native.chooseWord(live, values.TRUE, values.FALSE))
+    slots.writeValue(frame, regs, program.readByte(pc, 1), native.chooseWord(live, values.TRUE, values.FALSE))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -256,7 +260,7 @@ export function DisarmAt(
         end
         start = start - 1
     end
-    local slot = start + native.load32(pc, 4)
+    local slot = start + program.readSigned32(pc, 4)
     if slot >= n then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
@@ -304,9 +308,9 @@ export function RearmAt(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local value = slots.readValue(frame, regs, native.load8(pc, 1))
-    local given = slots.readValue(frame, regs, native.load8(pc, 2))
-    local depth = native.load32(pc, 4)
+    local value = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local given = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local depth = program.readSigned32(pc, 4)
     local records = native.loadPointer(context, native.layout("cleanups"))
     local size = native.layout("Cleanup.size")
     local n = native.loadIndex(context, native.layout("ncleanups"))
@@ -371,7 +375,7 @@ export function Unwind(
     end
     if native.either(
         native.load64(context, native.layout("guard")) == values.GUARD_ALL,
-        start + native.load32(pc, 4) < n
+        start + program.readSigned32(pc, 4) < n
     ) then
         return native.slow(pc, regs, ints, floats, context, frame)
     end
@@ -393,7 +397,7 @@ export function Switch(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local i = slots.readInteger(frame, ints, native.load8(pc, 1))
+    local i = slots.readInteger(frame, ints, program.readByte(pc, 1))
     local info = native.offset(
         native.loadPointer(context, native.layout("funcs")),
         native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
@@ -402,10 +406,10 @@ export function Switch(
         native.loadPointer(info, native.layout("FuncInfo.code")),
         native.load32(info, native.layout("FuncInfo.ncode")) * 16
     )
-    local start = native.load32(tables, native.load32(pc, 4) * 4)
-    local offset = native.load32(tables, (start + 1) * 4)
-    if native.both(i >= 0, i < native.load32(tables, start * 4)) then
-        offset = native.load32(tables, (start + 2 + i) * 4)
+    local start = program.readSigned32(tables, program.readSigned32(pc, 4) * 4)
+    local offset = program.readSigned32(tables, (start + 1) * 4)
+    if native.both(i >= 0, i < program.readSigned32(tables, start * 4)) then
+        offset = program.readSigned32(tables, (start + 2 + i) * 4)
     end
 
     return native.dispatch(native.offset(pc, (offset + 1) * 16), regs, ints, floats, context, frame)

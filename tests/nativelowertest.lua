@@ -11,6 +11,7 @@ local FIXTURES = ROOT .. "/tests/fixtures/native"
 local lower = require("nupp.compiler.clif.lower")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
+local programcontract = require("nupp.compiler.vm.programcontract")
 
 local M = {}
 
@@ -390,6 +391,64 @@ function M.logicalSlotsRequireClassifiedConsistentContracts()
     assert(not pcall(slotcontract.read, {}, "unclassified"))
     local access = slotcontract.read(declaration("i", "int64", false), "signed")
     assert(access.class == "i" and access.kind == "int64" and not access.write and access.width == 8)
+end
+
+function M.programLoadsDecodeFrozenCodeAtDeclaredWidths()
+    check(compileFixture("programloads"), {
+        {"decode", {"buffer:16", 255, -2147483648, "18446744073709551615"}, true},
+        {"decode", {"buffer:16", 128, 2147483647, "9223372036854775808"}, true},
+        {"decode", {"buffer:16", 0, -1, "9221120237041090561"}, true},
+        {"bodyIdentity", {"buffer:16", "buffer:16"}, true},
+    })
+end
+
+function M.programLoadsRequireCompleteBodyScopedContracts()
+    local function declaration(source, kind, lifetime)
+        return {
+            annotations = {
+                {
+                    name = "vmProgramLoad",
+                    arguments = {
+                        {name = "source", kind = "value", value = source},
+                        {name = "kind", kind = "value", value = kind},
+                        {name = "lifetime", kind = "value", value = lifetime},
+                    }
+                }
+            }
+        }
+    end
+
+    for _, fields in ipairs({
+        {"function-table", "uint64", "body"},
+        {"constants", "uint64", "body"},
+        {"code", "voidptr", "body"},
+        {"code", "uint64", "process"},
+        {"code", "uint64", false},
+    }) do
+        assert(not pcall(programcontract.read, declaration(unpack(fields)), "invalid"))
+    end
+    assert(not pcall(programcontract.read, {}, "unclassified"))
+    local missing = declaration("code", "uint64", "body")
+    table.remove(missing.annotations[1].arguments)
+    assert(not pcall(programcontract.read, missing, "missing"))
+    for _, corruption in ipairs({"unknown", "duplicate", "nonliteral", "duplicate-contract"}) do
+        local invalid = declaration("code", "uint64", "body")
+        local arguments = invalid.annotations[1].arguments
+        if corruption == "unknown" then
+            arguments[#arguments + 1] = {name = "pure", kind = "value", value = true}
+        elseif corruption == "duplicate" then
+            arguments[#arguments + 1] = arguments[1]
+        elseif corruption == "nonliteral" then
+            arguments[1].kind = "type"
+        else
+            invalid.annotations[2] = invalid.annotations[1]
+        end
+        assert(not pcall(programcontract.read, invalid, corruption))
+    end
+    for _, kind in ipairs({"uint8", "int32", "uint64", "int64", "number"}) do
+        local access = programcontract.read(declaration("code", kind, "body"), kind)
+        assert(access.source == "code" and access.kind == kind and access.lifetime == "body")
+    end
 end
 
 -- The managed-fields measurement: both designs run; the numbers are read from
