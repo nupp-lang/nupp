@@ -170,6 +170,14 @@ export struct ValueArray
     capacity: uint64
 end
 
+-- Byte counts are independent of the backing allocator's word granularity.
+export struct ByteArray
+    owner: uint64
+    base: uint64
+    length: uint64
+    capacity: uint64
+end
+
 -- Iterator edges and cursor precede the canonical owned key descriptor.
 export struct IteratorBody
     object: uint64

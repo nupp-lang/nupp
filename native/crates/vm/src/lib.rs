@@ -25,6 +25,7 @@ mod allocation_metrics;
 mod native_allocator;
 mod native_value_array;
 mod native_numeric_array;
+mod native_byte_array;
 mod native_value_table;
 mod native_record_tail;
 pub mod heap;

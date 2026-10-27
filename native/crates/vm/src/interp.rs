@@ -1874,7 +1874,7 @@ impl Interp {
         if h.kind != KIND_BYTES { self.err("not a buffer") }
         if h.byte_buffer().data.is_fixed() { self.err("fixed native storage cannot be resized or consumed") }
         let before = h.external_bytes();
-        let bytes = std::mem::take(&mut h.byte_buffer().data);
+        let bytes = h.byte_buffer().data.take();
         h.refresh();
         self.heap.account_resize(before, h.external_bytes());
         self.string_of(&bytes)

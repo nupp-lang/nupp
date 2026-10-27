@@ -111,12 +111,12 @@ pub const OFF_T_META: i32 = (HEADER + std::mem::offset_of!(TablePayload, meta)) 
 #[repr(C)]
 pub struct StoragePayload { pub data: crate::native_numeric_array::NumericArray }
 #[repr(C)]
-// Ordinary buffers retain Vec storage; native aggregates request an explicit
+// Ordinary buffers use Nupp-owned backing; native aggregates request an explicit
 // allocation alignment. The header still exposes only a logical byte span.
 // A shared block is an immutable allocation several VMs hold by reference
 // (`crate::sharing`); a moved buffer is the husk an allocation left behind
 // when its ownership went to another VM.
-pub enum ByteBuffer { Bytes(Vec<u8>), Aligned(AlignedBytes), Shared(std::sync::Arc<crate::sharing::Block>), Moved }
+pub enum ByteBuffer { Bytes(crate::native_byte_array::ByteArray), Aligned(AlignedBytes), Shared(std::sync::Arc<crate::sharing::Block>), Moved }
 pub struct AlignedBytes { pointer: NonNull<u8>, length: usize, layout: std::alloc::Layout }
 // One owner at a time: the bytes are reached only through the owning object,
 // so handing the allocation to another thread hands all access with it.
@@ -136,7 +136,6 @@ impl AlignedBytes {
 impl Drop for AlignedBytes {
     fn drop(&mut self) { unsafe { std::alloc::dealloc(self.pointer.as_ptr(), self.layout); } }
 }
-impl Default for ByteBuffer { fn default() -> Self { Self::Bytes(Vec::new()) } }
 impl ByteBuffer {
     pub const MAX_ALIGNMENT: usize = 4096;
     pub fn aligned(length: usize, alignment: usize) -> Self {
@@ -149,6 +148,9 @@ impl ByteBuffer {
     pub fn is_fixed(&self) -> bool { !matches!(self, Self::Bytes(_)) }
     pub fn alignment(&self) -> usize { match self { Self::Bytes(_) | Self::Moved => 1, Self::Aligned(b) => b.layout.align(), Self::Shared(b) => b.alignment() } }
     pub fn capacity(&self) -> usize { match self { Self::Bytes(b) => b.capacity(), Self::Aligned(b) => b.layout.size(), Self::Shared(b) => b.capacity(), Self::Moved => 0 } }
+    pub(crate) fn take(&mut self) -> Self {
+        match self { Self::Bytes(b) => Self::Bytes(b.take()), _ => panic!("fixed native allocation cannot be consumed") }
+    }
     pub fn extend_from_slice(&mut self, bytes: &[u8]) {
         match self {
             Self::Bytes(b) => b.extend_from_slice(bytes),
@@ -307,7 +309,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 20);
+    assert!(crate::dispatch::OBJECT_ABI == 21);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<StoragePayload>() == 32);
     assert!(std::mem::align_of::<StoragePayload>() == 8);
@@ -748,8 +750,9 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_bytes(&mut self, n: usize, roots: &dyn Roots) -> Value {
+        let data = ByteBuffer::Bytes(self.allocator.byte_array(n, n));
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: ByteBuffer::Bytes(vec![0u8; n]) }); h.refresh(); }
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data }); h.refresh(); }
         self.account_resize(0, n);
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
@@ -767,8 +770,9 @@ impl Heap {
     }
     /// A growable buffer with room for a short result before it reallocates.
     pub fn new_buffer(&mut self, roots: &dyn Roots) -> Value {
+        let data = ByteBuffer::Bytes(self.allocator.byte_array(0, 64));
         let p = self.alloc(KIND_BYTES, std::mem::size_of::<BytesPayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data: ByteBuffer::Bytes(Vec::with_capacity(64)) }); h.refresh(); }
+        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut BytesPayload).write(BytesPayload { data }); h.refresh(); }
         self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });

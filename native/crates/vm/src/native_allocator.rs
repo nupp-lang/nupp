@@ -116,6 +116,10 @@ impl NativeAllocator {
         self.heap.as_ptr()
     }
 
+    pub(crate) fn byte_array(&self, length: usize, capacity: usize) -> crate::native_byte_array::ByteArray {
+        unsafe { crate::native_byte_array::ByteArray::new(self.heap.as_ptr(), length, capacity) }
+    }
+
     pub(crate) fn value_array(&self, capacity: usize) -> crate::native_value_array::ValueArray {
         unsafe { crate::native_value_array::ValueArray::new(self.heap.as_ptr(), capacity) }
     }

@@ -1,0 +1,140 @@
+module nupp.runtime.vm.bytearray
+
+-- The owning heap outlives every descriptor, including a consumed buffer held
+-- across string allocation. Byte backing never contains managed child edges.
+-- Growth and release cannot collect, suspend, or call guest code.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
+
+local function byteMaximum(): uint64
+    return backing.wordBackingMaximum() * 8ULL
+end
+
+local function byteTake(owner: uint64, capacity: uint64): uint64
+    if capacity == 0ULL then
+        return 0ULL
+    end
+    return backing.wordBackingTake(native.pointer(owner) as heap.Heap*, (capacity + 7ULL) >> 3ULL)
+end
+
+-- Refusal leaves the destination untouched. The destination must be fresh.
+export function byteArrayInitialize(a: heap.ByteArray*, owner: heap.Heap*, length: uint64, capacity: uint64): uint64
+    @unsafe do
+        if capacity > byteMaximum() or length > capacity or native.address(owner as voidptr) == 0ULL then
+            return 1ULL
+        end
+        local base = byteTake(native.address(owner as voidptr), capacity)
+        if capacity > 0ULL and base == 0ULL then
+            return 2ULL
+        end
+        local i: uint64 = 0ULL
+        while i < length do
+            native.store8(native.pointer(base), native.index(i), 0ULL)
+            i = i + 1ULL
+        end
+        a.owner = native.address(owner as voidptr)
+        a.base = base
+        a.length = length
+        a.capacity = capacity
+        return 0ULL
+    end
+end
+
+export function byteArrayExtend(a: heap.ByteArray*, source: voidptr, count: uint64): uint64
+    @unsafe do
+        if a.owner == 0ULL or a.length > a.capacity or a.capacity > byteMaximum() then
+            return 1ULL
+        end
+        if count > byteMaximum() - a.length then
+            return 1ULL
+        end
+        local address = native.address(source)
+        if count > 0ULL and address == 0ULL then
+            return 1ULL
+        end
+        local aliases: boolean = false
+        local sourceOffset: uint64 = 0ULL
+        if a.base ~= 0ULL and address >= a.base and address <= a.base + a.capacity then
+            sourceOffset = address - a.base
+            if sourceOffset > a.length then
+                return 1ULL
+            end
+            if count > a.length - sourceOffset then
+                return 1ULL
+            end
+            aliases = true
+        end
+        local wanted = a.length + count
+        if wanted > a.capacity then
+            local capacity = wanted
+            if a.capacity <= byteMaximum() >> 1ULL and capacity < a.capacity * 2ULL then
+                capacity = a.capacity * 2ULL
+            end
+            if capacity < 64ULL then
+                capacity = 64ULL
+            end
+            local fresh = byteTake(a.owner, capacity)
+            if fresh == 0ULL then
+                return 2ULL
+            end
+            local i: uint64 = 0ULL
+            while i < a.length do
+                native.store8(
+                    native.pointer(fresh),
+                    native.index(i),
+                    native.word(native.load8(native.pointer(a.base), native.index(i)))
+                )
+                i = i + 1ULL
+            end
+            local before = a.base
+            a.base = fresh
+            a.capacity = capacity
+            backing.wordBackingRelease(before)
+        end
+        if aliases then
+            address = a.base + sourceOffset
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            native.store8(
+                native.pointer(a.base),
+                native.index(a.length + i),
+                native.word(native.load8(native.pointer(address), native.index(i)))
+            )
+            i = i + 1ULL
+        end
+        a.length = wanted
+        return 0ULL
+    end
+end
+
+-- Transfer to a fresh descriptor while leaving a reusable empty buffer. Its
+-- owner remains stable even if collection reclaims the original guest object.
+export function byteArrayTake(target: heap.ByteArray*, source: heap.ByteArray*): uint64
+    @unsafe do
+        if target.owner ~= 0ULL or target.base ~= 0ULL or target.length ~= 0ULL or target.capacity ~= 0ULL then
+            return 1ULL
+        end
+        if source.owner == 0ULL then
+            return 1ULL
+        end
+        target.owner = source.owner
+        target.base = source.base
+        target.length = source.length
+        target.capacity = source.capacity
+        source.base = 0ULL
+        source.length = 0ULL
+        source.capacity = 0ULL
+        return 0ULL
+    end
+end
+
+export function byteArrayRelease(a: heap.ByteArray*): nil
+    @unsafe do
+        backing.wordBackingRelease(a.base)
+        a.base = 0ULL
+        a.length = 0ULL
+        a.capacity = 0ULL
+    end
+end
