@@ -175,3 +175,21 @@ unchanged ABI inputs without rewriting or optimizing CLIF. The normal compiler
 retains its linked AOT route while the Nupp interpreter gains coverage. P2's
 remaining instruction semantics, number model and per-platform cold seed pair
 remain open. No performance measurements accompany this receipt.
+
+`p2-opcodes-2026-10-27.json` records Nupp entries for all 168 guest opcodes.
+The encoder has no default route to `Slow`, and linked-handler coverage checks
+every opcode. Numeric, byte/buffer, module, state, typed-call and complete return
+pack decisions now live in Nupp. Conditional instruction fallbacks still have
+50 source callsites, and temporary managed services remain Rust deletion work.
+
+Cleanup callbacks previously overwrote large result tails in both Rust and
+native execution. The shared cleanup service now retains and roots the tail and
+its explicit count, including trailing nils across suspended cleanup snapshots.
+This uses the existing serialized unwind table and changes no snapshot format.
+
+The receipt distinguishes final runtime checks from the broader native group
+and pinned-seed rebuild at the immediately preceding compiler-equivalent
+revision. The normal compiler retains 6,157 linked AOT functions. P2's conditional
+fallback removal, number model and cold-bootstrap seed pairs remain open, as do
+P1b's common-graph migration and the final Rust budget. Performance work remains
+deferred.
