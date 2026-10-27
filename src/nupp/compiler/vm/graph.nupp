@@ -98,6 +98,22 @@ signatures.U32Sub = "Iii"
 signatures.SpanEqual = "vvk"
 signatures.VSplatI = "Xi#"
 signatures.VExtractI = "Ix##"
+-- Native systems operations use the same closed-block graph. Their exact
+-- Nupp kinds and static contracts are verified before machine emission.
+signatures.NativeConstant = "I#"
+signatures.ProgramLoad = "Iii#"
+signatures.FrameSlotRead = "Iiii#"
+signatures.FrameSlotWrite = "iiii#"
+signatures.PointerOffset = "Iii"
+local nativeOnly = {
+    NativeConstant = true,
+    ProgramLoad = true,
+    FrameSlotRead = true,
+    FrameSlotWrite = true,
+    PointerOffset = true
+}
+local nativeArithmetic = {IAdd = true, ISub = true, IAnd = true, IOr = true, IMov = true}
+local nativeKinds = {voidptr = true, int64 = true, uint64 = true}
 local terminators = {
     Jmp = true,
     JmpIf = true,
@@ -187,6 +203,32 @@ function graph.value(g: any, ty: string, slot: integer?): integer
     return id
 end
 
+--- Creates a native handler graph with an exact logical signature.
+---
+--- The physical sixth argument is the retained dispatch table. The logical
+--- sixth argument is the frame, reconstructed from the value window at entry.
+function graph.newNative(parameterKinds: {string}, resultKind: string, abi: string): any
+    local g = graph.new(#parameterKinds)
+    local params = {}
+    g.exactTypes = {}
+    for i, kind in ipairs(parameterKinds) do
+        params[i] = kind
+        g.types[i], g.slots[i], g.exactTypes[i] = "i", i - 1, kind
+    end
+    g.counts.i = #parameterKinds
+    g.native = {params = params, result = resultKind, abi = abi, frameFromWindow = 2, tableArgument = 6}
+
+    return g
+end
+
+--- Allocates an exact native value in the graph's existing integer storage class.
+function graph.nativeValue(g: any, kind: string, slot: integer?): integer
+    assert(g.native ~= nil and nativeKinds[kind], "invalid native graph value kind")
+    local id = graph.value(g, "i", slot)
+    g.exactTypes[id] = kind
+    return id
+end
+
 function graph.block(g: any): any
     local b = {id = #g.blocks + 1, params = {}, op = {}, dst = {}, args = {}, pos = {}, cert = {}}
     g.blocks[b.id] = b
@@ -230,7 +272,118 @@ function graph.emit(g: any, b: any, op: string, args: any, pos: integer?, cert: 
     return id
 end
 
-local edgeCounts = {jump = 1, branch = 2, ["return"] = 0, returns = 0, raise = 0, park = 1}
+--- Appends a native operation without erasing its exact kind or contracts.
+function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, pos: integer?): integer?
+    assert(g.native ~= nil and (nativeOnly[op] or nativeArithmetic[op]), "unsupported native graph operation")
+    local result = graph.emit(g, b, op, args, pos)
+    if result then
+        assert(nativeKinds[kind], "native result requires an exact kind")
+        g.exactTypes[result] = kind
+    else
+        assert(kind == nil, "native effect has no result kind")
+    end
+
+    return result
+end
+
+local function nativeContract(value: any, fields: any): nil
+    assert(type(value) == "table", "native operation requires a contract")
+    for name in pairs(value) do
+        assert(fields[name], "unknown native contract field")
+    end
+end
+
+local function nativeInteger(text: any, kind: string): nil
+    assert(type(text) == "string", "native integer constant requires exact text")
+    local negative = text:sub(1, 1) == "-"
+    local digits = negative and text:sub(2) or text
+    local base = 10
+    if digits:sub(1, 2):lower() == "0x" then
+        base, digits = 16, digits:sub(3)
+        assert(digits:match("^%x+$"), "invalid native integer constant")
+    else
+        assert(digits:match("^%d+$"), "invalid native integer constant")
+    end
+    local limbs: {number} = {0, 0, 0, 0}
+    for i = 1, #digits do
+        local carry = tonumber(digits:sub(i, i), base) as number
+        for j = 1, 4 do
+            local value = limbs[j] * base + carry
+            limbs[j], carry = value % 65536, math.floor(value / 65536)
+        end
+        assert(carry == 0, "native integer constant exceeds 64 bits")
+    end
+    if kind == "int64" then
+        assert(
+            limbs[4] < 32768 or (negative and limbs[4] == 32768 and limbs[1] == 0 and limbs[2] == 0 and limbs[3] == 0),
+            "native constant exceeds int64"
+        )
+    else
+        assert(kind == "uint64" and not negative, "native constant requires an integer kind")
+    end
+end
+
+local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
+    local kinds, kind = g.exactTypes, g.exactTypes[dst]
+
+    local function hasKind(value: integer, expected: string): nil
+        assert(kinds[value] == expected, "native graph operand kind mismatch")
+    end
+
+    if op == "NativeConstant" then
+        nativeInteger(args[1], kind)
+    elseif op == "ProgramLoad" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        local contract = args[3]
+        nativeContract(contract, {source = true, kind = true, lifetime = true, result = true, width = true})
+        local widths = {uint8 = 1, int32 = 4, int64 = 8, uint64 = 8}
+        local result = contract.kind == "uint64" and "uint64" or "int64"
+        assert(
+            contract.source == "code"
+            and contract.lifetime == "body"
+            and widths[contract.kind] ~= nil
+            and contract.width == widths[contract.kind]
+            and contract.result == result
+            and kind == result,
+            "invalid native program contract"
+        )
+    elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "voidptr")
+        hasKind(args[3], "int64")
+        -- This leaf profile preserves the entry frame and its integer window.
+        assert(args[1] == 6 and args[2] == 3, "native slot frame/window identity mismatch")
+        local write = op == "FrameSlotWrite"
+        local contract = args[write and 5 or 4]
+        nativeContract(contract, {class = true, kind = true, write = true, width = true})
+        assert(
+            contract.class == "i"
+            and contract.width == 8
+            and contract.write == write
+            and (contract.kind == "int64" or contract.kind == "uint64"),
+            "invalid native slot contract"
+        )
+        if write then
+            hasKind(args[4], contract.kind)
+        else
+            assert(kind == contract.kind, "native slot result kind mismatch")
+        end
+    elseif op == "PointerOffset" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        assert(kind == "voidptr", "native pointer offset result kind")
+    elseif nativeArithmetic[op] then
+        assert(kind == "int64" or kind == "uint64", "native arithmetic result kind")
+        for _, value in ipairs(args) do
+            hasKind(value, kind)
+        end
+    else
+        error("unsupported native graph operation", 0)
+    end
+end
+
+local edgeCounts = {jump = 1, branch = 2, ["return"] = 0, returns = 0, raise = 0, park = 1, dispatch = 0}
 
 function graph.verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
@@ -240,6 +393,28 @@ function graph.verify(g: any): nil
     local nparams = g.nparams
     if not (nparams >= 0 and nparams < 240 and #types >= nparams) then
         error("assertion failed", 0)
+    end
+    local native = g.native ~= nil
+    if native then
+        local signature = g.native
+        assert(
+            type(signature) == "table"
+            and signature.abi == "handler"
+            and signature.result == "uint64"
+            and #signature.params == 6
+            and nparams == 6
+            and signature.frameFromWindow == 2
+            and signature.tableArgument == 6,
+            "invalid native handler signature"
+        )
+        assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing native exact types")
+        for i = 1, #types do
+            assert(types[i] == "i" and nativeKinds[g.exactTypes[i]], "invalid native exact type")
+        end
+        for i = 1, 6 do
+            assert(signature.params[i] == "voidptr" and g.exactTypes[i] == "voidptr", "native handler parameter kind")
+        end
+        assert(#g.certificates == 0, "native certificate transport is outside the leaf profile")
     end
     local defined = {}
     -- Per block: the values usable here (its parameters and earlier results)
@@ -264,7 +439,9 @@ function graph.verify(g: any): nil
     end
 
     for i = 1, nparams do
-        if not (types[i] == "v" and slots[i] == i) then
+        if not (
+            native and types[i] == "i" and slots[i] == i - 1 or not native and types[i] == "v" and slots[i] == i
+        ) then
             error("function parameters are the first value ids", 0)
         end
         defined[i] = true
@@ -300,6 +477,9 @@ function graph.verify(g: any): nil
             if sig.terminator then
                 error("terminator opcode inside a block", 0)
             end
+            if not native then
+                assert(not nativeOnly[ops[i]], "native operation requires a native graph")
+            end
             for j = 1, #args do
                 local ty = argClasses[j]
                 if classes[ty] then
@@ -334,11 +514,30 @@ function graph.verify(g: any): nil
             elseif not (dsts[i] == 0) then
                 error("assertion failed", 0)
             end
+            if native then
+                assert(
+                    b.pos[i] >= 0 and b.pos[i] % 1 == 0 and b.pos[i] <= #g.positions,
+                    "native source position outside table"
+                )
+                verifyNativeOperation(g, ops[i], args, dsts[i])
+            end
         end
         local t = assert(b.term, "unterminated graph block")
         local kind = t.kind
         local edges = t.edges
-        if kind == "branch" then
+        if kind == "dispatch" then
+            assert(native and type(t.args) == "table" and #t.args == 6, "invalid native dispatch")
+            for i = 1, 6 do
+                assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
+                if i > 1 then
+                    assert(t.args[i] == i, "native dispatch changes frame/window/context identity")
+                end
+            end
+            local pos = t.pos or 0
+            assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
+        elseif native and kind ~= "jump" then
+            error("native leaf graph requires jump or dispatch terminators", 0)
+        elseif kind == "branch" then
             if not (usable(t.value) and (types[t.value] == "i" or types[t.value] == "v")) then
                 error("graph branch condition", 0)
             end
@@ -402,6 +601,9 @@ function graph.verify(g: any): nil
                         0
                     )
                 end
+                if native then
+                    assert(g.exactTypes[v] == g.exactTypes[targetParams[i]], "native graph edge exact kind mismatch")
+                end
             end
         end
     end
@@ -441,6 +643,11 @@ function graph.prune(g: any): nil
         if b.term.value then
             used[b.term.value] = true
         end
+        if b.term.kind == "dispatch" then
+            for _, value in ipairs(b.term.args) do
+                used[value] = true
+            end
+        end
     end
     local certs = g.certificates
     for i = 1, #certs do
@@ -469,13 +676,17 @@ function graph.prune(g: any): nil
     -- Surviving values are renumbered densely, the function parameters first
     -- so they keep their ids. Each block records which of its parameter
     -- positions survived so edge arguments compact to match.
-    local remap, types, slots = {}, {}, {}
+    local remap, types, slots, exactTypes = {}, {}, {}, {}
     local count: integer = 0
     local gTypes, gSlots = g.types, g.slots
 
     local function keep(v: integer): integer
         count = count + 1
         remap[v], types[count], slots[count] = count, gTypes[v], gSlots[v]
+        if g.native ~= nil then
+            exactTypes[count] = g.exactTypes[v]
+        end
+
         return count
     end
 
@@ -525,6 +736,11 @@ function graph.prune(g: any): nil
         if t.value then
             t.value = assert(remap[t.value])
         end
+        if t.kind == "dispatch" then
+            for i = 1, #t.args do
+                t.args[i] = assert(remap[t.args[i]])
+            end
+        end
         local edges = t.edges
         for ei = 1, #edges do
             local e = edges[ei]
@@ -552,6 +768,9 @@ function graph.prune(g: any): nil
         g.map.count = assert(remap[g.map.count])
     end
     g.types, g.slots = types, slots
+    if g.native ~= nil then
+        g.exactTypes = exactTypes
+    end
 end
 
 --- The region tree the frontend's annotations describe, as parallel columns:
@@ -676,6 +895,7 @@ local moves = {v = "Move", i = "IMov", f = "FMov", x = "VMov"}
 --- @raises string when the graph does not verify, a float-returning function
 --- returns another class, or the slots exceed the register classes.
 function graph.lower(g: any): any
+    assert(g.native == nil, "native graph requires machine emission")
     graph.verify(g)
     local code, starts, patches = {}, {}, {}
     local lengthSlots = {}
