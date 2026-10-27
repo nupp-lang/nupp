@@ -1,0 +1,64 @@
+{
+  "phase": "P2 numeric acceptance in progress",
+  "source": "61d1cb2f2a47d63a4ed01a7fbb2b9cea146666ef",
+  "rustSweep": {
+    "source": "d405e71a2b0ecac3d767937554e998c37bb1ec66",
+    "log": "build/native-p2-finish/combined-cargo-tests.log",
+    "targets": 66,
+    "passed": 594,
+    "failed": 0,
+    "ignored": 5,
+    "coreSha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
+    "sourceNote": "Six consumer files and tests/groups.lua have pending edits; native Rust source matches HEAD."
+  },
+  "sourceCheck": {
+    "ok": true,
+    "modules": 544,
+    "log": "build/native-p2-finish/numeric-consumers-full-check.json",
+    "scope": "Numeric contracts and consumer corrections before later unsigned and physical-witness changes"
+  },
+  "numericAndLoopTests": {
+    "ok": true,
+    "total": 17,
+    "passed": 17,
+    "failed": 0
+  },
+  "constantAndSerdeTests": {
+    "ok": true,
+    "total": 4,
+    "passed": 4,
+    "failed": 0
+  },
+  "constantRegression": {
+    "minimumIntegerRed": {
+      "ok": false,
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    },
+    "negativeZeroRed": {
+      "ok": false,
+      "total": 1,
+      "passed": 0,
+      "failed": 1
+    },
+    "finalFix": "229b071d5",
+    "normalization": "Convert to float64 by multiplication with 1.0 before sign normalization; preserve negative zero",
+    "rebuiltCoreMatchesControl": true
+  },
+  "consumerFunctionalReceipt": "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/native-p2-complete/root-consumers",
+  "consumerVerification": {
+    "focusedPassed": 9,
+    "digestChecks": 36,
+    "terminalWidthEdges": 6,
+    "timeoutEdges": 8
+  },
+  "open": [
+    "Physical witness migration and complete compiler corpus",
+    "Final pinned three-stage fixpoint",
+    "Normal compiler AOT continuity",
+    "Linux and Windows numeric seed cold bootstraps",
+    "Common graph integration and matched-object verification"
+  ],
+  "performance": "Deferred by owner; these are correctness receipts, not performance acceptance."
+}
