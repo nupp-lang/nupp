@@ -1247,11 +1247,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             need(field.kind == "string", "literal layout field required")
             local text = field.token.value or field.token.text:sub(2, -2)
             return {kind = "int64", value = constant("i64", tostring(options.layout(text)))}
-        elseif intrinsicName == "dispatch"
-            or intrinsicName == "slow"
-            or intrinsicName == "reenter"
-            or intrinsicName == "fail"
-        then
+        elseif intrinsicName == "dispatch" or intrinsicName == "reenter" or intrinsicName == "fail" then
             error("lower: " .. intrinsicName .. " is a transfer: `return native." .. intrinsicName .. "(...)`", 0)
         elseif intrinsicName == "both" or intrinsicName == "either" then
             local op = intrinsicName == "both" and "band " or "bor "
@@ -1587,8 +1583,8 @@ local function compileDirectFunction(fn: Fn, options: any): string
         return ref
     end
 
-    -- A handler's transfers: dispatch through the table, hand the instruction
-    -- to Rust at its own pc, or ask for the frame driver.
+    -- A handler dispatches through the table or returns control to the task
+    -- driver after a frame transition or failure.
     local function transfer(transferName: string, args: any): nil
         need(handlers, "transfers belong to handler modules")
         need(b.current, "transfer outside a block")
@@ -1598,9 +1594,6 @@ local function compileDirectFunction(fn: Fn, options: any): string
         elseif transferName == "fail" then
             need(#args == 0, "fail takes no arguments")
             b.finish({constant("i64", "0")})
-        elseif transferName == "slow" then
-            need(#args == 6, "slow takes the six handler arguments")
-            b.finish({materialize(expression(args[1]), "voidptr")})
         else
             need(#args == 6, "dispatch takes the six handler arguments")
             local words = {}
@@ -1816,11 +1809,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             local value = stat.exprs[1]
             local transferName = handlers and #stat.exprs == 1 and isIntrinsicCall(value) and value.obj.name.text or nil
             local helper = handlers and #stat.exprs == 1 and resolveCallee(value, scope, modules) or nil
-            if transferName == "dispatch"
-                or transferName == "slow"
-                or transferName == "reenter"
-                or transferName == "fail"
-            then
+            if transferName == "dispatch" or transferName == "reenter" or transferName == "fail" then
                 transfer(transferName, value.args.exprs or {})
             elseif helper and helper.isSupport then
                 -- A slow path is its own tail-called function, so the fast

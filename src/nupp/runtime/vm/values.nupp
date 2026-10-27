@@ -33,7 +33,7 @@ export const TAG_OBJ = 0x7ffd000000000000ULL
 --- A signed integer with a two's-complement 48-bit payload.
 export const TAG_INTEGER = 0x7fff000000000000ULL
 
---- A frame guard that guards nothing (`NO_GUARD` in the Rust core).
+--- A frame guard that imposes no unwind boundary.
 export const NO_GUARD = 0xffffffffffffffffULL
 
 --- The largest integer a double holds exactly, 2^53: the bound for an
@@ -85,12 +85,12 @@ export const INTERN_LIMIT = 40
 export const NEGATIVE_ZERO = 0x8000000000000000ULL
 
 --- The header flags under which a table is not plain slots: a storage schema
---- (32), a declaration (64) and a prototype (128), whose stores the Rust step
---- accounts for.
+--- (32), a declaration (64) and a prototype (128), whose stores use the
+--- managed schema and declaration services.
 export const SPECIAL_TABLE_FLAGS = 224
 
---- The guard of a task whose unwind is in progress (`GUARD_ALL` in the
---- Rust core): every return, and every unwind, is Rust's.
+--- The guard of a task whose unwind is in progress. Returns and further
+--- unwinding continue through the managed cleanup service.
 export const GUARD_ALL = 0xfffffffffffffffeULL
 
 -- The unchecked value-to-float adapter, exactly Value::as_num. Validation is

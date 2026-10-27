@@ -37,7 +37,6 @@ local record Native
     chooseIndex: function(condition: boolean, yes: int64, no: int64): int64
     asWord: function(value: boolean): uint64
     layout: function(field: string): int64
-    slow: function(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     reenter: function(): uint64
     fail: function(): uint64
     load8: function(base: voidptr, offset: int64): int64

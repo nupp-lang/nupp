@@ -113,7 +113,7 @@ end
 
 -- The task's own entry, which the glue exports as
 -- `nupp_native_runtime_resume`: the policy of the frame on top when the task
--- starts or resumes, or after Rust ran an instruction that changed the frame.
+-- starts or resumes after a scheduler or managed-service boundary.
 -- Exported for the glue, which finds it by name; no handler calls it.
 export function resumeSlow(pc: voidptr, context: voidptr): uint64
     return settle(context, values.ST_REENTER)

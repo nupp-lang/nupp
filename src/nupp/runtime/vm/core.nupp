@@ -1,11 +1,9 @@
 module nupp.runtime.vm.core
 
--- The native interpreter core's leaf handlers: moves, constants, integer and
--- float arithmetic, comparisons, branches, boxed arithmetic, cells, upvalues,
--- slots, lengths and array reads. Ordinary Nupp, compiled through
--- `nupp.compiler.clif.lower` in handler mode. Unsupported instructions return
--- to the Rust core before any helper can move a frame or collect; a back edge
--- that may enter compiled code goes through the frame driver in `calls`.
+-- The native interpreter core's leaf handlers cover moves, constants,
+-- arithmetic, comparisons, branches, cells, upvalues, lengths and array reads.
+-- They lower through `nupp.compiler.clif.lower` in handler mode. Back edges
+-- and frame transitions continue through the frame policy in `calls`.
 const native = require("nupp.runtime.vm.intrinsics")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
@@ -931,14 +929,3 @@ export function LenF(
         return lengthSlow(pc, context, bits, 1)
     end
 end
-
--- Calls and returns. A frame transition stays native when the frame driver
--- has nothing to do at it: outside frame mode always, and in frame mode when
--- the function entered or resumed has no compiled frame entry, no vector
--- instructions, and no JIT counting its frames. Otherwise the native chain
--- leaves with `reenter`, and Rust's `tail_entry` applies the policy to the
--- frame the chain has already pushed or popped, exactly as the Rust call and
--- return handlers do. Growth, varargs, builtins, iterators, compiled entries,
--- the JIT's call threshold, guarded returns, and feedback all leave through
--- `slow` before any state changes, so the Rust handler runs the instruction
--- once from the state it would have seen.

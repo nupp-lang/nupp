@@ -539,9 +539,7 @@ end
 local PARAMS = "pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr"
 local PREFIX = 'module nupp.runtime.vm.negative\nconst native = require("nupp.runtime.vm.intrinsics")\n'
 local SUFFIX = "\n"
-local HELPER = (
-    "local function leave(%s, extra: int64): uint64\nreturn native.slow(pc, regs, ints, floats, context, frame)\nend\n"
-):format(PARAMS)
+local HELPER = ("local function leave(%s, extra: int64): uint64\nreturn native.fail()\nend\n"):format(PARAMS)
 local RECURSIVE = (
     "local function again(%s, extra: int64): uint64\nreturn again(pc, regs, ints, floats, context, frame, extra)\nend\n"
 ):format(PARAMS)
@@ -658,6 +656,7 @@ function M.helperEffectsRequireCompleteAndConsistentSummaries()
 end
 
 local REJECTED = {
+    {"retired-escape", "return native.slow(pc, regs, ints, floats, context, frame)", "slow"},
     {"allocation", "local x = {}\nreturn native.load64(regs, 0)", "unsupported expression"},
     {"pointer-return", "return pc", "NUPP"},
     {"fallthrough", "native.store64(regs, 0, native.load64(regs, 8))", "NUPP2002"},
@@ -822,7 +821,7 @@ function M.theRuntimeCoreCompilesToOneObjectWithItsSidecar()
     for _, name in ipairs({"IAdd", "CallK", "CallDyn", "Ret", "GetField", "NewRecord"}) do
         assert(sidecar:find("assert!(Code::" .. name .. " as u8 == ", 1, true), name .. " is not in the dispatch table")
     end
-    assert(not sidecar:find("Code::Slow as u8", 1, true), "Slow stays Rust by definition")
+    assert(not sidecar:find("Code::Slow as u8", 1, true), "the retired Slow opcode must not be registered")
 end
 
 function M.floorKeepsExactIntegerMachineValues()
