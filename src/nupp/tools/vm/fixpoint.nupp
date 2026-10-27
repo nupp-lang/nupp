@@ -90,7 +90,7 @@ function fixpoint.run(
     if pair == nil then
         return failed(tostring(problem))
     end
-    local checked = process.run({"python3", fs.join(root, "scripts/bootstrap-seed"), "verify", pair as string})
+    local checked = process.capture({"python3", fs.join(root, "scripts/bootstrap-seed"), "verify", pair as string})
     if checked ~= 0 then
         return failed("the bootstrap execution seed failed verification")
     end
