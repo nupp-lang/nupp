@@ -1,90 +1,291 @@
 {
-  "phase": "P2 numeric acceptance in progress",
-  "source": "61d1cb2f2a47d63a4ed01a7fbb2b9cea146666ef",
-  "rustSweep": {
-    "source": "d405e71a2b0ecac3d767937554e998c37bb1ec66",
-    "log": "build/native-p2-finish/combined-cargo-tests.log",
-    "targets": 66,
-    "passed": 594,
-    "failed": 0,
-    "ignored": 5,
-    "coreSha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
-    "sourceNote": "Six consumer files and tests/groups.lua have pending edits; native Rust source matches HEAD."
+  "phase": "P2 interpreter and numeric correctness acceptance",
+  "status": "passed",
+  "source": "6e081a0bee6949c667938c4c40308814f4c931f4",
+  "scope": "Correctness proof for this P2 source checkpoint; later migration phases, remaining graph promotion, and performance acceptance are separate.",
+  "nativeCore": {
+    "sha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
+    "sidecarSha256": "7a485b49b0bf1ea00d273c1b9a0de08093777ed3e0943be0cb298c3e7d8fcc86",
+    "regeneratedUnchangedAtSource": "6e081a0bee6949c667938c4c40308814f4c931f4"
   },
-  "sourceCheck": {
+  "compiler": {
+    "functions": 6178,
+    "imageSha256": "c696cb92f62d80b09f1f584249141f27c73c35438a9d165ddaed40f8419d2507",
+    "runtimeSha256": "40082fbaecdb86bd5d1ec35ea6f73f3ed1266bcf870b85db2b578548b6c36d5d"
+  },
+  "pinnedFixpoint": {
     "ok": true,
-    "modules": 544,
-    "log": "build/native-p2-finish/numeric-consumers-full-check.json",
-    "scope": "Numeric contracts and consumer corrections before later unsigned and physical-witness changes"
+    "diagnostics": [],
+    "stages": 3,
+    "stageTwoEqualsStageThree": true,
+    "imageSha256": "c696cb92f62d80b09f1f584249141f27c73c35438a9d165ddaed40f8419d2507",
+    "receipt": "build/native-p2-finish/integer-inference-fixpoint.json"
   },
-  "numericAndLoopTests": {
-    "ok": true,
-    "total": 17,
-    "passed": 17,
-    "failed": 0
-  },
-  "constantAndSerdeTests": {
-    "ok": true,
-    "total": 4,
-    "passed": 4,
-    "failed": 0
-  },
-  "constantRegression": {
-    "minimumIntegerRed": {
-      "ok": false,
-      "total": 1,
-      "passed": 0,
-      "failed": 1
+  "localCorpus": {
+    "source": "6e081a0bee6949c667938c4c40308814f4c931f4",
+    "sourceDirty": false,
+    "workerSha256": "eaaf9f47381cd20287d6ee43226bd064b0ac3728f10b0d12a220c802cf4e14d8",
+    "workerImageSha256": "e8ebad91fef6d5ed4fcdf5faab6862fc8a1c55104e9e9bfe546ccd1a8101390d",
+    "results": {
+      "early-cases": {
+        "ok": true,
+        "total": 10,
+        "passed": 10,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 25217.90087890625
+      },
+      "shared": {
+        "ok": true,
+        "total": 2052,
+        "passed": 2052,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 125241.63720703125
+      },
+      "compiler-focused": {
+        "ok": true,
+        "total": 229,
+        "passed": 229,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 28815.572998046875
+      },
+      "native-group": {
+        "ok": true,
+        "total": 126,
+        "passed": 126,
+        "failed": 0,
+        "skipped": 0,
+        "notExecuted": 0,
+        "durationMs": 771151.9318847656
+      }
     },
-    "negativeZeroRed": {
-      "ok": false,
-      "total": 1,
-      "passed": 0,
-      "failed": 1
-    },
-    "finalFix": "229b071d5",
-    "normalization": "Convert to float64 by multiplication with 1.0 before sign normalization; preserve negative zero",
-    "rebuiltCoreMatchesControl": true
+    "receipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/receipt.json",
+    "note": "Counts are separate runs with overlapping cases, not a summed distinct-case total.",
+    "workerBuildController": {
+      "imageSha256": "c696cb92f62d80b09f1f584249141f27c73c35438a9d165ddaed40f8419d2507",
+      "runtimeSha256": "86f55477b34afb6fe1aa56a1427ee589a17a7533239bd37012927b885e832aa5",
+      "aotDisabled": true,
+      "topAndNestedImageIdentical": true,
+      "installedUnlinkedGeneration": "d971e188d8f2998e5afca8b837235298877531bd98d8137a320b7a6f3194e619",
+      "provenanceReceipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/prepare.json",
+      "nestedLoweringLog": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/nested-toolchain.log"
+    }
   },
-  "consumerFunctionalReceipt": "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/native-p2-complete/root-consumers",
-  "consumerVerification": {
-    "focusedPassed": 9,
-    "digestChecks": 36,
-    "terminalWidthEdges": 6,
-    "timeoutEdges": 8
-  },
-  "open": [
-    "Physical witness migration and complete compiler corpus",
-    "Final pinned three-stage fixpoint",
-    "Linux and Windows numeric seed cold bootstraps",
-    "Common graph integration and matched-object verification",
-    "Repeat normal AOT acceptance for the final combined compiler image"
-  ],
-  "performance": "Deferred by owner; these are correctness receipts, not performance acceptance.",
   "normalCompilerAot": {
     "status": "passed",
-    "compiledFunctions": 6162,
-    "imageFunctions": 6162,
+    "compiledFunctions": 6178,
+    "imageFunctions": 6178,
     "freshProcesses": 2,
     "executableMemoryDenied": true,
-    "binarySha256": "d4800657b952bb119769c6cc962baaab0e2c1f2ea905dade993f5ebcb51170f5",
-    "imageSha256": "f2a485545b58a1918cd3935dbca188a548785d4a4b0090728c0f37dd7851d62c",
+    "binarySha256": "40082fbaecdb86bd5d1ec35ea6f73f3ed1266bcf870b85db2b578548b6c36d5d",
+    "imageSha256": "c696cb92f62d80b09f1f584249141f27c73c35438a9d165ddaed40f8419d2507",
+    "manifestSha256": "236d7a2649b1628bf73d5f8b6aa73fb9515417068bc4bd8122ac519183fcf861",
     "checks": 13,
-    "receipt": "build/native-p2-finish/normal-compiler-aot/smoke-current/results.json",
-    "imageSource": "26fc4b8591e85d4cdee4e885fd6c12a6b61f0b78",
-    "runtimeSource": "98b58367092c29c3bd6918291450eff29385e3a5",
-    "note": "Full combined image will be rebuilt after common-graph and guest JIT correctness changes; this proves current number-model AOT continuity."
+    "receipt": "build/native-p2-finish/integer-inference-aot/smoke/results.json"
   },
-  "finalRustSweep": {
-    "source": "02898a6dab0bf31a55fb127d80bceb99bab07365",
-    "targets": 67,
-    "passed": 597,
+  "rootCli": {
+    "passed": 94,
+    "cases": 94,
+    "packagedProgramExecuted": true,
+    "receipt": "build/native-p2-finish/integer-inference-root-cli/summary.json"
+  },
+  "rustSweep": {
+    "source": "75af52d04bfcedab714614c8913c9947c699440d",
+    "targets": 66,
+    "passed": 592,
     "failed": 0,
     "ignored": 5,
-    "sweepLog": "build/native-p2-finish/numeric-final-cargo-tests.log",
-    "note": "The full sweep had one formatter-dependent cleanup assertion. Production Rust was unchanged for the corrected specialization-only rerun; all other target results are reused.",
-    "assertionFix": "02898a6da",
-    "coreSha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
-    "detailedReceipt": "build/native-p2-finish/numeric-final-cargo-receipt.json"
-  }
+    "receipt": "build/native-p2-finish/second-freeze-cargo-receipt.json",
+    "reusedAtSource": "6e081a0bee6949c667938c4c40308814f4c931f4",
+    "reuseProof": "git diff --name-only 75af52d04bfcedab714614c8913c9947c699440d..6e081a0bee6949c667938c4c40308814f4c931f4 -- native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml is empty; regenerated native core bytes also match.",
+    "docTestsRun": false,
+    "supersededRawSummaryCounts": {
+      "targets": 72,
+      "passed": 598,
+      "excludedNestedSummaries": 6,
+      "reason": "Fresh-process child harness summaries are already contained in their outer Cargo tests."
+    },
+    "accountingReceipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/rust-cargo-accounting.json",
+    "rawLog": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-p2-finish/second-freeze-cargo-tests.log",
+    "rawLogSha256": "fb29d0c7567e4874deb34052b27b64956d7e03ec1ad0e778c20cd223dbe802be",
+    "originalReceiptContainsSupersededRawTotals": true
+  },
+  "platformColdAcceptance": {
+    "status": "passed",
+    "workflow": ".github/workflows/numeric-bootstrap-seed.yml",
+    "ref": "codex/native-number-seed",
+    "hosts": {
+      "x86_64-unknown-linux-gnu": {
+        "host": "x86_64-unknown-linux-gnu",
+        "source": "6e081a0bee6949c667938c4c40308814f4c931f4",
+        "compiledFunctions": 6178,
+        "imageSha256": "f89e00b2b8762ff011205166c3bc680f1d5526dfc0dcb1a270c1b8536c152bcc",
+        "runtimeSha256": "a1715abb19896463a5abdd126318b721127977c1fedfaa09205ef5bcb99f9456",
+        "compiledFrameEntries": [
+          1347068
+        ],
+        "coreClifSha256": "70a7259de99325f2ccccd13586af7f07a4433f8386b602f1eabade2aad90317d",
+        "receipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/platform-artifacts/40571738210/native-bootstrap-cold-x86_64-unknown-linux-gnu/acceptance.json",
+        "status": "passed",
+        "runId": 40571738210,
+        "jobId": 122427453091,
+        "artifactId": 12768553745,
+        "artifactZipSha256": "01e543427326bd4edca4801583d8c4e34b7a10b5c2faa38727acfdd2727b900e",
+        "productionPin": {
+          "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "2a54af98de2d3a878aa5bb65b4d2616d5d27a91c272196fac5935f7a6feb0e42",
+          "runtimeSha256": "287be283a060dceda9e39a205d8353ac94dd960ec26108d0ca3399c7008d5ad3",
+          "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+        },
+        "seedSourceRevision": "4e6e9d449519f799e122526cacf505fd1f016b0a",
+        "linkedGeneration": "d3d3c0d315acd6444ac3f4574865cd8986fae1746b27a58c8778f197f75d56e8",
+        "acceptanceJsonSha256": "dad3132ea439cb218bcd55f54f7f4a750bb07b0b6c8ae48b307bba0267a97e47",
+        "manifestSha256": "f936239974bad5698ce622471533f29393e2639fd4db9884eaf9d88e58608743",
+        "aotExecution": {
+          "attachedEntries": [
+            6178
+          ],
+          "compiledFrameEntries": [
+            1347068
+          ]
+        },
+        "emittedImageSha256": "b8758b1a270487c6c5fcd71fc22991660f89f0b711aa35ef808fc93e876bfe47",
+        "artifactUrl": "https://github.com/nupp-lang/nupp/actions/runs/40571738210/artifacts/12768553745",
+        "coldTests": {
+          "passed": 3,
+          "total": 3
+        },
+        "checksPassed": [
+          "Production published pins with a private empty seed cache",
+          "Actual pinned seed and fresh image execution",
+          "Three-stage fixpoint bound byte-for-byte to installed image",
+          "Interpreted and final linked native core CLIF identity",
+          "ABI4, matching-image, complete unique AOT function manifest",
+          "All linked entries attached and compiled frames executed",
+          "Compiled/interpreted emit identity and emitted program result 42"
+        ]
+      },
+      "x86_64-pc-windows-gnu": {
+        "host": "x86_64-pc-windows-gnu",
+        "source": "5e573986dd9fa8d4716de594f15c35f758488713",
+        "compiledFunctions": 6178,
+        "imageSha256": "22115c966151db2c8ec65e0abcd2107ea1597f402af88a3be4b3b89540e83228",
+        "runtimeSha256": "9c25fd5d4c9b8b911e0b4562e115ddbac0c97b717db07b1616449a97125b8b22",
+        "compiledFrameEntries": [
+          1347159
+        ],
+        "coreClifSha256": "70a7259de99325f2ccccd13586af7f07a4433f8386b602f1eabade2aad90317d",
+        "receipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/platform-artifacts/40577977531/native-bootstrap-cold-x86_64-pc-windows-gnu/acceptance.json",
+        "status": "passed",
+        "runId": 40577977531,
+        "jobId": 122449405590,
+        "artifactId": 12772239592,
+        "artifactZipSha256": "3a83682dba03c15f45dc0868239091f655fd39986ac1444fde78f798d82224f9",
+        "productionPin": {
+          "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-x86_64-pc-windows-gnu.tar.gz",
+          "sha256": "a167b0315538ef53610658743ea1b33b9771e46cef4ea8ef7353ee4908b94926",
+          "runtimeSha256": "ae7ed494ed599fa07ba025692be236cda7b8e0c0b64fcc0761fa5a5d5db9d94b",
+          "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+        },
+        "seedSourceRevision": "4e6e9d449519f799e122526cacf505fd1f016b0a",
+        "linkedGeneration": "144bf1ecbbcafe97eac4a45435d6536f6bdbbd04fd68e412312e03bd2ed45a12",
+        "acceptanceJsonSha256": "c51a5e00be45178b9bda9fbc16d984ef5f56ba2c844a75e2d3e3299e15588d87",
+        "manifestSha256": "eeca7a297193f75231588316479d8add36e773cff23533cde2ba164392574fe7",
+        "aotExecution": {
+          "attachedEntries": [
+            6178
+          ],
+          "compiledFrameEntries": [
+            1347159
+          ]
+        },
+        "emittedImageSha256": "4fffeab09593b3ef1a5d3f96ec9ba740194a5438419c042db06d24ee4ddfb317",
+        "artifactUrl": "https://github.com/nupp-lang/nupp/actions/runs/40577977531/artifacts/12772239592",
+        "coldTests": {
+          "passed": 3,
+          "total": 3
+        },
+        "checksPassed": [
+          "Production published pins with a private empty seed cache",
+          "Actual pinned seed and fresh image execution",
+          "Three-stage fixpoint bound byte-for-byte to installed image",
+          "Interpreted and final linked native core CLIF identity",
+          "ABI4, matching-image, complete unique AOT function manifest",
+          "All linked entries attached and compiled frames executed",
+          "Compiled/interpreted emit identity and emitted program result 42"
+        ]
+      }
+    },
+    "checks": [
+      "Production published pins with a private empty seed cache",
+      "Actual pinned seed and fresh image execution",
+      "Three-stage fixpoint bound byte-for-byte to installed image",
+      "Interpreted and final linked native core CLIF identity",
+      "ABI4, matching-image, complete unique AOT function manifest",
+      "All linked entries attached and compiled frames executed",
+      "Compiled/interpreted emit identity and emitted program result 42"
+    ],
+    "runs": [
+      {
+        "id": 40571738210,
+        "url": "https://github.com/nupp-lang/nupp/actions/runs/40571738210",
+        "headSha": "6e081a0bee6949c667938c4c40308814f4c931f4",
+        "selectedPlatforms": [
+          "linux",
+          "windows"
+        ],
+        "conclusion": "failure",
+        "note": "Linux accepted; Windows failed only a synthetic Python path assertion, corrected in 5e and rerun independently."
+      },
+      {
+        "id": 40577977531,
+        "url": "https://github.com/nupp-lang/nupp/actions/runs/40577977531",
+        "headSha": "5e573986dd9fa8d4716de594f15c35f758488713",
+        "selectedPlatforms": [
+          "windows"
+        ],
+        "conclusion": "success",
+        "note": "Windows-only rerun after the test-only correction; compiler and runtime sources match 6e."
+      }
+    ],
+    "retainedFailure": {
+      "runId": 40571738210,
+      "jobId": 122427453719,
+      "host": "x86_64-pc-windows-gnu",
+      "artifactId": 12767828015,
+      "artifactZipSha256": "901e5bccdbcb4bec18e3f5eaa2fa3b5b37dee3d8877a80ceeb85e41f92b6a984",
+      "coldBuild": "passed",
+      "seedExecutionTests": {
+        "passed": 2,
+        "total": 2
+      },
+      "failure": "The synthetic full-cold receipt test indexed forward-slash hash keys against Windows backslash keys. Test-only correction 5e normalizes paths; no compiler/runtime source change.",
+      "log": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/platform-artifacts/40571738210/native-bootstrap-cold-x86_64-pc-windows-gnu/cold-tests.log"
+    },
+    "artifactVerificationReceipt": "/Users/dowling/projects/nupp-wt/native-shared-integer-inference/build/integer-inference-acceptance/platform-artifact-verification.json"
+  },
+  "historicalEvidence": {
+    "previousFailedRunsRetained": [
+      "/Users/dowling/projects/nupp-wt/native-shared-final-acceptance/build/shared-final-acceptance/receipt.json",
+      "/Users/dowling/projects/nupp-wt/native-shared-third-freeze/build/shared-third-freeze/receipt.json"
+    ],
+    "fixtureCorrectionReceipt": "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/final-fixtures/receipt.json"
+  },
+  "performance": "Deferred by owner; correctness evidence does not imply performance acceptance.",
+  "platformTestCorrection": {
+    "source": "5e573986dd9fa8d4716de594f15c35f758488713",
+    "changedFiles": [
+      "tests/bootstrapseedtest.py"
+    ],
+    "productionSourcesIdenticalTo": "6e081a0bee6949c667938c4c40308814f4c931f4",
+    "focusedPythonCases": 19,
+    "passed": 19,
+    "productionIdentityProof": "git diff --name-only 6e081a0bee6949c667938c4c40308814f4c931f4..5e573986dd9fa8d4716de594f15c35f758488713 lists only tests/bootstrapseedtest.py."
+  },
+  "acceptanceRevision": "5e573986dd9fa8d4716de594f15c35f758488713"
 }
