@@ -430,12 +430,13 @@ pub(crate) fn rt_new_record(ctx: *mut Ctx, shape: u32) -> u64 {
     sync(ctx, it);
     v.0
 }
-/// Equality past the word compare: two objects by content when string-like.
+/// Equality past the word compare, including a guest metamethod callback.
 pub(crate) fn rt_eq_slow(ctx: *mut Ctx, x: u64, y: u64) -> u32 {
     let ctx = unsafe { &mut *ctx };
-    let it = unsafe { &mut *(ctx.interp as *mut Interp) };
+    let (it, _) = enter_rust(ctx);
     let r = it.guarded(|it| Value::boolean(it.equals(Value(x), Value(y))));
-    if r == Value::ERROR { ctx.status = ST_ERROR; return 0; }
+    if r == Value::ERROR { ctx.status = ST_ERROR; }
+    sync(ctx, it);
     (r == Value::TRUE) as u32
 }
 

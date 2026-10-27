@@ -1566,6 +1566,151 @@ fn native_helper_preserves_the_current_return_count() {
 }
 
 #[test]
+fn native_equality_helper_publishes_and_reloads_the_active_frame() {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    program(&mut vm);
+    let left = vm.new_table();
+    vm.registered.push(left);
+    let right = vm.new_table();
+    vm.registered.push(right);
+    let tid = vm.spawn(6, &[]);
+    vm.execution_limit = Some(20);
+    let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+    ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+    ctx.tid = tid as u64;
+    crate::threaded::sync(&mut ctx, &mut vm);
+    let current = vm.funcs[6].frame_words();
+    let root_header = vm.tasks[tid].stack[0];
+    // A native push has made a second frame without updating Task.cur.
+    let stack = &mut vm.tasks[tid].stack;
+    stack[current] = 6;
+    stack[current + 1] = ((HDR + 2) as u64) << 32;
+    stack[current + 2] = NIL;
+    stack[current + 3] = (current as u64) << 33;
+    stack[current + HDR..current * 2].fill(NIL);
+    ctx.cur = current as u64;
+    ctx.pc = 0;
+    ctx.budget = 17;
+    ctx.last_nres = 4;
+    vm.last_nres = 1;
+
+    let equal = crate::threaded::rt_eq_slow(&mut ctx, left.0, right.0);
+
+    assert_eq!(equal, 0);
+    assert_eq!(vm.tasks[tid].cur(), current);
+    assert_eq!(vm.tasks[tid].stack[current] >> 32, 1);
+    assert_eq!(vm.tasks[tid].stack[0], root_header);
+    assert_eq!(vm.execution_limit, Some(17));
+    assert_eq!(ctx.budget, 17);
+    assert_eq!(ctx.budget_mark, 17);
+    assert_eq!(vm.last_nres, 4);
+    assert_eq!(ctx.last_nres, 4);
+    assert_eq!(ctx.stack, vm.tasks[tid].stack.as_mut_ptr());
+    assert_eq!(ctx.funcs, vm.finfo.as_ptr());
+}
+
+#[test]
+fn native_equality_callbacks_keep_callee_only_roots_and_result_state() {
+    let source = r#"
+function parent 0 0 8 1 :v
+RetNil
+end
+function equal_many 1 2 8 1 vv:v
+const 0 true
+const 1 num 2
+const 2 num 3
+NewTable 6
+NewTable 7
+K 3 0
+K 4 1
+K 5 2
+RetN 3 3
+end
+function equal_raise 2 2 8 1 vv:v
+const 0 str "equality error"
+const 1 builtin error
+NewTable 3
+K 4 1
+K 6 0
+CallK 0 4 5 1 0
+RetNil
+end
+function equal_none 3 2 8 1 vv:v
+NewTable 3
+RetNil
+end
+entry 0
+"#;
+    for (fid, expected, nres, status, budget) in [
+        (1, 1, 3, 0, 17),
+        (2, 0, 4, crate::threaded::ST_ERROR, 17),
+        (3, 0, 0, 0, 17),
+    ] {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, source).unwrap();
+        vm.entries.resize(vm.funcs.len(), 0);
+        vm.prepare_threaded();
+        let left = vm.new_table();
+        vm.registered.push(left);
+        let right = vm.new_table();
+        vm.registered.push(right);
+        let meta = vm.new_table();
+        vm.registered.push(meta);
+        let key = vm.intern("__eq");
+        vm.set_index(meta, key, Value::func(fid));
+        vm.set_metatable(left, meta);
+        vm.set_metatable(right, meta);
+        let survivor = vm.new_table();
+        let tid = vm.spawn(0, &[]);
+        let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+        ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+        ctx.tid = tid as u64;
+        vm.execution_limit = Some(20);
+        crate::threaded::sync(&mut ctx, &mut vm);
+        let current = vm.funcs[0].frame_words();
+        let stack = &mut vm.tasks[tid].stack;
+        stack[current] = 0;
+        stack[current + 1] = ((HDR + 2) as u64) << 32;
+        stack[current + 2] = NIL;
+        stack[current + 3] = (current as u64) << 33;
+        stack[current + HDR..current * 2].fill(NIL);
+        // This object is reachable only from the unpublished native frame.
+        stack[current + HDR + 1] = survivor.0;
+        ctx.cur = current as u64;
+        ctx.pc = 0;
+        ctx.budget = 17;
+        ctx.last_nres = 4;
+        vm.last_nres = 1;
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+
+        let equal = crate::threaded::rt_eq_slow(&mut ctx, left.0, right.0);
+
+        assert_eq!(equal, expected, "callback {fid}");
+        assert_eq!(ctx.status, status, "callback {fid}");
+        assert_eq!(vm.tasks[tid].cur(), current);
+        assert_eq!(vm.tasks[tid].stack[current] >> 32, 1);
+        assert_eq!(vm.tasks.len(), 1);
+        assert_eq!(vm.last_nres, nres);
+        assert_eq!(ctx.last_nres, nres as u64);
+        assert_eq!(vm.execution_limit, Some(budget));
+        assert_eq!(ctx.budget, budget as u64);
+        assert_eq!(ctx.budget_mark, budget as u64);
+        assert_eq!(ctx.stack, vm.tasks[tid].stack.as_mut_ptr());
+        assert_eq!(ctx.funcs, vm.finfo.as_ptr());
+        assert_eq!(vm.kind_of(survivor), Some(crate::heap::KIND_TABLE));
+        if status != 0 {
+            assert_eq!(vm.bytes_of(vm.pending_error.unwrap()), b"equality error");
+        }
+        vm.full_cycle();
+        vm.check_oracle();
+        assert_eq!(vm.kind_of(survivor), Some(crate::heap::KIND_TABLE));
+    }
+}
+
+#[test]
 fn native_array_resize_preserves_unpublished_frame_state_and_budget() {
     let mut vm = Box::new(crate::interp::Interp::new());
     program(&mut vm);
