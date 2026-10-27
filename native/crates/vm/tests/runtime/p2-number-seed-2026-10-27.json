@@ -1,0 +1,57 @@
+{
+  "phase": "P2 bootstrap capability seed; full P2 acceptance remains open",
+  "source": "4e6e9d449519f799e122526cacf505fd1f016b0a",
+  "architecture": "Shared Nupp instruction handlers; no Rust guest execution loop; existing Nupp graph owns semantic lowering.",
+  "runtime": {
+    "path": "build/native-p2-finish/final-seed-runtime3",
+    "sha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+    "features": "native-runtime,c-headers,native-ffi,compression,net,http,regex,markdown; no default features",
+    "targetDirectory": "build/native-p2-finish/seed-target"
+  },
+  "compiler": {
+    "path": "build/native-p2-finish/number-seed-g-compiler.image",
+    "sha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd",
+    "functions": 6157
+  },
+  "core": {
+    "sha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
+    "sidecarSha256": "7a485b49b0bf1ea00d273c1b9a0de08093777ed3e0943be0cb298c3e7d8fcc86"
+  },
+  "verification": {
+    "runtimeSweep": {
+      "targets": 65,
+      "passed": 592,
+      "failed": 0,
+      "ignored": 5,
+      "source": "33686a74fc7684f93cb2602a0ef2fb2ff2138fe1",
+      "nativeTreeMatchesSource": true,
+      "receipt": "/Users/dowling/projects/nupp-wt/native-graph-foundation/build/native-p2-complete/combined-acceptance/final-acceptance.json"
+    },
+    "compilerSelfEmission": {
+      "GEqualsH": true,
+      "cache": "disabled",
+      "log": "build/native-p2-finish/number-g-h-fixpoint.log"
+    },
+    "cli": [
+      "image verifier",
+      "full root CLI help",
+      "observed lexer x = 1",
+      "actual CLI check of math.type, math.tointeger and io.type"
+    ],
+    "seedArchive": {
+      "executionVerified": true,
+      "host": "aarch64-apple-darwin",
+      "url": "file:///Users/dowling/projects/nupp-wt/native-runtime/build/native-p2-finish/nupp-seed-aarch64-apple-darwin.tar.gz",
+      "sha256": "ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
+      "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
+      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+    }
+  },
+  "open": [
+    "Full number-model compiler/native corpus after staged loop, unsigned and remaining declaration corrections",
+    "Normal compiler AOT continuity",
+    "Linux and Windows cold-bootstrap acceptance",
+    "P1b remaining common-graph integration"
+  ],
+  "performance": "Deferred by owner; this seed does not claim performance acceptance or full migration completion."
+}
