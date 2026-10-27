@@ -150,6 +150,7 @@ pub(crate) fn verify(f: &Function) -> Result<(), String> {
             | Op::VExtractN(..)
             | Op::VAny(..)
             | Op::VPrefix(..)
+            | Op::Raise(..)
             | Op::IK(..)
             | Op::FK(..)
             | Op::K(..)
