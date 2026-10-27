@@ -154,10 +154,9 @@ export function VarargTable(
     frame: voidptr
 ): uint64
     local count = native.index(native.load64(frame, 24) >> 49)
-    local varargs = native.offset(frame, 0 - count * 8)
     local length = count
     while length > 0 do
-        if slots.readValue(frame, varargs, length - 1) ~= values.NIL then
+        if slots.readVararg(frame, length - 1) ~= values.NIL then
             break
         end
         length = length - 1

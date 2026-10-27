@@ -1099,12 +1099,13 @@ local function compileDirectFunction(fn: Fn, options: any): string
         local access = slotcontract.read(n.obj.name.definition, member)
         local signature = raw(n.obj.inferredType)
         local args = n.args.exprs or {}
-        local count = access.write and 4 or 3
+        local vararg = access.class == "vararg"
+        local count = vararg and 2 or (access.write and 4 or 3)
         need(
             signature and signature.tag == "func" and #signature.params == count and #args == count,
             member .. ": slot argument count"
         )
-        local kinds = {"voidptr", "voidptr", "int64", access.kind}
+        local kinds = vararg and {"voidptr", "int64"} or {"voidptr", "voidptr", "int64", access.kind}
         local words = {}
         for index, param in ipairs(signature.params) do
             need(tag(param) == kinds[index], member .. ": slot argument kind")
@@ -1112,6 +1113,13 @@ local function compileDirectFunction(fn: Fn, options: any): string
         end
         local resultKind = access.write and "nil" or access.kind
         need(#signature.rets == 1 and tag(signature.rets[1]) == resultKind, member .. ": slot result kind")
+        if vararg then
+            local packed = emit("load.i64 notrap " .. words[1] .. "+24")
+            local length = emit("ushr " .. packed .. ", " .. constant("i64", "49"))
+            local slot = emit("isub " .. words[2] .. ", " .. length)
+            local offset = emit("imul " .. slot .. ", " .. constant("i64", tostring(access.width)))
+            return {kind = access.kind, value = load(access.kind, emit("iadd " .. words[1] .. ", " .. offset))}
+        end
         local offset = emit("imul " .. words[3] .. ", " .. constant("i64", tostring(access.width)))
         local address = emit("iadd " .. words[2] .. ", " .. offset)
         if access.offset ~= nil and access.offset ~= 0 then

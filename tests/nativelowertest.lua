@@ -364,6 +364,15 @@ function M.logicalSlotsKeepWindowsKindsAndBitsDistinct()
     })
 end
 
+function M.varargSlotsDecodePackedCountsAndPreserveUnsignedValueWords()
+    check(compileFixture("slots"), {
+        {"varargWords", {"buffer:262144", 1, 0, "18446744073709551615"}, true},
+        {"varargWords", {"buffer:262144", 16385, 0, "9223372036854775808"}, true},
+        {"varargWords", {"buffer:262144", 16385, 16384, "18446744073709551615"}, true},
+        {"varargWords", {"buffer:524288", 32767, 32766, "9221120237041090561"}, true}
+    })
+end
+
 function M.logicalSlotsRequireClassifiedConsistentContracts()
     local function declaration(class, kind, write)
         return {
@@ -384,13 +393,17 @@ function M.logicalSlotsRequireClassifiedConsistentContracts()
         {"v", "number", false},
         {"f", "uint64", true},
         {"i", "int64", "false"},
-        {"x", "uint64", false}
+        {"x", "uint64", false},
+        {"vararg", "uint64", true},
+        {"vararg", "int64", false}
     }) do
         assert(not pcall(slotcontract.read, declaration(unpack(fields)), "invalid"))
     end
     assert(not pcall(slotcontract.read, {}, "unclassified"))
     local access = slotcontract.read(declaration("i", "int64", false), "signed")
     assert(access.class == "i" and access.kind == "int64" and not access.write and access.width == 8)
+    access = slotcontract.read(declaration("vararg", "uint64", false), "argument")
+    assert(access.class == "vararg" and access.kind == "uint64" and not access.write and access.width == 8)
 end
 
 function M.programLoadsDecodeFrozenCodeAtDeclaredWidths()
@@ -815,6 +828,16 @@ function M.wholeCoreHandlersUseTheNuppGraph()
         assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
         assert(text:find("return_call_indirect sig0, ", 1, true), name .. " lost its dispatch")
         assert(not text:find("call %", 1, true), name .. " introduced a helper boundary")
+    end
+end
+
+function M.wholeStateHandlersUseTheNuppGraph()
+    local clif = coreClif()
+    for _, name in ipairs({"Disarm", "AffineMark", "AffineEnter", "Checkpoint", "Park", "VarargTable"}) do
+        assert(
+            functionText(clif, name):find("Nupp native graph: " .. name, 1, true),
+            name .. " bypassed the Nupp graph"
+        )
     end
 end
 

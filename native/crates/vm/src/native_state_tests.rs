@@ -95,7 +95,7 @@ fn native_disarm_only_clears_the_last_matching_cleanup() {
 
 #[test]
 fn native_vararg_tables_preserve_holes_owners_and_trailing_nil_length() {
-    for count in [0, 1, 9, 128, 255, 1024] {
+    for count in [0, 1, 9, 128, 255, 1024, 16385] {
         for all_nil in [false, true] {
             let mut vm = fixture();
             let owner = vm.new_table();
@@ -110,6 +110,12 @@ fn native_vararg_tables_preserve_holes_owners_and_trailing_nil_length() {
                 .collect();
             if !all_nil && count > 2 {
                 args[count - 2] = owner;
+            }
+            if !all_nil && count > 9 {
+                args[1] = Value::num(-0.0);
+                args[2] = crate::numeric::signed(&mut vm, i64::MIN);
+                args[4] = crate::numeric::unsigned(&mut vm, u64::MAX);
+                args[5] = crate::numeric::signed(&mut vm, i64::MAX);
             }
             if count > 0 {
                 args[count - 1] = Value::NIL;

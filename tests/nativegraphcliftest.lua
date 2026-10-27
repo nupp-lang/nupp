@@ -271,7 +271,7 @@ function M.namedHelpersEmitDeclaredCSignaturesAndKeepCallOrder()
         },
         value
     })
-    dispatch(b, 1)
+    b.term = {kind = "nativeFail", edges = {}}
     graph.prune(g)
     local options = {name = "IK", helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}}
     local text = emitter.emit(g, options)
@@ -302,7 +302,7 @@ function M.namedHelpersEmitDeclaredCSignaturesAndKeepCallOrder()
             kind == "uint64" and unsigned or signed
         })
     end
-    dispatch(b, 1)
+    b.term = {kind = "nativeFail", edges = {}}
     assert(not pcall(emitter.emit, g, options), "machine-identical signatures erased exact helper kinds")
 end
 
@@ -359,6 +359,25 @@ function M.liveNativeMemoryEmitsExactWidthsWithoutFrozenLoadFlags()
         return 1.5
     end
     assert(not pcall(emitter.emit, g, options), "fractional ABI offset reached machine code")
+end
+
+function M.frameVarargReadsDeriveThePackedWindowFromItsOwningFrame()
+    local g = newGraph()
+    local b = graph.block(g)
+    local slot = constant(g, b, "16384")
+    graph.emitNative(
+        g,
+        b,
+        "FrameVarargRead",
+        {6, slot, {class = "vararg", kind = "uint64", width = 8, write = false}},
+        "uint64"
+    )
+    dispatch(b, 1)
+    local text = emitter.emit(g, {name = "VarargTable"})
+    assert(text:find("load.i64 notrap v6+24", 1, true))
+    assert(text:find("ushr ", 1, true) and text:find("iconst.i64 49", 1, true))
+    assert(text:find("isub v7,", 1, true) and text:find("iadd v6,", 1, true))
+    assert(not text:find("readonly", 1, true))
 end
 
 return M

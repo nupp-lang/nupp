@@ -71,6 +71,14 @@ local controlAdmitted = {
     Unwind = true,
     Switch = true
 }
+local stateAdmitted = {
+    Disarm = true,
+    AffineMark = true,
+    AffineEnter = true,
+    Checkpoint = true,
+    Park = true,
+    VarargTable = true
+}
 local arithmetic = {
     ["+"] = "IAdd",
     ["-"] = "ISub",
@@ -187,6 +195,7 @@ function nativegraph.admits(fn: any): boolean
     end
     return (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true)
         or (fn.scope.name == "nupp.runtime.vm.control" and controlAdmitted[fn.name] == true)
+        or (fn.scope.name == "nupp.runtime.vm.state" and stateAdmitted[fn.name] == true)
         or nativegraph.isLeaf(fn)
 end
 
@@ -404,6 +413,16 @@ function nativegraph.compile(fn: any, options: any): any
             elseif moduleName == "nupp.runtime.vm.slots" then
                 local contract = slotcontract.read(n.obj.name.definition, name as string)
                 need(not contract.write, "slot write is a statement")
+                if contract.class == "vararg" then
+                    signature(n, {"voidptr", "int64"}, contract.kind)
+                    need(expected == nil or expected == contract.kind, "vararg read changes exact kind")
+                    return emit(
+                        n,
+                        "FrameVarargRead",
+                        {expression(args[1], "voidptr"), expression(args[2], "int64"), contract},
+                        contract.kind
+                    ) as integer
+                end
                 signature(n, {"voidptr", "voidptr", "int64"}, contract.kind)
                 need(expected == nil or expected == contract.kind, "slot read changes exact kind")
                 local frame = expression(args[1], "voidptr")

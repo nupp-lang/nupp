@@ -114,6 +114,50 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.stateHandlersPreserveCleanupAndFrameOwnedVarargReads()
+    local _, options = checkedWithModules({"state"})
+    local scope = options.modules["nupp.runtime.vm.state"]
+    local count = 0
+    for name, fn in pairs(scope.exports) do
+        if fn.isHandler then
+            count = count + 1
+            assert(nativegraph.admits(fn))
+            local g = nativegraph.compile(fn, options)
+            graph.prune(g)
+            graph.verify(g)
+            local varargs, tails, loops = 0, 0, 0
+            for _, b in ipairs(g.blocks) do
+                for index, op in ipairs(b.op) do
+                    if op == "FrameVarargRead" then
+                        varargs = varargs + 1
+                        assert(b.args[index][1] == 6 and b.args[index][3].class == "vararg")
+                    end
+                end
+                if b.term.kind == "nativeTail" then
+                    tails = tails + 1
+                    assert(b.term.args[1] == 1 and b.term.args[2] == 5)
+                end
+                for _, edge in ipairs(b.term.edges) do
+                    if edge.target <= b.id then
+                        loops = loops + 1
+                    end
+                end
+            end
+            if name == "Disarm" then
+                assert(tails == 0 and loops > 0)
+            else
+                assert(tails > 0)
+            end
+            if name == "VarargTable" then
+                assert(varargs == 1 and loops > 0)
+            else
+                assert(varargs == 0)
+            end
+        end
+    end
+    assert(count == 6)
+end
+
 function M.controlHandlersKeepCleanupLoopsProtectedTransfersAndSwitchLoads()
     local _, options = checkedWithModules({"control", "calls"})
     local scope = options.modules["nupp.runtime.vm.control"]
@@ -459,8 +503,8 @@ end
 
 function M.namedHelperCallsKeepCheckedSignaturesEffectsAndOperandIds()
     local original = read(CORE)
-    local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))"
-    local replacement = "helpers.cellError(context, values.NIL, 0, a)\n    slots.writeIntegerBits(frame, ints, a, helpers.objectLength(context, values.NIL))"
+    local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))\n    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)"
+    local replacement = "helpers.cellError(context, values.NIL, 0, a)\n    local observed: uint64 = helpers.objectLength(context, values.NIL)\n    return native.fail()"
     local at = assert(original:find(needle, 1, true))
     local functions, options = checked(original:sub(1, at - 1) .. replacement .. original:sub(at + #needle))
     options.helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}

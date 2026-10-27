@@ -55,3 +55,10 @@ local function floatBits(base: voidptr, slot: int64, bits: uint64): boolean
     slots.writeFloat(base, floats, slot, native.fromBits(bits))
     return native.bits(slots.readFloat(base, floats, slot)) == bits
 end
+
+local function varargWords(base: voidptr, count: int64, index: int64, bits: uint64): boolean
+    local frame = native.offset(base, count * 8)
+    native.store64(frame, 24, (native.word(count) << 49ULL) | 0x1ffffffffffffULL)
+    native.store64(base, index * 8, bits)
+    return slots.readVararg(frame, index) == bits
+end

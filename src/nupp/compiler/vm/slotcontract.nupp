@@ -2,6 +2,7 @@ module nupp.compiler.vm.slotcontract
 
 local contract = {}
 local kinds = {
+    vararg = {uint64 = true},
     v = {uint64 = true},
     i = {int64 = true, uint64 = true},
     f = {float64 = true},
@@ -49,6 +50,7 @@ function contract.read(definition: any, name: string): {
         "slot access " .. name .. " has an invalid kind"
     )
     assert(type(fields.write) == "boolean", "slot access " .. name .. " has no write flag")
+    assert(fields.class ~= "vararg" or not fields.write, "vararg slots are read-only")
 
     if fields.class == "xLow" or fields.class == "xHigh" then
         return {

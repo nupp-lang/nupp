@@ -321,6 +321,13 @@ function emitter.emit(g: any, options: any): string
                 local load = need(programLoads[access.kind], "unsupported program load kind")
                 local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
                 line(result .. " = " .. load .. " notrap " .. address)
+            elseif op == "FrameVarargRead" then
+                local packed = temporary("load.i64 notrap " .. value(args[1]) .. "+24")
+                local count = temporary("ushr " .. packed .. ", " .. constant("49"))
+                local slots = temporary("isub " .. value(args[2]) .. ", " .. count)
+                local offset = temporary("imul " .. slots .. ", " .. constant("8"))
+                local address = temporary("iadd " .. value(args[1]) .. ", " .. offset)
+                line(result .. " = load.i64 notrap " .. address)
             elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
                 local access = args[op == "FrameSlotRead" and 4 or 5]
                 need(

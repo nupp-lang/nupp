@@ -110,6 +110,7 @@ signatures.NativePointer = "Ii"
 signatures.NativeAddress = "Ii"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
+signatures.FrameVarargRead = "Iii#"
 signatures.FrameSlotWrite = "iiia#"
 signatures.PointerOffset = "Iii"
 signatures.NativeBoolean = "I#"
@@ -142,6 +143,7 @@ local nativeOnly = {
     NativeAddress = true,
     ProgramLoad = true,
     FrameSlotRead = true,
+    FrameVarargRead = true,
     FrameSlotWrite = true,
     PointerOffset = true,
     NativeBoolean = true,
@@ -449,7 +451,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     local kinds, kind = g.exactTypes, g.exactTypes[dst]
     if g.native.abi == "leaf" then
         assert(
-            op ~= "NativeHelperCall" and op ~= "ProgramLoad" and op ~= "FrameSlotRead" and op ~= "FrameSlotWrite",
+            op ~= "NativeHelperCall"
+            and op ~= "ProgramLoad"
+            and op ~= "FrameSlotRead"
+            and op ~= "FrameSlotWrite"
+            and op ~= "FrameVarargRead",
             "native leaf cannot access VM state or invoke managed helpers"
         )
     end
@@ -644,6 +650,20 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             and kind == result,
             "invalid native program contract"
         )
+    elseif op == "FrameVarargRead" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        local contract = args[3]
+        nativeContract(contract, {class = true, kind = true, write = true, width = true})
+        assert(args[1] == 6, "native vararg owning frame identity mismatch")
+        assert(
+            contract.class == "vararg"
+            and contract.kind == "uint64"
+            and contract.write == false
+            and contract.width == 8
+            and kind == "uint64",
+            "invalid native vararg contract"
+        )
     elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
         hasKind(args[1], "voidptr")
         hasKind(args[2], "voidptr")
@@ -704,6 +724,51 @@ local edgeCounts = {
     nativeTail = 0,
     nativeFail = 0
 }
+
+-- Entry frame/window capabilities end at collecting or parking helpers.
+-- No recovery operation is admitted yet: a later slot access or dispatch
+-- needs a future explicit proof of a freshly recovered owning frame.
+local function verifyNativeEntryFrame(g: any): nil
+    local invalid, queue = {}, {}
+
+    local function propagate(b: any): nil
+        for _, edge in ipairs(b.term.edges) do
+            if not invalid[edge.target] then
+                invalid[edge.target] = true
+                queue[#queue + 1] = edge.target
+            end
+        end
+    end
+
+    for _, b in ipairs(g.blocks) do
+        for index, op in ipairs(b.op) do
+            if op == "NativeHelperCall" then
+                local effects = b.args[index][1].effects
+                if effects.mayCollect or effects.mayPark then
+                    propagate(b)
+                    break
+                end
+            end
+        end
+    end
+    local cursor: integer = 1
+    while cursor <= #queue do
+        propagate(g.blocks[queue[cursor]])
+        cursor = cursor + 1
+    end
+    for _, b in ipairs(g.blocks) do
+        local stale = invalid[b.id] == true
+        for index, op in ipairs(b.op) do
+            if op == "FrameSlotRead" or op == "FrameSlotWrite" or op == "FrameVarargRead" then
+                assert(not stale, "native slot access uses an invalidated entry frame")
+            elseif op == "NativeHelperCall" then
+                local effects = b.args[index][1].effects
+                stale = stale or effects.mayCollect or effects.mayPark
+            end
+        end
+        assert(b.term.kind ~= "dispatch" or not stale, "native dispatch uses invalidated entry windows")
+    end
+end
 
 function graph.verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
@@ -1027,6 +1092,9 @@ function graph.verify(g: any): nil
         if not (defined[v]) then
             error("undefined graph value", 0)
         end
+    end
+    if native and g.native.abi == "handler" then
+        verifyNativeEntryFrame(g)
     end
     local certs = g.certificates
     for i = 1, #certs do

@@ -1,8 +1,11 @@
 -- Logical slots belong to a frame and a typed window in that frame. Indices
 -- count slots, never bytes. A helper that can move the stack invalidates both
 -- pointers; callers must derive them again from the published context.
+-- Vararg reads derive their read-only Value window from the owning frame.
 -- Integer bits and signed integers share storage but retain their Nupp types.
 local record Slots
+    @vmSlotAccess(class = "vararg", kind = "uint64", write = false)
+    readVararg: function(frame: voidptr, slot: int64): uint64
     @vmSlotAccess(class = "v", kind = "uint64", write = false)
     readValue: function(frame: voidptr, window: voidptr, slot: int64): uint64
     @vmSlotAccess(class = "v", kind = "uint64", write = true)

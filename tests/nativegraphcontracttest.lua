@@ -535,7 +535,7 @@ function M.namedHelperOperandsAndEffectsSurviveTransportPruning()
     local effect = helperDeclaration({"float64"}, "nil")
     G.emitNative(g, next, "NativeHelperCall", {effect, result})
     G.emitNative(g, next, "NativeHelperCall", {helperDeclaration({}, "nil")})
-    dispatch(next)
+    next.term = {kind = "nativeFail", edges = {}}
     G.verify(g)
     G.prune(g)
     G.verify(g)
@@ -685,6 +685,176 @@ function M.liveMemoryRejectsFrozenClaimsErasedWidthsAndWrongPointers()
         end,
         "operand kind mismatch"
     )
+end
+
+local function varargContract()
+    return {class = "vararg", kind = "uint64", write = false, width = 8}
+end
+
+local function invalidatingHelper(g, b, effect)
+    return G.emitNative(g, b, "NativeHelperCall", {
+        {
+            moduleName = "nupp.runtime.vm.statehelpers",
+            name = "poll",
+            params = {"voidptr"},
+            result = "nil",
+            effects = {mayCollect = effect == "collect", mayPark = effect == "park", mayRaise = true, pure = false}
+        },
+        5
+    })
+end
+
+function M.varargReadsRetainTheOriginalOwningFrameAndReadOnlyValueKind()
+    local g, b = fresh()
+    local slot = constant(g, b, "16384")
+    G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
+    dispatch(b)
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    for _, change in ipairs({
+        function(args)
+            args[1] = 2
+        end,
+        function(args)
+            args[3].write = true
+        end,
+        function(args)
+            args[3].class = "v"
+        end,
+        function(args)
+            args[3].kind = "int64"
+        end,
+        function(args)
+            args[3].width = 16
+        end
+    }) do
+        local contract = varargContract()
+        local args = {6, slot, contract}
+        change(args)
+        b.args[2] = args
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+    g, b = fresh()
+    local offset = constant(g, b, "0")
+    local pointer = G.emitNative(g, b, "PointerOffset", {6, offset}, "voidptr")
+    G.emitNative(g, b, "FrameVarargRead", {pointer, offset, varargContract()}, "uint64")
+    dispatch(b)
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "owning frame identity"
+    )
+    g, b = fresh()
+    slot = constant(g, b, "0")
+    G.emitNative(g, b, "FrameSlotRead", {6, 2, slot, varargContract()}, "uint64")
+    dispatch(b)
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "frame/window identity"
+    )
+    g, b = fresh()
+    g.native.abi, g.native.frameFromWindow, g.native.tableArgument = "leaf", nil, nil
+    slot = constant(g, b, "0")
+    local value = G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
+    b.term = {kind = "return", value = value, edges = {}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "cannot access VM state"
+    )
+end
+
+function M.collectingAndParkingInvalidateEntrySlotsAcrossJoinsAndLoops()
+    for _, effect in ipairs({"collect", "park"}) do
+        for _, region in ipairs({"vararg", "value", "integer", "float"}) do
+            local g, b = fresh()
+            local slot = constant(g, b, "0")
+            invalidatingHelper(g, b, effect)
+            if region == "vararg" then
+                G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
+            else
+                local window = ({value = 2, integer = 3, float = 4})[region]
+                local kind = region == "float" and "float64" or "uint64"
+                G.emitNative(
+                    g,
+                    b,
+                    "FrameSlotRead",
+                    {6, window, slot, {class = region:sub(1, 1), kind = kind, write = false, width = 8}},
+                    kind
+                )
+            end
+            b.term = {kind = "nativeFail", edges = {}}
+            rejects(
+                function()
+                    G.verify(g)
+                end,
+                "invalidated entry frame"
+            )
+        end
+        -- The prior metadata fixture's write after a collecting helper is
+        -- invalid even when the written word itself is still available.
+        local g, entry = fresh()
+        local slot = constant(g, entry, "0")
+        local word = constant(g, entry, "18446744073709551615", "uint64")
+        invalidatingHelper(g, entry, effect)
+        G.emitNative(g, entry, "FrameSlotWrite", {6, 3, slot, word, slotContract(true)})
+        entry.term = {kind = "nativeFail", edges = {}}
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "invalidated entry frame"
+        )
+        g, entry = fresh()
+        local yes, no, join = G.block(g), G.block(g), G.block(g)
+        local condition = G.emitNative(g, entry, "NativeBoolean", {true}, "boolean")
+        entry.term = {
+            kind = "branch",
+            value = condition,
+            edges = {{target = yes.id, args = {}}, {target = no.id, args = {}}}
+        }
+        invalidatingHelper(g, yes, effect)
+        yes.term = {kind = "jump", edges = {{target = join.id, args = {}}}}
+        no.term = {kind = "jump", edges = {{target = join.id, args = {}}}}
+        dispatch(join)
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "invalidated entry windows"
+        )
+        g, entry = fresh()
+        local loop = G.block(g)
+        entry.term = {kind = "jump", edges = {{target = loop.id, args = {}}}}
+        local slot = constant(g, loop, "0")
+        G.emitNative(g, loop, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
+        invalidatingHelper(g, loop, effect)
+        loop.term = {kind = "jump", edges = {{target = loop.id, args = {}}}}
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "invalidated entry frame"
+        )
+        -- A terminal failure needs no retained frame/window capability.
+        g, entry = fresh()
+        invalidatingHelper(g, entry, effect)
+        entry.term = {kind = "nativeFail", edges = {}}
+        G.verify(g)
+    end
+    local g, b = fresh()
+    invalidatingHelper(g, b, "none")
+    local slot = constant(g, b, "0")
+    G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
+    dispatch(b)
+    G.verify(g)
 end
 
 return M
