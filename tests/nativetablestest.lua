@@ -198,6 +198,42 @@ function M.stringKeysAreByContent()
     testAssert.equal(longCount, 3, "three distinct keys")
 end
 
+function M.structuralRecordsReadFreshStringsAndSlicesByContent()
+    local named, fresh, sliced = run({
+        "local record = {field = 37}",
+        "local decode = assert(loadstring('return \"field\"'))",
+        "local key = decode() as string",
+        "local slice = string.sub('__field__', 3, 7)",
+        "local dynamic: any = record",
+        "return record.field as integer, dynamic[key] as integer, dynamic[slice] as integer",
+    })
+    testAssert.equal(named, 37, "the statically named field")
+    testAssert.equal(fresh, 37, "a fresh uninterned string names the field")
+    testAssert.equal(sliced, 37, "a slice names the same field")
+end
+
+function M.dynamicRecordKeysPreserveAbsentAndNilMetamethods()
+    local own, absent, nilKey, calls = run({
+        "local count = 0",
+        "local record = {field = 37}",
+        "local meta = {__index = function(t: any, key: any): string",
+        "    count = count + 1",
+        "    if key == nil then return 'nil-key' end",
+        "    return 'missing:' .. tostring(key)",
+        "end}",
+        "local dynamic: any = setmetatable(record, meta)",
+        "local function read(key: any): any return dynamic[key] end",
+        "local own = read('field')",
+        "local absent = read('absent')",
+        "local nilKey = read(nil)",
+        "return own as integer, absent as string, nilKey as string, count",
+    })
+    testAssert.equal(own, 37, "a present field bypasses __index")
+    testAssert.equal(absent, "missing:absent", "an absent key reaches __index")
+    testAssert.equal(nilKey, "nil-key", "nil remains a lookup operand")
+    testAssert.equal(calls, 2, "one callback for each absent lookup")
+end
+
 function M.fieldStoresOnTablesKeepTheirPosition()
     local x, order = run({
         "local m: {[string]: any} = {}",

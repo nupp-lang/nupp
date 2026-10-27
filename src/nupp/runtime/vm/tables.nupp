@@ -55,6 +55,21 @@ local function indexSlow(pc: voidptr, context: voidptr, object: uint64, key: uin
     return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
 end
 
+-- A dynamic key on a record, string or another non-table receiver must be
+-- canonical before the named-field helper probes a shape. A key that has no
+-- canonical name still reaches the receiver's existing __index behavior;
+-- nil is itself a valid lookup operand, not an absent-name signal.
+local function indexedReceiverSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64): uint64
+    protocol.publishPc(pc, context)
+    local canonical = helpers.internKey(context, key, 0)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    local name = native.chooseWord(canonical ~= values.NIL, canonical, key)
+
+    return indexSlow(pc, context, object, name)
+end
+
 -- The insertion barrier (4.2) before a store made while marking; the barrier
 -- moves no stack and runs no code of the program.
 local function markedStoreSlow(
@@ -568,7 +583,7 @@ local function readKeyed(
     end
     local header = native.pointer(object & values.PAYLOAD)
     if native.load8(header, native.layout("Header.kind")) ~= 2 then
-        return indexSlow(pc, context, object, key)
+        return indexedReceiverSlow(pc, context, object, key)
     end
     local meta = native.load64(header, native.layout("Table.meta"))
     local bits = key
