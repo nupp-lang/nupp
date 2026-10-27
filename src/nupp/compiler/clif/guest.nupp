@@ -33,11 +33,12 @@ runtime helpers the Nupp handlers call too, by the same name and signature,
 and after each one the frame is derived from the context again, since the
 stack may have moved.
 
-Coverage follows the native core: an instruction the core runs natively is
-emitted natively, with the same fast paths and the same helpers behind them;
-one the core hands to the Rust step (`Slow`) is run by `nupp_jit_step`, one
-instruction at a time, and compiled code continues after it; a function using
-vector registers or a jump table is not compiled at all.
+This temporary emitter retains its existing inline fast paths. Boundary
+operations run one shared Nupp handler through `nupp_jit_step`, then compiled
+code continues at the published frame position. There is no Rust instruction
+executor. Functions using vector registers or a jump table are not compiled.
+The derived tier replaces this emitter by specializing the shared handlers
+through the Nupp graph.
 ]]
 
 local ssa = require("nupp.compiler.clif.ssa")
