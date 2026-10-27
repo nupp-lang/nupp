@@ -486,7 +486,16 @@ function expr.install(c: state.Checker): nil
         end
         local literal = t as T.Literal
 
-        return type(literal.constant) .. ":" .. tostring(literal.constant)
+        local value = literal.constant
+        if type(value) == "number" then
+            local exact = math.tointeger(value as number)
+            if exact then
+                return "number:" .. tostring(exact)
+            end
+            return "number:" .. string.format("%.17g", value as number)
+        end
+
+        return type(value) .. ":" .. tostring(value)
     end
 
     local function finiteMembers(t: Type?): {Type}?
@@ -1189,9 +1198,6 @@ function expr.install(c: state.Checker): nil
             local base = numberLiteralType(literal.text)
             local value = tonumber((literal.text:gsub("_", "")))
             if value and (base == T.integer or base == T.float or base == T.number) then
-                if base == T.integer and (value > 9007199254740991 or value < -9007199254740991) then
-                    return base
-                end
                 c.fixedWidth.markLiteral(node, value)
                 return T.literal(value, base)
             end
