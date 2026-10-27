@@ -14,15 +14,16 @@ belong in Nupp.
 | `value` | the NaN-boxed word: tags for nil, false, true, function handle (image id and index), object |
 | `numeric` | exact signed and unsigned 64-bit values, boxing, arithmetic, comparison and kind checks |
 | `heap` | the fixed 32-byte header, inline payloads, size-classed chunks, large objects, the incremental tri-color collector with stress, interleaved, quarantine and oracle modes, shapes, the weak intern table |
-| `interp` | tasks, frames inline on one stack of words, the opcode set and dispatch loop, calls and returns, varargs in the frame, host calls that park |
+| `interp` | temporary task/frame ownership, native-core entry, host calls that park |
 | `builtins` | the library the compiler's modules use (strings with Lua patterns, tables, math, iteration, errors) |
 | `verify` | operand classes, branch and callee checks, fact re-derivation, def/use and liveness |
 | `image` | the loader for the emitter's text image |
 | `host` | a pool of host threads serving file, process and directory requests as plain data; legacy unscheduled sleep |
 | `scheduler` | runnable queues, task generations, logical timers, cancellation, deadlines and host completion batches |
 | `persist` | versioned binary value graphs, shape policies, resource hooks and VM checkpoints |
-| `dispatch` and `threaded` | the tail-call-threaded core (`become` handlers) and its helpers |
-| `jit` | the typed tier: shared Cranelift lowering for JIT and object emission |
+| `src/nupp/runtime/vm/` | all 168 interpreter handlers and the shared frame-transition policy |
+| `dispatch` and `threaded` | native encoding and named temporary runtime services |
+| `jit` and `jit_glue` | compiled-code orchestration and Cranelift compilation for JIT and object emission |
 | `compiled` | runtime helpers, runtime address table and stack-map root walk, without Cranelift |
 | `src/nupp/compiler/vm/lower.nupp` | checked-tree lowering and image writing, with project resolution/checking supplied as callbacks |
 | `emit/emitmod.lua` | the stage-zero project-loading driver for the Nupp emitter |
@@ -64,16 +65,29 @@ belong in Nupp.
 
 ## Running
 
+Run from the repository root. The build starts with the pinned, digest-verified
+runtime/image pair and links the Nupp interpreter core into the current runtime:
+
 ```sh
-cargo build -p nupp-vm --release
-cd native/crates/vm/emit && ../../../../bin/nupp run emitmod.lua ../../../.. nupp.bench.parsebench > ../parser.image
-cd .. && ../../../build/rust/target/release/nupp-vm run parser.image nupp.bench.parsebench parse @../../../src/nupp/compiler/syntax/parser.nupp --setup setup --repeat 5
+python3 scripts/vm-cli build --seed image
+./bin/nupp --help
+./bin/nupp test --group=native-runtime
 ```
+
+A runtime built without the linked Nupp core cannot execute guest code. The
+Rust instruction executor has been deleted; observation and compiled boundaries
+use the same Nupp handlers as ordinary interpretation.
 
 `GC_STRESS=1`, `GC_INTERLEAVE=1`, `GC_ORACLE=1` and `GC_QUARANTINE=1` select
 the collector's verification modes. `TRACE_CALLS=1` prints every call.
 
-## Where it stands (2026-10-11)
+## Runtime history
+
+The dated sections below preserve measurements and implementation history. Their
+Rust dispatch loops and one-instruction fallbacks have since been deleted. See
+the migration plan for current ownership and acceptance gates.
+
+### Lexer and parser (2026-10-11)
 
 The compiler's lexer and parser run unmodified on it, as module graphs
 emitted from the checked tree, and agree with LuaJIT node for node:
