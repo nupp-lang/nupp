@@ -18,6 +18,7 @@ use std::hash::BuildHasherDefault;
 use std::ptr::NonNull;
 
 use crate::value::{StrHasher, Value, fnv1a};
+use crate::native_allocator::NativeAllocator;
 
 // Object kinds, as the header byte compiled code reads.
 pub const KIND_FREED: u8 = 0;
@@ -433,7 +434,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 6);
+    assert!(crate::dispatch::OBJECT_ABI == 7);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
@@ -483,27 +484,6 @@ pub trait Roots {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Phase { Idle, Marking, Sweeping }
 
-#[inline(always)]
-fn prefetch_write(p: *mut Header) {
-    #[cfg(target_arch = "aarch64")]
-    unsafe { std::arch::asm!("prfm pstl1keep, [{0}]", in(reg) p, options(nostack, preserves_flags, readonly)); }
-    #[cfg(target_arch = "x86_64")]
-    unsafe { std::arch::x86_64::_mm_prefetch::<{ std::arch::x86_64::_MM_HINT_T0 }>(p as *const i8); }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    let _ = p;
-}
-
-/// Size classes: the slot size of each chunk class, in bytes.
-const CLASSES: [u32; 30] = [32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 1024, 1280, 1536, 2048, 2560, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768];
-/// A chunk is this many bytes, aligned to itself, so an address finds its
-/// chunk by masking.
-const CHUNK_BYTES: usize = 256 * 1024;
-/// The chunk's own header: class, slot size, slot count and its index in
-/// allocation order, which the sweep and the allocation color use.
-#[repr(C)]
-struct ChunkHeader { class: u8, slot_size: u32, nslots: u32, index: u32 }
-const CHUNK_HEADER: usize = 64;
-
 #[derive(Default, Debug, Clone)]
 pub struct Stats { pub cycles: u64, pub freed: u64, pub allocated: u64, pub barrier_grays: u64, pub steps: u64, pub chunks: u64, pub large: u64,
     /// Kept for `GC_STATS=1`: objects scanned, slots swept, root walks and
@@ -514,15 +494,8 @@ pub struct Heap {
     // Native queue references follow their managed endpoint's lifetime. This
     // side table does not root endpoints; sweep drops the Arc before slot reuse.
     pub(crate) channels: HashMap<Value, crate::channels::Channel, crate::value::BitsBuild>,
-    /// Every chunk in allocation order, as its base address.
-    chunks: Vec<usize>,
-    chunk_set: HashSet<usize, crate::value::BitsBuild>,
-    /// Free slots per class, threaded through the freed headers' `aux_ptr`.
-    free: [*mut Header; CLASSES.len()],
-    /// Objects allocated on their own, in allocation order; a freed entry is
-    /// null until the sweep compacts the list.
-    large: Vec<*mut Header>,
-    large_set: HashSet<usize, crate::value::BitsBuild>,
+    allocator: NativeAllocator,
+    chunk_bytes_mapped: u64,
     live_count: usize,
     gray: Vec<NonNull<Header>>,
     /// The root walk's candidate buffer, kept between walks.
@@ -599,12 +572,11 @@ const WEAK_KEYS: u8 = 1;
 const WEAK_VALUES: u8 = 2;
 
 thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
-fn class_of(size: usize) -> Option<usize> { CLASSES.iter().position(|&c| c as usize >= size) }
 
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), chunks: Vec::new(), chunk_set: HashSet::default(), free: [std::ptr::null_mut(); CLASSES.len()], large: Vec::new(), large_set: HashSet::default(), live_count: 0, gray: Vec::new(), root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, gray: Vec::new(), root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -629,81 +601,45 @@ impl Heap {
     pub fn account_resize(&mut self, before: usize, after: usize) {
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().external_capacity_added += after.saturating_sub(before) as u64; }
-        if after >= before { self.live_bytes += after - before; self.debt += after - before; }
-        else { self.live_bytes -= before - after; }
+        self.allocator.resize(before, after, self.debt);
+        self.sync_allocator();
+    }
+
+    // The Nupp allocator owns these counters. Rust retains mirrors for the
+    // collector's pacing and public diagnostics, never a second calculation.
+    fn sync_allocator(&mut self) {
+        let [count, bytes, debt, allocated, freed, chunks, large, mapped] = self.allocator.snapshot();
+        self.live_count = usize::try_from(count).expect("live object count");
+        self.live_bytes = usize::try_from(bytes).expect("live byte count");
+        self.debt = usize::try_from(debt).expect("allocation debt");
+        self.stats.allocated = allocated;
+        self.stats.freed = freed;
+        self.stats.chunks = chunks;
+        self.stats.large = large;
+        #[cfg(feature = "allocation-metrics")]
+        if let Some(m) = &self.metrics { m.borrow_mut().chunk_bytes_requested += mapped - self.chunk_bytes_mapped; }
+        self.chunk_bytes_mapped = mapped;
+    }
+
+    fn clear_debt(&mut self) {
+        self.allocator.resize(0, 0, 0);
+        self.sync_allocator();
     }
 
     // ---- allocation -----------------------------------------------------
 
-    fn new_chunk(&mut self, class: usize) -> *mut u8 {
-        let layout = std::alloc::Layout::from_size_align(CHUNK_BYTES, CHUNK_BYTES).unwrap();
-        let base = unsafe { std::alloc::alloc_zeroed(layout) };
-        assert!(!base.is_null(), "chunk allocation failed");
-        let slot_size = CLASSES[class] as usize;
-        let nslots = (CHUNK_BYTES - CHUNK_HEADER) / slot_size;
-        let index = self.chunks.len() as u32;
-        unsafe { (base as *mut ChunkHeader).write(ChunkHeader { class: class as u8, slot_size: slot_size as u32, nslots: nslots as u32, index }); }
-        // Thread every slot onto the class's free list, last slot first so
-        // allocation walks the chunk forwards.
-        let mut next = self.free[class];
-        for i in (0..nslots).rev() {
-            let h = unsafe { base.add(CHUNK_HEADER + i * slot_size) as *mut Header };
-            unsafe { (*h).kind = KIND_FREED; (*h).class = class as u8; (*h).flags = 0; (*h).aux_ptr = next as *mut u8; }
-            next = h;
-        }
-        self.free[class] = next;
-        self.chunks.push(base as usize);
-        self.chunk_set.insert(base as usize);
-        self.stats.chunks += 1;
-        #[cfg(feature = "allocation-metrics")]
-        if let Some(m) = &self.metrics { m.borrow_mut().chunk_bytes_requested += CHUNK_BYTES as u64; }
-        base
-    }
-
-    #[inline]
-    fn chunk_of(addr: usize) -> usize { addr & !(CHUNK_BYTES - 1) }
-
-    /// Allocates an object of `kind` with `inline_bytes` of payload, its
-    /// payload uninitialized beyond zero. The color follows 4.3: white when
-    /// idle, black while marking, and during the sweep black ahead of the
-    /// cursor and white behind it.
+    /// Allocation cannot collect. The caller ran its safepoint and published
+    /// roots before entering the Nupp allocator.
     fn alloc_raw(&mut self, kind: u8, inline_bytes: usize) -> NonNull<Header> {
-        let size = HEADER + inline_bytes;
-        let (h, class, behind_sweep) = match class_of(size) {
-            Some(class) => {
-                if self.free[class].is_null() { self.new_chunk(class); }
-                let h = self.free[class];
-                let next = unsafe { (*h).aux_ptr as *mut Header };
-                self.free[class] = next;
-                // Free slots are scattered by the sweep and cold by now: start
-                // fetching the next one, which the next allocation writes.
-                prefetch_write(next);
-                let chunk = unsafe { &*(Self::chunk_of(h as usize) as *const ChunkHeader) };
-                let slot = (h as usize - Self::chunk_of(h as usize) - CHUNK_HEADER) / chunk.slot_size as usize;
-                let behind = (chunk.index as usize) < self.sweep_chunk || (chunk.index as usize == self.sweep_chunk && slot < self.sweep_slot);
-                (h, class as u8, behind)
-            }
-            None => {
-                let layout = std::alloc::Layout::from_size_align(size, 16).unwrap();
-                let h = unsafe { std::alloc::alloc_zeroed(layout) } as *mut Header;
-                assert!(!h.is_null(), "large allocation failed");
-                self.large.push(h);
-                self.large_set.insert(h as usize);
-                self.stats.large += 1;
-                (h, CLASS_LARGE, false)
-            }
-        };
-        let color = match self.phase { Phase::Idle => COLOR_WHITE, Phase::Marking => COLOR_BLACK, Phase::Sweeping => if behind_sweep { COLOR_WHITE } else { COLOR_BLACK } };
-        unsafe { h.write(Header { kind, color, class, flags: 0, epoch: self.stats.cycles as u32, size: size as u32, aux: 0, aux_ptr: (h as *mut u8).add(HEADER), aux_len: 0 }); }
-        crate::heap_trace::allocated(h, kind, size);
-        self.live_count += 1;
-        self.live_bytes += size;
-        self.debt += size;
-        self.stats.allocated += 1;
+        HEADER.checked_add(inline_bytes).filter(|&size| size <= u32::MAX as usize).expect("object extent overflow");
+        let p = self.allocator.allocate(kind, inline_bytes, self.phase as i64, self.stats.cycles, self.sweep_chunk, self.sweep_slot, self.debt);
+        self.sync_allocator();
+        let h = unsafe { p.as_ref() };
+        crate::heap_trace::allocated(p.as_ptr(), kind, h.size as usize);
         self.alloc_kinds[kind as usize] += 1;
         #[cfg(feature = "allocation-metrics")]
-        if let Some(m) = &self.metrics { m.borrow_mut().allocate_inline(kind, size, if class == CLASS_LARGE { size } else { CLASSES[class as usize] as usize }, class == CLASS_LARGE); }
-        NonNull::new(h).unwrap()
+        if let Some(m) = &self.metrics { m.borrow_mut().allocate_inline(kind, h.size as usize, if h.class == CLASS_LARGE { h.size as usize } else { NativeAllocator::slot_bytes(h.class) }, h.class == CLASS_LARGE); }
+        p
     }
 
     /// Allocation is a safepoint: the collector may run here, so every value
@@ -995,7 +931,7 @@ impl Heap {
         } else {
             self.step(budget, roots);
         }
-        self.debt = 0;
+        self.clear_debt();
     }
 
     /// The `GC_STATS=1` summary line, on standard error.
@@ -1003,7 +939,7 @@ impl Heap {
         if !self.timed { return; }
         let s = &self.stats;
         eprintln!("gc[{reason}]: {:.2}s in {} cycles, {} steps; scanned {} swept {} roots {} walks/{} candidates; allocated {} freed {}; live {} MB peak {} MB; chunks {} large {}",
-            s.gc_nanos as f64 / 1e9, s.cycles, s.steps, s.scanned, s.swept, s.root_walks, s.root_candidates, s.allocated, s.freed, self.live_bytes >> 20, s.peak_live >> 20, self.chunks.len(), self.large.len());
+            s.gc_nanos as f64 / 1e9, s.cycles, s.steps, s.scanned, s.swept, s.root_walks, s.root_candidates, s.allocated, s.freed, self.live_bytes >> 20, s.peak_live >> 20, self.allocator.chunk_count(), self.allocator.large_count());
     }
 
     fn start(&mut self, roots: &dyn Roots) {
@@ -1087,15 +1023,7 @@ impl Heap {
     /// boundary, or a large object, and not freed (5.1: the root walk accepts
     /// a register word only when it addresses a live slot).
     pub fn is_live_slot(&self, p: NonNull<Header>) -> bool {
-        let addr = p.as_ptr() as usize;
-        if self.large_set.contains(&addr) { return unsafe { (*p.as_ptr()).kind != KIND_FREED }; }
-        let base = Self::chunk_of(addr);
-        if !self.chunk_set.contains(&base) { return false; }
-        let chunk = unsafe { &*(base as *const ChunkHeader) };
-        if addr < base + CHUNK_HEADER { return false; }
-        let off = addr - base - CHUNK_HEADER;
-        if off % chunk.slot_size as usize != 0 || off / chunk.slot_size as usize >= chunk.nslots as usize { return false; }
-        unsafe { (*p.as_ptr()).kind != KIND_FREED }
+        self.allocator.is_live_slot(p)
     }
 
     fn mark_roots(&mut self, roots: &dyn Roots, rescan: bool) {
@@ -1247,12 +1175,10 @@ impl Heap {
                 }
                 Phase::Sweeping => {
                     let mut work = budget * 4;
-                    while self.sweep_chunk < self.chunks.len() && work > 0 {
-                        let base = self.chunks[self.sweep_chunk];
-                        let chunk = unsafe { &*(base as *const ChunkHeader) };
-                        let (slot_size, nslots) = (chunk.slot_size as usize, chunk.nslots as usize);
+                    while self.sweep_chunk < self.allocator.chunk_count() && work > 0 {
+                        let [base, slot_size, nslots] = self.allocator.chunk(self.sweep_chunk);
                         while self.sweep_slot < nslots && work > 0 {
-                            let h = (base + CHUNK_HEADER + self.sweep_slot * slot_size) as *mut Header;
+                            let h = (base + self.sweep_slot * slot_size) as *mut Header;
                             self.sweep_slot += 1;
                             #[cfg(feature = "allocation-metrics")]
                             if let Some(m) = &self.metrics { m.borrow_mut().sweep_chunk_slots += 1; }
@@ -1260,16 +1186,16 @@ impl Heap {
                         }
                         if self.sweep_slot >= nslots { self.sweep_chunk += 1; self.sweep_slot = 0; }
                     }
-                    if self.sweep_chunk >= self.chunks.len() {
-                        while self.sweep_large < self.large.len() && work > 0 {
-                            let h = self.large[self.sweep_large];
+                    if self.sweep_chunk >= self.allocator.chunk_count() {
+                        while self.sweep_large < self.allocator.large_count() && work > 0 {
+                            let h = self.allocator.large(self.sweep_large);
                             self.sweep_large += 1;
                             #[cfg(feature = "allocation-metrics")]
                             if let Some(m) = &self.metrics { m.borrow_mut().sweep_large_slots += 1; }
                             if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { self.sweep_one(NonNull::new(h).unwrap()); work -= 1; }
                         }
-                        if self.sweep_large >= self.large.len() {
-                            self.large.retain(|h| !h.is_null());
+                        if self.sweep_large >= self.allocator.large_count() {
+                            self.allocator.compact_large();
                             self.phase = Phase::Idle;
                             self.stats.peak_live = self.stats.peak_live.max(self.live_bytes as u64);
                             self.threshold = (self.live_bytes * 2).max(1 << 20);
@@ -1298,11 +1224,10 @@ impl Heap {
         self.schema_write(p);
         unsafe {
             let h = &mut *p.as_ptr();
-            self.live_bytes -= h.size as usize + h.external_bytes();
+            let external = h.external_bytes();
+            self.allocator.resize(external, 0, self.debt);
             #[cfg(feature = "allocation-metrics")]
             crate::allocation_metrics::reclaim(h);
-            self.stats.freed += 1;
-            self.live_count -= 1;
             if h.flags & F_INTERNED != 0 { self.interned.remove(h.bytes()); }
             if h.kind == KIND_INTEGER {
                 let key = (h.aux != 0, h.aux_len);
@@ -1317,41 +1242,25 @@ impl Heap {
                 KIND_RECORD => { let a = h.record_array(); std::ptr::drop_in_place(a); std::ptr::drop_in_place(h.record_extra()); }
                 _ => {}
             }
-            let was = h.kind;
-            h.kind = KIND_FREED;
-            h.aux = was as u32;
-            h.aux_len = 0;
-            h.color = COLOR_WHITE;
-            if self.stress || self.quarantine {
-                h.flags = F_TOMBSTONE;
-                h.aux_ptr = std::ptr::null_mut();
-                return;
-            }
-            if h.class == CLASS_LARGE {
-                let i = self.large.iter().position(|&q| q == p.as_ptr()).expect("large object in its list");
-                self.large[i] = std::ptr::null_mut();
-                self.large_set.remove(&(p.as_ptr() as usize));
-                let layout = std::alloc::Layout::from_size_align(h.size as usize, 16).unwrap();
-                std::alloc::dealloc(p.as_ptr() as *mut u8, layout);
-            } else {
-                let class = h.class as usize;
-                h.aux_ptr = self.free[class] as *mut u8;
-                self.free[class] = p.as_ptr();
-            }
+            self.allocator.reclaim(p, self.stress, self.quarantine);
         }
+        self.sync_allocator();
     }
 
     /// Every live object, for the oracle and the serializer.
     pub fn objects(&self) -> Vec<NonNull<Header>> {
         let mut out = Vec::new();
-        for &base in &self.chunks {
-            let chunk = unsafe { &*(base as *const ChunkHeader) };
-            for i in 0..chunk.nslots as usize {
-                let h = (base + CHUNK_HEADER + i * chunk.slot_size as usize) as *mut Header;
+        for index in 0..self.allocator.chunk_count() {
+            let [base, slot_size, used] = self.allocator.chunk(index);
+            for i in 0..used {
+                let h = (base + i * slot_size) as *mut Header;
                 if unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); }
             }
         }
-        for &h in &self.large { if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); } }
+        for index in 0..self.allocator.large_count() {
+            let h = self.allocator.large(index);
+            if !h.is_null() && unsafe { (*h).kind } != KIND_FREED { out.push(NonNull::new(h).unwrap()); }
+        }
         out
     }
 
@@ -1365,7 +1274,7 @@ impl Heap {
         self.start(roots);
         while self.phase != Phase::Idle { self.step(usize::MAX / 8, roots); }
         crate::heap_trace::atomic(false);
-        self.debt = 0;
+        self.clear_debt();
     }
 
     /// What an object was, for messages.
@@ -1431,11 +1340,10 @@ impl Drop for Heap {
         for p in self.objects() {
             #[cfg(feature = "allocation-metrics")]
             crate::allocation_metrics::unregister(unsafe { p.as_ref() });
-            unsafe { let h = &mut *p.as_ptr(); match h.kind { KIND_TABLE => std::ptr::drop_in_place(h.table()), KIND_STORAGE => std::ptr::drop_in_place(h.storage()), KIND_BYTES => std::ptr::drop_in_place(h.byte_buffer()), KIND_ITER => std::ptr::drop_in_place(h.iter()), KIND_RECORD => { std::ptr::drop_in_place(h.record_array()); std::ptr::drop_in_place(h.record_extra()); } _ => {} } }
+            unsafe { let h = &mut *p.as_ptr(); match h.kind { KIND_TABLE => std::ptr::drop_in_place(h.table()), KIND_STORAGE => std::ptr::drop_in_place(h.storage()), KIND_BYTES => std::ptr::drop_in_place(h.byte_buffer()), KIND_ITER => std::ptr::drop_in_place(h.iter()), KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()), KIND_RECORD => { std::ptr::drop_in_place(h.record_array()); std::ptr::drop_in_place(h.record_extra()); } _ => {} } }
         }
-        let layout = std::alloc::Layout::from_size_align(CHUNK_BYTES, CHUNK_BYTES).unwrap();
-        for &base in &self.chunks { unsafe { std::alloc::dealloc(base as *mut u8, layout); } }
-        for &h in &self.large { if !h.is_null() { unsafe { let size = (*h).size as usize; std::alloc::dealloc(h as *mut u8, std::alloc::Layout::from_size_align(size, 16).unwrap()); } } }
+        // NativeAllocator drops after payload teardown and releases its arena.
+
     }
 }
 
@@ -1488,7 +1396,8 @@ mod tests {
         assert_eq!(h.stats.allocated, 3);
         assert_eq!(h.stats.freed, 1);
         assert_eq!(m.inline_requested_bytes, (HEADER + std::mem::size_of::<TablePayload>() + 2 * (HEADER + 8 + 4)) as u64);
-        assert_eq!(m.chunk_bytes_requested, 2 * CHUNK_BYTES as u64);
+        assert_eq!(m.chunk_bytes_requested, h.chunk_bytes_mapped);
+        assert!(m.chunk_bytes_requested >= h.stats.chunks * 256 * 1024);
         assert_eq!(m.root_passes, 2);
         assert_eq!(m.root_slots, 4);
         assert_eq!(m.root_object_candidates, 2);
@@ -1496,7 +1405,7 @@ mod tests {
         assert_eq!(m.child_slots, 1);
         assert_eq!(m.sweep_live_objects, 3);
         assert_eq!(m.sweep_large_slots, 0);
-        assert!(m.sweep_chunk_slots > m.sweep_live_objects);
+        assert_eq!(m.sweep_chunk_slots, m.sweep_live_objects, "untouched chunk tails are not swept");
     }
 
     #[cfg(feature = "native-runtime")]
@@ -1545,6 +1454,38 @@ mod tests {
             assert_eq!(h.gray, vec![replacement_pointer]);
             assert_eq!(h.stats.barrier_grays, barriers + 2);
         }
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn native_allocator_colors_follow_sweep_cursor_and_debt_reset() {
+        let mut h = Heap::new();
+        h.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let first = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        assert_eq!(unsafe { first.as_ref().color }, COLOR_WHITE);
+        h.phase = Phase::Marking;
+        h.stats.cycles = 7;
+        let marking = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        assert_eq!(unsafe { marking.as_ref().color }, COLOR_BLACK);
+        assert_eq!(unsafe { marking.as_ref().epoch }, 7);
+        h.phase = Phase::Sweeping;
+        h.sweep_chunk = 0;
+        h.sweep_slot = 0;
+        let ahead = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        assert_eq!(unsafe { ahead.as_ref().color }, COLOR_BLACK);
+        h.free(first);
+        h.sweep_slot = 1;
+        let behind = h.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        assert_eq!(behind, first);
+        assert_eq!(unsafe { behind.as_ref().color }, COLOR_WHITE);
+        h.clear_debt();
+        assert_eq!(h.debt, 0);
+        assert_eq!(h.allocator.snapshot()[2], 0);
+        h.free(behind);
+        assert_eq!(h.debt, 0, "reclaim cannot restore debt from before the reset");
+        assert_eq!(h.object_count(), 2);
+        h.phase = Phase::Idle;
     }
 
     #[test]

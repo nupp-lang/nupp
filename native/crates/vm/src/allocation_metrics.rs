@@ -18,7 +18,7 @@
 //! side table, matching the VM's thread-local, non-Send heaps. Root counters
 //! count repeated marker passes and immediate slots; child slots include every
 //! value visited by scan, including initialization of black objects. Oracle and
-//! persistence walks are excluded. Sweep slot counts include unused/free slots;
+//! persistence walks are excluded. Sweep slot counts include touched free slots but exclude untouched chunk tails;
 //! sweep_live_objects counts occupied objects examined, including those freed.
 //! An embedding can keep its heap in TLS whose destructor runs after OWNERS.
 //! Final live histograms still work then; the unavailable observation cache is

@@ -22,6 +22,7 @@ mod simd_jit;
 mod simd_exec;
 #[cfg(feature = "allocation-metrics")]
 mod allocation_metrics;
+mod native_allocator;
 pub mod heap;
 mod heap_trace;
 pub mod interp;
