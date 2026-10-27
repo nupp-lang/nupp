@@ -1,0 +1,209 @@
+use nupp_vm::{
+    builtins, heap::SlotTy, interp::Interp, numeric::{self, Integer},
+    persist::{self, Policies}, value::Value,
+};
+
+fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Vec<Value> {
+    let out = builtins::call(vm, builtins::id_of(name).unwrap(), args).to_vec();
+    for &value in &out { vm.register(value); }
+    out
+}
+fn ints(values: &[Value], expected: &[i128]) {
+    assert_eq!(values.len(), expected.len());
+    for (&value, &expected) in values.iter().zip(expected) {
+        assert_eq!(numeric::integer(value).map(Integer::magnitude), Some(expected));
+    }
+}
+fn text(vm: &mut Interp, bytes: &[u8]) -> Value {
+    let value = vm.new_string_bytes(bytes);
+    vm.register(value);
+    value
+}
+
+#[test]
+fn numeric_subtypes_string_positions_counts_and_iterators_are_integers() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let subject = text(&mut vm, b"a\0bc");
+    let one = Value::inline_integer(1).unwrap();
+    let four = Value::inline_integer(4).unwrap();
+    ints(&call(&mut vm, "string.byte", &[subject, one, four]), &[97, 0, 98, 99]);
+    ints(&call(&mut vm, "string.len", &[subject]), &[4]);
+    let needle = text(&mut vm, b"bc");
+    ints(&call(&mut vm, "string.find", &[subject, needle, one, Value::TRUE]), &[3, 4]);
+    let pattern = text(&mut vm, b"()b()");
+    ints(&call(&mut vm, "string.match", &[subject, pattern]), &[3, 4]);
+    let iterator = call(&mut vm, "string.gmatch", &[subject, pattern])[0];
+    ints(builtins::iter_next(&mut vm, iterator).as_slice(), &[3, 4]);
+    let replacement = text(&mut vm, b"%1");
+    let out = call(&mut vm, "string.gsub", &[subject, pattern, replacement]);
+    assert_eq!(vm.bytes_of(out[0]), b"a\03c");
+    ints(&out[1..], &[1]);
+    let hash = text(&mut vm, b"#");
+    ints(&call(&mut vm, "select", &[hash, subject, needle]), &[2]);
+    let table = vm.new_table();
+    vm.register(table);
+    vm.set_index(table, one, subject);
+    let iter = call(&mut vm, "ipairs", &[table]);
+    ints(&iter[2..], &[0]);
+    let next = builtins::iter_next(&mut vm, iter[0]).to_vec();
+    ints(&next[..1], &[1]);
+    assert_eq!(next[1], subject);
+    let next = call(&mut vm, "next", &[table]);
+    ints(&next[..1], &[1]);
+    vm.full_cycle();
+    vm.check_oracle();
+}
+
+#[test]
+fn numeric_subtypes_fixed_width_inputs_keep_bits_above_float_precision() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let wide = numeric::signed(&mut vm, 9007199254740993);
+    vm.register(wide);
+    let zero = Value::inline_integer(0).unwrap();
+    let one = Value::inline_integer(1).unwrap();
+    for (name, args, expected) in [
+        ("bit.tobit", vec![wide], 1),
+        ("bit.band", vec![wide, one], 1),
+        ("bit.bor", vec![wide, zero], 1),
+        ("bit.bxor", vec![wide, one], 0),
+        ("bit.bnot", vec![wide], -2),
+        ("bit.lshift", vec![wide, one], 2),
+        ("scalar.u32.wrap", vec![wide], 1),
+        ("scalar.i32.add", vec![wide, one], 2),
+        ("scalar.u32.toI32", vec![Value::num(4294967295.0)], -1),
+        ("scalar.i32.toU32", vec![Value::num(-1.0)], 4294967295),
+        ("scalar.u64.popcount", vec![wide], 2),
+    ] {
+        ints(&call(&mut vm, name, &args), &[expected]);
+    }
+    assert_eq!(builtins::scalar_value(0, wide, zero), one);
+    assert_eq!(builtins::scalar_value(1, wide, one), Value::inline_integer(2).unwrap());
+    // Floating BitOp operands retain its nearest-even normalization.
+    ints(&call(&mut vm, "bit.tobit", &[Value::num(1.5)]), &[2]);
+}
+
+#[test]
+fn numeric_subtypes_signed_shifts_reverse_and_discard_full_width_counts() {
+    let mut vm = Interp::new();
+    for (bits, count, left, expected) in [
+        (8, -1, true, 4), (8, -1, false, 16), (1, 63, true, 1u64 << 63),
+        (u64::MAX, 1, false, i64::MAX as u64),
+        (1, 64, true, 0), (u64::MAX, -64, false, 0),
+        (1, i64::MIN, true, 0), (1, i64::MAX, false, 0),
+    ] {
+        let value = numeric::signed(&mut vm, bits as i64);
+        vm.register(value);
+        let count = numeric::signed(&mut vm, count);
+        vm.register(count);
+        let result = call(&mut vm, if left { "wide.i64.shl" } else { "wide.i64.shr" }, &[value, count]);
+        assert_eq!(numeric::integer(result[0]).unwrap().bits, expected);
+    }
+    let one = Value::inline_integer(1).unwrap();
+    let n = Value::inline_integer(64).unwrap();
+    ints(&call(&mut vm, "wide.u64.shl", &[one, n]), &[1]);
+    let bad = vm.guarded(|vm| numeric::wide_call(vm, "i64.shl", &[Value::num(1.5), one]));
+    assert_eq!(bad, Value::ERROR);
+    let bad = vm.guarded(|vm| numeric::wide_call(vm, "i64.and", &[one, Value::num(0.5)]));
+    assert_eq!(bad, Value::ERROR);
+}
+
+#[test]
+fn numeric_subtypes_typed_numeric_records_keep_wide_integers_through_gc_and_restore() {
+    let mut vm = Interp::new();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let key = text(&mut vm, b"value");
+    let shape = vm.heap.shape("numeric-subtypes", &[key], &[SlotTy::Num]);
+    let record = vm.new_record(shape);
+    vm.register(record);
+    let wide = numeric::signed(&mut vm, i64::MAX);
+    vm.register(wide);
+    vm.set_slot(record, 0, wide);
+    assert_eq!(numeric::integer(vm.get_slot(record, 0)).unwrap().bits, i64::MAX as u64);
+    let data = persist::save_graph(&mut vm, &[record], &Policies::default()).unwrap();
+    let mut restored = Interp::new();
+    let key = restored.intern("value");
+    restored.heap.shape("numeric-subtypes", &[key], &[SlotTy::Num]);
+    let copy = persist::load_graph(&mut restored, &data, &Policies::default(), None).unwrap()[0];
+    restored.register(copy);
+    restored.full_cycle();
+    assert_eq!(numeric::integer(restored.get_slot(copy, 0)).unwrap().bits, i64::MAX as u64);
+    restored.check_oracle();
+    let data = persist::save_graph(&mut vm, &[wide], &Policies::default()).unwrap();
+    let copy = persist::load_graph(&mut restored, &data, &Policies::default(), Some(SlotTy::Num)).unwrap()[0];
+    assert_eq!(numeric::integer(copy).unwrap().bits, i64::MAX as u64);
+}
+
+
+#[test]
+fn numeric_subtypes_literal_closures_keep_exact_integer_syntax_under_gc() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    for (source, expected) in [
+        ("return 9007199254740993", Some(9007199254740993i128)),
+        ("return -9223372036854775808", Some(i64::MIN as i128)),
+        ("return 0xffffffffffffffff", Some(-1)),
+        ("return 1.0", None), ("return 1e0", None),
+    ] {
+        let source = text(&mut vm, source.as_bytes());
+        let closure = call(&mut vm, "loadstring", &[source])[0];
+        vm.full_cycle();
+        let value = unsafe {
+            let closure = closure.as_obj().unwrap().as_ref();
+            let cell = closure.slots()[0].as_obj().unwrap().as_ref();
+            cell.slots()[0]
+        };
+        assert_eq!(numeric::integer(value).map(Integer::magnitude), expected);
+        if expected.is_none() { assert_eq!(value, Value::num(1.0)); }
+        vm.check_oracle();
+    }
+}
+
+#[test]
+fn numeric_subtypes_random_integer_ranges_do_not_round_large_endpoints() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let low = numeric::signed(&mut vm, 9007199254740993);
+    vm.register(low);
+    let high = numeric::signed(&mut vm, 9007199254740996);
+    vm.register(high);
+    for _ in 0..128 {
+        let value = call(&mut vm, "math.random", &[low, high])[0];
+        let n = numeric::integer(value).unwrap().magnitude();
+        assert!((9007199254740993..=9007199254740996).contains(&n));
+    }
+    let min = numeric::signed(&mut vm, i64::MIN);
+    vm.register(min);
+    let max = numeric::signed(&mut vm, i64::MAX);
+    vm.register(max);
+    assert!(numeric::integer(call(&mut vm, "math.random", &[min, max])[0]).is_some());
+    assert!(call(&mut vm, "math.random", &[])[0].is_float());
+    let result = vm.guarded(|vm| builtins::call(vm, builtins::id_of("select").unwrap(), &[min, Value::TRUE])[0]);
+    assert_eq!(result, Value::ERROR);
+}
+
+
+#[test]
+fn numeric_subtypes_simd_scalar_counts_and_positions_are_integers() {
+    use nupp_vm::simd::{self, Packet};
+    let mut vm = Interp::new();
+    for (name, expected) in [("lanes", 4), ("count", 2), ("first", 2)] {
+        let mut packet = Packet {
+            kind: 0, lanes: 4, mask: 1,
+            operation: simd::operation(name).unwrap() as u64,
+            ..Packet::default()
+        };
+        packet.out[..4].copy_from_slice(&[0, 255, 0, 255]);
+        let value = simd::finish(&mut vm, &packet, &[]);
+        ints(&[value], &[expected]);
+    }
+}

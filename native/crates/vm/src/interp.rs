@@ -2044,7 +2044,7 @@ impl Interp {
     fn slot_type_ok(&self, ty: SlotTy, v: Value) -> bool {
         match ty {
             SlotTy::Any => true,
-            SlotTy::Num => v.is_num(),
+            SlotTy::Num => crate::numeric::is_numeric(v),
             SlotTy::Bool => v == Value::TRUE || v == Value::FALSE,
             SlotTy::Str => self.is_stringish(v),
             SlotTy::Record(s) => v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == s }).unwrap_or(false),
@@ -2520,7 +2520,7 @@ impl Interp {
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
                     Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
-                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !crate::numeric::is_numeric(x) || !crate::numeric::is_numeric(y) { self.err("scalar intrinsic on a non-number") } r!(d) = crate::builtins::scalar_value(k, crate::numeric::double(self, x), crate::numeric::double(self, y)); }
+                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !crate::numeric::is_numeric(x) || !crate::numeric::is_numeric(y) { self.err("scalar intrinsic on a non-number") } r!(d) = crate::builtins::scalar_value(k, x, y); }
                     Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in 8..got { r!(base as usize + i) = self.extra[i - 1]; } for i in got..n as usize { r!(base as usize + i) = Value::NIL; } self.extra_n = 0; }
                     Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
                     Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }

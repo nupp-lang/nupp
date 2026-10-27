@@ -918,7 +918,7 @@ pub fn finish(vm: &mut Interp, p: &Packet, args: &[Value]) -> Value {
                 best = i;
             }
         }
-        return Value::num((best + 1) as f64);
+        return Value::inline_integer((best + 1) as i64).unwrap();
     }
     match operation {
         "transpose" => {
@@ -951,7 +951,7 @@ pub fn finish(vm: &mut Interp, p: &Packet, args: &[Value]) -> Value {
             first
         }
         "species" | "widen" | "narrow" => value(vm, Shape { species: true, ..s }, &[]),
-        "lanes" => Value::num(lanes as f64),
+        "lanes" => Value::inline_integer(lanes as i64).unwrap(),
         "interleave" | "deinterleave" | "loadPairs" | "loadTriples" | "loadQuads" => {
             let slices = if operation.starts_with("load") {
                 [&p.a, &p.b, &p.c, &p.out]
@@ -1023,12 +1023,8 @@ pub fn finish(vm: &mut Interp, p: &Packet, args: &[Value]) -> Value {
             match OPERATIONS[p.operation as usize] {
                 "any" => Value::boolean(bits != 0),
                 "all" => Value::boolean(bits == u64::MAX >> (64 - lanes)),
-                "count" => Value::num(bits.count_ones() as f64),
-                "first" => Value::num(if bits == 0 {
-                    0.0
-                } else {
-                    bits.trailing_zeros() as f64 + 1.0
-                }),
+                "count" => Value::inline_integer(bits.count_ones() as i64).unwrap(),
+                "first" => Value::inline_integer(if bits == 0 { 0 } else { bits.trailing_zeros() as i64 + 1 }).unwrap(),
                 _ => vm.box_integer(numeric::Integer {
                     bits,
                     unsigned: true,

@@ -791,3 +791,19 @@ fn native_numeric_equality_uses_exact_subtypes_and_unordered_nan() {
         }
     }
 }
+
+#[test]
+fn native_numeric_scalar_preserves_exact_integer_low_words() {
+    for kind in 0..25 {
+        let (mut vm, tid) = fixture(Op::Scalar(kind, 0, 1, 2));
+        let left = vm.box_integer(Integer { bits: 9007199254740993, unsigned: false });
+        vm.register(left);
+        let right = vm.box_integer(Integer { bits: u64::MAX - 1, unsigned: true });
+        vm.register(right);
+        put(&mut vm, tid, 1, left);
+        put(&mut vm, tid, 2, right);
+        let expected = crate::builtins::scalar_value(kind, left, right);
+        assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        assert_eq!(value(&vm, tid, 0), expected, "scalar kind {kind}");
+    }
+}

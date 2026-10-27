@@ -1215,7 +1215,7 @@ fn refs_validate(vm: &Interp, g: &Graph) -> Result<()> {
 fn typed(vm: &Interp, v: Value, t: SlotTy) -> bool {
     match t {
         SlotTy::Any => true,
-        SlotTy::Num => v.is_num(),
+        SlotTy::Num => crate::numeric::is_numeric(v),
         SlotTy::Bool => v == Value::TRUE || v == Value::FALSE,
         SlotTy::Str => vm.is_stringish(v),
         SlotTy::Record(s) => v
@@ -1473,7 +1473,11 @@ fn load_graph_mode(
                         });
                     let fits = match shape.types[index] {
                         SlotTy::Any => true,
-                        SlotTy::Num => matches!(value, Ref::Bits(n) if Value(*n).is_num()),
+                        SlotTy::Num => match value {
+                            Ref::Bits(n) => Value(*n).is_num(),
+                            Ref::Obj(i) => matches!(g.nodes[*i], Node::Integer(..)),
+                            _ => false,
+                        },
                         SlotTy::Bool => {
                             matches!(value, Ref::Bits(n) if *n == Value::TRUE.0 || *n == Value::FALSE.0)
                         }

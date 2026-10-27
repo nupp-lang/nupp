@@ -296,9 +296,16 @@ export function TagCheckStr(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
-local function scalar(kind: int64, left: number, right: number): number
-    local x = native.word(native.toInt(left)) & 0xffffffffULL
-    local y = native.word(native.toInt(right)) & 0xffffffffULL
+local function scalarWord(value: uint64): uint64
+    if integerKind(value) >= 0 then
+        return helpers.integerBits(value) & 0xffffffffULL
+    end
+    return native.word(native.toInt(native.fromBits(value))) & 0xffffffffULL
+end
+
+local function scalar(kind: int64, left: uint64, right: uint64): number
+    local x = scalarWord(left)
+    local y = scalarWord(right)
     local shift = y & 31ULL
     local result = x
     if kind == 1 or kind == 11 then
@@ -353,7 +360,7 @@ export function Scalar(
         return native.fail()
     end
     local kind = program.readSigned32(pc, 4)
-    local result = scalar(kind, double(x), double(y))
+    local result = scalar(kind, x, y)
     local bits = numberBits(result)
     if kind >= 0 and kind <= 24 then
         bits = values.TAG_INTEGER | (native.word(native.toInt(result)) & values.PAYLOAD)

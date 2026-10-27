@@ -97,7 +97,7 @@ pub const NAMES: &[&str] = &[
     "math.tointeger", "math.type",
 ];
 
-enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
+enum Lit { Int(i64), Num(f64), Str(Vec<u8>), Bool(bool), Nil }
 /// `return <literal>` with Lua's number and string syntax; None for anything else.
 fn literal_chunk(src: &[u8]) -> Option<Lit> {
     let s = std::str::from_utf8(src).ok()?;
@@ -107,6 +107,7 @@ fn literal_chunk(src: &[u8]) -> Option<Lit> {
     let rest = rest.trim();
     let rest = rest.strip_suffix(';').unwrap_or(rest).trim_end();
     if rest == "nil" { return Some(Lit::Nil); } if rest == "true" { return Some(Lit::Bool(true)); } if rest == "false" { return Some(Lit::Bool(false)); }
+    if let Some(n) = lua_integer(rest) { return Some(Lit::Int(n)); }
     let (neg, body) = match rest.strip_prefix('-') { Some(r) => (true, r.trim_start()), None => (false, rest) };
     if let Some(n) = lua_number(body) { return Some(Lit::Num(if neg { -n } else { n })); }
     if neg { return None; }
@@ -420,7 +421,7 @@ fn terminal(name: &str, args: &[Value]) -> Outs {
     {
         let mut size: libc::winsize = unsafe { std::mem::zeroed() };
         let status = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut size) };
-        if status == 0 && size.ws_col > 0 { return outs![Value::num(size.ws_col as f64)]; }
+        if status == 0 && size.ws_col > 0 { return outs![Value::inline_integer(size.ws_col as i64).unwrap()]; }
     }
     outs![Value::NIL]
 }
@@ -439,15 +440,22 @@ pub fn scalar_op(kind: u8, a: f64, b: f64) -> f64 {
         _ => f64::NAN,
     }
 }
-pub fn scalar_value(kind: u8, a: f64, b: f64) -> Value {
-    let n = scalar_op(kind, a, b);
+fn scalar_operand(value: Value) -> f64 {
+    crate::numeric::integer(value).map_or_else(|| value.as_num(), |n| n.bits as i32 as f64)
+}
+pub fn scalar_value(kind: u8, a: Value, b: Value) -> Value {
+    let n = scalar_op(kind, scalar_operand(a), scalar_operand(b));
     if kind < SCALAR_OPS.len() as u8 { Value::inline_integer(n as i64).unwrap() } else { Value::num(n) }
 }
 /// The i32/u32/f32 intrinsics, with the folder's semantics (`nupp.compiler.scalarintrinsics`).
 fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let (family, op) = name.split_once('.').unwrap();
-    let a = crate::numeric::double(it, arg(args, 0));
-    let bb = args.get(1).map_or(0.0, |value| crate::numeric::double(it, *value));
+    let operand = |v| if family == "f32" && op != "fromBits" { crate::numeric::double(it, v) } else {
+        if !crate::numeric::is_numeric(v) { it.err("expected a number"); }
+        scalar_operand(v)
+    };
+    let a = operand(arg(args, 0));
+    let bb = args.get(1).map_or(0.0, |value| operand(*value));
     let i32_of = |x: f64| -> i32 { (x as i64) as i32 };
     let u32_of = |x: f64| -> u32 { (x as i64) as u32 };
     let num = |x: f64| if family == "f32" { Value::num(x) } else { Value::inline_integer(x as i64).unwrap() };
@@ -478,7 +486,9 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let signed = family == "i32";
     let out = |x: i32| -> Value { if signed { num(x as f64) } else { num((x as u32) as f64) } };
     let r = match op {
-        "wrap" | "fromU32" | "toI32" | "fromI32" | "toU32" => out(i32_of(a)),
+        "wrap" | "fromU32" | "fromI32" => out(i32_of(a)),
+        "toI32" => Value::inline_integer(i32_of(a) as i64).unwrap(),
+        "toU32" => Value::inline_integer(u32_of(a) as i64).unwrap(),
         "add" => out(i32_of(a).wrapping_add(i32_of(bb))), "sub" => out(i32_of(a).wrapping_sub(i32_of(bb))), "mul" => out(i32_of(a).wrapping_mul(i32_of(bb))),
         "andBits" => out(i32_of(a) & i32_of(bb)), "orBits" => out(i32_of(a) | i32_of(bb)), "xorBits" => out(i32_of(a) ^ i32_of(bb)), "notBits" => out(!i32_of(a)),
         "shiftLeft" => out(i32_of(a).wrapping_shl(u32_of(bb) & 31)), "shiftRightArithmetic" => out(i32_of(a) >> (u32_of(bb) & 31)), "shiftRightLogical" => out((u32_of(a) >> (u32_of(bb) & 31)) as i32),
@@ -547,7 +557,29 @@ pub(crate) fn frexp(x: f64) -> (f64, i32) {
 // Explicit precision is also the portable image writer's round-trip format.
 fn str_of(it: &mut Interp, b: &[u8]) -> Value { it.string_of(b) }
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
-fn int(args: &[Value], i: usize, default: i64) -> i64 { let v = arg(args, i); if v.is_num() { v.as_num() as i64 } else { default } }
+fn bit_operand(v: Value) -> i32 { crate::numeric::integer(v).map_or_else(|| tobit(v.as_num()), |n| n.bits as i32) }
+fn int(args: &[Value], i: usize, default: i64) -> i64 {
+    let v = arg(args, i);
+    if let Some(n) = crate::numeric::integer(v) { n.magnitude().clamp(i64::MIN as i128, i64::MAX as i128) as i64 }
+    else if v.is_float() { v.as_num() as i64 } else { default }
+}
+fn integer(it: &mut Interp, n: i64) -> Value { crate::numeric::signed(it, n) }
+fn integer_pair(it: &mut Interp, first: i64, second: i64) -> Outs {
+    let scope = it.open_scope();
+    let first = integer(it, first);
+    it.handles.push(first);
+    let second = integer(it, second);
+    it.close_scope(scope);
+    outs![first, second]
+}
+fn string_count(it: &mut Interp, text: &[u8], count: i64) -> Outs {
+    let scope = it.open_scope();
+    let count = integer(it, count);
+    it.handles.push(count);
+    let text = str_of(it, text);
+    it.close_scope(scope);
+    outs![text, count]
+}
 pub(crate) fn type_name(it: &Interp, v: Value) -> &'static str {
     if crate::coroutines::is_coroutine(it,v) {return "thread";}
     if crate::numeric::is_numeric(v) { return "number"; }
@@ -705,32 +737,43 @@ fn classify(name: &str) -> Special {
     Special::Plain
 }
 
-/// `math.random` and `math.randomseed` with Lua 5.1's argument rules, over
-/// SplitMix64: `random()` in [0, 1), `random(m)` in [1, m], `random(m, n)`
-/// in [m, n].
+fn next_random(it: &mut Interp) -> u64 {
+    let next = it.random_state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    it.random_state = next;
+    let mut z = next;
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    z ^ (z >> 31)
+}
 fn random(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     if name == "math.randomseed" {
-        let seed = crate::numeric::double(it, arg(args, 0));
-        it.random_state = (seed as i64 as u64) ^ seed.to_bits() ^ 0x9e37_79b9_7f4a_7c15;
+        let seed = crate::numeric::bits(it, arg(args, 0), false);
+        it.random_state = seed ^ 0x9e37_79b9_7f4a_7c15;
         return Outs::new();
     }
-    let bits = {
-        let next = it.random_state.wrapping_add(0x9e37_79b9_7f4a_7c15);
-        it.random_state = next;
-        let mut z = next;
-        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        z ^ (z >> 31)
-    };
-    let unit = (bits >> 11) as f64 / (1u64 << 53) as f64;
+    if args.is_empty() {
+        return outs![Value::num((next_random(it) >> 11) as f64 / (1u64 << 53) as f64)];
+    }
     let (low, high) = match args.len() {
-        0 => return outs![Value::num(unit)],
-        1 => (1.0, crate::numeric::double(it, arg(args, 0)).floor()),
-        2 => (crate::numeric::double(it, arg(args, 0)).floor(), crate::numeric::double(it, arg(args, 1)).floor()),
+        1 => {
+            let high = crate::numeric::bits(it, args[0], false) as i64;
+            if high == 0 { let bits = next_random(it); return outs![integer(it, bits as i64)]; }
+            (1, high)
+        },
+        2 => (crate::numeric::bits(it, args[0], false) as i64, crate::numeric::bits(it, args[1], false) as i64),
         _ => it.err("wrong number of arguments to 'random'"),
     };
     if low > high { it.err("bad argument to 'random' (interval is empty)"); }
-    outs![Value::num((unit * (high - low + 1.0)).floor() + low)]
+    let span = high as i128 - low as i128 + 1;
+    let offset = if span == 1i128 << 64 { next_random(it) } else {
+        let bound = span as u64;
+        let threshold = bound.wrapping_neg() % bound;
+        loop {
+            let bits = next_random(it);
+            if bits >= threshold { break bits % bound; }
+        }
+    };
+    outs![integer(it, (low as i128 + offset as i128) as i64)]
 }
 
 /// LuaJIT BitOp's normalization of a number to a 32-bit word: rounded to
@@ -773,9 +816,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let callee = arg(args, 0);
             if callee != Value::builtin(id_of("error").unwrap()) { return it.call_outs(callee, &args[2.min(args.len())..]); }
             let message = arg(args, 2);
-            let level = match arg(args, 3) { v if v == Value::NIL => 1, v if v.is_num() => v.as_num() as i64, _ => 1 };
+            let level = int(args, 3, 1);
             let mut raised = message;
-            if level > 0 && (it.is_stringish(message) || message.is_num()) {
+            if level > 0 && (it.is_stringish(message) || crate::numeric::is_numeric(message)) {
                 let site = if level == 1 { it.caller_function().map(|fid| (fid, arg(args, 1).as_num() as u32)) } else { it.caller_line(level as usize - 1) };
                 if let Some((fid, line)) = site.filter(|&(_, line)| line != 0) {
                     let mut text = format!("{}:{}: ", it.chunk_id(fid), line).into_bytes();
@@ -791,10 +834,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // frames are the calling task's and those it was called from; a
             // handler of `xpcall` runs before the unwind, so it sees the error's.
             let first = arg(args, 0);
-            let plain = |it: &Interp, v: Value| v == Value::NIL || v.is_num() || it.is_stringish(v);
+            let plain = |it: &Interp, v: Value| v == Value::NIL || crate::numeric::is_numeric(v) || it.is_stringish(v);
             let message = if args.len() >= 2 && !plain(it, first) && plain(it, arg(args, 1)) { arg(args, 1) } else { first };
-            if message != Value::NIL && !it.is_stringish(message) && !message.is_num() { return outs![message]; }
-            let mut text = if message == Value::NIL { String::new() } else if message.is_num() { num_text(message.as_num()) } else { String::from_utf8_lossy(it.bytes_of(message)).into_owned() };
+            if message != Value::NIL && !it.is_stringish(message) && !crate::numeric::is_numeric(message) { return outs![message]; }
+            let mut text = if message == Value::NIL { String::new() } else if crate::numeric::is_numeric(message) { String::from_utf8_lossy(&tostring(it, message)).into_owned() } else { String::from_utf8_lossy(it.bytes_of(message)).into_owned() };
             if !text.is_empty() { text.push('\n'); }
             text.push_str("stack traceback:");
             if let Some(tid) = it.caller_task() {
@@ -808,7 +851,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let code = arg(args, 0);
             let status = if code == Value::NIL || code == Value::TRUE { 0 }
                 else if code == Value::FALSE { 1 }
-                else if code.is_num() { code.as_num() as i32 }
+                else if crate::numeric::is_numeric(code) { int(args, 0, 0) as i32 }
                 else { it.err("bad argument #1 to 'exit' (number expected)") };
             std::process::exit(status);
         }
@@ -822,8 +865,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::TableMaxn => {
             let table = arg(args, 0);
-            let max = it.table_keys(table).into_iter().filter(|k| k.is_num() && it.get_index(table, *k) != Value::NIL).map(Value::as_num).fold(0.0, f64::max);
-            return outs![Value::num(max)];
+            let mut max = Value::inline_integer(0).unwrap();
+            for key in it.table_keys(table) {
+                if crate::numeric::compare(key, max) == Some(std::cmp::Ordering::Greater) && it.get_index(table, key) != Value::NIL { max = key; }
+            }
+            return outs![max];
         }
         Special::TableClone => {
             let source = arg(args, 0);
@@ -854,8 +900,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::VmTableappendresults => {
             let table = arg(args, 0);
-            let start = arg(args, 1).as_num();
-            for (offset, value) in args.iter().skip(2).enumerate() { it.set_index(table, Value::num(start + offset as f64), *value); }
+            let start = int(args, 1, 1);
+            for (offset, value) in args.iter().skip(2).enumerate() { let key = integer(it, start.wrapping_add(offset as i64)); it.set_index(table, key, *value); }
             return Outs::new();
         }
         Special::VmClocknow => {
@@ -940,7 +986,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let digest = nupp_native_platform::cache_digest(it.bytes_of(arg(args, 0))); return outs![it.new_string_bytes(&digest)];
         }
         Special::VmProcessid => {
-            return outs![Value::num(std::process::id() as f64)];
+            return outs![Value::inline_integer(std::process::id() as i64).unwrap()];
         }
         Special::VmImageidentity => {
             // The digest of the image this VM was started from, which is the code
@@ -966,7 +1012,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 Ok(report) => {
                     let t = it.new_table(); let root = it.register(t);
                     for (name, n) in [("changed", report.changed as u64), ("moved", report.moved as u64), ("added", report.added as u64), ("retained", report.retained as u64), ("generation", report.generation)] {
-                        let k = it.intern(name); it.set_index(t, k, Value::num(n as f64));
+                        let k = it.intern(name); let value = crate::numeric::unsigned(it, n); it.set_index(t, k, value);
                     }
                     it.release(root);
                     outs![t]
@@ -1055,34 +1101,40 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 std::str::from_utf8(it.bytes_of(mode)).unwrap_or("")
             };
             return match mode {
-                "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.clear_dead_registers(); it.full_cycle(); it.close_scope(scope); outs![Value::num(0.0)] }
+                "collect" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.clear_dead_registers(); it.full_cycle(); it.close_scope(scope); outs![Value::inline_integer(0).unwrap()] }
                 "count" => outs![Value::num(it.heap.live_bytes as f64 / 1024.0)],
-                "stop" => { it.heap.automatic_collection = false; outs![Value::num(0.0)] }
-                "restart" => { it.heap.automatic_collection = true; outs![Value::num(0.0)] }
+                "stop" => { it.heap.automatic_collection = false; outs![Value::inline_integer(0).unwrap()] }
+                "restart" => { it.heap.automatic_collection = true; outs![Value::inline_integer(0).unwrap()] }
                 "isrunning" => outs![Value::boolean(it.heap.automatic_collection)],
                 // A step finishes a whole cycle here, which is what `true` reports.
                 "step" => { let scope = it.open_scope(); it.handles.extend_from_slice(args); it.full_cycle(); it.close_scope(scope); outs![Value::TRUE] }
                 // The incremental collector paces itself; the settings are answered, not kept.
-                "setpause" => outs![Value::num(200.0)],
-                "setstepmul" => outs![Value::num(100.0)],
+                "setpause" => outs![Value::inline_integer(200).unwrap()],
+                "setstepmul" => outs![Value::inline_integer(100).unwrap()],
                 _ => it.err("unsupported collector option"),
             };
         }
         Special::SystemAvailableparallelism => {
-            return outs![Value::num(std::thread::available_parallelism().map_or(1, usize::from) as f64)];
+            return outs![integer(it, std::thread::available_parallelism().map_or(1, usize::from) as i64)];
         }
         Special::CryptoRandombytes => {
             let value = arg(args, 0);
-            if !value.is_num() || !value.as_num().is_finite() || value.as_num().fract() != 0.0 || !(0.0..=1048576.0).contains(&value.as_num()) { it.err("random byte count must be an integer between 0 and 1048576"); }
-            let mut bytes = vec![0; value.as_num() as usize];
+            let count = crate::numeric::integer(value).map(|n| n.magnitude()).or_else(|| {
+                value.is_float().then(|| crate::numeric::exact_integer(value.as_num())).flatten().map(|n| n.magnitude())
+            });
+            let Some(count) = count.filter(|n| (0..=1048576).contains(n)) else { it.err("random byte count must be an integer between 0 and 1048576"); };
+            let mut bytes = vec![0; count as usize];
             if !bytes.is_empty() { nupp_native_platform::random_bytes(&mut bytes).unwrap_or_else(|e| it.err(&e)); }
             return outs![it.new_string_bytes(&bytes)];
         }
         Special::VmWithinstructionbudget => {
             let limit = arg(args, 1);
-            if !limit.is_num() || !limit.as_num().is_finite() || limit.as_num() < 1.0 || limit.as_num().fract() != 0.0 { it.err("instruction limit must be a positive integer"); }
+            let count = crate::numeric::integer(limit).map(|n| n.magnitude()).or_else(|| {
+                limit.is_float().then(|| crate::numeric::exact_integer(limit.as_num())).flatten().map(|n| n.magnitude())
+            });
+            let Some(count) = count.filter(|n| *n >= 1) else { it.err("instruction limit must be a positive integer"); };
             let previous = it.execution_limit;
-            it.execution_limit = Some(previous.unwrap_or(usize::MAX).min(limit.as_num() as usize));
+            it.execution_limit = Some(previous.unwrap_or(usize::MAX).min(count.min(usize::MAX as i128) as usize));
             let before = it.execution_limit.unwrap();
             let scope = it.open_scope(); it.handles.extend_from_slice(args);
             let ntasks = it.tasks.len();
@@ -1181,7 +1233,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if *name == "file.flush" { return outs![arg(args, 0)]; }
             // LuaJIT's `table.new(narray, nhash)`: an empty table sized for both parts.
             if *name == "table.new" {
-                let count = |v: Value| if v.is_num() && v.as_num() > 0.0 { v.as_num().min(16777216.0) as usize } else { 0 };
+                let count = |v: Value| if let Some(n) = crate::numeric::integer(v) { n.magnitude().clamp(0, 16777216) as usize } else if v.is_float() && v.as_num() > 0.0 { v.as_num().min(16777216.0) as usize } else { 0 };
                 let t = it.new_table_sized(count(arg(args, 0)), count(arg(args, 1)));
                 return outs![t];
             }
@@ -1215,19 +1267,19 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if i < 0 { i += n + 1; } if j < 0 { j += n + 1; }
             if i < 1 { i = 1; } if j > n { j = n; }
             if i > j { return Outs::new(); }
-            (i..=j).map(|k| Value::num(s[(k - 1) as usize] as f64)).collect()
+            (i..=j).map(|k| Value::inline_integer(s[(k - 1) as usize] as i64).unwrap()).collect()
         }
         N_1 => {
             let out = { let mut scratch = Vec::new(); let s = bytes_ref(it, arg(args, 0), &mut scratch); let n = s.len() as i64;
             let mut i = int(args, 1, 1); let mut j = int(args, 2, -1);
             if i < 0 { i += n + 1; } if j < 0 { j += n + 1; }
             if i < 1 { i = 1; } if j > n { j = n; }
-            if SLICES.load(std::sync::atomic::Ordering::Relaxed) && i <= j && !arg(args, 0).is_num() { let src = arg(args, 0); let v = it.new_slice(src, (i - 1) as u32, (j - i + 1) as u32); return outs![v]; }
+            if SLICES.load(std::sync::atomic::Ordering::Relaxed) && i <= j && it.is_stringish(arg(args, 0)) { let src = arg(args, 0); let v = it.new_slice(src, (i - 1) as u32, (j - i + 1) as u32); return outs![v]; }
             if i > j { Vec::new() } else { s[(i - 1) as usize..j as usize].to_vec() } };
             outs![str_of(it, &out)]
         }
-        N_8 => { let mut scratch = Vec::new(); let n = bytes_ref(it, arg(args, 0), &mut scratch).len(); outs![Value::num(n as f64)] }
-        N_3 => { let b: Vec<u8> = args.iter().map(|v| v.as_num() as i64 as u8).collect(); outs![str_of(it, &b)] }
+        N_8 => { let mut scratch = Vec::new(); let n = bytes_ref(it, arg(args, 0), &mut scratch).len(); outs![integer(it, n as i64)] }
+        N_3 => { let b: Vec<u8> = args.iter().enumerate().map(|(i, _)| int(args, i, 0) as u8).collect(); outs![str_of(it, &b)] }
         N_4 => { let s = bytes_of(it, arg(args, 0)); let n = int(args, 1, 0).max(0) as usize; let sep = if args.len() > 2 { bytes_of(it, arg(args, 2)) } else { Vec::new() }; let mut out = Vec::new(); for k in 0..n { if k > 0 { out.extend_from_slice(&sep); } out.extend_from_slice(&s); } outs![str_of(it, &out)] }
         N_9 => { let s = bytes_of(it, arg(args, 0)); let o: Vec<u8> = s.iter().map(|b| b.to_ascii_uppercase()).collect(); outs![str_of(it, &o)] }
         N_10 => { let s = bytes_of(it, arg(args, 0)); let o: Vec<u8> = s.iter().map(|b| b.to_ascii_lowercase()).collect(); outs![str_of(it, &o)] }
@@ -1244,9 +1296,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 let mut init = int(args, 2, 1); if init < 0 { init += n + 1; } if init < 1 { init = 1; }
                 if init > n + 1 { init = n + 1; }
                 let start = (init - 1) as usize;
-                if pat.is_empty() { return outs![Value::num(init as f64), Value::num((init - 1) as f64)]; }
+                if pat.is_empty() { return integer_pair(it, init, init - 1); }
                 let hit = if pat.len() == 1 { s[start..].iter().position(|&c| c == pat[0]) } else { s[start..].windows(pat.len()).position(|w| w == &pat[..]) };
-                match hit { Some(k) => outs![Value::num((start + k + 1) as f64), Value::num((start + k + pat.len()) as f64)], None => outs![Value::NIL] }
+                match hit { Some(k) => integer_pair(it, (start + k + 1) as i64, (start + k + pat.len()) as i64), None => outs![Value::NIL] }
             } else {
                 // The match borrows the subject and copies out only what it
                 // returns: copying the subject made every call cost its whole
@@ -1266,9 +1318,9 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                     Some((a, b, whole, pieces)) => {
                         let scope = it.open_scope();
                         let mut out = Outs::new();
-                        if find { out.push(Value::num((a + 1) as f64)); out.push(Value::num(b as f64)); }
+                        if find { let first = integer(it, (a + 1) as i64); it.handles.push(first); out.push(first); let last = integer(it, b as i64); it.handles.push(last); out.push(last); }
                         if let Some(text) = whole { out.push(str_of(it, &text)); }
-                        for piece in pieces { let value = match piece { Ok(p) => Value::num((p + 1) as f64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); }
+                        for piece in pieces { let value = match piece { Ok(p) => integer(it, (p + 1) as i64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); }
                         it.close_scope(scope);
                         out
                     }
@@ -1280,8 +1332,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         // A string replacement runs no Nupp code, so the subject and pattern
         // are borrowed, captures expand straight from the subject, and a
         // pattern opening with a literal skips to it.
-        N_6 if (arg(args, 2).is_num() || it.is_stringish(arg(args, 2))) && it.is_stringish(arg(args, 0)) => {
-            let max = if args.len() > 3 && arg(args, 3).is_num() { int(args, 3, i64::MAX) } else { i64::MAX };
+        N_6 if (crate::numeric::is_numeric(arg(args, 2)) || it.is_stringish(arg(args, 2))) && it.is_stringish(arg(args, 0)) => {
+            let max = if args.len() > 3 && crate::numeric::is_numeric(arg(args, 3)) { int(args, 3, i64::MAX) } else { i64::MAX };
             let (out, count) = {
                 let mut ps = Vec::new(); let pat = bytes_ref(it, arg(args, 1), &mut ps);
                 let mut rs = Vec::new(); let r = bytes_ref(it, arg(args, 2), &mut rs);
@@ -1305,7 +1357,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                                         let k = (c - b'0') as usize;
                                         if k == 0 || (k == 1 && caps.is_empty()) { out.extend_from_slice(&s[pos..end]); }
                                         else if let Some(cap) = caps.get(k - 1) {
-                                            match *cap { pattern::Cap::Span(x, y) => out.extend_from_slice(&s[x..y]), pattern::Cap::Pos(p) => out.extend_from_slice(num_text((p + 1) as f64).as_bytes()) }
+                                            match *cap { pattern::Cap::Span(x, y) => out.extend_from_slice(&s[x..y]), pattern::Cap::Pos(p) => out.extend_from_slice((p + 1).to_string().as_bytes()) }
                                         }
                                     }
                                     i += 2;
@@ -1322,14 +1374,14 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             };
             let subject = arg(args, 0);
             match out {
-                None if it.kind_of(subject) == Some(KIND_STR) => outs![subject, Value::num(0.0)],
-                None => { let text = it.bytes_of(subject).to_vec(); outs![str_of(it, &text), Value::num(0.0)] }
-                Some(out) => outs![str_of(it, &out), Value::num(count as f64)],
+                None if it.kind_of(subject) == Some(KIND_STR) => outs![subject, Value::inline_integer(0).unwrap()],
+                None => { let text = it.bytes_of(subject).to_vec(); string_count(it, &text, 0) }
+                Some(out) => string_count(it, &out, count),
             }
         }
         N_6 => {
             let s = bytes_of(it, arg(args, 0)); let pat = bytes_of(it, arg(args, 1)); let repl = arg(args, 2);
-            let max = if args.len() > 3 && arg(args, 3).is_num() { int(args, 3, i64::MAX) } else { i64::MAX };
+            let max = if args.len() > 3 && crate::numeric::is_numeric(arg(args, 3)) { int(args, 3, i64::MAX) } else { i64::MAX };
             let anchored = pat.first() == Some(&b'^');
             let mut out = Vec::new(); let mut pos = 0usize; let mut count = 0i64;
             while pos <= s.len() && count < max {
@@ -1340,8 +1392,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                         let scope = it.open_scope();
                         let mut cap_values = Vec::new();
                         if caps.is_empty() { let value = str_of(it, whole); it.handles.push(value); cap_values.push(value); }
-                        else { for c in &caps { let value = match c { pattern::Cap::Pos(p) => Value::num((*p + 1) as f64), pattern::Cap::Span(x, y) => str_of(it, &s[*x..*y]) }; it.handles.push(value); cap_values.push(value); } }
-                        let replacement = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Vec<u8>> { if repl.is_num() || it.is_stringish(repl) {
+                        else { for c in &caps { let value = match c { pattern::Cap::Pos(p) => integer(it, (*p + 1) as i64), pattern::Cap::Span(x, y) => str_of(it, &s[*x..*y]) }; it.handles.push(value); cap_values.push(value); } }
+                        let replacement = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Option<Vec<u8>> { if crate::numeric::is_numeric(repl) || it.is_stringish(repl) {
                             let r = bytes_of(it, repl); let mut o = Vec::new(); let mut i = 0;
                             while i < r.len() { if r[i] == b'%' && i + 1 < r.len() { let c = r[i + 1]; if c == b'%' { o.push(b'%'); } else if c.is_ascii_digit() { let k = (c - b'0') as usize; if k == 0 { o.extend_from_slice(whole); } else if let Some(v) = cap_values.get(k - 1) { o.extend_from_slice(&bytes_of(it, *v)); } } i += 2; } else { o.push(r[i]); i += 1; } }
                             Some(o)
@@ -1362,8 +1414,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if pos < s.len() { out.extend_from_slice(&s[pos..]); }
             // Nothing replaced: the subject itself rather than a copy of it.
             let subject = arg(args, 0);
-            if count == 0 && subject.as_obj().is_some_and(|p| unsafe { (*p.as_ptr()).kind } == KIND_STR) { return outs![subject, Value::num(0.0)]; }
-            outs![str_of(it, &out), Value::num(count as f64)]
+            if count == 0 && subject.as_obj().is_some_and(|p| unsafe { (*p.as_ptr()).kind } == KIND_STR) { return outs![subject, Value::inline_integer(0).unwrap()]; }
+            string_count(it, &out, count)
         }
         N_5 => {
             let fmt = bytes_of(it, arg(args, 0)); let mut out = Vec::new(); let mut ai = 1; let mut i = 0;
@@ -1399,7 +1451,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                         }
                         q.push(b'"'); q
                     }
-                    b'c' => vec![v.as_num() as u8],
+                    b'c' => vec![crate::numeric::integer(v).map_or_else(|| v.as_num() as u8, |n| n.bits as u8)],
                     other => panic!("runtime error: invalid option '%{}' to 'format'", other as char),
                 };
                 let pad = width.saturating_sub(body.len());
@@ -1460,7 +1512,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let itv = if matches!(it.kind_of(t), Some(KIND_TABLE | KIND_RECORD)) { it.new_iter(7, t, Value::NIL) } else { let keys = it.table_keys(t); it.new_iter_keys(1, t, keys) };
             outs![itv, t, Value::NIL]
         }
-        N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::num(0.0)] }
+        N_23 => { let t = arg(args, 0); let itv = it.new_iter(2, t, Value::NIL); outs![itv, t, Value::inline_integer(0).unwrap()] }
         N_24 if next_entry(it, arg(args, 0), arg(args, 1)).is_some() => match next_entry(it, arg(args, 0), arg(args, 1)).unwrap() { Some((k, v)) => outs![k, v], None => outs![Value::NIL] },
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
@@ -1488,17 +1540,17 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // string included, and anything else is refused as Lua refuses it.
             let n = arg(args, 0);
             let count = args.len().saturating_sub(1) as i64;
-            if it.is_stringish(n) && it.bytes_of(n) == b"#" { return outs![Value::num(count as f64)]; }
-            let index = if n.is_num() { Some(n.as_num()) } else if it.is_stringish(n) { std::str::from_utf8(it.bytes_of(n)).ok().and_then(|s| s.trim().parse::<f64>().ok()) } else { None };
+            if it.is_stringish(n) && it.bytes_of(n) == b"#" { return outs![integer(it, count)]; }
+            let index = if let Some(n) = crate::numeric::integer(n) { Some(n.magnitude()) } else if n.is_float() { Some(n.as_num() as i128) } else if it.is_stringish(n) { std::str::from_utf8(it.bytes_of(n)).ok().and_then(|s| s.trim().parse::<f64>().ok().map(|n| n as i128)) } else { None };
             let Some(index) = index else { let got = type_name(it, n); it.err(&format!("bad argument #1 to 'select' (number expected, got {got})")) };
-            let i = index as i64;
+            let i = index;
             if i < 0 {
-                if -i > count { it.err("bad argument #1 to 'select' (index out of range)"); }
-                args[(args.len() as i64 + i) as usize..].iter().copied().collect()
+                if -i > count as i128 { it.err("bad argument #1 to 'select' (index out of range)"); }
+                args[(args.len() as i128 + i) as usize..].iter().copied().collect()
             } else if i == 0 {
                 it.err("bad argument #1 to 'select' (index out of range)")
             } else {
-                args[(i as usize).min(args.len())..].iter().copied().collect()
+                args[i.min(args.len() as i128) as usize..].iter().copied().collect()
             }
         }
         N_31 => {
@@ -1525,17 +1577,17 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_36 => outs![it.getmetatable_value(arg(args, 0))],
         // The bit library: 32-bit two's complement, as LuaJIT's, operands
         // normalized by `tobit`.
-        38 => { let mut r: i32 = -1; for a in args { r &= tobit(a.as_num()); } outs![Value::num(r as f64)] }
-        39 => { let mut r: i32 = 0; for a in args { r |= tobit(a.as_num()); } outs![Value::num(r as f64)] }
-        40 => { let mut r: i32 = 0; for a in args { r ^= tobit(a.as_num()); } outs![Value::num(r as f64)] }
-        41 => outs![Value::num(!tobit(arg(args, 0).as_num()) as f64)],
-        42 => outs![Value::num(tobit(arg(args, 0).as_num()).wrapping_shl(tobit(arg(args, 1).as_num()) as u32 & 31) as f64)],
-        43 => outs![Value::num((tobit(arg(args, 0).as_num()) as u32).wrapping_shr(tobit(arg(args, 1).as_num()) as u32 & 31) as i32 as f64)],
-        44 => outs![Value::num(tobit(arg(args, 0).as_num()).wrapping_shr(tobit(arg(args, 1).as_num()) as u32 & 31) as f64)],
-        45 => outs![Value::num(tobit(arg(args, 0).as_num()) as f64)],
+        38 => { let mut r: i32 = -1; for a in args { r &= bit_operand(*a); } outs![Value::inline_integer(r as i64).unwrap()] }
+        39 => { let mut r: i32 = 0; for a in args { r |= bit_operand(*a); } outs![Value::inline_integer(r as i64).unwrap()] }
+        40 => { let mut r: i32 = 0; for a in args { r ^= bit_operand(*a); } outs![Value::inline_integer(r as i64).unwrap()] }
+        41 => outs![Value::inline_integer((!bit_operand(arg(args, 0))) as i64).unwrap()],
+        42 => outs![Value::inline_integer(bit_operand(arg(args, 0)).wrapping_shl(bit_operand(arg(args, 1)) as u32 & 31) as i64).unwrap()],
+        43 => outs![Value::inline_integer((bit_operand(arg(args, 0)) as u32).wrapping_shr(bit_operand(arg(args, 1)) as u32 & 31) as i32 as i64).unwrap()],
+        44 => outs![Value::inline_integer(bit_operand(arg(args, 0)).wrapping_shr(bit_operand(arg(args, 1)) as u32 & 31) as i64).unwrap()],
+        45 => outs![Value::inline_integer(bit_operand(arg(args, 0)) as i64).unwrap()],
         46 => { let name = String::from_utf8_lossy(&bytes_of(it, arg(args, 0))).into_owned(); match std::env::var(&name) { Ok(v) => outs![it.heap_new_string(&v)], Err(_) => outs![Value::NIL] } }
         47 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t)] }
-        48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64(); outs![Value::num(t.floor())] }
+        48 => { let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(); outs![crate::numeric::unsigned(it, t)] }
         49 => { use std::io::Write; let mut o = std::io::stdout(); for a in args { o.write_all(&bytes_of(it, *a)).unwrap(); } o.flush().unwrap(); Outs::new() }
         // `loadstring("return <literal>")`: every use in the compiler decodes a
         // number or string literal this way. The answer is a closure over the
@@ -1543,6 +1595,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         50 => {
             let src = bytes_of(it, arg(args, 0));
             match literal_chunk(&src) {
+                Some(Lit::Int(n)) => { let value = integer(it, n); let root = it.register(value); let cell = it.new_cell(value); let h = it.register(cell); it.release(root); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h); outs![c] }
                 Some(Lit::Num(n)) => { let cell = it.new_cell(Value::num(n)); let h = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h); outs![c] }
                 Some(Lit::Str(b)) => { let s = it.new_string_bytes(&b); let h = it.register(s); let cell = it.new_cell(s); let h2 = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h2); it.release(h); outs![c] }
                 Some(Lit::Bool(x)) => { let cell = it.new_cell(Value::boolean(x)); let h = it.register(cell); let c = it.new_closure(it.literal_fid, &[cell]); it.release(h); outs![c] }
@@ -1584,25 +1637,25 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             Outs::new()
         }
         54 => { let mut b = bytes_of(it, arg(args, 0)); b.reverse(); outs![str_of(it, &b)] }
-        55 => { let x = arg(args, 0).as_num() as i64 as u32; let n = (arg(args, 1).as_num() as i64 & 31) as u32; outs![Value::num(x.rotate_left(n) as i32 as f64)] }
-        56 => { let x = arg(args, 0).as_num() as i64 as u32; let n = (arg(args, 1).as_num() as i64 & 31) as u32; outs![Value::num(x.rotate_right(n) as i32 as f64)] }
-        57 => { let x = arg(args, 0).as_num() as i64 as u32; outs![Value::num(x.swap_bytes() as i32 as f64)] }
+        55 => { let x = bit_operand(arg(args, 0)) as u32; let n = (bit_operand(arg(args, 1)) as i64 & 31) as u32; outs![Value::inline_integer(x.rotate_left(n) as i32 as i64).unwrap()] }
+        56 => { let x = bit_operand(arg(args, 0)) as u32; let n = (bit_operand(arg(args, 1)) as i64 & 31) as u32; outs![Value::inline_integer(x.rotate_right(n) as i32 as i64).unwrap()] }
+        57 => { let x = bit_operand(arg(args, 0)) as u32; outs![Value::inline_integer(x.swap_bytes() as i32 as i64).unwrap()] }
         // bit.tohex as LuaJIT's: a negative width asks for uppercase, and the
         // width is clipped to 254 digits.
         58 => {
-            let x = tobit(arg(args, 0).as_num()) as u32;
-            let n = if args.len() > 1 && arg(args, 1) != Value::NIL { tobit(arg(args, 1).as_num()) as i64 } else { 8 };
+            let x = bit_operand(arg(args, 0)) as u32;
+            let n = if args.len() > 1 && arg(args, 1) != Value::NIL { bit_operand(arg(args, 1)) as i64 } else { 8 };
             let width = n.unsigned_abs().min(254) as usize;
             let s = if n < 0 { format!("{:0width$X}", x, width = width) } else { format!("{:0width$x}", x, width = width) };
             let s = &s[s.len().saturating_sub(width)..];
             outs![str_of(it, s.as_bytes())]
         }
         59 => { let v = arg(args, 0); if crate::numeric::integer(v).is_some() { return outs![v]; } let n = crate::numeric::double(it, v).ceil(); outs![match crate::numeric::exact_integer(n) { Some(i) => it.box_integer(i), None => Value::num(n) }] }
-        60 => outs![Value::num(arg(args, 0).as_num().sqrt())],
-        61 => { let x = arg(args, 0).as_num(); if args.len() > 1 { outs![Value::num(x.ln() / arg(args, 1).as_num().ln())] } else { outs![Value::num(x.ln())] } }
-        62 => outs![Value::num(arg(args, 0).as_num() % arg(args, 1).as_num())],
-        63 => { let x = arg(args, 0).as_num(); let i = x.trunc(); outs![Value::num(i), Value::num(x - i)] }
-        64 => { let (m, e) = frexp(arg(args, 0).as_num()); outs![Value::num(m), Value::num(e as f64)] }
+        60 => outs![Value::num(crate::numeric::double(it, arg(args, 0)).sqrt())],
+        61 => { let x = crate::numeric::double(it, arg(args, 0)); if args.len() > 1 { outs![Value::num(x.ln() / crate::numeric::double(it, arg(args, 1)).ln())] } else { outs![Value::num(x.ln())] } }
+        62 => outs![Value::num(crate::numeric::double(it, arg(args, 0)) % crate::numeric::double(it, arg(args, 1)))],
+        63 => { let value = arg(args, 0); if crate::numeric::integer(value).is_some() { return outs![value, Value::num(0.0)]; } let x = crate::numeric::double(it, value); let i = x.trunc(); let whole = crate::numeric::exact_integer(i).map(|n| it.box_integer(n)).unwrap_or(Value::num(i)); outs![whole, Value::num(if x.is_infinite() { 0.0 } else { x - i })] }
+        64 => { let (m, e) = frexp(crate::numeric::double(it, arg(args, 0))); outs![Value::num(m), Value::inline_integer(e as i64).unwrap()] }
         // io.open for reading: the whole file now, as a string behind a file
         // object whose `read`, `lines` and `close` are fields (a method call
         // falls back to them). Writable modes hold a native file resource.
@@ -1631,11 +1684,11 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             if crate::fileio::is_native(it, f) { return crate::fileio::read(it, f, arg(args, 1)); }
             let kd = it.intern("_data"); let ka = it.intern("_at");
             let data = bytes_of(it, it.get_index(f, kd)); let at = it.get_index(f, ka).as_num() as usize;
-            if at >= data.len() { let fmt = arg(args, 1); let all = !fmt.is_num() && { let b = bytes_of(it, fmt); b == b"*a" || b == b"a" }; return if all { outs![str_of(it, b"")] } else { outs![Value::NIL] }; }
+            if at >= data.len() { let fmt = arg(args, 1); let all = !crate::numeric::is_numeric(fmt) && { let b = bytes_of(it, fmt); b == b"*a" || b == b"a" }; return if all { outs![str_of(it, b"")] } else { outs![Value::NIL] }; }
             let fmt = arg(args, 1);
-            let (chunk, next) = if fmt.is_num() { let n = fmt.as_num() as usize; let e = (at + n).min(data.len()); (data[at..e].to_vec(), e) }
+            let (chunk, next) = if crate::numeric::is_numeric(fmt) { let n = crate::numeric::double(it, fmt) as usize; let e = at.saturating_add(n).min(data.len()); (data[at..e].to_vec(), e) }
                 else { let b = bytes_of(it, fmt); if b == b"*a" || b == b"a" { (data[at..].to_vec(), data.len()) } else { let e = data[at..].iter().position(|&c| c == b'\n').map(|p| at + p).unwrap_or(data.len()); (data[at..e].to_vec(), (e + 1).min(data.len()).max(e)) } };
-            it.set_index(f, ka, Value::num(next as f64));
+            let next = integer(it, next as i64); it.set_index(f, ka, next);
             outs![str_of(it, &chunk)]
         }
         74 => { let file = arg(args, 0); if crate::fileio::is_native(it, file) { crate::fileio::close(it, file) } else { let key = it.intern("_closed"); it.set_index(file, key, Value::TRUE); outs![Value::TRUE] } },
@@ -1647,7 +1700,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         68 | 71 => {
             let path = String::from_utf8_lossy(it.bytes_of(arg(args, 0))).into_owned();
             let result = if id == 68 { if std::fs::symlink_metadata(&path).map(|m| m.is_dir()).unwrap_or(false) { std::fs::remove_dir(path) } else { std::fs::remove_file(path) } } else { let to = String::from_utf8_lossy(it.bytes_of(arg(args, 1))).into_owned(); std::fs::rename(path, to) };
-            match result { Ok(()) => outs![Value::TRUE], Err(error) => { let msg = it.heap_new_string(&error.to_string()); outs![Value::NIL, msg, Value::num(error.raw_os_error().unwrap_or(0) as f64)] } }
+            match result { Ok(()) => outs![Value::TRUE], Err(error) => { let msg = it.heap_new_string(&error.to_string()); outs![Value::NIL, msg, Value::inline_integer(error.raw_os_error().unwrap_or(0) as i64).unwrap()] } }
         }
         69 => crate::fileio::temporary_name(it),
         70 => crate::process::execute(it, args),
@@ -1657,8 +1710,8 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // level 1 is its caller; past the outermost frame the answer is nil.
             // A function argument is described by its own chunk.
             let target = arg(args, 0);
-            let (fid, line, func) = if target.is_num() {
-                match it.frame_at_level(target.as_num().max(1.0) as usize) { Ok(found) => found, Err(()) => return outs![Value::NIL] }
+            let (fid, line, func) = if crate::numeric::is_numeric(target) {
+                match it.frame_at_level(crate::numeric::double(it, target).max(1.0) as usize) { Ok(found) => found, Err(()) => return outs![Value::NIL] }
             } else if let Some(fid) = target.as_func().map(|f| f as usize).or_else(|| target.as_obj().filter(|p| unsafe { (*p.as_ptr()).kind } == crate::heap::KIND_CLOSURE).map(|p| unsafe { (*p.as_ptr()).fid() } as usize)) {
                 (Some(fid), 0, target)
             } else {
@@ -1668,10 +1721,10 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             // comes first; the module's is what an image without one names.
             let source = { let own = fid.and_then(|f| it.funcs[f].path.as_ref().map(|p| p.to_string())); let module = fid.map(|f| it.funcs[f].module.clone()).unwrap_or_default(); own.or_else(|| it.module_paths.get(&module).cloned()).map(|p| if p.starts_with('=') || p.starts_with('@') { p } else { format!("@{p}") }).unwrap_or_else(|| "=nupp-vm".to_string()) };
             let t = it.new_table(); let h = it.register(t); for (k, v) in [("source", source.as_str()), ("short_src", "nupp-vm"), ("what", "Lua")] { let kv = it.intern(k); let kh = it.register(kv); let vv = it.heap_new_string(v); it.set_index(t, kv, vv); it.release(kh); }
-            if line != 0 { let k = it.intern("currentline"); it.set_index(t, k, Value::num(line as f64)); }
+            if line != 0 { let k = it.intern("currentline"); let value = integer(it, line as i64); it.set_index(t, k, value); }
             // Where the function is defined: a closure starts at its definition's line.
             if let Some(defined) = fid.and_then(|f| it.funcs[f].debug.iter().map(|d| d.0).find(|&l| l != 0)) {
-                let k = it.intern("linedefined"); it.set_index(t, k, Value::num(defined as f64));
+                let k = it.intern("linedefined"); let value = integer(it, defined as i64); it.set_index(t, k, value);
             }
             if func != Value::NIL { let k = it.intern("func"); it.set_index(t, k, func); }
             it.release(h); outs![t]
@@ -1693,7 +1746,7 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
     match kind {
         1 => { for index in pos..keys_len { let k = it.iter_key(iter, index); it.iter_advance(iter); let v = it.get_index(obj, k); if v != Value::NIL { return outs![k, v]; } } outs![Value::NIL] }
         7 => pairs_next(it, iter, obj, pos),
-        2 => { let i = pos + 1; let v = it.get_index(obj, Value::num(i as f64)); if v == Value::NIL { return outs![Value::NIL]; } it.iter_advance(iter); outs![Value::num(i as f64), v] }
+        2 => { let i = pos + 1; let v = it.get_index(obj, Value::num(i as f64)); if v == Value::NIL { return outs![Value::NIL]; } it.iter_advance(iter); outs![integer(it, i as i64), v] }
         3 => {
             // Borrowed, as `string.find` borrows it: a copy per step made a loop
             // over a large text quadratic.
@@ -1708,7 +1761,7 @@ pub fn iter_next(it: &mut Interp, iter: Value) -> Outs {
                 }))
             };
             match found {
-                Some((a, b, whole, pieces)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if let Some(text) = whole { outs![str_of(it, &text)] } else { let scope = it.open_scope(); let mut out = Outs::new(); for piece in pieces { let value = match piece { Ok(p) => Value::num((p + 1) as f64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); } it.close_scope(scope); out } }
+                Some((a, b, whole, pieces)) => { it.iter_set_pos(iter, if b > a { b } else { b + 1 }); if let Some(text) = whole { outs![str_of(it, &text)] } else { let scope = it.open_scope(); let mut out = Outs::new(); for piece in pieces { let value = match piece { Ok(p) => integer(it, (p + 1) as i64), Err(text) => str_of(it, &text) }; it.handles.push(value); out.push(value); } it.close_scope(scope); out } }
                 None => { it.iter_set_pos(iter, len + 1); outs![Value::NIL] }
             }
         }
@@ -1734,7 +1787,7 @@ const PHASE: usize = 1 << 30;
 /// order, with the position after it. A position keeps its phase in the top
 /// bits; `last` is the key returned before, which finds the hash position
 /// again if an insertion rebuilt the hash part meanwhile.
-fn entry_from(it: &Interp, obj: Value, pos: usize, last: Value) -> Option<(Value, Value, usize)> {
+fn entry_from(it: &mut Interp, obj: Value, pos: usize, last: Value) -> Option<(Value, Value, usize)> {
     let p = obj.as_obj()?;
     let h = unsafe { &*p.as_ptr() };
     let record = h.kind == KIND_RECORD;
@@ -1745,7 +1798,7 @@ fn entry_from(it: &Interp, obj: Value, pos: usize, last: Value) -> Option<(Value
                 let a: &Vec<Value> = if record { h.record_array_ref() } else { &h.table_ref().array };
                 while i < a.len() {
                     let v = a[i]; i += 1;
-                    if v != Value::NIL { return Some((Value::num(i as f64), v, i)); }
+                    if v != Value::NIL { return Some((integer(it, i as i64), v, i)); }
                 }
                 phase = if record { 1 } else { 2 }; i = 0;
             }
@@ -1780,7 +1833,7 @@ fn pairs_next(it: &mut Interp, iter: Value, obj: Value, pos: usize) -> Outs {
 }
 
 /// `next` over a table or record: the position after `key`, found directly.
-fn next_entry(it: &Interp, t: Value, key: Value) -> Option<Option<(Value, Value)>> {
+fn next_entry(it: &mut Interp, t: Value, key: Value) -> Option<Option<(Value, Value)>> {
     let p = t.as_obj()?;
     let h = unsafe { &*p.as_ptr() };
     let record = match h.kind { KIND_TABLE => false, KIND_RECORD => true, _ => return None };

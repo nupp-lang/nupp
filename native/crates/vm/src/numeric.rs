@@ -24,6 +24,12 @@ impl Integer {
         Value::inline_integer(n as i64)
     }
 }
+pub fn signed(vm: &mut Interp, value: i64) -> Value {
+    vm.box_integer(Integer { bits: value as u64, unsigned: false })
+}
+pub fn unsigned(vm: &mut Interp, value: u64) -> Value {
+    vm.box_integer(Integer { bits: value, unsigned: value > i64::MAX as u64 })
+}
 pub fn integer(v: Value) -> Option<Integer> {
     if let Some(n) = v.as_inline_integer() {
         return Some(Integer { bits: n as u64, unsigned: false });
@@ -152,6 +158,13 @@ pub fn negate(vm: &mut Interp, x: Value) -> Value {
     }
     Value::num(-double(vm, x))
 }
+/// Lua's signed integer shifts fill with zeros, reverse for negative counts,
+/// and discard every bit once the magnitude reaches the word width.
+pub fn signed_shift(value: u64, count: i64, left: bool) -> u64 {
+    let magnitude = count.unsigned_abs();
+    if magnitude >= 64 { return 0; }
+    if left != (count < 0) { value << magnitude } else { value >> magnitude }
+}
 pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>) -> Value {
     if kind.is_none() && matches!(op, "add" | "sub" | "mul" | "div" | "mod" | "pow" | "idiv") && !(is_numeric(x) && is_numeric(y)) {
         use crate::metamethods::MM;
@@ -203,8 +216,9 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         });
     }
     let unsigned = kind.unwrap();
-    let a = operand_bits(vm, x);
-    let b = if matches!(op, "shl" | "shr" | "sar" | "rol" | "ror") {
+    let exact_signed = !unsigned && matches!(op, "and" | "or" | "xor" | "shl" | "shr");
+    let a = if exact_signed { bits(vm, x, false) } else { operand_bits(vm, x) };
+    let b = if exact_signed { bits(vm, y, false) } else if matches!(op, "shl" | "shr" | "sar" | "rol" | "ror") {
         integer(y)
             .map(|i| i.bits)
             .unwrap_or_else(|| bits(vm, y, false))
@@ -218,6 +232,8 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         "and" => a & b,
         "or" => a | b,
         "xor" => a ^ b,
+        "shl" if !unsigned => signed_shift(a, b as i64, true),
+        "shr" if !unsigned => signed_shift(a, b as i64, false),
         "shl" => a.wrapping_shl(b as u32 & 63),
         "shr" => a.wrapping_shr(b as u32 & 63),
         "sar" => (a as i64).wrapping_shr(b as u32 & 63) as u64,
@@ -317,9 +333,9 @@ pub fn wide_call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         }
         let value = bits(vm, a, unsigned);
         let value = match op {
-            "popcount" => return Value::num(value.count_ones() as f64),
-            "leadingZeros" => return Value::num(value.leading_zeros() as f64),
-            "trailingZeros" => return Value::num(value.trailing_zeros() as f64),
+            "popcount" => return Value::inline_integer(value.count_ones() as i64).unwrap(),
+            "leadingZeros" => return Value::inline_integer(value.leading_zeros() as i64).unwrap(),
+            "trailingZeros" => return Value::inline_integer(value.trailing_zeros() as i64).unwrap(),
             "not" => !value,
             "neg" => value.wrapping_neg(),
             "prefixXor" => {

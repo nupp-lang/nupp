@@ -313,7 +313,7 @@ pub fn result(vm: &mut Interp, state: Value) -> Value {
     let kind = b[8];
     let name = NAMES[b[9] as usize];
     if name.contains("Arg") {
-        return Value::num(get(b, 24) as f64);
+        return numeric::unsigned(vm, get(b, 24));
     }
     if matches!(name, "any" | "all") {
         return Value::boolean(get(b, 32) != 0);
