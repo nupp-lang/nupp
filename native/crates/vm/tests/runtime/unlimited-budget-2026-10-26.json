@@ -1,0 +1,186 @@
+{
+  "recordedAt": "2026-10-27T00:55:38.205538+00:00",
+  "base": "a67e565e3342a1f6adb4c2e75230564c10e09028",
+  "change": "Keep the all-ones execution-budget sentinel unchanged at calls and taken back edges. Charge every finite budget exactly as before.",
+  "reason": "Unlimited execution must not become a finite budget or publish an enormous bogus charge after the first native call/back edge.",
+  "regressions": [
+    "native_back_edges_preserve_unlimited_and_stop_at_finite_budgets",
+    "native_call_paths_preserve_unlimited_and_charge_finite_budgets"
+  ],
+  "validation": [
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --group=native-runtime --jobs=2",
+      "passed": 46,
+      "failed": 0,
+      "logSha256": "b9037893f3dc0a4bee23a0683ae3aa88c562595397b1ffcad68c423fc9ffa984",
+      "scope": "Before the subsequent helper return-count fix; includes this budget correction and its tests."
+    },
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/loop-budget/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "passed": 104,
+      "failed": 0,
+      "ignored": 2,
+      "logSha256": "c25ea8fcd9c6df5a02d4f74408527f07c9c45a419cdbb3a443498144fca154d7",
+      "scope": "Includes this correction and the integrated helper return-count fix."
+    },
+    {
+      "evidence": "native-result-count-2026-10-26.json",
+      "scope": "The same budget object is linked into the corrected runtime that compiles/loads the test runner and compiles/runs all five closure fixtures under GC interleaving/oracle; 46 integration tests pass."
+    }
+  ],
+  "diagnosticMeasurement": {
+    "baseline": "Preserved pre-change Nupp native interpreter; not the retired Rust interpreter and not production acceptance.",
+    "comparison": "interleaved paired fresh processes, same benchmark source, BENCH_SCALE=1, checksum 761038, 24 forks, 2% practical margin",
+    "candidate": {
+      "runtime": "be0bc6e9f53b8922e1c5b160a99998f3ec6e16a0877081618192242bcdb1eea3",
+      "object": "90e1df1ebc91578e31973a63ec30899bceacf00575c39d87a41f015e93c0a8f1"
+    },
+    "verdicts": [
+      {
+        "adjusted": 5.960464477539062e-07,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.06910998287156045,
+        "interval": {
+          "low": -0.07956587809557047,
+          "upper": -0.0537238110711904
+        },
+        "meanRatio": 0.9345201947822813,
+        "name": "loops",
+        "noninferiority": true,
+        "pValue": 5.960464477539062e-07,
+        "verdict": "improved"
+      }
+    ],
+    "candidateSummary": {
+      "allocatedKb": 0.024553571428571428,
+      "checksum": "761038",
+      "concentration": 1,
+      "forkCount": 24,
+      "forkSummariesMs": [
+        356.02616691589355,
+        369.91191697120667,
+        376.43795800209045,
+        349.17579090595245,
+        382.4767920970917,
+        407.0083329677582,
+        373.77324998378754,
+        393.91849994659424,
+        385.7717499732971,
+        394.20087492465973,
+        387.0300840139389,
+        395.44312500953674,
+        389.33375000953674,
+        381.4591670036316,
+        408.7071669101715,
+        369.23537504673004,
+        395.0116249322891,
+        368.72850000858307,
+        382.7858749628067,
+        368.1576670408249,
+        378.44225001335144,
+        380.8502080440521,
+        391.1056659221649,
+        389.6631249189377
+      ],
+      "intervalCoverage": 0.9773441553115845,
+      "intervalHighMs": 391.1056659221649,
+      "intervalLowMs": 373.77324998378754,
+      "iqrMs": 10.997833013534546,
+      "kind": "case",
+      "maxRssBytes": 227426304,
+      "medianMs": 382.4767920970917,
+      "minMs": 350.491250038147,
+      "n": 1,
+      "name": "loops",
+      "outlierCount": 1,
+      "outlierMaxRatio": 1,
+      "p25Ms": 351.73745906352997,
+      "p75Ms": 362.7352920770645,
+      "p99Ms": 365.57799994945526,
+      "retainedKb": 0.0859375,
+      "rounds": 7,
+      "samplesMs": [
+        365.57799994945526,
+        362.7352920770645,
+        362.176833987236,
+        356.02616691589355,
+        350.491250038147,
+        354.7219580411911,
+        351.73745906352997
+      ],
+      "trend": "unknown",
+      "trendDrift": 0,
+      "trendPValue": 1,
+      "trendTau": 0
+    },
+    "baselineSummary": {
+      "allocatedKb": 0.024553571428571428,
+      "checksum": "761038",
+      "concentration": 1,
+      "forkCount": 24,
+      "forkSummariesMs": [
+        401.48191606998444,
+        397.374459028244,
+        408.97870802879333,
+        387.42120802402496,
+        400.980791926384,
+        399.59483301639557,
+        417.70475006103516,
+        417.2858749628067,
+        421.79004192352295,
+        426.8316249847412,
+        415.07625007629395,
+        405.94599997997284,
+        420.1091660261154,
+        407.72000002861023,
+        408.6702079772949,
+        401.9942079782486,
+        408.8217079639435,
+        414.8627920150757,
+        399.0809580087662,
+        412.6185829639435,
+        410.4319590330124,
+        406.99354100227356,
+        408.8333749771118,
+        412.41299998760223
+      ],
+      "intervalCoverage": 0.9773441553115845,
+      "intervalHighMs": 414.8627920150757,
+      "intervalLowMs": 401.9942079782486,
+      "iqrMs": 2.674167037010193,
+      "kind": "case",
+      "maxRssBytes": 227459072,
+      "medianMs": 408.8217079639435,
+      "minMs": 397.3821669816971,
+      "n": 1,
+      "name": "loops",
+      "outlierCount": 0,
+      "outlierMaxRatio": 1,
+      "p25Ms": 399.8440829515457,
+      "p75Ms": 402.5182499885559,
+      "p99Ms": 405.08691596984863,
+      "retainedKb": 0.0859375,
+      "rounds": 7,
+      "samplesMs": [
+        402.3413749933243,
+        405.08691596984863,
+        399.8440829515457,
+        397.3821669816971,
+        400.3141670227051,
+        402.5182499885559,
+        401.48191606998444
+      ],
+      "trend": "unknown",
+      "trendDrift": 0,
+      "trendPValue": 1,
+      "trendTau": 0
+    },
+    "rawLogSha256": "0ebc0dba0a0d326461f24eec02867a1f2d4f0d948a27135fa5a4d028cc9a5326",
+    "scope": "Recorded before obsolete-code deletion and the unrelated helper return-count fix. The production LuaJIT-on-main comparison is still owed; this diagnostic does not close that gate."
+  },
+  "sources": {
+    "src/nupp/runtime/vm/calls.nupp": "e739b5b83c8bfd3c108480c81fff5ea9a2326832ea1dcecbd5e12203c46bc839",
+    "native/crates/vm/src/native_tests.rs": "ddc194dbec97fff312d70e11c25c75419c826b3422d777acc68c3f4658646139"
+  },
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/loop-budget"
+}

@@ -959,6 +959,92 @@ impl Machine {
     }
 }
 
+#[test]
+fn native_back_edges_preserve_unlimited_and_stop_at_finite_budgets() {
+    let code = vec![
+        Ins {
+            op: Code::IAddK as u8,
+            k: -1,
+            ..Ins::default()
+        },
+        Ins {
+            op: Code::JmpIfIZero as u8,
+            imm: 1,
+            ..Ins::default()
+        },
+        Ins {
+            op: Code::Jmp as u8,
+            imm: -3,
+            ..Ins::default()
+        },
+        Ins::default(),
+    ];
+    for (budget, remaining, count, pc) in [
+        (0, 0, 3, 2),
+        (1, 0, 2, 2),
+        (2, 0, 1, 2),
+        (3, 0, 0, 3),
+        (u64::MAX, u64::MAX, 0, 3),
+    ] {
+        let mut m = Machine::new(code.clone(), vec![Ins::default()], 0);
+        let integer = m.funcs[0].off_i as usize;
+        m.stack[integer] = 4;
+        m.ctx.budget = budget;
+        let exit = unsafe { m.run(0) };
+        assert_eq!(exit, m.code(0, pc), "budget {budget}");
+        assert_eq!(m.ctx.budget, remaining, "budget {budget}");
+        assert_eq!(m.stack[integer], count, "budget {budget}");
+    }
+}
+
+#[test]
+fn native_call_paths_preserve_unlimited_and_charge_finite_budgets() {
+    for op in [Code::Call, Code::CallK, Code::CallDyn] {
+        for vararg in [0, 1] {
+            for budget in [0, 1, 7, u64::MAX] {
+                let ins = if matches!(op, Code::Call) {
+                    Ins {
+                        op: op as u8,
+                        a: 2,
+                        k: 1,
+                        ..Ins::default()
+                    }
+                } else {
+                    Ins {
+                        op: op as u8,
+                        a: 1,
+                        b: 2,
+                        k: 1,
+                        ..Ins::default()
+                    }
+                };
+                let mut m = Machine::new(vec![ins], vec![Ins::default()], 0);
+                m.funcs[1].vararg = vararg;
+                m.stack[HDR + 1] = Value::func(1).0;
+                m.ctx.budget = budget;
+                let exit = unsafe { m.run(0) };
+                let callee = usize::from(budget != 0);
+                assert_eq!(
+                    exit,
+                    m.code(callee, 0),
+                    "op {} vararg {vararg} budget {budget}",
+                    op as u8
+                );
+                let remaining = if budget == u64::MAX {
+                    budget
+                } else {
+                    budget.saturating_sub(1)
+                };
+                assert_eq!(
+                    m.ctx.budget, remaining,
+                    "op {} vararg {vararg} budget {budget}",
+                    op as u8
+                );
+            }
+        }
+    }
+}
+
 /// The frame a call pushes, as the Rust core pushed it (contracts 5.1): the
 /// reference the native call handlers are compared with.
 unsafe fn push(ctx: *mut Ctx, frame: *mut u64, fid: u32, args: u32, nargs: u32, pc: u32, closure: u64) {
