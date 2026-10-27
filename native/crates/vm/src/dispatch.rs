@@ -87,6 +87,33 @@ pub(crate) mod native_helpers {
         });
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_scheduler_poll(ctx: *mut Ctx) {
+        record_service(ctx, |it| { crate::scheduler::checkpoint(it); 0 });
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_memory_poll(ctx: *mut Ctx) {
+        record_service(ctx, |it| { it.back_edge(); 0 });
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_task_park(ctx: *mut Ctx, key: u64, resume: u64) {
+        let ctx = unsafe { &mut *ctx };
+        let (it, tid) = enter_rust(ctx);
+        it.parks += 1;
+        it.tasks[tid].note_pc(resume as usize);
+        it.tasks[tid].state = crate::interp::State::Parked(key);
+        sync(ctx, it);
+        ctx.result = key;
+        ctx.status = ST_PARKED;
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_mark_affine(ctx: *mut Ctx, closure: u64, drop: u64) -> u64 {
+        record_service(ctx, |it| it.affine_mark(Value(closure), Value(drop)).0)
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_enter_affine(ctx: *mut Ctx, closure: u64) {
+        record_service(ctx, |it| { it.affine_enter(Value(closure)); 0 });
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_record_index(ctx: *mut Ctx, object: u64, name: u64) -> u64 {
         record_service(ctx, |it| it.index(Value(object), Value(name)).0)
     }
@@ -464,6 +491,10 @@ mod native_tests;
 #[cfg(test)]
 #[path = "native_module_tests.rs"]
 mod native_module_tests;
+
+#[cfg(test)]
+#[path = "native_state_tests.rs"]
+mod native_state_tests;
 
 /// Runs the context's task from its top frame until it finishes, parks or
 /// raises; the status says which. The chain starts at the frame driver's

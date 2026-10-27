@@ -98,6 +98,7 @@ codes! {
     StorageLen, FLoad, FStore, VSplat, VLoad, VStore, VFma, VLane,
     Require, RequireV, SetMethod,
     UUnbox, UBox, Div, Pow, IDiv, TagCheckInt, TagCheckStr, Scalar, IJmpIfUle, IJmpIfUlt,
+    Disarm, AffineMark, AffineEnter, Park, Checkpoint, VarargTable,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -256,6 +257,12 @@ pub fn encode(op: &Op) -> Ins {
         Op::Require(d, k) => Ins { imm: k as i32, ..i(Code::Require, d, 0, 0) },
         Op::RequireV(d, source) => i(Code::RequireV, d, source, 0),
         Op::SetMethod(shape, k, value) => Ins { imm: shape as i32, k: k as i64, ..i(Code::SetMethod, value, 0, 0) },
+        Op::Disarm(value) => i(Code::Disarm, value, 0, 0),
+        Op::AffineMark(value, drop) => i(Code::AffineMark, value, drop, 0),
+        Op::AffineEnter => i(Code::AffineEnter, 0, 0, 0),
+        Op::Park(key) => i(Code::Park, key, 0, 0),
+        Op::Checkpoint => i(Code::Checkpoint, 0, 0, 0),
+        Op::VarargTable(dest) => i(Code::VarargTable, dest, 0, 0),
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

@@ -54,14 +54,21 @@ module module.cycle 2
 // An explicit Slow instruction is a boundary, not a promise that some guest
 // opcode will remain unported. Loader callbacks can still execute guest code.
 fn invoke(vm: &mut Box<Interp>, fid: u32, op: Op, args: &[Value]) -> (usize, Ctx, u64) {
+    let tid = vm.spawn(fid, args);
+    invoke_task(vm, tid, op)
+}
+
+pub(super) fn invoke_task(vm: &mut Box<Interp>, tid: usize, op: Op) -> (usize, Ctx, u64) {
+    let current = vm.tasks[tid].cur();
+    let fid = vm.tasks[tid].stack[current] as u32;
     let code = [encode(&op), Ins::default()];
     assert_ne!(code[0].op, Code::Slow as u8);
     let original = vm.finfo[fid as usize].code;
     vm.finfo[fid as usize].code = code.as_ptr();
-    let tid = vm.spawn(fid, args);
     let mut ctx: Ctx = unsafe { std::mem::zeroed() };
     ctx.interp = (&mut **vm as *mut Interp).cast();
     ctx.tid = tid as u64;
+    ctx.marking = &vm.heap.marking;
     crate::threaded::sync(&mut ctx, vm);
     let frame = unsafe { ctx.stack.add(ctx.cur as usize) };
     let next = unsafe {
@@ -74,7 +81,7 @@ fn invoke(vm: &mut Box<Interp>, fid: u32, op: Op, args: &[Value]) -> (usize, Ctx
             frame,
         )
     };
-    if ctx.status != ST_ERROR {
+    if ctx.status == 0 {
         assert_eq!(next, unsafe { code.as_ptr().add(1) } as u64);
     } else {
         assert_eq!(next, EXIT_ERROR);

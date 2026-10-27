@@ -1,0 +1,15 @@
+-- Temporary scheduler, collector and affine-object services. None reads an
+-- instruction; Nupp chooses resume points and transfers logical operands.
+local record StateHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    schedulerPoll: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    memoryPoll: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = false, mayPark = true, mayRaise = false, pure = false)
+    taskPark: function(context: voidptr, key: uint64, resume: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    markAffine: function(context: voidptr, closure: uint64, drop: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    enterAffine: function(context: voidptr, closure: uint64): nil
+end
+return StateHelpers

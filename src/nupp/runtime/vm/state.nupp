@@ -1,0 +1,167 @@
+module nupp.runtime.vm.state
+
+-- State instructions retain logical frames across managed subsystem calls.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const state = require("nupp.runtime.vm.statehelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+export function Disarm(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local records = native.loadPointer(context, native.layout("cleanups"))
+    local size = native.layout("Cleanup.size")
+    local n = native.loadIndex(context, native.layout("ncleanups"))
+    while n > 0 do
+        n = n - 1
+        if native.load64(records, n * size + native.layout("Cleanup.value")) == value then
+            native.store64(records, n * size + native.layout("Cleanup.value"), values.NIL)
+            native.store64(records, n * size + native.layout("Cleanup.callback"), values.NIL)
+            break
+        end
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function markAffineSlow(pc: voidptr, context: voidptr, closure: uint64, drop: uint64): uint64
+    protocol.publishPc(pc, context)
+    local value = state.markAffine(context, closure, drop)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end
+
+export function AffineMark(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return markAffineSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 1)),
+        slots.readValue(frame, regs, program.readByte(pc, 2))
+    )
+end
+
+local function enterAffineSlow(pc: voidptr, context: voidptr, closure: uint64): uint64
+    protocol.publishPc(pc, context)
+    state.enterAffine(context, closure)
+    return protocol.continueAfter(pc, context, 0, values.NIL, false)
+end
+
+export function AffineEnter(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return enterAffineSlow(pc, context, native.load64(frame, 16))
+end
+
+local function checkpointSlow(pc: voidptr, context: voidptr): uint64
+    protocol.publishPc(pc, context)
+    state.schedulerPoll(context)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    state.memoryPoll(context)
+
+    return protocol.continueAfter(pc, context, 0, values.NIL, false)
+end
+
+export function Checkpoint(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return checkpointSlow(pc, context)
+end
+
+local function parkSlow(pc: voidptr, context: voidptr, key: uint64): uint64
+    protocol.publishPc(pc, context)
+    state.schedulerPoll(context)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- The resumption starts after this instruction. The named task service
+    -- materializes that selected position and the key without decoding code.
+    state.taskPark(context, key, native.load32(context, native.layout("pc")) + 1)
+
+    return native.fail()
+end
+
+export function Park(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return parkSlow(pc, context, slots.readValue(frame, regs, program.readByte(pc, 1)))
+end
+
+local function varargTableSlow(pc: voidptr, context: voidptr, count: int64, length: int64): uint64
+    protocol.publishPc(pc, context)
+    local table = helpers.newTable(context, count, 0)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    if length > 0 then
+        helpers.resizeArray(context, table, length)
+        local stack = native.loadPointer(context, native.layout("stack"))
+        local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+        local varargs = native.offset(frame, 0 - count * 8)
+        local entries = native.loadPointer(native.pointer(table & values.PAYLOAD), native.layout("Header.aux_ptr"))
+        local marking = native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0
+        local i: int64 = 0
+        while i < length do
+            local value = slots.readValue(frame, varargs, i)
+            native.store64(entries, i * 8, value)
+            if marking then
+                helpers.barrier(context, table, value)
+            end
+            i = i + 1
+        end
+    end
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), table, true)
+end
+
+export function VarargTable(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local count = native.index(native.load64(frame, 24) >> 49)
+    local varargs = native.offset(frame, 0 - count * 8)
+    local length = count
+    while length > 0 do
+        if slots.readValue(frame, varargs, length - 1) ~= values.NIL then
+            break
+        end
+        length = length - 1
+    end
+
+    return varargTableSlow(pc, context, count, length)
+end

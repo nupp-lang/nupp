@@ -2097,7 +2097,7 @@ impl Interp {
         }
     }
     #[inline]
-    fn back_edge(&mut self) {
+    pub(crate) fn back_edge(&mut self) {
         self.back_edges += 1;
         if self.back_edges & 255 == 0 { self.heap.safepoint(roots!(self)); }
     }

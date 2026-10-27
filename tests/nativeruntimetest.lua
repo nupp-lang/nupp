@@ -16,6 +16,7 @@ local function capture(command)
     local output = pipe:read("*a")
     pipe:close()
     local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+
     return status, (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -32,8 +33,12 @@ function M.theHandlerSourcesBuildIntoOneObjectAndPassTheContractTests()
     local object = assert(output:match("([^\r\n]+%.o)%s*$"), "vm-cli runtime named no object: " .. output:sub(-2000))
     local sidecar = read(object .. ".rs")
     assert(sidecar:find("assert!(Code::IAdd as u8 ==", 1, true), "the sidecar names no handlers")
-    status, output = capture(("NUPP_NATIVE_RUNTIME_OBJECT=%s CARGO_TARGET_DIR=build/rust/target cargo test --locked --release "
-        .. "-p nupp-vm --features aot,native-runtime -j 4 --lib native_tests"):format(quote(object)))
+    status, output = capture(
+        (
+            "NUPP_NATIVE_RUNTIME_OBJECT=%s CARGO_TARGET_DIR=build/rust/target cargo test --locked --release "
+            .. "-p nupp-vm --features aot,native-runtime -j 4 --lib"
+        ):format(quote(object))
+    )
     assert(status == 0, "the native contract tests failed: " .. output:sub(-8000))
     local passed = tonumber(output:match("test result: ok%. (%d+) passed"))
     assert(passed and passed >= 18, "fewer native contract tests ran than expected: " .. output:sub(-3000))
