@@ -2,8 +2,25 @@ module nupp.runtime.vm.objecthash
 
 -- Canonical slot hashing for table keys and shape names. The leaf consumes
 -- value bits only; it neither reads managed state nor calls the VM.
+const native = require("nupp.runtime.vm.intrinsics")
 const values = require("nupp.runtime.vm.values")
 
 export function slotHash(bits: uint64): uint64
     return ((bits >> 4) * values.HASH_MULTIPLIER) >> 32
+end
+
+-- The intern table starts an untouched or zero-state stream at the FNV
+-- offset. Empty writes still select that seed; other writes continue it.
+export function stringHash(bytes: voidptr, count: uint64, state: uint64): uint64
+    local hash: uint64 = state
+    if hash == 0ULL then
+        hash = 0xcbf29ce484222325ULL
+    end
+    local index: uint64 = 0ULL
+    while index < count do
+        hash = (hash ~ native.word(native.load8(bytes, native.index(index)))) * 0x100000001b3ULL
+        index = index + 1ULL
+    end
+
+    return hash
 end

@@ -121,9 +121,19 @@ pub type ValueMap = std::collections::HashMap<Value, Value, std::hash::BuildHash
 pub struct StrHasher(u64);
 impl Hasher for StrHasher {
     fn finish(&self) -> u64 { self.0 }
-    fn write(&mut self, bytes: &[u8]) { let mut h = if self.0 == 0 { 0xcbf29ce484222325 } else { self.0 }; for &b in bytes { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } self.0 = h; }
+    fn write(&mut self, bytes: &[u8]) { self.0 = string_hash(bytes, self.0); }
 }
-pub fn fnv1a(bytes: &[u8]) -> u64 { let mut h: u64 = 0xcbf29ce484222325; for &b in bytes { h ^= b as u64; h = h.wrapping_mul(0x100000001b3); } h }
+#[cfg(feature = "native-runtime")]
+unsafe extern "C" { fn nupp_object_string_hash(bytes: *const u8, count: u64, state: u64) -> u64; }
+#[cfg(feature = "native-runtime")]
+const _: () = assert!(crate::dispatch::OBJECT_ABI == 3);
+fn string_hash(bytes: &[u8], state: u64) -> u64 {
+    #[cfg(feature = "native-runtime")]
+    { unsafe { nupp_object_string_hash(bytes.as_ptr(), bytes.len() as u64, state) } }
+    #[cfg(not(feature = "native-runtime"))]
+    { let _ = (bytes, state); panic!("string hashing requires a linked Nupp core") }
+}
+pub fn fnv1a(bytes: &[u8]) -> u64 { string_hash(bytes, 0) }
 
 #[cfg(test)]
 mod tests {
