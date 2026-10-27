@@ -6,6 +6,32 @@ use std::rc::Rc;
 use nupp_vm::heap::{Heap, Roots, CLASS_LARGE};
 use nupp_vm::value::Value;
 
+// A released address can be reused immediately by another test in this process.
+// Run mapping observations alone, including the test harness's thread lifecycle.
+fn run_mapping_child(name: &str) -> bool {
+    const CHILD: &str = "NUPP_ALLOCATOR_MAPPING_CHILD";
+    if std::env::var(CHILD).ok().as_deref() == Some(name) {
+        return false;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--test-threads=1", "--nocapture"])
+        .env(CHILD, name)
+        .output()
+        .expect("start isolated mapping test");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "{name}: {}\n{stdout}\n{stderr}",
+        output.status
+    );
+    assert!(
+        stdout.contains("test result: ok. 1 passed; 0 failed;"),
+        "{name} did not execute exactly one test:\n{stdout}\n{stderr}"
+    );
+    true
+}
+
 #[derive(Default)]
 struct Keep(RefCell<Vec<Value>>);
 impl Roots for Keep {
@@ -256,6 +282,9 @@ fn mapped(address: usize) -> bool {
 
 #[test]
 fn mapping_probe_distinguishes_an_owned_page_from_a_released_page() {
+    if run_mapping_child("mapping_probe_distinguishes_an_owned_page_from_a_released_page") {
+        return;
+    }
     let page = unsafe { nupp_vm::os_glue::nupp_os_page_size() };
     let pointer = unsafe { nupp_vm::os_glue::nupp_os_map_pages(page) };
     assert!(!pointer.is_null());
@@ -268,6 +297,9 @@ fn mapping_probe_distinguishes_an_owned_page_from_a_released_page() {
 
 #[test]
 fn region_rollover_reclaims_slots_and_unmaps_every_aligned_chunk_on_drop() {
+    if run_mapping_child("region_rollover_reclaims_slots_and_unmaps_every_aligned_chunk_on_drop") {
+        return;
+    }
     use nupp_vm::heap::{StrPayload, HEADER};
     const CHUNK: usize = 256 * 1024;
     const SLOT: usize = 32 * 1024;
@@ -325,6 +357,9 @@ fn region_rollover_reclaims_slots_and_unmaps_every_aligned_chunk_on_drop() {
 
 #[test]
 fn large_page_boundaries_reclaim_or_quarantine_then_release_on_drop() {
+    if run_mapping_child("large_page_boundaries_reclaim_or_quarantine_then_release_on_drop") {
+        return;
+    }
     use nupp_vm::heap::{StrPayload, F_TOMBSTONE, HEADER, KIND_FREED};
     let page = unsafe { nupp_vm::os_glue::nupp_os_page_size() } as usize;
     let prefix = 16 + HEADER + std::mem::size_of::<StrPayload>() + 1;
