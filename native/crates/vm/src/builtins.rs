@@ -531,7 +531,10 @@ pub fn num_text(n: f64) -> String {
     if n.is_nan() { return "nan".into(); }
     if n == f64::INFINITY { return "inf".into(); }
     if n == f64::NEG_INFINITY { return "-inf".into(); }
-    format!("{n:?}")
+    let decimal = format!("{n:?}");
+    let exponent = format!("{n:e}");
+    // Both forms round-trip; decimal wins ties to retain 1.0 and signed zero.
+    if exponent.len() < decimal.len() { exponent } else { decimal }
 }
 /// One C conversion, as LuaJIT's `string.format` makes it: `spec` is the
 /// flags, width and precision between `%` and the conversion.

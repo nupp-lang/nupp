@@ -123,6 +123,61 @@ fn float_text_roundtrips_and_distinguishes_integral_floats() {
 }
 
 #[test]
+fn float_text_uses_the_shorter_notation_and_reads_back_as_float() {
+    for (value, expected) in [
+        (1e14, "1e14"), (-1e14, "-1e14"), (10.0, "1e1"),
+        (100.0, "1e2"), (0.001, "1e-3"), (0.01, "0.01"),
+        (1.0, "1.0"), (-1.0, "-1.0"), (0.0, "0.0"), (-0.0, "-0.0"),
+    ] {
+        assert_eq!(builtins::num_text(value), expected);
+    }
+    let mut vm = Interp::new();
+    let tonumber = Value::builtin(builtins::id_of("tonumber").unwrap());
+    for value in [
+        0.0, -0.0, 1.0, -1.0, 1e14, -1e14, 0.01, 0.001,
+        f64::MAX, f64::MIN, f64::MIN_POSITIVE, -f64::MIN_POSITIVE,
+        f64::from_bits(1), -f64::from_bits(1), f64::from_bits(0x000f_ffff_ffff_ffff),
+        9007199254740992.0, 9007199254740994.0,
+    ] {
+        let text = builtins::num_text(value);
+        let source = vm.intern(&text);
+        vm.register(source);
+        let result = vm.call_value(tonumber, &[source])[0];
+        assert!(result.is_float(), "float text lost its subtype: {text}");
+        assert_eq!(result.as_num().to_bits(), value.to_bits(), "{text}");
+    }
+}
+
+#[test]
+fn float_text_roundtrips_exponent_neighbors_and_finite_bit_patterns() {
+    let check = |value: f64| {
+        if !value.is_finite() { return; }
+        let text = builtins::num_text(value);
+        assert!(text.contains('.') || text.contains('e'), "float marker missing: {text}");
+        assert_eq!(text.parse::<f64>().unwrap().to_bits(), value.to_bits(), "{text}");
+    };
+    for exponent in -323..=308 {
+        let value = 10f64.powi(exponent);
+        if value > 0.0 && value.is_finite() {
+            for bits in [value.to_bits() - 1, value.to_bits(), value.to_bits() + 1] {
+                check(f64::from_bits(bits));
+                check(-f64::from_bits(bits));
+            }
+        }
+    }
+    let mut bits = 0x8c98_1c6a_35e7_409du64;
+    for _ in 0..4096 {
+        bits ^= bits << 13;
+        bits ^= bits >> 7;
+        bits ^= bits << 17;
+        check(f64::from_bits(bits));
+    }
+    assert_eq!(builtins::num_text(f64::NAN), "nan");
+    assert_eq!(builtins::num_text(f64::INFINITY), "inf");
+    assert_eq!(builtins::num_text(f64::NEG_INFINITY), "-inf");
+}
+
+#[test]
 fn integer_equality_keeps_optional_and_mixed_value_semantics() {
     let mut vm = Interp::new();
     let byte = numeric::signed(&mut vm, 32);
