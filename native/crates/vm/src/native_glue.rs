@@ -515,15 +515,21 @@ fn require_allocator_support(
     }
     let mut scratch = 0u64;
     for slot in f.sized_stack_slots.values() {
-        scratch += slot.size as u64;
         if slot.kind != cranelift_codegen::ir::StackSlotKind::ExplicitSlot
             || slot.size == 0
             || slot.size > 4096
             || slot.align_shift > 4
-            || scratch > 4096
         {
             return Err(format!(
                 "{}: allocator scratch must be fixed and bounded by 4096 bytes and 16-byte alignment",
+                f.name
+            ));
+        }
+        let alignment = 1u64 << slot.align_shift;
+        scratch += (slot.size as u64 + alignment - 1) & !(alignment - 1);
+        if scratch > 4096 {
+            return Err(format!(
+                "{}: allocator scratch including alignment exceeds 4096 bytes",
                 f.name
             ));
         }
@@ -1331,6 +1337,7 @@ mod allocator_support_tests {
             "ss0=explicit_slot 4097",
             "ss0=explicit_slot 16, align=32",
             "ss0=explicit_slot 4096 ss1=explicit_slot 1",
+            "ss0=explicit_slot 4095, align=16 ss1=explicit_slot 1, align=16",
             "dss0=explicit_dynamic_slot dt0",
             "gv0=symbol %external",
         ] {
