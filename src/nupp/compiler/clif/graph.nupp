@@ -101,6 +101,36 @@ function emitter.emit(g: any, options: any): string
         return ref
     end
 
+    local function support(declaration: any): string
+        local home = options.modules and options.modules[declaration.moduleName]
+        local target = home and home.functions and home.functions[declaration.name]
+        need(
+            target and target.isSupport and target.resultKind == declaration.result,
+            "checked support function required"
+        )
+        need(#target.paramKinds == #declaration.params, "support signature parameter count differs")
+        local params = {}
+        for index, kind in ipairs(declaration.params) do
+            need(target.paramKinds[index] == kind, "support signature exact kind differs")
+            params[index] = machineKinds[kind]
+        end
+        params[#params + 1] = "i64"
+        local symbol = declaration.name
+        local signature = "(" .. table.concat(params, ", ") .. ") -> i64 tail"
+        local known = imports[symbol]
+        if known then
+            need(known.signature == signature, "support symbol has inconsistent signatures")
+            return known.ref
+        end
+        local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+        importCount = importCount + 1
+        preamble[#preamble + 1] = sig .. " = " .. signature
+        preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+        imports[symbol] = {signature = signature, ref = ref}
+
+        return ref
+    end
+
     local function value(id: integer): string
         return "v" .. tostring(id)
     end
@@ -315,6 +345,17 @@ function emitter.emit(g: any, options: any): string
         elseif term.kind == "return" then
             need(not handler, "handler cannot return a scalar")
             line("return " .. value(term.value))
+        elseif term.kind == "nativeTail" then
+            need(handler, "leaf cannot transfer to native support")
+            local words = {}
+            for index, argument in ipairs(term.args) do
+                words[index] = value(argument)
+            end
+            words[#words + 1] = need(tableValue, "native tail requires the dispatch table")
+            line("return_call " .. support(term.callee) .. "(" .. table.concat(words, ", ") .. ")")
+        elseif term.kind == "nativeFail" then
+            need(handler, "leaf cannot fail a VM handler")
+            line("return " .. constant("0"))
         elseif term.kind == "dispatch" then
             need(handler, "leaf cannot dispatch")
             local args = term.args

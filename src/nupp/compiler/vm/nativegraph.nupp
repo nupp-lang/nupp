@@ -9,6 +9,10 @@ local helpercontract = require("nupp.compiler.vm.helpercontract")
 
 local nativegraph = {}
 local admitted = {
+    Jmp = true,
+    JmpIfIZero = true,
+    JmpIf = true,
+    JmpIfNot = true,
     K = true,
     Move = true,
     Nil = true,
@@ -218,6 +222,8 @@ function nativegraph.compile(fn: any, options: any): any
     end
     local g = graph.newNative(fn.paramKinds, "uint64", leaf and "leaf" or "handler")
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
+    local scope = fn.scope
+    local inlining = {}
     local block = graph.block(g)
     local bindings: {[any]: integer} = {}
     local bindingOrder: {any} = {}
@@ -229,7 +235,9 @@ function nativegraph.compile(fn: any, options: any): any
 
     local function position(n: any): integer
         local token = need(cst.firstToken(n), "source position required")
-        return graph.position(g, token.line, token.col)
+        local id = graph.position(g, token.line, token.col)
+        g.positions[id].source = {moduleName = scope.name, path = scope.path}
+        return id
     end
 
     local function emit(n: any, op: string, args: any, kind: string?): integer?
@@ -265,9 +273,9 @@ function nativegraph.compile(fn: any, options: any): any
     expression = function(n: any, expected: string?): integer
         if n.kind == "paren" then
             return expression(n.expr, expected)
-        elseif n.kind == "true" or n.kind == "false" then
+        elseif n.kind == "true" or n.kind == "false" or n.kind == "trueExpr" or n.kind == "falseExpr" then
             need(expected == nil or expected == "boolean", "boolean literal changes exact kind")
-            return emit(n, "NativeBoolean", {n.kind == "true"}, "boolean") as integer
+            return emit(n, "NativeBoolean", {n.kind == "true" or n.kind == "trueExpr"}, "boolean") as integer
         elseif n.kind == "number" then
             local kind = expected or exactKind(n.inferredType)
             need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
@@ -473,8 +481,76 @@ function nativegraph.compile(fn: any, options: any): any
         block = nil
     end
 
+    local function callee(call: any): any
+        if call.kind ~= "call" then
+            return nil
+        end
+        if call.obj.kind == "name" then
+            local target = scope.functions and scope.functions[call.obj.token.text]
+            if target then
+                local token = target.node.kind == "funcStmt" and target.node.name.base or target.node.name
+                need(call.obj.token.definition == token.definition, "composed call must name its checked function")
+            end
+            return target
+        end
+        local moduleName, name = member(call.obj)
+        local home = moduleName and options.modules and options.modules[moduleName]
+
+        return home and home.exports and home.exports[name] or nil
+    end
+
+    local function checkedCallee(call: any, target: any): any
+        need(not target.isHandler, "a handler requires dispatch")
+        local result = target.resultKind or "nil"
+        signature(call, target.paramKinds, result)
+        for _, kind in ipairs(target.paramKinds) do
+            need(exactKinds[kind], "composed helper requires exact parameter kinds")
+        end
+        need(result == "nil" or exactKinds[result], "composed helper requires exact result kind")
+
+        return {moduleName = target.scope.name, name = target.name, params = target.paramKinds, result = result}
+    end
+
     local loops = {}
     local statements: function(any): nil
+
+    local function inline(call: any, target: any, returns: boolean): nil
+        local declaration = checkedCallee(call, target)
+        need(not target.isSupport, "support functions require tail transfer")
+        need(not inlining[target], "recursive composed helper")
+        need(
+            returns and target.resultKind == "uint64" or not returns and target.resultKind == nil,
+            "helper continuation differs from its result"
+        )
+        local values = {}
+        for index, kind in ipairs(target.paramKinds) do
+            values[index] = expression(call.args.exprs[index], kind)
+        end
+        local outerBindings, outerOrder, outerScope = bindings, bindingOrder, scope
+        bindings, bindingOrder, scope = {}, {}, target.scope
+        for index, key in ipairs(outerOrder) do
+            bindings[key] = outerBindings[key]
+            bindingOrder[index] = key
+        end
+        for index, parameter in ipairs(target.body.params) do
+            local key = parameter.name.definition or parameter.name
+            bindings[key] = values[index]
+            bindingOrder[#bindingOrder + 1] = key
+        end
+        g.compositions = g.compositions or {}
+        g.compositions[#g.compositions + 1] = declaration
+        inlining[target] = true
+        statements(target.body.body.stats)
+        inlining[target] = nil
+        need(returns and block == nil or not returns and block ~= nil, "composed helper continuation is incomplete")
+        if not returns then
+            for _, key in ipairs(outerOrder) do
+                outerBindings[key] = need(bindings[key], "composed helper loses caller binding")
+            end
+        end
+        bindings, bindingOrder, scope = outerBindings, outerOrder, outerScope
+    end
+
     statements = function(stats: any): nil
         for _, stat in ipairs(stats) do
             need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
@@ -537,6 +613,8 @@ function nativegraph.compile(fn: any, options: any): any
                         operands[index + 1] = expression(args[index], kind)
                     end
                     emit(call, "NativeHelperCall", operands, nil)
+                elseif callee(call) then
+                    inline(call, callee(call), false)
                 else
                     error("native graph: unsupported checked statement call", 0)
                 end
@@ -646,17 +724,44 @@ function nativegraph.compile(fn: any, options: any): any
                     }
                     block = nil
                 else
-                    need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
+                    need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "native transfer return required")
                     local call = stat.exprs[1]
                     local moduleName, name = member(call.obj)
-                    need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
-                    signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
-                    local args = {}
-                    for index, argument in ipairs(call.args.exprs) do
-                        args[index] = expression(argument, "voidptr")
+                    local target = callee(call)
+                    if moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch" then
+                        signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+                        local args = {}
+                        for index, argument in ipairs(call.args.exprs) do
+                            args[index] = expression(argument, "voidptr")
+                        end
+                        block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
+                        block = nil
+                    elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fail" then
+                        signature(call, {}, "uint64")
+                        block.term = {kind = "nativeFail", edges = {}, pos = position(stat)}
+                        block = nil
+                    elseif target and target.isSupport then
+                        local declaration = checkedCallee(call, target)
+                        need(declaration.result == "uint64", "support transfer requires a status result")
+                        declaration.abi = "support"
+                        declaration.effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false}
+                        local args = {}
+                        for index, kind in ipairs(declaration.params) do
+                            args[index] = expression(call.args.exprs[index], kind)
+                        end
+                        block.term = {
+                            kind = "nativeTail",
+                            callee = declaration,
+                            args = args,
+                            edges = {},
+                            pos = position(stat)
+                        }
+                        block = nil
+                    elseif target then
+                        inline(call, target, true)
+                    else
+                        error("native graph: unsupported checked transfer", 0)
                     end
-                    block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
-                    block = nil
                 end
             elseif stat.kind ~= "emptyStmt" then
                 error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)

@@ -2292,7 +2292,8 @@ function lower.compile(root: string, paths: {string}, options: any?): string
             text[index] = clifgraph.emit(g, {
                 name = fn.name,
                 layout = functionOptions.layout,
-                helperModules = functionOptions.helperModules
+                helperModules = functionOptions.helperModules,
+                modules = functionOptions.modules
             })
         elseif handlers and allocatorModule(fn.scope.name) then
             allocatorNames[#allocatorNames + 1] = fn.name

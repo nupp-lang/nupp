@@ -75,6 +75,113 @@ local function checked(source)
     return functions, {modules = {["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
 end
 
+local function checkedJumps()
+    local functions, options = checked(read(CORE))
+    trivia.installDefault(provider)
+    local env = environment.new(ROOT, {cache = false, config = {include = {"src"}}})
+    for _, moduleName in ipairs({"calls", "protocol"}) do
+        local path = ROOT .. "/src/nupp/runtime/vm/" .. moduleName .. ".nupp"
+        local parsed = parser.parse(read(path), path)
+        assert(#parsed.errors == 0)
+        for _, diagnostic in ipairs(checker.check(parsed, path, env, {})) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        local scope = {name = "nupp.runtime.vm." .. moduleName, path = path, functions = {}, exports = {}}
+        options.modules[scope.name] = scope
+        for _, block in ipairs(parsed.root.blocks) do
+            for _, stat in ipairs(block.stats) do
+                local node = stat.kind == "exportStmt" and stat.stat or stat
+                if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                    local body = node.body
+                    local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                    local kinds = {}
+                    for index, parameter in ipairs(body.params) do
+                        kinds[index] = parameter.type.resolvedType.tag
+                    end
+                    local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                    local fn = {
+                        name = name,
+                        node = node,
+                        body = body,
+                        scope = scope,
+                        paramKinds = kinds,
+                        resultKind = result ~= "nil" and result or nil,
+                        isHandler = false,
+                        isSupport = name:match("Slow$") ~= nil
+                    }
+                    scope.functions[name] = fn
+                    if stat.kind == "exportStmt" then
+                        scope.exports[name] = fn
+                    end
+                end
+            end
+        end
+    end
+    options.helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}
+
+    return functions, options
+end
+
+function M.jumpHandlersComposeCheckedBackEdgePolicy()
+    local functions, options = checkedJumps()
+    for _, name in ipairs({"Jmp", "JmpIfIZero", "JmpIf", "JmpIfNot"}) do
+        local g = nativegraph.compile(functions[name], options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        local tail, failure, dispatch = 0, 0, 0
+        for _, block in ipairs(g.blocks) do
+            local term = block.term
+            if term.kind == "nativeTail" then
+                tail = tail + 1
+                assert(term.callee.moduleName == "nupp.runtime.vm.calls" and term.callee.name == "backEdgeSlow")
+                assert(term.args[1] == 1 and term.args[2] == 5)
+                assert(term.callee.effects.mayCollect and term.callee.effects.mayPark and term.callee.effects.mayRaise)
+            elseif term.kind == "nativeFail" then
+                failure = failure + 1
+            elseif term.kind == "dispatch" then
+                dispatch = dispatch + 1
+            end
+        end
+        assert(tail == 1 and failure == 1 and dispatch >= 2)
+        local composed = {}
+        for _, declaration in ipairs(g.compositions) do
+            composed[declaration.moduleName .. "." .. declaration.name] = true
+        end
+        assert(composed["nupp.runtime.vm.calls.backEdge"])
+        assert(composed["nupp.runtime.vm.calls.chargeBudget"])
+        assert(composed["nupp.runtime.vm.calls.budgetStop"])
+        assert(composed["nupp.runtime.vm.protocol.publishPc"])
+        local sawPublishedSource = false
+        for _, position in ipairs(g.positions) do
+            if position.source.moduleName == "nupp.runtime.vm.protocol" then
+                sawPublishedSource = true
+            end
+        end
+        assert(sawPublishedSource)
+    end
+end
+
+function M.jumpTailContractsRefuseChangedSignatureEffectsAndContext()
+    local functions, options = checkedJumps()
+    local g = nativegraph.compile(functions.Jmp, options)
+    local tail
+    for _, block in ipairs(g.blocks) do
+        if block.term.kind == "nativeTail" then
+            tail = block.term
+        end
+    end
+    assert(tail)
+    tail.callee.effects.mayCollect = false
+    assert(not pcall(graph.verify, g), "managed effect understatement must fail")
+    tail.callee.effects.mayCollect = true
+    tail.args[2] = 2
+    assert(not pcall(graph.verify, g), "changed context must fail")
+    tail.args[2] = 5
+    tail.callee.params[3] = "uint64"
+    assert(not pcall(graph.verify, g), "changed exact parameter kind must fail")
+end
+
 local function operation(g, wanted)
     for _, block in ipairs(g.blocks) do
         for index, name in ipairs(block.op) do
@@ -136,7 +243,7 @@ function M.exactScalarHandlersProduceTheSharedGraph()
             count = count + 1
         end
     end
-    assert(count == #admitted)
+    assert(count == #admitted + 4)
     for _, name in ipairs(admitted) do
         local fn = assert(functions[name])
         local g = nativegraph.compile(fn, options)
@@ -174,7 +281,7 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         graph.verify(g)
         operation(g, "FrameSlotWrite")
     end
-    assert(not nativegraph.admits(functions.Jmp))
+    assert(nativegraph.admits(functions.Jmp))
     assert(not nativegraph.admits({name = "IAdd", scope = {name = "other"}}))
 end
 

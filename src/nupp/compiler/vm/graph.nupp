@@ -685,7 +685,17 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
     end
 end
 
-local edgeCounts = {jump = 1, branch = 2, ["return"] = 0, returns = 0, raise = 0, park = 1, dispatch = 0}
+local edgeCounts = {
+    jump = 1,
+    branch = 2,
+    ["return"] = 0,
+    returns = 0,
+    raise = 0,
+    park = 1,
+    dispatch = 0,
+    nativeTail = 0,
+    nativeFail = 0
+}
 
 function graph.verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
@@ -870,6 +880,61 @@ function graph.verify(g: any): nil
             end
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
+        elseif kind == "nativeTail" then
+            assert(native and g.native.abi == "handler", "native tail transfer requires a handler graph")
+            local declaration = t.callee
+            nativeContract(declaration, {
+                moduleName = true,
+                name = true,
+                params = true,
+                result = true,
+                abi = true,
+                effects = true
+            })
+            assert(
+                type(declaration.moduleName) == "string"
+                and declaration.moduleName:match("^nupp%.runtime%.vm%.[%w_]+$"),
+                "native tail requires its checked module"
+            )
+            assert(
+                type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*Slow$"),
+                "native tail requires a support function"
+            )
+            assert(declaration.abi == "support" and declaration.result == "uint64", "native tail support ABI mismatch")
+            assert(
+                type(declaration.params) == "table"
+                and #declaration.params >= 2
+                and type(t.args) == "table"
+                and #t.args == #declaration.params,
+                "native tail argument count"
+            )
+            for index, parameter in ipairs(declaration.params) do
+                assert(
+                    nativeClasses[parameter] and usable(t.args[index]) and g.exactTypes[t.args[index]] == parameter,
+                    "native tail operand kind"
+                )
+            end
+            assert(
+                declaration.params[1] == "voidptr"
+                and declaration.params[2] == "voidptr"
+                and t.args[1] == 1
+                and t.args[2] == 5,
+                "native tail changes original pc/context identity"
+            )
+            local effects = declaration.effects
+            nativeContract(effects, {mayCollect = true, mayPark = true, mayRaise = true, pure = true})
+            assert(
+                effects.mayCollect == true
+                and effects.mayPark == true
+                and effects.mayRaise == true
+                and effects.pure == false,
+                "native tail requires conservative managed effects"
+            )
+        elseif kind == "nativeFail" then
+            assert(
+                native and g.native.abi == "handler" and t.args == nil and t.value == nil,
+                "native failure exit requires a handler graph and carries no values"
+            )
         elseif native and kind == "branch" then
             assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
         elseif native and kind == "return" then
@@ -986,7 +1051,7 @@ function graph.prune(g: any): nil
         if b.term.value then
             used[b.term.value] = true
         end
-        if b.term.kind == "dispatch" then
+        if b.term.kind == "dispatch" or b.term.kind == "nativeTail" then
             for _, value in ipairs(b.term.args) do
                 used[value] = true
             end
@@ -1079,7 +1144,7 @@ function graph.prune(g: any): nil
         if t.value then
             t.value = assert(remap[t.value])
         end
-        if t.kind == "dispatch" then
+        if t.kind == "dispatch" or t.kind == "nativeTail" then
             for i = 1, #t.args do
                 t.args[i] = assert(remap[t.args[i]])
             end
