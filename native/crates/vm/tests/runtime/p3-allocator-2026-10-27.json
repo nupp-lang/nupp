@@ -1,0 +1,96 @@
+{
+  "phase": "P3 allocator integration checkpoint; object and collector ownership remains open",
+  "source": "6e9d874d7b3651588c8543f8810f416320a112fa",
+  "objectAbi": 7,
+  "ownership": {
+    "nupp": [
+      "size classes",
+      "free lists",
+      "chunk regions",
+      "large mappings",
+      "allocation/reclamation loops",
+      "canonical allocation counters"
+    ],
+    "rustTemporary": [
+      "payload containers and teardown",
+      "root enumeration",
+      "collector phase/scan/weak orchestration",
+      "gray queue until the next slice"
+    ]
+  },
+  "sourceCheck": {
+    "ok": true,
+    "diagnostics": [],
+    "modules": 551,
+    "compiledModules": 395,
+    "reusedModules": 156,
+    "receipt": "build/allocator-bridge/full-source-check.json"
+  },
+  "pinnedFixpoint": {
+    "ok": true,
+    "stages": 3,
+    "receipt": "build/allocator-bridge/fixpoint-serial.json",
+    "abortedAttempt": "Initial attempt was stopped when a sourcecheck was still active; only the subsequent serial completion is accepted."
+  },
+  "sharedCases": {
+    "ok": true,
+    "total": 2064,
+    "passed": 2064,
+    "failed": 0,
+    "skipped": 0,
+    "notExecuted": 0
+  },
+  "standaloneHeapAndGraph": {
+    "passed": 20,
+    "initialRun": {
+      "passed": 19,
+      "failed": 1,
+      "receipt": "build/allocator-bridge/native-layout-tests.jsonl"
+    },
+    "fixtureCorrection": "Use a pointer type alias in the explicit generic argument; no production correction",
+    "correctedCase": {
+      "passed": 1,
+      "failed": 0,
+      "receipt": "build/allocator-bridge/layout-case3.jsonl"
+    },
+    "note": "The later full shared run also passes all twelve object-graph cases."
+  },
+  "combinedRust": {
+    "source": "ca9d8b6613985e3c5c03409684891eaca3355974",
+    "passed": 637,
+    "failed": 0,
+    "ignored": 6,
+    "targets": 71,
+    "productionSource": "Matches this checkpoint; the only later source difference is the Lua pointer-alias fixture",
+    "receipt": "/Users/dowling/projects/nupp-wt/native-gc-marking/build/p3-gc-marking/combined-baseline/evidence.json",
+    "receiptSha256": "fd3a808f3cc69756de5a93c6d4adac674722419320770830f7871413c7a7c4d5"
+  },
+  "normalCompilerAot": {
+    "checks": 13,
+    "compiledFunctions": 6183,
+    "imageFunctions": 6183,
+    "freshProcesses": 2,
+    "executableMemoryDenied": true,
+    "receipt": "build/allocator-bridge/aot/smoke/results.json"
+  },
+  "rootCli": {
+    "passed": 94,
+    "packagedProgramExecuted": true,
+    "receipt": "build/allocator-bridge/root-cli/summary.json"
+  },
+  "artifacts": {
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/allocator-bridge/compiler.image": "c7be432225a0067a9c194a87e4db601bc6b5f06c41ac00f3190eaeb38a457119",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/allocator-bridge/aot/runtime-current": "89384a48527ab1e0aacc23489be7171f3aa20ff77cdb978a4d1b2ad28d7bfe5c",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/allocator-bridge/aot/native/runtime.o": "90eb9135c7c515b54a06c017fce5bbff0092250e93f16cba62e36a97be3db20d",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/allocator-bridge/aot/native/runtime.o.rs": "0050e2a93a8082129787defd8955330c28ba10def71685ec4c4fc4737ed230e8",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/allocator-bridge/aot/compiler.o.manifest": "371205b99a865bc6aba8a0a35e8490414d2c3f5f74663a49eade1c00fdb1dd97"
+  },
+  "coreIdentity": "The core and sidecar emitted by the stable compiler match the earlier genuine ABI7 object used for the combined Rust sweep.",
+  "limitations": [
+    "Local macOS arm64 checkpoint, isolated from migration integration; no P3 platform acceptance claimed",
+    "The allocator does not collect or call guest code; Rust publishes roots and runs its safepoint before entry",
+    "OS mapping refusal is a fatal native allocation failure, not a recoverable guest error",
+    "Rust Vec and Option<Box> payloads cannot be scanned using standalone assumed layouts; use canonical Nupp containers or explicit borrowed views first",
+    "P3 and P1b remain incomplete; performance is deferred by owner"
+  ]
+}
