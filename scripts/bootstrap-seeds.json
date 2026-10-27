@@ -1,4 +1,11 @@
 {
   "format": "nupp-bootstrap-seed-1",
-  "hosts": {}
+  "hosts": {
+    "aarch64-apple-darwin": {
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.1/nupp-seed-aarch64-apple-darwin.tar.gz",
+      "sha256": "0a914588ef56b85265d21c14ac35c142cb46758fc4bcc376854e8fc85766eef4",
+      "runtimeSha256": "34dcd4580435dcf6da10ff04fad98c3e96c0823a9aca00ed5d4e299790a888f7",
+      "imageSha256": "33299f9d3ba989f7e5b2218000827de3e71e0f0d05877214002910019a2f5299"
+    }
+  }
 }
