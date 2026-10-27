@@ -1,0 +1,137 @@
+module nupp.compiler.clif.graph
+
+local graph = require("nupp.compiler.vm.graph")
+local emitter = {}
+local integerOps = {IAdd = "iadd", ISub = "isub", IAnd = "band", IOr = "bor"}
+local programLoads = {uint8 = "uload8.i64", int32 = "sload32.i64", uint64 = "load.i64", int64 = "load.i64"}
+
+local function need(value: any, message: string): any
+    assert(value, "graph CLIF: " .. message)
+    return value
+end
+
+--- Emits one native handler from the verified Nupp graph.
+---
+--- Graph values and block parameters retain their identities. Temporary
+--- machine addresses occupy fresh ids beyond the graph's values.
+--- @raises string when the graph requires an unsupported machine operation
+function emitter.emit(g: any, options: any): string
+    graph.verify(g)
+    local native = need(g.native, "native graph required")
+    need(native.abi == "handler" and g.nparams == 6, "six-argument handler required")
+    local name: string = need(options and options.name, "function name required")
+    need(name:match("^[%w_%.]+$") ~= nil, "invalid function name")
+    local frameOffset: integer = options.frameRegsOff or 32
+    need(frameOffset == 32, "unsupported frame window offset")
+    local out = {
+        "function %" .. name .. "(i64, i64, i64, i64, i64, i64) -> i64 tail {",
+        "    ; Nupp native graph: " .. name,
+        "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
+    }
+    local counter: integer = #g.types
+
+    local function value(id: integer): string
+        return "v" .. tostring(id)
+    end
+
+    local function fresh(): string
+        counter = counter + 1
+        return value(counter)
+    end
+
+    local function line(text: string): nil
+        out[#out + 1] = "    " .. text
+    end
+
+    local function temporary(text: string): string
+        local result = fresh()
+        line(result .. " = " .. text)
+        return result
+    end
+
+    local function constant(text: string): string
+        return temporary("iconst.i64 " .. text)
+    end
+
+    local function edge(e: any): string
+        local args = {}
+        for i, id in ipairs(e.args) do
+            args[i] = value(id)
+        end
+
+        return "block" .. tostring(e.target - 1) .. "(" .. table.concat(args, ", ") .. ")"
+    end
+
+    -- The physical sixth argument is the dispatch table. The graph's sixth
+    -- parameter names the logical frame derived from the value window.
+    local tableValue = fresh()
+    for bi, block in ipairs(g.blocks) do
+        local params = {}
+        if bi == 1 then
+            for id = 1, 5 do
+                params[id] = value(id) .. ": i64"
+            end
+            params[6] = tableValue .. ": i64"
+        else
+            for i, id in ipairs(block.params) do
+                params[i] = value(id) .. ": i64"
+            end
+        end
+        out[#out + 1] = ""
+        out[#out + 1] = "block" .. tostring(block.id - 1) .. "(" .. table.concat(params, ", ") .. "):"
+        if bi == 1 then
+            line(value(6) .. " = iadd " .. value(2) .. ", " .. constant(tostring(-frameOffset)))
+        end
+        for i, op in ipairs(block.op) do
+            local args, dst = block.args[i], block.dst[i]
+            local result = dst ~= 0 and value(dst) or ""
+            if op == "NativeConstant" then
+                line(result .. " = iconst.i64 " .. args[1])
+            elseif op == "PointerOffset" then
+                line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
+            elseif integerOps[op] then
+                line(result .. " = " .. integerOps[op] .. " " .. value(args[1]) .. ", " .. value(args[2]))
+            elseif op == "ProgramLoad" then
+                local access = args[3]
+                local load = need(programLoads[access.kind], "unsupported program load kind")
+                local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
+                line(result .. " = " .. load .. " notrap " .. address)
+            elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
+                local access = args[op == "FrameSlotRead" and 4 or 5]
+                need(access.class == "i" and access.width == 8, "unsupported frame slot class")
+                local offset = temporary("imul " .. value(args[3]) .. ", " .. constant(tostring(access.width)))
+                local address = temporary("iadd " .. value(args[2]) .. ", " .. offset)
+                if op == "FrameSlotRead" then
+                    line(result .. " = load.i64 notrap " .. address)
+                else
+                    line("store notrap " .. value(args[4]) .. ", " .. address)
+                end
+            else
+                error("graph CLIF: unsupported operation " .. tostring(op), 0)
+            end
+        end
+        local term = block.term
+        if term.kind == "jump" then
+            line("jump " .. edge(term.edges[1]))
+        elseif term.kind == "dispatch" then
+            local args = term.args
+            local opcode = temporary("uload8.i64 notrap " .. value(args[1]))
+            local shifted = temporary("ishl " .. opcode .. ", " .. constant("3"))
+            local slot = temporary("iadd " .. tableValue .. ", " .. shifted)
+            local target = temporary("load.i64 notrap " .. slot)
+            local words = {}
+            for i = 1, 5 do
+                words[i] = value(args[i])
+            end
+            words[6] = tableValue
+            line("return_call_indirect sig0, " .. target .. "(" .. table.concat(words, ", ") .. ")")
+        else
+            error("graph CLIF: unsupported terminator " .. tostring(term.kind), 0)
+        end
+    end
+    out[#out + 1] = "}"
+
+    return table.concat(out, "\n") .. "\n"
+end
+
+export = emitter
