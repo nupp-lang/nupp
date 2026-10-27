@@ -17,7 +17,10 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parent.parent
 FORMAT = "nupp-bootstrap-seed-1"
-FILES = {"runtime", "compiler.image", "manifest.json"}
+NOTICES = {"NOTICE.md": "host/NOTICE.md", **{
+    "notices/" + name: "host/notices/" + name for name in (
+        "Rust-dependencies.html", "libffi-LICENSE.txt", "lunajson-LICENSE.txt", "LuaJIT-COPYRIGHT.txt")}}
+FILES = {"runtime", "compiler.image", "manifest.json", *NOTICES}
 
 
 def digest(path):
@@ -49,6 +52,9 @@ def verify(package, expected=None):
         raise ValueError("bootstrap seed declares no execution support for newly emitted images")
     if not os.access(package / "runtime", os.X_OK):
         raise ValueError("bootstrap seed runtime is not executable")
+    for name, sha in manifest.get("files", {}).items():
+        if name not in FILES or name == "manifest.json" or digest(package / name) != sha:
+            raise ValueError("bootstrap seed file does not match its verified manifest")
     return manifest
 
 
@@ -79,10 +85,14 @@ def pack(args):
         shutil.copyfile(args.runtime, package / "runtime")
         (package / "runtime").chmod(0o755)
         shutil.copyfile(args.image, package / "compiler.image")
+        for name, source in NOTICES.items():
+            (package / name).parent.mkdir(exist_ok=True)
+            shutil.copyfile(ROOT / source, package / name)
         manifest = {"format": FORMAT, "host": host(), "runtimeSha256": digest(package / "runtime"),
                     "imageSha256": digest(package / "compiler.image"), "execution": "new-images-with-aot-disabled",
                     "sourceRevision": args.source_revision,
-                    "sourceProvenance": "Caller-supplied artifact source; execution and byte digests verified independently."}
+                    "sourceProvenance": "Caller-supplied artifact source; execution and byte digests verified independently.",
+                    "files": {name: digest(package / name) for name in FILES if name != "manifest.json"}}
         (package / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
         execute(package)
         # Canonical metadata and gzip header make repeated packaging identical.
@@ -132,8 +142,9 @@ def fetch(args):
         with tarfile.open(archive, "r:gz") as content:
             entries = content.getmembers()
             if len(entries) != len(FILES) or {entry.name for entry in entries} != FILES or any(not e.isfile() for e in entries):
-                raise ValueError("bootstrap seed archive must contain only runtime, compiler.image and manifest.json regular files")
+                raise ValueError("bootstrap seed archive contains unexpected entries or non-regular files")
             for entry in entries:
+                (extracted / entry.name).parent.mkdir(exist_ok=True)
                 with content.extractfile(entry) as source, (extracted / entry.name).open("wb") as target:
                     shutil.copyfileobj(source, target)
             (extracted / "runtime").chmod(0o755)

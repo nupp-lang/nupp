@@ -113,6 +113,39 @@ class Delivery(unittest.TestCase):
 
 
 class Routing(unittest.TestCase):
+    def test_lowering_caches_are_separated_by_executing_image_not_source(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / "compiler.image"
+            env = {"NUPP_VM_EMIT_CACHE": str(Path(temp) / "cache"), "NO_AOT": "1"}
+            image.write_bytes(b"old lowering")
+            old = cli.emission_environment(image, env)
+            image.write_bytes(b"new integer lowering")
+            new = cli.emission_environment(image, env)
+            self.assertNotEqual(old["NUPP_VM_EMIT_CACHE"], new["NUPP_VM_EMIT_CACHE"])
+            self.assertEqual(env["NUPP_VM_EMIT_CACHE"], str(Path(temp) / "cache"))
+            self.assertEqual(new["NO_AOT"], "1")
+
+    def test_old_installed_checker_falls_back_to_verified_seed_without_rust_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            packages = root / "packages"
+            packages.mkdir()
+            (packages / "current").write_text("old")
+            calls = []
+            def step(command, env=None, what=""):
+                calls.append((command, env))
+                if len(calls) == 1:
+                    raise ValueError("unknown type float32")
+                Path(command[-1]).write_bytes(b"alias-aware lowering")
+            with patch.object(cli, "PACKAGES", packages), patch.object(cli, "selected", return_value=root / "old"), \
+                    patch.object(cli, "execution_seed", return_value=root / "seed"), \
+                    patch.object(cli, "run_step", side_effect=step), patch.object(cli, "cargo") as cargo:
+                cli.lowering_image(root / "out", root / "target", None)
+                cargo.assert_not_called()
+            self.assertEqual(calls[0][0][0], str(root / "old/runtime"))
+            self.assertEqual(calls[1][0][0], str(root / "seed/runtime"))
+            self.assertEqual(calls[1][1]["NO_AOT"], "1")
+
     def test_windows_bootstrap_spawns_the_toolchain_shell_explicitly(self):
         with patch.object(cli.os, "name", "nt"):
             self.assertEqual(cli.toolchain_command("stage0-seed"), ["sh.exe", str(cli.ROOT / "scripts/toolchain"), "stage0-seed"])
