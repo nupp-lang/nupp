@@ -1,10 +1,13 @@
 name: Bootstrap execution seeds
 
 on:
-  push:
-    branches: [codex/native-bootstrap-seed]
   workflow_dispatch:
     inputs:
+      platform:
+        description: Platform cold gate to run
+        type: choice
+        options: [all, windows, linux]
+        default: all
       source:
         description: Historical runner source for initial seed assembly
         default: 9a2e592d9a1f07a017f4f360b5764ee68b0d54ae
@@ -23,11 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            host: x86_64-unknown-linux-gnu
-          - os: windows-2022
-            host: x86_64-pc-windows-gnu
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-2022","host":"x86_64-pc-windows-gnu"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-24.04","host":"x86_64-unknown-linux-gnu"}]' || '[{"os":"ubuntu-24.04","host":"x86_64-unknown-linux-gnu"},{"os":"windows-2022","host":"x86_64-pc-windows-gnu"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     env:
