@@ -161,6 +161,9 @@ function stream.numberToken(builder: any, borrows source: any, start: uint32, li
     if value == math.huge or value == -math.huge then
         return nupp.math.u32.wrap(start + 1)
     end
+    if value == 0 and text:byte(start + 1) == 45 then
+        value = -0.0
+    end
     valuebuilder.number(builder, value)
 
     return nupp.math.u32.wrap(at + 2147483648)

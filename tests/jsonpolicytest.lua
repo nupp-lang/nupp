@@ -119,6 +119,11 @@ function M.providersPreserveNegativeZero()
         local encoded = provider.encode(-0.0)
         assert(encoded == "-0", "negative zero lost its sign: " .. encoded)
         assert(1 / provider.decode(encoded) == -math.huge, "negative zero did not round-trip")
+        for _, token in ipairs({"-0", "-0.0", "-0e0", "-0.00E+1", "-1e-400"}) do
+            local decoded = provider.decode(token)
+            assert(decoded == 0 and 1 / decoded == -math.huge, "negative zero lost its sign: " .. token)
+        end
+        assert(1 / provider.decode("0") == math.huge, "positive zero acquired a sign")
     end
 end
 

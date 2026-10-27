@@ -269,6 +269,9 @@ encodeValue = function(value: any, nullValue: any, visiting: {[any]: boolean}, d
         if value ~= value or value == math.huge or value == -math.huge then
             error("JSON numbers must be finite", 0)
         end
+        if value == 0 and 1 / value == -math.huge then
+            return "-0"
+        end
         local text = tostring(value)
         if tonumber(text) ~= value then
             -- tostring keeps 14 significant digits, which loses the low
