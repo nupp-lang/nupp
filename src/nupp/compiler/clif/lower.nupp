@@ -2250,7 +2250,8 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         handlers = handlers,
         layout = handlers and layouts(settings.layouts as string) or nil,
         specializationVariantCap = variantCap,
-        modules = modules
+        modules = modules,
+        helperModules = lower.HELPER_MODULES
     }
     local text = {}
     for index, fn in ipairs(compiled) do
@@ -2259,7 +2260,11 @@ function lower.compile(root: string, paths: {string}, options: any?): string
             graph.verify(g)
             graph.prune(g)
             graph.verify(g)
-            text[index] = clifgraph.emit(g, {name = fn.name, layout = functionOptions.layout})
+            text[index] = clifgraph.emit(g, {
+                name = fn.name,
+                layout = functionOptions.layout,
+                helperModules = functionOptions.helperModules
+            })
         else
             text[index] = compileDirectFunction(fn, functionOptions)
         end
