@@ -30,16 +30,18 @@ end
 -- timings and the JIT its decisions on standard error, which is kept for a
 -- failure's message.
 local function answer(command)
-    local errors = os.tmpname()
-    local status, output = capture("( " .. command .. " 2>" .. quote(errors) .. " )")
-    local file = io.open(errors, "rb")
-    local reported = file and file:read("*a") or ""
-    if file then
-        file:close()
+    local process = require("nupp.io.process")
+    local child, problem = process.spawn({args = {"sh", "-c", command}, stdin = "null", timeoutMs = 30000})
+    assert(child, problem)
+    local result, failed = child:communicate({maxOutputBytes = 16 * 1024 * 1024})
+    child:close()
+    assert(result, failed)
+    local reported = result.errorOutput
+    if result.exit.timedOut then
+        reported = reported .. "\nguest process exceeded its execution deadline"
     end
-    os.remove(errors)
 
-    return status, output, reported
+    return result:succeeded() and 0 or 1, result.output, reported
 end
 
 local glue = nil
@@ -189,7 +191,10 @@ local function compiledRun(name, args, background, tasks, callee)
             tasks and "--tasks" or ""
         )
     )
-    assert(status == 0, ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output, reported))
+    assert(
+        status == 0,
+        ("guest %s(%s): %s%s"):format(name, table.concat(args, ", "), output:sub(-4000), reported:sub(-8000))
+    )
     if not background then
         for _, expected in ipairs(callee and {name, callee} or {name}) do
             local compiled = "guest jit: compiled " .. functionNamed(expected).name
@@ -217,13 +222,14 @@ local function compiledFile(name)
 end
 
 -- The compiled answer, as the harness's f64 or i64 word.
-local function run(name, args, asWord)
+local function run(name, args, asWord, integerArgs)
     local entry = compiledFile(name)
     local words = {}
     for index, arg in ipairs(args) do
         words[index] = quote(arg)
     end
-    local harness = (asWord and "word_" or "run_") .. tostring(entry.fid)
+    local prefix = integerArgs and (asWord and "integer_word_" or "integer_") or (asWord and "word_" or "run_")
+    local harness = prefix .. tostring(entry.fid)
     local status, output = capture(
         (
             "%s native jit %s %s %s"
@@ -245,9 +251,9 @@ local NUMERIC = {
     {"collatz", {27}},
     {"collatz", {1}},
     {"collatz", {97}},
-    {"nested", {10}},
-    {"nested", {0}},
-    {"nested", {25}},
+    {"nestedWhile", {10}},
+    {"nestedWhile", {0}},
+    {"nestedWhile", {25}},
     {"clamp", {0.5, 0, 1}},
     {"clamp", {-3.25, 0, 1}},
     {"clamp", {7, 0, 1}},
@@ -259,10 +265,17 @@ local NUMERIC = {
     {"floorMod", {5.5, 2}},
     {"scaled", {2}},
     {"scaled", {0}},
+    {"scaled", {math.huge}},
+    {"scaled", {-math.huge}},
     {"countdown", {5}},
     {"countdown", {0}},
     {"firstSquareAbove", {50}},
     {"firstSquareAbove", {0}},
+    {"integerIdentity", {17}},
+    {"integerIdentity", {-17}},
+    {"integerIdentity", {-140737488355328}},
+    {"integerIdentity", {140737488355327}},
+    {"inlineNegative", {}},
 }
 
 local BOOLEAN = {
@@ -271,20 +284,52 @@ local BOOLEAN = {
     {"between", {10, 1, 10}},
     {"same", {1, 1}},
     {"same", {1, 2}},
-    {"same", {0, -0}},
+    {"same", {0.0, -0.0}},
+    {"same", {0.0 / 0.0, 0.0 / 0.0}},
+    {"differ", {0.0 / 0.0, 0.0 / 0.0}},
     {"differ", {1, 1}},
     {"differ", {1, 2}},
 }
 
+local function numericOutput(text)
+    if text == "inf" then
+        return math.huge
+    elseif text == "-inf" then
+        return -math.huge
+    end
+
+    return tonumber(text)
+end
+
 function M.numericFunctionsAnswerAsTheInterpreterDoes()
     for _, case in ipairs(NUMERIC) do
         local name, args = case[1], case[2]
-        local expected = tonumber(interpret(name, args))
-        local got = tonumber(run(name, args, false))
+        local expected = numericOutput(interpret(name, args))
+        local got = numericOutput(run(name, args, false))
         local label = ("%s(%s)"):format(name, table.concat(args, ", "))
         assert(expected ~= nil, label .. ": the interpreter answered no number")
         assert(got == expected, label .. ": interpreter " .. tostring(expected) .. ", compiled " .. tostring(got))
     end
+end
+
+function M.integerHarnessPreservesCanonicalSigned48Words()
+    for _, case in ipairs({
+        {0, "9223090561878065152"},
+        {17, "9223090561878065169"},
+        {-17, "9223372036854775791"},
+        {-140737488355328, "9223231299366420480"},
+        {140737488355327, "9223231299366420479"},
+    }) do
+        local value, word = case[1], case[2]
+        assert(run("integerIdentity", {value}, true, true) == word)
+        assert(tonumber(run("integerIdentity", {value}, false, true)) == value)
+    end
+end
+
+function M.floatHarnessRetainsNegativeZeroAndCanonicalNaN()
+    assert(run("floatingIdentity", {-0.0}, true) == "-9223372036854775808")
+    assert(run("floatingIdentity", {0.0}, true) == "0")
+    assert(run("floatingIdentity", {0.0 / 0.0}, true) == "9221120237041090560")
 end
 
 function M.booleanFunctionsAnswerAsTheInterpreterDoes()
@@ -303,9 +348,20 @@ end
 -- driver, with calls nested natively where the callee has an entry and
 -- handed to the interpreter where it does not.
 local GUEST = {
+    {"integerIdentity", {17}},
+    {"integerIdentity", {-17}},
+    {"integerIdentity", {140737488355328}},
+    {"integerIdentity", {-140737488355329}},
+    {"inlineNegative", {}},
+    {"integerSubtype", {17}},
+    {"integerSubtype", {140737488355328}},
+    {"integerEqualsFloat", {1}},
+    {"integerEqualsFloat", {-17}},
+    {"integerEqualsFloat", {9007199254740993}},
     {"sum", {1000}},
     {"collatz", {97}},
     {"nested", {25}},
+    {"nestedWhile", {25}},
     {"clamp", {7, 0, 1}},
     {"between", {5, 1, 10}},
     {"mean", {1, 2}},
@@ -369,13 +425,13 @@ function M.selfEdgesRespectTheExecutionBudget()
         local fn = guest.parse("function spin 0 0 4 2 :v\n" .. case[1] .. "\nRetNil\nend\n")
         local clif, reason = guest.emit(fn, layouts(), {nested = 0})
         assert(clif, reason)
-        -- Give both harness entries one back edge, then expect the jump's
+        -- Give all four harness entries one back edge, then expect the jump's
         -- pc as the deoptimization exit when its budget is spent.
         local pattern = "(= iconst%.i64 )%-1(\n%s*store notrap v%d+, v%d+%+" .. tostring(layouts()("budget")) .. "\n)"
         local harness, count = guest.harness(fn, clif, layouts()):gsub(pattern, function(prefix, suffix)
             return prefix .. "1" .. suffix
         end)
-        assert(count == 2, "the harness did not set both entry budgets")
+        assert(count == 4, "the harness did not set all entry budgets")
         local path = tempDirectory() .. "/spin.clif"
         write(path, harness)
         local child, problem = process.spawn({

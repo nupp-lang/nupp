@@ -1,43 +1,62 @@
 module corpus
 
 -- Guest functions the JIT emitter compiles: boxed arithmetic, comparisons,
--- branches and loops over numbers, with nothing that reaches a helper. The
+-- branches and loops over floats, plus canonical integer transport. The
 -- native JIT suite runs each through the glue's JIT runner against a fake
--- frame and compares the answer with the interpreter's.
+-- frame and compares the answer with the Nupp interpreter's.
 
 export function sum(n: number): number
-    local total = 0
-    local i = 1
+    local total = 0.0
+    local i = 1.0
     while i <= n do
         total = total + i
-        i = i + 1
+        i = i + 1.0
     end
 
     return total
 end
 
 export function collatz(n: number): number
-    local steps = 0
-    while n ~= 1 do
-        if n % 2 == 0 then
-            n = n / 2
+    local steps = 0.0
+    while n ~= 1.0 do
+        if n % 2.0 == 0.0 then
+            n = n / 2.0
         else
-            n = 3 * n + 1
+            n = 3.0 * n + 1.0
         end
-        steps = steps + 1
+        steps = steps + 1.0
     end
 
     return steps
 end
 
 export function nested(n: number): number
-    local count = 0
-    for i = 1, n do
-        for j = 0, i - 1 do
-            if (i + j) % 3 == 0 then
-                count = count + 1
+    local count = 0.0
+    for i = 1.0, n do
+        for j = 0.0, i - 1.0 do
+            if (i + j) % 3.0 == 0.0 then
+                count = count + 1.0
             end
         end
+    end
+
+    return count
+end
+
+-- The fake-frame harness has no managed numeric-for normalizer. Keep its
+-- nested-loop arithmetic leaf explicit, while nested exercises real for loops.
+export function nestedWhile(n: number): number
+    local count = 0.0
+    local i = 1.0
+    while i <= n do
+        local j = 0.0
+        while j < i do
+            if (i + j) % 3.0 == 0.0 then
+                count = count + 1.0
+            end
+            j = j + 1.0
+        end
+        i = i + 1.0
     end
 
     return count
@@ -62,7 +81,7 @@ export function neither(a: boolean, b: boolean): boolean
 end
 
 export function mean(a: number, b: number): number
-    return (a + b) / 2
+    return (a + b) / 2.0
 end
 
 export function floorMod(a: number, b: number): number
@@ -83,30 +102,55 @@ export function differ(a: number, b: number): boolean
 end
 
 export function countdown(n: number): number
-    local count = 0
+    local count = 0.0
     repeat
-        n = n - 1
-        count = count + 1
-    until n <= 0
+        n = n - 1.0
+        count = count + 1.0
+    until n <= 0.0
 
     return count
 end
 
 export function firstSquareAbove(limit: number): number
-    local i = 1
+    local i = 1.0
     while true do
         if i * i > limit then
             return i
         end
-        i = i + 1
+        i = i + 1.0
     end
 
-    return -1
+    return -1.0
+end
+
+-- Integer transport and cross-representation equality also run through the
+-- real core, where non-float arithmetic uses shared Nupp handlers.
+export function floatingIdentity(n: float64): float64
+    return n
+end
+
+export function integerIdentity(n: integer): integer
+    return n
+end
+
+export function inlineNegative(): number
+    return 0xffffffffffffffef
+end
+
+export function integerSubtype(n: integer): boolean
+    local erased: any = n
+    return math.type(erased) == "integer"
+end
+
+export function integerEqualsFloat(n: integer): boolean
+    local floating: float64 = n * 1.0
+    local erased: any = n
+    return erased == floating
 end
 
 -- Calls: the frame protocol through the entry table, returns of several
 -- values, callees the compiled call leaves to the interpreter (builtins,
--- varargs), and instructions the core hands to Rust (tables, strings).
+-- varargs), and shared Nupp handlers for tables and strings.
 
 local function fib(n: number): number
     if n < 2 then

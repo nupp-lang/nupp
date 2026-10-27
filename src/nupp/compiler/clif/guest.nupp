@@ -56,6 +56,7 @@ guest.FALSE = "0x7ffa000000000000"
 guest.TRUE = "0x7ffb000000000000"
 guest.TAG_FUNC = "0x7ffc000000000000"
 guest.TAG_OBJ = "0x7ffd000000000000"
+guest.TAG_INTEGER = "0x7fff000000000000"
 guest.ERROR = "0x7ffe000000000001"
 guest.TAG_MASK = "0x7fff000000000000"
 guest.PAYLOAD = "0x0000ffffffffffff"
@@ -693,9 +694,9 @@ local INELIGIBLE: {
 --- How long the last emission's printing took, for the profile.
 guest.lastPrintSeconds = 0
 
---- Instructions that read their value registers only as numbers: a
---- non-number there takes the interpreter's path in any case.
-local NUMERIC_USES: {
+--- Instructions whose existing floating fast path reads raw floating words.
+--- Other numeric representations use the shared Nupp handler.
+local FLOAT_USES: {
     [string]: boolean
 } = {
     Add = true,
@@ -712,9 +713,9 @@ local NUMERIC_USES: {
     TagCheckNum = true
 }
 
---- Instructions whose value result is a number whenever they complete in
---- compiled code (a boxed float, a boxed integer in range).
-local NUMERIC_DEFS: {[string]: boolean} = {FBox = true, IBox = true}
+--- Instructions whose value result is a raw floating word whenever they
+--- complete in compiled code. Integer boxes retain their integer subtype.
+local FLOAT_DEFS: {[string]: boolean} = {FBox = true}
 
 --- The limit on native nesting of compiled calls before the frame driver
 --- takes over, as the Rust frame code has it.
@@ -1107,14 +1108,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         finishWith({k(tostring(pc))})
     end
 
-    -- SSA values known to be number words: numeric constants and boxed
+    -- SSA values known to be raw floating words: floating constants and boxed
     -- float results. A check of one is the constant true, which `guard`
     -- and `both` drop rather than branch on.
-    local numbers: {[string]: boolean} = {}
+    local floatWords: {[string]: boolean} = {}
     local alwaysTrue = "true"
 
-    local function isNumber(x: string): string
-        if numbers[x] then
+    local function isFloatWord(x: string): string
+        if floatWords[x] then
             return alwaysTrue
         end
         local masked = emit("band " .. x .. ", " .. k(guest.QNAN))
@@ -1143,7 +1144,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local nan = emit("icmp eq " .. masked .. ", " .. k(guest.QNAN))
 
         local boxed = emit("select " .. nan .. ", " .. k(guest.QNAN) .. ", " .. bits)
-        numbers[boxed] = true
+        floatWords[boxed] = true
         floatOf[boxed] = f
 
         return boxed
@@ -1203,13 +1204,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             digits = string.rep("0", 16 - #digits) .. digits
             local top = (tonumber(digits:sub(1, 4), 16) or 0) % 32768
             if top < 32760 or digits == "7ff8000000000000" then
-                numbers[value] = true
+                floatWords[value] = true
             end
 
             return value
         elseif c.kind == "num" then
             local value = k(doubleBits(need(tonumber(c.text), "numeric constant " .. c.text) as number))
-            numbers[value] = true
+            floatWords[value] = true
 
             return value
         elseif c.kind == "nil" then
@@ -1494,11 +1495,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
     local carriedAt: {[integer]: {integer}} = {}
     local carriedParams: {[integer]: {string}} = {}
 
-    -- Carried registers the loop uses only as numbers: their check is made
-    -- on every edge into the header, where a value not already known to be
-    -- a number is checked once, and a failure is a deoptimization exit, so
-    -- inside the loop they are numbers with no check at all.
-    local numericAt: {[integer]: {[integer]: boolean}} = {}
+    -- Carried floating words are checked on every edge into the header.
+    -- A value not already proved floating is checked once; a failure exits
+    -- to the shared interpreter, so
+    -- inside the loop they are raw floating words with no further check.
+    local floatAt: {[integer]: {[integer]: boolean}} = {}
 
     -- Carried registers the loop never writes and uses as a table or as a
     -- record of one shape: their kind is checked on the edges into the
@@ -1516,7 +1517,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         end
         local args: {string} = {}
         local passed: {[integer]: boolean} = {}
-        local numeric = numericAt[target] or {}
+        local numeric = floatAt[target] or {}
         local wanted = kindAt[target] or {}
         for i, r in ipairs(regs as {integer}) do
             local value = V(r)
@@ -1549,13 +1550,13 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 b.current = ok
                 kinds[value] = kind as string
             end
-            if numeric[r] and not numbers[value] then
+            if numeric[r] and not floatWords[value] then
                 -- The deoptimization exit: the interpreter resumes at the
                 -- instruction that made the edge (the jump, or the header
                 -- itself for a fall into it), with the frame written.
                 local ok = newBlock()
                 local leave = newBlock()
-                b.branch(isNumber(value), ok, leave)
+                b.branch(isFloatWord(value), ok, leave)
                 seal(ok)
                 seal(leave)
                 b.current = leave
@@ -1621,11 +1622,11 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         jumpTo(pc, pc + 1)
     end
 
-    -- Boxed arithmetic on two number registers, leaving to the interpreter
-    -- for anything else (metamethods, integer boxes, errors).
+    -- Boxed arithmetic on two floating registers. Other representations use
+    -- the shared Nupp handler (integer arithmetic, metamethods, errors).
     local function arithmetic(pc: integer, ins: guest.Instruction, op: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
-        guard(both(isNumber(x), isNumber(y)), pc)
+        guard(both(isFloatWord(x), isFloatWord(y)), pc)
         local p, q = unbox(x), unbox(y)
         local result: string
         if op == "fmod" then
@@ -1642,7 +1643,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
 
     local function comparison(pc: integer, ins: guest.Instruction, cc: string): nil
         local d, x, y = num(ins, 1), V(num(ins, 2)), V(num(ins, 3))
-        guard(both(isNumber(x), isNumber(y)), pc)
+        guard(both(isFloatWord(x), isFloatWord(y)), pc)
         local cond = emit("fcmp " .. cc .. " " .. unbox(x) .. ", " .. unbox(y))
         setV(d, boolWord(cond))
         condOf[d] = cond
@@ -1659,7 +1660,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local no = negate and k8("1") or k8("0")
         local numberBlock = newBlock()
         local words = newBlock()
-        local numeric = both(isNumber(x), isNumber(y))
+        local numeric = both(isFloatWord(x), isFloatWord(y))
         if numeric == alwaysTrue then
             numeric = k8("1")
         end
@@ -1682,11 +1683,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
         local bothObjects = emit("band " .. isObject(x) .. ", " .. isObject(y))
         local interned = newBlock()
         local different = newBlock()
+        local slow = newBlock()
         b.branch(bothObjects, interned, different)
         seal(interned)
         seal(different)
         b.current = different
-        b.jump(join, {no})
+        -- Unequal words can still be the same numeric value across integer
+        -- and floating representations. The shared equality service decides.
+        b.jump(slow, {})
         b.current = interned
         local xFlags = emit("band " .. headerByte(objectOf(x), "Header.flags") .. ", " .. k("1"))
         local yFlags = emit("band " .. headerByte(objectOf(y), "Header.flags") .. ", " .. k("1"))
@@ -1696,7 +1700,6 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             ) .. ", " .. emit("icmp ne " .. yFlags .. ", " .. k("0"))
         )
         local distinct = newBlock()
-        local slow = newBlock()
         b.branch(bothInterned, distinct, slow)
         seal(distinct)
         seal(slow)
@@ -2438,7 +2441,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             condOf[d] = falsy
         elseif name == "Neg" then
             local d, x = num(ins, 1), V(num(ins, 2))
-            guard(isNumber(x), pc)
+            guard(isFloatWord(x), pc)
             setV(d, boxFloat(emit("fneg " .. unbox(x))))
         elseif name == "Truthy" then
             setI(num(ins, 1), emit("uextend.i64 " .. truthy(V(num(ins, 2)))))
@@ -2521,27 +2524,41 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             setV(num(ins, 1), boxFloat(F(num(ins, 2))))
         elseif name == "FUnbox" then
             local x = V(num(ins, 2))
-            guard(isNumber(x), pc)
+            guard(isFloatWord(x), pc)
             setF(num(ins, 1), unbox(x))
         elseif name == "TagCheckNum" then
             local x = V(num(ins, 2))
-            guard(isNumber(x), pc)
+            guard(isFloatWord(x), pc)
             setV(num(ins, 1), x)
         elseif name == "IBox" then
             local x = I(num(ins, 2))
-            local low = emit("icmp sge " .. x .. ", " .. k("-9007199254740992"))
-            local high = emit("icmp sle " .. x .. ", " .. k("9007199254740992"))
+            local low = emit("icmp sge " .. x .. ", " .. k("-140737488355328"))
+            local high = emit("icmp sle " .. x .. ", " .. k("140737488355327"))
             guard(emit("band " .. low .. ", " .. high), pc)
-            setV(num(ins, 1), emit("bitcast.i64 " .. emit("fcvt_from_sint.f64 " .. x)))
+            setV(
+                num(ins, 1),
+                emit("bor " .. emit("band " .. x .. ", " .. k(guest.PAYLOAD)) .. ", " .. k(guest.TAG_INTEGER))
+            )
         elseif name == "IUnbox" then
             local x = V(num(ins, 2))
-            guard(isNumber(x), pc)
+            local inline = emit(
+                "icmp eq " .. emit("band " .. x .. ", " .. k("0xffff000000000000")) .. ", " .. k(guest.TAG_INTEGER)
+            )
+            local floating = isFloatWord(x)
+            if floating ~= alwaysTrue then
+                guard(emit("bor " .. inline .. ", " .. floating), pc)
+            end
             local d = unbox(x)
             local low = emit("fcmp ge " .. d .. ", " .. emit("f64const -0x1.0000000000000p63"))
             local high = emit("fcmp lt " .. d .. ", " .. emit("f64const 0x1.0000000000000p63"))
             local whole = emit("fcmp eq " .. emit("floor " .. d) .. ", " .. d)
-            guard(emit("band " .. emit("band " .. low .. ", " .. high) .. ", " .. whole), pc)
-            setI(num(ins, 1), emit("fcvt_to_sint_sat.i64 " .. d))
+            local valid = emit("band " .. emit("band " .. low .. ", " .. high) .. ", " .. whole)
+            guard(emit("bor " .. inline .. ", " .. valid), pc)
+            local integer = emit("sshr " .. emit("ishl " .. x .. ", " .. k("16")) .. ", " .. k("16"))
+            setI(
+                num(ins, 1),
+                emit("select " .. inline .. ", " .. integer .. ", " .. emit("fcvt_to_sint_sat.i64 " .. d))
+            )
         elseif name == "GetUpval" then
             local closure = emit("load.i64 notrap " .. frame() .. "+16")
             guard(isObject(closure), pc)
@@ -2585,7 +2602,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 guardExit(emit("bor " .. present .. ", " .. plain), pc)
                 setV(num(ins, 1), value)
             else
-                guardExit(isNumber(value), pc)
+                guardExit(isFloatWord(value), pc)
                 setF(num(ins, 1), unbox(value))
             end
         elseif name == "SetSlot" or name == "SetSlotF" then
@@ -2720,7 +2737,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                 guard(isObject(x), pc)
             end
             if name == "GetIdx" then
-                guardTo(isNumber(keyWord), miss)
+                guardTo(isFloatWord(keyWord), miss)
                 d = unbox(keyWord)
             end
             if kinds[x] ~= "table" then
@@ -2760,7 +2777,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             local miss = stepBlockAt(pc)
             guard(isObject(x), pc)
             if name == "SetIdx" then
-                guardTo(isNumber(keyWord), miss)
+                guardTo(isFloatWord(keyWord), miss)
                 d = unbox(keyWord)
             end
             local object = objectOf(x)
@@ -3125,8 +3142,8 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             end
             for at = header, last do
                 local ins = fn.code[at + 1]
-                local consumes = NUMERIC_USES[ins.name] == true
-                local produces = NUMERIC_DEFS[ins.name] == true
+                local consumes = FLOAT_USES[ins.name] == true
+                local produces = FLOAT_DEFS[ins.name] == true
                 for r in pairs(live.uses(at)) do
                     if numeric[r] and not consumes then
                         numeric[r] = nil
@@ -3138,7 +3155,7 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
                     end
                 end
             end
-            numericAt[header] = numeric
+            floatAt[header] = numeric
             -- Kinds: a register the loop never defines, used as the object
             -- of a table or record access of one kind throughout.
             local wanted: {[integer]: string} = {}
@@ -3244,14 +3261,14 @@ function guest.emit(fn: guest.Fn, layout: function(string): number, options: any
             end
             local params = carriedParams[pc]
             if params ~= nil then
-                local numeric = numericAt[pc] or {}
+                local numeric = floatAt[pc] or {}
                 local wanted = kindAt[pc] or {}
                 for i, r in ipairs(carriedAt[pc] as {integer}) do
                     local value = (params as {string})[i]
                     cache[r] = value
                     dirty[r] = true
                     if numeric[r] then
-                        numbers[value] = true
+                        floatWords[value] = true
                     end
                     if wanted[r] ~= nil then
                         kinds[value] = wanted[r] as string
@@ -3408,8 +3425,10 @@ end
 --- `%run_<fid>(f64...) -> f64` that builds a fake task context and frame in
 --- stack slots, places the boxed arguments in the parameter registers, calls
 --- the entry at pc 0 and answers the result slot's word as a double; and
---- `%word_<fid>` answering the word itself. Helpers the entry imports are
---- defined as stubs answering zero, so the file links alone; a case whose
+--- `%word_<fid>` answering the word itself. The `integer_` and `integer_word_`
+--- entries receive and box signed48 integer arguments. Wider integers need a
+--- real VM to own their boxes. Helpers the entry imports are defined as stubs
+--- answering zero, so the file links alone; a case whose
 --- path reaches one is not a harness case.
 function guest.harness(fn: guest.Fn, clif: string, layout: function(string): number): string
     local frameWords = 4 + fn.nregs + 1 + fn.nireg + fn.nfreg + 2 * fn.nvreg
@@ -3419,13 +3438,13 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
     local stackWords = frameIndex + frameWords + 8
     local ctxBytes = 512
 
-    local function body(name: string, resultType: string): string
+    local function body(name: string, resultType: string, argumentType: string): string
         local out = {}
         local params = {}
         local types = {}
         for i = 1, fn.nparams do
-            params[i] = "v" .. tostring(i - 1) .. ": f64"
-            types[i] = "f64"
+            params[i] = "v" .. tostring(i - 1) .. ": " .. argumentType
+            types[i] = argumentType
         end
         out[#out + 1] = "function %" .. name .. "(" .. table.concat(types, ", ") .. ") -> " .. resultType .. " {"
         out[#out + 1] = "    ss0 = explicit_slot " .. tostring(ctxBytes)
@@ -3493,7 +3512,22 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         line("store notrap " .. shifted .. ", " .. frame .. "+24")
         for i = 1, fn.nparams do
             local bits = fresh()
-            line(bits .. " = bitcast.i64 v" .. tostring(i - 1))
+            if argumentType == "i64" then
+                local low, high, below, above, outside = fresh(), fresh(), fresh(), fresh(), fresh()
+                line(low .. " = iconst.i64 -140737488355328")
+                line(high .. " = iconst.i64 140737488355327")
+                line(below .. " = icmp slt v" .. tostring(i - 1) .. ", " .. low)
+                line(above .. " = icmp sgt v" .. tostring(i - 1) .. ", " .. high)
+                line(outside .. " = bor " .. below .. ", " .. above)
+                line("trapnz " .. outside .. ", user4")
+                local mask, tag, payload = fresh(), fresh(), fresh()
+                line(mask .. " = iconst.i64 " .. guest.PAYLOAD)
+                line(tag .. " = iconst.i64 " .. guest.TAG_INTEGER)
+                line(payload .. " = band v" .. tostring(i - 1) .. ", " .. mask)
+                line(bits .. " = bor " .. payload .. ", " .. tag)
+            else
+                line(bits .. " = bitcast.i64 v" .. tostring(i - 1))
+            end
             line("store notrap " .. bits .. ", " .. frame .. "+" .. tostring((4 + i) * 8))
         end
         local zero = fresh()
@@ -3511,8 +3545,19 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         local word = fresh()
         line(word .. " = select " .. ok .. ", " .. result .. ", " .. answer)
         if resultType == "f64" then
-            local f = fresh()
-            line(f .. " = bitcast.f64 " .. word)
+            line("trapz " .. ok .. ", user3")
+            local mask, tag, masked, inline = fresh(), fresh(), fresh(), fresh()
+            line(mask .. " = iconst.i64 0xffff000000000000")
+            line(tag .. " = iconst.i64 " .. guest.TAG_INTEGER)
+            line(masked .. " = band " .. word .. ", " .. mask)
+            line(inline .. " = icmp eq " .. masked .. ", " .. tag)
+            local shift, left, signed, converted, raw, f = fresh(), fresh(), fresh(), fresh(), fresh(), fresh()
+            line(shift .. " = iconst.i64 16")
+            line(left .. " = ishl " .. word .. ", " .. shift)
+            line(signed .. " = sshr " .. left .. ", " .. shift)
+            line(converted .. " = fcvt_from_sint.f64 " .. signed)
+            line(raw .. " = bitcast.f64 " .. word)
+            line(f .. " = select " .. inline .. ", " .. converted .. ", " .. raw)
             line("return " .. f)
         else
             line("return " .. word)
@@ -3551,8 +3596,17 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
 
     return clif .. "\n" .. body(
         "run_" .. tostring(fn.fid),
+        "f64",
         "f64"
-    ) .. body("word_" .. tostring(fn.fid), "i64") .. table.concat(stubs, "\n")
+    ) .. body(
+        "word_" .. tostring(fn.fid),
+        "i64",
+        "f64"
+    ) .. body(
+        "integer_" .. tostring(fn.fid),
+        "f64",
+        "i64"
+    ) .. body("integer_word_" .. tostring(fn.fid), "i64", "i64") .. table.concat(stubs, "\n")
 end
 
 --- Command line: `guest FUNCTION.txt LAYOUTS.json [NESTED]`, the CLIF on

@@ -270,7 +270,7 @@ impl Emitter {
     pub fn emit(&mut self, text: &str) -> Result<String, String> {
         let source = self.vm.heap_new_string(text);
         let handle = self.vm.register(source);
-        let nested = Value::num(std::mem::offset_of!(Interp, nested_calls) as f64);
+        let nested = Value::inline_integer(std::mem::offset_of!(Interp, nested_calls) as i64).expect("interpreter field offset fits signed48");
         let compile = self.compile;
         let layouts = self.layouts;
         // The emitter VM is the one the Rust-lowered helpers see while it
