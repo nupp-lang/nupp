@@ -54,7 +54,8 @@ jobs:
         run: |
           set -euo pipefail
           cd seed-source
-          python3 scripts/vm-cli build
+          seed_image=$(sh scripts/toolchain stage0-image)
+          python3 scripts/vm-cli build --seed-image "$seed_image"
           python3 scripts/vm-cli runtime --link
           mkdir -p ../release
           generation=$(cat .nupp/vm-cli/current)

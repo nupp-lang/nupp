@@ -113,6 +113,10 @@ class Delivery(unittest.TestCase):
 
 
 class Routing(unittest.TestCase):
+    def test_windows_bootstrap_spawns_the_toolchain_shell_explicitly(self):
+        with patch.object(cli.os, "name", "nt"):
+            self.assertEqual(cli.toolchain_command("stage0-seed"), ["sh.exe", str(cli.ROOT / "scripts/toolchain"), "stage0-seed"])
+
     def test_cold_and_warm_builds_keep_execution_off_the_source_built_bridge(self):
         for cold in (False, True):
             with self.subTest(cold=cold), tempfile.TemporaryDirectory() as temp:
