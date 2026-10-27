@@ -1,0 +1,383 @@
+module nupp.runtime.vm.byteops
+
+-- Instruction semantics for strings, slices, byte arrays and growable buffers.
+-- Raw spans are consumed without a safepoint. Managed services retain owners,
+-- and a collecting call invalidates all frame windows and byte pointers.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.helpers")
+const bytes = require("nupp.runtime.vm.bytehelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+local function rangeError(pc: voidptr, context: voidptr, kind: int64, index: uint64, length: uint64): uint64
+    protocol.publishPc(pc, context)
+    bytes.byteRangeError(context, kind, index, length)
+    return native.fail()
+end
+
+local function typeError(pc: voidptr, context: voidptr, value: uint64, write: int64): uint64
+    protocol.publishPc(pc, context)
+    bytes.byteTypeError(context, value, write)
+    return native.fail()
+end
+
+local function readBytes(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    operation: int64
+): uint64
+    local source = slots.readValue(frame, regs, program.readByte(pc, 2))
+    if source & values.TAG_MASK ~= values.TAG_OBJ then
+        return typeError(pc, context, source, 0)
+    end
+    local header = native.pointer(source & values.PAYLOAD)
+    local kind = native.load8(header, native.layout("Header.kind"))
+    if kind ~= values.KIND_STRING and kind ~= values.KIND_SLICE and kind ~= values.KIND_BYTES then
+        return typeError(pc, context, source, 0)
+    end
+    local length = native.load64(header, native.layout("Header.aux_len"))
+    local value = length
+    if operation ~= 0 then
+        local at = slots.readIntegerBits(frame, ints, program.readByte(pc, 3))
+        local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+        if operation == 3 then
+            -- Word loads index words; word stores below index bytes.
+            at = at * 4ULL
+            local ending = at + 4ULL
+            if ending > length then
+                return rangeError(pc, context, 1, at, length)
+            end
+            if at > ending then
+                return rangeError(pc, context, 6, at, length)
+            end
+            value = 0ULL
+            local i: int64 = 0
+            while i < 4 do
+                value = value | (native.word(native.load8(data, native.index(at) + i)) << native.word(i * 8))
+                i = i + 1
+            end
+        else
+            if at >= length then
+                if operation == 2 then
+                    return rangeError(pc, context, 4, at, length)
+                end
+                return rangeError(pc, context, 0, at, length)
+            end
+            value = native.word(native.load8(data, native.index(at)))
+        end
+    end
+    slots.writeIntegerBits(frame, ints, program.readByte(pc, 1), value)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function writeBytes(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    word: int64
+): uint64
+    local target = slots.readValue(frame, regs, program.readByte(pc, 1))
+    if target & values.TAG_MASK ~= values.TAG_OBJ then
+        return typeError(pc, context, target, 1)
+    end
+    local header = native.pointer(target & values.PAYLOAD)
+    if native.load8(header, native.layout("Header.kind")) ~= values.KIND_BYTES then
+        return typeError(pc, context, target, 1)
+    end
+    local length = native.load64(header, native.layout("Header.aux_len"))
+    local at = slots.readIntegerBits(frame, ints, program.readByte(pc, 2))
+    local value = slots.readIntegerBits(frame, ints, program.readByte(pc, 3))
+    local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
+    if word ~= 0 then
+        local ending = at + 4ULL
+        if ending > length then
+            return rangeError(pc, context, 3, at, length)
+        end
+        if at > ending then
+            return rangeError(pc, context, 6, at, length)
+        end
+        local i: int64 = 0
+        while i < 4 do
+            native.store8(data, native.index(at) + i, value >> native.word(i * 8))
+            i = i + 1
+        end
+    else
+        if at >= length then
+            return rangeError(pc, context, 2, at, length)
+        end
+        native.store8(data, native.index(at), value)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function allocate(pc: voidptr, context: voidptr, length: uint64, growable: int64): uint64
+    protocol.publishPc(pc, context)
+    local value: uint64 = values.NIL
+    if growable ~= 0 then
+        value = bytes.allocateBuffer(context)
+    else
+        value = bytes.allocateBytes(context, length)
+    end
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end
+
+local function stringCopy(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    substring: int64
+): uint64
+    local source = slots.readValue(frame, regs, program.readByte(pc, 2))
+    if source & values.TAG_MASK ~= values.TAG_OBJ then
+        return typeError(pc, context, source, 0)
+    end
+    local header = native.pointer(source & values.PAYLOAD)
+    local kind = native.load8(header, native.layout("Header.kind"))
+    if kind ~= values.KIND_STRING and kind ~= values.KIND_SLICE and kind ~= values.KIND_BYTES then
+        return typeError(pc, context, source, 0)
+    end
+    local total = native.load64(header, native.layout("Header.aux_len"))
+    local offset: uint64 = 0ULL
+    local count: uint64 = 0ULL
+    if substring ~= 0 then
+        local first = slots.readInteger(frame, ints, program.readByte(pc, 3))
+        local last = slots.readInteger(frame, ints, program.readByte(pc, 4))
+        if first < 1 then
+            first = 1
+        end
+        if last > native.index(total) then
+            last = native.index(total)
+        end
+        if first <= last then
+            offset = native.word(first - 1);
+            count = native.word(last - first + 1)
+        end
+    else
+        count = slots.readIntegerBits(frame, ints, program.readByte(pc, 3))
+        if count > total then
+            return rangeError(pc, context, 5, count, total)
+        end
+    end
+    protocol.publishPc(pc, context)
+    local value = helpers.newString(context, native.index(count))
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- The input owner remains in the published frame across allocation.
+    -- Derive pointers again; the fresh output sees no collecting call before storage.
+    local input = native.loadPointer(native.pointer(source & values.PAYLOAD), native.layout("Header.aux_ptr"))
+    local output = native.loadPointer(native.pointer(value & values.PAYLOAD), native.layout("Header.aux_ptr"))
+    local i: uint64 = 0ULL
+    while i < count do
+        native.store8(output, native.index(i), native.word(native.load8(input, native.index(offset + i))))
+        i = i + 1ULL
+    end
+    if count <= values.INTERN_LIMIT then
+        value = helpers.intern(context, value)
+    end
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end
+
+local function append(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    substring: int64
+): uint64
+    local buffer = slots.readValue(frame, regs, program.readByte(pc, 1))
+    local source = slots.readValue(frame, regs, program.readByte(pc, 2))
+    if source & values.TAG_MASK ~= values.TAG_OBJ then
+        return typeError(pc, context, source, 0)
+    end
+    local header = native.pointer(source & values.PAYLOAD)
+    local kind = native.load8(header, native.layout("Header.kind"))
+    if kind ~= values.KIND_STRING and kind ~= values.KIND_SLICE and kind ~= values.KIND_BYTES then
+        return typeError(pc, context, source, 0)
+    end
+    local offset: uint64 = 0ULL
+    local count = native.load64(header, native.layout("Header.aux_len"))
+    if substring ~= 0 then
+        local first = slots.readInteger(frame, ints, program.readByte(pc, 3))
+        local last = slots.readInteger(frame, ints, program.readByte(pc, 4))
+        if first < 1 then
+            first = 1
+        end
+        if last > native.index(count) then
+            last = native.index(count)
+        end
+        count = 0ULL
+        if first <= last then
+            offset = native.word(first - 1);
+            count = native.word(last - first + 1)
+        end
+    end
+    protocol.publishPc(pc, context)
+    bytes.appendBytes(context, buffer, source, offset, count)
+
+    return protocol.continueAfter(pc, context, 0, values.NIL, false)
+end
+
+export function BytesLen(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return readBytes(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function LoadU8(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return readBytes(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function LoadU8K(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return readBytes(pc, regs, ints, floats, context, frame, 2)
+end
+
+export function LoadU32W(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return readBytes(pc, regs, ints, floats, context, frame, 3)
+end
+
+export function StoreU8(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return writeBytes(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function StoreU32(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return writeBytes(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function Substring(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return stringCopy(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function BytesToStr(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return stringCopy(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function BufAppend(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return append(pc, regs, ints, floats, context, frame, 0)
+end
+
+export function BufAppendSub(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return append(pc, regs, ints, floats, context, frame, 1)
+end
+
+export function NewBytes(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return allocate(pc, context, slots.readIntegerBits(frame, ints, program.readByte(pc, 2)), 0)
+end
+
+export function NewBuffer(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return allocate(pc, context, 0ULL, 1)
+end
+
+export function BufFinish(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local buffer = slots.readValue(frame, regs, program.readByte(pc, 2))
+    protocol.publishPc(pc, context)
+    local value = bytes.consumeBuffer(context, buffer)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end

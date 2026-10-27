@@ -99,6 +99,8 @@ codes! {
     Require, RequireV, SetMethod,
     UUnbox, UBox, Div, Pow, IDiv, TagCheckInt, TagCheckStr, Scalar, IJmpIfUle, IJmpIfUlt,
     Disarm, AffineMark, AffineEnter, Park, Checkpoint, VarargTable,
+    BytesLen, LoadU8, LoadU8K, LoadU32W, StoreU8, StoreU32, NewBytes, BytesToStr,
+    NewBuffer, BufAppend, BufAppendSub, Substring, BufFinish,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -263,6 +265,19 @@ pub fn encode(op: &Op) -> Ins {
         Op::Park(key) => i(Code::Park, key, 0, 0),
         Op::Checkpoint => i(Code::Checkpoint, 0, 0, 0),
         Op::VarargTable(dest) => i(Code::VarargTable, dest, 0, 0),
+        Op::BytesLen(a,b) => i(Code::BytesLen,a,b,0),
+        Op::NewBytes(a,b) => i(Code::NewBytes,a,b,0),
+        Op::BufAppend(a,b) => i(Code::BufAppend,a,b,0),
+        Op::BufFinish(a,b) => i(Code::BufFinish,a,b,0),
+        Op::NewBuffer(a) => i(Code::NewBuffer,a,0,0),
+        Op::LoadU8(a,b,c) => i(Code::LoadU8,a,b,c),
+        Op::LoadU8K(a,b,c) => i(Code::LoadU8K,a,b,c),
+        Op::LoadU32W(a,b,c) => i(Code::LoadU32W,a,b,c),
+        Op::StoreU8(a,b,c) => i(Code::StoreU8,a,b,c),
+        Op::StoreU32(a,b,c) => i(Code::StoreU32,a,b,c),
+        Op::BytesToStr(a,b,c) => i(Code::BytesToStr,a,b,c),
+        Op::BufAppendSub(a,b,c,d) => Ins { imm:d as i32, ..i(Code::BufAppendSub,a,b,c) },
+        Op::Substring(a,b,c,d) => Ins { imm:d as i32, ..i(Code::Substring,a,b,c) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

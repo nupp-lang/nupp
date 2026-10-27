@@ -542,3 +542,7 @@ mod native_simd_tests;
 #[cfg(test)]
 #[path = "native_numeric_tests.rs"]
 mod native_numeric_tests;
+
+#[cfg(test)]
+#[path = "native_byte_tests.rs"]
+mod native_byte_tests;

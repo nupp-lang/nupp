@@ -1,0 +1,17 @@
+-- Temporary managed byte storage, allocation and error boundaries.
+-- Services receive values and byte spans, never guest instructions.
+local record ByteHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    byteTypeError: function(context: voidptr, value: uint64, write: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    byteRangeError: function(context: voidptr, kind: int64, index: uint64, length: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    allocateBytes: function(context: voidptr, length: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    allocateBuffer: function(context: voidptr): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    appendBytes: function(context: voidptr, buffer: uint64, source: uint64, offset: uint64, length: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    consumeBuffer: function(context: voidptr, buffer: uint64): uint64
+end
+return ByteHelpers

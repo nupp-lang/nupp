@@ -12,8 +12,8 @@ fn fixture(op: Op) -> (Box<Interp>, usize) {
         "function vector 0 0 80 12 :v\nvectors 6\nRetNil\nend\nentry 0\n",
     )
     .unwrap();
-    // The next opcode deliberately stays Slow. A direct native invocation
-    // must answer its address, proving the tested opcode did not escape.
+    // The next encoded slot is explicitly Slow in direct(), independent of
+    // which guest opcodes the native interpreter has already acquired.
     vm.funcs[0].code = vec![op, Op::NewBytes(0, 0), Op::RetNil];
     vm.entries.resize(1, 0);
     vm.prepare_threaded();
@@ -22,6 +22,7 @@ fn fixture(op: Op) -> (Box<Interp>, usize) {
 }
 
 fn direct(vm: &mut Interp, tid: usize) -> Ctx {
+    vm.funcs[0].ins[1] = Ins::default();
     let mut ctx: Ctx = unsafe { std::mem::zeroed() };
     ctx.interp = (vm as *mut Interp).cast();
     ctx.tid = tid as u64;

@@ -66,6 +66,7 @@ lower.ATOMICS = "nupp.runtime.vm.atomic"
 --- operating-system edges (pages, threads, files).
 lower.HELPER_MODULES = {
     ["nupp.runtime.vm.helpers"] = "nupp_rt_",
+    ["nupp.runtime.vm.bytehelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.recordhelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.simdhelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.modulehelpers"] = "nupp_rt_",
@@ -91,7 +92,8 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/simd.nupp",
     "src/nupp/runtime/vm/modules.nupp",
     "src/nupp/runtime/vm/numeric.nupp",
-    "src/nupp/runtime/vm/state.nupp"
+    "src/nupp/runtime/vm/state.nupp",
+    "src/nupp/runtime/vm/byteops.nupp"
 }
 
 local INTRINSICS = lower.INTRINSICS
