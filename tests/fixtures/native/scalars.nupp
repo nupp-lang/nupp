@@ -31,7 +31,7 @@ local function gcd(a: uint64, b: uint64): uint64
     return a
 end
 
-local function clamp(x: number, low: number, high: number): number
+local function clamp(x: float64, low: float64, high: float64): float64
     if x < low then
         return low
     elseif x > high then
@@ -82,7 +82,7 @@ local function firstSquareAbove(limit: int64): int64
     return i
 end
 
-local function findBreak(limit: number): number
+local function findBreak(limit: float64): float64
     local found = -1
     for i = 1, 1000 do
         if i * i * i > limit then
@@ -118,11 +118,11 @@ local function bits(a: uint64, b: uint64): uint64
     return ((a & b) | (a ~ b)) << 1 >> 1
 end
 
-local function mean(a: number, b: number): number
+local function mean(a: float64, b: float64): float64
     return (a + b) / 2
 end
 
-local function scaled(x: number): number
+local function scaled(x: float64): float64
     return x * 1.5 - 0.25
 end
 

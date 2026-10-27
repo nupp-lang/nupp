@@ -25,7 +25,7 @@ local function fnv(word: uint64): uint32
     local hash: uint32 = 2166136261
     local i: int64 = 0
     while i < 8 do
-        local byte = nupp.math.u32.wrap(math.floor(native.unsignedFloat((word >> (i * 8)) & 255)))
+        local byte = nupp.math.u32.wrap(native.index((word >> (i * 8)) & 255))
         hash = (hash ~ byte) * 16777619
         i = i + 1
     end
@@ -57,12 +57,12 @@ local function signedBelow(a: int32, b: int32): boolean
     return a < b
 end
 
-local function widen(a: int32): number
+local function widen(a: int32): float64
     return a
 end
 
-local function widenUnsigned(a: uint32): number
-    local n: number = a
+local function widenUnsigned(a: uint32): float64
+    local n: float64 = a
 
     return n * 2
 end

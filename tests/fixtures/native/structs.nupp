@@ -6,7 +6,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 
 local struct Node
     value: int64
-    weight: number
+    weight: float64
     count: uint32
     flag: boolean
     next: Node*?
@@ -46,8 +46,8 @@ local function sumList(head: Node*?): int64
     return total
 end
 
-local function weigh(head: Node*?): number
-    local total = 0
+local function weigh(head: Node*?): float64
+    local total: float64 = 0.0
     local node = head
     while node ~= nil do
         if node.flag then
@@ -74,7 +74,7 @@ local function total(base: voidptr, count: int64): int64
     return sumList(build(base, count))
 end
 
-local function weight(base: voidptr, count: int64): number
+local function weight(base: voidptr, count: int64): float64
     return weigh(build(base, count))
 end
 
