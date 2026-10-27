@@ -20,7 +20,7 @@ parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--entities", type=int, default=10000)
 parser.add_argument("--samples", type=int, default=3)
 parser.add_argument("--warmup", type=int, default=1)
-parser.add_argument("--mode", choices=("rust", "threaded", "jit", "frames"), default="jit")
+parser.add_argument("--mode", choices=("observed", "threaded", "jit", "frames"), default="jit")
 parser.add_argument("--gc-stress", action="store_true")
 parser.add_argument("--timeout", type=int, default=600)
 args = parser.parse_args()
@@ -33,9 +33,9 @@ for name in ("NO_JIT", "NO_THREADED", "NO_AOT", "JIT_EAGER_FRAMES", "JIT_ONLY", 
     env.pop(name, None)
 env.update(BENCH_SNAPSHOT_COUNT=str(args.entities), BENCH_SNAPSHOT_SAMPLES=str(args.samples),
            BENCH_SNAPSHOT_WARMUP=str(args.warmup), JIT_VERIFY="1")
-if args.mode in ("rust", "threaded"):
+if args.mode in ("observed", "threaded"):
     env["NO_JIT"] = "1"
-if args.mode == "rust":
+if args.mode == "observed":
     env["NO_THREADED"] = "1"
 if args.mode == "frames":
     env["JIT_EAGER_FRAMES"] = "1"

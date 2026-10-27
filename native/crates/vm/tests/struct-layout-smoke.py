@@ -58,11 +58,11 @@ for target in ("explicit", "missing"):
     image = args.output / (target + ".image")
     image.write_text(json.loads(text))
     report["sha256"][target] = hashlib.sha256(image.read_bytes()).hexdigest()
-    for mode in ("rust", "threaded", "jit"):
+    for mode in ("observed", "threaded", "jit"):
         flags = dict(env, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
         if mode != "jit":
             flags["NO_JIT"] = "1"
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         result = run(target + "-" + mode, [binary, "run", str(image.resolve()), module,
                                           "run" if target == "explicit" else "missingTarget"], flags)

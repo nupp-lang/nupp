@@ -99,11 +99,11 @@ if image is None:
 report["sha256"] = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in (
     ("runtime", args.binary), ("seed", args.seed), ("image", image), ("library", library),
     ("nativeSource", Path("native/crates/vm/tests/ffi/fixture.c")))}
-for mode in ("rust", "threaded", "jit", "frames"):
+for mode in ("observed", "threaded", "jit", "frames"):
     flags = dict(env, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
-    if mode in ("rust", "threaded"):
+    if mode in ("observed", "threaded"):
         flags["NO_JIT"] = "1"
-    if mode == "rust":
+    if mode == "observed":
         flags["NO_THREADED"] = "1"
     if mode == "frames":
         flags["JIT_EAGER_FRAMES"] = "1"

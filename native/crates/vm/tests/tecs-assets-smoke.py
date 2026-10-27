@@ -63,11 +63,11 @@ try:
         image = out / 'assets.image'
         image.write_text(json.loads(emitted))
     report['sha256'] = {name: digest(path) for name, path in [('seed', args.seed), ('runtime', args.binary), ('image', image), ('library', args.library), ('png', png)]}
-    for mode in ('rust', 'threaded', 'frames-lazy', 'frames-eager'):
+    for mode in ('observed', 'threaded', 'frames-lazy', 'frames-eager'):
         flags = dict(env, GC_STRESS='1', GC_ORACLE='1', GC_QUARANTINE='1', JIT_VERIFY='1')
-        if mode in ('rust', 'threaded'):
+        if mode in ('observed', 'threaded'):
             flags['NO_JIT'] = '1'
-        if mode == 'rust':
+        if mode == 'observed':
             flags['NO_THREADED'] = '1'
         if mode == 'frames-eager':
             flags['JIT_EAGER_FRAMES'] = '1'

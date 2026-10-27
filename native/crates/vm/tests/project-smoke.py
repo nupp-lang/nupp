@@ -42,9 +42,9 @@ with tempfile.TemporaryDirectory() as directory:
     assert "module demo.types " not in image, "type-only import entered the runtime image"
     program = output / "program.image"
     program.write_text(image)
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -54,9 +54,9 @@ with tempfile.TemporaryDirectory() as directory:
     print("Manifest-driven project: both interpreters and GC agree; output returns 42 on all tiers", flush=True)
     generic = output / "generic.image"
     generic.write_text(json.loads(run(seed, "emit", fixture, "demo.genericshapes").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -67,9 +67,9 @@ with tempfile.TemporaryDirectory() as directory:
     for module in ("demo.widepacks", "demo.sparsereads"):
         regression = output / (module + ".image")
         regression.write_text(json.loads(run(seed, "emit", fixture, module).stdout))
-        for mode in ("threaded", "rust", "jit", "frames"):
+        for mode in ("threaded", "observed", "jit", "frames"):
             flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-            if mode == "rust":
+            if mode == "observed":
                 flags["NO_THREADED"] = "1"
             if mode in ("jit", "frames"):
                 flags.pop("NO_JIT", None)
@@ -81,9 +81,9 @@ with tempfile.TemporaryDirectory() as directory:
     print("Wide result packs, absent numeric entries, and integer truthiness passed on all tiers", flush=True)
     derived = output / "derived.image"
     derived.write_text(json.loads(run(seed, "emit", fixture, "demo.derived").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -93,9 +93,9 @@ with tempfile.TemporaryDirectory() as directory:
     print("Derived CLI command: defaults, options, errors, and initializer scope passed", flush=True)
     dynamic = output / "lua.image"
     dynamic.write_text(json.loads(run(seed, "emit", fixture, "demo.luasemantics").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -105,9 +105,9 @@ with tempfile.TemporaryDirectory() as directory:
     print("Lua binding kinds, missing globals, and empty return values passed", flush=True)
     managed = output / "managed.image"
     managed.write_text(json.loads(run(seed, "emit", fixture, "demo.managedgroup").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -117,9 +117,9 @@ with tempfile.TemporaryDirectory() as directory:
     print("Managed group installs its runtime without another managed operation", flush=True)
     switches = output / "switches.image"
     switches.write_text(json.loads(run(seed, "emit", fixture, "demo.switches").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -142,9 +142,9 @@ with tempfile.TemporaryDirectory() as directory:
         "return schema.field160.right\nend\nexport = api\n")
     constructor_image = output / "constructors.image"
     constructor_image.write_text(json.loads(run(seed, "emit", str(constructors), "large").stdout))
-    for mode in ("threaded", "rust", "jit"):
+    for mode in ("threaded", "observed", "jit"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode == "jit":
             flags.pop("NO_JIT", None)
@@ -156,9 +156,9 @@ with tempfile.TemporaryDirectory() as directory:
         process_image = output / "process.image"
         process_image.write_text(json.loads(run(seed, "emit", fixture, "demo.process",
                                                "nupp.runtime.provider.nativeprocess").stdout))
-        for mode in ("threaded", "rust", "jit"):
+        for mode in ("threaded", "observed", "jit"):
             flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-            if mode == "rust":
+            if mode == "observed":
                 flags["NO_THREADED"] = "1"
             if mode == "jit":
                 flags.pop("NO_JIT", None)
@@ -185,9 +185,9 @@ with tempfile.TemporaryDirectory() as directory:
     assert image == json.loads(run(output / "stage3.image", "emit", fixture, "demo.main").stdout)
     correlated = output / "correlated.image"
     correlated.write_text(json.loads(run(output / "stage3.image", "emit", fixture, "demo.correlatedowners").stdout))
-    for mode in ("threaded", "rust", "jit", "frames"):
+    for mode in ("threaded", "observed", "jit", "frames"):
         flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         if mode in ("jit", "frames"):
             flags.pop("NO_JIT", None)

@@ -59,11 +59,11 @@ if image is None:
     image.write_text(json.loads(text))
 report["sha256"] = {name: hashlib.sha256(path.read_bytes()).hexdigest()
                     for name, path in (("seed", args.seed), ("runtime", args.binary), ("image", image))}
-for mode in ("rust", "threaded", "jit"):
+for mode in ("observed", "threaded", "jit"):
     flags = dict(env, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
     if mode != "jit":
         flags["NO_JIT"] = "1"
-    if mode == "rust":
+    if mode == "observed":
         flags["NO_THREADED"] = "1"
     stdout = run(mode, [binary, "run", str(image.resolve()), module, "run"], flags)
     if stdout.strip() != "42":

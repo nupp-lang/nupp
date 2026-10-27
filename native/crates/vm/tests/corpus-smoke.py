@@ -29,7 +29,7 @@ parser.add_argument("--unavailable-module", action="append", default=[],
                     help="leave a known migration dependency unresolved; affected suites fail at runtime")
 parser.add_argument("--output", type=Path, required=True)
 parser.add_argument("--jobs", type=int, default=2, help="independent VM processes (default: 2)")
-parser.add_argument("--engine", choices=("rust", "threaded", "jit"), default="threaded")
+parser.add_argument("--engine", choices=("observed", "threaded", "jit"), default="threaded")
 parser.add_argument("--jit-compilation", choices=("eager", "on-demand"), default="eager")
 parser.add_argument("--gc-stress", action="store_true")
 parser.add_argument("--cli-image", type=Path, help="route every compiler subprocess through this VM root CLI image")
@@ -125,7 +125,7 @@ def execute(row):
     started = time.monotonic()
     execution_env = dict(env)
     execution_env.pop("NO_THREADED", None)
-    if args.engine == "rust":
+    if args.engine == "observed":
         execution_env["NO_THREADED"] = "1"
     elif args.engine == "jit":
         execution_env.pop("NO_JIT", None)

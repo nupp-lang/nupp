@@ -62,13 +62,13 @@ with tempfile.TemporaryDirectory() as directory:
         image.write_text(json.loads(emitted.stdout))
     report["sha256"] = {"runtime": hashlib.sha256(Path(binary).read_bytes()).hexdigest(),
                         "image": hashlib.sha256(image.read_bytes()).hexdigest()}
-    for mode in ("rust", "threaded", "jit"):
+    for mode in ("observed", "threaded", "jit"):
         env = dict(os.environ)
         for key in ("NO_JIT", "NO_THREADED", "JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "GC_STRESS", "GC_ORACLE", "GC_QUARANTINE", "NUPP_ALLOCATION_STATS"):
             env.pop(key, None)
         if mode != "jit":
             env["NO_JIT"] = "1"
-        if mode == "rust":
+        if mode == "observed":
             env["NO_THREADED"] = "1"
         passed = run([binary, "run", str(image.resolve()), "main", "run"], env, mode + "-correctness")
         assert json.loads(passed.stdout) == 42, passed.stdout

@@ -41,11 +41,11 @@ rejected = subprocess.run([binary, "run", str(args.seed.resolve()), "nupp.tools.
 (args.output / "reject-union.log").write_text(rejected.stderr)
 assert rejected.returncode != 0 and "a union constructor initializes at most one member" in rejected.stderr, rejected.stderr
 records = []
-for engine in ("rust", "threaded", "jit", "frames"):
+for engine in ("observed", "threaded", "jit", "frames"):
     flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
-    if engine in ("rust", "threaded"):
+    if engine in ("observed", "threaded"):
         flags["NO_JIT"] = "1"
-    if engine == "rust":
+    if engine == "observed":
         flags["NO_THREADED"] = "1"
     if engine == "frames":
         flags["JIT_EAGER_FRAMES"] = "1"

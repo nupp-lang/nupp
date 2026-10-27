@@ -25,13 +25,13 @@ if args.retained_image:
 with tempfile.TemporaryDirectory() as directory:
     image = Path(directory) / "persistence.image"
     image.write_text(image_text)
-    for mode in ("rust", "threaded", "jit"):
+    for mode in ("observed", "threaded", "jit"):
         flags = dict(os.environ, GC_STRESS="1", GC_ORACLE="1", GC_QUARANTINE="1")
         for key in ("NO_JIT", "NO_THREADED", "JIT_THRESHOLD", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT"):
             flags.pop(key, None)
         if mode != "jit":
             flags["NO_JIT"] = "1"
-        if mode == "rust":
+        if mode == "observed":
             flags["NO_THREADED"] = "1"
         result = subprocess.run([binary, "run", str(image), "main", "run"],
                                 env=flags, text=True, capture_output=True, check=True)

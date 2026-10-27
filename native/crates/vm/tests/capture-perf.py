@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 
-MODES = ("rust", "threaded", "jit")
+MODES = ("observed", "threaded", "jit")
 METRICS = ("p50_ms", "p99_ms", "max_ms")
 # Two-sided 95% Student t critical values, indexed by degrees of freedom.
 T95 = (0, 12.7062, 4.3027, 3.1824, 2.7764, 2.5706, 2.4469, 2.3646,
@@ -135,7 +135,7 @@ def main():
         settings = {"NO_AOT": "1"}
         if mode != "jit":
             settings["NO_JIT"] = "1"
-        if mode == "rust":
+        if mode == "observed":
             settings["NO_THREADED"] = "1"
         env.update(settings)
         command = [str(binary), "run", str(image), "main", function]

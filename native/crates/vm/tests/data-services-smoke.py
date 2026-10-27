@@ -39,11 +39,11 @@ text = image.read_text()
 for name in ("ffi", "nupp.runtime.native", "nupp.runtime.provider.nativecrc"):
     assert f"module {name} " not in text, name
 records = []
-for engine in ("rust", "threaded", "jit", "frames"):
+for engine in ("observed", "threaded", "jit", "frames"):
     flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1", JIT_VERIFY="1")
-    if engine in ("rust", "threaded"):
+    if engine in ("observed", "threaded"):
         flags["NO_JIT"] = "1"
-    if engine == "rust":
+    if engine == "observed":
         flags["NO_THREADED"] = "1"
     if engine == "frames":
         flags["JIT_EAGER_FRAMES"] = "1"
