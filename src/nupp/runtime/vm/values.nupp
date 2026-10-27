@@ -95,7 +95,7 @@ export const GUARD_ALL = 0xfffffffffffffffeULL
 
 -- The unchecked value-to-float adapter, exactly Value::as_num. Validation is
 -- a separate operation: non-integer words retain their original float bits.
-export function asNumber(value: uint64): number
+export function asNumber(value: uint64): float64
     if value & 0xffff000000000000ULL == TAG_INTEGER then
         return native.toFloat(native.index(value << 16) ~>> 16)
     end

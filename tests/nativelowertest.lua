@@ -445,7 +445,7 @@ function M.programLoadsRequireCompleteBodyScopedContracts()
         end
         assert(not pcall(programcontract.read, invalid, corruption))
     end
-    for _, kind in ipairs({"uint8", "int32", "uint64", "int64", "number"}) do
+    for _, kind in ipairs({"uint8", "int32", "uint64", "int64", "float64"}) do
         local access = programcontract.read(declaration("code", kind, "body"), kind)
         assert(access.source == "code" and access.kind == kind and access.lifetime == "body")
     end

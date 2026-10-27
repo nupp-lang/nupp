@@ -4,7 +4,7 @@ local contract = {}
 local kinds = {
     v = {uint64 = true},
     i = {int64 = true, uint64 = true},
-    f = {number = true},
+    f = {float64 = true},
     xLow = {uint64 = true},
     xHigh = {uint64 = true}
 }

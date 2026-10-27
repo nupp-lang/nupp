@@ -4,7 +4,7 @@ local record NumericHelpers
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
     integerBits: function(value: uint64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
-    integerDouble: function(value: uint64): number
+    integerDouble: function(value: uint64): float64
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     unaryOperand: function(context: voidptr, value: uint64, packet: voidptr): nil
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
@@ -22,6 +22,6 @@ local record NumericHelpers
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     numericError: function(context: voidptr, error: int64): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
-    power: function(left: number, right: number): number
+    power: function(left: float64, right: float64): float64
 end
 return NumericHelpers

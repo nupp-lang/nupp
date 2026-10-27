@@ -16,7 +16,7 @@ local record Program
     readWord: function(code: voidptr, offset: int64): uint64
     @vmProgramLoad(source = "code", kind = "int64", lifetime = "body")
     readInteger: function(code: voidptr, offset: int64): int64
-    @vmProgramLoad(source = "code", kind = "number", lifetime = "body")
-    readFloat: function(code: voidptr, offset: int64): number
+    @vmProgramLoad(source = "code", kind = "float64", lifetime = "body")
+    readFloat: function(code: voidptr, offset: int64): float64
 end
 return Program

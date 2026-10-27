@@ -6,7 +6,7 @@ local kinds = {
     int32 = {result = "int64", width = 4},
     uint64 = {result = "uint64", width = 8},
     int64 = {result = "int64", width = 8},
-    number = {result = "number", width = 8}
+    float64 = {result = "float64", width = 8}
 }
 
 --- Returns a program load from its checked Nupp declaration.

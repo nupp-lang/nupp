@@ -5,32 +5,32 @@ local record Native
     load16: function(base: voidptr, offset: int64): int64
     store8: function(base: voidptr, offset: int64, value: uint64): nil
     store16: function(base: voidptr, offset: int64, value: uint64): nil
-    floatBits: function(value: number): uint64
-    floatFromBits: function(value: uint64): number
-    roundFloat: function(value: number): number
-    sqrt: function(value: number): number
-    sqrtFloat: function(value: number): number
-    ceil: function(value: number): number
-    fma: function(a: number, b: number, c: number): number
-    fmaFloat: function(a: number, b: number, c: number): number
+    floatBits: function(value: float64): uint64
+    floatFromBits: function(value: uint64): float64
+    roundFloat: function(value: float64): float64
+    sqrt: function(value: float64): float64
+    sqrtFloat: function(value: float64): float64
+    ceil: function(value: float64): float64
+    fma: function(a: float64, b: float64, c: float64): float64
+    fmaFloat: function(a: float64, b: float64, c: float64): float64
     unsignedMulHigh: function(a: uint64, b: uint64): uint64
     signedMulHigh: function(a: int64, b: int64): uint64
     signedQuotient: function(a: int64, b: int64): int64
     popcount: function(value: uint64): uint64
-    loadFloat: function(base: voidptr, offset: int64): number
-    storeFloat: function(base: voidptr, offset: int64, value: number): nil
-    bits: function(value: number): uint64
-    fromBits: function(value: uint64): number
+    loadFloat: function(base: voidptr, offset: int64): float64
+    storeFloat: function(base: voidptr, offset: int64, value: float64): nil
+    bits: function(value: float64): uint64
+    fromBits: function(value: uint64): float64
     pointer: function(value: uint64): voidptr
-    floor: function(value: number): number
-    neg: function(value: number): number
-    toFloat: function(value: int64): number
-    toInt: function(value: number): int64
+    floor: function(value: float64): float64
+    neg: function(value: float64): float64
+    toFloat: function(value: int64): float64
+    toInt: function(value: float64): int64
     both: function(left: boolean, right: boolean): boolean
     either: function(left: boolean, right: boolean): boolean
     chooseWord: function(condition: boolean, yes: uint64, no: uint64): uint64
-    unsignedFloat: function(value: uint64): number
-    unsignedInt: function(value: number): uint64
+    unsignedFloat: function(value: uint64): float64
+    unsignedInt: function(value: float64): uint64
     index: function(value: uint64): int64
     word: function(value: int64): uint64
     address: function(value: voidptr): uint64

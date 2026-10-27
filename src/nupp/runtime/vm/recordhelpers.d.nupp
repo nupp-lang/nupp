@@ -19,7 +19,7 @@ local record RecordHelpers
         value: uint64
     ): nil
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
-    numericDouble: function(context: voidptr, value: uint64): number
+    numericDouble: function(context: voidptr, value: uint64): float64
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     numericBits: function(context: voidptr, value: uint64, unsigned: int64): uint64
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
