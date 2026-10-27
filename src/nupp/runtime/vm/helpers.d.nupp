@@ -59,6 +59,12 @@ local record Helpers
     resultRoots: function(context: voidptr, count: int64): nil
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     pollReturnCleanups: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    pollCleanups: function(context: voidptr, keep: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    resolveCleanup: function(context: voidptr, receiver: uint64, name: uint64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = true, pure = false)
+    cleanupSlotError: function(context: voidptr): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     finishProtected: function(context: voidptr, retired: uint64): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

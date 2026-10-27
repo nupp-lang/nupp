@@ -485,6 +485,10 @@ pub(crate) mod native_helpers {
 }
 
 #[cfg(test)]
+#[path = "native_cleanup_transfer_tests.rs"]
+mod native_cleanup_transfer_tests;
+
+#[cfg(test)]
 #[path = "native_tests.rs"]
 mod native_tests;
 

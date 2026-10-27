@@ -162,7 +162,7 @@ end
 
 local function deferMethodSlow(pc: voidptr, context: voidptr, value: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
-    local callback = helpers.resolveMethod(context, value, name)
+    local callback = helpers.resolveCleanup(context, value, name)
     if native.load32(context, native.layout("status")) == -4 then
         return native.fail()
     end
@@ -185,26 +185,18 @@ export function DeferMethod(
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
     if value == values.NIL then
         return deferSlow(pc, context, value, values.NIL)
-    elseif value & values.TAG_MASK == values.TAG_OBJ then
-        local kind = native.load8(native.pointer(value & values.PAYLOAD), native.layout("Header.kind"))
-        if native.both(kind ~= values.KIND_STRING, kind ~= values.KIND_SLICE) then
-            local info = native.offset(
-                native.loadPointer(context, native.layout("funcs")),
-                native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
-            )
-            return deferMethodSlow(
-                pc,
-                context,
-                value,
-                native.load64(
-                    native.loadPointer(info, native.layout("FuncInfo.consts")),
-                    program.readSigned32(pc, 4) * 8
-                )
-            )
-        end
     end
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
 
-    return native.slow(pc, regs, ints, floats, context, frame)
+    return deferMethodSlow(
+        pc,
+        context,
+        value,
+        native.load64(native.loadPointer(info, native.layout("FuncInfo.consts")), program.readSigned32(pc, 4) * 8)
+    )
 end
 
 -- `CleanupLive d depth`: whether the frame's cleanup at `depth` is armed.
@@ -237,6 +229,12 @@ export function CleanupLive(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
+local function invalidCleanupSlow(pc: voidptr, context: voidptr): uint64
+    protocol.publishPc(pc, context)
+    helpers.cleanupSlotError(context)
+    return native.fail()
+end
+
 -- `DisarmAt depth`: the frame's cleanup at `depth` runs nothing, its value
 -- transferred elsewhere. A depth past the frame's cleanups is the step's,
 -- which refuses it.
@@ -261,7 +259,7 @@ export function DisarmAt(
     end
     local slot = start + program.readSigned32(pc, 4)
     if slot >= n then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return invalidCleanupSlow(pc, context)
     end
     native.store64(records, slot * size + native.layout("Cleanup.value"), values.NIL)
     native.store64(records, slot * size + native.layout("Cleanup.callback"), values.NIL)
@@ -273,7 +271,7 @@ end
 -- resolved first.
 local function rearmSlow(pc: voidptr, context: voidptr, value: uint64, name: uint64, depth: int64): uint64
     protocol.publishPc(pc, context)
-    local callback = helpers.resolveMethod(context, value, name)
+    local callback = helpers.resolveCleanup(context, value, name)
     if native.load32(context, native.layout("status")) == -4 then
         return native.fail()
     end
@@ -287,6 +285,9 @@ local function rearmSlow(pc: voidptr, context: voidptr, value: uint64, name: uin
             break
         end
         start = start - 1
+    end
+    if start + depth >= n then
+        return invalidCleanupSlow(pc, context)
     end
     native.store64(records, (start + depth) * size + native.layout("Cleanup.value"), value)
     native.store64(records, (start + depth) * size + native.layout("Cleanup.callback"), callback)
@@ -321,22 +322,16 @@ export function RearmAt(
         end
         start = start - 1
     end
-    if start + depth >= n then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
     local named = false
     if given & values.TAG_MASK == values.TAG_OBJ then
         local kind = native.load8(native.pointer(given & values.PAYLOAD), native.layout("Header.kind"))
         named = native.either(kind == values.KIND_STRING, kind == values.KIND_SLICE)
     end
     if native.both(named, value ~= values.NIL) then
-        if value & values.TAG_MASK == values.TAG_OBJ then
-            local kind = native.load8(native.pointer(value & values.PAYLOAD), native.layout("Header.kind"))
-            if native.both(kind ~= values.KIND_STRING, kind ~= values.KIND_SLICE) then
-                return rearmSlow(pc, context, value, given, depth)
-            end
-        end
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return rearmSlow(pc, context, value, given, depth)
+    end
+    if start + depth >= n then
+        return invalidCleanupSlow(pc, context)
     end
     local at = (start + depth) * size
     native.store64(records, at + native.layout("Cleanup.value"), value)
@@ -347,6 +342,16 @@ export function RearmAt(
     )
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function unwindSlow(pc: voidptr, context: voidptr, keep: int64): uint64
+    protocol.publishPc(pc, context)
+    helpers.pollCleanups(context, keep)
+    if native.load32(context, native.layout("status")) ~= 0 then
+        return native.fail()
+    end
+
+    return protocol.continueAfter(pc, context, 0, values.NIL, false)
 end
 
 -- `Unwind depth`: the frame's cleanups from `depth` on run, latest first. A
@@ -376,7 +381,7 @@ export function Unwind(
         native.load64(context, native.layout("guard")) == values.GUARD_ALL,
         start + program.readSigned32(pc, 4) < n
     ) then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return unwindSlow(pc, context, start + program.readSigned32(pc, 4))
     end
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)

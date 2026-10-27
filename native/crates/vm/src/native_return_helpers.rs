@@ -22,12 +22,19 @@ pub unsafe extern "C" fn nupp_rt_result_roots(ctx: *mut Ctx, count: i64) {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_rt_poll_return_cleanups(ctx: *mut Ctx) {
+    let context = unsafe { &mut *ctx };
+    let it = unsafe { &mut *(context.interp as *mut Interp) };
+    let keep = it.cleanups_below(context.tid as usize, context.cur as usize);
+    unsafe { nupp_rt_poll_cleanups(ctx, keep as i64) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_poll_cleanups(ctx: *mut Ctx, keep: i64) {
     let ctx = unsafe { &mut *ctx };
     let (it, tid) = enter_rust(ctx);
-    let keep = it.cleanups_below(tid, it.tasks[tid].cur());
     let mark = it.handles.len();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        it.poll_cleanups(tid, keep, ctx.pc as usize)
+        it.poll_cleanups(tid, keep as usize, ctx.pc as usize)
     }));
     match result {
         Ok(Some(key)) => {
@@ -41,6 +48,29 @@ pub unsafe extern "C" fn nupp_rt_poll_return_cleanups(ctx: *mut Ctx) {
             it.pending_error = Some(value);
             ctx.status = ST_ERROR;
         }
+    }
+    sync(ctx, it);
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_resolve_cleanup(ctx: *mut Ctx, receiver: u64, name: u64) -> u64 {
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let result = it.guarded(|it| it.resolve_method(Value(receiver), Value(name)));
+    if result == Value::ERROR {
+        ctx.status = ST_ERROR;
+    }
+    sync(ctx, it);
+    result.0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_cleanup_slot_error(ctx: *mut Ctx) {
+    let ctx = unsafe { &mut *ctx };
+    let (it, _) = enter_rust(ctx);
+    let result = it.guarded(|_| panic!("invalid cleanup slot"));
+    if result == Value::ERROR {
+        ctx.status = ST_ERROR;
     }
     sync(ctx, it);
 }
