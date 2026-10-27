@@ -44,3 +44,186 @@ export function tableProbe(table: voidptr, capacity: uint64, mask: uint64, key: 
 
     return 0xffffffffffffffffULL
 end
+
+-- Occupancy is at most three quarters, and order/rank store u32 indices.
+-- Zero means no representable capacity, including an empty reservation.
+export function tableCapacity(wanted: uint64): uint64
+    if wanted == 0ULL then
+        return 0ULL
+    end
+    if wanted > 0xc0000000ULL then
+        return 0ULL
+    end
+    local capacity: uint64 = 8ULL
+    while capacity * 3ULL < wanted * 4ULL do
+        capacity = capacity << 1ULL
+    end
+
+    return capacity
+end
+
+export function tableNeedsGrowth(length: uint64, capacity: uint64): uint64
+    if capacity < 8ULL then
+        return 1ULL
+    end
+    if capacity > 0x100000000ULL then
+        return 1ULL
+    end
+    if length >= 0xc0000000ULL then
+        return 1ULL
+    end
+    local below: uint64 = capacity - 1ULL
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return 1ULL
+    end
+    if (length + 1ULL) * 4ULL > capacity * 3ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+export function tableInitialize(table: voidptr, capacity: uint64): uint64
+    if native.address(table) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity < 8ULL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity > 0x100000000ULL then
+        return 0xffffffffffffffffULL
+    end
+    local below: uint64 = capacity - 1ULL
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local bucket: uint64 = 0ULL
+    while bucket < capacity do
+        native.store64(table, native.index(bucket * 16ULL), values.NIL)
+        native.store64(table, native.index(bucket * 16ULL + 8ULL), 0ULL)
+        bucket = bucket + 1ULL
+    end
+
+    return 0ULL
+end
+
+-- Order contains each occupied bucket once, including deleted values.
+-- Borrowed source buffers stay owned and unchanged until rehash commits.
+export function tableLiveCount(table: voidptr, order: voidptr, length: uint64, capacity: uint64): uint64
+    if length == 0ULL then
+        return 0ULL
+    end
+    if length > capacity then
+        return 0xffffffffffffffffULL
+    end
+    if native.address(table) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if native.address(order) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity < 8ULL then
+        return 0xffffffffffffffffULL
+    end
+    if capacity > 0x100000000ULL then
+        return 0xffffffffffffffffULL
+    end
+    local below: uint64 = capacity - 1ULL
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local index: uint64 = 0ULL
+    local live: uint64 = 0ULL
+    while index < length do
+        local bucket = native.word(native.load32(order, native.index(index * 4ULL))) & values.LOW_WORD
+        if bucket >= capacity then
+            return 0xffffffffffffffffULL
+        end
+        if native.load64(table, native.index(bucket * 16ULL)) == values.NIL then
+            return 0xffffffffffffffffULL
+        end
+        if native.load64(table, native.index(bucket * 16ULL + 8ULL)) ~= values.NIL then
+            live = live + 1ULL
+        end
+        index = index + 1ULL
+    end
+
+    return live
+end
+
+-- The target is separately owned and empty. Check dimensions, every source
+-- index and target emptiness before writing; copy live entries in their old
+-- order, rebuilding their ranks. The caller swaps owners only after success.
+export function tableRehash(
+    source: voidptr,
+    order: voidptr,
+    length: uint64,
+    capacity: uint64,
+    target: voidptr,
+    targetOrder: voidptr,
+    targetRank: voidptr,
+    targetCapacity: uint64
+): uint64
+    if native.address(target) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if native.address(targetOrder) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if native.address(targetRank) == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if native.address(source) == native.address(target) then
+        return 0xffffffffffffffffULL
+    end
+    if targetCapacity < 8ULL then
+        return 0xffffffffffffffffULL
+    end
+    if targetCapacity > 0x100000000ULL then
+        return 0xffffffffffffffffULL
+    end
+    local mask: uint64 = targetCapacity - 1ULL
+    local remainder: uint64 = targetCapacity & mask
+    if remainder ~= 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local live = tableLiveCount(source, order, length, capacity)
+    if live == 0xffffffffffffffffULL then
+        return 0xffffffffffffffffULL
+    end
+    local wanted = tableCapacity(live + 1ULL)
+    if wanted == 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    if wanted > targetCapacity then
+        return 0xffffffffffffffffULL
+    end
+    local index: uint64 = 0ULL
+    while index < targetCapacity do
+        if native.load64(target, native.index(index * 16ULL)) ~= values.NIL then
+            return 0xffffffffffffffffULL
+        end
+        index = index + 1ULL
+    end
+    index = 0ULL
+    local copied: uint64 = 0ULL
+    while index < length do
+        local bucket = native.word(native.load32(order, native.index(index * 4ULL))) & values.LOW_WORD
+        local value = native.load64(source, native.index(bucket * 16ULL + 8ULL))
+        if value ~= values.NIL then
+            local key = native.load64(source, native.index(bucket * 16ULL))
+            local next = tableProbe(target, targetCapacity, mask, key)
+            native.store64(target, native.index(next * 16ULL), key)
+            native.store64(target, native.index(next * 16ULL + 8ULL), value)
+            native.store32(targetOrder, native.index(copied * 4ULL), native.index(next))
+            native.store32(targetRank, native.index(next * 4ULL), native.index(copied))
+            copied = copied + 1ULL
+        end
+        index = index + 1ULL
+    end
+
+    return copied
+end

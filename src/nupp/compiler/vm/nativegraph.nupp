@@ -168,7 +168,15 @@ function nativegraph.isLeaf(fn: any): boolean
     return fn.scope ~= nil
         and (
             fn.scope.name == "nupp.runtime.vm.objecthash" and (fn.name == "slotHash" or fn.name == "stringHash")
-            or fn.scope.name == "nupp.runtime.vm.objecttable" and fn.name == "tableProbe"
+            or fn.scope.name == "nupp.runtime.vm.objecttable"
+            and (
+                fn.name == "tableProbe"
+                or fn.name == "tableCapacity"
+                or fn.name == "tableNeedsGrowth"
+                or fn.name == "tableInitialize"
+                or fn.name == "tableLiveCount"
+                or fn.name == "tableRehash"
+            )
             or fn.scope.name == "nupp.runtime.vm.objectshape"
             and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")
         )
@@ -317,22 +325,31 @@ function nativegraph.compile(fn: any, options: any): any
             return emit(n, op, {lhs, rhs}, kind) as integer
         elseif n.kind == "call" then
             local moduleName, name = member(n.obj)
+            if n.obj.kind == "name" and fn.scope.name == "nupp.runtime.vm.objecttable" then
+                local target = fn.scope.functions[n.obj.token.text]
+                local token = target and (target.node.kind == "funcStmt" and target.node.name.base or target.node.name)
+                need(
+                    token and token.definition and token.definition == n.obj.token.definition,
+                    "checked local leaf identity required"
+                )
+                moduleName, name = fn.scope.name, n.obj.token.text
+            end
             local args = n.args.exprs or {}
-            if moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash" then
+            if moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash"
+                or moduleName == "nupp.runtime.vm.objecttable"
+                and (name == "tableProbe" or name == "tableCapacity" or name == "tableLiveCount")
+            then
                 local home = options.modules and options.modules[moduleName]
                 local target = home and home.exports and home.exports[name]
                 need(target and nativegraph.isLeaf(target), "checked leaf definition required")
-                signature(n, {"uint64"}, "uint64")
-                need(expected == nil or expected == "uint64", "leaf call changes exact result kind")
-                return emit(
-                    n,
-                    "NativeLeafCall",
-                    {
-                        {moduleName = moduleName, name = name, params = {"uint64"}, result = "uint64", abi = "leaf"},
-                        expression(args[1], "uint64")
-                    },
-                    "uint64"
-                ) as integer
+                local declaration = graph.nativeLeafDeclaration(moduleName as string, name as string)
+                signature(n, declaration.params, declaration.result)
+                need(expected == nil or expected == declaration.result, "leaf call changes exact result kind")
+                local operands = {declaration}
+                for index, kind in ipairs(declaration.params) do
+                    operands[index + 1] = expression(args[index], kind)
+                end
+                return emit(n, "NativeLeafCall", operands, declaration.result) as integer
             elseif moduleName == "nupp.runtime.vm.program" then
                 local contract = programcontract.read(n.obj.name.definition, name as string)
                 signature(n, {"voidptr", "int64"}, contract.result)

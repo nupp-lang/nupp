@@ -316,6 +316,11 @@ fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
         "slotHash" => Some(("nupp_object_slot_hash", 1)),
         "stringHash" => Some(("nupp_object_string_hash", 3)),
         "tableProbe" => Some(("nupp_object_table_probe", 4)),
+        "tableCapacity" => Some(("nupp_object_table_capacity", 1)),
+        "tableNeedsGrowth" => Some(("nupp_object_table_needs_growth", 2)),
+        "tableInitialize" => Some(("nupp_object_table_initialize", 2)),
+        "tableLiveCount" => Some(("nupp_object_table_live_count", 4)),
+        "tableRehash" => Some(("nupp_object_table_rehash", 8)),
         "shapeCapacity" => Some(("nupp_object_shape_capacity", 1)),
         "shapeFill" => Some(("nupp_object_shape_fill", 4)),
         "shapeFind" => Some(("nupp_object_shape_find", 4)),
@@ -334,32 +339,38 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     }
     let name = name_of(f);
     let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind" | "tableProbe");
-    let memory = hash_call || name == "stringHash";
-    let write = name == "shapeFill";
+    let rehash = name == "tableRehash";
+    let calls = hash_call || rehash;
+    let memory = hash_call || matches!(name.as_str(), "stringHash" | "tableInitialize" | "tableLiveCount" | "tableRehash");
+    let write = matches!(name.as_str(), "shapeFill" | "tableInitialize" | "tableRehash");
     if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty()
-        || !f.dynamic_stack_slots.is_empty() || !hash_call && !f.dfg.ext_funcs.is_empty()
+        || !f.dynamic_stack_slots.is_empty() || !calls && !f.dfg.ext_funcs.is_empty()
     {
         return Err(format!("{}: object leaf references no symbols, stack or calls", f.name));
     }
-    let word_hash = Signature {
-        params: vec![AbiParam::new(types::I64)],
-        returns: vec![AbiParam::new(types::I64)],
-        call_conv: CallConv::Tail,
-    };
     for (_, declaration) in f.dfg.ext_funcs.iter() {
         let ExternalName::TestCase(target) = &declaration.name else {
             return Err(format!("{}: object leaf requires a local scalar callee", f.name));
         };
-        if target.to_string().trim_start_matches('%') != "slotHash"
-            || f.dfg.signatures[declaration.signature] != word_hash
-        {
-            return Err(format!("{}: object leaf may call only the exact slot hash leaf", f.name));
+        let target = target.to_string();
+        let target = target.trim_start_matches('%');
+        let arity = if hash_call && target == "slotHash" { 1 }
+            else if rehash && matches!(target, "tableProbe" | "tableLiveCount") { 4 }
+            else if rehash && target == "tableCapacity" { 1 }
+            else { return Err(format!("{}: object leaf callee is not approved", f.name)); };
+        let expected = Signature {
+            params: vec![AbiParam::new(types::I64); arity],
+            returns: vec![AbiParam::new(types::I64)],
+            call_conv: CallConv::Tail,
+        };
+        if f.dfg.signatures[declaration.signature] != expected {
+            return Err(format!("{}: object leaf callee signature changed", f.name));
         }
     }
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {
             let opcode = f.dfg.insts[inst].opcode();
-            if opcode.is_call() && (!hash_call || opcode != Opcode::Call) {
+            if opcode.is_call() && (!calls || opcode != Opcode::Call) {
                 return Err(format!("{}: object leaf cannot call or dispatch", f.name));
             }
             if opcode.can_load() && !memory || opcode.can_store() && !write {
@@ -374,7 +385,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 4;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 5;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -911,6 +922,16 @@ mod object_leaf_tests {
         assert!(require_object_leaf(&parse(&store), 3).is_err());
         let call = "function %stringHash(i64, i64, i64) -> i64 tail { sig0 = (i64) -> i64 tail fn0 = %slotHash sig0 block0(v0:i64, v1:i64, v2:i64): v3 = call fn0(v2) return v3 }";
         assert!(require_object_leaf(&parse(call), 3).is_err());
+    }
+    #[test]
+    fn rehash_leaf_accepts_only_its_checked_raw_helpers() {
+        let valid = "function %tableRehash(i64,i64,i64,i64,i64,i64,i64,i64) -> i64 tail { sig0 = (i64,i64,i64,i64) -> i64 tail fn0 = %tableProbe sig0 block0(v0:i64,v1:i64,v2:i64,v3:i64,v4:i64,v5:i64,v6:i64,v7:i64): v8 = call fn0(v4,v7,v3,v2) store v8,v4 return v8 }";
+        require_object_leaf(&parse(valid), 8).unwrap();
+        assert!(require_object_leaf(&parse(&valid.replace("%tableProbe", "%slotHash")), 8).is_err());
+        assert!(require_object_leaf(&parse(&valid.replace("tail fn0", "system_v fn0")), 8).is_err());
+        let readonly = "function %tableLiveCount(i64,i64,i64,i64) -> i64 tail { block0(v0:i64,v1:i64,v2:i64,v3:i64): v4 = load.i64 v0 return v4 }";
+        require_object_leaf(&parse(readonly), 4).unwrap();
+        assert!(require_object_leaf(&parse(&readonly.replace("return v4", "store v4,v0 return v4")), 4).is_err());
     }
     #[test]
     fn shape_leaves_use_borrowed_memory_and_only_the_exact_hash_callee() {

@@ -163,17 +163,24 @@ function emitter.emit(g: any, options: any): string
             if op == "NativeLeafCall" then
                 local declaration = args[1]
                 local symbol = declaration.name
+                local types, words = {}, {}
+                for index = 1, #declaration.params do
+                    types[index] = "i64"
+                    words[index] = value(args[index + 1])
+                end
+                local signature = "(" .. table.concat(types, ", ") .. ") -> i64 tail"
+                local exact = table.concat(declaration.params, ",") .. "->" .. declaration.result
                 local known = imports[symbol]
                 if not known then
                     local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
                     importCount = importCount + 1
-                    preamble[#preamble + 1] = sig .. " = (i64) -> i64 tail"
+                    preamble[#preamble + 1] = sig .. " = " .. signature
                     preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
-                    known = {signature = "(i64) -> i64 tail", exact = "uint64->uint64", ref = ref}
+                    known = {signature = signature, exact = exact, ref = ref}
                     imports[symbol] = known
                 end
-                need(known.signature == "(i64) -> i64 tail", "leaf signature changed")
-                line(result .. " = call " .. known.ref .. "(" .. value(args[2]) .. ")")
+                need(known.signature == signature and known.exact == exact, "leaf signature changed")
+                line(result .. " = call " .. known.ref .. "(" .. table.concat(words, ", ") .. ")")
             elseif op == "NativeHelperCall" then
                 local words = {}
                 for index = 2, #args do

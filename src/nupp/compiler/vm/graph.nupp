@@ -418,6 +418,29 @@ local function nativeInteger(text: any, kind: string): nil
     end
 end
 
+local nativeLeafParameters = {
+    ["nupp.runtime.vm.objecthash"] = {slotHash = {"uint64"}},
+    [
+        "nupp.runtime.vm.objecttable"
+    ] = {
+        tableProbe = {"voidptr", "uint64", "uint64", "uint64"},
+        tableCapacity = {"uint64"},
+        tableLiveCount = {"voidptr", "voidptr", "uint64", "uint64"}
+    }
+}
+
+function graph.nativeLeafDeclaration(moduleName: string, name: string): any
+    local home = nativeLeafParameters[moduleName]
+    local params = home and home[name]
+    assert(params, "native leaf declaration is not approved")
+    local copy = {}
+    for index, kind in ipairs(params) do
+        copy[index] = kind
+    end
+
+    return {moduleName = moduleName, name = name, params = copy, result = "uint64", abi = "leaf"}
+end
+
 local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
     local kinds, kind = g.exactTypes, g.exactTypes[dst]
     if g.native.abi == "leaf" then
@@ -435,22 +458,24 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(g.native.abi == "leaf", "scalar leaf calls require a leaf graph")
         local declaration = args[1]
         nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, abi = true})
+        local checked = graph.nativeLeafDeclaration(declaration.moduleName, declaration.name)
         assert(
-            declaration.moduleName == "nupp.runtime.vm.objecthash"
-            and declaration.name == "slotHash"
-            and declaration.abi == "leaf"
-            and declaration.result == "uint64",
-            "native leaf call requires the pure slot hash declaration"
+            declaration.abi == checked.abi and declaration.result == checked.result,
+            "native leaf declaration changed"
         )
         assert(
-            type(declaration.params) == "table" and #declaration.params == 1 and #args == 2,
+            type(declaration.params) == "table"
+            and #declaration.params == #checked.params
+            and #args == #checked.params + 1,
             "native leaf argument count"
         )
         for index, parameter in pairs(declaration.params) do
-            assert(index == 1 and parameter == "uint64", "native leaf exact parameter kind")
+            assert(checked.params[index] == parameter, "native leaf exact parameter kind")
         end
-        hasKind(args[2], "uint64")
-        assert(kind == "uint64", "native leaf result kind")
+        for index, parameter in ipairs(checked.params) do
+            hasKind(args[index + 1], parameter)
+        end
+        assert(kind == checked.result, "native leaf result kind")
     elseif op == "NativeHelperCall" then
         local declaration = args[1]
         nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, effects = true})

@@ -183,9 +183,10 @@ local function hashStore(
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif native.either(
         k == 0xffffffffffffffffULL,
-        (
-            native.load64(header, native.layout("Table.hash_len")) + 1
-        ) * 4 > native.load64(header, native.layout("Table.hash_cap")) * 3
+        objecttable.tableNeedsGrowth(
+            native.load64(header, native.layout("Table.hash_len")),
+            native.load64(header, native.layout("Table.hash_cap"))
+        ) ~= 0ULL
     ) then
         return growInsertSlow(pc, context, object, key, value)
     elseif native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0 then

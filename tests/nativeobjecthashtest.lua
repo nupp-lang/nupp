@@ -149,7 +149,7 @@ function M.localLeafCallsRetainKindsAndRefuseManagedOrChangedCallees()
             function()
                 G.verify(bad)
             end,
-            "slot hash declaration"
+            "native leaf declaration"
         )
     end
     local bad, declaration = callGraph()
@@ -211,6 +211,52 @@ function M.tableProbeUsesTheSharedLeafGraphAndNilBucketContract()
     assert(body:find("Nupp native graph: tableProbe", 1, true), body)
     assert(body:find(" = %slotHash sig", 1, true) and body:find("load.i64 v", 1, true), body)
     assert(not body:find("notrap", 1, true) and not body:find("store", 1, true), body)
+end
+
+function M.tableGrowthLeavesRetainCheckedGraphCallsAndOwnedBufferAccess()
+    local text = lower.compile(
+        ROOT,
+        {
+            ROOT .. "/src/nupp/runtime/vm/values.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objecthash.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objecttable.nupp"
+        },
+        {include = {"src"}}
+    )
+    for _, name in ipairs({"tableCapacity", "tableNeedsGrowth", "tableInitialize", "tableLiveCount", "tableRehash"}) do
+        local body = assert(text:match("function %%" .. name .. "%b()%s*%-%>%s*i64%s+tail%s*(%b{})"), text)
+        assert(body:find("Nupp native graph: " .. name, 1, true), body)
+        assert(not body:find("notrap", 1, true), body)
+        if name == "tableRehash" then
+            for _, callee in ipairs({"tableLiveCount", "tableCapacity", "tableProbe"}) do
+                assert(body:find(" = %" .. callee .. " sig", 1, true), body)
+            end
+            assert(body:find("istore32", 1, true), body)
+        end
+    end
+end
+
+function M.rawLeafCallContractsKeepPointersAndEveryTransportedWord()
+    local g = G.newNative({"voidptr", "uint64", "uint64", "uint64"}, "uint64", "leaf")
+    local b = G.block(g)
+    local declaration = G.nativeLeafDeclaration("nupp.runtime.vm.objecttable", "tableProbe")
+    local answer = G.emitNative(g, b, "NativeLeafCall", {declaration, 1, 2, 3, 4}, "uint64")
+    b.term = {kind = "return", value = answer, edges = {}}
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    local text = clif.emit(g, {name = "tableRehash"})
+    assert(text:find("(i64, i64, i64, i64) -> i64 tail", 1, true), text)
+    assert(text:find("call fn0(v1, v2, v3, v4)", 1, true), text)
+    declaration.params[1] = "uint64"
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "exact parameter kind"
+    )
+    local next = G.nativeLeafDeclaration("nupp.runtime.vm.objecttable", "tableProbe")
+    assert(next.params[1] == "voidptr", "call-site metadata cannot mutate the approved contract")
 end
 
 return M

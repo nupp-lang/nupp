@@ -119,14 +119,35 @@ impl std::ops::Deref for RecordExtra { type Target = ValueTable; fn deref(&self)
 impl std::ops::DerefMut for RecordExtra { fn deref_mut(&mut self) -> &mut ValueTable { &mut self.fields } }
 impl ValueTable {
     pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0, order: std::ptr::null_mut(), rank: std::ptr::null_mut() } }
-    pub fn with_capacity(m: usize) -> ValueTable { let mut t = ValueTable::new(); if m > 0 { let mut c = 8; while c * 3 < m * 4 { c *= 2; } t.alloc(c); } t }
+    pub fn with_capacity(m: usize) -> ValueTable {
+        if m == 0 { return ValueTable::new(); }
+        #[cfg(feature = "native-runtime")]
+        {
+            let cap = unsafe { nupp_object_table_capacity(m as u64) };
+            assert!(cap != 0, "table exceeds the insertion order index range");
+            let mut table = ValueTable::new();
+            table.alloc(usize::try_from(cap).expect("table capacity"));
+            table
+        }
+        #[cfg(not(feature = "native-runtime"))]
+        panic!("table capacity requires a linked Nupp core");
+    }
+    #[cfg(feature = "native-runtime")]
     fn alloc(&mut self, cap: usize) {
-        assert!(cap as u64 <= u32::MAX as u64 + 1, "table exceeds the insertion order index range");
-        let v: Vec<u64> = (0..cap * 2).map(|i| if i % 2 == 0 { VT_EMPTY } else { 0 }).collect();
-        self.ptr = Box::leak(v.into_boxed_slice()).as_mut_ptr();
-        self.order = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
-        self.rank = Box::leak(vec![0u32; cap].into_boxed_slice()).as_mut_ptr();
+        let mut table = vec![0u64; cap * 2].into_boxed_slice();
+        let order = vec![0u32; cap].into_boxed_slice();
+        let rank = vec![0u32; cap].into_boxed_slice();
+        assert_eq!(unsafe { nupp_object_table_initialize(table.as_mut_ptr(), cap as u64) }, 0, "invalid table backing dimensions");
+        self.ptr = Box::leak(table).as_mut_ptr();
+        self.order = Box::leak(order).as_mut_ptr();
+        self.rank = Box::leak(rank).as_mut_ptr();
         self.cap = cap as u64; self.mask = (cap - 1) as u64;
+    }
+    #[inline] fn needs_growth(&self) -> bool {
+        #[cfg(feature = "native-runtime")]
+        { unsafe { nupp_object_table_needs_growth(self.len, self.cap) != 0 } }
+        #[cfg(not(feature = "native-runtime"))]
+        panic!("table growth policy requires a linked Nupp core");
     }
     #[inline] fn probe(&self, bits: u64) -> Option<usize> {
         #[cfg(feature = "native-runtime")]
@@ -146,7 +167,7 @@ impl ValueTable {
         if key == Value::NIL { return; }
         if let Some(k) = self.slot(key.0) { unsafe { *self.ptr.add(2 * k + 1) = v.0; } return; }
         if v == Value::NIL { return; }
-        if self.ptr.is_null() || (self.len + 1) * 4 > self.cap * 3 { self.grow(); }
+        if self.needs_growth() { self.grow(); }
         let k = self.probe(key.0).expect("allocated table has an empty bucket") as u64;
         unsafe {
             *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0;
@@ -155,16 +176,19 @@ impl ValueTable {
         self.len += 1;
     }
     pub(crate) fn grow(&mut self) {
-        // Live entries in their insertion order; a key whose value went nil is
-        // dropped here and only here, so the order of the rest is preserved.
-        let live: Vec<(u64, u64)> = self.iter().map(|(k, v)| (k.0, v.0)).collect();
-        let want = live.len() + 1; let mut c = 8; while c * 3 < want * 4 { c *= 2; } if c <= self.cap as usize && (want * 4 > (self.cap as usize) * 3) { c = (self.cap as usize) * 2; }
-        self.free(); self.alloc(c); self.len = 0;
-        for (kb, vb) in live {
-            let k = self.probe(kb).expect("rehash table has an empty bucket") as u64;
-            unsafe { *self.ptr.add(2 * k as usize) = kb; *self.ptr.add(2 * k as usize + 1) = vb; *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32; }
-            self.len += 1;
+        #[cfg(feature = "native-runtime")]
+        {
+            let live = unsafe { nupp_object_table_live_count(self.ptr, self.order, self.len, self.cap) };
+            assert!(live != u64::MAX, "invalid table insertion order");
+            let mut replacement = ValueTable::with_capacity(usize::try_from(live + 1).expect("live table entries"));
+            let copied = unsafe { nupp_object_table_rehash(self.ptr, self.order, self.len, self.cap, replacement.ptr, replacement.order, replacement.rank, replacement.cap) };
+            assert_eq!(copied, live, "invalid table rehash buffers");
+            replacement.len = copied;
+            // Old backing stays owned and visible until the Nupp copy succeeds.
+            std::mem::swap(self, &mut replacement);
         }
+        #[cfg(not(feature = "native-runtime"))]
+        panic!("table rehashing requires a linked Nupp core");
     }
     fn free(&mut self) {
         if !self.ptr.is_null() {
@@ -397,13 +421,18 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
     fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
+    fn nupp_object_table_capacity(wanted: u64) -> u64;
+    fn nupp_object_table_needs_growth(length: u64, capacity: u64) -> u64;
+    fn nupp_object_table_initialize(table: *mut u64, capacity: u64) -> u64;
+    fn nupp_object_table_live_count(table: *const u64, order: *const u32, length: u64, capacity: u64) -> u64;
+    fn nupp_object_table_rehash(source: *const u64, order: *const u32, length: u64, capacity: u64, target: *mut u64, target_order: *mut u32, target_rank: *mut u32, target_capacity: u64) -> u64;
     fn nupp_object_shape_capacity(count: u64) -> u64;
     fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
     fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 4);
+    assert!(crate::dispatch::OBJECT_ABI == 5);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
