@@ -1,6 +1,6 @@
 //! LuaJIT's `string.buffer`: a FIFO byte buffer object and the serializer
-//! `encode`/`decode` speak, byte for byte the format LuaJIT 2.1 writes
-//! (lj_serialize.c), so a payload either runtime encodes the other decodes.
+//! `encode`/`decode` use the scalar and table tags from LuaJIT 2.1
+//! (lj_serialize.c), preserving Nupp integer and float subtypes explicitly.
 //!
 //! A buffer is a userdata whose Rust data is the byte vector and a read
 //! offset; methods come through its metatable's `__index`, as LuaJIT's do.
@@ -129,20 +129,19 @@ pub(crate) fn serialize(it: &Interp, v: Value, out: &mut Vec<u8>, depth: usize) 
     if v == Value::NIL { return out.push(TAG_NIL as u8); }
     if v == Value::FALSE { return out.push(TAG_FALSE as u8); }
     if v == Value::TRUE { return out.push(TAG_TRUE as u8); }
-    if v.is_num() {
-        let f = v.as_num();
-        if f.fract() == 0.0 && f >= i32::MIN as f64 && f <= i32::MAX as f64 && !(f == 0.0 && f.is_sign_negative()) {
+    if let Some(i) = crate::numeric::integer(v) {
+        if !i.unsigned && i32::try_from(i.bits as i64).is_ok() {
             out.push(TAG_INT as u8);
-            out.extend_from_slice(&(f as i32).to_le_bytes());
+            out.extend_from_slice(&(i.bits as i32).to_le_bytes());
         } else {
-            out.push(TAG_NUM as u8);
-            out.extend_from_slice(&f.to_bits().to_le_bytes());
+            out.push(if i.unsigned { TAG_UINT64 } else { TAG_INT64 } as u8);
+            out.extend_from_slice(&i.bits.to_le_bytes());
         }
         return;
     }
-    if let Some(i) = crate::numeric::integer(v) {
-        out.push(if i.unsigned { TAG_UINT64 } else { TAG_INT64 } as u8);
-        out.extend_from_slice(&i.bits.to_le_bytes());
+    if v.is_float() {
+        out.push(TAG_NUM as u8);
+        out.extend_from_slice(&v.as_num().to_bits().to_le_bytes());
         return;
     }
     if it.is_stringish(v) {
@@ -211,7 +210,7 @@ fn deserialize(it: &mut Interp, r: &mut Reader, depth: usize) -> Value {
         TAG_NIL | TAG_NULL => Value::NIL,
         TAG_FALSE => Value::FALSE,
         TAG_TRUE => Value::TRUE,
-        TAG_INT => Value::num(i32::from_le_bytes(r.take(it, 4).try_into().unwrap()) as f64),
+        TAG_INT => Value::inline_integer(i32::from_le_bytes(r.take(it, 4).try_into().unwrap()) as i64).unwrap(),
         TAG_NUM => Value::num(f64::from_bits(u64::from_le_bytes(r.take(it, 8).try_into().unwrap()))),
         TAG_INT64 | TAG_UINT64 => {
             let bits = u64::from_le_bytes(r.take(it, 8).try_into().unwrap());
@@ -266,8 +265,8 @@ fn decode_one(it: &mut Interp, bytes: &[u8]) -> (Value, usize) {
 }
 
 fn number_arg(it: &Interp, v: Value, position: usize, method: &str) -> f64 {
-    if !v.is_num() { fail(it, &format!("bad argument #{position} to '{method}' (number expected, got {})", type_name(it, v))); }
-    v.as_num()
+    if !crate::numeric::is_numeric(v) { fail(it, &format!("bad argument #{position} to '{method}' (number expected, got {})", type_name(it, v))); }
+    crate::numeric::double(it, v)
 }
 
 fn dispatch(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
@@ -373,7 +372,7 @@ fn dispatch(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             buffer(it, this, "decode").advance(used);
             one(v)
         }
-        "__len" => { let n = buffer(it, this, "len").bytes().len(); one(Value::num(n as f64)) }
+        "__len" => { let n = buffer(it, this, "len").bytes().len(); one(crate::numeric::signed(it, n as i64)) }
         "__concat" => {
             let mut joined = Vec::new();
             for v in [arg(0), arg(1)] {

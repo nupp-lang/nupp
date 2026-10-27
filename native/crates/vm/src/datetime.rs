@@ -25,10 +25,10 @@ pub(crate) fn date(vm: &mut Interp, args: &[Value]) -> Outs {
     let seconds = if stamp == Value::NIL {
         nupp_native_platform::wall_ms() as f64 / 1000.0
     } else {
-        if !stamp.is_num() {
+        if !crate::numeric::is_numeric(stamp) {
             vm.err("date timestamp must be a number");
         }
-        stamp.as_num()
+        crate::numeric::double(vm, stamp)
     };
     if !seconds.is_finite()
         || seconds < libc::time_t::MIN as f64
@@ -74,7 +74,7 @@ pub(crate) fn date(vm: &mut Interp, args: &[Value]) -> Outs {
             ("yday", time.tm_yday + 1),
         ] {
             let key = vm.intern(name);
-            vm.set_index(table, key, Value::num(value as f64));
+            vm.set_index(table, key, Value::inline_integer(value as i64).unwrap());
         }
         if time.tm_isdst >= 0 {
             let key = vm.intern("isdst");

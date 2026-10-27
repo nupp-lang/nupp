@@ -35,7 +35,7 @@ fn worker_failure(vm: &mut Interp, handle: Value, raw: Value) -> Value {
     vm.handles.extend([handle, raw, trace]);
     let rendered = vm.handled_error(Value::builtin(builtins::id_of("tostring").unwrap()), raw);
     vm.handles.push(rendered);
-    let value = if rendered == Value::NIL || rendered.is_num() || vm.is_stringish(rendered) {
+    let value = if rendered == Value::NIL || crate::numeric::is_numeric(rendered) || vm.is_stringish(rendered) {
         let mut text = if rendered == Value::NIL {
             Vec::new()
         } else {
@@ -58,6 +58,10 @@ fn worker_failure(vm: &mut Interp, handle: Value, raw: Value) -> Value {
     vm.close_scope(roots);
     value
 }
+pub(crate) fn put_integer(vm: &mut Interp, object: Value, name: &str, n: u64) {
+    let value = crate::numeric::unsigned(vm, n);
+    put(vm, object, name, value);
+}
 fn method(vm: &mut Interp, value: Value, name: &str, builtin: &str) {
     put(
         vm,
@@ -69,13 +73,10 @@ fn method(vm: &mut Interp, value: Value, name: &str, builtin: &str) {
 fn id(vm: &mut Interp, handle: Value) -> TaskId {
     let index = field(vm, handle, "_task");
     let generation = field(vm, handle, "_generation");
-    if !index.is_num() || !generation.is_num() {
-        vm.err("invalid task handle")
-    }
-    let task = TaskId {
-        index: index.as_num() as usize,
-        generation: generation.as_num() as u64,
-    };
+    let index = crate::numeric::integral(index).filter(|n| (0..=usize::MAX as i128).contains(n));
+    let generation = crate::numeric::integral(generation).filter(|n| *n >= 0);
+    let (Some(index), Some(generation)) = (index, generation) else { vm.err("invalid task handle"); };
+    let task = TaskId { index: index as usize, generation: generation as u64 };
     if vm.scheduler.as_ref().and_then(|s| s.status(task)).is_none() {
         vm.err("unknown or released task")
     }
@@ -121,7 +122,7 @@ fn settle(vm: &mut Interp, handle: Value) -> Option<TaskId> {
         vm.set_index(values, Value::num((i + 1) as f64), *v);
     }
     put(vm, handle, "_values", values);
-    put(vm, handle, "_count", Value::num(outputs.len() as f64));
+    put_integer(vm, handle, "_count", outputs.len() as u64);
     let text = match &st {
         Status::Completed => "done",
         Status::Cancelled => "cancelled",
@@ -145,7 +146,7 @@ fn settle(vm: &mut Interp, handle: Value) -> Option<TaskId> {
     // control until a later poll rather than reuse its completion destination.
     if vm.release_task(task).is_ok() {
         let parents = vm.loaded["nupp.vm.taskHandles"];
-        vm.set_index(parents, Value::num(task.generation as f64), Value::NIL);
+        let key = crate::numeric::unsigned(vm, task.generation); vm.set_index(parents, key, Value::NIL);
         put(vm, handle, "_settled", Value::TRUE);
     }
     vm.close_scope(root);
@@ -264,15 +265,15 @@ fn close_scope_deadline(vm: &mut Interp, tid: usize, scope: Value) {
         return;
     }
     let owner = field(vm, scope, "_owner");
-    if owner != Value::num(tid as f64) {
+    if crate::numeric::integral(owner) != Some(tid as i128) {
         vm.err("scope must close in its owning task")
     }
     let previous = field(vm, scope, "_previousDeadline");
     set_deadline(
         vm,
         tid,
-        if previous.is_num() {
-            Some(previous.as_num() as u64)
+        if let Some(n) = crate::numeric::integral(previous) {
+            Some(n as u64)
         } else {
             None
         },
@@ -316,7 +317,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
     match name {
         "tasks.pollWorkers" => {
             let count = vm.poll_workers().unwrap_or_else(|e| vm.err(&e)).len();
-            Values(vec![Value::num(count as f64)])
+            Values(vec![crate::numeric::unsigned(vm, count as u64)])
         }
         "tasks.isCancelled" => Values(vec![Value::boolean(is_cancelled(vm, arg(0)))]),
         "tasks.checkpoint" => {
@@ -330,7 +331,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 .controls
                 .get(&tid)
                 .and_then(|c| c.deadline)
-                .map(|d| Value::num(d as f64))
+                .map(|d| crate::numeric::unsigned(vm, d))
                 .unwrap_or(Value::NIL),
         ]),
         "tasks.open" | "tasks.familyOpen" | "tasks.workerOpen" => {
@@ -344,12 +345,12 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             };
             let timeout = arg(1);
             if limit != Value::NIL
-                && (!limit.is_num() || limit.as_num() < 1.0 || limit.as_num().fract() != 0.0)
+                && (!crate::numeric::integral(limit).is_some_and(|n| n >= 1))
             {
                 vm.err("task limit must be a positive integer")
             }
             if timeout != Value::NIL
-                && (!timeout.is_num() || !timeout.as_num().is_finite() || timeout.as_num() < 0.0)
+                && (!crate::numeric::is_numeric(timeout) || !crate::numeric::double(vm, timeout).is_finite() || crate::numeric::double(vm, timeout) < 0.0)
             {
                 vm.err("task timeout must be nonnegative")
             }
@@ -368,7 +369,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                         .as_ref()
                         .unwrap()
                         .now()
-                        .checked_add(timeout.as_num().ceil() as u64)
+                        .checked_add(crate::numeric::integer(timeout).map_or_else(|| timeout.as_num().ceil() as u64, |n| n.magnitude() as u64))
                         .expect("deadline overflow"),
                 )
             };
@@ -379,15 +380,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             let scope = vm.new_table();
             let root = vm.register(scope);
             put(vm, scope, "_soft", Value::boolean(name != "tasks.open"));
-            put(vm, scope, "_owner", Value::num(tid as f64));
-            put(
-                vm,
-                scope,
-                "_previousDeadline",
-                inherited
-                    .map(|d| Value::num(d as f64))
-                    .unwrap_or(Value::NIL),
-            );
+            put_integer(vm, scope, "_owner", tid as u64);
+            let previous = inherited.map(|d| crate::numeric::unsigned(vm, d)).unwrap_or(Value::NIL);
+            put(vm, scope, "_previousDeadline", previous);
             let detached = name == "tasks.workerOpen";
             put(vm, scope, "_detached", Value::boolean(detached));
             if !detached {
@@ -396,12 +391,8 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             let table = vm.new_table();
             put(vm, scope, "_children", table);
             put(vm, scope, "_limit", limit);
-            put(
-                vm,
-                scope,
-                "_deadline",
-                deadline.map(|d| Value::num(d as f64)).unwrap_or(Value::NIL),
-            );
+            let deadline_value = deadline.map(|d| crate::numeric::unsigned(vm, d)).unwrap_or(Value::NIL);
+            put(vm, scope, "_deadline", deadline_value);
             for (m, b) in [
                 ("spawn", "tasks.spawn"),
                 ("fork", "tasks.fork"),
@@ -429,7 +420,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             if field(vm, scope, "_failed") == Value::TRUE {
                 std::panic::panic_any(builtins::LuaError(failure.0));
             }
-            if limit.is_num() && live.len() >= limit.as_num() as usize {
+            if crate::numeric::integral(limit).is_some_and(|n| live.len() as i128 >= n) {
                 return Wait(live[0]);
             }
             let deadline = field(vm, scope, "_deadline");
@@ -446,8 +437,8 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 } else {
                     args.get(2..).unwrap_or(&[])
                 },
-                if deadline.is_num() {
-                    Some(deadline.as_num() as u64)
+                if let Some(n) = crate::numeric::integral(deadline) {
+                    Some(n as u64)
                 } else {
                     None
                 },
@@ -464,14 +455,9 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             put(vm, handle, "_name", operation);
             vm.tasks[task.index].error = cancellation(vm, operation, Value::NIL);
             let parents = vm.loaded["nupp.vm.taskHandles"];
-            vm.set_index(parents, Value::num(task.generation as f64), handle);
-            put(vm, handle, "_task", Value::num(task.index as f64));
-            put(
-                vm,
-                handle,
-                "_generation",
-                Value::num(task.generation as f64),
-            );
+            let key = crate::numeric::unsigned(vm, task.generation); vm.set_index(parents, key, handle);
+            put_integer(vm, handle, "_task", task.index as u64);
+            put_integer(vm, handle, "_generation", task.generation);
             for (m, b) in [
                 ("await", "tasks.await"),
                 ("status", "tasks.status"),
@@ -529,7 +515,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 std::panic::panic_any(builtins::LuaError(error.0));
             }
             let table = field(vm, handle, "_values");
-            let n = field(vm, handle, "_count").as_num() as usize;
+            let n = crate::numeric::integral(field(vm, handle, "_count")).unwrap_or(0) as usize;
             Values(
                 (0..n)
                     .map(|i| vm.get_index(table, Value::num((i + 1) as f64)))
@@ -634,7 +620,7 @@ pub(crate) fn wake_event(vm: &mut Interp, key: Value) {
 pub(crate) fn on_finish(vm: &mut Interp, tid: usize) {
     let generation = vm.scheduler.as_ref().unwrap().controls[&tid].generation;
     let parents = vm.loaded["nupp.vm.taskHandles"];
-    let handle = vm.get_index(parents, Value::num(generation as f64));
+    let key = crate::numeric::unsigned(vm, generation); let handle = vm.get_index(parents, key);
     if handle == Value::NIL {
         return;
     }
@@ -691,15 +677,16 @@ fn family_await(vm: &mut Interp, scope: Value, handles: Value, race: bool) -> An
         let error = field(vm, h, "_error");
         let outputs = field(vm, h, "_values");
         let value = vm.get_index(outputs, Value::num(1.0));
-        let n = field(vm, h, "_count").as_num();
+        let n = crate::numeric::integral(field(vm, h, "_count")).unwrap_or(0);
         let state = field(vm, h, "_status");
         let cancelled = vm.bytes_of(state) == b"cancelled";
-        if !failed && !cancelled && n != 1.0 {
+        if !failed && !cancelled && n != 1 {
             vm.err("task family branch must return exactly one value");
         }
+        let key = crate::numeric::unsigned(vm, count as u64);
         vm.set_index(
             if failed { errors } else { values },
-            Value::num(count as f64),
+            key,
             if failed { error } else { value },
         );
         if h == winner {
@@ -719,7 +706,7 @@ fn family_await(vm: &mut Interp, scope: Value, handles: Value, race: bool) -> An
                 std::panic::panic_any(builtins::LuaError(error.0));
             }
             vm.close_scope(root);
-            Answer::Values(vec![value, Value::num(index as f64)])
+            Answer::Values(vec![value, crate::numeric::unsigned(vm, index as u64)])
         } else {
             vm.close_scope(root);
             Answer::Values(vec![Value::NIL, Value::NIL])

@@ -71,7 +71,7 @@ impl Transfers {
 }
 
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
-fn int(v: Value) -> i64 { if v.is_num() { v.as_num() as i64 } else { 0 } }
+fn int(v: Value) -> i64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as i64 } else { 0 }, |n| n.magnitude().clamp(i64::MIN as i128, i64::MAX as i128) as i64) }
 fn bytes(it: &Interp, v: Value) -> Vec<u8> { if it.is_stringish(v) { it.bytes_of(v).to_vec() } else { Vec::new() } }
 fn slice(b: &[u8]) -> transport::NuppHttpSlice { transport::NuppHttpSlice { data: if b.is_empty() { ptr::null() } else { b.as_ptr() }, length: b.len() } }
 fn outs(values: &[Value]) -> Outs { values.iter().copied().collect() }
@@ -124,7 +124,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             if pointer.is_null() { let e = last_error(); return failed(it, &e); }
             let id = it.nhttp.id();
             it.nhttp.clients.insert(id, Client { pointer, transfers: HashMap::new() });
-            outs(&[Value::num(id as f64)])
+            outs(&[crate::numeric::unsigned(it, id as u64)])
         }
         "clientRelease" => {
             // Its transfers keep their own transport references and outlive it.
@@ -133,7 +133,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         }
         "clientPending" => {
             let count = it.nhttp.clients.get(&id).map(|c| unsafe { transport::nuppHttpClientPending(c.pointer) }).unwrap_or(0);
-            outs(&[Value::num(count as f64)])
+            outs(&[crate::numeric::unsigned(it, count as u64)])
         }
         // (client, url, method, headers {{name, value}...}, body, bodyKind,
         //  bodyLength, timeoutMs, stallTimeoutMs, maxBytes, insecure)
@@ -161,7 +161,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 header_count: headers.len(),
                 body: slice(&body),
                 body_kind: int(arg(args, 5)).max(0) as u32,
-                body_length: if length.is_num() { length.as_num() as i64 } else { -1 },
+                body_length: if crate::numeric::is_numeric(length) { int(length) } else { -1 },
                 timeout_ms: int(arg(args, 7)).max(0) as u64,
                 stall_timeout_ms: int(arg(args, 8)).max(0) as u64,
                 max_bytes: int(arg(args, 9)).max(0) as u64,
@@ -176,7 +176,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let handle = it.nhttp.id();
             it.nhttp.transfers.insert(handle, Transfer { pointer: transfer, client: id, kind: Kind::Request, body_taken: false });
             if let Some(client) = it.nhttp.clients.get_mut(&id) { client.transfers.insert(transfer as usize, Registered { request: Some(handle), body: None }); }
-            outs(&[Value::num(handle as f64)])
+            outs(&[crate::numeric::unsigned(it, handle as u64)])
         }
         // Fills `into` with transfer, tokens pairs and answers how many pairs.
         "clientPoll" => {
@@ -191,10 +191,10 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             }
             let into = arg(args, 1);
             for (k, (handle, tokens)) in ready.iter().enumerate() {
-                it.set_index(into, Value::num((2 * k + 1) as f64), Value::num(*handle as f64));
-                it.set_index(into, Value::num((2 * k + 2) as f64), Value::num(*tokens as f64));
+                let handle = crate::numeric::unsigned(it, *handle); it.set_index(into, Value::inline_integer((2 * k + 1) as i64).unwrap(), handle);
+                let tokens = Value::inline_integer(*tokens as i64).unwrap(); it.set_index(into, Value::inline_integer((2 * k + 2) as i64).unwrap(), tokens);
             }
-            outs(&[Value::num(ready.len() as f64)])
+            outs(&[Value::inline_integer(ready.len() as i64).unwrap()])
         }
         "transferCancel" => {
             if let Some(t) = it.nhttp.transfers.get(&id).filter(|t| t.kind == Kind::Request) { unsafe { transport::nuppHttpTransferCancel(t.pointer) } }
@@ -203,12 +203,12 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "transferRelease" => outs(&[Value::boolean(it.nhttp.release(id))]),
         // (transfer, bytes?, count, finished) -> 1 accepted, 0 backpressure, -1 closed
         "transferOffer" => {
-            let Some(t) = it.nhttp.transfers.get(&id).filter(|t| t.kind == Kind::Request) else { return outs(&[Value::num(-1.0)]) };
+            let Some(t) = it.nhttp.transfers.get(&id).filter(|t| t.kind == Kind::Request) else { return outs(&[Value::inline_integer(-1).unwrap()]) };
             let pointer = t.pointer;
             let data = bytes(it, arg(args, 1));
             let count = (int(arg(args, 2)).max(0) as usize).min(data.len());
             let answer = unsafe { transport::nuppHttpTransferOffer(pointer, if count == 0 { ptr::null() } else { data.as_ptr() }, count, arg(args, 3).truthy()) };
-            outs(&[Value::num(answer as f64)])
+            outs(&[Value::inline_integer(answer as i64).unwrap()])
         }
         // -> "pending" | "failed", nil, nil, nil, nil, reason | "ready", status, version, url?, headers
         "transferHead" => {
@@ -231,7 +231,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let url = match url { Some(u) => { let v = it.new_string_bytes(&u); it.handles.push(v); v } None => Value::NIL };
             let headers = it.new_string_bytes(&headers);
             it.close_scope(scope);
-            outs(&[kind, Value::num(head.status as f64), Value::num(head.version as f64), url, headers])
+            outs(&[kind, Value::inline_integer(head.status as i64).unwrap(), Value::inline_integer(head.version as i64).unwrap(), url, headers])
         }
         "transferTakeBody" => {
             let Some(request) = it.nhttp.transfers.get_mut(&id).filter(|t| t.kind == Kind::Request) else { return failed(it, "HTTP transfer handle is stale") };
@@ -243,7 +243,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let handle = it.nhttp.id();
             it.nhttp.transfers.insert(handle, Transfer { pointer: body, client, kind: Kind::Body, body_taken: false });
             if let Some(owner) = it.nhttp.clients.get_mut(&client) { owner.transfers.entry(body as usize).or_default().body = Some(handle); }
-            outs(&[Value::num(handle as f64)])
+            outs(&[crate::numeric::unsigned(it, handle as u64)])
         }
         "bodyArm" => {
             let armed = it.nhttp.transfers.get(&id).filter(|t| t.kind == Kind::Body).is_some_and(|t| unsafe { transport::nuppHttpBodyArm(t.pointer) });
@@ -308,7 +308,7 @@ pub fn parse_uri(it: &mut Interp, args: &[Value]) -> Outs {
         let v = it.heap_new_string(part); it.handles.push(v);
         let k = it.intern(name); it.set_index(table, k, v);
     }
-    if let Some(port) = value.port() { let k = it.intern("port"); it.set_index(table, k, Value::num(port as f64)); }
+    if let Some(port) = value.port() { let k = it.intern("port"); it.set_index(table, k, Value::inline_integer(port as i64).unwrap()); }
     it.close_scope(scope);
     outs(&[table])
 }

@@ -1,5 +1,5 @@
 //! `string.buffer`: LuaJIT's FIFO byte buffer and its serializer, whose bytes
-//! are LuaJIT 2.1's (the expected encodings below are what LuaJIT writes).
+//! reuse LuaJIT scalar/table tags while retaining Nupp numeric subtypes.
 use nupp_vm::{builtins, interp::Interp, value::Value};
 
 fn vm() -> Box<Interp> {
@@ -45,13 +45,13 @@ fn decode(vm: &mut Interp, bytes: &[u8]) -> Result<Value, String> {
 }
 
 #[test]
-fn scalars_encode_as_luajit_writes_them() {
+fn scalars_encode_with_distinct_integer_and_float_tags() {
     let mut vm = vm();
     assert_eq!(encode(&mut vm, Value::NIL), [0]);
     assert_eq!(encode(&mut vm, Value::FALSE), [1]);
     assert_eq!(encode(&mut vm, Value::TRUE), [2]);
-    assert_eq!(encode(&mut vm, Value::num(0.0)), [6, 0, 0, 0, 0]);
-    assert_eq!(encode(&mut vm, Value::num(-1.0)), [6, 0xff, 0xff, 0xff, 0xff]);
+    assert_eq!(encode(&mut vm, Value::inline_integer(0).unwrap()), [6, 0, 0, 0, 0]);
+    assert_eq!(encode(&mut vm, Value::inline_integer(-1).unwrap()), [6, 0xff, 0xff, 0xff, 0xff]);
     assert_eq!(encode(&mut vm, Value::num(1.5)), [7, 0, 0, 0, 0, 0, 0, 0xf8, 0x3f]);
     assert_eq!(encode(&mut vm, Value::num(2f64.powi(31))), [7, 0, 0, 0, 0, 0, 0, 0xe0, 0x41]);
     assert_eq!(encode(&mut vm, Value::num(-0.0)), [7, 0, 0, 0, 0, 0, 0, 0, 0x80]);
@@ -71,22 +71,22 @@ fn tables_round_trip_and_decode_luajit_layouts() {
     let t = vm.new_table();
     vm.register(t);
     for i in 1..=3 {
-        vm.set_index(t, Value::num(i as f64), Value::num(i as f64));
+        vm.set_index(t, Value::num(i as f64), Value::inline_integer(i).unwrap());
     }
     assert_eq!(encode(&mut vm, t), [0x0c, 4, 6, 1, 0, 0, 0, 6, 2, 0, 0, 0, 6, 3, 0, 0, 0]);
     let h = vm.new_table();
     vm.register(h);
     let a = vm.intern("a");
     vm.register(a);
-    vm.set_index(h, a, Value::num(1.0));
+    vm.set_index(h, a, Value::inline_integer(1).unwrap());
     assert_eq!(encode(&mut vm, h), [0x09, 1, 0x21, b'a', 6, 1, 0, 0, 0]);
 
     // {[0]=5} and {nil, 2} as LuaJIT lays them out.
     let zero = decode(&mut vm, &[0x0a, 1, 6, 5, 0, 0, 0]).unwrap();
-    assert_eq!(vm.get_index(zero, Value::num(0.0)), Value::num(5.0));
+    assert_eq!(vm.get_index(zero, Value::num(0.0)), Value::inline_integer(5).unwrap());
     let holed = decode(&mut vm, &[0x0c, 3, 0, 6, 2, 0, 0, 0]).unwrap();
     assert_eq!(vm.get_index(holed, Value::num(1.0)), Value::NIL);
-    assert_eq!(vm.get_index(holed, Value::num(2.0)), Value::num(2.0));
+    assert_eq!(vm.get_index(holed, Value::num(2.0)), Value::inline_integer(2).unwrap());
 
     // A nested value survives the trip under collector stress.
     let outer = vm.new_table();
@@ -100,9 +100,9 @@ fn tables_round_trip_and_decode_luajit_layouts() {
     let bytes = encode(&mut vm, outer);
     let back = decode(&mut vm, &bytes).unwrap();
     let first = vm.get_index(back, Value::num(1.0));
-    assert_eq!(vm.get_index(first, Value::num(3.0)), Value::num(3.0));
+    assert_eq!(vm.get_index(first, Value::num(3.0)), Value::inline_integer(3).unwrap());
     let inner = vm.get_index(back, key);
-    assert_eq!(vm.get_index(inner, a), Value::num(1.0));
+    assert_eq!(vm.get_index(inner, a), Value::inline_integer(1).unwrap());
     assert_eq!(vm.bytes_of(vm.get_index(back, Value::num(2.0))), b"text");
 }
 
@@ -134,8 +134,8 @@ fn buffers_are_fifos_with_luajit_methods() {
     let b = call(&mut vm, "sbuf.new", &[]).unwrap()[0];
     let ab = text(&mut vm, b"ab");
     let x = text(&mut vm, b"x");
-    call(&mut vm, "sbuf.put", &[b, ab, Value::num(1.0), Value::num(2.5), x]).unwrap();
-    assert_eq!(call(&mut vm, "sbuf.__len", &[b]).unwrap()[0], Value::num(7.0));
+    call(&mut vm, "sbuf.put", &[b, ab, Value::inline_integer(1).unwrap(), Value::num(2.5), x]).unwrap();
+    assert_eq!(call(&mut vm, "sbuf.__len", &[b]).unwrap()[0], Value::inline_integer(7).unwrap());
     let s = call(&mut vm, "sbuf.tostring", &[b]).unwrap()[0];
     assert_eq!(vm.bytes_of(s), b"ab12.5x");
     let got = call(&mut vm, "sbuf.get", &[b, Value::num(1.0), Value::num(100.0), Value::num(1.0)]).unwrap();
@@ -165,7 +165,7 @@ fn buffers_are_fifos_with_luajit_methods() {
     let joined = call(&mut vm, "sbuf.__concat", &[set, other]).unwrap()[0];
     assert_eq!(vm.bytes_of(joined), b"abc!");
     call(&mut vm, "sbuf.free", &[b]).unwrap();
-    assert_eq!(call(&mut vm, "sbuf.__len", &[b]).unwrap()[0], Value::num(0.0));
+    assert_eq!(call(&mut vm, "sbuf.__len", &[b]).unwrap()[0], Value::inline_integer(0).unwrap());
     vm.full_cycle();
     vm.check_oracle();
 }

@@ -356,7 +356,14 @@ fn files(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "files.info" => {
             let p = path_text(it, arg(args, 0));
             match std::fs::symlink_metadata(&p).and_then(|m| if m.file_type().is_symlink() { std::fs::metadata(&p) } else { Ok(m) }) {
-                Ok(m) => { let t = it.new_table(); let h = it.register(t); for (k, v) in [("kind", Value::NIL), ("size", Value::num(m.len() as f64))] { let kv = it.intern(k); let vv = if k == "kind" { it.intern(kind_name(&m)) } else { v }; it.set_index(t, kv, vv); } let mk = it.intern("modified"); let ms = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as f64).unwrap_or(0.0); it.set_index(t, mk, Value::num(ms)); it.release(h); outs![t] }
+                Ok(m) => {
+                    let t = it.new_table(); let root = it.register(t);
+                    let value = it.intern(kind_name(&m)); crate::task_api::put(it, t, "kind", value);
+                    let value = crate::numeric::unsigned(it, m.len()); crate::task_api::put(it, t, "size", value);
+                    let millis = m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
+                    crate::task_api::put(it, t, "modified", Value::num(millis));
+                    it.release(root); outs![t]
+                }
                 Err(e) => { let msg = it.heap_new_string(&format!("{p}: {e}")); outs![Value::NIL, msg] }
             }
         }

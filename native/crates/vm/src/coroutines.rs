@@ -13,8 +13,8 @@ fn id(vm: &mut Interp, h: Value) -> Option<TaskId> {
         None
     } else {
         Some(TaskId {
-            index: i.as_num() as usize,
-            generation: g.as_num() as u64,
+            index: crate::numeric::integral(i).filter(|n| (0..=usize::MAX as i128).contains(n))? as usize,
+            generation: crate::numeric::integral(g).filter(|n| *n >= 0)? as u64,
         })
     }
 }
@@ -24,7 +24,7 @@ fn lookup(vm: &mut Interp, tid: usize) -> Value {
     };
     let g = c.generation;
     let table = vm.loaded["nupp.vm.coroutines"];
-    vm.get_index(table, Value::num(g as f64))
+    let key = crate::numeric::unsigned(vm, g); vm.get_index(table, key)
 }
 fn text(vm: &mut Interp, h: Value, n: &str, s: &str) {
     let v = vm.intern(s);
@@ -39,7 +39,7 @@ fn pack(vm: &mut Interp, h: Value, values: &[Value]) {
         vm.set_index(table, Value::num(i as f64 + 1.0), *v);
     }
     put(vm, h, "_values", table);
-    put(vm, h, "_count", Value::num(values.len() as f64));
+    crate::task_api::put_integer(vm, h, "_count", values.len() as u64);
     put(vm, h, "_reply", Value::TRUE);
     vm.close_scope(root);
 }
@@ -170,10 +170,10 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 text(vm, h, "_status", "dead");
                 return Answer::Values(vec![Value::TRUE]);
             }
-            if owner == Value::num(tid as f64) && field(vm, h, "_reply") == Value::TRUE {
+            if crate::numeric::integral(owner) == Some(tid as i128) && field(vm, h, "_reply") == Value::TRUE {
                 let mut values = vec![field(vm, h, "_ok")];
                 let table = field(vm, h, "_values");
-                let n = field(vm, h, "_count").as_num() as usize;
+                let n = crate::numeric::integral(field(vm, h, "_count")).unwrap_or(0) as usize;
                 for i in 1..=n {
                     values.push(vm.get_index(table, Value::num(i as f64)));
                 }
@@ -187,7 +187,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 return Answer::Values(values);
             }
             if owner != Value::NIL {
-                if owner == Value::num(tid as f64) {
+                if crate::numeric::integral(owner) == Some(tid as i128) {
                     return Answer::Event(h);
                 }
                 let e = vm.intern("cannot resume running coroutine");
@@ -214,14 +214,14 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 let task = vm
                     .schedule_inner(body, args.get(1..).unwrap_or(&[]), None)
                     .unwrap_or_else(|e| vm.err(&e));
-                put(vm, h, "_task", Value::num(task.index as f64));
-                put(vm, h, "_generation", Value::num(task.generation as f64));
+                crate::task_api::put_integer(vm, h, "_task", task.index as u64);
+                crate::task_api::put_integer(vm, h, "_generation", task.generation);
                 let registry = vm.loaded["nupp.vm.coroutines"];
-                vm.set_index(registry, Value::num(task.generation as f64), h);
+                let key = crate::numeric::unsigned(vm, task.generation); vm.set_index(registry, key, h);
                 task
             };
             let _ = task;
-            put(vm, h, "_owner", Value::num(tid as f64));
+            crate::task_api::put_integer(vm, h, "_owner", tid as u64);
             text(vm, h, "_status", "running");
             Answer::Event(h)
         }
@@ -230,7 +230,7 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
 }
 fn release(vm: &mut Interp, h: Value, task: TaskId) {
     let registry = vm.loaded["nupp.vm.coroutines"];
-    vm.set_index(registry, Value::num(task.generation as f64), Value::NIL);
+    let key = crate::numeric::unsigned(vm, task.generation); vm.set_index(registry, key, Value::NIL);
     vm.release_task(task).unwrap();
     put(vm, h, "_task", Value::NIL);
 }
@@ -255,7 +255,7 @@ pub(crate) fn drain_owned(vm: &mut Interp, tid: usize) -> Option<TaskId> {
     let tasks: Vec<_> = vm.scheduler.as_ref().unwrap().tasks().collect();
     for task in tasks {
         let h = lookup(vm, task.index);
-        if h == Value::NIL || field(vm, h, "_owner") != Value::num(tid as f64) {
+        if h == Value::NIL || crate::numeric::integral(field(vm, h, "_owner")) != Some(tid as i128) {
             continue;
         }
         if vm.scheduler.as_ref().unwrap().status(task) == Some(&Status::Active) {

@@ -42,13 +42,13 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             one(it.heap_new_string(&text))
         }
         "lower" | "upper" => { let bytes = it.bytes_of(arg(args, 0)).to_vec(); let mapped = map_case(&bytes, name.ends_with("upper")); one(it.new_string_bytes(&mapped)) }
-        "len" => { let bytes = it.bytes_of(arg(args, 0)).to_vec(); one(Value::num(decode(&bytes).len() as f64)) }
+        "len" => { let bytes = it.bytes_of(arg(args, 0)).to_vec(); one(crate::numeric::signed(it, decode(&bytes).len() as i64)) }
         "codepoint" => {
             let bytes = it.bytes_of(arg(args, 0)).to_vec(); let chars = decode(&bytes);
             let first = if arg(args, 1) == Value::NIL { 1 } else { position(arg(args, 1).as_num(), bytes.len()) };
             let last = if arg(args, 2) == Value::NIL { first } else { position(arg(args, 2).as_num(), bytes.len()) };
             let mut out = Outs::new();
-            for (at, c, _) in chars { let at = at as i64 + 1; if at >= first && at <= last { out.push(Value::num(c.map(|c| c as u32).unwrap_or(bytes[at as usize - 1] as u32) as f64)); } }
+            for (at, c, _) in chars { let at = at as i64 + 1; if at >= first && at <= last { out.push(Value::inline_integer(c.map(|c| c as u32).unwrap_or(bytes[at as usize - 1] as u32) as i64).unwrap()); } }
             out
         }
         "sub" => {

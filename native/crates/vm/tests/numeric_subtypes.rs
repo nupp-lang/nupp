@@ -228,3 +228,61 @@ fn numeric_subtypes_casts_and_refinements_depend_on_range() {
     assert!(!numeric::is_kind(wide, false));
     assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "i64.cast", &[wide])), Value::ERROR);
 }
+
+
+#[test]
+fn numeric_subtypes_buffer_codec_preserves_integer_and_float_identity() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let mut values = vec![Value::inline_integer(0).unwrap(), Value::inline_integer(-1).unwrap(), Value::num(0.0), Value::num(-0.0), Value::num(1.0), Value::num(f64::NAN)];
+    for (bits, unsigned) in [(i64::MIN as u64, false), (9007199254740993, false), (u64::MAX, true)] {
+        let value = vm.box_integer(Integer { bits, unsigned });
+        vm.register(value);
+        values.push(value);
+    }
+    for value in values {
+        let encoded = call(&mut vm, "sbuf.encode", &[value])[0];
+        let decoded = call(&mut vm, "sbuf.decode", &[encoded])[0];
+        assert_eq!(numeric::integer(decoded), numeric::integer(value));
+        assert_eq!(decoded.is_float(), value.is_float());
+        if value.is_float() { assert_eq!(decoded.0, value.0); }
+        vm.full_cycle();
+        vm.check_oracle();
+    }
+}
+
+#[test]
+fn numeric_subtypes_provider_counts_and_file_offsets_remain_integer() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let subject = text(&mut vm, "aé".as_bytes());
+    ints(&call(&mut vm, "utf8.len", &[subject]), &[2]);
+    ints(&call(&mut vm, "utf8.codepoint", &[subject, Value::inline_integer(2).unwrap()]), &[233]);
+    let format = text(&mut vm, b"!*t");
+    let date = call(&mut vm, "os.date", &[format, Value::inline_integer(0).unwrap()])[0];
+    for (name, expected) in [("year", 1970), ("month", 1), ("day", 1)] {
+        let key = vm.intern(name);
+        ints(&[vm.get_index(date, key)], &[expected]);
+    }
+    let path = std::env::temp_dir().join(format!("nupp-numeric-provider-{}", std::process::id()));
+    let path_value = text(&mut vm, path.as_os_str().to_string_lossy().as_bytes());
+    let mode = text(&mut vm, b"w+");
+    let id = call(&mut vm, "nfiles.open", &[path_value, mode])[0];
+    assert!(numeric::integer(id).is_some());
+    let contents = text(&mut vm, b"abc\0d");
+    ints(&call(&mut vm, "nfiles.fileWrite", &[id, contents]), &[5]);
+    ints(&call(&mut vm, "nfiles.filePosition", &[id]), &[5]);
+    ints(&call(&mut vm, "nfiles.fileSize", &[id]), &[5]);
+    let origin = text(&mut vm, b"start");
+    ints(&call(&mut vm, "nfiles.fileSeek", &[id, Value::inline_integer(1).unwrap(), origin]), &[1]);
+    call(&mut vm, "nfiles.fileClose", &[id]);
+    std::fs::remove_file(path).unwrap();
+    vm.full_cycle();
+    vm.check_oracle();
+}

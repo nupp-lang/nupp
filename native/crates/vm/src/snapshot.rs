@@ -39,7 +39,7 @@ const SENTINEL_PREFIX: &str = "nupp.vm.snapshot:";
 /// The files provider's handle record, refused by graph saves while open.
 const FILE_IDENTITY: &str = "nupp.runtime.provider.nativefiles:File";
 const DURABLE_FORMAT: &str = "nupp.snapshot.durable";
-const DURABLE_VERSION: f64 = 1.0;
+const DURABLE_VERSION: i64 = 1;
 
 /// Kinds registered in `Interp::resources` by providers that cannot be
 /// restored into another VM, and what to do about each instead.
@@ -912,7 +912,7 @@ fn durable_in_scratch(recipe: Vec<CodeEvent>, graph: Vec<u8>, kinds: Vec<String>
     let version = get(&mut vm, options, "version");
     for (name, value) in [
         ("format", format),
-        ("formatVersion", Value::num(DURABLE_VERSION)),
+        ("formatVersion", Value::inline_integer(DURABLE_VERSION).unwrap()),
         ("application", application),
         ("version", version),
         ("metadata", metadata),

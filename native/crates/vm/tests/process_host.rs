@@ -138,13 +138,13 @@ fn shell_processes_preserve_binary_pipes_and_exit_status() {
     );
     let result = invoke(&mut vm, "process.pipeClose", &[pipe]);
     assert_eq!(result[0], Value::NIL);
-    assert_eq!(result[2], Value::num(7.0));
+    assert_eq!(result[2], Value::inline_integer(7).unwrap());
     assert_eq!(vm.bytes_of(result[1]), b"exit");
     assert!(!vm.resources.contains_key(&pipe));
     let command = vm.intern("exit 9");
     assert_eq!(
         invoke(&mut vm, "os.execute", &[command]),
-        vec![Value::num(9.0 * 256.0)]
+        vec![Value::inline_integer(9 * 256).unwrap()]
     );
     let command = vm.intern("printf 'first\\nsecond\\n'");
     let pipe = invoke(&mut vm, "io.popen", &[command])[0];
@@ -214,7 +214,7 @@ fn provider_handles_separate_child_and_pipe_lifetimes() {
     loop {
         let result = invoke(&mut vm, "process.poll", &[spawned[0]]);
         if result[0] != Value::NIL {
-            assert_eq!(result, vec![Value::num(3.0), Value::FALSE]);
+            assert_eq!(result, vec![Value::inline_integer(3).unwrap(), Value::FALSE]);
             break;
         }
         std::thread::yield_now();

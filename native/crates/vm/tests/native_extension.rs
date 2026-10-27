@@ -124,9 +124,11 @@ fn integer(out: &[Out]) -> i64 {
 fn exercise(vm: &mut Vm) {
     let sum = vm.export("demo.main", "sum").unwrap();
     assert_eq!(integer(&vm.call(&sum, &[Arg::Integer(2), Arg::Integer(3)]).unwrap()), 8);
+    assert_eq!(integer(&vm.call(&sum, &[Arg::Integer(9007199254740993), Arg::Integer(1)]).unwrap()), 9007199254740995);
     let error = vm.call(&sum, &[Arg::from("two"), Arg::Integer(3)]).unwrap_err();
     assert!(error.0.contains("argument 1 of demo.counter.add: expected an integer, got a string"), "{error}");
-    let error = vm.call(&sum, &[Arg::Integer(i64::MAX), Arg::Integer(0)]).unwrap_err();
+    assert_eq!(integer(&vm.call(&sum, &[Arg::Integer(i64::MAX), Arg::Integer(0)]).unwrap()), i64::MAX);
+    let error = vm.call(&sum, &[Arg::Integer(i64::MAX), Arg::Integer(1)]).unwrap_err();
     assert!(error.0.contains("which an integer cannot hold exactly") || error.0.contains("overflows"), "{error}");
     let failing = vm.export("demo.main", "failing").unwrap();
     assert_eq!(vm.call(&failing, &[]).unwrap_err().0, "native failure");

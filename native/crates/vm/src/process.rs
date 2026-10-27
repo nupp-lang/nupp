@@ -84,7 +84,7 @@ fn spawn(vm: &mut Interp, options: native::SpawnOptions) -> Outs {
             Value::NIL,
             Value::NIL,
             Value::NIL,
-            Value::num(0.0),
+            Value::inline_integer(0).unwrap(),
             vm.heap_new_string(&problem),
         ]
         .into_iter()
@@ -105,7 +105,7 @@ fn spawn(vm: &mut Interp, options: native::SpawnOptions) -> Outs {
                     Value::NIL
                 });
             }
-            output.extend([Value::num(pid as f64), Value::NIL]);
+            output.extend([Value::inline_integer(pid as i64).unwrap(), Value::NIL]);
             output.into_iter().collect()
         }
     }
@@ -177,7 +177,7 @@ pub(crate) fn execute(vm: &mut Interp, args: &[Value]) -> Outs {
             };
             #[cfg(not(unix))]
             let code = exit.code;
-            [Value::num(code as f64)].into_iter().collect()
+            [Value::inline_integer(code as i64).unwrap()].into_iter().collect()
         }
         Err(problem) => [Value::NIL, vm.heap_new_string(&problem)]
             .into_iter()
@@ -258,7 +258,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
             spawn(vm, options)
         }
         "process.poll" => match child(vm, handle).collect_exit() {
-            Some(exit) => [Value::num(exit.code as f64), Value::boolean(exit.killed)]
+            Some(exit) => [Value::inline_integer(exit.code as i64).unwrap(), Value::boolean(exit.killed)]
                 .into_iter()
                 .collect(),
             None => [Value::NIL, Value::FALSE].into_iter().collect(),
@@ -270,10 +270,10 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
             Outs::new()
         }
         "process.read" => {
-            let count = args.get(1).copied().unwrap_or(Value::num(65536.0)).as_num();
-            if count < 1.0 || count.fract() != 0.0 || count > 0x7fff_ffff as f64 {
+            let count = crate::numeric::integral(args.get(1).copied().unwrap_or(Value::inline_integer(65536).unwrap()));
+            let Some(count) = count.filter(|n| (1..=0x7fff_ffff).contains(n)) else {
                 vm.err("invalid process read size");
-            }
+            };
             let mut buffer = vec![0; (count as usize).min(65536)];
             match stream(vm, handle)
                 .try_read(&mut buffer)
@@ -297,7 +297,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 native::Write::WouldBlock => (0, false),
                 native::Write::Gone => (0, true),
             };
-            [Value::num(n as f64), Value::boolean(gone)]
+            [crate::numeric::signed(vm, n as i64), Value::boolean(gone)]
                 .into_iter()
                 .collect()
         }
@@ -331,7 +331,8 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                     streams.push(stream(vm, vm.get_index(list, Value::num(index as f64))));
                 }
             }
-            let ms = args.get(1).copied().unwrap_or(Value::num(0.0)).as_num();
+            let timeout = args.get(1).copied().unwrap_or(Value::num(0.0));
+            let ms = crate::numeric::double(vm, timeout);
             if !ms.is_finite() || ms < 0.0 {
                 vm.err("invalid process wait duration");
             }
@@ -340,7 +341,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 &streams,
                 Duration::from_secs_f64(ms.min(2147483647.0) / 1000.0),
             );
-            [Value::num(count as f64)].into_iter().collect()
+            [crate::numeric::signed(vm, count as i64)].into_iter().collect()
         }
         "process.pipeClose" => {
             vm.processes.peeked.remove(&handle);
@@ -362,11 +363,11 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                     Value::NIL
                 },
                 vm.intern(if exit.killed { "signal" } else { "exit" }),
-                Value::num(if exit.killed {
+                Value::inline_integer(if exit.killed {
                     exit.code.saturating_sub(128)
                 } else {
                     exit.code
-                } as f64),
+                } as i64).unwrap(),
             ]
             .into_iter()
             .collect()

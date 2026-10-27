@@ -25,9 +25,9 @@ fn failed_after(it: &mut Interp, nils: usize, message: &str) -> Outs {
 }
 fn failed(it: &mut Interp, message: &str) -> Outs { failed_after(it, 1, message) }
 fn format(it: &Interp, v: Value) -> Format {
-    Format::from_abi(v.as_num() as u32).unwrap_or_else(|| it.err("nupp: unknown compression format"))
+    Format::from_abi(crate::numeric::bits(it, v, true) as u32).unwrap_or_else(|| it.err("nupp: unknown compression format"))
 }
-fn handle(v: Value) -> u64 { v.as_num() as u64 }
+fn handle(v: Value) -> u64 { crate::numeric::integer(v).map_or_else(|| v.as_num() as u64, |n| n.bits) }
 
 /// Runs one step over the input span (when given) and the output span, in
 /// place: the heap does not move and nothing here allocates until the step
@@ -43,9 +43,11 @@ fn step(it: &mut Interp, input: Option<Value>, output: Value, run: impl FnOnce(&
     let Some(result) = run(it, source, room) else { return failed_after(it, nils, "the compression stream is closed") };
     match result {
         Ok(step) => {
+            let scope = it.open_scope();
             let mut o = Outs::new();
-            if input.is_some() { o.push(Value::num(step.consumed as f64)); }
-            o.push(Value::num(step.written as f64)); o.push(Value::num(step.status as u32 as f64));
+            if input.is_some() { let n = crate::numeric::unsigned(it, step.consumed as u64); it.handles.push(n); o.push(n); }
+            o.push(crate::numeric::unsigned(it, step.written as u64)); o.push(Value::inline_integer(step.status as u32 as i64).unwrap());
+            it.close_scope(scope);
             o
         }
         Err(problem) => failed_after(it, nils, &problem.to_string()),
@@ -56,18 +58,18 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let op = name.strip_prefix("ncompression.").unwrap_or(name);
     match op {
         "encoderCreate" => {
-            let level = arg(args, 1).as_num();
+            let level = crate::numeric::double(it, arg(args, 1));
             if !(0.0..=9.0).contains(&level) || level.fract() != 0.0 { return failed(it, "compression level must be between zero and nine"); }
             let encoder = Encoder::new(format(it, arg(args, 0)), level as u32);
             let id = it.ncompression.next; it.ncompression.next += 1;
             it.ncompression.encoders.insert(id, encoder);
-            let mut o = Outs::new(); o.push(Value::num(id as f64)); o
+            let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, id as u64)); o
         }
         "decoderCreate" => {
             let decoder = Decoder::new(format(it, arg(args, 0)), arg(args, 1).truthy());
             let id = it.ncompression.next; it.ncompression.next += 1;
             it.ncompression.decoders.insert(id, decoder);
-            let mut o = Outs::new(); o.push(Value::num(id as f64)); o
+            let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, id as u64)); o
         }
         "encoderWrite" => { let id = handle(arg(args, 0)); step(it, Some(arg(args, 1)), arg(args, 2), |it, i, o| it.ncompression.encoders.get_mut(&id).map(|e| e.write(i, o))) }
         "encoderFlush" => { let id = handle(arg(args, 0)); step(it, None, arg(args, 1), |it, _, o| it.ncompression.encoders.get_mut(&id).map(|e| e.flush(o))) }

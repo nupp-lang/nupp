@@ -195,7 +195,7 @@ pub(crate) fn install(vm: &mut Interp) {
 fn handle(vm: &mut Interp, id: u64, prepared: bool) -> Value {
     let object = vm.new_table();
     let root = vm.register(object);
-    crate::task_api::put(vm, object, "_id", Value::num(id as f64));
+    let value = crate::numeric::unsigned(vm, id); crate::task_api::put(vm, object, "_id", value);
     let methods: &[(&str, &str)] = if prepared {
         &[("close", "tasks.vmDiscard")]
     } else {
@@ -232,10 +232,8 @@ fn handle(vm: &mut Interp, id: u64, prepared: bool) -> Value {
 }
 fn id(vm: &mut Interp, object: Value, prepared: bool) -> Result<u64> {
     let value = crate::task_api::field(vm, object, "_id");
-    if !value.is_num() || value.as_num() < 1.0 || value.as_num().fract() != 0.0 {
-        return Err("invalid VM capability".into());
-    }
-    let id = value.as_num() as u64;
+    let Some(id) = crate::numeric::integral(value).filter(|n| *n >= 1) else { return Err("invalid VM capability".into()); };
+    let id = id as u64;
     if !vm
         .supervised
         .handles
@@ -337,15 +335,10 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> crate::task_a
             let generation = game.generation();
             if name == "tasks.vmStep" {
                 let now = arg(2);
-                if !now.is_num()
-                    || !now.as_num().is_finite()
-                    || now.as_num() < 0.0
-                    || now.as_num().fract() != 0.0
-                    || now.as_num() > (1u64 << 53) as f64
-                {
+                let Some(now) = crate::numeric::integral(now).filter(|n| *n >= 0) else {
                     return Err("VM clock must be a nonnegative exact integer".into());
-                }
-                game.step(generation, now.as_num() as u64)?;
+                };
+                game.step(generation, now as u64)?;
                 Ok(vec![])
             } else if let Some(progress) = game.poll(generation)? {
                 let status = match progress.status {

@@ -48,8 +48,8 @@ impl Resources {
 
 fn arg(args: &[Value], i: usize) -> Value { args.get(i).copied().unwrap_or(Value::NIL) }
 fn text(it: &Interp, v: Value) -> String { if it.is_stringish(v) { String::from_utf8_lossy(it.bytes_of(v)).into_owned() } else { String::new() } }
-fn handle(v: Value) -> u64 { if v.is_num() { v.as_num() as u64 } else { 0 } }
-fn int(v: Value) -> i64 { if v.is_num() { v.as_num() as i64 } else { 0 } }
+fn handle(v: Value) -> u64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as u64 } else { 0 }, |n| n.magnitude().max(0) as u64) }
+fn int(v: Value) -> i64 { crate::numeric::integer(v).map_or_else(|| if v.is_float() { v.as_num() as i64 } else { 0 }, |n| n.magnitude().clamp(i64::MIN as i128, i64::MAX as i128) as i64) }
 fn outs(values: &[Value]) -> Outs { values.iter().copied().collect() }
 /// A failure: `nils` empty results, then the message.
 fn failed_after(it: &mut Interp, nils: usize, message: &str) -> Outs {
@@ -129,7 +129,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             if host.parse::<IpAddr>().is_err() { return failed(it, &format!("{host} is not an address to bind")); }
             let (port, backlog) = (port(it, arg(args, 1)), backlog(it, arg(args, 2)));
             match net::listen_tcp(&host, port, backlog, arg(args, 3).truthy()) {
-                Ok(listener) => { let id = it.nnet.id(); it.nnet.listeners.insert(id, listener); outs(&[Value::num(id as f64)]) }
+                Ok(listener) => { let id = it.nnet.id(); it.nnet.listeners.insert(id, listener); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Err(e) => failed(it, &e),
             }
         }
@@ -138,18 +138,18 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             if path.is_empty() { return failed(it, "network listen path is empty"); }
             let backlog = backlog(it, arg(args, 1));
             match net::listen_path(&path, backlog) {
-                Ok(listener) => { let id = it.nnet.id(); it.nnet.listeners.insert(id, listener); outs(&[Value::num(id as f64)]) }
+                Ok(listener) => { let id = it.nnet.id(); it.nnet.listeners.insert(id, listener); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Err(e) => failed(it, &e),
             }
         }
         "listenerPort" => {
-            let port = it.nnet.listeners.get(&id).filter(|l| !l.is_path()).map(|l| l.port() as f64).unwrap_or(-1.0);
-            outs(&[Value::num(port)])
+            let port = it.nnet.listeners.get(&id).filter(|l| !l.is_path()).map(|l| l.port() as i64).unwrap_or(-1);
+            outs(&[Value::inline_integer(port).unwrap()])
         }
         "accept" => {
             let Some(listener) = it.nnet.listeners.get(&id).cloned() else { return failed(it, "network listener handle is stale") };
             match listener.try_accept() {
-                Ok(Some(stream)) => { let id = it.nnet.id(); it.nnet.streams.insert(id, stream); outs(&[Value::num(id as f64)]) }
+                Ok(Some(stream)) => { let id = it.nnet.id(); it.nnet.streams.insert(id, stream); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Ok(None) => outs(&[Value::NIL]),
                 Err(e) => failed(it, &e),
             }
@@ -168,7 +168,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 net::connect_path(&target, millis(arg(args, 1)))
             };
             match result {
-                Ok(connect) => { let id = it.nnet.id(); it.nnet.connects.insert(id, connect); outs(&[Value::num(id as f64)]) }
+                Ok(connect) => { let id = it.nnet.id(); it.nnet.connects.insert(id, connect); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Err(e) => failed(it, &e),
             }
         }
@@ -176,7 +176,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let Some(connect) = it.nnet.connects.get(&id).cloned() else { return failed(it, "network connect handle is stale") };
             match connect.poll() {
                 ConnectPoll::Pending => outs(&[Value::NIL]),
-                ConnectPoll::Connected(stream) => { let id = it.nnet.id(); it.nnet.streams.insert(id, stream); outs(&[Value::num(id as f64)]) }
+                ConnectPoll::Connected(stream) => { let id = it.nnet.id(); it.nnet.streams.insert(id, stream); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 ConnectPoll::Failed(e) => failed(it, &e),
             }
         }
@@ -196,13 +196,13 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let Some(stream) = stream(it, id) else { return failed(it, "network stream handle is stale") };
             let bytes = it.bytes_of(arg(args, 1)).to_vec();
             match stream.try_write(&bytes) {
-                Write::Accepted(n) => outs(&[Value::num(n as f64)]),
-                Write::Pending => outs(&[Value::num(0.0)]),
+                Write::Accepted(n) => outs(&[crate::numeric::unsigned(it, n as u64)]),
+                Write::Pending => outs(&[Value::inline_integer(0).unwrap()]),
                 Write::Closed => failed(it, "the connection is closed"),
                 Write::Failed(e) => failed(it, &e),
             }
         }
-        "pending" => outs(&[Value::num(stream(it, id).map(|s| s.pending_write() as f64).unwrap_or(0.0))]),
+        "pending" => { let n = stream(it, id).map(|s| s.pending_write()).unwrap_or(0); outs(&[crate::numeric::unsigned(it, n as u64)]) },
         "ended" | "writeFailed" | "shuttingDown" => {
             let flag = match stream(it, id) {
                 Some(s) => { let snap = s.snapshot(); match op { "ended" => snap.read_eof, "writeFailed" => snap.write_failed, _ => snap.shutting_down } }
@@ -215,7 +215,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let Some(s) = stream(it, id) else { return outs(&[Value::NIL]) };
             let found = if arg(args, 1).truthy() { s.peer_address() } else { s.local_address() };
             match found {
-                Ok(Some(address)) => { let host = it.heap_new_string(&endpoint_text(address)); outs(&[host, Value::num(address.port() as f64)]) }
+                Ok(Some(address)) => { let host = it.heap_new_string(&endpoint_text(address)); outs(&[host, Value::inline_integer(address.port() as i64).unwrap()]) }
                 _ => outs(&[Value::NIL]),
             }
         }
@@ -234,11 +234,11 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             if host.is_empty() { return failed(it, "network datagram host is empty"); }
             let port = port(it, arg(args, 1));
             match net::bind_datagram(&host, port, arg(args, 2).truthy()) {
-                Ok(socket) => { let id = it.nnet.id(); it.nnet.datagrams.insert(id, socket); outs(&[Value::num(id as f64)]) }
+                Ok(socket) => { let id = it.nnet.id(); it.nnet.datagrams.insert(id, socket); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Err(e) => failed(it, &e),
             }
         }
-        "datagramPort" => outs(&[Value::num(datagram(it, id).map(|d| d.port() as f64).unwrap_or(-1.0))]),
+        "datagramPort" => outs(&[Value::inline_integer(datagram(it, id).map(|d| d.port() as i64).unwrap_or(-1)).unwrap()]),
         "receive" => {
             let Some(socket) = datagram(it, id) else { return failed_after(it, 4, "network datagram handle is stale") };
             let maximum = (int(arg(args, 1)).max(1) as usize).min(READ_SIZE);
@@ -248,7 +248,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                     let bytes = it.new_string_bytes(&message.bytes); it.handles.push(bytes);
                     let host = it.heap_new_string(&endpoint_text(message.address));
                     it.close_scope(scope);
-                    outs(&[bytes, host, Value::num(message.address.port() as f64), Value::boolean(message.truncated)])
+                    outs(&[bytes, host, Value::inline_integer(message.address.port() as i64).unwrap(), Value::boolean(message.truncated)])
                 }
                 DatagramRead::Pending => outs(&[Value::NIL]),
                 DatagramRead::Failed(e) => failed_after(it, 4, &e),
@@ -305,7 +305,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 tls::Session::client(stream, tls::ClientOptions { hostname: &hostname, authority: authority.as_deref(), protocols: &protocols, verify })
             };
             match created {
-                Ok(session) => { let id = it.nnet.id(); it.nnet.sessions.insert(id, session); outs(&[Value::num(id as f64)]) }
+                Ok(session) => { let id = it.nnet.id(); it.nnet.sessions.insert(id, session); outs(&[crate::numeric::unsigned(it, id as u64)]) }
                 Err(e) => failed(it, &e),
             }
         }
@@ -327,7 +327,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let Some(s) = session(it, id) else { return failed(it, "TLS session handle is stale") };
             let bytes = it.bytes_of(arg(args, 1)).to_vec();
             match s.try_write(&bytes) {
-                tls::Write::Accepted(n) => outs(&[Value::num(n as f64)]),
+                tls::Write::Accepted(n) => outs(&[crate::numeric::unsigned(it, n as u64)]),
                 tls::Write::Pending => outs(&[Value::NIL]),
                 tls::Write::Closed => failed(it, "the connection is closed"),
                 tls::Write::Failed(e) => failed(it, &e),

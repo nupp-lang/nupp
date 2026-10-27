@@ -478,7 +478,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
             let source = arg(0);
             let view = if vm.is_stringish(source) {
                 let bytes = vm.bytes_of(source).to_vec();
-                let n = Value::num(bytes.len() as f64);
+                let n = crate::numeric::unsigned(vm, bytes.len() as u64);
                 let view = crate::storage::call(vm, "allocateBytes", &[n]);
                 vm.handles.push(view);
                 let owner = owner_of(vm, view);
@@ -497,7 +497,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         "address" => {
             let owner = owner_of(vm, arg(0));
             if is_bytes(vm, owner) && buffer(owner).is_fixed() && !is_moved(vm, owner) {
-                Value::num(vm.bytes_of(owner).as_ptr() as usize as f64)
+                crate::numeric::unsigned(vm, vm.bytes_of(owner).as_ptr() as usize as u64)
             } else {
                 Value::NIL
             }

@@ -40,6 +40,14 @@ pub fn integer(v: Value) -> Option<Integer> {
         unsigned: h.aux != 0,
     })
 }
+pub fn integral(v: Value) -> Option<i128> {
+    if let Some(n) = integer(v) { return Some(n.magnitude()); }
+    if v.is_float() {
+        let n = v.as_num();
+        if n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < 18446744073709551616.0 { return Some(n as i128); }
+    }
+    None
+}
 pub fn is_numeric(v: Value) -> bool {
     v.is_num() || integer(v).is_some()
 }

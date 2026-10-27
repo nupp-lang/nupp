@@ -678,7 +678,7 @@ fn callable(vm: &Interp, v: Value) -> bool {
 }
 
 fn integral(vm: &Interp, v: Value) -> Option<i64> {
-    if v.is_num() {
+    if v.is_float() {
         let n = v.as_num();
         return (n.is_finite() && n.fract() == 0.0 && n >= -(2f64.powi(63)) && n < 2f64.powi(63)).then_some(n as i64);
     }
@@ -695,7 +695,7 @@ fn slot_of(call: &mut Context, v: Value) -> abi::Slot {
         abi::Slot::NIL
     } else if v == Value::TRUE || v == Value::FALSE {
         abi::Slot::boolean(v == Value::TRUE)
-    } else if v.is_num() {
+    } else if v.is_float() {
         abi::Slot::number(v.as_num())
     } else if let Some(i) = crate::numeric::integer(v).filter(|i| !i.unsigned || i.bits <= i64::MAX as u64) {
         abi::Slot::integer(i.bits as i64)
@@ -823,17 +823,16 @@ fn value_of(call: &mut Context, slot: &abi::Slot, t: Option<&Ty>, position: &str
         (Some(Ty::Number), abi::INTEGER) => Value::num(unsafe { slot.value.integer } as f64),
         (Some(Ty::String), abi::STRING) => scalar(vm)?,
         (Some(Ty::Int64), abi::INTEGER) => scalar(vm)?,
-        (Some(Ty::Integer), abi::INTEGER) => {
-            let i = unsafe { slot.value.integer };
-            // An integer is a double known to be integral: it must hold `i` exactly.
-            if (i as f64) as i128 != i as i128 {
-                return Err(format!("{name} returned {i} as {position}, which an integer cannot hold exactly"));
+        (Some(Ty::Integer), abi::INTEGER) => scalar(vm)?,
+        (Some(Ty::Integer), abi::NUMBER) => {
+            let number = unsafe { slot.value.number };
+            match crate::numeric::exact_integer(number) {
+                Some(integer) => vm.box_integer(integer),
+                None => return Err(wrong("integer", got)),
             }
-            Value::num(i as f64)
-        }
-        (Some(Ty::Integer), abi::NUMBER) if unsafe { slot.value.number }.fract() == 0.0 => Value::num(unsafe { slot.value.number }),
-        (Some(Ty::Int32), abi::INTEGER) if i32::try_from(unsafe { slot.value.integer }).is_ok() => Value::num(unsafe { slot.value.integer } as f64),
-        (Some(Ty::Uint32), abi::INTEGER) if u32::try_from(unsafe { slot.value.integer }).is_ok() => Value::num(unsafe { slot.value.integer } as f64),
+        },
+        (Some(Ty::Int32), abi::INTEGER) if i32::try_from(unsafe { slot.value.integer }).is_ok() => scalar(vm)?,
+        (Some(Ty::Uint32), abi::INTEGER) if u32::try_from(unsafe { slot.value.integer }).is_ok() => scalar(vm)?,
         (Some(t), _) => return Err(wrong(&t.to_string(), got)),
     };
     call.keep(v);

@@ -60,7 +60,8 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 let scope = it.open_scope();
                 let t = it.new_table(); it.handles.push(t);
                 let modified = info.modified.and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0);
-                for (key, value) in [("size", Value::num(info.size as f64)), ("modified", Value::num(modified)), ("readOnly", Value::boolean(info.read_only))] { let k = it.intern(key); it.set_index(t, k, value); }
+                let size = crate::numeric::unsigned(it, info.size); it.handles.push(size);
+                for (key, value) in [("size", size), ("modified", Value::num(modified)), ("readOnly", Value::boolean(info.read_only))] { let k = it.intern(key); it.set_index(t, k, value); }
                 let v = it.intern(kind(info.kind)); it.handles.push(v); let k = it.intern("kind"); it.set_index(t, k, v);
                 it.close_scope(scope);
                 let mut o = Outs::new(); o.push(t); o
@@ -117,28 +118,29 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             let mode = match it.bytes_of(arg(args, 1)) { b"r" => OpenMode::Read, b"w" => OpenMode::Write, b"a" => OpenMode::Append, b"r+" => OpenMode::ReadWrite, b"w+" => OpenMode::ReadWriteTruncate, b"a+" => OpenMode::ReadAppend, _ => { let m = it.intern("invalid file mode"); let mut o = Outs::new(); o.push(Value::NIL); o.push(m); return o; } };
             let path = text(it, arg(args, 0));
             match OpenFile::open(&path, mode) {
-                Ok(file) => { let id = it.nfiles.next; it.nfiles.next += 1; it.nfiles.open.insert(id, file); it.nfiles.snapshot.opened(id, &path, mode); let mut o = Outs::new(); o.push(Value::num(id as f64)); o }
+                Ok(file) => { let id = it.nfiles.next; it.nfiles.next += 1; it.nfiles.open.insert(id, file); it.nfiles.snapshot.opened(id, &path, mode); let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, id)); o }
                 Err(e) => failed(it, e),
             }
         }
         "fileRead" | "fileWrite" | "fileSeek" | "filePosition" | "fileSize" | "fileFlush" | "fileClose" => {
-            let id = arg(args, 0).as_num() as u64;
+            let id = crate::numeric::bits(it, arg(args, 0), true);
             if op == "fileClose" { it.nfiles.open.remove(&id); it.nfiles.snapshot.closed(id); return Outs::new(); }
             let Some(file) = it.nfiles.open.get(&id) else { let m = it.intern("the file is closed"); let mut o = Outs::new(); o.push(Value::NIL); o.push(m); return o; };
             match op {
                 "fileRead" => {
-                    let mut buffer = vec![0u8; arg(args, 1).as_num().max(0.0) as usize];
+                    let count = crate::numeric::bits(it, arg(args, 1), true);
+                    let mut buffer = vec![0u8; usize::try_from(count).unwrap_or_else(|_| it.err("file read count out of range"))];
                     let r = file.read(&mut buffer).map(|n| { buffer.truncate(n); buffer });
                     bytes(it, r)
                 }
-                "fileWrite" => { let data = it.bytes_of(arg(args, 1)).to_vec(); match it.nfiles.open[&id].write(&data) { Ok(n) => { let mut o = Outs::new(); o.push(Value::num(n as f64)); o } Err(e) => failed(it, e) } }
+                "fileWrite" => { let data = it.bytes_of(arg(args, 1)).to_vec(); match it.nfiles.open[&id].write(&data) { Ok(n) => { let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, n as u64)); o } Err(e) => failed(it, e) } }
                 "fileSeek" => {
                     let origin = match it.bytes_of(arg(args, 2)) { b"current" => SeekOrigin::Current, b"end" => SeekOrigin::End, _ => SeekOrigin::Start };
-                    let offset = arg(args, 1).as_num() as i64;
-                    match it.nfiles.open[&id].seek(offset, origin) { Ok(p) => { let mut o = Outs::new(); o.push(Value::num(p as f64)); o } Err(e) => failed(it, e) }
+                    let offset = crate::numeric::bits(it, arg(args, 1), false) as i64;
+                    match it.nfiles.open[&id].seek(offset, origin) { Ok(p) => { let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, p)); o } Err(e) => failed(it, e) }
                 }
-                "filePosition" => { let mut o = Outs::new(); o.push(Value::num(file.position() as f64)); o }
-                "fileSize" => match file.size() { Ok(n) => { let mut o = Outs::new(); o.push(Value::num(n as f64)); o } Err(e) => failed(it, e) },
+                "filePosition" => { let mut o = Outs::new(); let position = file.position(); o.push(crate::numeric::unsigned(it, position)); o }
+                "fileSize" => match file.size() { Ok(n) => { let mut o = Outs::new(); o.push(crate::numeric::unsigned(it, n as u64)); o } Err(e) => failed(it, e) },
                 _ => { let r = file.flush(); done(it, r) }
             }
         }

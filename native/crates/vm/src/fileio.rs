@@ -12,7 +12,7 @@ fn failure(vm: &mut Interp, problem: std::io::Error) -> Outs {
     result(&[
         Value::NIL,
         message,
-        Value::num(problem.raw_os_error().unwrap_or(0) as f64),
+        Value::inline_integer(problem.raw_os_error().unwrap_or(0) as i64).unwrap(),
     ])
 }
 
@@ -95,8 +95,8 @@ pub fn write(vm: &mut Interp, args: &[Value]) -> Outs {
         vm.err("attempt to write a closed or non-writable file");
     }
     for &value in &args[1..] {
-        let bytes = if value.is_num() {
-            crate::builtins::num_text(value.as_num()).into_bytes()
+        let bytes = if crate::numeric::is_numeric(value) {
+            crate::builtins::tostring(vm, value)
         } else if vm.is_stringish(value) {
             vm.bytes_of(value).to_vec()
         } else {
@@ -110,15 +110,10 @@ pub fn write(vm: &mut Interp, args: &[Value]) -> Outs {
 }
 
 pub fn read(vm: &mut Interp, object: Value, format: Value) -> Outs {
-    let count = if format.is_num() {
-        let number = format.as_num();
-        if !number.is_finite() || number < 0.0 || number.fract() != 0.0 {
-            vm.err("invalid file read count");
-        }
-        Some(number as u64)
-    } else {
-        None
-    };
+    let count = if crate::numeric::is_numeric(format) {
+        let count = crate::numeric::integral(format).filter(|n| *n >= 0);
+        Some(count.unwrap_or_else(|| vm.err("invalid file read count")) as u64)
+    } else { None };
     let format = if format == Value::NIL {
         b"*l".to_vec()
     } else if count.is_some() {
