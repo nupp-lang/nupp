@@ -562,3 +562,91 @@ fn a_nil_slot_answers_the_shape_method_in_compiled_code() {
     vm.set_index(object, name, Value::NIL);
     assert_eq!(vm.call_value(Value::func(readfield as u32), &[object]), vec![method]);
 }
+
+#[cfg(feature = "jit")]
+#[test]
+fn compiled_overflow_probe_uses_the_tail_pointer_after_an_owned_array() {
+    use nupp_vm::{compiled, heap::F_METATABLE, image, jit::Jit};
+    use std::sync::atomic::Ordering;
+    let program = r#"
+shape 0 OverflowProbe other:any
+function read 0 1 3 1 v:v
+const 0 str "overflow"
+GetField 2 1 0
+Ret 2
+end
+entry 0
+"#;
+    for frame in [false, true] {
+        let mut vm = Box::new(Interp::new());
+        image::load(&mut vm, program).unwrap();
+        vm.install_globals();
+        vm.entries.resize(vm.funcs.len(), 0);
+        let mut jit = Jit::new();
+        jit.extra_addr = vm.extra.as_ptr() as i64;
+        jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+        jit.entries_addr = vm.entries.as_ptr() as i64;
+        jit.callee_info = vm.funcs.iter().map(|f| (f.nparams, true)).collect();
+        vm.calltab = jit
+            .callee_info
+            .iter()
+            .map(|&(count, _)| count as u64 | 256)
+            .collect();
+        jit.calltab_addr = vm.calltab.as_ptr() as i64;
+        vm.shape_probe = vm
+            .heap
+            .shapes
+            .iter()
+            .map(|s| (s.table.as_ptr() as u64, s.mask))
+            .collect();
+        jit.probe_addr = vm.shape_probe.as_ptr() as i64;
+        compiled::CTX.store(&mut *vm, Ordering::Relaxed);
+        let entry = if frame {
+            jit.compile_frame(&vm.funcs[0], 0).unwrap()
+        } else {
+            jit.try_compile(&vm.funcs[0], 0).unwrap()
+        } as u64;
+        assert!(jit.stubs.is_some(), "exercise the shared compiled probe");
+        if frame {
+            vm.frame_entries.resize(vm.funcs.len(), 0);
+            vm.frame_entries[0] = entry;
+            vm.linked_frames = vm.frame_entries.clone();
+            vm.enable_scheduler().unwrap();
+        } else {
+            vm.entries[0] = entry;
+        }
+        let record = vm.new_record(0);
+        vm.register(record);
+        let key = vm.intern("overflow");
+        vm.register(key);
+        assert!(vm.heap.shapes[0].slot_of(key).is_none());
+        vm.set_index(record, Value::inline_integer(1).unwrap(), Value::TRUE);
+        let header = unsafe { record.as_obj().unwrap().as_ref() };
+        assert_ne!(header.record_array_ref().capacity(), 0);
+        assert_eq!(header.flags & F_METATABLE, 0);
+        assert!(header.record_extra_ref().is_none());
+        // An absent overflow field with array capacity 4 formerly dereferenced
+        // address 4. A real extra, deletion and growth must use the same pointer.
+        for expected in [Value::NIL, Value::TRUE, Value::NIL, Value::FALSE] {
+            vm.set_index(record, key, expected);
+            let actual = if frame {
+                let task = vm.schedule(Value::func(0), &[record], None).unwrap();
+                assert_eq!(
+                    vm.run_ready(1).unwrap()[0].status,
+                    nupp_vm::scheduler::Status::Completed
+                );
+                assert!(vm.compiled_frame_entries > 0);
+                vm.tasks[task.index].result
+            } else {
+                vm.call_value(Value::func(0), &[record])[0]
+            };
+            assert_eq!(actual, expected);
+            for index in 2..=9 {
+                vm.set_index(record, Value::inline_integer(index).unwrap(), Value::TRUE);
+            }
+            vm.full_cycle();
+            vm.check_oracle();
+        }
+        compiled::CTX.store(std::ptr::null_mut(), Ordering::Relaxed);
+    }
+}
