@@ -474,7 +474,7 @@ pub extern "C" fn j_new_closure(fid: u64, argv: *const u64, n: u64) -> u64 { let
 #[unsafe(no_mangle)]
 pub extern "C" fn j_call_builtin(id: u64, argv: *const u64, nargs: u64, fid: u64) -> u64 { let it = ctx(); let _caller = it.enter_caller(crate::interp::Caller::Compiled(fid as u32)); let r = it.guarded(|_| V(j_call_builtin_impl(id, argv, nargs))).0; r }
 #[unsafe(no_mangle)]
-pub extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !x.is_num() || !y.is_num() { it.err("scalar intrinsic on a non-number") } V::num(crate::builtins::scalar_op(kind as u8, x.as_num(), y.as_num())) }).0 }
+pub extern "C" fn j_scalar(kind: u64, a: u64, b: u64) -> u64 { let it = ctx(); it.guarded(|it| { let (x, y) = (V(a), V(b)); if !crate::numeric::is_numeric(x) || !crate::numeric::is_numeric(y) { it.err("scalar intrinsic on a non-number") } crate::builtins::scalar_value(kind as u8, x, y) }).0 }
 /// An iterator object called from compiled code: the step, its first result
 /// returned and the rest through `extra`.
 #[unsafe(no_mangle)]
@@ -845,4 +845,61 @@ pub extern "C" fn j_native_bounds_error() -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn j_native_budget() -> u64 {
     ctx().instruction_budget.as_mut().map_or(0, |n| n as *mut usize as u64)
+}
+
+#[cfg(test)]
+mod scalar_wrapper_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+    struct Restore(*mut Interp);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CTX.store(self.0, Ordering::Relaxed);
+        }
+    }
+    #[test]
+    fn compiled_scalar_preserves_wide_low_bits_integer_results_and_errors() {
+        let mut vm = Box::new(Interp::new());
+        let _restore = Restore(CTX.load(Ordering::Relaxed));
+        CTX.store(&mut *vm, Ordering::Relaxed);
+        let unsigned = vm.box_integer(crate::numeric::Integer {
+            bits: u64::MAX,
+            unsigned: true,
+        });
+        vm.register(unsigned);
+        let signed = vm.box_integer(crate::numeric::Integer {
+            bits: i64::MIN as u64 | 3,
+            unsigned: false,
+        });
+        vm.register(signed);
+        for (kind, left, right, expected) in [
+            (0, unsigned, V::num(0.0), u32::MAX as i64),
+            (10, unsigned, V::num(0.0), -1),
+            (1, signed, V::inline_integer(2).unwrap(), 5),
+            (24, V::inline_integer(-8).unwrap(), V::num(1.0), -4),
+        ] {
+            assert_eq!(
+                V(j_scalar(kind, left.0, right.0)).as_inline_integer(),
+                Some(expected)
+            );
+        }
+        for kind in 0..25 {
+            assert!(
+                V(j_scalar(kind, unsigned.0, V::num(1.0).0))
+                    .as_inline_integer()
+                    .is_some()
+            );
+        }
+        assert!(
+            V(j_scalar(255, unsigned.0, V::num(0.0).0))
+                .as_num()
+                .is_nan()
+        );
+        assert_eq!(V(j_scalar(0, V::TRUE.0, V::num(0.0).0)), V::ERROR);
+        let error = vm.pending_error.take().unwrap();
+        assert_eq!(
+            vm.bytes_of(error),
+            b"runtime error: scalar intrinsic on a non-number"
+        );
+    }
 }
