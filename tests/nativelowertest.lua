@@ -831,6 +831,17 @@ function M.wholeCoreHandlersUseTheNuppGraph()
     end
 end
 
+function M.wholeModuleHandlersAndLoaderSupportUseTheNuppGraph()
+    local clif = coreClif()
+    for _, name in ipairs({"Require", "RequireV", "SetMethod", "requireSlow"}) do
+        local text = functionText(clif, name)
+        assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
+    end
+    local slow = functionText(clif, "requireSlow")
+    assert(slow:find("function %requireSlow(i64, i64, i64, i64, i64) -> i64 tail", 1, true))
+    assert(slow:find("return_call_indirect sig0, ", 1, true))
+end
+
 function M.wholeStateHandlersUseTheNuppGraph()
     local clif = coreClif()
     for _, name in ipairs({"Disarm", "AffineMark", "AffineEnter", "Checkpoint", "Park", "VarargTable"}) do

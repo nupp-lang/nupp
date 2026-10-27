@@ -5,6 +5,7 @@ module nupp.runtime.vm.protocol
 -- the context, since the stack may have moved.
 const native = require("nupp.runtime.vm.intrinsics")
 const slots = require("nupp.runtime.vm.slots")
+const frames = require("nupp.runtime.vm.frames")
 const values = require("nupp.runtime.vm.values")
 
 export function publishPc(pc: voidptr, context: voidptr): nil
@@ -24,18 +25,13 @@ end
 -- After a helper: a raise ends the chain; otherwise the windows are derived
 -- again and the result, when there is one, lands in register `slot`.
 export function continueAfter(pc: voidptr, context: voidptr, slot: int64, value: uint64, storing: boolean): uint64
-    if native.load32(context, native.layout("status")) == -4 then
+    if frames.status(context) == -4 then
         return native.fail()
     else
-        local stack = native.loadPointer(context, native.layout("stack"))
-        local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
-        local info = native.offset(
-            native.loadPointer(context, native.layout("funcs")),
-            native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
-        )
-        local regs = native.offset(frame, 32)
-        local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
-        local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+        local frame = frames.current(context)
+        local regs = frames.values(context, frame)
+        local ints = frames.integers(context, frame)
+        local floats = frames.floats(context, frame)
         if storing then
             slots.writeValue(frame, regs, slot, value)
         end

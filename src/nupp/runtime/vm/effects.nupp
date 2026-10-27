@@ -21,3 +21,17 @@ export record vmProgramLoad
     kind: string
     lifetime: string
 end
+
+@annotation(targets = {"field"})
+export record vmNormalReturn
+    context: integer
+    frame: string
+    outcomes: string
+    synchronized: boolean
+end
+
+@annotation(targets = {"field"})
+export record vmFrameAccess
+    kind: string
+    class: string?
+end

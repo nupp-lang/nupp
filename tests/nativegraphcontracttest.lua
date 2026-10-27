@@ -1,5 +1,7 @@
 local G = require("nupp.compiler.vm.graph")
 local image = require("nupp.compiler.vm.graphimage")
+local helpercontract = require("nupp.compiler.vm.helpercontract")
+local framecontract = require("nupp.compiler.vm.framecontract")
 local M = {}
 
 local function fresh()
@@ -854,6 +856,470 @@ function M.collectingAndParkingInvalidateEntrySlotsAcrossJoinsAndLoops()
     local slot = constant(g, b, "0")
     G.emitNative(g, b, "FrameVarargRead", {6, slot, varargContract()}, "uint64")
     dispatch(b)
+    G.verify(g)
+end
+
+local function recoveringGraph(support)
+    local g = support and G.newNative({"voidptr", "voidptr", "uint64", "int64"}, "uint64", "support")
+        or G.newNative({"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64", "handler")
+    local entry, ready, failed = G.block(g), G.block(g), G.block(g)
+    local context = support and 2 or 5
+    local declaration = {
+        moduleName = "nupp.runtime.vm.modulehelpers",
+        name = "requireModule",
+        params = {"voidptr"},
+        result = "nil",
+        effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false},
+        normalReturn = {context = 1, frame = "caller", outcomes = "ready-error", synchronized = true},
+    }
+    G.emitNative(g, entry, "NativeHelperCall", {declaration, context})
+    local status = G.emitNative(g, entry, "FrameStatus", {context, {kind = "status"}}, "int64")
+    local errorStatus = constant(g, entry, "-4")
+    local raised = G.emitNative(g, entry, "NativeICmp", {status, errorStatus, "=="}, "boolean")
+    entry.term = {
+        kind = "branch",
+        value = raised,
+        edges = {{target = failed.id, args = {}}, {target = ready.id, args = {}}}
+    }
+    failed.term = {kind = "nativeFail", edges = {}}
+    local frame = G.emitNative(g, ready, "FrameRecover", {context, {kind = "recover"}}, "voidptr")
+    local windows = {}
+    for _, class in ipairs({"v", "i", "f"}) do
+        windows[
+            #windows + 1
+        ] = G.emitNative(g, ready, "FrameWindow", {context, frame, {kind = "window", class = class}}, "voidptr")
+    end
+    ready.term = {kind = "dispatch", args = {1, windows[1], windows[2], windows[3], context, frame}, edges = {}}
+
+    return g, entry, ready, failed, declaration, frame, windows
+end
+
+function M.normalReturnRecoveryCreatesFreshOwnedWindowsForHandlersAndSupport()
+    for _, support in ipairs({false, true}) do
+        local g, _, ready, _, _, frame, windows = recoveringGraph(support)
+        local slot = constant(g, ready, "0")
+        local value = constant(g, ready, "18446744073709551615", "uint64")
+        G.emitNative(g, ready, "FrameSlotWrite", {
+            frame,
+            windows[1],
+            slot,
+            value,
+            {class = "v", kind = "uint64", write = true, width = 8}
+        })
+        G.emitNative(g, ready, "FrameSlotRead", {frame, windows[2], slot, slotContract()}, "uint64")
+        G.emitNative(g, ready, "FrameVarargRead", {frame, slot, varargContract()}, "uint64")
+        G.verify(g);
+        G.prune(g);
+        G.verify(g)
+        assert(g.native.abi == (support and "support" or "handler"))
+    end
+end
+
+function M.frameRecoveryRequiresNamedNormalAuthorityAndTheReadyEdge()
+    for _, change in ipairs({
+        function(_, _, _, _, declaration)
+            declaration.normalReturn = nil
+        end,
+        function(_, _, _, _, declaration)
+            declaration.normalReturn.outcomes = "ready-error-parked"
+        end,
+        function(_, _, _, _, declaration)
+            declaration.normalReturn.synchronized = false
+        end,
+        function(_, entry)
+            entry.args[1][2] = 2
+        end,
+        function(_, entry)
+            entry.args[3][1] = "-3"
+        end,
+        function(_, entry)
+            entry.term.edges[1], entry.term.edges[2] = entry.term.edges[2], entry.term.edges[1]
+        end,
+    }) do
+        local g, entry, ready, failed, declaration = recoveringGraph(false)
+        change(g, entry, ready, failed, declaration)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+    local g, _, ready = recoveringGraph(false)
+    ready.args[1][1] = 2
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "context identity"
+    )
+end
+
+function M.recoveryNeverRevivesOldOrForeignFrameWindows()
+    for _, change in ipairs({
+        function(_, ready)
+            ready.term.args[2] = 2
+        end,
+        function(_, ready)
+            ready.term.args[6] = 6
+        end,
+        function(g, ready, frame, windows)
+            local slot = constant(g, ready, "0")
+            G.emitNative(g, ready, "FrameSlotRead", {6, windows[2], slot, slotContract()}, "uint64")
+        end,
+        function(g, ready, frame)
+            local slot = constant(g, ready, "0")
+            G.emitNative(g, ready, "FrameSlotRead", {frame, 3, slot, slotContract()}, "uint64")
+        end,
+        function(g, ready, frame, windows)
+            local other = G.emitNative(g, ready, "FrameRecover", {5, {kind = "recover"}}, "voidptr")
+            ready.term.args[6] = other
+        end,
+        function(g, ready, frame, windows)
+            local zero = constant(g, ready, "0")
+            ready.term.args[3] = G.emitNative(g, ready, "PointerOffset", {windows[2], zero}, "voidptr")
+        end,
+    }) do
+        local g, _, ready, _, _, frame, windows = recoveringGraph(false)
+        change(g, ready, frame, windows)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+end
+
+function M.recoveredCapabilitiesTransportThroughClosedBlocksWithoutForgingOwners()
+    local g, _, ready, _, _, frame, windows = recoveringGraph(false)
+    local next = G.block(g)
+    for _ = 1, 4 do
+        next.params[#next.params + 1] = G.nativeValue(g, "voidptr")
+    end
+    ready.term = {kind = "jump", edges = {{target = next.id, args = {frame, windows[1], windows[2], windows[3]}}}}
+    next.term = {
+        kind = "dispatch",
+        args = {1, next.params[2], next.params[3], next.params[4], 5, next.params[1]},
+        edges = {}
+    }
+    G.verify(g);
+    G.prune(g);
+    G.verify(g)
+    -- A second edge carrying raw pointers cannot inherit the first edge's owner.
+    local g2, _, ready2, failed2, _, frame2, windows2 = recoveringGraph(false)
+    local join = G.block(g2)
+    for _ = 1, 4 do
+        join.params[#join.params + 1] = G.nativeValue(g2, "voidptr")
+    end
+    ready2.term = {kind = "jump", edges = {{target = join.id, args = {frame2, windows2[1], windows2[2], windows2[3]}}}}
+    failed2.term = {kind = "jump", edges = {{target = join.id, args = {6, 2, 3, 4}}}}
+    join.term = {
+        kind = "dispatch",
+        args = {1, join.params[2], join.params[3], join.params[4], 5, join.params[1]},
+        edges = {}
+    }
+    rejects(
+        function()
+            G.verify(g2)
+        end,
+        "changes owner/class"
+    )
+end
+
+function M.collectingParkingAndUnknownWritesInvalidateRecoveredCapabilities()
+    for _, effect in ipairs({"collect", "park", "none", "store"}) do
+        local g, _, ready = recoveringGraph(false)
+        if effect == "store" then
+            local offset = constant(g, ready, "0")
+            local word = constant(g, ready, "0", "uint64")
+            G.emitNative(g, ready, "NativeStore", {
+                5,
+                offset,
+                word,
+                {source = "live", kind = "uint64", width = 8, signed = false, write = true}
+            })
+        else
+            invalidatingHelper(g, ready, effect)
+        end
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "invalidated entry windows"
+        )
+    end
+    local g, _, ready = recoveringGraph(false)
+    local loop = G.block(g)
+    for _ = 1, 4 do
+        loop.params[#loop.params + 1] = G.nativeValue(g, "voidptr")
+    end
+    ready.term = {
+        kind = "jump",
+        edges = {{target = loop.id, args = {ready.dst[1], ready.dst[2], ready.dst[3], ready.dst[4]}}}
+    }
+    local slot = constant(g, loop, "0")
+    G.emitNative(g, loop, "FrameVarargRead", {loop.params[1], slot, varargContract()}, "uint64")
+    invalidatingHelper(g, loop, "collect")
+    loop.term = {kind = "jump", edges = {{target = loop.id, args = loop.params}}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "invalidated entry frame"
+    )
+end
+
+function M.frameAndNormalReturnMetadataRejectUnprovenAuthority()
+    local function definition(name, fields)
+        local arguments = {}
+        for key, value in pairs(fields) do
+            arguments[#arguments + 1] = {name = key, kind = "value", value = value}
+        end
+
+        return {annotations = {{name = name, arguments = arguments}}}
+    end
+
+    local normal = {context = 1, frame = "caller", outcomes = "ready-error", synchronized = true}
+    local valid = definition("vmNormalReturn", normal)
+    assert(helpercontract.normalReturn({}, "ordinary") == nil)
+    assert(helpercontract.normalReturn(valid, "loader").context == 1)
+    for _, field in ipairs({"context", "frame", "outcomes", "synchronized"}) do
+        local missing = {}
+        for name, value in pairs(normal) do
+            if name ~= field then
+                missing[name] = value
+            end
+        end
+        rejects(function()
+            helpercontract.normalReturn(definition("vmNormalReturn", missing), "missing")
+        end)
+    end
+    for _, fields in ipairs({
+        {context = 1.5, frame = "caller", outcomes = "ready-error", synchronized = true},
+        {context = 1, frame = "current", outcomes = "ready-error", synchronized = true},
+        {context = 1, frame = "caller", outcomes = "ready-error-parked", synchronized = true},
+        {context = 1, frame = "caller", outcomes = "ready-error", synchronized = false},
+    }) do
+        rejects(function()
+            helpercontract.normalReturn(definition("vmNormalReturn", fields), "invalid")
+        end)
+    end
+    for _, name in ipairs({"vmNormalReturn", "vmFrameAccess"}) do
+        for _, corruption in ipairs({"duplicate-contract", "duplicate-field", "nonliteral", "unknown"}) do
+            local node = definition(name, name == "vmNormalReturn" and normal or {kind = "window", class = "v"})
+            local annotation = node.annotations[1]
+            if corruption == "duplicate-contract" then
+                node.annotations[2] = annotation
+            elseif corruption == "duplicate-field" then
+                annotation.arguments[#annotation.arguments + 1] = annotation.arguments[1]
+            elseif corruption == "nonliteral" then
+                annotation.arguments[1].kind = "expr"
+            else
+                annotation.arguments[#annotation.arguments + 1] = {name = "hidden", kind = "value", value = true}
+            end
+            rejects(function()
+                if name == "vmNormalReturn" then
+                    helpercontract.normalReturn(node, corruption)
+                else
+                    framecontract.read(node, corruption)
+                end
+            end)
+        end
+    end
+    for _, kind in ipairs({"status", "recover", "window"}) do
+        local access = framecontract.read(
+            definition("vmFrameAccess", {
+                kind = kind,
+                class = kind == "window" and "i" or nil
+            }),
+            kind
+        )
+        assert(access.kind == kind)
+    end
+    for _, fields in ipairs({
+        {},
+        {kind = "raw"},
+        {kind = "window"},
+        {kind = "window", class = "vararg"},
+        {kind = "recover", class = "v"}
+    }) do
+        rejects(function()
+            framecontract.read(definition("vmFrameAccess", fields), "invalid")
+        end)
+    end
+end
+
+function M.rawFrameAliasesCannotBypassInvalidationOrCreateOwnership()
+    for _, effect in ipairs({"collect", "park"}) do
+        for _, base in ipairs({2, 3, 4, 6}) do
+            local g, b = fresh()
+            local zero = constant(g, b, "0")
+            local address = G.emitNative(g, b, "NativeAddress", {base}, "uint64")
+            address = G.emitNative(g, b, "IAdd", {address, constant(g, b, "0", "uint64")}, "uint64")
+            address = G.emitNative(g, b, "NativeUDiv", {address, constant(g, b, "1", "uint64")}, "uint64")
+            local floating = G.emitNative(g, b, "NativeIntToFloat", {address}, "float64")
+            address = G.emitNative(g, b, "NativeFloatToInt", {floating}, "uint64")
+            local pointer = G.emitNative(g, b, "NativePointer", {address}, "voidptr")
+            invalidatingHelper(g, b, effect)
+            G.emitNative(
+                g,
+                b,
+                "NativeLoad",
+                {pointer, zero, {source = "live", kind = "uint64", width = 8, signed = false, write = false}},
+                "uint64"
+            )
+            b.term = {kind = "nativeFail", edges = {}}
+            rejects(
+                function()
+                    G.verify(g)
+                end,
+                "invalidated frame alias"
+            )
+        end
+    end
+    local g, entry = fresh()
+    local zero = constant(g, entry, "0")
+    local pointer = G.emitNative(g, entry, "PointerOffset", {2, zero}, "voidptr")
+    local next = G.block(g)
+    next.params = {G.nativeValue(g, "voidptr")}
+    entry.term = {kind = "jump", edges = {{target = next.id, args = {pointer}}}}
+    invalidatingHelper(g, next, "collect")
+    G.emitNative(
+        g,
+        next,
+        "NativeLoad",
+        {
+            next.params[1],
+            constant(g, next, "0"),
+            {source = "live", kind = "uint64", width = 8, signed = false, write = false}
+        },
+        "uint64"
+    )
+    next.term = {kind = "nativeFail", edges = {}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "invalidated frame alias"
+    )
+    for _, transfer in ipairs({"helper", "tail"}) do
+        local escaped, b = fresh()
+        local pointer = G.emitNative(escaped, b, "PointerOffset", {3, constant(escaped, b, "0")}, "voidptr")
+        invalidatingHelper(escaped, b, "collect")
+        if transfer == "helper" then
+            G.emitNative(escaped, b, "NativeHelperCall", {
+                {
+                    moduleName = "nupp.runtime.vm.helpers",
+                    name = "inspect",
+                    params = {"voidptr"},
+                    result = "nil",
+                    effects = {mayCollect = false, mayPark = false, mayRaise = false, pure = true},
+                },
+                pointer
+            })
+            b.term = {kind = "nativeFail", edges = {}}
+        else
+            b.term = {
+                kind = "nativeTail",
+                callee = {
+                    moduleName = "nupp.runtime.vm.calls",
+                    name = "borrowSlow",
+                    params = {"voidptr", "voidptr", "voidptr"},
+                    result = "uint64",
+                    abi = "support",
+                    effects = {mayCollect = true, mayPark = true, mayRaise = true, pure = false},
+                },
+                args = {1, 5, pointer},
+                edges = {}
+            }
+        end
+        rejects(
+            function()
+                G.verify(escaped)
+            end,
+            "invalidated frame alias"
+        )
+    end
+    -- Derivation is allowed while live, but still cannot forge a slot window.
+    g, entry = fresh()
+    zero = constant(g, entry, "0")
+    pointer = G.emitNative(g, entry, "PointerOffset", {3, zero}, "voidptr")
+    G.emitNative(
+        g,
+        entry,
+        "NativeLoad",
+        {pointer, zero, {source = "live", kind = "uint64", width = 8, signed = false, write = false}},
+        "uint64"
+    )
+    dispatch(entry)
+    G.verify(g)
+    G.emitNative(g, entry, "FrameSlotRead", {6, pointer, zero, slotContract()}, "uint64")
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "frame/window identity"
+    )
+end
+
+function M.normalReturnAuthorityIsSpecificToItsStatusCheck()
+    local g, _, ready = recoveringGraph(false)
+    G.emitNative(g, ready, "NativeHelperCall", {
+        {
+            moduleName = "nupp.runtime.vm.modulehelpers",
+            name = "observe",
+            params = {"voidptr"},
+            result = "nil",
+            effects = {mayCollect = false, mayPark = false, mayRaise = false, pure = true},
+            normalReturn = {context = 1, frame = "caller", outcomes = "ready-error", synchronized = true},
+        },
+        5
+    })
+    G.emitNative(g, ready, "FrameRecover", {5, {kind = "recover"}}, "voidptr")
+    ready.term = {kind = "nativeFail", edges = {}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "verified normal-return edge"
+    )
+end
+
+function M.entryFrameWindowsHaveOneOwnerBeforeAnyInvalidatingEffect()
+    local g, b = fresh()
+    local windows = {}
+    for _, class in ipairs({"v", "i", "f"}) do
+        windows[#windows + 1] = G.emitNative(g, b, "FrameWindow", {5, 6, {kind = "window", class = class}}, "voidptr")
+    end
+    b.term = {kind = "dispatch", args = {1, windows[1], windows[2], windows[3], 5, 6}, edges = {}}
+    G.verify(g);
+    G.prune(g);
+    G.verify(g)
+end
+
+function M.loopRecoveryGetsNewValidCapabilitiesOnEveryNormalReturn()
+    local g, entry, ready, _, _, frame, windows = recoveringGraph(false)
+    local header = G.block(g)
+    for _, column in ipairs({"op", "dst", "args", "pos", "cert"}) do
+        header[column], entry[column] = entry[column], {}
+    end
+    header.term = entry.term
+    entry.term = {kind = "jump", edges = {{target = header.id, args = {}}}}
+    local done = G.block(g)
+    for _ = 1, 4 do
+        done.params[#done.params + 1] = G.nativeValue(g, "voidptr")
+    end
+    local more = G.emitNative(g, ready, "NativeBoolean", {false}, "boolean")
+    ready.term = {
+        kind = "branch",
+        value = more,
+        edges = {
+            {target = header.id, args = {}},
+            {target = done.id, args = {frame, windows[1], windows[2], windows[3]}},
+        }
+    }
+    done.term = {
+        kind = "dispatch",
+        args = {1, done.params[2], done.params[3], done.params[4], 5, done.params[1]},
+        edges = {}
+    }
+    G.verify(g);
+    G.prune(g);
     G.verify(g)
 end
 

@@ -49,4 +49,40 @@ function contract.read(definition: any, name: string): {
     }
 end
 
+function contract.normalReturn(definition: any, name: string): any
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmNormalReturn" then
+            assert(found == nil, "helper " .. name .. " has duplicate normal-return contracts")
+            found = annotation
+        end
+    end
+    if found == nil then
+        return nil
+    end
+    local fields: {[string]: any} = {}
+    for _, argument in ipairs(found.arguments or {}) do
+        assert(argument.kind == "value", "helper " .. name .. " requires literal normal-return metadata")
+        assert(
+            argument.name == "context"
+            or argument.name == "frame"
+            or argument.name == "outcomes"
+            or argument.name == "synchronized",
+            "helper " .. name .. " has unknown normal-return metadata"
+        )
+        assert(fields[argument.name] == nil, "helper " .. name .. " has duplicate normal-return fields")
+        fields[argument.name] = argument.value
+    end
+    assert(
+        type(fields.context) == "number" and fields.context >= 1 and fields.context % 1 == 0,
+        "helper " .. name .. " has invalid normal-return context"
+    )
+    assert(
+        fields.frame == "caller" and fields.outcomes == "ready-error" and fields.synchronized == true,
+        "helper " .. name .. " has invalid normal-return authority"
+    )
+
+    return {context = fields.context, frame = fields.frame, outcomes = fields.outcomes, synchronized = true}
+end
+
 export = contract

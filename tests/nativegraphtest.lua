@@ -114,6 +114,53 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.moduleHandlersAndLoaderSupportUseVerifiedRecoveryGraphs()
+    local _, options = checkedWithModules({"modules", "protocol"})
+    options.helperModules["nupp.runtime.vm.modulehelpers"] = "nupp_module_"
+    local scope = options.modules["nupp.runtime.vm.modules"]
+    for _, name in ipairs({"Require", "RequireV", "SetMethod", "requireSlow"}) do
+        local fn = assert(scope.functions[name])
+        assert(nativegraph.admits(fn))
+        local g = nativegraph.compile(fn, options)
+        graph.verify(g);
+        graph.prune(g);
+        graph.verify(g)
+        assert(g.native.abi == (name == "requireSlow" and "support" or "handler"))
+        local recovered, windows, normal, transfers = 0, 0, 0, 0
+        for _, block in ipairs(g.blocks) do
+            if block.term.kind == "nativeTail" then
+                transfers = transfers + 1
+                assert(block.term.callee.name == "requireSlow")
+                assert(block.term.args[1] == 1 and block.term.args[2] == 5)
+            end
+            for index, op in ipairs(block.op) do
+                if op == "FrameRecover" then
+                    recovered = recovered + 1
+                end
+                if op == "FrameWindow" then
+                    windows = windows + 1
+                end
+                if op == "NativeHelperCall" then
+                    local declaration = block.args[index][1]
+                    assert(declaration.normalReturn and declaration.normalReturn.frame == "caller")
+                    normal = normal + 1
+                end
+            end
+        end
+        if name == "Require" or name == "RequireV" then
+            assert(transfers == 1 and recovered == 0)
+        else
+            assert(recovered == 1 and windows == 3 and normal == 1)
+        end
+    end
+    local fn = scope.functions.requireSlow
+    fn.paramKinds[2] = "uint64"
+    assert(not pcall(nativegraph.compile, fn, options), "support accepted a forged context kind")
+    fn.paramKinds[2] = "voidptr"
+    fn.body.body.stats[1].kind = "unsupportedCheckedStmt"
+    assert(not pcall(nativegraph.compile, fn, options), "admitted support silently fell back")
+end
+
 function M.stateHandlersPreserveCleanupAndFrameOwnedVarargReads()
     local _, options = checkedWithModules({"state"})
     local scope = options.modules["nupp.runtime.vm.state"]

@@ -1,0 +1,429 @@
+module nupp.compiler.vm.frameverify
+
+local frameverify = {}
+
+local function same(a: any, b: any): boolean
+    for key, value in pairs(a) do
+        if b[key] ~= value then
+            return false
+        end
+    end
+    for key, value in pairs(b) do
+        if a[key] ~= value then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function copy(source: any): any
+    local result = {}
+    for key, value in pairs(source) do
+        result[key] = value
+    end
+
+    return result
+end
+
+local function fresh(): any
+    return {caps = {}, statuses = {}, authority = {}, normal = false, ready = false}
+end
+
+local function clone(state: any): any
+    return {
+        caps = copy(state.caps),
+        statuses = copy(state.statuses),
+        authority = copy(state.authority),
+        normal = state.normal,
+        ready = state.ready
+    }
+end
+
+local function intersect(target: any, source: any): boolean
+    local changed = false
+    for key, value in pairs(target) do
+        if source[key] ~= value then
+            target[key] = nil;
+            changed = true
+        end
+    end
+
+    return changed
+end
+
+function frameverify.verify(g: any): nil
+    local context = g.native.abi == "handler" and 5 or 2
+    local origins, meanings, definitions, incoming = {}, {}, {}, {}
+
+    local function add(value: integer, token: string, meaning: any): boolean
+        local set = origins[value]
+        if not set then
+            set = {};
+            origins[value] = set
+        end
+        if set[token] then
+            return false
+        end
+        set[token], meanings[token] = true, meaning
+
+        return true
+    end
+
+    local function union(value: integer, source: integer): boolean
+        local changed = false
+        for token in pairs(origins[source] or {}) do
+            changed = add(value, token, meanings[token]) or changed
+        end
+
+        return changed
+    end
+
+    local function single(value: integer): any
+        local found = nil
+        for token in pairs(origins[value] or {}) do
+            assert(found == nil, "native frame capability has mixed owners")
+            found = meanings[token]
+        end
+
+        return found
+    end
+
+    if g.native.abi == "handler" then
+        add(6, "frame:0", {kind = "frame", owner = 0, context = context})
+        for class, value in pairs({v = 2, i = 3, f = 4}) do
+            add(value, class .. ":0", {kind = "window", class = class, owner = 0, context = context})
+        end
+    end
+    for _, b in ipairs(g.blocks) do
+        for index, op in ipairs(b.op) do
+            local dst, args = b.dst[index], b.args[index]
+            if dst ~= 0 then
+                definitions[dst] = {op = op, args = args}
+            end
+            if op == "FrameRecover" then
+                add(dst, "frame:" .. dst, {kind = "frame", owner = dst, context = args[1]})
+            elseif op == "FrameStatus" then
+                add(dst, "status:" .. dst, {kind = "status", context = args[1]})
+            end
+        end
+        for _, edge in ipairs(b.term.edges) do
+            incoming[edge.target] = incoming[edge.target] or {}
+            incoming[edge.target][#incoming[edge.target] + 1] = edge
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for _, b in ipairs(g.blocks) do
+            for index, op in ipairs(b.op) do
+                if op == "FrameWindow" then
+                    local args, dst = b.args[index], b.dst[index]
+                    for token in pairs(origins[args[2]] or {}) do
+                        local owner = meanings[token]
+                        if owner.kind == "frame" then
+                            local class = args[3].class
+                            changed = add(dst, class .. ":" .. owner.owner, {
+                                kind = "window",
+                                class = class,
+                                owner = owner.owner,
+                                context = owner.context
+                            }) or changed
+                        end
+                    end
+                end
+            end
+            for _, edge in ipairs(b.term.edges) do
+                for index, parameter in ipairs(g.blocks[edge.target].params) do
+                    changed = union(parameter, edge.args[index]) or changed
+                end
+            end
+        end
+    end
+    -- A raw pointer on one incoming edge cannot borrow another edge's proof.
+    for _, b in ipairs(g.blocks) do
+        for index, parameter in ipairs(b.params) do
+            if origins[parameter] then
+                for _, edge in ipairs(incoming[b.id] or {}) do
+                    assert(
+                        same(origins[parameter], origins[edge.args[index]] or {}),
+                        "native frame capability edge changes owner/class"
+                    )
+                end
+            end
+        end
+    end
+
+    -- Pointer arithmetic can retain a frame alias, but never its semantic
+    -- ownership. Track validity separately so a raw load cannot bypass a
+    -- collecting edge by first converting or offsetting a window pointer.
+    local contentsOps = {NativeLoad = true, FrameSlotRead = true, FrameVarargRead = true, ProgramLoad = true}
+
+    local function derivesAddress(op: string, dst: integer): boolean
+        return dst ~= 0 and not contentsOps[op]
+    end
+
+    local aliases = {}
+    for value, tokens in pairs(origins) do
+        for token in pairs(tokens) do
+            if meanings[token].kind ~= "status" then
+                aliases[value] = aliases[value] or {}
+                aliases[value][token] = true
+            end
+        end
+    end
+
+    local function alias(value: integer, source: integer): boolean
+        local changed = false
+        for token in pairs(aliases[source] or {}) do
+            aliases[value] = aliases[value] or {}
+            if not aliases[value][token] then
+                aliases[value][token], changed = true, true
+            end
+        end
+
+        return changed
+    end
+
+    changed = true
+    while changed do
+        changed = false
+        for _, b in ipairs(g.blocks) do
+            for index, op in ipairs(b.op) do
+                if derivesAddress(op, b.dst[index]) then
+                    for _, operand in ipairs(b.args[index]) do
+                        if type(operand) == "number" then
+                            changed = alias(b.dst[index], operand) or changed
+                        end
+                    end
+                end
+            end
+            for _, edge in ipairs(b.term.edges) do
+                for index, parameter in ipairs(g.blocks[edge.target].params) do
+                    changed = alias(parameter, edge.args[index]) or changed
+                end
+            end
+        end
+    end
+
+    local function frame(state: any, value: integer): any
+        local owner = single(value)
+        assert(
+            owner and owner.kind == "frame" and owner.context == context,
+            "native slot frame/window identity mismatch: owning frame identity"
+        )
+        assert(state.caps[value], "native slot access uses an invalidated entry frame")
+
+        return owner
+    end
+
+    local function window(state: any, value: integer, owner: any, class: string): nil
+        local candidate = single(value)
+        assert(
+            candidate
+            and candidate.kind == "window"
+            and candidate.context == owner.context
+            and candidate.owner == owner.owner
+            and candidate.class == class,
+            "native slot frame/window identity mismatch"
+        )
+        assert(state.caps[value], "native slot access uses an invalidated entry frame")
+    end
+
+    local function killRecovered(state: any): nil
+        for value in pairs(state.caps) do
+            for token in pairs(aliases[value] or {}) do
+                if meanings[token].owner ~= 0 then
+                    state.caps[value] = nil
+                end
+            end
+        end
+        state.authority = {}
+    end
+
+    local function transfer(b: any, input: any, check: boolean): any
+        local state = clone(input)
+        for index, op in ipairs(b.op) do
+            local args, dst = b.args[index], b.dst[index]
+            if (op == "NativeLoad" or op == "NativeStore") and aliases[args[1]] and check then
+                assert(state.caps[args[1]], "native raw access uses an invalidated frame alias")
+            end
+            if check and (op == "NativeHelperCall" or op == "NativeLeafCall") then
+                for operand = 2, #args do
+                    local value = args[operand]
+                    assert(not aliases[value] or state.caps[value], "native call uses an invalidated frame alias")
+                end
+            end
+            if derivesAddress(op, dst) and aliases[dst] then
+                local valid = true
+                for _, operand in ipairs(args) do
+                    if aliases[operand] and not state.caps[operand] then
+                        valid = false
+                    end
+                end
+                state.caps[dst] = valid or nil
+            end
+            if op == "NativeHelperCall" then
+                local declaration = args[1]
+                local effects = declaration.effects
+                if effects.mayCollect or effects.mayPark then
+                    state.caps = {};
+                    state.authority = {}
+                end
+                if not effects.pure then
+                    killRecovered(state)
+                    state.normal, state.ready, state.statuses = false, false, {}
+                end
+                if declaration.normalReturn then
+                    if check then
+                        assert(
+                            args[declaration.normalReturn.context + 1] == context,
+                            "normal-return context differs from frame owner"
+                        )
+                    end
+                    state.normal, state.ready, state.statuses = tostring(b.id) .. ":" .. index, false, {}
+                end
+            elseif op == "NativeStore" and state.normal then
+                -- Unknown raw writes cannot preserve a recovered owner proof.
+                killRecovered(state)
+                state.normal, state.ready, state.statuses = false, false, {}
+            elseif op == "FrameStatus" then
+                state.statuses[dst] = state.normal or nil
+            elseif op == "FrameRecover" then
+                if check then
+                    assert(state.normal and state.ready, "native frame recovery requires a verified normal-return edge")
+                end
+                state.caps[dst], state.authority[dst] = true, state.normal or nil
+            elseif op == "FrameWindow" then
+                if check then
+                    frame(state, args[2])
+                end
+                state.caps[dst] = true
+            elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
+                if check then
+                    local owner = frame(state, args[1])
+                    window(state, args[2], owner, args[op == "FrameSlotRead" and 4 or 5].class)
+                end
+            elseif op == "FrameVarargRead" then
+                if check then
+                    frame(state, args[1])
+                end
+            end
+        end
+        if check and b.term.kind == "nativeTail" then
+            for _, value in ipairs(b.term.args) do
+                assert(not aliases[value] or state.caps[value], "native tail uses an invalidated frame alias")
+            end
+        end
+        if check and b.term.kind == "dispatch" then
+            local args = b.term.args
+            assert(args[5] == context, "native dispatch changes frame/window/context identity")
+            local owner = single(args[6])
+            assert(
+                owner and owner.kind == "frame" and owner.context == context,
+                "native dispatch changes frame/window/context identity"
+            )
+            assert(state.caps[args[6]], "native dispatch uses invalidated entry windows")
+            for index, class in ipairs({"v", "i", "f"}) do
+                local candidate = single(args[index + 1])
+                assert(
+                    candidate
+                    and candidate.kind == "window"
+                    and candidate.class == class
+                    and candidate.owner == owner.owner
+                    and candidate.context == context,
+                    "native dispatch changes frame/window/context identity"
+                )
+                assert(state.caps[args[index + 1]], "native dispatch uses invalidated entry windows")
+            end
+            if owner.owner ~= 0 then
+                assert(
+                    state.ready and state.normal and state.authority[owner.owner] == state.normal,
+                    "native dispatch lacks normal-return owner authority"
+                )
+            end
+        end
+
+        return state
+    end
+
+    local function refine(b: any, state: any, edgeIndex: integer): nil
+        if b.term.kind ~= "branch" or not state.normal then
+            return
+        end
+        local test = definitions[b.term.value]
+        if not test or test.op ~= "NativeICmp" or (test.args[3] ~= "==" and test.args[3] ~= "~=") then
+            return
+        end
+        local status, literal = test.args[1], definitions[test.args[2]]
+        if not literal or literal.op ~= "NativeConstant" then
+            status, literal = test.args[2], definitions[test.args[1]]
+        end
+        if not literal or literal.op ~= "NativeConstant" or state.statuses[status] ~= state.normal then
+            return
+        end
+        local value = tonumber(literal.args[1])
+        if value ~= 0 and value ~= -4 then
+            return
+        end
+        local readyWhenTrue = (value == 0) == (test.args[3] == "==")
+        state.ready = (edgeIndex == 1) == readyWhenTrue
+    end
+
+    local entry = fresh()
+    if g.native.abi == "handler" then
+        entry.caps = {[2] = true, [3] = true, [4] = true, [6] = true}
+    end
+    local states, queue = {[1] = entry}, {1}
+    local cursor: integer = 1
+    while cursor <= #queue do
+        local id = queue[cursor]
+        cursor = cursor + 1
+        local b = g.blocks[id]
+        local output = transfer(b, states[id], false)
+        for edgeIndex, edge in ipairs(b.term.edges) do
+            local state = clone(output)
+            refine(b, state, edgeIndex)
+            state.caps, state.statuses = {}, {}
+            for value in pairs(output.caps) do
+                if value <= g.nparams then
+                    state.caps[value] = true
+                end
+            end
+            for index, parameter in ipairs(g.blocks[edge.target].params) do
+                local source = edge.args[index]
+                if output.caps[source] then
+                    state.caps[parameter] = true
+                end
+                if output.statuses[source] then
+                    state.statuses[parameter] = output.statuses[source]
+                end
+            end
+            local previous = states[edge.target]
+            local update = false
+            if not previous then
+                states[edge.target], update = state, true
+            else
+                update = intersect(previous.caps, state.caps) or update
+                update = intersect(previous.statuses, state.statuses) or update
+                update = intersect(previous.authority, state.authority) or update
+                if previous.normal ~= state.normal and previous.normal ~= false then
+                    previous.normal = false;
+                    update = true
+                end
+                local ready = previous.ready and state.ready and previous.normal ~= false
+                if previous.ready ~= ready then
+                    previous.ready, update = ready, true
+                end
+            end
+            if update then
+                queue[#queue + 1] = edge.target
+            end
+        end
+    end
+    for _, b in ipairs(g.blocks) do
+        transfer(b, states[b.id] or fresh(), true)
+    end
+end
+
+export = frameverify

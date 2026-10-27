@@ -1,0 +1,31 @@
+module nupp.compiler.vm.framecontract
+
+local contract = {}
+
+function contract.read(definition: any, name: string): any
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmFrameAccess" then
+            assert(found == nil, "frame access " .. name .. " has duplicate contracts")
+            found = annotation
+        end
+    end
+    assert(found, "frame access " .. name .. " has no declared contract")
+    local fields: {[string]: any} = {}
+    for _, argument in ipairs(found.arguments or {}) do
+        assert(argument.kind == "value", "frame access requires literal metadata")
+        assert(argument.name == "kind" or argument.name == "class", "frame access has unknown metadata")
+        assert(fields[argument.name] == nil, "frame access has duplicate fields")
+        fields[argument.name] = argument.value
+    end
+    assert(fields.kind == "status" or fields.kind == "recover" or fields.kind == "window", "invalid frame access kind")
+    if fields.kind == "window" then
+        assert(fields.class == "v" or fields.class == "i" or fields.class == "f", "invalid frame window class")
+    else
+        assert(fields.class == nil, "frame status/recovery has no window class")
+    end
+
+    return {kind = fields.kind, class = fields.class}
+end
+
+export = contract

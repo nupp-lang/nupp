@@ -1,0 +1,16 @@
+-- Fresh frame/window addresses belong to one synchronized logical owner.
+-- Status is semantic data; a normal-return edge establishes authority to
+-- recover. Raw pointer arithmetic cannot create a frame/window capability.
+local record Frames
+    @vmFrameAccess(kind = "status")
+    status: function(context: voidptr): int64
+    @vmFrameAccess(kind = "recover")
+    current: function(context: voidptr): voidptr
+    @vmFrameAccess(kind = "window", class = "v")
+    values: function(context: voidptr, frame: voidptr): voidptr
+    @vmFrameAccess(kind = "window", class = "i")
+    integers: function(context: voidptr, frame: voidptr): voidptr
+    @vmFrameAccess(kind = "window", class = "f")
+    floats: function(context: voidptr, frame: voidptr): voidptr
+end
+return Frames

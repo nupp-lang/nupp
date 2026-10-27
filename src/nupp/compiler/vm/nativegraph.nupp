@@ -6,6 +6,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
+local framecontract = require("nupp.compiler.vm.framecontract")
 
 local nativegraph = {}
 local admitted = {
@@ -196,7 +197,15 @@ function nativegraph.admits(fn: any): boolean
     return (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true)
         or (fn.scope.name == "nupp.runtime.vm.control" and controlAdmitted[fn.name] == true)
         or (fn.scope.name == "nupp.runtime.vm.state" and stateAdmitted[fn.name] == true)
+        or (
+            fn.scope.name == "nupp.runtime.vm.modules"
+            and (fn.name == "Require" or fn.name == "RequireV" or fn.name == "SetMethod" or fn.name == "requireSlow")
+        )
         or nativegraph.isLeaf(fn)
+end
+
+function nativegraph.isSupport(fn: any): boolean
+    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.modules" and fn.name == "requireSlow"
 end
 
 function nativegraph.isLeaf(fn: any): boolean
@@ -238,9 +247,23 @@ function nativegraph.compile(fn: any, options: any): any
     need(nativegraph.admits(fn), "function is outside the admitted handler slice")
     local body = fn.body
     local leaf = nativegraph.isLeaf(fn)
-    need(fn.resultKind == "uint64" and (leaf or fn.isHandler == true), "exact native signature required")
+    local support = nativegraph.isSupport(fn)
+    need(
+        fn.resultKind == "uint64" and (leaf or support and fn.isSupport == true or fn.isHandler == true),
+        "exact native signature required"
+    )
     need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
-    if leaf then
+    if leaf or support then
+        if support then
+            need(
+                #fn.paramKinds == 4
+                and fn.paramKinds[1] == "voidptr"
+                and fn.paramKinds[2] == "voidptr"
+                and fn.paramKinds[3] == "uint64"
+                and fn.paramKinds[4] == "int64",
+                "exact module support signature required"
+            )
+        end
         need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native leaf parameter count")
         for index, parameter in ipairs(body.params) do
             local kind = fn.paramKinds[index]
@@ -260,7 +283,7 @@ function nativegraph.compile(fn: any, options: any): any
             )
         end
     end
-    local g = graph.newNative(fn.paramKinds, "uint64", leaf and "leaf" or "handler")
+    local g = graph.newNative(fn.paramKinds, "uint64", leaf and "leaf" or (support and "support" or "handler"))
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     local scope = fn.scope
     local inlining = {}
@@ -305,7 +328,8 @@ function nativegraph.compile(fn: any, options: any): any
             name = name,
             params = params,
             result = result,
-            effects = helpercontract.read(n.obj.name.definition, name)
+            effects = helpercontract.read(n.obj.name.definition, name),
+            normalReturn = helpercontract.normalReturn(n.obj.name.definition, name)
         }
     end
 
@@ -342,7 +366,9 @@ function nativegraph.compile(fn: any, options: any): any
         elseif n.kind == "unop" then
             local kind = exactKind(n.inferredType)
             need(expected == nil or expected == kind, "unary expression changes exact kind")
-            if n.op.text == "~" then
+            if n.op.text == "-" and kind == "int64" and n.operand.kind == "number" then
+                return emit(n, "NativeConstant", {"-" .. integerText(n.operand)}, kind) as integer
+            elseif n.op.text == "~" then
                 need(kind == "int64" or kind == "uint64", "integer complement requires an exact kind")
                 return emit(n, "INot", {expression(n.operand, kind)}, kind) as integer
             elseif n.op.text == "-" and floatKinds[kind] then
@@ -405,6 +431,26 @@ function nativegraph.compile(fn: any, options: any): any
                     operands[index + 1] = expression(args[index], kind)
                 end
                 return emit(n, "NativeLeafCall", operands, declaration.result) as integer
+            elseif moduleName == "nupp.runtime.vm.frames" then
+                local access = framecontract.read(n.obj.name.definition, name as string)
+                local result = access.kind == "status" and "int64" or "voidptr"
+                local kinds = access.kind == "window" and {"voidptr", "voidptr"} or {"voidptr"}
+                signature(n, kinds, result)
+                need(expected == nil or expected == result, "frame access changes exact kind")
+                local operands = {expression(args[1], "voidptr")}
+                if access.kind == "window" then
+                    operands[2] = expression(args[2], "voidptr")
+                    operands[3] = access
+                else
+                    operands[2] = access
+                end
+                return emit(
+                    n,
+                    access.kind == "status" and "FrameStatus"
+                    or (access.kind == "recover" and "FrameRecover" or "FrameWindow"),
+                    operands,
+                    result
+                ) as integer
             elseif moduleName == "nupp.runtime.vm.program" then
                 local contract = programcontract.read(n.obj.name.definition, name as string)
                 signature(n, {"voidptr", "int64"}, contract.result)

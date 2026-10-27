@@ -9,6 +9,8 @@ module nupp.compiler.vm.graph
 --- allocates a table per instruction.
 local graph = {}
 
+local frameverify = require("nupp.compiler.vm.frameverify")
+
 -- One signature per opcode: the result class is the uppercase letter, at the
 -- position the VM's operand order puts it; every other letter is one operand.
 --   v i f x   a value, integer, float or vector register value
@@ -111,6 +113,9 @@ signatures.NativeAddress = "Ii"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
 signatures.FrameVarargRead = "Iii#"
+signatures.FrameStatus = "Ii#"
+signatures.FrameRecover = "Ii#"
+signatures.FrameWindow = "Iii#"
 signatures.FrameSlotWrite = "iiia#"
 signatures.PointerOffset = "Iii"
 signatures.NativeBoolean = "I#"
@@ -144,6 +149,9 @@ local nativeOnly = {
     ProgramLoad = true,
     FrameSlotRead = true,
     FrameVarargRead = true,
+    FrameStatus = true,
+    FrameRecover = true,
+    FrameWindow = true,
     FrameSlotWrite = true,
     PointerOffset = true,
     NativeBoolean = true,
@@ -455,7 +463,10 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             and op ~= "ProgramLoad"
             and op ~= "FrameSlotRead"
             and op ~= "FrameSlotWrite"
-            and op ~= "FrameVarargRead",
+            and op ~= "FrameVarargRead"
+            and op ~= "FrameStatus"
+            and op ~= "FrameRecover"
+            and op ~= "FrameWindow",
             "native leaf cannot access VM state or invoke managed helpers"
         )
     end
@@ -488,7 +499,14 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(kind == checked.result, "native leaf result kind")
     elseif op == "NativeHelperCall" then
         local declaration = args[1]
-        nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, effects = true})
+        nativeContract(declaration, {
+            moduleName = true,
+            name = true,
+            params = true,
+            result = true,
+            effects = true,
+            normalReturn = true
+        })
         assert(
             type(declaration.moduleName) == "string" and declaration.moduleName:match("^nupp%.runtime%.vm%.[%w_]+$"),
             "native helper requires its declared module"
@@ -514,6 +532,20 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             or nativeClasses[declaration.result] and kind == declaration.result,
             "native helper result kind mismatch"
         )
+        local normal = declaration.normalReturn
+        if normal ~= nil then
+            nativeContract(normal, {context = true, frame = true, outcomes = true, synchronized = true})
+            assert(
+                type(normal.context) == "number"
+                and normal.context >= 1
+                and normal.context % 1 == 0
+                and declaration.params[normal.context] == "voidptr"
+                and normal.frame == "caller"
+                and normal.outcomes == "ready-error"
+                and normal.synchronized == true,
+                "invalid helper normal-return authority"
+            )
+        end
         local effects = declaration.effects
         nativeContract(effects, {mayCollect = true, mayPark = true, mayRaise = true, pure = true})
         assert(
@@ -650,12 +682,31 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
             and kind == result,
             "invalid native program contract"
         )
+    elseif op == "FrameStatus" or op == "FrameRecover" or op == "FrameWindow" then
+        local context = g.native.abi == "handler" and 5 or 2
+        assert(args[1] == context, "native frame context identity mismatch")
+        hasKind(args[1], "voidptr")
+        local access = args[op == "FrameWindow" and 3 or 2]
+        nativeContract(access, {kind = true, class = true})
+        local expected = op == "FrameStatus" and "status" or (op == "FrameRecover" and "recover" or "window")
+        assert(
+            access.kind == expected and kind == (op == "FrameStatus" and "int64" or "voidptr"),
+            "invalid native frame contract"
+        )
+        if op == "FrameWindow" then
+            hasKind(args[2], "voidptr")
+            assert(
+                access.class == "v" or access.class == "i" or access.class == "f",
+                "invalid native frame window class"
+            )
+        else
+            assert(access.class == nil, "native frame status/recovery has no window class")
+        end
     elseif op == "FrameVarargRead" then
         hasKind(args[1], "voidptr")
         hasKind(args[2], "int64")
         local contract = args[3]
         nativeContract(contract, {class = true, kind = true, write = true, width = true})
-        assert(args[1] == 6, "native vararg owning frame identity mismatch")
         assert(
             contract.class == "vararg"
             and contract.kind == "uint64"
@@ -673,7 +724,7 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         local contract = args[write and 5 or 4]
         local windows = {v = 2, i = 3, f = 4}
         nativeContract(contract, {class = true, kind = true, write = true, width = true})
-        assert(args[1] == 6 and args[2] == windows[contract.class], "native slot frame/window identity mismatch")
+        assert(windows[contract.class] ~= nil, "native slot frame/window identity mismatch")
         assert(
             windows[contract.class] ~= nil
             and contract.width == 8
@@ -725,51 +776,6 @@ local edgeCounts = {
     nativeFail = 0
 }
 
--- Entry frame/window capabilities end at collecting or parking helpers.
--- No recovery operation is admitted yet: a later slot access or dispatch
--- needs a future explicit proof of a freshly recovered owning frame.
-local function verifyNativeEntryFrame(g: any): nil
-    local invalid, queue = {}, {}
-
-    local function propagate(b: any): nil
-        for _, edge in ipairs(b.term.edges) do
-            if not invalid[edge.target] then
-                invalid[edge.target] = true
-                queue[#queue + 1] = edge.target
-            end
-        end
-    end
-
-    for _, b in ipairs(g.blocks) do
-        for index, op in ipairs(b.op) do
-            if op == "NativeHelperCall" then
-                local effects = b.args[index][1].effects
-                if effects.mayCollect or effects.mayPark then
-                    propagate(b)
-                    break
-                end
-            end
-        end
-    end
-    local cursor: integer = 1
-    while cursor <= #queue do
-        propagate(g.blocks[queue[cursor]])
-        cursor = cursor + 1
-    end
-    for _, b in ipairs(g.blocks) do
-        local stale = invalid[b.id] == true
-        for index, op in ipairs(b.op) do
-            if op == "FrameSlotRead" or op == "FrameSlotWrite" or op == "FrameVarargRead" then
-                assert(not stale, "native slot access uses an invalidated entry frame")
-            elseif op == "NativeHelperCall" then
-                local effects = b.args[index][1].effects
-                stale = stale or effects.mayCollect or effects.mayPark
-            end
-        end
-        assert(b.term.kind ~= "dispatch" or not stale, "native dispatch uses invalidated entry windows")
-    end
-end
-
 function graph.verify(g: any): nil
     local blocks, types, slots, counts = g.blocks, g.types, g.slots, g.counts
     if not (#blocks > 0 and #blocks <= 100000 and #types == #slots) then
@@ -793,6 +799,19 @@ function graph.verify(g: any): nil
             )
             for i = 1, 6 do
                 assert(signature.params[i] == "voidptr", "native handler parameter kind")
+            end
+        elseif signature.abi == "support" then
+            assert(
+                nparams >= 2
+                and #signature.params == nparams
+                and signature.params[1] == "voidptr"
+                and signature.params[2] == "voidptr"
+                and signature.frameFromWindow == nil
+                and signature.tableArgument == nil,
+                "invalid native support signature"
+            )
+            for _, kind in ipairs(signature.params) do
+                assert(nativeClasses[kind] ~= nil, "native support exact parameter kind")
             end
         else
             assert(signature.abi == "leaf" and nparams >= 1 and nparams <= 8, "invalid native leaf signature")
@@ -942,19 +961,22 @@ function graph.verify(g: any): nil
         end
         if kind == "dispatch" then
             assert(
-                native and g.native.abi == "handler" and type(t.args) == "table" and #t.args == 6,
+                native
+                and (g.native.abi == "handler" or g.native.abi == "support")
+                and type(t.args) == "table"
+                and #t.args == 6,
                 "invalid native dispatch"
             )
             for i = 1, 6 do
                 assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
-                if i > 1 then
-                    assert(t.args[i] == i, "native dispatch changes frame/window/context identity")
-                end
             end
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
         elseif kind == "nativeTail" then
-            assert(native and g.native.abi == "handler", "native tail transfer requires a handler graph")
+            assert(
+                native and (g.native.abi == "handler" or g.native.abi == "support"),
+                "native tail transfer requires a managed graph"
+            )
             local declaration = t.callee
             nativeContract(declaration, {
                 moduleName = true,
@@ -991,7 +1013,7 @@ function graph.verify(g: any): nil
                 declaration.params[1] == "voidptr"
                 and declaration.params[2] == "voidptr"
                 and t.args[1] == 1
-                and t.args[2] == 5,
+                and t.args[2] == (g.native.abi == "handler" and 5 or 2),
                 "native tail changes original pc/context identity"
             )
             local effects = declaration.effects
@@ -1005,7 +1027,10 @@ function graph.verify(g: any): nil
             )
         elseif kind == "nativeFail" then
             assert(
-                native and g.native.abi == "handler" and t.args == nil and t.value == nil,
+                native
+                and (g.native.abi == "handler" or g.native.abi == "support")
+                and t.args == nil
+                and t.value == nil,
                 "native failure exit requires a handler graph and carries no values"
             )
         elseif native and kind == "branch" then
@@ -1093,8 +1118,8 @@ function graph.verify(g: any): nil
             error("undefined graph value", 0)
         end
     end
-    if native and g.native.abi == "handler" then
-        verifyNativeEntryFrame(g)
+    if native and g.native.abi ~= "leaf" then
+        frameverify.verify(g)
     end
     local certs = g.certificates
     for i = 1, #certs do

@@ -36,7 +36,16 @@ const 0 str "method"
 SetMethod 0 0 1
 Ret 1
 end
+function typedcaller 5 2 8 4 vv:v
+RequireV 1 1
+Ret 1
+end
+function parkedloader 6 1 8 1 v:v
+Park 1
+Ret 1
+end
 entry 0
+module module.parked 6
 module module.test 1
 module module.fail 3
 module module.cycle 2
@@ -220,4 +229,132 @@ fn native_method_registration_updates_shapes_and_declaration_tracking() {
     assert_eq!(vm.heap.declarations.get(&declaration.0).unwrap(), &[0]);
     vm.full_cycle();
     assert_eq!(vm.kind_of(declaration), Some(crate::heap::KIND_TABLE));
+}
+
+#[test]
+fn native_require_recovers_typed_windows_without_reusing_loader_frames() {
+    let mut vm = fixture(true);
+    let name = vm.intern("module.test");
+    let survivor = vm.new_table();
+    let tid = vm.spawn(5, &[name, survivor]);
+    let caller = vm.tasks[tid].cur();
+    let off_i = vm.funcs[5].off_i();
+    let off_f = vm.funcs[5].off_f();
+    let integer = i64::MIN as u64;
+    let floating = (-0.0f64).to_bits();
+    vm.tasks[tid].stack[caller + off_i] = integer;
+    vm.tasks[tid].stack[caller + off_f] = floating;
+    vm.heap.stress = true;
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let (returned_tid, ctx, result) = invoke_task(&mut vm, tid, Op::RequireV(1, 1));
+    assert_eq!(returned_tid, tid);
+    assert_eq!(ctx.status, 0);
+    assert_eq!(ctx.cur as usize, caller);
+    assert_eq!(vm.tasks.len(), tid + 1, "loader scratch task escaped");
+    assert_eq!(vm.tasks[tid].stack[caller + off_i], integer);
+    assert_eq!(vm.tasks[tid].stack[caller + off_f], floating);
+    assert_eq!(vm.tasks[tid].stack[caller + HDR + 2], survivor.0);
+    assert_eq!(vm.kind_of(Value(result)), Some(crate::heap::KIND_TABLE));
+    let frame = unsafe { ctx.stack.add(caller) };
+    assert_eq!(frame, unsafe {
+        vm.tasks[tid].stack.as_mut_ptr().add(caller)
+    });
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(vm.kind_of(survivor), Some(crate::heap::KIND_TABLE));
+    assert!(vm.pending_error.is_none());
+}
+
+#[test]
+fn native_require_callback_park_is_an_error_without_a_resumed_caller_edge() {
+    let mut vm = fixture(true);
+    let name = vm.intern("module.parked");
+    let survivor = vm.new_table();
+    let tid = vm.spawn(2, &[name, survivor]);
+    let before = vm.tasks[tid].cur();
+    let (_, ctx, _) = invoke_task(&mut vm, tid, Op::RequireV(1, 1));
+    assert_eq!(ctx.status, ST_ERROR);
+    assert_eq!(ctx.cur as usize, before);
+    assert_eq!(vm.tasks.len(), tid + 1);
+    assert_eq!(
+        vm.tasks[tid].stack[before + HDR + 1],
+        name.0,
+        "error path stored a result"
+    );
+    assert_eq!(vm.tasks[tid].stack[before + HDR + 2], survivor.0);
+    // enter_rust publishes the next logical task position before callbacks;
+    // the current native PC remains at RequireV and the error never dispatches.
+    assert_eq!(ctx.pc, 0);
+    assert_eq!(vm.tasks[tid].stack[before] >> 32, 1);
+    assert_eq!(
+        vm.bytes_of(vm.pending_error.unwrap()),
+        b"runtime error: a callback parked"
+    );
+    assert_eq!(vm.tasks[tid].state, crate::interp::State::Runnable);
+}
+
+#[test]
+fn native_require_reloads_function_metadata_after_a_loader_extends_the_image() {
+    let mut vm = fixture(true);
+    let mut plugin = String::new();
+    let additional = vm.finfo.capacity() + 1;
+    for index in 0..additional {
+        plugin.push_str(&format!(
+            "function extra{index} {index} 0 2 0 :v\nRetNil\nend\n"
+        ));
+    }
+    plugin.push_str("entry 0\n");
+    let image = vm.new_string_bytes(plugin.as_bytes());
+    vm.funcs[1].consts = vec![
+        Value::builtin(crate::builtins::id_of("vm.loadImage").unwrap()),
+        image,
+    ];
+    vm.funcs[1].code = vec![
+        Op::K(1, 0),
+        Op::K(2, 1),
+        Op::CallDyn(1, 1, 1),
+        Op::NewTable(1),
+        Op::Ret(1),
+    ];
+    vm.funcs[5].code = vec![
+        Op::RequireV(1, 1),
+        Op::IAddK(1, 0, 1),
+        Op::FNeg(1, 0),
+        Op::Move(3, 2),
+        Op::RetN(1, 3),
+    ];
+    vm.prepare_threaded();
+    let old_info = vm.finfo.as_ptr();
+    let old_count = vm.funcs.len();
+    let name = vm.intern("module.test");
+    let survivor = vm.new_table();
+    let tid = vm.spawn(5, &[name, survivor]);
+    let caller = vm.tasks[tid].cur();
+    let off_i = vm.funcs[5].off_i();
+    let off_f = vm.funcs[5].off_f();
+    vm.tasks[tid].stack[caller + off_i] = i64::MIN as u64;
+    vm.tasks[tid].stack[caller + off_f] = (-0.0f64).to_bits();
+    vm.heap.stress = true;
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let crate::interp::Outcome::Done(value) = vm.run(tid) else {
+        panic!("module caller parked");
+    };
+    assert_ne!(vm.finfo.as_ptr(), old_info);
+    assert_eq!(vm.funcs.len(), old_count + additional);
+    assert_eq!(vm.tasks[tid].results, vec![value, survivor, survivor]);
+    assert_eq!(vm.kind_of(value), Some(crate::heap::KIND_TABLE));
+    assert_eq!(
+        vm.tasks[tid].stack[caller + off_i + 1],
+        (i64::MIN + 1) as u64
+    );
+    assert_eq!(vm.tasks[tid].stack[caller + off_f + 1], 0.0f64.to_bits());
+    assert_eq!(vm.tasks[tid].stack[caller + HDR + 2], survivor.0);
+    vm.full_cycle();
+    vm.check_oracle();
+    assert_eq!(vm.kind_of(survivor), Some(crate::heap::KIND_TABLE));
+    assert!(vm.pending_error.is_none());
 }

@@ -36,6 +36,7 @@ local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
+local framecontract = require("nupp.compiler.vm.framecontract")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local specializationcontract = require("nupp.compiler.vm.specializationcontract")
 local graph = require("nupp.compiler.vm.graph")
@@ -49,6 +50,7 @@ lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
 
 -- Logical frame accesses retain their contract in Nupp until machine emission.
 lower.SLOTS = "nupp.runtime.vm.slots"
+lower.FRAMES = "nupp.runtime.vm.frames"
 
 -- Frozen code bytes retain their owning body lifetime through the Nupp graph.
 lower.PROGRAM = "nupp.runtime.vm.program"
@@ -1101,6 +1103,63 @@ local function compileDirectFunction(fn: Fn, options: any): string
         return {kind = "nil", value = ""}
     end
 
+    local function frameCall(n: any): any
+        need(options.layout, "frame access requires layouts")
+        local access = framecontract.read(n.obj.name.definition, n.obj.name.text)
+        local signature = raw(n.obj.inferredType)
+        local args = n.args.exprs or {}
+        local count = access.kind == "window" and 2 or 1
+        need(
+            signature and signature.tag == "func" and #signature.params == count and #args == count,
+            "frame access argument count"
+        )
+        local words = {}
+        for index, parameter in ipairs(signature.params) do
+            need(tag(parameter) == "voidptr", "frame access argument kind")
+            words[index] = materialize(expression(args[index]), "voidptr")
+        end
+        local result = access.kind == "status" and "int64" or "voidptr"
+        need(#signature.rets == 1 and tag(signature.rets[1]) == result, "frame access result kind")
+        if access.kind == "status" then
+            local address = emit("iadd " .. words[1] .. ", " .. constant("i64", tostring(options.layout("status"))))
+            return {kind = result, value = emit("sload32.i64 notrap " .. address)}
+        elseif access.kind == "recover" then
+            local stack = load(
+                "voidptr",
+                emit("iadd " .. words[1] .. ", " .. constant("i64", tostring(options.layout("stack"))))
+            )
+            local cur = load(
+                "uint64",
+                emit("iadd " .. words[1] .. ", " .. constant("i64", tostring(options.layout("cur"))))
+            )
+            local offset = emit("imul " .. cur .. ", " .. constant("i64", "8"))
+            return {kind = result, value = emit("iadd " .. stack .. ", " .. offset)}
+        elseif access.class == "v" then
+            return {kind = result, value = emit("iadd " .. words[2] .. ", " .. constant("i64", "32"))}
+        end
+        local fid = emit("band " .. load("uint64", words[2]) .. ", " .. constant("i64", "4294967295"))
+        local funcs = load(
+            "voidptr",
+            emit("iadd " .. words[1] .. ", " .. constant("i64", tostring(options.layout("funcs"))))
+        )
+        local info = emit(
+            "iadd " .. funcs .. ", " .. emit(
+                "imul " .. fid .. ", " .. constant("i64", tostring(options.layout("FuncInfo.size")))
+            )
+        )
+        local property = access.class == "i" and "FuncInfo.off_i" or "FuncInfo.off_f"
+        local off = emit(
+            "sload32.i64 notrap " .. emit(
+                "iadd " .. info .. ", " .. constant("i64", tostring(options.layout(property)))
+            )
+        )
+
+        return {
+            kind = result,
+            value = emit("iadd " .. words[2] .. ", " .. emit("imul " .. off .. ", " .. constant("i64", "8")))
+        }
+    end
+
     -- The temporary direct path only assigns an address to the Nupp contract.
     -- Slot promotion, alias reasoning and publication belong to the Nupp graph.
     local function slotCall(n: any): any
@@ -1515,6 +1574,8 @@ local function compileDirectFunction(fn: Fn, options: any): string
             return intrinsic(n.obj.name.text, n.args.exprs or {}, n)
         elseif calledModule(n) == lower.PROGRAM then
             return programCall(n)
+        elseif calledModule(n) == lower.FRAMES then
+            return frameCall(n)
         elseif calledModule(n) == lower.SLOTS then
             return slotCall(n)
         elseif calledModule(n) == lower.SPECIALIZATION then
@@ -2268,6 +2329,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
                 required == INTRINSICS
                 or required == lower.PROGRAM
                 or required == lower.SLOTS
+                or required == lower.FRAMES
                 or required == lower.SPECIALIZATION
                 or required == ATOMICS
                 or HELPER_MODULES[required] ~= nil
