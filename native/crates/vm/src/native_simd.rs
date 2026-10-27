@@ -19,7 +19,6 @@ pub(crate) fn required(op: &Op) -> bool {
             | Op::VExtractN(..)
             | Op::VAny(..)
             | Op::VPrefix(..)
-            | Op::Raise(..)
     )
 }
 
@@ -151,7 +150,6 @@ pub(crate) fn verify(f: &Function) -> Result<(), String> {
             | Op::VExtractN(..)
             | Op::VAny(..)
             | Op::VPrefix(..)
-            | Op::Raise(..)
             | Op::IK(..)
             | Op::FK(..)
             | Op::K(..)
@@ -698,6 +696,24 @@ pub(crate) fn deferred_nan_with_liveness(f: &Function, live_out: &[[crate::verif
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_raise_accepts_float_parameters_and_vararg_functions() {
+        use crate::{interp::Interp, value::Value};
+        let image = "function floating 0 1 4 1 f:v\nconst 0 str \"'for' step is zero\"\nRaise 0\nend\nfunction variadic 1 0 4 1 :v vararg\nconst 0 str \"'for' step is zero\"\nRaise 0\nend\nentry 0\n";
+        let mut vm = Interp::new();
+        crate::image::load(&mut vm, image)
+            .expect("Raise is ordinary bytecode, independent of SIMD signature rules");
+        vm.install_globals();
+        assert!(!required(&Op::Raise(0)));
+        for fid in [0, 1] {
+            let result = vm.guarded(|vm| vm.call_value(Value::func(fid), &[Value::num(0.0)])[0]);
+            assert_eq!(result, Value::ERROR);
+            let problem = vm.pending_error.take().unwrap();
+            assert!(vm.bytes_of(problem).ends_with(b"'for' step is zero"));
+        }
+    }
+
     fn kernel() -> Function {
         let mut vm = crate::interp::Interp::new();
         crate::image::load(&mut vm,"function loop 0 1 3 12 v:v\nvectors 2\nSpanLen 0 1 9\nIK 1 0\nIK 2 4\nIAdd 3 1 2\nICmpLe 4 3 0\nJmpIfIZero 4 10\nIK 5 1\nIAdd 6 1 5\nIMaskU32 6 6\nIAddK 7 6 -1\nIK 8 4\nSpanBounds 1 7 8 9 0\nSpanLoad 0 1 7 8 9 0 2\nIAdd 9 1 2\nIMaskU32 1 9\nJmp -14\nRetNil\nend\nentry 0\n").unwrap();
