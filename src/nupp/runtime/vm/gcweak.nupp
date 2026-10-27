@@ -34,6 +34,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const objectweak = require("nupp.runtime.vm.objectweak")
+const marking = require("nupp.runtime.vm.marking")
 
 export const WEAK_KEYS: uint64 = 1
 export const WEAK_VALUES: uint64 = 2
@@ -41,18 +42,7 @@ export const WEAK_MODES: uint64 = 3
 
 --- Grays a white object, answering whether it did.
 local function grayIfWhite(h: heap.Heap*, value: uint64): boolean
-    @unsafe do
-        if value & values.TAG_MASK ~= values.TAG_OBJ then
-            return false
-        end
-        local o = native.pointer(value & values.PAYLOAD) as heap.Header*
-        if o.color as uint64 ~= heap.COLOR_WHITE then
-            return false
-        end
-        o.color = heap.COLOR_GRAY
-        heap.grayPush(h, o)
-        return true
-    end
+    return marking.shadeValue(h, value)
 end
 
 --- Whether a weak entry may drop `value`: an object other than a string, a
@@ -229,9 +219,7 @@ export function lookupHit(h: heap.Heap*, o: heap.Header*): boolean
             heap.PHASE_SWEEPING
         )
         if action == 1ULL then
-            o.color = heap.COLOR_GRAY
-            heap.grayPush(h, o)
-            h.stats.barrierGrays = h.stats.barrierGrays + 1
+            marking.barrierShade(h, heap.objectValue(o))
         elseif action == 2ULL then
             return false
         end

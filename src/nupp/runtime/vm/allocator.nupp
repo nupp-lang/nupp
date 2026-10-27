@@ -5,6 +5,7 @@ module nupp.runtime.vm.allocator
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
+const marking = require("nupp.runtime.vm.marking")
 
 export function allocatorArenaOpen(bytes: uint64): affine(arena.Arena*, arena.close)
     return arena.openGrowable(bytes)
@@ -65,6 +66,7 @@ export function allocatorSnapshot(h: heap.Heap*, out: voidptr): nil
         native.store64(out, 40, h.stats.chunks)
         native.store64(out, 48, h.stats.large)
         native.store64(out, 56, h.stats.chunkBytesMapped)
+        native.store64(out, 64, h.stats.barrierGrays)
     end
 end
 
@@ -100,4 +102,25 @@ end
 
 export function allocatorSlotBytes(class: uint64): uint64
     return heap.classBytes(class)
+end
+
+export function allocatorShade(h: heap.Heap*, value: uint64): uint64
+    return native.asWord(marking.shadeValue(h, value))
+end
+
+export function allocatorBarrier(h: heap.Heap*, parent: heap.Header*, child: uint64, active: uint64): nil
+    @unsafe h.marking = active
+    marking.insertionBarrier(h, parent, child)
+end
+
+export function allocatorBarrierShade(h: heap.Heap*, value: uint64): nil
+    marking.barrierShade(h, value)
+end
+
+export function allocatorGrayPop(h: heap.Heap*): uint64
+    return heap.grayPop(h)
+end
+
+export function allocatorGrayEmpty(h: heap.Heap*): uint64
+    return native.asWord(heap.grayEmpty(h))
 end

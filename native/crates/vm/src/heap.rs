@@ -434,7 +434,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 7);
+    assert!(crate::dispatch::OBJECT_ABI == 8);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
@@ -497,7 +497,6 @@ pub struct Heap {
     allocator: NativeAllocator,
     chunk_bytes_mapped: u64,
     live_count: usize,
-    gray: Vec<NonNull<Header>>,
     /// The root walk's candidate buffer, kept between walks.
     root_candidates: Vec<NonNull<Header>>,
     /// `GC_STATS=1`: time collection and report it at exit.
@@ -576,7 +575,7 @@ thread_local! { static NEVER: bool = std::env::var("GC_NEVER").is_ok(); }
 impl Heap {
     pub fn new() -> Heap {
         let env = |k: &str| std::env::var(k).is_ok();
-        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, gray: Vec::new(), root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
+        Heap { channels: HashMap::default(), allocator: NativeAllocator::new(), chunk_bytes_mapped: 0, live_count: 0, root_candidates: Vec::new(), timed: env("GC_STATS"), phase: Phase::Idle, sweep_chunk: 0, sweep_slot: 0, sweep_large: 0, debt: 0, threshold: 1 << 20, live_bytes: 0, automatic_collection: true, stress: env("GC_STRESS"), stress_steps: env("GC_INTERLEAVE"), oracle: env("GC_ORACLE"), quarantine: env("GC_QUARANTINE"), shapes: Vec::new(), shape_identities: HashMap::new(), interned: HashMap::default(), integers: HashMap::new(), stats: Stats::default(), storage_version: 0, alloc_kinds: [0; 13], marking: 0, weak: Vec::new(), mode_key: VT_EMPTY, record_type_key: VT_EMPTY, live_shapes: Vec::new(), declarations: HashMap::default(), mm_seen: 0, mm_keys: [VT_EMPTY; crate::metamethods::COUNT], proto_epoch: 0, proto_cache: HashMap::new(),
             #[cfg(feature = "allocation-metrics")]
             metrics: crate::allocation_metrics::new(),
         }
@@ -608,7 +607,8 @@ impl Heap {
     // The Nupp allocator owns these counters. Rust retains mirrors for the
     // collector's pacing and public diagnostics, never a second calculation.
     fn sync_allocator(&mut self) {
-        let [count, bytes, debt, allocated, freed, chunks, large, mapped] = self.allocator.snapshot();
+        let [count, bytes, debt, allocated, freed, chunks, large, mapped, barrier_grays] = self.allocator.snapshot();
+        self.stats.barrier_grays = barrier_grays;
         self.live_count = usize::try_from(count).expect("live object count");
         self.live_bytes = usize::try_from(bytes).expect("live byte count");
         self.debt = usize::try_from(debt).expect("allocation debt");
@@ -719,7 +719,7 @@ impl Heap {
             let action = nupp_object_weak_lookup_action(self.phase as u64, h.color as u64, h.epoch as u64, self.stats.cycles, COLOR_WHITE as u64, Phase::Marking as u64, Phase::Sweeping as u64);
             match action {
                 0 => true,
-                1 => { h.color = COLOR_GRAY; self.gray.push(p); self.stats.barrier_grays += 1; true }
+                1 => { self.allocator.barrier_shade(Value::obj(p)); self.sync_allocator(); true }
                 2 => false,
                 _ => panic!("invalid Nupp weak lookup action"),
             }
@@ -886,16 +886,8 @@ impl Heap {
     #[inline]
     pub fn barrier(&mut self, parent: NonNull<Header>, child: Value) {
         self.schema_write(parent);
-        if self.phase != Phase::Marking { return; }
-        if let Some(c) = child.as_obj() {
-            unsafe {
-                if (*parent.as_ptr()).color == COLOR_BLACK && (*c.as_ptr()).color == COLOR_WHITE {
-                    (*c.as_ptr()).color = COLOR_GRAY;
-                    self.gray.push(c);
-                    self.stats.barrier_grays += 1;
-                }
-            }
-        }
+        self.allocator.barrier(parent, child, self.phase == Phase::Marking);
+        self.sync_allocator();
     }
 
     /// Where collection may run (4.4). Pays allocation debt with marking or
@@ -1043,18 +1035,18 @@ impl Heap {
         if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.root_slots += root_slots; m.root_object_candidates += cands.len() as u64; m.root_passes += 1; }
         for &p in &cands {
             if !self.is_live_slot(p) { continue; }
-            unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; self.gray.push(p); } }
+            self.allocator.shade(Value::obj(p));
         }
         self.root_candidates = cands;
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { m.borrow_mut().shape_root_slots += self.shapes.iter().map(|s| s.names.len() + 2 * s.methods.len()).sum::<usize>() as u64; }
-        let gray = &mut self.gray;
+        let allocator = &mut self.allocator;
         let (key, declarations, live) = (self.record_type_key, &self.declarations, &self.live_shapes);
         for (id, s) in self.shapes.iter().enumerate() {
             let held = |k: &Value, v: &Value| k.0 != key || live.get(id).copied().unwrap_or(true) || !declarations.contains_key(&v.0);
-            for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.iter().filter(|(k, v)| held(k, v)).map(|(_, v)| v)) { if let Some(p) = n.as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } }
+            for &n in s.names.iter().chain(s.methods.keys()).chain(s.methods.iter().filter(|(k, v)| held(k, v)).map(|(_, v)| v)) { allocator.shade(n); }
         }
-        for &k in &self.mm_keys { if let Some(p) = Value(k).as_obj() { unsafe { if (*p.as_ptr()).color == COLOR_WHITE { (*p.as_ptr()).color = COLOR_GRAY; gray.push(p); } } } }
+        for &k in &self.mm_keys { allocator.shade(Value(k)); }
     }
 
     /// Once marking is done: a declaration no live instance or reference
@@ -1097,13 +1089,13 @@ impl Heap {
             let shape = h.shape() as usize;
             if let Some(live) = self.live_shapes.get_mut(shape) { *live = true; }
         }
-        let gray = &mut self.gray;
+        let allocator = &mut self.allocator;
         #[cfg(feature = "allocation-metrics")]
         let mut children = 0u64;
         Self::each_child(h, &mut |v| {
             #[cfg(feature = "allocation-metrics")]
             { children += 1; }
-            if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); } } } });
+            allocator.shade(v); });
         #[cfg(feature = "allocation-metrics")]
         if let Some(m) = &self.metrics { let mut m = m.borrow_mut(); m.scanned_objects += 1; m.child_slots += children; }
         unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
@@ -1118,19 +1110,19 @@ impl Heap {
     /// weak side is marked later, and `clear_weak` can drop what dies.
     fn scan_weak(&mut self, p: NonNull<Header>, mode: u8) {
         let t = unsafe { (*p.as_ptr()).table_ref() };
-        Self::mark_live_entries(&mut self.gray, t, mode);
-        if let Some(c) = t.meta.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; self.gray.push(c); } } }
+        Self::mark_live_entries(&mut self.allocator, t, mode);
+        self.allocator.shade(t.meta);
         self.weak.push((p, mode));
         unsafe { (*p.as_ptr()).color = COLOR_BLACK; }
     }
 
     /// Greys both sides of every entry of a weak table that survives as
     /// marking stands; answers whether anything was greyed.
-    fn mark_live_entries(gray: &mut Vec<NonNull<Header>>, t: &TablePayload, mode: u8) -> bool {
+    fn mark_live_entries(allocator: &mut NativeAllocator, t: &TablePayload, mode: u8) -> bool {
         let (weak_k, weak_v) = (mode & WEAK_KEYS != 0, mode & WEAK_VALUES != 0);
         let alive = |v: Value| Self::clearable(v).is_none_or(|p| unsafe { (*p.as_ptr()).color != COLOR_WHITE });
         let mut greyed = false;
-        let mut mark = |v: Value| { if let Some(c) = v.as_obj() { unsafe { if (*c.as_ptr()).color == COLOR_WHITE { (*c.as_ptr()).color = COLOR_GRAY; gray.push(c); greyed = true; } } } };
+        let mut mark = |v: Value| { greyed |= allocator.shade(v); };
         for &v in &t.array { if !weak_v || alive(v) { mark(v); } }
         for (k, v) in t.hash.iter() {
             if (!weak_k || alive(*k)) && (!weak_v || alive(*v)) { mark(*k); mark(*v); }
@@ -1147,7 +1139,7 @@ impl Heap {
         for &(p, mode) in &self.weak {
             let h = unsafe { &*p.as_ptr() };
             if h.kind != KIND_TABLE { continue; }
-            greyed |= Self::mark_live_entries(&mut self.gray, h.table_ref(), mode);
+            greyed |= Self::mark_live_entries(&mut self.allocator, h.table_ref(), mode);
         }
         greyed
     }
@@ -1161,10 +1153,10 @@ impl Heap {
         loop {
             match self.phase {
                 Phase::Marking => {
-                    while budget > 0 { match self.gray.pop() { Some(p) => { self.scan(p); budget -= 1; } None => break } }
+                    while budget > 0 { match self.allocator.gray_pop() { Some(p) => { self.scan(p); budget -= 1; } None => break } }
                     if budget == 0 { return; }
                     self.mark_roots(roots, true);
-                    if !self.gray.is_empty() || self.propagate_weak() { continue; }
+                    if !self.allocator.gray_empty() || self.propagate_weak() { continue; }
                     crate::heap_trace::marked(self, roots);
                     self.clear_weak();
                     self.proto_cache.clear();
@@ -1423,16 +1415,16 @@ mod tests {
             h.stats.cycles = 4;
             unsafe { (*p.as_ptr()).color = COLOR_WHITE; (*p.as_ptr()).epoch = 1; }
             assert_eq!(lookup(&mut h), Some(first));
-            assert!(h.gray.is_empty());
+            assert!(h.allocator.gray_empty());
             let barriers = h.stats.barrier_grays;
             h.phase = Phase::Marking;
             assert_eq!(lookup(&mut h), Some(first));
             assert_eq!(unsafe { (*p.as_ptr()).color }, COLOR_GRAY);
-            assert_eq!(h.gray, vec![p]);
+            assert_eq!(h.allocator.gray_pop(), Some(p));
+            assert!(h.allocator.gray_empty());
             assert_eq!(h.stats.barrier_grays, barriers + 1);
             assert_eq!(lookup(&mut h), Some(first));
-            assert_eq!(h.gray.len(), 1, "already-gray hit is not queued twice");
-            h.gray.clear();
+            assert!(h.allocator.gray_empty(), "already-gray hit is not queued twice");
             h.phase = Phase::Sweeping;
             unsafe { (*p.as_ptr()).color = COLOR_WHITE; (*p.as_ptr()).epoch = 4; }
             assert_eq!(lookup(&mut h), Some(first), "white survivor from this sweep stands");
@@ -1441,7 +1433,7 @@ mod tests {
             assert_eq!(lookup(&mut h), None, "old white hit cannot resurrect");
             assert_eq!(lookup(&mut h), None, "dead hit is removed from its weak map");
             assert_eq!(unsafe { (*p.as_ptr()).color }, COLOR_WHITE);
-            assert!(h.gray.is_empty());
+            assert!(h.allocator.gray_empty());
             let replacement = make(&mut h);
             assert_ne!(replacement, first);
             assert_eq!(lookup(&mut h), Some(replacement));
@@ -1451,9 +1443,96 @@ mod tests {
             h.phase = Phase::Marking;
             unsafe { (*replacement_pointer.as_ptr()).color = COLOR_WHITE; }
             assert_eq!(lookup(&mut h), Some(replacement));
-            assert_eq!(h.gray, vec![replacement_pointer]);
+            assert_eq!(h.allocator.gray_pop(), Some(replacement_pointer));
+            assert!(h.allocator.gray_empty());
             assert_eq!(h.stats.barrier_grays, barriers + 2);
         }
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn native_gray_worklist_deduplicates_and_reuses_multiple_arena_segments() {
+        let mut heap = Heap::new();
+        heap.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let headers: Vec<_> = (0..8192)
+            .map(|_| heap.new_cell(Value::NIL, &roots).as_obj().unwrap())
+            .collect();
+        for _ in 0..2 {
+            for &header in &headers {
+                unsafe {
+                    (*header.as_ptr()).color = COLOR_WHITE;
+                }
+                assert!(heap.allocator.shade(Value::obj(header)));
+                assert!(
+                    !heap.allocator.shade(Value::obj(header)),
+                    "a gray header is queued once"
+                );
+            }
+            assert!(!heap.allocator.gray_empty());
+            for &header in headers.iter().rev() {
+                assert_eq!(heap.allocator.gray_pop(), Some(header));
+            }
+            assert!(heap.allocator.gray_empty());
+            assert_eq!(heap.allocator.gray_pop(), None);
+        }
+        assert_eq!(heap.object_count(), headers.len());
+        assert_eq!(
+            heap.allocator.snapshot()[8],
+            0,
+            "ordinary shading is not a store barrier"
+        );
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn native_barriers_use_current_phase_with_collection_stopped() {
+        let mut heap = Heap::new();
+        heap.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let parent = heap.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        let child = heap.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        let other = heap.new_cell(Value::NIL, &roots).as_obj().unwrap();
+        unsafe {
+            (*parent.as_ptr()).color = COLOR_BLACK;
+        }
+        heap.barrier(parent, Value::obj(child));
+        assert!(heap.allocator.gray_empty());
+        heap.phase = Phase::Marking;
+        heap.barrier(parent, Value::obj(child));
+        heap.barrier(parent, Value::obj(child));
+        assert_eq!(heap.stats.barrier_grays, 1);
+        assert_eq!(heap.allocator.gray_pop(), Some(child));
+        assert_eq!(heap.allocator.gray_pop(), None);
+        for value in [
+            Value::NIL,
+            Value::FALSE,
+            Value::num(f64::NAN),
+            Value::num(-0.0),
+            Value::inline_integer(-1).unwrap(),
+        ] {
+            heap.barrier(parent, value);
+        }
+        assert!(heap.allocator.gray_empty());
+        assert_eq!(heap.stats.barrier_grays, 1);
+        unsafe {
+            (*parent.as_ptr()).color = COLOR_WHITE;
+        }
+        heap.barrier(parent, Value::obj(other));
+        assert!(heap.allocator.gray_empty());
+        unsafe {
+            (*parent.as_ptr()).color = COLOR_BLACK;
+        }
+        heap.phase = Phase::Idle;
+        heap.barrier(parent, Value::obj(other));
+        assert_eq!(unsafe { other.as_ref().color }, COLOR_WHITE);
+        assert!(heap.allocator.gray_empty());
+        heap.phase = Phase::Marking;
+        heap.barrier(parent, Value::obj(other));
+        assert_eq!(heap.stats.barrier_grays, 2);
+        assert_eq!(heap.allocator.gray_pop(), Some(other));
+        assert_eq!(heap.allocator.gray_pop(), None);
+        heap.phase = Phase::Idle;
     }
 
     #[cfg(feature = "native-runtime")]

@@ -57,7 +57,7 @@ local function write(path, text)
 end
 
 -- The runtime modules a fixture is compiled with.
-local RUNTIME = {"heap", "arena", "values", "objecthash", "objectweak"}
+local RUNTIME = {"heap", "arena", "values", "objecthash", "objectweak", "marking"}
 
 local compiled = {}
 
@@ -240,7 +240,8 @@ function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
             "arena",
             "values",
             "objecthash",
-            "objectweak"
+            "objectweak",
+            "marking"
         }),
         GRAPHS
     )
@@ -256,7 +257,8 @@ function M.allocationDebtPacesTheCycles()
         "arena",
         "values",
         "objecthash",
-        "objectweak"
+        "objectweak",
+        "marking"
     })
     local answer = tonumber(run(clif, "paced", {1000000, 100}))
     assert(answer and answer > 0, "paced answered " .. tostring(answer))
@@ -273,7 +275,8 @@ function M.allocationAndCollectionThroughputRun()
         "arena",
         "values",
         "objecthash",
-        "objectweak"
+        "objectweak",
+        "marking"
     })
     for _, case in ipairs({{"allocNanos", {1000000, 1}}, {"collectNanos", {500000}}}) do
         local nanos = tonumber(run(clif, case[1], case[2]))
@@ -367,7 +370,8 @@ local function replay(trace)
         "arena",
         "values",
         "objecthash",
-        "objectweak"
+        "objectweak",
+        "marking"
     })
     local output = run(clif, "replayTrace", {}, trace)
     local counts = {}
@@ -431,7 +435,19 @@ local WEAK = {
 }
 
 function M.weakTablesClearWhatOnlyTheyHold()
-    check(compileFixture("weak", {"heap", "collector", "gcweak", "arena", "values", "objecthash", "objectweak"}), WEAK)
+    check(
+        compileFixture("weak", {
+            "heap",
+            "collector",
+            "gcweak",
+            "arena",
+            "values",
+            "objecthash",
+            "objectweak",
+            "marking"
+        }),
+        WEAK
+    )
 end
 
 function M.ordinaryCallersTransportAllWeakActionWordsToTheLeaf()

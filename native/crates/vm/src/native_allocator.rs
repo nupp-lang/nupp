@@ -5,6 +5,7 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 use crate::heap::Header;
+use crate::value::Value;
 
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
@@ -25,6 +26,11 @@ unsafe extern "C" {
     fn nupp_allocator_resize(heap: *mut c_void, before: u64, after: u64, debt: u64);
     fn nupp_allocator_reclaim(heap: *mut c_void, header: *mut Header, stress: u64, quarantine: u64);
     fn nupp_allocator_snapshot(heap: *mut c_void, out: *mut u64);
+    fn nupp_allocator_shade(heap: *mut c_void, value: u64) -> u64;
+    fn nupp_allocator_barrier(heap: *mut c_void, parent: *mut Header, child: u64, marking: u64);
+    fn nupp_allocator_barrier_shade(heap: *mut c_void, value: u64);
+    fn nupp_allocator_gray_pop(heap: *mut c_void) -> *mut Header;
+    fn nupp_allocator_gray_empty(heap: *mut c_void) -> u64;
     fn nupp_allocator_chunk_count(heap: *mut c_void) -> u64;
     fn nupp_allocator_chunk(heap: *mut c_void, index: u64, out: *mut u64);
     fn nupp_allocator_large_count(heap: *mut c_void) -> u64;
@@ -84,12 +90,32 @@ impl NativeAllocator {
         linked! { unsafe { nupp_allocator_reclaim(self.heap.as_ptr(), header.as_ptr(), stress as u64, quarantine as u64); } }
     }
 
-    pub(crate) fn snapshot(&self) -> [u64; 8] {
+    pub(crate) fn snapshot(&self) -> [u64; 9] {
         linked! {
-            let mut words = [0; 8];
+            let mut words = [0; 9];
             unsafe { nupp_allocator_snapshot(self.heap.as_ptr(), words.as_mut_ptr()); }
             words
         }
+    }
+
+    pub(crate) fn shade(&mut self, value: Value) -> bool {
+        linked! { unsafe { nupp_allocator_shade(self.heap.as_ptr(), value.0) != 0 } }
+    }
+
+    pub(crate) fn barrier(&mut self, parent: NonNull<Header>, child: Value, marking: bool) {
+        linked! { unsafe { nupp_allocator_barrier(self.heap.as_ptr(), parent.as_ptr(), child.0, marking as u64); } }
+    }
+
+    pub(crate) fn barrier_shade(&mut self, value: Value) {
+        linked! { unsafe { nupp_allocator_barrier_shade(self.heap.as_ptr(), value.0); } }
+    }
+
+    pub(crate) fn gray_pop(&mut self) -> Option<NonNull<Header>> {
+        linked! { NonNull::new(unsafe { nupp_allocator_gray_pop(self.heap.as_ptr()) }) }
+    }
+
+    pub(crate) fn gray_empty(&self) -> bool {
+        linked! { unsafe { nupp_allocator_gray_empty(self.heap.as_ptr()) != 0 } }
     }
 
     pub(crate) fn chunk_count(&self) -> usize {
