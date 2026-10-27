@@ -1,0 +1,46 @@
+name: Bootstrap stage replay
+
+on:
+  push:
+    branches: [codex/native-bootstrap-replay]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            host: x86_64-unknown-linux-gnu
+          - os: windows-2022
+            host: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: 6b15d37c4e58fcad917b00bfc750bbc8ea8a4392
+          path: replay-source
+      - name: Retrieve the verified historical platform artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40515906870 -n bootstrap-seed-${{ matrix.host }} -D prior-release
+      - name: Compare native and reference compiler stages
+        env:
+          NUPP_VM_AUTO_REBUILD: "0"
+        run: python3 .github/scripts/bootstrap-seed-replay.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bootstrap-replay-${{ matrix.host }}
+          path: release/
+          if-no-files-found: error
