@@ -1,4 +1,4 @@
 module nupp.spi.index
+
 const _DYNAMIC_REQUIRES = ""
-export = {
-}
+export = {}
