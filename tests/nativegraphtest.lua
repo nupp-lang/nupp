@@ -114,6 +114,56 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.boxingHandlersPreserveEffectsAndRecoverAllocationWindows()
+    local _, options = checkedWithModules({"boxing", "protocol"})
+    options.helperModules["nupp.runtime.vm.numerichelpers"] = "nupp_rt_"
+    local scope = options.modules["nupp.runtime.vm.boxing"]
+    for _, name in ipairs({"TagCheckNum", "StrByte", "NewRecord"}) do
+        local fn = assert(scope.functions[name])
+        assert(nativegraph.admits(fn))
+        local g = nativegraph.compile(fn, options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        local recoveries, windows, calls = 0, 0, {}
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "FrameRecover" then
+                    recoveries = recoveries + 1
+                end
+                if op == "FrameWindow" then
+                    windows = windows + 1
+                end
+                if op == "NativeHelperCall" then
+                    local declaration = block.args[index][1]
+                    calls[declaration.name] = declaration
+                end
+            end
+        end
+        if name == "NewRecord" then
+            assert(recoveries == 1 and windows == 3)
+            local call = assert(calls.newRecord)
+            assert(call.effects.mayCollect and call.effects.mayRaise and not call.effects.mayPark)
+            assert(call.normalReturn.frame == "caller" and call.normalReturn.synchronized)
+            local authority = call.normalReturn
+            call.normalReturn = nil
+            assert(not pcall(graph.verify, g), "record allocation recovered windows without return authority")
+            call.normalReturn = authority
+            graph.verify(g)
+        else
+            assert(recoveries == 0 and windows == 0)
+            local failure = assert(calls.numericError)
+            assert(failure.effects.mayCollect and failure.effects.mayRaise)
+            if name == "TagCheckNum" then
+                assert(calls.numericKind.effects.pure)
+            end
+        end
+        fn.paramKinds[1] = "uint64"
+        assert(not pcall(nativegraph.compile, fn, options), "boxing handler bypassed signature validation")
+        fn.paramKinds[1] = "voidptr"
+    end
+end
+
 function M.moduleHandlersAndLoaderSupportUseVerifiedRecoveryGraphs()
     local _, options = checkedWithModules({"modules", "protocol"})
     options.helperModules["nupp.runtime.vm.modulehelpers"] = "nupp_module_"

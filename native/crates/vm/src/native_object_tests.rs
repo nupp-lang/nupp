@@ -3,6 +3,49 @@ use super::*;
 use crate::{interp::Op, numeric::Integer, value::Value};
 
 #[test]
+fn native_objects_record_allocation_recovers_live_windows() {
+    for dest in [0, 1] {
+        let (mut vm, tid) = fixture(Op::NewRecord(dest, 0));
+        let name = vm.intern("field");
+        assert_eq!(
+            vm.heap
+                .shape("BoxingRecord", &[name], &[crate::heap::SlotTy::Any]),
+            0
+        );
+        let survivor = vm.new_table();
+        put(&mut vm, tid, 1, survivor);
+        put(&mut vm, tid, 2, survivor);
+        intput(&mut vm, tid, 0, i64::MIN as u64);
+        let float_at = vm.tasks[tid].cur() + vm.funcs[0].off_f();
+        vm.tasks[tid].stack[float_at] = (-0.0f64).to_bits();
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        let ctx = direct(&mut vm, tid, 1);
+        assert_ne!(ctx.status, ST_ERROR);
+        let record = value(&vm, tid, dest as usize);
+        assert_eq!(
+            unsafe { record.as_obj().unwrap().as_ref().kind },
+            crate::heap::KIND_RECORD
+        );
+        assert_eq!(vm.get_index(record, name), Value::NIL);
+        assert_eq!(value(&vm, tid, 2), survivor);
+        assert_eq!(
+            super::native_numeric_tests::intget(&vm, tid, 0),
+            i64::MIN as u64
+        );
+        assert_eq!(vm.tasks[tid].stack[float_at], (-0.0f64).to_bits());
+        assert_eq!(ctx.stack, vm.tasks[tid].stack.as_mut_ptr());
+        assert_eq!(ctx.cur as usize, vm.tasks[tid].cur());
+        vm.full_cycle();
+        vm.check_oracle();
+        assert!(vm.heap.is_live_slot(survivor.as_obj().unwrap()));
+        assert!(vm.heap.is_live_slot(record.as_obj().unwrap()));
+    }
+}
+
+#[test]
 fn native_objects_wide_indices_keep_exact_keys_and_roots() {
     for bits in [
         i64::MIN,

@@ -50,6 +50,7 @@ local record Helpers
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     barrier: function(context: voidptr, parent: uint64, child: uint64): nil
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    @vmNormalReturn(context = 1, frame = "caller", outcomes = "ready-error", synchronized = true)
     newRecord: function(context: voidptr, shape: int64): uint64
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     eqSlow: function(context: voidptr, left: uint64, right: uint64): uint64

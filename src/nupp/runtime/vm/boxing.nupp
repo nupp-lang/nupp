@@ -44,9 +44,9 @@ export function StrByte(
     local valid: boolean = false
     if object & values.TAG_MASK == values.TAG_OBJ then
         local kind = native.load8(native.pointer(object & values.PAYLOAD), native.layout("Header.kind"))
-        valid = kind == values.KIND_STRING or kind == values.KIND_SLICE
+        valid = native.either(kind == values.KIND_STRING, kind == values.KIND_SLICE)
     end
-    if not valid then
+    if valid == false then
         protocol.publishPc(pc, context)
         numeric.numericError(context, 5)
         return native.fail()

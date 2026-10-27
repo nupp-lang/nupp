@@ -201,6 +201,10 @@ function nativegraph.admits(fn: any): boolean
             fn.scope.name == "nupp.runtime.vm.modules"
             and (fn.name == "Require" or fn.name == "RequireV" or fn.name == "SetMethod" or fn.name == "requireSlow")
         )
+        or (
+            fn.scope.name == "nupp.runtime.vm.boxing"
+            and (fn.name == "TagCheckNum" or fn.name == "StrByte" or fn.name == "NewRecord")
+        )
         or nativegraph.isLeaf(fn)
 end
 

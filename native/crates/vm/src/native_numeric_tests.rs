@@ -617,6 +617,37 @@ fn native_numeric_string_byte_negative_indices_match_exact_oracle() {
     }
 }
 
+#[test]
+fn native_numeric_boxing_errors_preserve_aliased_destinations_and_live_roots() {
+    for op in [Op::TagCheckNum(1, 1), Op::StrByte(1, 1, 0)] {
+        let (mut vm, tid) = fixture(op);
+        let input = vm.new_table();
+        put(&mut vm, tid, 1, input);
+        put(&mut vm, tid, 2, input);
+        intput(&mut vm, tid, 0, i64::MIN as u64);
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        assert_eq!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        assert_eq!(value(&vm, tid, 1), input);
+        assert_eq!(value(&vm, tid, 2), input);
+        assert_eq!(intget(&vm, tid, 0), i64::MIN as u64);
+        vm.full_cycle();
+        vm.check_oracle();
+        assert!(vm.heap.is_live_slot(input.as_obj().unwrap()));
+        let error = vm.pending_error.take().unwrap();
+        assert_eq!(
+            vm.bytes_of(error),
+            if matches!(op, Op::TagCheckNum(..)) {
+                b"runtime error: value is not a number".as_slice()
+            } else {
+                b"runtime error: byte of a non-string".as_slice()
+            }
+        );
+    }
+}
+
 pub(super) fn arithmetic_alias_contract() {
     for dest in [0u8, 1, 255] {
         for operation in 0..7 {
