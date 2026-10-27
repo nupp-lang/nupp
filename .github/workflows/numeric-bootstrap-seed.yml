@@ -3,6 +3,11 @@ name: Numeric bootstrap execution seeds
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: Platform cold consumer gates
+        type: choice
+        options: [all, windows, linux]
+        default: all
       seed_run:
         description: Reuse manufactured numeric seeds from this workflow run
         default: ""
@@ -17,11 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-24.04
-            host: x86_64-unknown-linux-gnu
-          - os: windows-2022
-            host: x86_64-pc-windows-gnu
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-2022","host":"x86_64-pc-windows-gnu"}]' || inputs.platform == 'linux' && '[{"os":"ubuntu-24.04","host":"x86_64-unknown-linux-gnu"}]' || '[{"os":"ubuntu-24.04","host":"x86_64-unknown-linux-gnu"},{"os":"windows-2022","host":"x86_64-pc-windows-gnu"}]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     defaults:
