@@ -829,7 +829,12 @@ local function resumeCaller(
     if native.load32(callerInfo, native.layout("FuncInfo.native")) ~= 0 then
         return enterFrameSlow(callerPc, context, native.index(header >> 32), 0)
     else
-        if native.both(delivered >= 0, program.readByte(callerPc, 0) == native.layout("Code.PadResults")) then
+        -- A one-handler machine entry must stop before the next instruction.
+        -- Compiled callers resume at their PadResults and retain that boundary.
+        if native.both(
+            native.load32(context, native.layout("single_step")) == 0,
+            native.both(delivered >= 0, program.readByte(callerPc, 0) == native.layout("Code.PadResults"))
+        ) then
             local base = program.readByte(callerPc, 1)
             local wanted = program.readByte(callerPc, 2)
             if native.both(base == delivered, wanted <= 8) then

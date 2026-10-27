@@ -20,8 +20,8 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 78] = [
-    "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
+pub const LAYOUT_FIELDS: [&str; 79] = [
+    "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries", "single_step",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
     "FuncInfo.frame_words", "FuncInfo.nparams", "FuncInfo.off_i", "FuncInfo.off_f",
@@ -58,6 +58,7 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "result" => offset_of!(Ctx, result),
         "last_nres" => offset_of!(Ctx, last_nres),
         "feedback" => offset_of!(Ctx, feedback),
+        "single_step" => offset_of!(Ctx, single_step),
         "guard" => offset_of!(Ctx, guard),
         "unavailable_fid" => offset_of!(Ctx, unavailable_fid),
         "FuncInfo.code" => offset_of!(FuncInfo, code),
@@ -336,6 +337,7 @@ fn metadata_header() -> String {
         ("result", offset_of!(Ctx, result)),
         ("last_nres", offset_of!(Ctx, last_nres)),
         ("feedback", offset_of!(Ctx, feedback)),
+        ("single_step", offset_of!(Ctx, single_step)),
         ("guard", offset_of!(Ctx, guard)),
         ("unavailable_fid", offset_of!(Ctx, unavailable_fid)),
         ("frame_threshold", offset_of!(Ctx, frame_threshold)),

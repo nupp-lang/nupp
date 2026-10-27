@@ -163,3 +163,31 @@ fn disabled_chain_still_prepares_and_runs_shared_handlers() {
         );
     }
 }
+
+#[test]
+fn single_handler_returns_stop_before_caller_result_padding() {
+    let mut vm = vm(
+        "function caller 0 0 8 0 :v\nCall 1 1 0\nPadResults 1 2\nRet 1\nend\nfunction callee 1 0 4 0 :v\nconst 0 int64 9\nK 1 0\nRet 1\nend\nentry 0\n",
+    );
+    let tid = vm.spawn(0, &[]);
+    vm.tasks[tid].stack[4 + 2] = Value::TRUE.0;
+    assert!(matches!(vm.native_handler_step(tid, 0), Step::Reenter));
+    assert!(matches!(vm.native_handler_step(tid, 0), Step::Next(1)));
+    assert!(matches!(vm.native_handler_step(tid, 1), Step::Reenter));
+    assert_eq!(vm.tasks[tid].cur(), 0);
+    assert_eq!(
+        vm.tasks[tid].stack[0] >> 32,
+        1,
+        "one handler must preserve the caller's next instruction"
+    );
+    assert_eq!(
+        vm.tasks[tid].stack[4 + 2],
+        Value::TRUE.0,
+        "padding has not executed yet"
+    );
+    assert!(matches!(vm.native_handler_step(tid, 1), Step::Next(2)));
+    assert_eq!(vm.tasks[tid].stack[4 + 2], Value::NIL.0);
+    assert!(
+        matches!(vm.native_handler_step(tid, 2), Step::Return(Outcome::Done(value)) if value == Value::inline_integer(9).unwrap())
+    );
+}

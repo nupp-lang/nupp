@@ -2,8 +2,8 @@
 //! plan's "JIT specialization and deoptimization" document). The programs in
 //! `tests/specialize/` are emitted into `specialize.image` (committed, like
 //! `checkpoint.image`, so a fresh checkout builds the tests); every tier, with
-//! feedback off, on, and specializing, must answer what the Rust loop with
-//! feedback off answers, under the collector's verification modes too. The
+//! feedback off, on, and specializing, must answer what the shared Nupp handlers with
+//! feedback off answer, under the collector's verification modes too. The
 //! scenario tests then read the VM's counters to show which path ran: guard
 //! hits, misses to the generic path, invalidation on mutation and on a hot
 //! patch, the version cap, and deopt exits with every kind of live value.
@@ -19,7 +19,7 @@ const PROGRAMS: &[&str] = &["cases", "classes", "poly", "shapes"];
 /// enters it as compiled code would (`call_direct`): the interpreter itself
 /// enters compiled code only through frame entries, which is `Frames`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Tier { Rust, Threaded, Eager, Frames }
+enum Tier { Single, Threaded, Eager, Frames }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Gc { Plain, Interleave, Stress }
@@ -45,7 +45,8 @@ fn fixture_of(text: &str, tier: Tier, spec: Spec, gc: Gc) -> Box<Interp> {
     vm.spec.limits.tier_calls = 200;
     vm.spec.limits.miss_limit = 50;
     vm.spec.limits.deopt_limit = 20;
-    if tier != Tier::Rust { vm.prepare_threaded(); }
+    vm.prepare_threaded();
+    vm.threaded = tier != Tier::Single;
     if matches!(tier, Tier::Eager | Tier::Frames) {
         use nupp_vm::{compiled, jit::Jit};
         let mut jit = Jit::new();
@@ -124,14 +125,14 @@ fn fid(vm: &Interp, module: &str, name: &str) -> u32 {
 }
 
 fn expected() -> Vec<String> {
-    let mut vm = fixture(Tier::Rust, Spec::Off, Gc::Plain);
-    PROGRAMS.iter().map(|p| text(&mut vm, Tier::Rust, p)).collect()
+    let mut vm = fixture(Tier::Single, Spec::Off, Gc::Plain);
+    PROGRAMS.iter().map(|p| text(&mut vm, Tier::Single, p)).collect()
 }
 
 #[test]
 fn every_tier_agrees_with_feedback_off_on_and_specializing() {
     let want = expected();
-    for tier in [Tier::Rust, Tier::Threaded, Tier::Eager, Tier::Frames] {
+    for tier in [Tier::Single, Tier::Threaded, Tier::Eager, Tier::Frames] {
         for spec in [Spec::Off, Spec::Feedback, Spec::Specialize] {
             let mut vm = fixture(tier, spec, Gc::Plain);
             for (p, w) in PROGRAMS.iter().zip(&want) {
@@ -145,7 +146,7 @@ fn every_tier_agrees_with_feedback_off_on_and_specializing() {
 
 #[test]
 fn the_deopt_program_agrees_on_every_tier() {
-    let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
+    let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Single, Spec::Off, Gc::Plain); text(&mut vm, Tier::Single, "deopt") };
     for tier in [Tier::Threaded, Tier::Eager, Tier::Frames] {
         for spec in [Spec::Off, Spec::Feedback, Spec::Specialize] {
             let mut vm = fixture_of(DEOPT_IMAGE, tier, spec, Gc::Plain);
@@ -169,11 +170,11 @@ fn specialized_tiers_agree_under_collector_verification() {
 /// Every scenario of `cases.lua` with a full collection at every safepoint.
 #[test]
 fn scenarios_hold_under_collector_stress() {
-    for tier in [Tier::Rust, Tier::Eager, Tier::Frames] {
-        let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
+    for tier in [Tier::Single, Tier::Eager, Tier::Frames] {
+        let mut plain = fixture(Tier::Single, Spec::Off, Gc::Plain);
         let mut vm = fixture(tier, Spec::Specialize, Gc::Stress);
         for export in ["monomorphic", "miss", "mutate", "metatable", "unstable", "weak"] {
-            let want = call(&mut plain, Tier::Rust, "cases", export, &[Value::num(400.0)]);
+            let want = call(&mut plain, Tier::Single, "cases", export, &[Value::num(400.0)]);
             assert_eq!(call(&mut vm, tier, "cases", export, &[Value::num(400.0)]), want, "{export} on {tier:?} under stress");
         }
     }
@@ -208,9 +209,9 @@ fn a_failed_guard_takes_the_generic_path_and_respecializes() {
 fn replacing_a_method_or_a_metatable_invalidates_what_code_assumed() {
     for tier in [Tier::Eager] {
         let mut vm = fixture(tier, Spec::Specialize, Gc::Interleave);
-        let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
+        let mut plain = fixture(Tier::Single, Spec::Off, Gc::Plain);
         for export in ["mutate", "metatable"] {
-            let want = call(&mut plain, Tier::Rust, "cases", export, &[Value::num(2000.0)]);
+            let want = call(&mut plain, Tier::Single, "cases", export, &[Value::num(2000.0)]);
             assert_eq!(call(&mut vm, tier, "cases", export, &[Value::num(2000.0)]), want, "{export} on {tier:?}");
         }
         assert!(vm.spec.stats.misses > 0, "the replaced method or metatable missed the guard on {tier:?}");
@@ -220,8 +221,8 @@ fn replacing_a_method_or_a_metatable_invalidates_what_code_assumed() {
 #[test]
 fn unstable_sites_settle_within_the_version_cap() {
     let mut vm = fixture(Tier::Frames, Spec::Specialize, Gc::Plain);
-    let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
-    let want = call(&mut plain, Tier::Rust, "cases", "unstable", &[Value::num(20000.0)]);
+    let mut plain = fixture(Tier::Single, Spec::Off, Gc::Plain);
+    let want = call(&mut plain, Tier::Single, "cases", "unstable", &[Value::num(20000.0)]);
     assert_eq!(call(&mut vm, Tier::Frames, "cases", "unstable", &[Value::num(20000.0)]), want);
     let max = vm.spec.limits.max_versions;
     for f in vm.spec.funcs.iter().flatten() { assert!(f.kind(false).specialized <= max && f.kind(true).specialized <= max, "a function past the version cap"); }
@@ -235,7 +236,7 @@ fn unstable_sites_settle_within_the_version_cap() {
 /// pending: each must survive, and the cleanup run once per call.
 #[test]
 fn deopt_exits_resume_every_live_value() {
-    let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
+    let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Single, Spec::Off, Gc::Plain); text(&mut vm, Tier::Single, "deopt") };
     assert!(want.contains("closed=3300"), "every lease closed once: {want}");
     for gc in [Gc::Plain, Gc::Interleave] {
         let mut vm = fixture_of(DEOPT_IMAGE, Tier::Frames, Spec::Specialize, gc);
@@ -277,8 +278,8 @@ fn a_patched_body_drops_the_versions_that_assumed_the_old_one() {
 /// are compared), and a VM restored from it starts with none.
 #[test]
 fn checkpoints_do_not_carry_feedback() {
-    let mut vm = fixture(Tier::Rust, Spec::Feedback, Gc::Plain);
-    let want = text(&mut vm, Tier::Rust, "cases");
+    let mut vm = fixture(Tier::Single, Spec::Feedback, Gc::Plain);
+    let want = text(&mut vm, Tier::Single, "cases");
     assert!(vm.spec.sites > 0, "feedback was collected");
     let with = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
     let _ = std::mem::take(&mut vm.spec);
@@ -288,15 +289,15 @@ fn checkpoints_do_not_carry_feedback() {
         let mut restored = persist::load_vm(bytes, &Policies::default(), &mut ResourceCodecs::new()).unwrap();
         assert!(restored.spec.funcs.is_empty() && restored.spec.sites == 0, "a restored VM starts with no feedback");
         restored.spec.feedback = true;
-        assert_eq!(text(&mut restored, Tier::Rust, "cases"), want);
+        assert_eq!(text(&mut restored, Tier::Single, "cases"), want);
     }
 }
 
 #[test]
 fn the_feedback_budget_refuses_once_and_allocates_nothing() {
-    let mut vm = fixture(Tier::Rust, Spec::Feedback, Gc::Plain);
+    let mut vm = fixture(Tier::Single, Spec::Feedback, Gc::Plain);
     vm.spec.limits.max_bytes = 0;
-    text(&mut vm, Tier::Rust, "cases");
+    text(&mut vm, Tier::Single, "cases");
     assert_eq!(vm.spec.bytes, 0);
     assert!(vm.spec.funcs.iter().all(|f| f.is_none()), "no record was made");
     assert!(vm.spec.refused.iter().any(|&r| r), "refusals are remembered");
@@ -307,7 +308,7 @@ fn the_feedback_budget_refuses_once_and_allocates_nothing() {
 #[test]
 fn forced_guard_failures_change_no_answer() {
     let want = expected();
-    let want_deopt = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Rust, Spec::Off, Gc::Plain); text(&mut vm, Tier::Rust, "deopt") };
+    let want_deopt = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Single, Spec::Off, Gc::Plain); text(&mut vm, Tier::Single, "deopt") };
     for tier in [Tier::Eager, Tier::Frames] {
         for period in [1, 3, 17] {
             let chaotic = |image| {
@@ -459,8 +460,8 @@ fn plans_are_checked_before_anything_compiles() {
 #[test]
 fn a_dynamic_call_target_goes_through_the_shared_contracts() {
     for chaos in [0, 2] {
-        let mut plain = fixture(Tier::Rust, Spec::Off, Gc::Plain);
-        let want = call(&mut plain, Tier::Rust, "classes", "main", &[]);
+        let mut plain = fixture(Tier::Single, Spec::Off, Gc::Plain);
+        let want = call(&mut plain, Tier::Single, "classes", "main", &[]);
         let want = String::from_utf8_lossy(plain.bytes_of(want)).into_owned();
         let mut vm = fixture(Tier::Eager, Spec::Specialize, Gc::Interleave);
         vm.spec.limits.chaos = chaos;
