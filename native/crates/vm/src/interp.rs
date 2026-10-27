@@ -1814,8 +1814,8 @@ impl Interp {
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
         let h = hdr!(self, t, "pairs of a non-table");
         match h.kind {
-            KIND_TABLE => { let tb = h.table_ref(); let mut keys: Vec<Value> = (1..=tb.array.len()).filter(|&i| tb.array[i - 1] != Value::NIL).map(|i| Value::num(i as f64)).collect(); keys.extend(tb.hash.iter().map(|(k, _)| *k)); keys }
-            KIND_RECORD => { let a = h.record_array_ref(); let mut keys: Vec<Value> = (1..=a.len()).filter(|&i| a[i - 1] != Value::NIL).map(|i| Value::num(i as f64)).collect(); keys.extend(self.heap.shapes[h.shape() as usize].names.iter().enumerate().filter(|(i, _)| h.slots()[*i] != Value::NIL).map(|(_, &name)| name)); if let Some(m) = h.record_extra_ref() { keys.extend(m.iter().filter(|(_, value)| **value != Value::NIL).map(|(&key, _)| key)); } keys }
+            KIND_TABLE => { let tb = h.table_ref(); let mut keys: Vec<Value> = (1..=tb.array.len()).filter(|&i| tb.array[i - 1] != Value::NIL).map(|i| Value::inline_integer(i as i64).expect("array index exceeds immediate integer range")).collect(); keys.extend(tb.hash.iter().map(|(k, _)| *k)); keys }
+            KIND_RECORD => { let a = h.record_array_ref(); let mut keys: Vec<Value> = (1..=a.len()).filter(|&i| a[i - 1] != Value::NIL).map(|i| Value::inline_integer(i as i64).expect("array index exceeds immediate integer range")).collect(); keys.extend(self.heap.shapes[h.shape() as usize].names.iter().enumerate().filter(|(i, _)| h.slots()[*i] != Value::NIL).map(|(_, &name)| name)); if let Some(m) = h.record_extra_ref() { keys.extend(m.iter().filter(|(_, value)| **value != Value::NIL).map(|(&key, _)| key)); } keys }
             _ => self.err("pairs of a non-table"),
         }
     }

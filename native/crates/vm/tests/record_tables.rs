@@ -88,6 +88,44 @@ fn string_capture_results_survive_later_capture_allocations() {
     }
 }
 #[test]
+fn table_and_record_array_iteration_returns_exact_integer_keys() {
+    for record in [false, true] {
+        let mut vm = Interp::new();
+        vm.install_globals();
+        let table = if record {
+            let shape = vm.heap.shape("IntegerKeys", &[], &[]);
+            vm.new_record(shape)
+        } else {
+            vm.new_table()
+        };
+        vm.register(table);
+        for i in 1..=3 {
+            vm.set_index(table, Value::inline_integer(i).unwrap(), Value::TRUE);
+        }
+        vm.set_index(table, Value::inline_integer(2).unwrap(), Value::NIL);
+        let expected = [Value::inline_integer(1).unwrap(), Value::inline_integer(3).unwrap()];
+        let keys = vm.table_keys(table);
+        assert_eq!(keys, expected, "record={record}");
+        assert_eq!(keys.iter().map(|key| key.as_inline_integer()).collect::<Vec<_>>(), [Some(1), Some(3)]);
+        let iterator = call(&mut vm, id_of("pairs").unwrap(), &[table])[0];
+        vm.register(iterator);
+        let mut last = Value::NIL;
+        for key in expected {
+            assert!(!key.is_float());
+            let pair = iter_next(&mut vm, iterator);
+            assert_eq!(pair.as_slice(), [key, Value::TRUE], "pairs record={record}");
+            assert!(!pair[0].is_float());
+            let next = call(&mut vm, id_of("next").unwrap(), &[table, last]);
+            assert_eq!(next.as_slice(), [key, Value::TRUE], "next record={record}");
+            assert!(!next[0].is_float());
+            last = key;
+        }
+        assert_eq!(iter_next(&mut vm, iterator).as_slice(), [Value::NIL]);
+        assert_eq!(call(&mut vm, id_of("next").unwrap(), &[table, last]).as_slice(), [Value::NIL]);
+    }
+}
+
+#[test]
 fn record_table_iteration_omits_absent_and_deleted_values() {
     let mut vm = Interp::new();
     vm.install_globals();
@@ -465,7 +503,7 @@ fn shaped_tables_keep_sparse_numeric_keys_and_promote_contiguous_entries() {
     vm.set_index(table, Value::num(2.0), Value::FALSE);
     assert_eq!(vm.array_len(table), 3);
     assert_eq!(vm.get_index(table, Value::num(3.0)), child);
-    assert_eq!(vm.table_keys(table).iter().filter(|&&k| k == Value::num(3.0)).count(), 1);
+    assert_eq!(vm.table_keys(table).iter().filter(|&&k| k == Value::inline_integer(3).unwrap()).count(), 1);
     vm.set_index(table, Value::num(3.0), Value::NIL);
     assert_eq!(vm.array_len(table), 2);
     vm.set_index(table, Value::num(5.0), child);
