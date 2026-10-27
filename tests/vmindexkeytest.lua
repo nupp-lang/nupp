@@ -47,6 +47,25 @@ return math.type(first), math.type(second), 1 / positive, 1 / negative, tostring
     end
 end
 
+function M.annotatedIntegerConstantsPreserveAllBits()
+    local first, second, minimum, nextMinimum, maximum = compile(
+        "vmindexkeytest.annotatedIntegerConstants.fragment",
+        [[
+local first: integer = 9007199254740993
+local second: integer = 9007199254740995
+local minimum: integer = 0x8000000000000000
+local nextMinimum: integer = -9223372036854775807
+local maximum: integer = 9223372036854775807
+return tostring(first), tostring(second), tostring(minimum), tostring(nextMinimum), tostring(maximum)
+]]
+    )
+    test.equal(first, "9007199254740993")
+    test.equal(second, "9007199254740995")
+    test.equal(minimum, "-9223372036854775808")
+    test.equal(nextMinimum, "-9223372036854775807")
+    test.equal(maximum, "9223372036854775807")
+end
+
 function M.aZeroHeadIntegerCallReachesIndexWithNil()
     local run = compile(
         "vmindexkeytest.aZeroHeadIntegerCallReachesIndexWithNil.fragment",

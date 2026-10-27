@@ -246,7 +246,8 @@ function fixedCheck.install(c: state.Checker): Ops
             end
             if inner and inner.kind == "number" and literal.tag == "literal" and type(literal.constant) == "number" then
                 node.wideIntegerLiteralTag = rawTarget.tag
-                node.wideIntegerLiteralText = ("%.0f"):format(literal.constant)
+                node.wideIntegerLiteralText = math.type(literal.constant) == "integer" and tostring(literal.constant)
+                    or ("%.0f"):format(literal.constant)
             end
         end
         if ok and fixed.requiresTrust(target) and not sourceTrusted(node) then
