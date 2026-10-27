@@ -60,6 +60,12 @@ impl Interp {
         let roots = self.open_scope();
         let cancellation = self.active_cancellation.take();
         let nres = self.last_nres;
+        // Cleanup callbacks have their own results. Keep the interrupted
+        // instruction's live tail rooted even after a callback overwrites
+        // the VM's shared result storage.
+        let extra_n = self.extra_n;
+        let extra = self.extra[..extra_n].to_vec();
+        self.handles.extend_from_slice(&extra);
         let mut failure = None;
         while self.tasks[tid].cleanups.len() > keep {
             let cleanup = self.tasks[tid].cleanups.pop().unwrap();
@@ -92,6 +98,8 @@ impl Interp {
                 self.handles.push(v);
             }
         }
+        self.extra[..extra_n].copy_from_slice(&extra);
+        self.extra_n = extra_n;
         self.last_nres = nres;
         self.active_cancellation = cancellation;
         self.close_scope(roots);
@@ -148,6 +156,19 @@ impl Interp {
         put(self, state, "pc", Value::num(pc as f64));
         put(self, state, "primary", error);
         put(self, state, "nres", Value::num(self.last_nres as f64));
+        // The unwind state is ordinary serialized data, so a suspended
+        // cleanup retains the result tail across other tasks and snapshots.
+        // Preserve its explicit count: nil tail entries do not extend a table.
+        let extra_n = self.extra_n;
+        let extra = self.extra[..extra_n].to_vec();
+        self.handles.extend_from_slice(&extra);
+        let saved_extra = self.new_table_sized(extra_n, 0);
+        self.handles.push(saved_extra);
+        for (i, value) in extra.into_iter().enumerate() {
+            self.set_index(saved_extra, Value::num((i + 1) as f64), value);
+        }
+        put(self, state, "extra", saved_extra);
+        put(self, state, "extra_n", Value::num(extra_n as f64));
         if let Some(h) = handler {
             put(self, state, "caller", Value::num(h.caller as f64));
             put(self, state, "result", Value::num(h.result as f64));
@@ -280,6 +301,12 @@ impl Interp {
                 );
             }
         }
+        let extra = field(self, state, "extra");
+        let extra_n = field(self, state, "extra_n").as_num() as usize;
+        for i in 0..extra_n {
+            self.extra[i] = self.get_index(extra, Value::num((i + 1) as f64));
+        }
+        self.extra_n = extra_n;
         self.last_nres = field(self, state, "nres").as_num() as usize;
         None
     }

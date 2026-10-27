@@ -3565,3 +3565,143 @@ entry 0
         }
     }
 }
+
+fn trailing_cleanup_pack_contract(threaded: bool, scheduled: bool) {
+    for trailing_nil in [false, true] {
+        trailing_cleanup_pack_case(threaded, scheduled, trailing_nil);
+    }
+}
+
+fn trailing_cleanup_pack_case(threaded: bool, scheduled: bool, trailing_nil: bool) {
+    let mut source = String::from(
+        "function root 0 1 32 4 v:v\nconst 0 func 2\nK 2 0\nDefer 1 2\nDefer 1 2\nMove 6 1\nCall 1 5 1\nRetN 5 128\nend\n",
+    );
+    for fid in 1..=3 {
+        if fid == 2 {
+            source.push_str("function cleanup 2 1 40 4 v:v\n");
+            if scheduled {
+                source
+                    .push_str("const 0 str \"nupp.host\"\nconst 1 str \"sleep\"\nconst 2 num 5\n");
+            }
+            source.push_str("Move 2 1\nCall 3 1 1\nPadResults 1 12\n");
+            if scheduled {
+                source.push_str("Require 21 0\nGetField 22 21 1\nK 24 2\nCallDyn 22 23 1\n");
+            }
+            source.push_str("RetN 1 12\nend\n");
+            continue;
+        }
+        let start = if fid == 1 { 1 } else { 101 };
+        source.push_str(&format!(
+            "function pack{fid} {fid} 1 40 4 v:v\nconst 0 str \"marker\"\n"
+        ));
+        for i in 1..=12 {
+            source.push_str(&format!("const {i} num {}\n", start + i - 1));
+        }
+        for i in 1..=12 {
+            if fid == 1 && i == 12 && trailing_nil {
+                source.push_str("Nil 12\n");
+            } else {
+                source.push_str(&format!("NewTable {i}\nK 20 {i}\nSetField {i} 0 20\n"));
+            }
+        }
+        source.push_str("RetN 1 12\nend\n");
+    }
+    source.push_str("entry 0\n");
+    let mut vm = Box::new(crate::interp::Interp::new());
+    crate::image::load(&mut vm, &source).unwrap();
+    vm.install_globals();
+    let host = vm.host_table();
+    vm.loaded.insert("nupp.host".into(), host);
+    vm.prepare_threaded();
+    vm.threaded = threaded;
+    let owner = vm.new_table();
+    vm.registered.push(owner);
+    vm.heap.stress = true;
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    let tid = if scheduled {
+        vm.enable_scheduler().unwrap();
+        let task = vm.schedule(Value::func(0), &[owner], None).unwrap();
+        vm.run_ready(16).unwrap();
+        assert_eq!(vm.scheduler.as_ref().unwrap().next_wakeup(), Some(5));
+        let snapshot = crate::persist::save_vm(
+            &mut vm,
+            &crate::persist::Policies::default(),
+            &mut crate::persist::ResourceCodecs::default(),
+        )
+        .unwrap();
+        vm = Box::new(
+            crate::persist::load_vm(
+                &snapshot,
+                &crate::persist::Policies::default(),
+                &mut crate::persist::ResourceCodecs::default(),
+            )
+            .unwrap(),
+        );
+        vm.prepare_threaded();
+        vm.threaded = threaded;
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        for now in [5, 10, 15] {
+            vm.advance_to(now).unwrap();
+            vm.run_ready(32).unwrap();
+        }
+        task.index
+    } else {
+        let tid = vm.spawn(0, &[owner]);
+        assert!(matches!(vm.run(tid), crate::interp::Outcome::Done(_)));
+        tid
+    };
+    assert!(matches!(vm.tasks[tid].state, crate::interp::State::Done));
+    let results = vm.tasks[tid].results.clone();
+    assert_eq!(results.len(), 12);
+    let key = vm.intern("marker");
+    let markers: Vec<Value> = results
+        .iter()
+        .map(|&value| {
+            if value == Value::NIL {
+                value
+            } else {
+                vm.get_index(value, key)
+            }
+        })
+        .collect();
+    assert_eq!(
+        markers,
+        (1..=12)
+            .map(|i| if trailing_nil && i == 12 {
+                Value::NIL
+            } else {
+                Value::num(i as f64)
+            })
+            .collect::<Vec<_>>(),
+        "threaded {threaded}, scheduled {scheduled}: cleanup must not replace trailing result values"
+    );
+    vm.full_cycle();
+    vm.check_oracle();
+    for &value in &results {
+        if value != Value::NIL {
+            assert_eq!(vm.kind_of(value), Some(crate::heap::KIND_TABLE));
+        }
+    }
+}
+
+#[test]
+fn rust_trailing_return_pack_survives_cleanup_results() {
+    trailing_cleanup_pack_contract(false, false);
+}
+#[test]
+fn native_trailing_return_pack_survives_cleanup_results() {
+    trailing_cleanup_pack_contract(true, false);
+}
+#[test]
+fn rust_trailing_return_pack_survives_suspended_cleanup_and_snapshot() {
+    trailing_cleanup_pack_contract(false, true);
+}
+#[test]
+fn native_trailing_return_pack_survives_suspended_cleanup_and_snapshot() {
+    trailing_cleanup_pack_contract(true, true);
+}
