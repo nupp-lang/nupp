@@ -25,6 +25,7 @@ aot-linked = []
 compiled-runtime = []
 # The native facilities a program may reach, as `nupp-vm` names them.
 native-ffi = ["nupp-vm/native-ffi"]
+native-runtime = ["nupp-vm/native-runtime"]
 compression = ["nupp-vm/compression"]
 net = ["nupp-vm/net"]
 http = ["nupp-vm/http"]

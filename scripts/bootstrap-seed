@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""Prepare and fetch a verified bootstrap execution runtime and compiler image."""
+import argparse
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import platform
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.request
+
+ROOT = Path(__file__).resolve().parent.parent
+FORMAT = "nupp-bootstrap-seed-1"
+FILES = {"runtime", "compiler.image", "manifest.json"}
+
+
+def digest(path):
+    value = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def host():
+    arch = {"arm64": "aarch64", "AMD64": "x86_64", "amd64": "x86_64"}.get(platform.machine(), platform.machine())
+    system = platform.system()
+    suffix = {"Darwin": "apple-darwin", "Linux": "unknown-linux-gnu", "Windows": "pc-windows-gnu"}.get(system)
+    if suffix is None or arch not in ("aarch64", "x86_64"):
+        raise ValueError(f"no bootstrap execution host is defined for {system}/{arch}")
+    return arch + "-" + suffix
+
+
+def verify(package, expected=None):
+    manifest = json.loads((package / "manifest.json").read_text())
+    if manifest.get("format") != FORMAT or manifest.get("host") != host():
+        raise ValueError("bootstrap seed format or host does not match this machine")
+    for field, name in (("runtimeSha256", "runtime"), ("imageSha256", "compiler.image")):
+        found = digest(package / name)
+        if found != manifest.get(field) or (expected is not None and found != expected.get(field)):
+            raise ValueError(f"bootstrap seed {name} does not match its pinned manifest")
+    if manifest.get("execution") != "new-images-with-aot-disabled":
+        raise ValueError("bootstrap seed declares no execution support for newly emitted images")
+    if not os.access(package / "runtime", os.X_OK):
+        raise ValueError("bootstrap seed runtime is not executable")
+    return manifest
+
+
+def execution_environment(package, root=ROOT):
+    env = dict(os.environ, NO_JIT="1", NO_AOT="1", SIMD_INTERPRET="1", NUPP_COMPILER_ROOT=str(root),
+               NUPP_VM_BINARY=str(package / "runtime"), NUPP_VM_CLI_IMAGE=str(package / "compiler.image"))
+    for name in ("NO_THREADED", "JIT_ONLY", "JIT_SKIP", "JIT_LIMIT", "EMIT_STUBS", "EMIT_SURVEY",
+                 "NUPP_NATIVE_RUNTIME_OBJECT", "NUPP_AOT_OBJECT", "NUPP_VM_EMIT_CACHE"):
+        env.pop(name, None)
+    return env
+
+
+def execute(package):
+    verify(package)
+    for command in ([str(package / "runtime"), "verify", str(package / "compiler.image")],
+                    [str(package / "runtime"), "exec", str(package / "compiler.image"), "nupp.tools.vm.root", "--help"]):
+        result = subprocess.run(command, cwd=ROOT, env=execution_environment(package), capture_output=True, text=True, timeout=300)
+        if result.returncode or (command[1] == "exec" and "Usage:" not in result.stdout):
+            raise ValueError("bootstrap seed execution failed: " + result.stderr[-8000:])
+
+
+def pack(args):
+    if args.output.exists():
+        raise ValueError(f"refusing to replace immutable seed archive {args.output}")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="nupp-seed-") as temp:
+        package = Path(temp)
+        shutil.copyfile(args.runtime, package / "runtime")
+        (package / "runtime").chmod(0o755)
+        shutil.copyfile(args.image, package / "compiler.image")
+        manifest = {"format": FORMAT, "host": host(), "runtimeSha256": digest(package / "runtime"),
+                    "imageSha256": digest(package / "compiler.image"), "execution": "new-images-with-aot-disabled",
+                    "sourceRevision": args.source_revision,
+                    "sourceProvenance": "Caller-supplied artifact source; execution and byte digests verified independently."}
+        (package / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+        execute(package)
+        # Canonical metadata and gzip header make repeated packaging identical.
+        with args.output.open("xb") as target, gzip.GzipFile(filename="", mode="wb", fileobj=target, mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+                for name in sorted(FILES):
+                    data = (package / name).read_bytes()
+                    entry = tarfile.TarInfo(name)
+                    entry.size, entry.mode = len(data), 0o755 if name == "runtime" else 0o644
+                    archive.addfile(entry, io.BytesIO(data))
+    print(json.dumps({"host": host(), "url": args.output.resolve().as_uri(), "sha256": digest(args.output),
+                      "runtimeSha256": manifest["runtimeSha256"], "imageSha256": manifest["imageSha256"]}, indent=2))
+
+
+def fetch(args):
+    pins = json.loads(args.manifest.read_text())
+    if pins.get("format") != FORMAT:
+        raise ValueError("invalid bootstrap seed pins format")
+    expected = pins.get("hosts", {}).get(host())
+    if expected is None:
+        raise ValueError(f"no immutable bootstrap execution seed is pinned for {host()}; source-built Rust execution is not a bootstrap fallback")
+    sha = expected.get("sha256", "")
+    if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+        raise ValueError("invalid pinned bootstrap seed digest")
+    package = args.cache / "stage0-seed" / sha
+    if package.exists():
+        verify(package, expected)
+        print(package.resolve())
+        return
+    package.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".seed-", dir=package.parent) as temp:
+        stage = Path(temp)
+        archive = stage / "seed.tar.gz"
+        name = "nupp-seed-" + sha + ".tar.gz"
+        source = Path(os.environ.get("NUPP_HOST_SOURCE_DIR", ".")) / name
+        if os.environ.get("NUPP_HOST_SOURCE_DIR") and source.is_file():
+            shutil.copyfile(source, archive)
+        elif os.environ.get("NUPP_HOST_OFFLINE", "").lower() in ("1", "true", "yes", "on"):
+            raise ValueError(f"bootstrap seed is not cached; put {name} in NUPP_HOST_SOURCE_DIR")
+        else:
+            with urllib.request.urlopen(expected["url"], timeout=60) as response, archive.open("wb") as target:
+                shutil.copyfileobj(response, target)
+        if digest(archive) != sha:
+            raise ValueError("bootstrap seed archive does not have its pinned digest; refusing to unpack or execute it")
+        extracted = stage / "package"
+        extracted.mkdir()
+        with tarfile.open(archive, "r:gz") as content:
+            entries = content.getmembers()
+            if len(entries) != len(FILES) or {entry.name for entry in entries} != FILES or any(not e.isfile() for e in entries):
+                raise ValueError("bootstrap seed archive must contain only runtime, compiler.image and manifest.json regular files")
+            for entry in entries:
+                with content.extractfile(entry) as source, (extracted / entry.name).open("wb") as target:
+                    shutil.copyfileobj(source, target)
+            (extracted / "runtime").chmod(0o755)
+        verify(extracted, expected)
+        # Every cold fetch proves actual execution, not just image decoding.
+        execute(extracted)
+        try:
+            extracted.rename(package)
+        except OSError:
+            if not package.exists():
+                raise
+            verify(package, expected)
+    print(package.resolve())
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    command = commands.add_parser("pack")
+    command.add_argument("--runtime", type=Path, required=True)
+    command.add_argument("--image", type=Path, required=True)
+    command.add_argument("--source-revision", required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("fetch")
+    command.add_argument("--manifest", type=Path, default=Path(os.environ.get("NUPP_BOOTSTRAP_SEED_MANIFEST", ROOT / "scripts/bootstrap-seeds.json")))
+    command.add_argument("--cache", type=Path, required=True)
+    command = commands.add_parser("verify")
+    command.add_argument("package", type=Path)
+    command.add_argument("--execute", action="store_true")
+    command = commands.add_parser("run", help="execute on the verified seed with AOT/JIT disabled")
+    command.add_argument("package", type=Path)
+    command.add_argument("arguments", nargs=argparse.REMAINDER)
+    args = parser.parse_args()
+    if args.command == "pack":
+        pack(args)
+    elif args.command == "fetch":
+        fetch(args)
+    elif args.command == "run":
+        verify(args.package)
+        if not args.arguments:
+            raise ValueError("seed run requires runtime arguments")
+        env = execution_environment(args.package)
+        env["NUPP_VM_EMIT_CACHE"] = ""
+        if args.arguments[0] in ("run", "exec") and len(args.arguments) > 1:
+            env["NUPP_VM_CLI_IMAGE"] = args.arguments[1]
+        sys.exit(subprocess.run([str(args.package / "runtime"), *args.arguments], env=env).returncode)
+    else:
+        execute(args.package) if args.execute else verify(args.package)
+        print(args.package.resolve())
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.TimeoutExpired) as error:
+        print(f"nupp: {error}", file=sys.stderr)
+        sys.exit(1)

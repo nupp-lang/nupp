@@ -1,0 +1,111 @@
+name: Bootstrap execution seeds
+
+on:
+  push:
+    branches: [codex/native-bootstrap-seed]
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Historical runner source for initial seed assembly
+        default: 9a2e592d9a1f07a017f4f360b5764ee68b0d54ae
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            host: x86_64-unknown-linux-gnu
+          - os: windows-2022
+            host: x86_64-pc-windows-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env:
+      SEED_SOURCE: ${{ inputs.source || '9a2e592d9a1f07a017f4f360b5764ee68b0d54ae' }}
+      NUPP_VM_AUTO_REBUILD: "0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SEED_SOURCE }}
+          path: seed-source
+
+      - name: Select Windows GNU tools
+        if: runner.os == 'Windows'
+        run: |
+          channel=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' rust-toolchain.toml)
+          rustup toolchain install "${channel}-x86_64-pc-windows-gnu" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=${channel}-x86_64-pc-windows-gnu" >> "$GITHUB_ENV"
+          echo "CONFIG_SHELL=$(cygpath -m -s /usr/bin/sh.exe)" >> "$GITHUB_ENV"
+          echo "CC=gcc" >> "$GITHUB_ENV"
+          echo "CXX=g++" >> "$GITHUB_ENV"
+
+      # This old, exact source is used only to manufacture the transitional
+      # seed. The consuming checkout below never builds a Rust execution loop.
+      - name: Build the transitional execution seed from its exact source
+        run: |
+          set -euo pipefail
+          cd seed-source
+          python3 scripts/vm-cli build
+          python3 scripts/vm-cli runtime --link
+          mkdir -p ../release
+          generation=$(cat .nupp/vm-cli/current)
+          cp ".nupp/vm-cli/$generation/compiler.image" ../release/compiler.image
+          seed_root="$PWD"
+          [ "$RUNNER_OS" != Windows ] || seed_root=$(cygpath -m "$PWD")
+          env -u NO_THREADED NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 \
+            NUPP_COMPILER_ROOT="$seed_root" NUPP_VM_BINARY="$seed_root/build/native-runtime/runtime" \
+            build/native-runtime/runtime run ../release/compiler.image \
+            nupp.compiler.clif.lower compileRuntime "$seed_root" "$seed_root/build/native-runtime/layouts.json" \
+            --output ../release/native-compiler.clif
+          cmp ../release/native-compiler.clif build/native-runtime/runtime.clif
+
+      - name: Pack and verify the immutable runtime/image pair
+        env:
+          SEED_HOST: ${{ matrix.host }}
+        run: |
+          set -euo pipefail
+          python3 scripts/bootstrap-seed pack --runtime seed-source/build/native-runtime/runtime \
+            --image release/compiler.image --source-revision "$SEED_SOURCE" \
+            --output "release/transition-$SEED_HOST.tar.gz" > release/transition-pin.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          pin = json.loads(Path('release/transition-pin.json').read_text())
+          host = pin.pop('host')
+          Path('release/local-pins.json').write_text(json.dumps({'format': 'nupp-bootstrap-seed-1', 'hosts': {host: pin}}))
+          PY
+
+      - name: Cold bootstrap the consuming checkout without a source-built runner
+        run: |
+          set -euo pipefail
+          consumer_root="$PWD"
+          [ "$RUNNER_OS" != Windows ] || consumer_root=$(cygpath -m "$PWD")
+          export NUPP_BOOTSTRAP_SEED_MANIFEST="$consumer_root/release/local-pins.json"
+          export NUPP_TOOLCHAIN_DIR="$consumer_root/build/cold-seed-cache"
+          test ! -e .nupp/vm-cli/current
+          python3 scripts/vm-cli build --seed image --no-aot --no-cache 2>&1 | tee release/cold-build.log
+          ./bin/nupp test bootstrapseedtest rustabitest --jobs=1 --json > release/cold-tests.json
+          ./bin/nupp fixpoint 2>&1 | tee release/fixpoint.log
+          generation=$(cat .nupp/vm-cli/current)
+          python3 scripts/bootstrap-seed pack --runtime ".nupp/vm-cli/$generation/runtime" \
+            --image ".nupp/vm-cli/$generation/compiler.image" --source-revision "$GITHUB_SHA" \
+            --output "release/nupp-seed-${{ matrix.host }}.tar.gz" > release/pin.json
+          python3 scripts/vm-cli link 2>&1 | tee release/aot-link.log
+          ./bin/nupp --help > release/aot-help.log
+          python3 scripts/vm-cli status > release/installed.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bootstrap-seed-${{ matrix.host }}
+          path: release/
+          if-no-files-found: error

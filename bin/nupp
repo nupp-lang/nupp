@@ -6,8 +6,8 @@
 #
 # What it cannot do is start from nothing. The compiler is written in Nupp, so
 # compiling it needs a Nupp compiler, and the one it starts from is a release's
-# root CLI image, fetched and cached by `scripts/toolchain stage0-image` against
-# a digest pinned in the tree, which lowers these sources into a VM compiler.
+# matching runtime/image pair, fetched by `scripts/toolchain stage0-seed`
+# against pinned digests, which lowers these sources into a VM compiler.
 # Nothing here is committed, and nothing here is fetched until a command finds no
 # VM compiler -- which, in a built tree, is never.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,8 +35,8 @@ fi
 # Pin the selected immutable generation in the environment before any child can
 # start, so replacing `current` cannot mix compiler generations in one command.
 # A checkout with no VM CLI yet builds one when a VM stage-zero image is pinned:
-# the image lowers these sources on a runtime built from them, once more by
-# themselves, and the result is installed (`scripts/vm-cli build --seed-image`).
+# the seed lowers these sources, then the emitted image lowers them once more
+# on that same verified runner (`scripts/vm-cli build --seed image`).
 # Concurrent commands wait for the one building.
 if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
     && [ ! -e "$ROOT/.nupp/vm-cli/current" ] \
@@ -48,8 +48,7 @@ if [ -z "${NUPP_VM_CLI_IMAGE:-}" ] \
         # as it does for the rebuild below: an interpreter-only runtime.
         no_aot=
         [ "${NUPP_VM_AUTO_LINK:-1}" != 0 ] || no_aot=--no-aot
-        seed=$("$ROOT/scripts/toolchain" stage0-image) \
-            && python3 "$ROOT/scripts/vm-cli" build --seed-image "$seed" $no_aot >&2
+        python3 "$ROOT/scripts/vm-cli" build --seed image $no_aot >&2
         bootstrap_status=$?
         rm -rf "$ROOT/.nupp/vm-cli-bootstrap.lock"
         [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"

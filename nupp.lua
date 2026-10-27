@@ -284,10 +284,7 @@ local RESOURCES = {
     {source = "src/nupp/events.nupp", output = "nupp/compiler/nupp/events.nupp"},
     {source = "src/nupp/text/utf8.nupp", output = "nupp/compiler/nupp/text/utf8.nupp"},
     {source = "src/nupp/text/regex.nupp", output = "nupp/compiler/nupp/text/regex.nupp"},
-    {
-        source = "src/nupp/text/internal/regexhost.nupp",
-        output = "nupp/compiler/nupp/text/internal/regexhost.nupp"
-    },
+    {source = "src/nupp/text/internal/regexhost.nupp", output = "nupp/compiler/nupp/text/internal/regexhost.nupp"},
     {source = "src/nupp/codec/base64.nupp", output = "nupp/compiler/nupp/codec/base64.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
     {source = "src/nupp/digest/init.nupp", output = "nupp/compiler/nupp/digest/init.nupp"},
@@ -445,10 +442,9 @@ for _, relative in ipairs({
     "nupp/vm/tasks.d.nupp",
     "nupp/vm/uri.d.nupp",
 }) do
-    RESOURCES[#RESOURCES + 1] = {
-        source = "native/crates/vm/decls/" .. relative,
-        output = "nupp/compiler/vmdecls/" .. relative,
-    }
+    RESOURCES[
+        #RESOURCES + 1
+    ] = {source = "native/crates/vm/decls/" .. relative, output = "nupp/compiler/vmdecls/" .. relative,}
 end
 
 return {
@@ -557,19 +553,17 @@ return {
 
     selfHost = {
         target = "dist",
-        -- The compiler image this tree's first stage is lowered by. It is a
-        -- release's root CLI image, fetched and verified against the digest pinned
-        -- in `scripts/toolchain.pins`, which is also what `bin/nupp` builds a VM
-        -- compiler from in a checkout that has none. It is fetched rather than
-        -- committed, and that costs: the sources below may only use a language
-        -- feature the pinned image already understands, and the runtime must load
-        -- its image format.
+        -- The matching execution runtime and compiler image that lower a cold
+        -- checkout. Both are fetched and verified against the host's immutable
+        -- seed pins before any source-built execution runtime is needed.
+        -- Sources may use a new language feature only after a seed carrying it
+        -- is available and its consuming pin moves with the source change.
         --
         -- Run through `sh`, because this is a shell script and the command is
         -- spawned rather than handed to a shell: Windows cannot execute it by name
         -- and reported it as an unrecognized program, which is where `nupp fixpoint`
         -- stopped there. Every host that can run `bin/nupp` at all has `sh`.
-        bootstrap = "sh scripts/toolchain stage0-image",
+        bootstrap = "sh scripts/toolchain stage0-seed",
         -- The target `nupp fixpoint --binary` stamps twice. Naming it here rather
         -- than in the command keeps the compiler from knowing anything about how
         -- this particular project chose to package itself.

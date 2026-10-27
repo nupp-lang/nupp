@@ -5,15 +5,14 @@ The self-hosting claim for the VM-hosted compiler: the root CLI image, emitted
 from these sources, emits itself byte for byte.
 
 Three stages. Stage one is these sources lowered by the pinned stage zero that
-`selfHost.bootstrap` names, or by the image running this command when the
-project names none, so it says nothing yet; stage two is the first image
+`selfHost.bootstrap` names, or by the default execution seed when the project
+names none, so it says nothing yet; stage two is the first image
 lowered by the code these sources describe, and stage three is stage two doing
 it again. Two and three must be identical. Starting from the pin is what proves
 a cold checkout, which has nothing else, can build these sources.
 
-Each stage runs as its own process on the program runtime, which carries no
-linked compiled code: the CLI's own runtime is linked to the image it was built
-with and refuses any other.
+Each stage runs on the verified seed runtime, with matching-image AOT disabled.
+The machine-only build tool never executes a compiler image.
 ]]
 
 local fs = require("nupp.compiler.fs")
@@ -42,19 +41,18 @@ local function failed(reason: string): fixpoint.Result
     return {ok = false, reason = reason}
 end
 
---- The image `bootstrap` prints the path of on its last line of output: the
---- pinned stage zero, fetched and verified by whatever the command does.
+--- The runtime/image pair `bootstrap` prints the path of on its last line.
 ---
 --- @param root where the command runs
 --- @param bootstrap the command, split on spaces
---- @return the image's path, or nil and why there is none
+--- @return the pair's directory, or nil and why there is none
 function fixpoint.stageZero(root: string, bootstrap: string): string?, string?
     local command: {string} = {}
     for word in bootstrap:gmatch("%S+") do
         command[#command + 1] = word
     end
     if #command == 0 then
-        return nil, "selfHost.bootstrap names no command to find the stage-zero image with"
+        return nil, "selfHost.bootstrap names no command to find the execution seed with"
     end
     local status, output = process.capture(command, {cwd = root})
     if status ~= 0 then
@@ -65,10 +63,10 @@ function fixpoint.stageZero(root: string, bootstrap: string): string?, string?
         path = line
     end
     if path == nil or path == "" then
-        return nil, table.concat(command, " ") .. " named no stage-zero image"
+        return nil, table.concat(command, " ") .. " named no execution seed"
     end
     if not fs.exists(path as string) then
-        return nil, "the stage-zero image is not at " .. tostring(path)
+        return nil, "the execution seed is not at " .. tostring(path)
     end
 
     return path, nil
@@ -88,27 +86,15 @@ function fixpoint.run(
     say: function(line: string): nil,
     bootstrap: string?
 ): fixpoint.Result
-    local seed = os.getenv("NUPP_VM_CLI_IMAGE")
-    if bootstrap ~= nil then
-        local pinned, problem = fixpoint.stageZero(root, bootstrap as string)
-        if pinned == nil then
-            return failed(tostring(problem))
-        end
-        seed = pinned
-    end
-    if seed == nil or seed == "" then
-        return failed("the VM fixpoint starts from a stage-zero image or the running VM compiler image")
-    end
-    local runtime, problem = require("nupp.tools.build.native").vmRuntime({
-        "compression",
-        "http",
-        "net",
-        "regex",
-        "markdown"
-    })
-    if runtime == nil then
+    local pair, problem = fixpoint.stageZero(root, bootstrap or "sh scripts/toolchain stage0-seed")
+    if pair == nil then
         return failed(tostring(problem))
     end
+    local checked = process.run({"python3", fs.join(root, "scripts/bootstrap-seed"), "verify", pair as string})
+    if checked ~= 0 then
+        return failed("the bootstrap execution seed failed verification")
+    end
+    local seed = fs.join(pair as string, "compiler.image")
     fs.mkdir(outDir)
     local previous = seed as string
     local stages: {string} = {}
@@ -119,7 +105,10 @@ function fixpoint.run(
         say(("stage %d: %s lowers %s"):format(index, index == 1 and previous or fs.basename(previous), root))
         local status = process.run(
             {
-                runtime as string,
+                "python3",
+                fs.join(root, "scripts/bootstrap-seed"),
+                "run",
+                pair as string,
                 "run",
                 previous,
                 "nupp.tools.vm.project",
@@ -131,7 +120,16 @@ function fixpoint.run(
                 stage
             },
             -- From the sources alone: no stage replays what an earlier emit kept.
-            {cwd = root, env = {NUPP_COMPILER_ROOT = root, NUPP_VM_EMIT_CACHE = ""}}
+            {
+                cwd = root,
+                env = {
+                    NUPP_COMPILER_ROOT = root,
+                    NUPP_VM_EMIT_CACHE = "",
+                    NO_JIT = "1",
+                    NO_AOT = "1",
+                    SIMD_INTERPRET = "1"
+                }
+            }
         )
         if status ~= 0 or not fs.exists(stage) then
             return failed(("stage %d did not build"):format(index))
