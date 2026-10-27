@@ -128,3 +128,38 @@ fn typed_value_return_converts_inline_integer_to_the_caller_float_slot() {
         );
     }
 }
+
+#[test]
+fn disabled_chain_still_prepares_and_runs_shared_handlers() {
+    const CHILD: &str = "NUPP_TEST_DISABLED_CHAIN_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let mut vm = vm(
+            "function caller 0 0 8 0 :v\nCall 1 1 0\nRet 1\nend\nfunction callee 1 1 4 0 :v\nRetNil\nend\nentry 0\n",
+        );
+        assert!(
+            !vm.threaded,
+            "the environment selects one-handler transport"
+        );
+        assert_eq!(
+            vm.finfo.len(),
+            vm.funcs.len(),
+            "both transports require encoded function metadata"
+        );
+        assert!(vm.funcs.iter().all(|function| !function.ins.is_empty()));
+        let tid = vm.spawn(0, &[]);
+        assert!(matches!(vm.run(tid), Outcome::Done(Value::NIL)));
+        return;
+    }
+    for setting in ["0", "1"] {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "dispatch::native_boundary_tests::disabled_chain_still_prepares_and_runs_shared_handlers", "--nocapture"])
+            .env(CHILD, "1").env("NO_THREADED", setting).env("NO_JIT", "1").env("NO_AOT", "1")
+            .output().unwrap();
+        assert!(
+            output.status.success(),
+            "NO_THREADED={setting}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

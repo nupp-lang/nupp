@@ -470,11 +470,12 @@ impl Interp {
     /// Encodes every function for the core and builds its table. Called once
     /// after loading; a later load must call it again.
     pub fn prepare_threaded(&mut self) {
-        if std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
         for f in &mut self.funcs { if f.ins.len() != f.code.len() + jump_words(f).len() / 4 { f.ins = encode_function(f); } }
         self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, off_v: f.off_v() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32, nv_params: f.nv_params as u32, nf_params: f.nf_params as u32, float_return: (f.ret == b'f') as u32 }).collect();
-        self.threaded = true;
+        // Both transports execute these same handlers and require their metadata.
+        // The environment only selects whether dispatch batches a whole chain.
+        self.threaded = std::env::var("NO_THREADED").is_err();
     }
 
     /// One task context for whole chains and compiled boundary entries.
