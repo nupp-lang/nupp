@@ -1458,6 +1458,39 @@ mod tests {
 
     #[cfg(feature = "native-runtime")]
     #[test]
+    fn native_allocator_rejects_unrepresentable_extents_before_allocation() {
+        let mut heap = Heap::new();
+        heap.automatic_collection = false;
+        let initial = heap.allocator.snapshot();
+        for payload in [u32::MAX as usize - HEADER + 1, usize::MAX] {
+            let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                heap.alloc_raw(KIND_CELL, payload)
+            }));
+            assert!(
+                refused.is_err(),
+                "unrepresentable header size must fail before mapping"
+            );
+            assert_eq!(heap.allocator.snapshot(), initial);
+            assert_eq!(heap.object_count(), 0);
+            assert_eq!(heap.live_bytes, 0);
+            assert_eq!(heap.debt, 0);
+            assert_eq!(heap.stats.allocated, 0);
+            assert_eq!(heap.stats.freed, 0);
+            assert_eq!(heap.stats.chunks, 0);
+            assert_eq!(heap.stats.large, 0);
+            assert_eq!(heap.alloc_kinds[KIND_CELL as usize], 0);
+            assert_eq!(heap.chunk_bytes_mapped, 0);
+        }
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let cell = heap.new_cell(Value::NIL, &roots);
+        assert!(heap.is_live_slot(cell.as_obj().unwrap()));
+        assert_eq!(heap.object_count(), 1);
+        assert_eq!(heap.stats.allocated, 1);
+        assert_eq!(heap.live_bytes, HEADER + 8);
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
     fn native_allocator_colors_follow_sweep_cursor_and_debt_reset() {
         let mut h = Heap::new();
         h.automatic_collection = false;
