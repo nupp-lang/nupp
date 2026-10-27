@@ -1,22 +1,4 @@
 // Included only by executable roots, never by the nupp_vm library.
-// Keep C malloc interposition disabled: embedding hosts own their allocator.
-#[cfg(all(feature = "allocator-mimalloc", not(feature = "allocation-metrics")))]
-#[global_allocator]
-static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-#[cfg(all(feature = "allocator-jemalloc", not(feature = "allocation-metrics")))]
-#[global_allocator]
-static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-
-#[allow(dead_code)]
-pub const NAME: &str = if cfg!(feature = "allocator-mimalloc") {
-    "mimalloc"
-} else if cfg!(feature = "allocator-jemalloc") {
-    "jemalloc"
-} else {
-    "system"
-};
-
 #[cfg(feature = "allocation-metrics")]
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ReportMode {
@@ -44,11 +26,6 @@ mod metrics {
     use std::alloc::{GlobalAlloc, Layout};
     use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
-    #[cfg(feature = "allocator-mimalloc")]
-    const INNER: mimalloc::MiMalloc = mimalloc::MiMalloc;
-    #[cfg(feature = "allocator-jemalloc")]
-    const INNER: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
-    #[cfg(not(any(feature = "allocator-mimalloc", feature = "allocator-jemalloc")))]
     const INNER: std::alloc::System = std::alloc::System;
 
     struct Measured;
@@ -132,7 +109,7 @@ mod metrics {
         let current_bytes = CURRENT_BYTES.load(Relaxed);
         let peak_bytes = PEAK_BYTES.load(Relaxed);
         serde_json::json!({
-            "allocator": super::NAME,
+            "allocator": "system",
             "mode": mode_name,
             "scope": scope,
             "allocations": allocations,

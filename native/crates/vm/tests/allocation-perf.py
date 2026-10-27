@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare frozen VM allocator binaries in serial, alternating process pairs.
+"""Compare frozen VM binaries in serial, alternating process pairs.
 
 Images and inputs must be emitted before this driver starts. Timing has no GC
 stress, counters, or sampling profiler. Optional diagnostic processes run after
@@ -362,7 +362,7 @@ def main():
         report["status"] = "complete"
         # This harness does not establish correctness under GC stress, repository
         # checking, supported-target builds, or embedding/worker teardown limits.
-        report["allocatorAcceptance"] = "not established by this measurement alone"
+        report["runtimeAcceptance"] = "not established by this measurement alone"
     except Exception as error:
         report.update(status="failed", error=str(error))
         raise

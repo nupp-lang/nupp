@@ -141,7 +141,7 @@ if os.getenv('NUPP_ALLOCATION_STATS'):
             self.assertEqual(report["diagnostics"][0]["heapMetrics"][0]["heap_id"], 1)
             self.assertEqual(len(report["diagnostics"][0]["globalMetrics"]), 1)
             self.assertEqual(report["status"], "complete")
-            self.assertIn("not established", report["allocatorAcceptance"])
+            self.assertIn("not established", report["runtimeAcceptance"])
 
     @unittest.skipUnless(sys.platform in ("darwin", "linux"), "RSS protocol supports Darwin/Linux")
     def test_semantic_failure_is_retained_and_never_gets_a_verdict(self):

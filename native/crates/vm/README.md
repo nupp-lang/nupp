@@ -1663,34 +1663,19 @@ in order:
 Nothing in 3 is worth building before 1, and 1 is a contracts item, so this
 is recorded here and in the runtime plan rather than started.
 
-### Allocation experiments
+### Allocation measurements
 
-The VM executable can select an allocator without changing an embedding
-application's allocator. Candidates are opt-in and mutually exclusive:
+The VM executable uses the system allocator; embedding applications keep their
+own allocator. Compare frozen runtime builds with identical pre-emitted images:
 
-```sh
-cargo build --release -p nupp-vm --features allocator-mimalloc
-cargo build --release -p nupp-vm --features allocator-jemalloc
-```
-
-The default remains the system allocator. The experiment features admit
-aarch64 and x86_64 macOS and GNU Linux; a successful local build establishes
-only the host tested. The shared executable module also selects the allocator
-for the persistence, compiler-checkpoint, and scheduler examples. Rust
-integration test executables do not inherit the VM executable's allocator.
-`tests/allocator-host-smoke.sh` builds an independent Rust application that
-declares its own allocator and checks repeated graph, worker, channel, and
-checkpoint teardown under all three dependency configurations.
-
-Build candidates serially in the shared Cargo target directory and copy each
-binary before the next build overwrites it. With identical pre-emitted images,
-run the paired harness from the repository root:
-
-```sh
-python3 native/crates/vm/tests/allocation-perf.py SYSTEM CANDIDATE \
+```bash
+python3 native/crates/vm/tests/allocation-perf.py BASELINE CANDIDATE \
   --check-image CHECK_IMAGE --parser-image PARSER_IMAGE \
   --cli-image ROOT_IMAGE --tasks-image TASK_PERF_IMAGE --output NEW_DIRECTORY
 ```
+
+Build runtimes serially in a shared Cargo target directory and copy each binary
+before another build replaces it.
 
 The harness alternates seven independent process pairs and retains checksums,
 binary/input hashes, raw output, first-call costs, warm medians, process wall
