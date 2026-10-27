@@ -63,6 +63,10 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
     }
 }
+fn integer(value: i64) -> Value {
+    Value::inline_integer(value).unwrap()
+}
+
 fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Vec<Value> {
     vm.call_value(Value::builtin(builtins::id_of(name).unwrap()), args)
 }
@@ -136,8 +140,8 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
         ("u16", "uint16", 65535.0),
         ("i32", "int32", -2147483648.0),
         ("u32", "uint32", 4294967295.0),
-        ("float", "float", 1.5),
-        ("double", "number", -2.25),
+        ("float", "float32", 1.5),
+        ("double", "float64", -2.25),
     ] {
         let function = bind(
             &mut vm,
@@ -149,7 +153,11 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
         );
         assert_eq!(
             invoke(&mut vm, function, &[Value::num(number)]),
-            vec![Value::num(number)]
+            vec![if suffix == "float" || suffix == "double" {
+                Value::num(number)
+            } else {
+                integer(number as i64)
+            }]
         );
         call(&mut vm, "foreign.close", &[function]);
         failure(&mut vm, |vm| {
@@ -165,7 +173,7 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
         vm.register(value);
         let result = invoke(&mut vm, function, &[value])[0];
         let exact = numeric::integer(result).unwrap();
-        assert_eq!((exact.bits, exact.unsigned), (bits, unsigned));
+        assert_eq!((exact.bits, exact.unsigned), (bits, false));
         call(&mut vm, "foreign.close", &[function]);
     }
     let boolean = bind(&mut vm, library, "ffi_test_bool", "bool", &["bool"], None);
@@ -181,8 +189,8 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
         &mut vm,
         library,
         "ffi_test_varargs_double",
-        "number",
-        &["int32", "number", "number"],
+        "float64",
+        &["int32", "float64", "float64"],
         Some(1),
     );
     assert_eq!(
@@ -203,17 +211,17 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
     );
     assert_eq!(
         invoke(&mut vm, error, &[Value::num(31.0)]),
-        vec![Value::num(-1.0)]
+        vec![integer(-1)]
     );
     vm.full_cycle();
     vm.check_oracle();
-    assert_eq!(call(&mut vm, "foreign.errno", &[]), vec![Value::num(31.0)]);
+    assert_eq!(call(&mut vm, "foreign.errno", &[]), vec![integer(31)]);
     assert_eq!(
         call(&mut vm, "foreign.errno", &[Value::num(17.0)]),
-        vec![Value::num(31.0)]
+        vec![integer(31)]
     );
     let read_error = bind(&mut vm, library, "ffi_test_read_errno", "int32", &[], None);
-    assert_eq!(invoke(&mut vm, read_error, &[]), vec![Value::num(17.0)]);
+    assert_eq!(invoke(&mut vm, read_error, &[]), vec![integer(17)]);
     failure(&mut vm, |vm| {
         bind(vm, library, "missing_symbol", "void", &[], None);
     });
@@ -228,7 +236,7 @@ fn independent_c_scalar_calls_variadics_errno_and_closed_handles() {
         let abs = bind(&mut vm, Value::NIL, "abs", "int32", &["int32"], None);
         assert_eq!(
             invoke(&mut vm, abs, &[Value::num(-42.0)]),
-            vec![Value::num(42.0)]
+            vec![integer(42)]
         );
         call(&mut vm, "foreign.close", &[abs]);
     }
@@ -280,7 +288,7 @@ fn managed_pointer_arguments_survive_gc_and_external_pointers_refuse_persistence
         wide_kind,
         &[const_pointer],
     );
-    assert_eq!(invoke(&mut vm, length, &[readonly]), vec![Value::num(4.0)]);
+    assert_eq!(invoke(&mut vm, length, &[readonly]), vec![integer(4)]);
     call(&mut vm, "foreign.close", &[length]);
     let output = call(&mut vm, "storage.allocateBytes", &[Value::num(8.0)])[0];
     let output_root = vm.register(output);
@@ -387,7 +395,7 @@ fn union_and_nested_union_byvalue_signatures_roundtrip() {
         "ffi.oracle.Union",
         4,
         4,
-        &[("bits", "uint32", 0), ("real", "float", 0)],
+        &[("bits", "uint32", 0), ("real", "float32", 0)],
     );
     let size_kind = if cfg!(target_pointer_width = "64") {
         "uint64"
@@ -467,7 +475,11 @@ fn union_and_nested_union_byvalue_signatures_roundtrip() {
             argument
         };
         vm.register(inner);
-        call(&mut vm, "storage.write", &[inner, bits, Value::num(0x3f80_0000 as f64)]);
+        call(
+            &mut vm,
+            "storage.write",
+            &[inner, bits, Value::num(0x3f80_0000 as f64)],
+        );
         vm.full_cycle();
         let returned = invoke(&mut vm, function, &[argument])[0];
         vm.register(returned);
@@ -476,7 +488,10 @@ fn union_and_nested_union_byvalue_signatures_roundtrip() {
         } else {
             returned
         };
-        assert_eq!(call(&mut vm, "storage.index", &[returned, real]), vec![Value::num(1.0)]);
+        assert_eq!(
+            call(&mut vm, "storage.index", &[returned, real]),
+            vec![Value::num(1.0)]
+        );
         call(&mut vm, "foreign.close", &[function]);
     }
     vm.full_cycle();
@@ -513,9 +528,9 @@ fn native_aggregate_hfa_and_large_return_preserve_value_semantics() {
         "ffi.oracle.Pair",
         16,
         8,
-        &[("x", "number", 0), ("y", "number", 8)],
+        &[("x", "float64", 0), ("y", "float64", 8)],
     );
-    let double = string(&mut vm, "number");
+    let double = string(&mut vm, "float64");
     let function = bind_aggregate(&mut vm, library, "ffi_test_pair", pair, &[pair, double]);
     let input = call(
         &mut vm,
@@ -545,7 +560,7 @@ fn native_aggregate_hfa_and_large_return_preserve_value_semantics() {
         "ffi.oracle.NuppScalars",
         8,
         4,
-        &[("flag", "boolean", 0), ("count", "integer", 4)],
+        &[("flag", "boolean", 0), ("count", "int32", 4)],
     );
     let function = bind_aggregate(
         &mut vm,
@@ -570,7 +585,7 @@ fn native_aggregate_hfa_and_large_return_preserve_value_semantics() {
     );
     assert_eq!(
         call(&mut vm, "storage.index", &[output, count]),
-        vec![Value::num(42.0)]
+        vec![integer(42)]
     );
     call(&mut vm, "foreign.close", &[function]);
     let large = struct_type(
@@ -616,7 +631,7 @@ fn native_aggregate_hfa_and_large_return_preserve_value_semantics() {
         u64::MAX
     );
     let small = call(&mut vm, "storage.index", &[output, d])[0];
-    assert_eq!(numeric::bits(&vm, small, true), 4);
+    assert_eq!(numeric::word(&vm, small, true), 4);
     call(&mut vm, "storage.write", &[output, a, Value::num(7.0)]);
     assert_eq!(
         numeric::integer(call(&mut vm, "storage.index", &[input, a])[0])

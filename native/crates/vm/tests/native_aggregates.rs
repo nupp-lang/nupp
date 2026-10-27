@@ -21,6 +21,10 @@ struct Row {
     wide: u64,
 }
 
+fn integer(value: i64) -> Value {
+    Value::inline_integer(value).unwrap()
+}
+
 fn table(vm: &mut Interp) -> Value {
     let t = vm.new_table();
     vm.register(t);
@@ -99,9 +103,9 @@ fn fixture() -> (Box<Interp>, Value, Value, Value) {
     vm.heap.oracle = true;
     vm.heap.quarantine = true;
     vm.install_globals();
-    let f = scalar(&mut vm, "float");
+    let f = scalar(&mut vm, "float32");
     let u8t = scalar(&mut vm, "uint8");
-    let i32t = scalar(&mut vm, "integer");
+    let i32t = scalar(&mut vm, "int32");
     let u16t = scalar(&mut vm, "uint16");
     let u64t = scalar(&mut vm, "uint64");
     let (point, _) = definition(
@@ -151,12 +155,12 @@ fn structs_and_arrays_have_native_layout_views_and_value_copies() {
     assert_eq!(call(&mut vm, "layout", &[value]), spec);
     assert_eq!(
         call(&mut vm, "sizeOf", &[value]),
-        Value::num(std::mem::size_of::<Row>() as f64)
+        integer(std::mem::size_of::<Row>() as i64)
     );
     write(&mut vm, value, "owner", Value::num(258.0));
     write(&mut vm, value, "offset", Value::num(4294967295.0));
-    assert_eq!(field(&mut vm, value, "owner"), Value::num(2.0));
-    assert_eq!(field(&mut vm, value, "offset"), Value::num(-1.0));
+    assert_eq!(field(&mut vm, value, "owner"), integer(2));
+    assert_eq!(field(&mut vm, value, "offset"), integer(-1));
     let p = call(
         &mut vm,
         "valueOf",
@@ -180,7 +184,7 @@ fn structs_and_arrays_have_native_layout_views_and_value_copies() {
         "write",
         &[ids, Value::num(2.0), Value::num(65537.0)],
     );
-    assert_eq!(index(&mut vm, ids, 2), Value::num(1.0));
+    assert_eq!(index(&mut vm, ids, 2), integer(1));
     let max = vm.box_integer(numeric::Integer {
         bits: u64::MAX,
         unsigned: true,
@@ -188,7 +192,7 @@ fn structs_and_arrays_have_native_layout_views_and_value_copies() {
     vm.register(max);
     write(&mut vm, value, "wide", max);
     let actual = field(&mut vm, value, "wide");
-    assert_eq!(numeric::bits(&vm, actual, true), u64::MAX);
+    assert_eq!(numeric::word(&vm, actual, true), u64::MAX);
     let bytes = call(
         &mut vm,
         "string",
@@ -203,17 +207,17 @@ fn structs_and_arrays_have_native_layout_views_and_value_copies() {
     call(&mut vm, "write", &[rows, Value::num(1.0), value]);
     let r1 = index(&mut vm, rows, 1);
     write(&mut vm, r1, "owner", Value::num(91.0));
-    assert_eq!(field(&mut vm, value, "owner"), Value::num(2.0));
+    assert_eq!(field(&mut vm, value, "owner"), integer(2));
     let r1again = index(&mut vm, rows, 1);
-    assert_eq!(field(&mut vm, r1again, "owner"), Value::num(91.0));
+    assert_eq!(field(&mut vm, r1again, "owner"), integer(91));
     let copied = call(&mut vm, "valueCopy", &[row, r1]);
     write(&mut vm, copied, "owner", Value::num(10.0));
-    assert_eq!(field(&mut vm, r1, "owner"), Value::num(91.0));
+    assert_eq!(field(&mut vm, r1, "owner"), integer(91));
     let ty = call(&mut vm, "descriptor", &[rows]);
     let copy = call(&mut vm, "valueCopy", &[ty, rows]);
     let copy1 = index(&mut vm, copy, 1);
     write(&mut vm, copy1, "owner", Value::num(11.0));
-    assert_eq!(field(&mut vm, r1, "owner"), Value::num(91.0));
+    assert_eq!(field(&mut vm, r1, "owner"), integer(91));
     fails(&mut vm, |vm| {
         call(vm, "index", &[points, Value::num(2.0)]);
     });
@@ -323,8 +327,8 @@ fn worker_transfer_copies_aligned_owner_and_preserves_nested_aliases() {
             let r2 = vm.array_get(roots[0], 1);
             write(&mut vm, r2, "owner", Value::num(99.0));
             let r2again = index(&mut vm, rows2, 1);
-            assert_eq!(field(&mut vm, r2again, "owner"), Value::num(99.0));
-            assert_eq!(field(&mut vm, r, "owner"), Value::num(23.0));
+            assert_eq!(field(&mut vm, r2again, "owner"), integer(99));
+            assert_eq!(field(&mut vm, r, "owner"), integer(23));
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -508,7 +512,7 @@ int main(void) {
     let u8t = scalar(&mut vm, "uint8");
     let u16t = scalar(&mut vm, "uint16");
     let u64t = scalar(&mut vm, "uint64");
-    let number = scalar(&mut vm, "number");
+    let number = scalar(&mut vm, "float64");
     let octets = array(&mut vm, u8t, 8);
     let (pair, _) = definition(
         &mut vm,
@@ -576,8 +580,8 @@ int main(void) {
     assert_eq!(native_type(&mut other, loaded[0]), "cdata");
     write(&mut other, loaded[1], "lo", Value::num(0.0));
     let p = field(&mut other, loaded[0], "pair");
-    assert_eq!(field(&mut other, p, "lo"), Value::num(0.0));
-    assert_eq!(index(&mut other, loaded[2], 0), Value::num(0.0));
+    assert_eq!(field(&mut other, p, "lo"), integer(0));
+    assert_eq!(index(&mut other, loaded[2], 0), integer(0));
     assert_eq!(bytes_hex(&mut other, loaded[3], 3 * facts[0]), lines[5]);
     assert_eq!(call(&mut vm, "layout", &[value]), spec);
     fails(&mut vm, |vm| {
@@ -609,7 +613,7 @@ entry 0
     let entry = image::load(&mut vm, PROGRAM).unwrap();
     let value = call(&mut vm, "valueNew", &[row]);
     let witness = field(&mut vm, row, "methods");
-    assert_eq!(vm.length(value), Value::num(0.0));
+    assert_eq!(vm.length(value), integer(0));
     // The compiler installs inline methods after defining the physical type.
     // Use actual closures so their managed captures must follow the witness.
     let scope = vm.open_scope();
@@ -637,7 +641,7 @@ entry 0
     vm.close_scope(scope);
     vm.full_cycle();
     write(&mut vm, value, "owner", Value::num(42.0));
-    assert_eq!(field(&mut vm, value, "owner"), Value::num(42.0));
+    assert_eq!(field(&mut vm, value, "owner"), integer(42));
     assert_eq!(field(&mut vm, value, "dynamicMethod"), Value::num(7.0));
     let saved = persist::save_graph(&mut vm, &[value, witness], &Policies::default()).unwrap();
     let mut restored = Interp::new();
@@ -655,7 +659,7 @@ entry 0
     assert_eq!(restored.length(values[0]), Value::num(9.0));
     assert_eq!(builtins::tostring(&mut restored, values[0]), b"physical");
     set(&mut restored, values[1], "__len", Value::NIL);
-    assert_eq!(restored.length(values[0]), Value::num(0.0));
+    assert_eq!(restored.length(values[0]), integer(0));
 }
 
 #[cfg(feature = "jit")]
@@ -718,7 +722,7 @@ end
                 assert_eq!(numeric::integer(values[1]).unwrap().bits, u64::MAX);
             } else {
                 vm.register(values[1]);
-                assert_eq!(field(&mut vm, values[1], "owner"), Value::num(0.0));
+                assert_eq!(field(&mut vm, values[1], "owner"), integer(0));
             }
         }
     }
@@ -736,7 +740,7 @@ fn physical_field_opcodes_match_dynamic_access_and_mutable_guards() {
         let mut program = String::new();
         for (kind, name) in [
             "boolean", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
-            "float", "number",
+            "float32", "float64",
         ]
         .iter()
         .enumerate()
@@ -805,11 +809,27 @@ fn physical_field_opcodes_match_dynamic_access_and_mutable_guards() {
             // This tier must exercise Nupp handlers, never the Rust step.
             for function in &vm.funcs[entry as usize..entry as usize + 44] {
                 for (op, ins) in function.code.iter().zip(&function.ins) {
-                    if matches!(op, nupp_vm::interp::Op::GetPhys(..) | nupp_vm::interp::Op::GetPhysF(..)
-                        | nupp_vm::interp::Op::GetPhysI(..) | nupp_vm::interp::Op::GetPhysU(..)
-                        | nupp_vm::interp::Op::SetPhys(..) | nupp_vm::interp::Op::SetPhysF(..)
-                        | nupp_vm::interp::Op::SetPhysI(..)) {
-                        assert_ne!(ins.op, nupp_vm::threaded::code_by_name("Slow").unwrap());
+                    if matches!(
+                        op,
+                        nupp_vm::interp::Op::GetPhys(..)
+                            | nupp_vm::interp::Op::GetPhysF(..)
+                            | nupp_vm::interp::Op::GetPhysI(..)
+                            | nupp_vm::interp::Op::GetPhysU(..)
+                            | nupp_vm::interp::Op::SetPhys(..)
+                            | nupp_vm::interp::Op::SetPhysF(..)
+                            | nupp_vm::interp::Op::SetPhysI(..)
+                    ) {
+                        let name = match op {
+                            nupp_vm::interp::Op::GetPhys(..) => "GetPhys",
+                            nupp_vm::interp::Op::GetPhysF(..) => "GetPhysF",
+                            nupp_vm::interp::Op::GetPhysI(..) => "GetPhysI",
+                            nupp_vm::interp::Op::GetPhysU(..) => "GetPhysU",
+                            nupp_vm::interp::Op::SetPhys(..) => "SetPhys",
+                            nupp_vm::interp::Op::SetPhysF(..) => "SetPhysF",
+                            nupp_vm::interp::Op::SetPhysI(..) => "SetPhysI",
+                            _ => unreachable!(),
+                        };
+                        assert_eq!(ins.op, nupp_vm::threaded::code_by_name(name).unwrap());
                     }
                 }
             }
@@ -936,7 +956,7 @@ entry 0
             continue;
         }
         let (mut vm, _, _, _) = fixture();
-        let number = scalar(&mut vm, "number");
+        let number = scalar(&mut vm, "float64");
         let (ty, _) = definition(&mut vm, "cache.Probe", 8, 8, &[("x", 0, number)]);
         let value = call(&mut vm, "valueNew", &[ty]);
         write(&mut vm, value, "x", Value::num(42.0));
@@ -1135,7 +1155,6 @@ entry 0
             (0, number, text, Value::num(17.0)),
             (1, number, text, Value::num(17.0)),
             (2, text_record, Value::num(42.0), text),
-            (3, number, wide, Value::num(17.0)),
         ] {
             let error = invoke(&mut vm, fid, receiver, input)
                 .expect("record slot must reject incompatible value");
@@ -1151,6 +1170,18 @@ entry 0
                 vm.values_equal(actual, input),
                 "mode {mode}, function {fid}"
             );
+        }
+        let problem = invoke(&mut vm, 3, number, wide);
+        assert!(problem.is_none(), "mode {mode}: {problem:?}");
+        assert_eq!(field(&mut vm, number, "x"), wide);
+        for bits in [i64::MIN as u64, i64::MAX as u64] {
+            let exact = vm.box_integer(numeric::Integer {
+                bits,
+                unsigned: false,
+            });
+            vm.register(exact);
+            assert!(invoke(&mut vm, 1, number, exact).is_none());
+            assert_eq!(field(&mut vm, number, "x"), exact);
         }
         for fid in [0, 1] {
             assert!(invoke(&mut vm, fid, number, Value::num(42.0)).is_none());

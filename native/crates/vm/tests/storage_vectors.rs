@@ -8,6 +8,10 @@ use nupp_vm::{
     workers::Worker,
 };
 
+fn integer(value: i64) -> Value {
+    Value::inline_integer(value).unwrap()
+}
+
 fn vm() -> Interp {
     let mut vm = Interp::new();
     vm.heap.stress_steps = true;
@@ -135,11 +139,8 @@ fn vector_descriptors_validate_host_layout_and_keep_distinct_array_identity() {
             let cap = if cfg!(target_arch = "x86") { 8 } else { 16 };
             let align = payload_len.next_power_of_two().min(cap).max(width);
             let size = payload_len.div_ceil(align) * align;
-            assert_eq!(
-                call(&mut vm, "storage.sizeOf", &[ty]),
-                Value::num(size as f64)
-            );
-            assert_eq!(get(&mut vm, ty, "alignment"), Value::num(align as f64));
+            assert_eq!(call(&mut vm, "storage.sizeOf", &[ty]), integer(size as i64));
+            assert_eq!(get(&mut vm, ty, "alignment"), integer(align as i64));
             let scalar = get(&mut vm, ty, "element");
             let array = keep(
                 &mut vm,
@@ -177,7 +178,7 @@ fn vector_descriptors_validate_host_layout_and_keep_distinct_array_identity() {
         }
     }
     for lanes in [0, 1, 65] {
-        let input = vector_input(&mut vm, "float", lanes);
+        let input = vector_input(&mut vm, "float32", lanes);
         failure(
             &mut vm,
             "storage.structDefine",
@@ -185,7 +186,7 @@ fn vector_descriptors_validate_host_layout_and_keep_distinct_array_identity() {
             "2 through 64",
         );
     }
-    let input = vector_input(&mut vm, "float", 3);
+    let input = vector_input(&mut vm, "float32", 3);
     set(&mut vm, input, "size", Value::num(12.0));
     failure(
         &mut vm,
@@ -208,7 +209,7 @@ fn vector_descriptors_validate_host_layout_and_keep_distinct_array_identity() {
 #[test]
 fn vector_fields_copy_exact_bits_zero_padding_and_keep_loaded_values_independent() {
     let mut vm = vm();
-    let f3 = vector_type(&mut vm, "float", 3);
+    let f3 = vector_type(&mut vm, "float32", 3);
     let u4 = vector_type(&mut vm, "uint64", 4);
     let ty = aggregate(
         &mut vm,
@@ -217,7 +218,7 @@ fn vector_fields_copy_exact_bits_zero_padding_and_keep_loaded_values_independent
         &[("f", f3, 0), ("u", u4, 16)],
     );
     let rows = keep(&mut vm, "storage.allocateArray", &[ty, Value::num(2.0)]);
-    assert_eq!(call(&mut vm, "storage.sizeOf", &[rows]), Value::num(96.0));
+    assert_eq!(call(&mut vm, "storage.sizeOf", &[rows]), integer(96));
     let first = keep(&mut vm, "storage.index", &[rows, Value::num(0.0)]);
     let second = keep(&mut vm, "storage.index", &[rows, Value::num(1.0)]);
     let zero = read(&mut vm, first, "f");
@@ -320,7 +321,7 @@ fn vector_fields_copy_exact_bits_zero_padding_and_keep_loaded_values_independent
 #[test]
 fn vector_arrays_preserve_stride_readonly_bounds_and_mutated_descriptor_checks() {
     let mut vm = vm();
-    let ty = vector_type(&mut vm, "float", 3);
+    let ty = vector_type(&mut vm, "float32", 3);
     let values = keep(&mut vm, "storage.allocateArray", &[ty, Value::num(2.0)]);
     let bits: Vec<u8> = [1.0f32, -0.0, 3.0]
         .into_iter()
@@ -456,7 +457,7 @@ fn worker_moved_vector_arrays_keep_raw_bits_and_invalidate_sender_views() {
 #[test]
 fn vector_storage_never_admits_a_byvalue_c_abi_or_callback_signature() {
     let mut vm = vm();
-    let vector = vector_type(&mut vm, "float", 4);
+    let vector = vector_type(&mut vm, "float32", 4);
     let array = keep(&mut vm, "storage.arrayType", &[vector, Value::num(2.0)]);
     let nested = aggregate(&mut vm, "struct", "storage.vector.Ffi", &[("v", array, 0)]);
     let union = aggregate(
