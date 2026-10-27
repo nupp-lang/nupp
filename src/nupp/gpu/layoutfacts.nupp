@@ -13,9 +13,9 @@ export function layoutFacts(shape: {integer}, strides: {integer}, level: integer
         local dimension = shape[index]
         local stride = strides[index]
         if type(dimension) ~= "number"
-            or dimension % 1 ~= 0
+            or math.tointeger(dimension) == nil
             or type(stride) ~= "number"
-            or stride % 1 ~= 0
+            or math.tointeger(stride) == nil
             or dimension < 1
             or stride < 0
             or count > 4294967295 // dimension

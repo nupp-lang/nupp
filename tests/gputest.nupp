@@ -84,6 +84,7 @@ function M.cpuGpuMetadataRejectsFractionalIntegers(): nil
             end,
             "index out of bounds"
         )
+        assert(values[0] == groupIndex, "refused fractional writes must not change scratch")
     end)
 
     local uncheckedNew = layout.new as any

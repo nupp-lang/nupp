@@ -86,7 +86,7 @@ local facts = require("nupp.gpu.layoutfacts").layoutFacts
 --- @raises string when the shape, strides or offset do not fit uint32
 function layout.new(shape: {integer}, strides: {integer}, offset: integer?): layout.Layout
     offset = offset ?? 0
-    if type(offset) ~= "number" or offset % 1 ~= 0 or offset < 0 or offset > 4294967295 then
+    if type(offset) ~= "number" or math.tointeger(offset) == nil or offset < 0 or offset > 4294967295 then
         error("nupp: GPU tensor layout offset exceeds uint32", 2)
     end
     local count, extent, dense, injective = facts(shape, strides, 2)
@@ -111,7 +111,7 @@ function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: 
         local first = origin[index]
         local dimension = shape[index]
         if type(first) ~= "number"
-            or first % 1 ~= 0
+            or math.tointeger(first) == nil
             or first < 0
             or first > value._shape[index]
             or dimension > value._shape[index] - first
@@ -132,7 +132,7 @@ function layout.transpose(borrows value: layout.Layout, order: {integer}): layou
     local strides: {integer} = {}
     local seen: {boolean} = {}
     for index, axis in ipairs(order) do
-        if type(axis) ~= "number" or axis % 1 ~= 0 or axis < 1 or axis > #order or seen[axis] then
+        if type(axis) ~= "number" or math.tointeger(axis) == nil or axis < 1 or axis > #order or seen[axis] then
             error("nupp: GPU tensor transpose must name every axis exactly once", 2)
         end
         seen[axis] = true
@@ -175,7 +175,7 @@ function layout.asStrided(
     relativeOffset: integer
 ): layout.Layout
     if type(relativeOffset) ~= "number"
-        or relativeOffset % 1 ~= 0
+        or math.tointeger(relativeOffset) == nil
         or relativeOffset < 0
         or value._offset > 4294967295 - relativeOffset
     then

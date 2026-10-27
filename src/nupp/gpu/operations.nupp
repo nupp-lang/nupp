@@ -56,7 +56,11 @@ function gpu.denseShape(shape: {integer}): (integer, {integer}, {integer})
     local strides: {integer} = {}
     for index = #shape, 1, -1 do
         local dimension = shape[index]
-        if type(dimension) ~= "number" or dimension % 1 ~= 0 or dimension < 1 or count > 4294967295 // dimension then
+        if type(dimension) ~= "number"
+            or math.tointeger(dimension) == nil
+            or dimension < 1
+            or count > 4294967295 // dimension
+        then
             error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
         end
         strides[index] = count
@@ -73,17 +77,20 @@ local function liveBuffer(state: {released: boolean}): nil
 end
 
 function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
-    if type(index) ~= "number" or index % 1 ~= 0 or index < 0 or index >= self.count then
+    local at = type(index) == "number" and math.tointeger(index) or nil
+    if at == nil or at < 0 or at >= self.count then
         error("nupp: GPU shared-scratch index out of bounds", 2)
     end
-    return self._values[index + 1]
+
+    return self._values[at + 1]
 end
 
 function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-    if type(index) ~= "number" or index % 1 ~= 0 or index < 0 or index >= self.count then
+    local at = type(index) == "number" and math.tointeger(index) or nil
+    if at == nil or at < 0 or at >= self.count then
         error("nupp: GPU shared-scratch index out of bounds", 2)
     end
-    self._values[index + 1] = value
+    self._values[at + 1] = value
 end
 
 local sharedType: any = types.Shared
@@ -106,15 +113,16 @@ rawset(sharedType, "__newindex", function(self: any, key: any, value: any): nil
 end)
 
 function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-    if type(count) ~= "number" or count % 1 ~= 0 or count < 1 then
+    local size = type(count) == "number" and math.tointeger(count) or nil
+    if size == nil or size < 1 then
         error("nupp: GPU shared scratch must contain at least one element", 2)
     end
     local values: {T} = {}
-    for index = 1, count do
+    for index = 1, size do
         values[index] = initial
     end
 
-    return new types.Shared(_values = values, count = count)
+    return new types.Shared(_values = values, count = size)
 end
 
 function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
