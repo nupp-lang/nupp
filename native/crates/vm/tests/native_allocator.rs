@@ -119,3 +119,36 @@ fn payloads_drop_once_before_the_allocator_arena_closes() {
     }
     assert_eq!(drops.get(), 2);
 }
+
+#[test]
+fn large_compaction_preserves_survivor_indices_across_later_reclaims() {
+    let roots = Keep::default();
+    let mut heap = Heap::new();
+    heap.automatic_collection = false;
+    let first = heap
+        .new_string(&"a".repeat(50_000), &roots)
+        .as_obj()
+        .unwrap();
+    let middle = heap.new_string(&"b".repeat(50_000), &roots);
+    let last = heap.new_string(&"c".repeat(50_000), &roots);
+    roots.0.borrow_mut().extend([middle, last]);
+    heap.full_cycle(&roots);
+    assert!(!heap.is_live_slot(first));
+    assert_eq!(heap.object_count(), 2);
+    roots.0.borrow_mut().remove(0);
+    heap.full_cycle(&roots);
+    assert!(!heap.is_live_slot(middle.as_obj().unwrap()));
+    assert!(heap.is_live_slot(last.as_obj().unwrap()));
+    let appended = heap.new_string(&"d".repeat(50_000), &roots);
+    roots.0.borrow_mut().push(appended);
+    roots.0.borrow_mut().remove(0);
+    heap.full_cycle(&roots);
+    assert!(!heap.is_live_slot(last.as_obj().unwrap()));
+    assert!(heap.is_live_slot(appended.as_obj().unwrap()));
+    assert_eq!(heap.object_count(), 1);
+    roots.0.borrow_mut().clear();
+    heap.full_cycle(&roots);
+    assert_eq!(heap.object_count(), 0);
+    assert_eq!(heap.live_bytes, 0);
+    assert_eq!(heap.stats.freed, 4);
+}
