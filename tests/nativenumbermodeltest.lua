@@ -111,4 +111,27 @@ return true
     assert(program.run(parsed, "optional-integer-equality") == true)
 end
 
+function M.genericNumberFieldsPreserveSubtypeThroughConstructionAndStores()
+    local parsed = checked(
+        [[
+local record Pair
+    x: number
+    y: number
+end
+local exact: integer = 0x7fffffffffffffff
+local pair = new Pair(x = exact, y = 2.0)
+assert(math.type(pair.x) == "integer" and pair.x == exact)
+assert(math.type(pair.y) == "float")
+pair.x = 3
+pair.y = 4.0
+assert(math.type(pair.x) == "integer" and math.type(pair.y) == "float")
+local alias = pair
+alias.x = exact
+assert(pair.x == exact and pair.x - (exact - 1) == 1)
+return true
+]]
+    )
+    assert(program.run(parsed, "number-record-fields") == true)
+end
+
 return M

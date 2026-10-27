@@ -871,7 +871,12 @@ function lower.emit(
         elseif k == "dotIndex" then
             local shape = shapeOf(node.obj.inferredType)
             local fname = tokText(node.name)
-            return not (shape and shape.slotIndex[fname] and shape.slots[shape.slotIndex[fname] + 1].ty == "num")
+            return not (
+                shape
+                and shape.slotIndex[fname]
+                and shape.slots[shape.slotIndex[fname] + 1].ty == "num"
+                and isNumeric(node.inferredType)
+            )
         elseif k == "binop" then
             return valueDomain(f, node.lhs) and valueDomain(f, node.rhs)
         elseif k == "unop" then
@@ -3204,7 +3209,7 @@ function lower.emit(
                     -- An inherited optional member, kept in the overflow part.
                     local v = exprAs(f, value, "v");
                     f:op("SetField", dst, f:const("str", field.name), v)
-                elseif shape.slots[slot + 1].ty == "num" then
+                elseif shape.slots[slot + 1].ty == "num" and isNumeric(value.inferredType) then
                     local v = exprAs(f, value, "f");
                     f:op("SetSlotF", dst, slot, v, shape.id)
                 else
@@ -3264,7 +3269,7 @@ function lower.emit(
                         f.nregs = math.max(fieldMark, f.declTop or 0)
                         f.nfregs = math.max(fieldFloatMark, f.fdeclTop or 0)
                         local slot = struct.slotIndex[tokText(field.name)]
-                        if struct.slots[slot + 1].ty == "num" then
+                        if struct.slots[slot + 1].ty == "num" and isNumeric(field.value.inferredType) then
                             local fv = exprAs(f, field.value, "f");
                             f:op("SetSlotF", dst, slot, fv, struct.id)
                         else
@@ -3731,7 +3736,7 @@ function lower.emit(
                 physicalSet(f, o, field, valueReg)
             elseif shape and not shape.physical and shape.slotIndex[fname] then
                 local slot = shape.slotIndex[fname]
-                if shape.slots[slot + 1].ty == "num" then
+                if shape.slots[slot + 1].ty == "num" and isNumeric(target.inferredType) then
                     local fv = f:freg();
                     f:op("FUnbox", fv, valueReg);
                     f:op("SetSlotF", o, slot, fv, shape.id)
