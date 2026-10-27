@@ -6,6 +6,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
 const marking = require("nupp.runtime.vm.marking")
+const weakentries = require("nupp.runtime.vm.weakentries")
 
 export function allocatorArenaOpen(bytes: uint64): affine(arena.Arena*, arena.close)
     return arena.openGrowable(bytes)
@@ -123,4 +124,27 @@ end
 
 export function allocatorGrayEmpty(h: heap.Heap*): uint64
     return native.asWord(heap.grayEmpty(h))
+end
+
+export function allocatorWeakMark(
+    h: heap.Heap*,
+    array: voidptr,
+    length: uint64,
+    buckets: voidptr,
+    capacity: uint64,
+    mode: uint64
+): uint64
+    return native.asWord(weakentries.weakMarkViews(h, array, length, buckets, capacity, mode))
+end
+
+export function allocatorWeakClear(
+    array: voidptr,
+    length: uint64,
+    buckets: voidptr,
+    capacity: uint64,
+    mode: uint64,
+    out: voidptr
+): nil
+    local kept = weakentries.weakClearViews(array, length, buckets, capacity, mode, native.offset(out, 8))
+    native.store64(out, 0, kept)
 end

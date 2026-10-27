@@ -30,6 +30,22 @@ unsafe extern "C" {
     fn nupp_allocator_barrier(heap: *mut c_void, parent: *mut Header, child: u64, marking: u64);
     fn nupp_allocator_barrier_shade(heap: *mut c_void, value: u64);
     fn nupp_allocator_gray_pop(heap: *mut c_void) -> *mut Header;
+    fn nupp_allocator_weak_mark(
+        heap: *mut c_void,
+        array: *const Value,
+        length: u64,
+        buckets: *const u64,
+        capacity: u64,
+        mode: u64,
+    ) -> u64;
+    fn nupp_allocator_weak_clear(
+        array: *mut Value,
+        length: u64,
+        buckets: *mut u64,
+        capacity: u64,
+        mode: u64,
+        out: *mut u64,
+    );
     fn nupp_allocator_gray_empty(heap: *mut c_void) -> u64;
     fn nupp_allocator_chunk_count(heap: *mut c_void) -> u64;
     fn nupp_allocator_chunk(heap: *mut c_void, index: u64, out: *mut u64);
@@ -116,6 +132,33 @@ impl NativeAllocator {
 
     pub(crate) fn gray_empty(&self) -> bool {
         linked! { unsafe { nupp_allocator_gray_empty(self.heap.as_ptr()) != 0 } }
+    }
+
+    // The caller lends valid, disjoint buffers and owned candidate headers.
+    // These services only mutate borrowed words or native gray-worklist backing.
+    pub(crate) unsafe fn weak_mark(
+        &mut self,
+        array: *const Value,
+        length: usize,
+        buckets: *const u64,
+        capacity: u64,
+        mode: u8,
+    ) -> bool {
+        linked! { unsafe { nupp_allocator_weak_mark(self.heap.as_ptr(), array, length as u64, buckets, capacity, mode as u64) != 0 } }
+    }
+
+    pub(crate) unsafe fn weak_clear(
+        array: *mut Value,
+        length: usize,
+        buckets: *mut u64,
+        capacity: u64,
+        mode: u8,
+    ) -> (usize, bool) {
+        linked! {
+            let mut out = [0u64; 2];
+            unsafe { nupp_allocator_weak_clear(array, length as u64, buckets, capacity, mode as u64, out.as_mut_ptr()); }
+            (usize::try_from(out[0]).expect("weak array length"), out[1] != 0)
+        }
     }
 
     pub(crate) fn chunk_count(&self) -> usize {

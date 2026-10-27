@@ -83,6 +83,7 @@ local function allocatorModule(name: string): boolean
         or name == "nupp.runtime.vm.heap"
         or name == "nupp.runtime.vm.allocator"
         or name == "nupp.runtime.vm.marking"
+        or name == "nupp.runtime.vm.weakentries"
 end
 
 --- The native core's modules, in the order they compile, relative to the
@@ -98,6 +99,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/heap.nupp",
     "src/nupp/runtime/vm/allocator.nupp",
     "src/nupp/runtime/vm/marking.nupp",
+    "src/nupp/runtime/vm/weakentries.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",

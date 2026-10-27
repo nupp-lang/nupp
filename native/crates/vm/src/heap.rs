@@ -234,16 +234,7 @@ impl ValueTable {
     }
     /// A key's position in the insertion order.
     pub fn position_of(&self, key: Value) -> Option<usize> { let k = self.slot(key.0)?; Some(unsafe { *self.rank.add(k) as usize }) }
-    /// Sets to nil the value of every live entry `f` selects. The keys keep
-    /// their entries, as a key whose value becomes nil always does here.
-    pub fn clear_where(&mut self, mut f: impl FnMut(Value, Value) -> bool) {
-        if self.ptr.is_null() { return; }
-        for k in 0..self.cap as usize {
-            let (kb, vb) = unsafe { (*self.ptr.add(2 * k), *self.ptr.add(2 * k + 1)) };
-            if kb == VT_EMPTY || vb == Value::NIL.0 { continue; }
-            if f(Value(kb), Value(vb)) { unsafe { *self.ptr.add(2 * k + 1) = Value::NIL.0; } }
-        }
-    }
+
 }
 impl Drop for ValueTable { fn drop(&mut self) { self.free(); } }
 impl Default for ValueTable { fn default() -> ValueTable { ValueTable::new() } }
@@ -439,7 +430,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 9);
+    assert!(crate::dispatch::OBJECT_ABI == 10);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
@@ -993,30 +984,18 @@ impl Heap {
         bits
     }
 
-    /// Whether a weak entry may drop `v`: an object other than a string or
-    /// a boxed integer, which Lua treats as values that are never collected
-    /// out of a weak table.
-    #[inline]
-    fn clearable(v: Value) -> Option<NonNull<Header>> {
-        let p = v.as_obj()?;
-        match unsafe { (*p.as_ptr()).kind } { KIND_STR | KIND_SLICE | KIND_INTEGER => None, _ => Some(p) }
-    }
-
     /// Drops every weak entry whose weak side is still white. Runs once
     /// marking has finished, so white here means unreachable but for weak
     /// references; the sweep that follows frees those objects.
     fn clear_weak(&mut self) {
-        let dead = |v: Value| Self::clearable(v).is_some_and(|p| unsafe { (*p.as_ptr()).color == COLOR_WHITE });
         for (p, mode) in std::mem::take(&mut self.weak) {
             let h = unsafe { &mut *p.as_ptr() };
             if h.kind != KIND_TABLE { continue; }
             let t = h.table();
-            let mut changed = false;
-            if mode & WEAK_VALUES != 0 {
-                for v in t.array.iter_mut() { if dead(*v) { *v = Value::NIL; changed = true; } }
-                if changed { while t.array.last() == Some(&Value::NIL) { t.array.pop(); } }
-            }
-            t.hash.clear_where(|k, v| { let gone = (mode & WEAK_KEYS != 0 && dead(k)) || (mode & WEAK_VALUES != 0 && dead(v)); changed |= gone; gone });
+            // Vec owns the array; Nupp borrows only its initialized words and
+            // canonical buckets, without collection or callbacks across the view.
+            let (length, changed) = unsafe { NativeAllocator::weak_clear(t.array.as_mut_ptr(), t.array.len(), t.hash.ptr, t.hash.cap, mode) };
+            t.array.truncate(length);
             h.refresh();
             // A cleared entry of a table an `__index` lookup walked changes
             // what the lookup answers, as a store would: compiled code that
@@ -1133,15 +1112,8 @@ impl Heap {
     /// Greys both sides of every entry of a weak table that survives as
     /// marking stands; answers whether anything was greyed.
     fn mark_live_entries(allocator: &mut NativeAllocator, t: &TablePayload, mode: u8) -> bool {
-        let (weak_k, weak_v) = (mode & WEAK_KEYS != 0, mode & WEAK_VALUES != 0);
-        let alive = |v: Value| Self::clearable(v).is_none_or(|p| unsafe { (*p.as_ptr()).color != COLOR_WHITE });
-        let mut greyed = false;
-        let mut mark = |v: Value| { greyed |= allocator.shade(v); };
-        for &v in &t.array { if !weak_v || alive(v) { mark(v); } }
-        for (k, v) in t.hash.iter() {
-            if (!weak_k || alive(*k)) && (!weak_v || alive(*v)) { mark(*k); mark(*v); }
-        }
-        greyed
+        // The shared policy reads initialized words, not Rust container layouts.
+        unsafe { allocator.weak_mark(t.array.as_ptr(), t.array.len(), t.hash.ptr, t.hash.cap, mode) }
     }
 
     /// Revisits every weak table this cycle scanned once marking has drained:
@@ -1549,6 +1521,182 @@ mod tests {
         heap.phase = Phase::Idle;
     }
 
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn native_weak_views_preserve_modes_order_and_proto_invalidation() {
+        for mode in 0..=3 {
+            let mut heap = Heap::new();
+            heap.automatic_collection = false;
+            let roots = R(std::cell::RefCell::new(Vec::new()));
+            let table = heap.new_table(&roots).as_obj().unwrap();
+            let dead_key = heap.new_cell(Value::NIL, &roots);
+            let dead_value = heap.new_cell(Value::NIL, &roots);
+            let live = heap.new_cell(Value::NIL, &roots);
+            unsafe {
+                (*live.as_obj().unwrap().as_ptr()).color = COLOR_BLACK;
+            }
+            let string = heap.new_string("weak literal", &roots);
+            let slice = heap.new_slice(string, 1, 4, &roots);
+            let integer = heap.box_integer(
+                crate::numeric::Integer {
+                    bits: 1 << 60,
+                    unsigned: false,
+                },
+                &roots,
+            );
+            let preserved = [
+                string,
+                slice,
+                integer,
+                Value::NIL,
+                Value::FALSE,
+                Value::num(-0.0),
+                Value::num(f64::NAN),
+                Value::inline_integer(-1).unwrap(),
+            ];
+            let h = unsafe { &mut *table.as_ptr() };
+            h.flags |= F_PROTO;
+            let t = h.table();
+            t.array.extend(preserved);
+            t.array.extend([dead_value, Value::NIL]);
+            t.hash.insert(dead_key, live);
+            t.hash.insert(Value::FALSE, dead_value);
+            t.hash.insert(Value::num(0.0), live);
+            t.hash.insert(string, slice);
+            t.hash.insert(integer, integer);
+            let before_order: Vec<_> = (0..t.hash.len())
+                .map(|i| t.hash.entry_at(i).unwrap().0)
+                .collect();
+            let before_ranks: Vec<_> = before_order
+                .iter()
+                .map(|&key| t.hash.position_of(key))
+                .collect();
+            h.refresh();
+            heap.weak.push((table, mode));
+            let epoch = heap.proto_epoch;
+            heap.clear_weak();
+            let t = unsafe { table.as_ref().table_ref() };
+            assert_eq!(&t.array[..preserved.len()], &preserved);
+            assert_eq!(
+                t.array.len(),
+                if mode & WEAK_VALUES != 0 {
+                    preserved.len()
+                } else {
+                    preserved.len() + 2
+                }
+            );
+            assert_eq!(
+                t.hash.get(&dead_key).copied(),
+                (mode & WEAK_KEYS == 0).then_some(live)
+            );
+            assert_eq!(
+                t.hash.get(&Value::FALSE).copied(),
+                (mode & WEAK_VALUES == 0).then_some(dead_value)
+            );
+            assert_eq!(
+                t.hash.get(&Value::num(0.0)),
+                Some(&live),
+                "raw zero is a live key"
+            );
+            assert_eq!(t.hash.get(&string), Some(&slice));
+            assert_eq!(t.hash.get(&integer), Some(&integer));
+            assert_eq!(
+                (0..t.hash.len())
+                    .map(|i| t.hash.entry_at(i).unwrap().0)
+                    .collect::<Vec<_>>(),
+                before_order
+            );
+            assert_eq!(
+                before_order
+                    .iter()
+                    .map(|&key| t.hash.position_of(key))
+                    .collect::<Vec<_>>(),
+                before_ranks
+            );
+            assert_eq!(heap.proto_epoch, epoch + u64::from(mode != 0));
+            let t = unsafe { &mut *table.as_ptr() }.table();
+            t.hash.insert(dead_key, live);
+            assert_eq!(
+                t.hash.next_after(Value::NIL),
+                Some((dead_key, live)),
+                "reinsertion retains original rank"
+            );
+        }
+    }
+
+    #[cfg(feature = "native-runtime")]
+    #[test]
+    fn native_weak_mark_views_reach_a_fixed_point_without_duplicate_shading() {
+        let mut heap = Heap::new();
+        heap.automatic_collection = false;
+        let roots = R(std::cell::RefCell::new(Vec::new()));
+        let first = heap.new_cell(Value::NIL, &roots);
+        let second = heap.new_cell(Value::NIL, &roots);
+        let tail = heap.new_cell(Value::NIL, &roots);
+        let dead_key = heap.new_cell(Value::NIL, &roots);
+        let dead_value = heap.new_cell(Value::NIL, &roots);
+        let mut table = TablePayload {
+            array: Vec::new(),
+            hash: ValueTable::new(),
+            meta: Value::NIL,
+        };
+        table.hash.insert(first, second);
+        table.hash.insert(second, tail);
+        table.hash.insert(dead_key, dead_value);
+        assert!(!Heap::mark_live_entries(
+            &mut heap.allocator,
+            &table,
+            WEAK_KEYS
+        ));
+        unsafe {
+            (*first.as_obj().unwrap().as_ptr()).color = COLOR_BLACK;
+        }
+        let mut passes = 0;
+        while Heap::mark_live_entries(&mut heap.allocator, &table, WEAK_KEYS) {
+            passes += 1;
+            assert!(passes <= 2, "the ephemeron chain converges");
+        }
+        assert!(passes > 0);
+        let mut grayed = Vec::new();
+        while let Some(header) = heap.allocator.gray_pop() {
+            grayed.push(Value::obj(header));
+        }
+        grayed.sort_by_key(|v| v.0);
+        let mut expected = vec![second, tail];
+        expected.sort_by_key(|v| v.0);
+        assert_eq!(grayed, expected);
+        assert_eq!(
+            unsafe { dead_key.as_obj().unwrap().as_ref().color },
+            COLOR_WHITE
+        );
+        assert_eq!(
+            unsafe { dead_value.as_obj().unwrap().as_ref().color },
+            COLOR_WHITE
+        );
+        let mut unchanged = vec![Value::TRUE, Value::NIL];
+        let (length, changed) = unsafe {
+            NativeAllocator::weak_clear(
+                unchanged.as_mut_ptr(),
+                unchanged.len(),
+                std::ptr::null_mut(),
+                0,
+                WEAK_VALUES,
+            )
+        };
+        assert_eq!(
+            (length, changed),
+            (2, false),
+            "an unchanged borrowed array retains its extent"
+        );
+        let (length, changed) = unsafe {
+            NativeAllocator::weak_clear(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, 3)
+        };
+        assert_eq!(
+            (length, changed),
+            (0, false),
+            "empty views do not dereference null"
+        );
+    }
     #[cfg(feature = "native-runtime")]
     #[test]
     fn native_allocator_rejects_unrepresentable_extents_before_allocation() {

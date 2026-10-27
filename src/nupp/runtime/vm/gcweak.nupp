@@ -32,8 +32,8 @@ runtime takes it from the released list and recycles it.
 
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
-const values = require("nupp.runtime.vm.values")
 const objectweak = require("nupp.runtime.vm.objectweak")
+const weakentries = require("nupp.runtime.vm.weakentries")
 const marking = require("nupp.runtime.vm.marking")
 
 export const WEAK_KEYS: uint64 = 1
@@ -45,76 +45,18 @@ local function grayIfWhite(h: heap.Heap*, value: uint64): boolean
     return marking.shadeValue(h, value)
 end
 
---- Whether a weak entry may drop `value`: an object other than a string, a
---- slice or a boxed integer, which are never collected out of a weak table.
-local function clearable(value: uint64): boolean
-    @unsafe do
-        if value & values.TAG_MASK ~= values.TAG_OBJ then
-            return false
-        end
-        local kind = (native.pointer(value & values.PAYLOAD) as heap.Header*).kind as uint64
-        return kind ~= heap.KIND_STR and kind ~= heap.KIND_SLICE and kind ~= heap.KIND_INTEGER
-    end
-end
-
---- Whether a weak side keeps its entry as marking stands.
-local function holds(value: uint64): boolean
-    @unsafe do
-        if not clearable(value) then
-            return true
-        end
-        return (native.pointer(value & values.PAYLOAD) as heap.Header*).color as uint64 ~= heap.COLOR_WHITE
-    end
-end
-
-local function isDead(value: uint64): boolean
-    return not holds(value)
-end
-
---- Grays both sides of every entry that survives as marking stands; answers
---- whether anything was grayed.
+-- The host and standalone tables expose the same borrowed value and bucket views.
 local function markLiveEntries(h: heap.Heap*, o: heap.Header*, mode: uint64): boolean
     @unsafe do
-        local weakKeys = mode & WEAK_KEYS ~= 0
-        local weakValues = mode & WEAK_VALUES ~= 0
-        local grayed: boolean = false
-        local i: uint64 = 0
-        while i < o.auxLen do
-            local item = native.load64(native.pointer(o.auxPtr), native.index(i * 8))
-            if not weakValues or holds(item) then
-                if grayIfWhite(h, item) then
-                    grayed = true
-                end
-            end
-            i = i + 1
-        end
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
-        if t.hashPtr ~= 0 then
-            i = 0
-            while i < t.hashCap do
-                local key = native.load64(native.pointer(t.hashPtr), native.index(i * 16))
-                local item = native.load64(native.pointer(t.hashPtr), native.index(i * 16 + 8))
-                if key ~= values.NIL and item ~= values.NIL then
-                    local survives: boolean = true
-                    if weakKeys and not holds(key) then
-                        survives = false
-                    end
-                    if weakValues and not holds(item) then
-                        survives = false
-                    end
-                    if survives then
-                        if grayIfWhite(h, key) then
-                            grayed = true
-                        end
-                        if grayIfWhite(h, item) then
-                            grayed = true
-                        end
-                    end
-                end
-                i = i + 1
-            end
-        end
-        return grayed
+        return weakentries.weakMarkViews(
+            h,
+            native.pointer(o.auxPtr),
+            o.auxLen,
+            native.pointer(t.hashPtr),
+            t.hashCap,
+            mode
+        )
     end
 end
 
@@ -150,9 +92,9 @@ export function propagate(h: heap.Heap*): boolean
     end
 end
 
---- Once marking has ended: drops every weak entry whose weak side is still
---- white, and the array part's trailing nils. White now means unreachable
---- but for weak references; the sweep that follows frees those objects.
+--- Once marking has ended: drops every weak entry whose weak side is still white,
+--- trimming trailing nils when an array entry is cleared. White means unreachable but
+--- for weak references; the sweep that follows frees those objects.
 export function clear(h: heap.Heap*): nil
     @unsafe do
         local i: uint64 = 0
@@ -161,42 +103,16 @@ export function clear(h: heap.Heap*): nil
             if o.kind as uint64 == heap.KIND_TABLE then
                 local mode = (o.aux as uint64) & WEAK_MODES
                 local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
-                if mode & WEAK_VALUES ~= 0 and o.auxLen > 0 then
-                    local k: uint64 = 0
-                    while k < o.auxLen do
-                        if isDead(native.load64(native.pointer(o.auxPtr), native.index(k * 8))) then
-                            native.store64(native.pointer(o.auxPtr), native.index(k * 8), values.NIL)
-                        end
-                        k = k + 1
-                    end
-                    local length = o.auxLen
-                    while length > 0
-                        and native.load64(native.pointer(o.auxPtr), native.index((length - 1) * 8)) == values.NIL do
-                        length = length - 1
-                    end
-                    o.auxLen = length
-                    t.arrayLen = length
-                end
-                if t.hashPtr ~= 0 then
-                    local k: uint64 = 0
-                    while k < t.hashCap do
-                        local key = native.load64(native.pointer(t.hashPtr), native.index(k * 16))
-                        local item = native.load64(native.pointer(t.hashPtr), native.index(k * 16 + 8))
-                        if key ~= values.NIL and item ~= values.NIL then
-                            local gone: boolean = false
-                            if mode & WEAK_KEYS ~= 0 and isDead(key) then
-                                gone = true
-                            end
-                            if mode & WEAK_VALUES ~= 0 and isDead(item) then
-                                gone = true
-                            end
-                            if gone then
-                                native.store64(native.pointer(t.hashPtr), native.index(k * 16 + 8), values.NIL)
-                            end
-                        end
-                        k = k + 1
-                    end
-                end
+                local length = weakentries.weakClearViews(
+                    native.pointer(o.auxPtr),
+                    o.auxLen,
+                    native.pointer(t.hashPtr),
+                    t.hashCap,
+                    mode,
+                    native.pointer(0ULL)
+                )
+                o.auxLen = length
+                t.arrayLen = length
             end
             i = i + 1
         end

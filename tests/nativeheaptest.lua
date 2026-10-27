@@ -57,7 +57,7 @@ local function write(path, text)
 end
 
 -- The runtime modules a fixture is compiled with.
-local RUNTIME = {"heap", "arena", "values", "objecthash", "objectweak", "marking"}
+local RUNTIME = {"heap", "arena", "values", "objecthash", "objectweak", "marking", "weakentries"}
 
 local compiled = {}
 
@@ -241,7 +241,8 @@ function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
             "values",
             "objecthash",
             "objectweak",
-            "marking"
+            "marking",
+            "weakentries"
         }),
         GRAPHS
     )
@@ -258,7 +259,8 @@ function M.allocationDebtPacesTheCycles()
         "values",
         "objecthash",
         "objectweak",
-        "marking"
+        "marking",
+        "weakentries"
     })
     local answer = tonumber(run(clif, "paced", {1000000, 100}))
     assert(answer and answer > 0, "paced answered " .. tostring(answer))
@@ -276,7 +278,8 @@ function M.allocationAndCollectionThroughputRun()
         "values",
         "objecthash",
         "objectweak",
-        "marking"
+        "marking",
+        "weakentries"
     })
     for _, case in ipairs({{"allocNanos", {1000000, 1}}, {"collectNanos", {500000}}}) do
         local nanos = tonumber(run(clif, case[1], case[2]))
@@ -371,7 +374,8 @@ local function replay(trace)
         "values",
         "objecthash",
         "objectweak",
-        "marking"
+        "marking",
+        "weakentries"
     })
     local output = run(clif, "replayTrace", {}, trace)
     local counts = {}
@@ -425,6 +429,7 @@ local WEAK = {
     -- Array length and mirror 2, the dead entry cleared, the live one kept,
     -- both unrooted nodes freed.
     {"weakValues", {}, 22111},
+    {"unchangedWeakExtent", {}, 22},
     {"ephemerons", {}, 1111},
     {"weakBoth", {}, 111},
     {"lookupBarrier", {}, 111},
@@ -444,7 +449,8 @@ function M.weakTablesClearWhatOnlyTheyHold()
             "values",
             "objecthash",
             "objectweak",
-            "marking"
+            "marking",
+            "weakentries"
         }),
         WEAK
     )

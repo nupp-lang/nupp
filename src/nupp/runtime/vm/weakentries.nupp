@@ -1,0 +1,136 @@
+module nupp.runtime.vm.weakentries
+
+-- The owner lends array words and canonical two-word hash buckets. Referenced
+-- headers stay owned until the operation returns. No collection, guest callback,
+-- or suspension runs across these borrows; gray worklist growth maps backing only.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const marking = require("nupp.runtime.vm.marking")
+
+local function weakClearable(value: uint64): boolean
+    @unsafe do
+        if value & values.TAG_MASK ~= values.TAG_OBJ then
+            return false
+        end
+        local kind = (native.pointer(value & values.PAYLOAD) as heap.Header*).kind as uint64
+        return kind ~= heap.KIND_STR and kind ~= heap.KIND_SLICE and kind ~= heap.KIND_INTEGER
+    end
+end
+
+local function weakHolds(value: uint64): boolean
+    @unsafe do
+        if not weakClearable(value) then
+            return true
+        end
+        return (native.pointer(value & values.PAYLOAD) as heap.Header*).color as uint64 ~= heap.COLOR_WHITE
+    end
+end
+
+export function weakMarkViews(
+    h: heap.Heap*,
+    array: voidptr,
+    length: uint64,
+    buckets: voidptr,
+    capacity: uint64,
+    mode: uint64
+): boolean
+    @unsafe do
+        local weakKeys = mode & 1ULL ~= 0ULL
+        local weakValues = mode & 2ULL ~= 0ULL
+        local grayed: boolean = false
+        local i: uint64 = 0ULL
+        while i < length do
+            local item = native.load64(array, native.index(i * 8ULL))
+            if not weakValues or weakHolds(item) then
+                if marking.shadeValue(h, item) then
+                    grayed = true
+                end
+            end
+            i = i + 1ULL
+        end
+        i = 0ULL
+        while i < capacity do
+            local key = native.load64(buckets, native.index(i * 16ULL))
+            local item = native.load64(buckets, native.index(i * 16ULL + 8ULL))
+            if key ~= values.NIL and item ~= values.NIL then
+                local survives: boolean = true
+                if weakKeys and not weakHolds(key) then
+                    survives = false
+                end
+                if weakValues and not weakHolds(item) then
+                    survives = false
+                end
+                if survives then
+                    if marking.shadeValue(h, key) then
+                        grayed = true
+                    end
+                    if marking.shadeValue(h, item) then
+                        grayed = true
+                    end
+                end
+            end
+            i = i + 1ULL
+        end
+        return grayed
+    end
+end
+
+-- Returns the surviving array length. A nonnull changedOut receives whether an
+-- entry was cleared; it is a separately borrowed word when present.
+-- Clearing preserves bucket keys and insertion ranks. Arrays trim trailing nils
+-- only after a value is cleared, preserving an unchanged owner's current extent.
+export function weakClearViews(
+    array: voidptr,
+    length: uint64,
+    buckets: voidptr,
+    capacity: uint64,
+    mode: uint64,
+    changedOut: voidptr
+): uint64
+    @unsafe do
+        local changed: boolean = false
+        local arrayChanged: boolean = false
+        local kept: uint64 = length
+        if mode & 2ULL ~= 0ULL then
+            local i: uint64 = 0ULL
+            while i < length do
+                local item = native.load64(array, native.index(i * 8ULL))
+                if not weakHolds(item) then
+                    native.store64(array, native.index(i * 8ULL), values.NIL)
+                    changed = true
+                    arrayChanged = true
+                end
+                i = i + 1ULL
+            end
+            if arrayChanged then
+                while kept > 0ULL and native.load64(array, native.index((kept - 1ULL) * 8ULL)) == values.NIL do
+                    kept = kept - 1ULL
+                end
+            end
+        end
+        local i: uint64 = 0ULL
+        while i < capacity do
+            local key = native.load64(buckets, native.index(i * 16ULL))
+            local item = native.load64(buckets, native.index(i * 16ULL + 8ULL))
+            if key ~= values.NIL and item ~= values.NIL then
+                local gone: boolean = false
+                if mode & 1ULL ~= 0ULL and not weakHolds(key) then
+                    gone = true
+                end
+                if mode & 2ULL ~= 0ULL and not weakHolds(item) then
+                    gone = true
+                end
+                if gone then
+                    native.store64(buckets, native.index(i * 16ULL + 8ULL), values.NIL)
+                    changed = true
+                end
+            end
+            i = i + 1ULL
+        end
+        if native.address(changedOut) ~= 0ULL then
+            native.store64(changedOut, 0, native.asWord(changed))
+        end
+        return kept
+    end
+end

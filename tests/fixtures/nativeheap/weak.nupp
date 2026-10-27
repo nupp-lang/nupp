@@ -384,3 +384,22 @@ local function interleavedWeak(count: uint64): uint64
         end
     end
 end
+
+-- An unchanged weak-value array keeps its existing logical extent.
+local function unchangedWeakExtent(): uint64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            h.automatic = false
+            local roots = words(a, 1)
+            collector.register(h, roots, 1)
+            local t = newTable(h, a, 2, 0, gcweak.WEAK_VALUES)
+            native.store64(native.pointer(roots), 0, t)
+            putSlot(h, t, 0, values.TRUE)
+            collector.fullCycle(h)
+            local answer = body(t).arrayLen * 10ULL + heap.objectHeader(t).auxLen
+            heap.destroy(h)
+            return answer
+        end
+    end
+end
