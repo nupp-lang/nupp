@@ -822,7 +822,7 @@ return {value = original, read = read, matches = matches}
         "fresh same-unit checking is deterministic"
     )
     if program.onVm() then
-        local changed = fresh("fragment_identity_a", source:gsub("int32", "number"))
+        local changed = fresh("fragment_identity_a", source:gsub("int32", "float64"))
         local ok, problem = pcall(program.run, changed, "fragment_identity_a")
         assert(not ok and tostring(problem):find("conflicting native struct declaration", 1, true), tostring(problem))
         testAssert.equal(a.read(), 7, "a rejected layout replacement preserves old values")

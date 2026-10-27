@@ -50,9 +50,9 @@ local M = {}
 function M.reportsFieldsInDeclarationOrder()
     local l = runs([[
 local struct Vec3
-    x: float
-    y: float
-    z: float
+    x: float32
+    y: float32
+    z: float32
 end
 return layoutof(Vec3)
 ]], "Vec3")
@@ -66,9 +66,9 @@ end
 function M.everyNumberIsTheTargets()
     local l = runs([[
 local struct Vec3
-    x: float
-    y: float
-    z: float
+    x: float32
+    y: float32
+    z: float32
 end
 return layoutof(Vec3)
 ]], "Vec3")
@@ -85,14 +85,14 @@ function M.sizeAndPaddingAreDifferentQuestions()
     local l = runs([[
 local struct Mixed
     tag: int8
-    value: number
+    value: float64
     id: int32
 end
 return layoutof(Mixed)
 ]], "Mixed")
     testAssert.equal(l.fields[1].size, 1, "an int8 is one byte")
     testAssert.equal(l.fields[1].padding, 7, "and the rest of the gap is padding")
-    testAssert.equal(l.fields[2].size, 8, "a number is a double")
+    testAssert.equal(l.fields[2].size, 8, "float64 is a double")
     testAssert.equal(l.fields[2].padding, 0, "which needs no padding before an int32")
 end
 
@@ -100,13 +100,13 @@ function M.aNestedStructIsSizedFromItsCtype()
     local l = runs(
         [[
 local struct Inner
-    a: float
-    b: float
+    a: float32
+    b: float32
 end
 
 local struct Outer
     inner: Inner
-    w: float
+    w: float32
 end
 return layoutof(Outer)
 ]],
@@ -124,7 +124,7 @@ function M.aPointerKeepsItsPointeeInTheSpelling()
     local l = runs(
         [[
 local struct Inner
-    a: float
+    a: float32
 end
 
 local struct Pointy
@@ -143,7 +143,7 @@ function M.aNullablePointerIsStillAPointer()
     local l = runs(
         [[
 local struct Inner
-    a: float
+    a: float32
 end
 
 local struct Maybe
@@ -167,21 +167,27 @@ return layoutof(S)
 ]]):format(fields), "S").fingerprint
     end
 
-    local base = fingerprintOf("    x: float\n    y: float")
-    testAssert.equal(base, fingerprintOf("    x: float\n    y: float"), "the same layout answers the same")
-    assert(base ~= fingerprintOf("    x: float\n    y: int32"), "a changed field type changes it")
-    assert(base ~= fingerprintOf("    y: float\n    x: float"), "a reordering changes it, because the layout changed")
-    assert(base ~= fingerprintOf("    x: float\n    z: float"), "a renamed field changes it")
+    local base = fingerprintOf("    x: float32\n    y: float32")
+    testAssert.equal(base, fingerprintOf("    x: float32\n    y: float32"), "the same layout answers the same")
+    assert(base ~= fingerprintOf("    x: float32\n    y: int32"), "a changed field type changes it")
+    assert(
+        base ~= fingerprintOf("    y: float32\n    x: float32"),
+        "a reordering changes it, because the layout changed"
+    )
+    assert(base ~= fingerprintOf("    x: float32\n    z: float32"), "a renamed field changes it")
 end
 
 function M.theSameCtypeAnswersFromTheSameTable()
-    local same = runs([[
+    local same = runs(
+        [[
 local struct Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 return layoutof(Vec2) == layoutof(Vec2)
-]], "cached")
+]],
+        "cached"
+    )
     testAssert.equal(same, true, "building it twice is one walk, not two")
 end
 
@@ -189,8 +195,8 @@ function M.aRecordHasNoLayout()
     local found = nil
     for _, d in ipairs(diagnostics([[
 local record Point
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 return layoutof(Point)
 ]])) do
@@ -226,7 +232,7 @@ end
 
 local struct Outer
     inner: Inner
-    w: float
+    w: float32
 end
 return layoutof(Outer)
 ]]
@@ -235,10 +241,10 @@ return layoutof(Outer)
         ).fingerprint
     end
 
-    local floats = fingerprintOf("    a: float\n    b: float")
+    local floats = fingerprintOf("    a: float32\n    b: float32")
     local ints = fingerprintOf("    a: int32\n    b: int32")
     assert(floats ~= ints, "a same-size change inside the nested struct still changes the fingerprint")
-    local renamed = fingerprintOf("    x: float\n    y: float")
+    local renamed = fingerprintOf("    x: float32\n    y: float32")
     assert(floats ~= renamed, "and so does renaming one of its fields")
 end
 
@@ -264,7 +270,7 @@ return layoutof(Holder)
         )
     end
 
-    local l = holderOf("    a: float\n    b: float")
+    local l = holderOf("    a: float32\n    b: float32")
     testAssert.equal(l.fields[1].ctype, "Inner *", "named, not expanded")
     testAssert.equal(
         l.fingerprint,
@@ -390,8 +396,8 @@ function M.aFixedArrayFieldIsLaidOutInline()
     local l = runs(
         [[
 local struct Vertex
-    pos: float[3]
-    uv: float[2]
+    pos: float32[3]
+    uv: float32[2]
     id: int32
 end
 return layoutof(Vertex)
@@ -409,8 +415,8 @@ function M.aFixedArrayOfStructsIsSizedFromItsElementCtype()
     local l = runs(
         [[
 local struct Cell
-    a: float
-    b: float
+    a: float32
+    b: float32
 end
 
 local struct Grid
@@ -430,7 +436,7 @@ function M.aFixedArrayIsUsableAtRuntime()
     local value = runs(
         [[
 local struct Vertex
-    pos: float[3]
+    pos: float32[3]
     id: int32
 end
 
@@ -450,7 +456,7 @@ function M.aVariableLengthArrayIsStillRefused()
     local found = nil
     for _, d in ipairs(diagnostics([[
 local struct Bad
-    v: float[?]
+    v: float32[?]
     n: int32
 end
 return Bad
@@ -468,10 +474,10 @@ function M.aMethodDeclaredBeforeLayoutofIsNotAField()
     local l = runs(
         [[
 local struct Vec
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
-function Vec:len(): float
+function Vec:len(): float32
     return self.x
 end
 return layoutof(Vec)

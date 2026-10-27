@@ -197,7 +197,7 @@ function M.coversStructuralFunctionsCollectionsAndCapabilities()
     for _, entry in ipairs(descriptor.types) do
         kinds[entry.kind] = true
     end
-    for _, kind in ipairs({"func", "array", "union", "shape", "string", "integer", "number"}) do
+    for _, kind in ipairs({"func", "array", "union", "shape", "string", "int64", "number"}) do
         assert(kinds[kind], "descriptor includes " .. kind)
     end
     local fn = descriptor.types[descriptor.root]

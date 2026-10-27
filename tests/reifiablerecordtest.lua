@@ -51,8 +51,8 @@ local test = {}
 function test.everyFieldReifiesSoStructIsAvailable()
     local d = assertSuggested([[
 local record Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 ]])
     testAssert.equal(d.severity, "warning", "reported at the configured level")
@@ -69,8 +69,8 @@ local record Wide
     b: uint16
     c: int32
     d: int64
-    e: float
-    f: number
+    e: float32
+    f: float64
     g: boolean
 end
 ]]
@@ -128,10 +128,10 @@ function test.methodsAndConstructorsDoNotArgueAgainstIt()
     assertSuggested(
         [[
 local record Point
-    x: float
-    y: float
+    x: float32
+    y: float32
 
-    constructor(self, x: float, y: float)
+    constructor(self, x: float32, y: float32)
         self.x = x
         self.y = y
     end
@@ -259,8 +259,8 @@ end
 function test.aStructSaysNothingAboutItself()
     assertSilent([[
 local struct Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 ]], "the suggestion is a record's alone")
 end
@@ -268,8 +268,8 @@ end
 function test.offUntilAProjectAsks()
     local src = [[
 local record Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 ]]
     for _, diag in ipairs(check.check(parser.parse(src, "test.nupp"), "test", envMod.new("."), {})) do
@@ -292,8 +292,8 @@ function test.allowSuppressesIt()
     local found = lint([[
 @allow("reifiable-record")
 local record Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 ]])
     testAssert.equal(#found, 0, "an @allow silences it")
@@ -305,8 +305,8 @@ function test.theSuggestionCanBeApplied()
     -- compiles -- which is what assertSuggested already proves separately.
     local d = assertSuggested([[
 local record Vec2
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 ]])
     testAssert.equal(d.fixes ~= nil and #d.fixes == 1, true, "exactly one fix is offered")

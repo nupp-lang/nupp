@@ -20,13 +20,14 @@ function suite.interfaceWitnessesPreserveNominalCapabilities()
         {
             "local sealed interface Value end",
             "local record Managed is Value end",
-            "local struct Native is Value x: number end",
+            "local struct Native is Value x: float64 end",
             "local record Other end",
             "local witnesses: {Type<Value>} = {Managed, Native}",
         },
         "\n"
     )
     assert(diagnostics(source) == "")
+
     local function rejected(expression, label)
         assert(diagnostics(source .. "\n" .. expression):find("NUPP2001", 1, true), label)
     end
@@ -39,6 +40,7 @@ end
 
 function suite.annotationSourcesNormalizeEquivalentPaths()
     local registry = annotations.new()
+
     local function define(source)
         return registry:define({name = "ecsname", arguments = "none", targets = {"record"}, source = source,})
     end

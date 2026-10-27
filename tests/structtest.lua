@@ -46,26 +46,26 @@ local function run(src)
     return program.run(result, name)
 end
 
-local VEC = "local struct Vec2\n   x: float\n   y: float\nend\n"
+local VEC = "local struct Vec2\n   x: float32\n   y: float32\nend\n"
 
 local M = {}
 
 function M.groupedFieldsRejected()
-    -- every field states its own type; "x, y: float" is not grammar
-    local result = require("nupp.compiler.syntax.parser").parse("local struct V\n   x, y: float\nend", "test")
+    -- every field states its own type; "x, y: float32" is not grammar
+    local result = require("nupp.compiler.syntax.parser").parse("local struct V\n   x, y: float32\nend", "test")
     assert(#result.errors > 0, "grouped fields must be a syntax error")
     assert(result.errors[1].msg:find("own explicit type", 1, true), "targeted message: " .. result.errors[1].msg)
 end
 
 function M.fieldValidation()
-    assertClean("local struct S\n   a: number\n   b: int64\n   c: boolean\nend")
+    assertClean("local struct S\n   a: float64\n   b: int64\n   c: boolean\nend")
     testAssert.equal((diagsOf("local struct S\n   name: string\nend")), "NUPP2201:2")
     testAssert.equal((diagsOf("local struct S\n   t: {number}\nend")), "NUPP2201:2")
     testAssert.equal((diagsOf("local struct S\n   f: function(): nil\nend")), "NUPP2201:2")
     testAssert.equal((diagsOf("local struct S\n   o: number?\nend")), "NUPP2201:2")
     -- structs by value and (nullable) pointers are fine
     assertClean(VEC .. "local struct Body\n   pos: Vec2\n   vel: Vec2\nend")
-    assertClean(VEC .. "local struct Node\n   v: number\n   next: Node*?\nend")
+    assertClean(VEC .. "local struct Node\n   v: float64\n   next: Node*?\nend")
     -- no nested declarations inside struct bodies
     testAssert.equal((diagsOf("local struct S\n   record R\n      x: number\n   end\nend")), "NUPP2201:2")
 end
@@ -79,10 +79,17 @@ function M.tagFieldsAndPointerUnionsAreReifiable()
     -- the tag admits only its own value, and a wider union is not a pointer
     testAssert.equal((diagsOf(TAGGED .. "local function f(p: Leaf*): nil\n   @unsafe p.kind = 2\nend")), "NUPP2001:11")
     testAssert.equal((diagsOf("local struct S\n   mixed: S* | int64\nend")), "NUPP2201:2")
-    -- comparing the tag narrows a union of struct pointers, through a borrowed parameter too
-    assertClean(TAGGED .. "local function eval(e: Leaf* | Pair*): int64\n"
-        .. "   if e.kind == 1 then\n      return e.value\n   else\n      return eval(e.left)\n   end\nend")
-    testAssert.equal((diagsOf(TAGGED .. "local function f(e: Leaf* | Pair*): int64\n   return e.value\nend")), "NUPP2004:11")
+    -- comparing the tag narrows a union of struct pointers, through a borrowed
+    -- parameter too
+    assertClean(
+        TAGGED
+        .. "local function eval(e: Leaf* | Pair*): int64\n"
+        .. "   if e.kind == 1 then\n      return e.value\n   else\n      return eval(e.left)\n   end\nend"
+    )
+    testAssert.equal(
+        (diagsOf(TAGGED .. "local function f(e: Leaf* | Pair*): int64\n   return e.value\nend")),
+        "NUPP2004:11"
+    )
     -- the layout: an int32 tag, then the pointers at the pointer's alignment
     local _, diags = compile(TAGGED .. "return Pair", "tagged_layout.nupp", "tagged_layout")
     testAssert.equal(#diags, 0, "layout program checks")
@@ -111,29 +118,44 @@ function M.anUnsafeRegionCoversItsBlock()
     -- A raw pointer: a call's result carries no borrow, unlike a parameter.
     local NODE = "local struct Node\n   value: int64\n   next: Node*?\nend\n"
         .. "local function raw(p: voidptr): Node*\n   return p as Node*\nend\n"
-    assertClean(NODE .. table.concat({
-        "local function link(base: voidptr, other: voidptr): int64",
-        "   local first = raw(base)",
-        "   local second = raw(other)",
-        "   @unsafe do",
-        "      first.value = 1",
-        "      if second ~= nil then",
-        "         second.value = 2",
-        "         first.next = second",
-        "      end",
-        "      return first.value",
-        "   end",
-        "end",
-    }, "\n"))
-    testAssert.equal((diagsOf(NODE .. table.concat({
-        "local function link(base: voidptr, other: voidptr): int64",
-        "   local first = raw(base)",
-        "   local second = raw(other)",
-        "   first.value = 1",
-        "   first.next = second",
-        "   return @unsafe first.value",
-        "end",
-    }, "\n"))), "NUPP2604:11 NUPP2604:12")
+    assertClean(
+        NODE .. table.concat(
+            {
+                "local function link(base: voidptr, other: voidptr): int64",
+                "   local first = raw(base)",
+                "   local second = raw(other)",
+                "   @unsafe do",
+                "      first.value = 1",
+                "      if second ~= nil then",
+                "         second.value = 2",
+                "         first.next = second",
+                "      end",
+                "      return first.value",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.equal(
+        (
+            diagsOf(
+                NODE .. table.concat(
+                    {
+                        "local function link(base: voidptr, other: voidptr): int64",
+                        "   local first = raw(base)",
+                        "   local second = raw(other)",
+                        "   first.value = 1",
+                        "   first.next = second",
+                        "   return @unsafe first.value",
+                        "end",
+                    },
+                    "\n"
+                )
+            )
+        ),
+        "NUPP2604:11 NUPP2604:12"
+    )
 end
 
 function M.constructionChecking()
@@ -169,8 +191,8 @@ function M.structConstructionUsesTrailingFieldDefaults()
     local src = table.concat(
         {
             "local struct Vec2",
-            "   x: float = 3",
-            "   y: float = 4",
+            "   x: float32 = 3",
+            "   y: float32 = 4",
             "end",
             "local origin = new Vec2()",
             "local moved = new Vec2(10)",
@@ -187,7 +209,7 @@ function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
             table.concat(
                 {
                     "local struct Vec",
-                    "   x: float",
+                    "   x: float32",
                     "   function doubled(): number",
                     "      return self.x * 2",
                     "   end",
@@ -206,7 +228,7 @@ function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
                 table.concat(
                     {
                         "local struct Vec",
-                        "   x: float",
+                        "   x: float32",
                         "   metamethod __add: function(self, other: self): self",
                         "end",
                     },
@@ -227,8 +249,8 @@ function M.methodsOnADottedStructAttachToItsMetatable()
             {
                 "local m = {}",
                 "struct m.Vec",
-                "   x: number",
-                "   y: number",
+                "   x: float64",
+                "   y: float64",
                 "end",
                 "function m.Vec:len(): number",
                 "   return self.x + self.y",
@@ -371,8 +393,8 @@ end
 -- A width is the C bitfield the field lowers to, so it needs a layout to sit in and
 -- a base C allows one on. All four of these used to parse and be discarded.
 function M.bitWidthNeedsAnIntegerBase()
-    testAssert.equal(diagsOf("local struct S\n   f: float : 1\nend"), "NUPP2201:2")
-    testAssert.equal(diagsOf("local struct S\n   n: number : 4\nend"), "NUPP2201:2")
+    testAssert.equal(diagsOf("local struct S\n   f: float32 : 1\nend"), "NUPP2201:2")
+    testAssert.equal(diagsOf("local struct S\n   n: float64 : 4\nend"), "NUPP2201:2")
     assertClean("local struct S\n   a: uint32 : 1\n   b: boolean : 1\nend")
 end
 
@@ -392,9 +414,9 @@ end
 local SCALED = table.concat(
     {
         "local struct S",
-        "   x: float",
-        "   y: float = 2.0",
-        "   constructor(self, x: float)",
+        "   x: float32",
+        "   y: float32 = 2.0",
+        "   constructor(self, x: float32)",
         "      self.x = x * 2",
         "   end",
         "end",
@@ -421,8 +443,8 @@ function M.dottedStructConstructorReachesItsMetatable()
             {
                 "local m = {}",
                 "struct m.Vec",
-                "   x: number",
-                "   constructor(self, x: number)",
+                "   x: float64",
+                "   constructor(self, x: float64)",
                 "      self.x = x + 1",
                 "   end",
                 "end",
@@ -450,9 +472,9 @@ function M.structConstructorMustFillEveryField()
             table.concat(
                 {
                     "local struct S",
-                    "   x: float",
-                    "   y: float",
-                    "   constructor(self, x: float)",
+                    "   x: float32",
+                    "   y: float32",
+                    "   constructor(self, x: float32)",
                     "      self.x = x",
                     "   end",
                     "end",
@@ -580,11 +602,11 @@ function M.structStoredIntoAPointerFieldIsReadBackAsAPointer()
 end
 
 function M.fixedArrayFieldReadBorrowsItsParent()
-    local ARRAYED = "local struct V\n   pos: float[3]\nend\n"
+    local ARRAYED = "local struct V\n   pos: float32[3]\nend\n"
     testAssert.equal(
         diagsOf(
             ARRAYED .. table.concat(
-                {"local function grab(): float[3]", "   local v = new V()", "   return v.pos", "end",},
+                {"local function grab(): float32[3]", "   local v = new V()", "   return v.pos", "end",},
                 "\n"
             )
         ),

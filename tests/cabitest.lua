@@ -24,8 +24,8 @@ local SOURCE = [[
 local game = {}
 
 struct game.Position
-    x: float
-    y: float
+    x: float32
+    y: float32
 end
 
 struct game.Motion
@@ -86,7 +86,7 @@ function M.oneFunctionRecordRendersTypedAndErasedPointers()
         "integrate",
         {
             {name = "position", type = pointer, mode = "exclusive"},
-            {name = "dt", type = require("nupp.compiler.types").float, mode = "plain"},
+            {name = "dt", type = require("nupp.compiler.types").float32, mode = "plain"},
         },
         nil
     )
@@ -133,7 +133,7 @@ function M.layoutAndSemanticChangesAlterThePublishedFingerprints()
     assert(a.semanticFingerprint ~= b.semanticFingerprint, "field width is semantic")
     assert(a.layoutFingerprint ~= b.layoutFingerprint, "field width changes the ABI")
 
-    local wide = checked(SOURCE:gsub("flags: uint32", "flags: number"))
+    local wide = checked(SOURCE:gsub("flags: uint32", "flags: float64"))
     local lp64 = assert(cabi.aggregate(wide.types.Motion, TARGET))
     local ilp32 = assert(cabi.aggregate(wide.types.Motion, "i686-unknown-linux-gnu"))
     assert(lp64.layoutFingerprint ~= ilp32.layoutFingerprint, "target is fingerprinted")

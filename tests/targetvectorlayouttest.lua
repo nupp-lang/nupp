@@ -15,7 +15,12 @@ end
 
 -- A register-sized vector aligns to its size on every 64-bit target and Wasm.
 function M.aRegisterSizedVectorAlignsToItsSize()
-    for _, key in ipairs({"aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "wasm32-unknown-emscripten"}) do
+    for _, key in ipairs({
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc",
+        "wasm32-unknown-emscripten"
+    }) do
         local four = vector(key, 4, 4)
         test.equal(four.payload, 16, key)
         test.equal(four.alignment, 16, key)
@@ -64,7 +69,6 @@ function M.theContractRefusesWhatItCannotLayOut()
     assert(bad == nil and badWhy, tostring(badWhy))
 end
 
-
 local function vectorType(elementTag, lanes)
     return {
         tag = "nominal",
@@ -86,6 +90,7 @@ local function struct(fields)
         order[#order + 1] = field[1]
         byname[field[1]] = field[2]
     end
+
     return {tag = "nominal", declKind = "struct", name = "S", fieldOrder = order, byname = byname}
 end
 
@@ -93,7 +98,11 @@ end
 -- field at its alignment, occupying its padded size, and the struct aligned
 -- to the largest field and sized to a multiple of it.
 function M.aStructHoldingVectorsIsLaidOutByTheModel()
-    local particle = struct{{"mass", {tag = "float"}}, {"velocity", vectorType("float", 4)}, {"color", vectorType("float", 3)}}
+    local particle = struct{
+        {"mass", {tag = "float32"}},
+        {"velocity", vectorType("float32", 4)},
+        {"color", vectorType("float32", 3)}
+    }
     local layout, why = targetLayout.of(particle, "aarch64-apple-darwin")
     assert(layout, tostring(why))
     test.equal(layout.offsets.mass, 0)
@@ -112,13 +121,13 @@ end
 
 -- A mask and a preferred-species vector have no layout a struct could hold.
 function M.tierDependentFieldsHaveNoLayout()
-    local mask = {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Mask"}, typeArgs = {{tag = "float"}}}
+    local mask = {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Mask"}, typeArgs = {{tag = "float32"}}}
     local _, why = targetLayout.of(struct{{"hit", mask}}, "aarch64-apple-darwin")
     assert(why and why:find("a mask has no storage layout", 1, true), tostring(why))
     local preferred = {
         tag = "nominal",
         origin = {moduleName = "nupp.simd", name = "Vector"},
-        typeArgs = {{tag = "float"}, {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Preferred"}}},
+        typeArgs = {{tag = "float32"}, {tag = "nominal", origin = {moduleName = "nupp.simd", name = "Preferred"}}},
     }
     local _, reason = targetLayout.of(struct{{"v", preferred}}, "aarch64-apple-darwin")
     assert(reason and reason:find("tier-dependent species", 1, true), tostring(reason))

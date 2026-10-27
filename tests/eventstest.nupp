@@ -47,9 +47,9 @@ end
 
 @derive(events.Event)
 local struct Contact
-    a: number
-    b: number
-    impulse: float
+    a: float64
+    b: float64
+    impulse: float32
 end
 
 --- An allocator that counts what the bus asks of it, over a pool of its own.
@@ -910,14 +910,14 @@ function M.nestedEmissionAcrossTypesAndAddressesRunsToDepth(): nil
     end)
     bus:observe(1, Heal, |event| -> do
         trail[#trail + 1] = "heal " .. tostring(event.amount)
-        bus:emit(0, Contact, event.amount, 2, 0.5)
+        bus:emit(0, Contact, event.amount + 0.0, 2, 0.5)
         trail[#trail + 1] = "heal done"
     end)
     bus:observe(0, Contact, |event| -> do
         trail[#trail + 1] = ("contact %s %s %s"):format(event.a, event.b, event.impulse)
     end)
     bus:emit(1, Damage, amount = 3, source = 1)
-    test.equal(table.concat(trail, ";"), "damage 3;heal 6;contact 6 2 0.5;heal done;damage done")
+    test.equal(table.concat(trail, ";"), "damage 3;heal 6;contact 6.0 2.0 0.5;heal done;damage done")
     -- Every delivery left: an allocator may be installed again.
     bus:setAllocator(Damage, newCounting())
     test.equal(defaultAllocatorOf(bus, Heal):live(), 0)
@@ -934,7 +934,7 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
         seen[#seen + 1] = ("%s %s %s"):format(event.a, event.b, event.impulse)
     end)
     bus:emit(0, Contact, 5, 6, 0.25)
-    test.equal(seen[1], "5 6 0.25")
+    test.equal(seen[1], "5.0 6.0 0.25")
     test.equal(rows.seenA[1], 0, "a fresh row reads as zero")
 
     -- An explicit arena rewinds only when its owner says so, so the next
@@ -948,7 +948,7 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     test.equal(rows.seenA[3], 0)
     test.equal(rows.seenB[3], 0)
     test.equal(rows.seenImpulse[3], 0)
-    test.equal(seen[3], "9 10 0.75")
+    test.equal(seen[3], "9.0 1e1 0.75")
     test.equal(rows.inner:live(), 0)
 end
 
@@ -1145,7 +1145,7 @@ function M.warmEmissionOfAStructEventAllocatesNothing(): nil
 
     local function churn(rounds: integer): nil
         for index = 1, rounds do
-            bus:emit(0, Contact, index, 2, 0.5)
+            bus:emit(0, Contact, index + 0.0, 2, 0.5)
         end
     end
 
