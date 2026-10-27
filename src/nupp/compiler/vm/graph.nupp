@@ -114,6 +114,7 @@ signatures.FrameSlotWrite = "iiia#"
 signatures.PointerOffset = "Iii"
 signatures.NativeBoolean = "I#"
 signatures.NativeIMul = "Iii"
+signatures.NativeUDiv = "Iii"
 signatures.NativeICmp = "Iii#"
 signatures.NativeFCmp = "Iff#"
 signatures.NativeAsWord = "Ii"
@@ -145,6 +146,7 @@ local nativeOnly = {
     PointerOffset = true,
     NativeBoolean = true,
     NativeIMul = true,
+    NativeUDiv = true,
     NativeICmp = true,
     NativeFCmp = true,
     NativeAsWord = true,
@@ -166,6 +168,7 @@ local nativeArithmetic = {
     IAdd = true,
     ISub = true,
     NativeIMul = true,
+    NativeUDiv = true,
     IAnd = true,
     IOr = true,
     IXor = true,
@@ -420,6 +423,7 @@ end
 
 local nativeLeafParameters = {
     ["nupp.runtime.vm.objecthash"] = {slotHash = {"uint64"}},
+    ["nupp.runtime.vm.objectconstruct"] = {constructorPayload = {"uint64", "uint64"}},
     [
         "nupp.runtime.vm.objecttable"
     ] = {
@@ -670,6 +674,10 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         hasKind(args[1], "voidptr")
         hasKind(args[2], "int64")
         assert(kind == "voidptr", "native pointer offset result kind")
+    elseif op == "NativeUDiv" then
+        assert(kind == "uint64" and #args == 2, "native division requires two unsigned words")
+        hasKind(args[1], "uint64")
+        hasKind(args[2], "uint64")
     elseif nativeArithmetic[op] then
         assert(
             op:sub(1, 1) == "F" and nativeFloatKinds[kind]

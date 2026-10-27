@@ -88,10 +88,10 @@ end
 local type Alias = Payload
 local type Pointer = Payload*
 export function slotHash(unused: uint64): uint64
-    return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
+    return native.sizeOf<Alias>() + native.alignmentOf<Alias>() + native.word(native.fieldOffset<Alias>("word"))
 end
 local function ordinary(): uint64
-    return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
+    return native.sizeOf<Alias>() + native.alignmentOf<Alias>() + native.word(native.fieldOffset<Alias>("word"))
 end
 local function pointerLayout(): uint64
     return native.sizeOf<Pointer>() + native.alignmentOf<Pointer>()
@@ -112,14 +112,38 @@ end
     for _, invalid in ipairs({
         {"sizeOf<Alias>", "sizeOf<Missing>", "unknown type"},
         {"sizeOf<Alias>", "sizeOf<Alias, Alias>", "too many type arguments"},
-        {"sizeOf<Alias>", "sizeOf", "native layout requires one explicit type argument"}
+        {"sizeOf<Alias>", "sizeOf", "native layout requires one explicit type argument"},
+        {'fieldOffset<Alias>("word")', 'fieldOffset<Alias>("missing")', "native field offset: unknown field"}
     }) do
-        local changed = source:gsub(invalid[1], invalid[2], 1)
+        local pattern = invalid[1]:gsub("([%(%)])", "%%%1")
+        local changed, replacements = source:gsub(pattern, invalid[2], 1)
+        assert(replacements == 1)
         assert(fs.writeFile(path, changed))
         local accepted, problem = pcall(lower.compile, ROOT, {path}, {include = {"src"}})
         os.remove(path)
         assert(not accepted and tostring(problem):find(invalid[3], 1, true), tostring(problem))
     end
+end
+
+function M.nativeUnsignedDivisionKeepsItsExactKindAndTrapOperation()
+    local g = G.newNative({"uint64", "uint64"}, "uint64", "leaf")
+    local b = G.block(g)
+    G.emitNative(g, b, "NativeUDiv", {1, 2}, "uint64")
+    b.term = {kind = "return", value = 1, edges = {}}
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(clif.emit(g, {name = "unusedDivision"}):find("udiv", 1, true))
+    local bad = G.newNative({"uint64", "uint64"}, "uint64", "leaf")
+    local entry = G.block(bad)
+    G.emitNative(bad, entry, "NativeUDiv", {1, 2}, "int64")
+    entry.term = {kind = "return", value = 1, edges = {}}
+    rejects(
+        function()
+            G.verify(bad)
+        end,
+        "native division requires two unsigned words"
+    )
 end
 
 function M.canonicalSlotHashSourceUsesTheSharedGraphInOrdinaryNativeCompilation()

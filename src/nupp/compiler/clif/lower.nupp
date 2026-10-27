@@ -93,6 +93,7 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/objectshape.nupp",
     "src/nupp/runtime/vm/objecttable.nupp",
     "src/nupp/runtime/vm/objectweak.nupp",
+    "src/nupp/runtime/vm/objectconstruct.nupp",
     "src/nupp/runtime/vm/arena.nupp",
     "src/nupp/runtime/vm/heap.nupp",
     "src/nupp/runtime/vm/allocator.nupp",
@@ -1203,6 +1204,8 @@ local function compileDirectFunction(fn: Fn, options: any): string
         if intrinsicName == "sizeOf" or intrinsicName == "alignmentOf" then
             local property = intrinsicName == "sizeOf" and "size" or "alignment"
             return {kind = "uint64", value = constant("i64", nativelayout.constant(call, property))}
+        elseif intrinsicName == "fieldOffset" then
+            return {kind = "int64", value = constant("i64", nativelayout.fieldOffset(call))}
         elseif intrinsicLoads[intrinsicName] then
             local address = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))
             return {

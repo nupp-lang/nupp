@@ -5,15 +5,33 @@ local targetLayout = require("nupp.compiler.targetlayout")
 local nativelayout = {}
 
 -- Physical layout is a property of the checked Nupp type and the native target.
-function nativelayout.constant(node: any, property: "size" | "alignment"): string
+local function checkedLayout(node: any, arguments: integer): any
     assert(node.typeArgs and #node.typeArgs == 1, "native layout requires one explicit type argument")
-    assert(node.args and #(node.args.exprs or {}) == 0, "native layout takes no runtime arguments")
+    assert(node.args and #(node.args.exprs or {}) == arguments, "native layout argument count")
     local subject = assert(node.typeArgs[1].resolvedType, "native layout requires a checked type")
     local target = assert(targetLayout.hostKey(), "native layout requires a supported host target")
     local measured, reason = targetLayout.of(subject, target)
     assert(measured, "native layout: " .. tostring(reason))
 
-    return tostring(measured[property])
+    return measured
+end
+
+function nativelayout.constant(node: any, property: "size" | "alignment"): string
+    return tostring(checkedLayout(node, 0)[property])
+end
+
+function nativelayout.fieldOffset(node: any): string
+    local measured = checkedLayout(node, 1)
+    local argument = node.args.exprs[1]
+    assert(argument.kind == "string", "native field offset requires a literal field name")
+    local name = argument.token.value or argument.token.text:sub(2, -2)
+    for _, field in ipairs(measured.fields) do
+        if field.name == name then
+            assert(not field.bitWidth, "native field offset requires an addressable field")
+            return tostring(field.offset)
+        end
+    end
+    error("native field offset: unknown field " .. name, 0)
 end
 
 export = nativelayout

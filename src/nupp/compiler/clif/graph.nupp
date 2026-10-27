@@ -6,6 +6,7 @@ local integerOps = {
     IAdd = "iadd",
     ISub = "isub",
     NativeIMul = "imul",
+    NativeUDiv = "udiv",
     IAnd = "band",
     IOr = "bor",
     IXor = "bxor",

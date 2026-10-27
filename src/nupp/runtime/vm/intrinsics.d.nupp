@@ -3,6 +3,7 @@
 local record Native
     sizeOf: function<T>(): uint64
     alignmentOf: function<T>(): uint64
+    fieldOffset: function<T>(field: string): int64
     stackBytes: function(size: int64): voidptr
     load16: function(base: voidptr, offset: int64): int64
     store8: function(base: voidptr, offset: int64, value: uint64): nil

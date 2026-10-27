@@ -421,6 +421,11 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
+    fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
+    fn nupp_object_string_initialize(header: *mut Header, count: u64) -> u64;
+    fn nupp_object_slice_initialize(header: *mut Header, source: u64, offset: u64, count: u64) -> u64;
+    fn nupp_object_cell_initialize(header: *mut Header, value: u64) -> u64;
+    fn nupp_object_closure_initialize(header: *mut Header, function_id: u64, captures: *const Value, count: u64) -> u64;
     fn nupp_object_weak_lookup_action(phase: u64, color: u64, epoch: u64, cycle: u64, white: u64, marking: u64, sweeping: u64) -> u64;
     fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
     fn nupp_object_table_capacity(wanted: u64) -> u64;
@@ -434,11 +439,31 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 8);
+    assert!(crate::dispatch::OBJECT_ABI == 9);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
 };
+// Inline payload dimensions and initialization belong to the Nupp constructors.
+fn constructor_payload(kind: u8, count: usize) -> usize {
+    #[cfg(feature = "native-runtime")]
+    {
+        let bytes = unsafe { nupp_object_constructor_payload(kind as u64, count as u64) };
+        assert_ne!(bytes, u64::MAX, "object constructor extent overflow");
+        usize::try_from(bytes).expect("object constructor extent")
+    }
+    #[cfg(not(feature = "native-runtime"))]
+    { let _ = (kind, count); panic!("object construction requires a linked Nupp core"); }
+}
+macro_rules! initialize_object {
+    ($name:ident($($argument:expr),* $(,)?)) => {{
+        #[cfg(feature = "native-runtime")]
+        assert_eq!(unsafe { $name($($argument),*) }, 0, "invalid object constructor input");
+        #[cfg(not(feature = "native-runtime"))]
+        panic!("object construction requires a linked Nupp core");
+    }};
+}
+
 impl Shape {
     /// The slot a name occupies, by the table.
     #[inline] pub fn slot_of(&self, name: Value) -> Option<usize> {
@@ -654,14 +679,8 @@ impl Heap {
     /// fills a concatenation or a substring in place. Only the terminator is
     /// written here.
     pub fn new_string_blank(&mut self, n: usize, roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_STR, 9usize.checked_add(n).expect("string extent overflow"), roots);
-        unsafe {
-            let h = &mut *p.as_ptr();
-            (h.payload() as *mut StrPayload).write(StrPayload { hash: 0 });
-            let dst = h.payload().add(8);
-            *dst.add(n) = 0;
-            h.aux_ptr = dst; h.aux_len = n as u64;
-        }
+        let p = self.alloc(KIND_STR, constructor_payload(KIND_STR, n), roots);
+        initialize_object!(nupp_object_string_initialize(p.as_ptr(), n as u64));
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)
@@ -748,13 +767,8 @@ impl Heap {
     }
 
     pub fn new_slice(&mut self, source: Value, off: u32, len: u32, roots: &dyn Roots) -> Value {
-        let (base, off) = unsafe { let s = &*source.as_obj().unwrap().as_ptr(); if s.kind == KIND_SLICE { let sp = s.slice(); (sp.source, sp.off + off) } else { (source, off) } };
-        let p = self.alloc(KIND_SLICE, std::mem::size_of::<SlicePayload>(), roots);
-        unsafe {
-            let h = &mut *p.as_ptr();
-            (h.payload() as *mut SlicePayload).write(SlicePayload { source: base, off, len });
-            h.aux_ptr = (*base.as_obj().unwrap().as_ptr()).aux_ptr.add(off as usize); h.aux_len = len as u64;
-        }
+        let p = self.alloc(KIND_SLICE, constructor_payload(KIND_SLICE, 0), roots);
+        initialize_object!(nupp_object_slice_initialize(p.as_ptr(), source.0, off as u64, len as u64));
         // Allocation is black during marking; initial references need the
         // same insertion barrier as later stores.
         if self.phase == Phase::Marking { self.scan(p); }
@@ -790,8 +804,8 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_closure(&mut self, fid: u32, captures: &[Value], roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_CLOSURE, 8 * captures.len(), roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = fid; h.aux_len = captures.len() as u64; h.slots_mut().copy_from_slice(captures); }
+        let p = self.alloc(KIND_CLOSURE, constructor_payload(KIND_CLOSURE, captures.len()), roots);
+        initialize_object!(nupp_object_closure_initialize(p.as_ptr(), fid as u64, captures.as_ptr(), captures.len() as u64));
         // Allocation is black during marking; initial references need the
         // same insertion barrier as later stores.
         if self.phase == Phase::Marking { self.scan(p); }
@@ -800,8 +814,8 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_cell(&mut self, value: Value, roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_CELL, 8, roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux_len = 1; h.slots_mut()[0] = value; }
+        let p = self.alloc(KIND_CELL, constructor_payload(KIND_CELL, 0), roots);
+        initialize_object!(nupp_object_cell_initialize(p.as_ptr(), value.0));
         // Allocation is black during marking; initial references need the
         // same insertion barrier as later stores.
         if self.phase == Phase::Marking { self.scan(p); }

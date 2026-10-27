@@ -105,6 +105,21 @@ export struct Header
     auxLen: uint64
 end
 
+--- Inline payloads with a declared physical layout shared by native constructors.
+export struct StringBody
+    hash: uint64
+end
+
+export struct SliceBody
+    source: uint64
+    offset: uint32
+    length: uint32
+end
+
+export struct CellBody
+    value: uint64
+end
+
 --- A chunk's first bytes: class, slot size, slot count and its index in
 --- allocation order at `heap.rs`'s offsets, then how many of its slots have
 --- ever been handed out.

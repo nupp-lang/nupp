@@ -314,6 +314,11 @@ fn require_handler_clif(
 fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
     match name {
         "slotHash" => Some(("nupp_object_slot_hash", 1)),
+        "constructorPayload" => Some(("nupp_object_constructor_payload", 2)),
+        "stringInitialize" => Some(("nupp_object_string_initialize", 2)),
+        "sliceInitialize" => Some(("nupp_object_slice_initialize", 4)),
+        "cellInitialize" => Some(("nupp_object_cell_initialize", 2)),
+        "closureInitialize" => Some(("nupp_object_closure_initialize", 4)),
         "stringHash" => Some(("nupp_object_string_hash", 3)),
         "weakLookupAction" => Some(("nupp_object_weak_lookup_action", 7)),
         "tableProbe" => Some(("nupp_object_table_probe", 4)),
@@ -341,9 +346,11 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     let name = name_of(f);
     let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind" | "tableProbe");
     let rehash = name == "tableRehash";
-    let calls = hash_call || rehash;
-    let memory = hash_call || matches!(name.as_str(), "stringHash" | "tableInitialize" | "tableLiveCount" | "tableRehash");
-    let write = matches!(name.as_str(), "shapeFill" | "tableInitialize" | "tableRehash");
+    let constructor = matches!(name.as_str(), "stringInitialize" | "closureInitialize");
+    let initializing = matches!(name.as_str(), "stringInitialize" | "sliceInitialize" | "cellInitialize" | "closureInitialize");
+    let calls = hash_call || rehash || constructor;
+    let memory = initializing || hash_call || matches!(name.as_str(), "stringHash" | "tableInitialize" | "tableLiveCount" | "tableRehash");
+    let write = initializing || matches!(name.as_str(), "shapeFill" | "tableInitialize" | "tableRehash");
     if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty()
         || !f.dynamic_stack_slots.is_empty() || !calls && !f.dfg.ext_funcs.is_empty()
     {
@@ -355,7 +362,8 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
         };
         let target = target.to_string();
         let target = target.trim_start_matches('%');
-        let arity = if hash_call && target == "slotHash" { 1 }
+        let arity = if constructor && target == "constructorPayload" { 2 }
+            else if hash_call && target == "slotHash" { 1 }
             else if rehash && matches!(target, "tableProbe" | "tableLiveCount") { 4 }
             else if rehash && target == "tableCapacity" { 1 }
             else { return Err(format!("{}: object leaf callee is not approved", f.name)); };
@@ -613,7 +621,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 8;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 9;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );

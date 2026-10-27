@@ -1,0 +1,157 @@
+module nupp.runtime.vm.objectconstruct
+
+-- These leaves initialize already allocated, exclusively borrowed objects.
+-- They neither allocate nor collect; the caller publishes roots before allocation
+-- and scans new reference-bearing objects when the marking phase requires it.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+
+-- MAX refuses an unsupported kind or an extent the header cannot represent.
+export function constructorPayload(kind: uint64, count: uint64): uint64
+    local maximum: uint64 = values.LOW_WORD - native.sizeOf<heap.Header>()
+    if kind == heap.KIND_STR then
+        local prefix = native.sizeOf<heap.StringBody>() + 1ULL
+        if count > maximum - prefix then
+            return 0xffffffffffffffffULL
+        end
+        return prefix + count
+    elseif kind == heap.KIND_CLOSURE then
+        local word = native.sizeOf<heap.CellBody>()
+        if count > maximum // word then
+            return 0xffffffffffffffffULL
+        end
+        return count * word
+    elseif kind == heap.KIND_CELL then
+        return native.sizeOf<heap.CellBody>()
+    elseif kind == heap.KIND_SLICE then
+        return native.sizeOf<heap.SliceBody>()
+    end
+
+    return 0xffffffffffffffffULL
+end
+
+export function stringInitialize(header: voidptr, count: uint64): uint64
+    local payload = constructorPayload(heap.KIND_STR, count)
+    if payload == 0xffffffffffffffffULL then
+        return 1ULL
+    end
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_STR then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + payload
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    local bytes = native.offset(body, native.index(native.sizeOf<heap.StringBody>()))
+    native.store64(body, native.fieldOffset<heap.StringBody>("hash"), 0ULL)
+    native.store8(bytes, native.index(count), 0ULL)
+    native.storePointer(header, native.fieldOffset<heap.Header>("auxPtr"), bytes)
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
+
+    return 0ULL
+end
+
+export function cellInitialize(header: voidptr, value: uint64): uint64
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CELL then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.CellBody>()
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(body, native.fieldOffset<heap.CellBody>("value"), value)
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), 1ULL)
+
+    return 0ULL
+end
+
+export function closureInitialize(header: voidptr, functionId: uint64, captures: voidptr, count: uint64): uint64
+    local payload = constructorPayload(heap.KIND_CLOSURE, count)
+    if payload == 0xffffffffffffffffULL then
+        return 1ULL
+    end
+    if functionId > values.LOW_WORD then
+        return 1ULL
+    end
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + payload
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    local index: uint64 = 0ULL
+    while index < count do
+        local offset = native.index(index * native.sizeOf<heap.CellBody>())
+        native.store64(body, offset, native.load64(captures, offset))
+        index = index + 1ULL
+    end
+    native.store32(header, native.fieldOffset<heap.Header>("aux"), native.index(functionId))
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
+
+    return 0ULL
+end
+
+export function sliceInitialize(header: voidptr, source: uint64, offset: uint64, count: uint64): uint64
+    if source & values.TAG_MASK ~= values.TAG_OBJ then
+        return 1ULL
+    end
+    if source & values.PAYLOAD == 0ULL then
+        return 1ULL
+    end
+    if count > values.LOW_WORD then
+        return 1ULL
+    end
+    if offset > values.LOW_WORD then
+        return 1ULL
+    end
+    local sourceHeader = native.pointer(source & values.PAYLOAD)
+    local sourceLength = native.load64(sourceHeader, native.fieldOffset<heap.Header>("auxLen"))
+    if offset > sourceLength then
+        return 1ULL
+    end
+    if count > sourceLength - offset then
+        return 1ULL
+    end
+    local base: uint64 = source
+    local totalOffset: uint64 = offset
+    if native.word(native.load8(sourceHeader, native.fieldOffset<heap.Header>("kind"))) == heap.KIND_SLICE then
+        local sourceBody = native.offset(sourceHeader, native.index(native.sizeOf<heap.Header>()))
+        base = native.load64(sourceBody, native.fieldOffset<heap.SliceBody>("source"))
+        totalOffset = totalOffset + (
+            native.word(native.load32(sourceBody, native.fieldOffset<heap.SliceBody>("offset"))) & values.LOW_WORD
+        )
+        if totalOffset > values.LOW_WORD then
+            return 1ULL
+        end
+    end
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_SLICE then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.SliceBody>()
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(body, native.fieldOffset<heap.SliceBody>("source"), base)
+    native.store32(body, native.fieldOffset<heap.SliceBody>("offset"), native.index(totalOffset))
+    native.store32(body, native.fieldOffset<heap.SliceBody>("length"), native.index(count))
+    local baseHeader = native.pointer(base & values.PAYLOAD)
+    local bytes = native.loadPointer(baseHeader, native.fieldOffset<heap.Header>("auxPtr"))
+    native.storePointer(
+        header,
+        native.fieldOffset<heap.Header>("auxPtr"),
+        native.offset(bytes, native.index(totalOffset))
+    )
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
+
+    return 0ULL
+end

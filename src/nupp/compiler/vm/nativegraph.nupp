@@ -204,6 +204,14 @@ function nativegraph.isLeaf(fn: any): boolean
                 or fn.name == "tableLiveCount"
                 or fn.name == "tableRehash"
             )
+            or fn.scope.name == "nupp.runtime.vm.objectconstruct"
+            and (
+                fn.name == "constructorPayload"
+                or fn.name == "stringInitialize"
+                or fn.name == "sliceInitialize"
+                or fn.name == "cellInitialize"
+                or fn.name == "closureInitialize"
+            )
             or fn.scope.name == "nupp.runtime.vm.objectshape"
             and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")
         )
@@ -308,7 +316,10 @@ function nativegraph.compile(fn: any, options: any): any
             return value as integer
         elseif n.kind == "dotIndex" then
             local moduleName, name = member(n)
-            need(moduleName == "nupp.runtime.vm.values", "unsupported module constant")
+            need(
+                moduleName == "nupp.runtime.vm.values" or moduleName == "nupp.runtime.vm.heap",
+                "unsupported module constant"
+            )
             local home = options.modules and options.modules[moduleName]
             local text = home and home.exportedConstants and home.exportedConstants[name]
             need(
@@ -348,7 +359,8 @@ function nativegraph.compile(fn: any, options: any): any
             need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
             need(expected == nil or expected == kind, "arithmetic changes exact kind")
             local op = need(
-                (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
+                kind == "uint64" and operator == "//" and "NativeUDiv"
+                or (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
                 "unsupported arithmetic operator"
             )
             local lhs = expression(n.lhs, kind)
@@ -356,7 +368,7 @@ function nativegraph.compile(fn: any, options: any): any
             return emit(n, op, {lhs, rhs}, kind) as integer
         elseif n.kind == "call" then
             local moduleName, name = member(n.obj)
-            if n.obj.kind == "name" and fn.scope.name == "nupp.runtime.vm.objecttable" then
+            if n.obj.kind == "name" and leaf then
                 local target = fn.scope.functions[n.obj.token.text]
                 local token = target and (target.node.kind == "funcStmt" and target.node.name.base or target.node.name)
                 need(
@@ -366,7 +378,8 @@ function nativegraph.compile(fn: any, options: any): any
                 moduleName, name = fn.scope.name, n.obj.token.text
             end
             local args = n.args.exprs or {}
-            if moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash"
+            if moduleName == "nupp.runtime.vm.objectconstruct" and name == "constructorPayload"
+                or moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash"
                 or moduleName == "nupp.runtime.vm.objecttable"
                 and (name == "tableProbe" or name == "tableCapacity" or name == "tableLiveCount")
             then
@@ -411,6 +424,10 @@ function nativegraph.compile(fn: any, options: any): any
                 need(expected == nil or expected == "uint64", "native type layout changes exact kind")
                 local property = name == "sizeOf" and "size" or "alignment"
                 return emit(n, "NativeConstant", {nativelayout.constant(n, property)}, "uint64") as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "fieldOffset" then
+                signature(n, {"string"}, "int64")
+                need(expected == nil or expected == "int64", "native field offset changes exact kind")
+                return emit(n, "NativeConstant", {nativelayout.fieldOffset(n)}, "int64") as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
                 signature(n, {"string"}, "int64")
                 need(expected == nil or expected == "int64", "layout offset changes exact kind")
