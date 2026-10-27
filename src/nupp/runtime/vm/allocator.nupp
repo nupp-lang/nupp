@@ -1,0 +1,103 @@
+module nupp.runtime.vm.allocator
+
+-- The Rust collector owns these opaque handles until its remaining policy
+-- moves to Nupp. These entries never collect, park, or call guest code.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+
+export function allocatorArenaOpen(bytes: uint64): affine(arena.Arena*, arena.close)
+    return arena.openGrowable(bytes)
+end
+
+export function allocatorArenaClose(takes a: arena.Arena*): nil
+    arena.close(a)
+end
+
+export function allocatorCreate(borrows a: arena.Arena*): heap.Heap* borrows (a)
+    return heap.create(a)
+end
+
+export function allocatorDestroy(h: heap.Heap*): nil
+    heap.destroy(h)
+end
+
+export function allocatorAllocate(
+    h: heap.Heap*,
+    kind: uint64,
+    payload: uint64,
+    phase: int64,
+    cycle: uint64,
+    sweepChunk: uint64,
+    sweepSlot: uint64,
+    debt: uint64
+): heap.Header*
+    @unsafe do
+        h.phase = phase
+        h.stats.cycles = cycle
+        h.sweepChunk = sweepChunk
+        h.sweepSlot = sweepSlot
+        h.debt = debt
+        return heap.allocRaw(h, kind, payload)
+    end
+end
+
+export function allocatorResize(h: heap.Heap*, before: uint64, after: uint64, debt: uint64): nil
+    @unsafe h.debt = debt
+    heap.accountResize(h, before, after)
+end
+
+export function allocatorReclaim(h: heap.Heap*, header: heap.Header*, stress: uint64, quarantine: uint64): nil
+    @unsafe do
+        h.stress = stress ~= 0
+        h.quarantine = quarantine ~= 0
+        heap.reclaim(h, header)
+    end
+end
+
+export function allocatorSnapshot(h: heap.Heap*, out: voidptr): nil
+    @unsafe do
+        native.store64(out, 0, h.liveCount)
+        native.store64(out, 8, h.liveBytes)
+        native.store64(out, 16, h.debt)
+        native.store64(out, 24, h.stats.allocated)
+        native.store64(out, 32, h.stats.freed)
+        native.store64(out, 40, h.stats.chunks)
+        native.store64(out, 48, h.stats.large)
+        native.store64(out, 56, h.stats.chunkBytesMapped)
+    end
+end
+
+export function allocatorChunkCount(h: heap.Heap*): uint64
+    return @unsafe h.chunks.count
+end
+
+export function allocatorChunk(h: heap.Heap*, index: uint64, out: voidptr): nil
+    @unsafe do
+        local base = heap.wordAt(h.chunks, index)
+        local chunk = native.pointer(base) as heap.ChunkHeader*
+        native.store64(out, 0, base + heap.CHUNK_HEADER_BYTES)
+        native.store64(out, 8, chunk.slotSize as uint64)
+        native.store64(out, 16, heap.chunkUsed(h, base))
+    end
+end
+
+export function allocatorLargeCount(h: heap.Heap*): uint64
+    return @unsafe h.large.count
+end
+
+export function allocatorLarge(h: heap.Heap*, index: uint64): heap.Header*
+    return @unsafe native.pointer(heap.wordAt(h.large, index)) as heap.Header*
+end
+
+export function allocatorCompactLarge(h: heap.Heap*): nil
+    heap.compactLarge(h)
+end
+
+export function allocatorIsLiveSlot(h: heap.Heap*, header: heap.Header*): uint64
+    return native.asWord(heap.isLiveSlot(h, native.address(header as voidptr)))
+end
+
+export function allocatorSlotBytes(class: uint64): uint64
+    return heap.classBytes(class)
+end

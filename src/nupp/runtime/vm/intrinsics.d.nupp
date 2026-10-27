@@ -1,6 +1,8 @@
 -- The intrinsics the native runtime sources are written against. These
 -- have no guest implementation: the native compiler must consume every call.
 local record Native
+    sizeOf: function<T>(): uint64
+    alignmentOf: function<T>(): uint64
     stackBytes: function(size: int64): voidptr
     load16: function(base: voidptr, offset: int64): int64
     store8: function(base: voidptr, offset: int64, value: uint64): nil

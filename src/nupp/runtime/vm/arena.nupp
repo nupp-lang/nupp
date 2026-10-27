@@ -67,10 +67,16 @@ export struct Pool
     live: int64
 end
 
-const HEADER: uint64 = 64
-
 local function roundUp(value: uint64, alignment: uint64): uint64
     return (value + alignment - 1) & ~(alignment - 1)
+end
+
+local function metadataOffset(): uint64
+    return roundUp(native.sizeOf<Chunk>(), native.alignmentOf<Arena>())
+end
+
+local function headerBytes(): uint64
+    return roundUp(metadataOffset() + native.sizeOf<Arena>(), 16)
 end
 
 --- Closes an arena, unmapping every chunk it mapped.
@@ -84,18 +90,18 @@ export function close(takes a: Arena*): nil
 end
 
 local function openWith(bytes: uint64, growable: boolean): affine(Arena*, close)
-    local mapped = roundUp(bytes + HEADER, os.pageSize())
+    local mapped = roundUp(bytes + headerBytes(), os.pageSize())
     local base = os.mapPages(mapped)
     if base == nil then
         error("arena: the system refused the mapping")
     end
     local chunk = base as Chunk*
-    local a = native.offset(base, 32) as Arena*
+    local a = native.offset(base, native.index(metadataOffset())) as Arena*
     @unsafe do
         chunk.previous = nil
         chunk.bytes = mapped
         a.chunk = chunk
-        a.cursor = native.address(base) + HEADER
+        a.cursor = native.address(base) + headerBytes()
         a.limit = native.address(base) + mapped
         a.chunkBytes = mapped
         a.growable = growable
@@ -127,7 +133,7 @@ local function grow(a: Arena*): boolean
         chunk.previous = a.chunk
         chunk.bytes = a.chunkBytes
         a.chunk = chunk
-        a.cursor = native.address(base) + 16
+        a.cursor = native.address(base) + native.sizeOf<Chunk>()
         a.limit = native.address(base) + a.chunkBytes
     end
 
@@ -141,7 +147,7 @@ end
 export function alloc(borrows a: Arena*, bytes: uint64, alignment: uint64): voidptr? borrows (a)
     local start = roundUp(a.cursor, alignment)
     if start + bytes > a.limit then
-        if not a.growable or bytes + 16 > a.chunkBytes then
+        if not a.growable or bytes + native.sizeOf<Chunk>() > a.chunkBytes then
             return @unsafe borrowFrom(nil as voidptr?, a)
         end
         if not grow(a) then
@@ -158,10 +164,10 @@ end
 --- first chunk, a chunk header in the rest.
 local function headerOf(chunk: Chunk*): uint64
     if chunk.previous == nil then
-        return HEADER
+        return headerBytes()
     end
 
-    return 16
+    return native.sizeOf<Chunk>()
 end
 
 --- The bytes handed out of the current chunk, which is what `reset` gives
@@ -186,7 +192,7 @@ end
 --- A pool of `slotBytes`-byte slots over the arena, itself allocated from it.
 --- A slot is at least a word, so a free one can link the next.
 export function pool(borrows a: Arena*, slotBytes: uint64): Pool*? borrows (a)
-    local raw = alloc(a, 32, 8)
+    local raw = alloc(a, native.sizeOf<Pool>(), native.alignmentOf<Pool>())
     if raw == nil then
         return @unsafe borrowFrom(nil as Pool*?, a)
     end

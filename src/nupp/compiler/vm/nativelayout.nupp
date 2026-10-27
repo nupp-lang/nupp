@@ -1,0 +1,19 @@
+module nupp.compiler.vm.nativelayout
+
+local targetLayout = require("nupp.compiler.targetlayout")
+
+local nativelayout = {}
+
+-- Physical layout is a property of the checked Nupp type and the native target.
+function nativelayout.constant(node: any, property: "size" | "alignment"): string
+    assert(node.typeArgs and #node.typeArgs == 1, "native layout requires one explicit type argument")
+    assert(node.args and #(node.args.exprs or {}) == 0, "native layout takes no runtime arguments")
+    local subject = assert(node.typeArgs[1].resolvedType, "native layout requires a checked type")
+    local target = assert(targetLayout.hostKey(), "native layout requires a supported host target")
+    local measured, reason = targetLayout.of(subject, target)
+    assert(measured, "native layout: " .. tostring(reason))
+
+    return tostring(measured[property])
+end
+
+export = nativelayout

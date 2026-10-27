@@ -31,6 +31,7 @@ local fs = require("nupp.compiler.fs")
 local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
 local targetLayout = require("nupp.compiler.targetlayout")
+local nativelayout = require("nupp.compiler.vm.nativelayout")
 local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
@@ -75,6 +76,12 @@ lower.HELPER_MODULES = {
     ["nupp.runtime.vm.os"] = "nupp_os_"
 }
 
+-- The allocator currently uses the remaining checked native lowering. P1b
+-- moves these functions to the common graph along with the other support code.
+local function allocatorModule(name: string): boolean
+    return name == "nupp.runtime.vm.arena" or name == "nupp.runtime.vm.heap" or name == "nupp.runtime.vm.allocator"
+end
+
 --- The native core's modules, in the order they compile, relative to the
 --- repository root.
 lower.RUNTIME_MODULES = {
@@ -83,6 +90,9 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/objectshape.nupp",
     "src/nupp/runtime/vm/objecttable.nupp",
     "src/nupp/runtime/vm/objectweak.nupp",
+    "src/nupp/runtime/vm/arena.nupp",
+    "src/nupp/runtime/vm/heap.nupp",
+    "src/nupp/runtime/vm/allocator.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",
@@ -617,7 +627,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         if target.resultType then
             signature = signature .. " -> " .. target.resultType
         end
-        if nativegraph.isLeaf(target) then
+        if nativegraph.isLeaf(target) or options.allocator and allocatorModule(target.scope.name) then
             signature = signature .. " tail"
         end
         local ref = declareFunction(target.name, declareSignature(signature))
@@ -1181,12 +1191,15 @@ local function compileDirectFunction(fn: Fn, options: any): string
         return {kind = "nil", value = ""}
     end
 
-    local function intrinsic(intrinsicName: string, args: any): any
+    local function intrinsic(intrinsicName: string, args: any, call: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
         end
 
-        if intrinsicLoads[intrinsicName] then
+        if intrinsicName == "sizeOf" or intrinsicName == "alignmentOf" then
+            local property = intrinsicName == "sizeOf" and "size" or "alignment"
+            return {kind = "uint64", value = constant("i64", nativelayout.constant(call, property))}
+        elseif intrinsicLoads[intrinsicName] then
             local address = emit("iadd " .. arg(1, "voidptr") .. ", " .. arg(2, "int64"))
             return {
                 kind = intrinsicKinds[intrinsicName],
@@ -1473,7 +1486,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             end
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
-            return intrinsic(n.obj.name.text, n.args.exprs or {})
+            return intrinsic(n.obj.name.text, n.args.exprs or {}, n)
         elseif calledModule(n) == lower.PROGRAM then
             return programCall(n)
         elseif calledModule(n) == lower.SLOTS then
@@ -2024,6 +2037,9 @@ local function compileDirectFunction(fn: Fn, options: any): string
         types[#types + 1] = "i64"
         signature = "(" .. table.concat(types, ", ") .. ") -> i64"
     end
+    if options.allocator then
+        signature = signature .. " tail"
+    end
     if isHandler or isSupport then
         signature = signature .. " tail"
         table.insert(preamble, 1, "sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail")
@@ -2153,7 +2169,13 @@ local function describeModule(parsed: any, path: string, handlers: boolean): (Sc
                 )
                 local fnName: string = declared.kind == "funcStmt" and declared.name.base.text or declared.name.text
                 need(scope.functions[fnName] == nil, "function " .. fnName .. " defined twice")
-                local fn = describe(fnName, declared, declared.body, scope, handlers)
+                local fn = describe(
+                    fnName,
+                    declared,
+                    declared.body,
+                    scope,
+                    handlers and not allocatorModule(scope.name)
+                )
                 scope.functions[fnName] = fn
                 if exported then
                     scope.exports[fnName] = fn
@@ -2235,7 +2257,12 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     for _, scope in ipairs(scopes) do
         for _, fnName in ipairs(scope.order) do
             local fn = scope.functions[fnName] as Fn
-            if not handlers or fn.isHandler or fn.isSupport or nativegraph.admits(fn) then
+            if not handlers
+                or allocatorModule(scope.name)
+                or fn.isHandler
+                or fn.isSupport
+                or nativegraph.admits(fn)
+            then
                 need(seen[fnName] == nil, "function " .. fnName .. " compiled from two modules")
                 seen[fnName] = true
                 compiled[#compiled + 1] = fn
@@ -2251,6 +2278,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         helperModules = lower.HELPER_MODULES
     }
     local text = {}
+    local allocatorNames = {}
     for index, fn in ipairs(compiled) do
         if (handlers or nativegraph.isLeaf(fn)) and nativegraph.admits(fn) then
             local g = nativegraph.compile(fn, functionOptions)
@@ -2262,6 +2290,15 @@ function lower.compile(root: string, paths: {string}, options: any?): string
                 layout = functionOptions.layout,
                 helperModules = functionOptions.helperModules
             })
+        elseif handlers and allocatorModule(fn.scope.name) then
+            allocatorNames[#allocatorNames + 1] = fn.name
+            text[index] = compileDirectFunction(fn, {
+                handlers = false,
+                allocator = true,
+                modules = modules,
+                helperModules = lower.HELPER_MODULES,
+                specializationVariantCap = variantCap
+            })
         else
             text[index] = compileDirectFunction(fn, functionOptions)
         end
@@ -2270,6 +2307,10 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     local simd = modules["nupp.runtime.vm.simd"]
     local abi = handlers and simd and simd.exportedConstants.OPERATION_ABI
     local prefix = abi and "; Nupp SIMD ABI: " .. abi .. "\n" or ""
+
+    if #allocatorNames > 0 then
+        prefix = "; Nupp allocator support: " .. table.concat(allocatorNames, ",") .. "\n" .. prefix
+    end
 
     return prefix .. table.concat(text, "\n")
 end

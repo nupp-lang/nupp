@@ -164,6 +164,8 @@ end
 
 local ALLOCATOR = {
     {"headerLayout", {}, 0},
+    {"minimumObjects", {}, 0},
+    {"arenaMetadataSurvivesAllocation", {}, 0},
     {"classSum", {}, classSum()},
     {"chunksFor", {10000, 16}, chunksFor(10000, 16)},
     {"chunksFor", {5460, 16}, 1},

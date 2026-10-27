@@ -76,6 +76,51 @@ function M.leavesCannotAcquireHandlerFramesOrCallManagedServices()
     )
 end
 
+function M.nativeLayoutConstantsComeFromCheckedNuppTypes()
+    local path = fs.absolute(os.tmpname() .. ".nupp")
+    local source = [[
+module nupp.runtime.vm.objecthash
+const native = require("nupp.runtime.vm.intrinsics")
+local struct Payload
+    head: uint8
+    word: uint64
+end
+local type Alias = Payload
+export function slotHash(unused: uint64): uint64
+    return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
+end
+local function ordinary(): uint64
+    return native.sizeOf<Alias>() + native.alignmentOf<Alias>()
+end
+local function pointerLayout(): uint64
+    return native.sizeOf<Payload*>() + native.alignmentOf<Payload*>()
+end
+]]
+    assert(fs.writeFile(path, source))
+    local ok, text = pcall(lower.compile, ROOT, {path}, {include = {"src"}})
+    os.remove(path)
+    assert(ok, tostring(text))
+    for _, name in ipairs({"slotHash", "ordinary"}) do
+        local body = assert(text:match("function %%" .. name .. "%b()%s*%-%>%s*i64%s*[^\n{]*(%b{})"), text)
+        assert(body:find("iconst.i64 16", 1, true) and body:find("iconst.i64 8", 1, true), body)
+        assert(not body:find("call", 1, true), body)
+    end
+    local pointerBody = assert(text:match("function %%pointerLayout%b()%s*%-%>%s*i64%s*(%b{})"), text)
+    assert(pointerBody:find("iconst.i64 8", 1, true) and not pointerBody:find("call", 1, true), pointerBody)
+    assert(text:find("Nupp native graph: slotHash", 1, true), text)
+    for _, invalid in ipairs({
+        {"sizeOf<Alias>", "sizeOf<Missing>", "unknown type"},
+        {"sizeOf<Alias>", "sizeOf<Alias, Alias>", "too many type arguments"},
+        {"sizeOf<Alias>", "sizeOf", "native layout requires one explicit type argument"}
+    }) do
+        local changed = source:gsub(invalid[1], invalid[2], 1)
+        assert(fs.writeFile(path, changed))
+        local accepted, problem = pcall(lower.compile, ROOT, {path}, {include = {"src"}})
+        os.remove(path)
+        assert(not accepted and tostring(problem):find(invalid[3], 1, true), tostring(problem))
+    end
+end
+
 function M.canonicalSlotHashSourceUsesTheSharedGraphInOrdinaryNativeCompilation()
     local text = lower.compile(
         ROOT,

@@ -403,24 +403,6 @@ local function sweepOne(h: heap.Heap*, o: heap.Header*): nil
     end
 end
 
---- Drops the large list's freed entries, keeping each survivor's index.
-local function compactLarge(h: heap.Heap*): nil
-    @unsafe do
-        local kept: uint64 = 0
-        local i: uint64 = 0
-        while i < h.large.count do
-            local header = heap.wordAt(h.large, i)
-            if header ~= 0 then
-                heap.setWordAt(h.large, kept, header)
-                native.store64(native.pointer(header - heap.LARGE_PREFIX), 0, kept)
-                kept = kept + 1
-            end
-            i = i + 1
-        end
-        h.large.count = kept
-    end
-end
-
 --- Sweeps up to `work` objects; answers whether the sweep finished.
 local function sweepSome(h: heap.Heap*, work: uint64): boolean
     @unsafe do
@@ -499,7 +481,7 @@ end
 local function sweepPart(h: heap.Heap*, work: uint64): nil
     @unsafe do
         if sweepSome(h, work) then
-            compactLarge(h)
+            heap.compactLarge(h)
             h.phase = heap.PHASE_IDLE
             if h.liveBytes > h.stats.peakLive then
                 h.stats.peakLive = h.liveBytes

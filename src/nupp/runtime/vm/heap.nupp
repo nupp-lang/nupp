@@ -208,6 +208,7 @@ export struct Stats
     chunks: uint64
     large: uint64
     tombstones: uint64
+    chunkBytesMapped: uint64
 end
 
 --- The heap: the allocator's state, the collector's, and the roots it walks.
@@ -580,7 +581,7 @@ end
 
 export function classAt(h: Heap*, i: uint64): SizeClass*
     @unsafe do
-        return native.pointer(h.classes + i * 40) as SizeClass*
+        return native.pointer(h.classes + i * native.sizeOf<SizeClass>()) as SizeClass*
     end
 end
 
@@ -599,7 +600,7 @@ end
 
 local function zeroWords(borrows a: arena.Arena*): Words* borrows (a)
     @unsafe do
-        local raw = arena.alloc(a, 24, 8)
+        local raw = arena.alloc(a, native.sizeOf<Words>(), native.alignmentOf<Words>())
         if raw == nil then
             error("heap: the arena is full")
         end
@@ -609,7 +610,7 @@ end
 
 local function zeroSet(borrows a: arena.Arena*): WordSet* borrows (a)
     @unsafe do
-        local raw = arena.alloc(a, 24, 8)
+        local raw = arena.alloc(a, native.sizeOf<WordSet>(), native.alignmentOf<WordSet>())
         if raw == nil then
             error("heap: the arena is full")
         end
@@ -622,10 +623,14 @@ end
 --- heap mapped; the arena takes back the rest when it closes.
 export function create(borrows a: arena.Arena*): Heap* borrows (a)
     @unsafe do
-        local raw = arena.alloc(a, 256, 8)
-        local classes = arena.alloc(a, CLASS_COUNT * 40, 8)
-        local lookup = arena.alloc(a, 2064, 8)
-        local stats = arena.alloc(a, 104, 8)
+        local raw = arena.alloc(a, native.sizeOf<Heap>(), native.alignmentOf<Heap>())
+        local classes = arena.alloc(a, CLASS_COUNT * native.sizeOf<SizeClass>(), native.alignmentOf<SizeClass>())
+        local lookup = arena.alloc(
+            a,
+            ((LARGEST_SLOT >> 4) + 1) * native.sizeOf<ClassByte>(),
+            native.alignmentOf<ClassByte>()
+        )
+        local stats = arena.alloc(a, native.sizeOf<Stats>(), native.alignmentOf<Stats>())
         if raw == nil or classes == nil or lookup == nil or stats == nil then
             error("heap: the arena is full")
         end
@@ -726,6 +731,7 @@ local function carveChunk(h: Heap*): uint64
         if h.regionCursor + CHUNK_BYTES > h.regionLimit then
             local bytes: uint64 = (REGION_CHUNKS + 1) * CHUNK_BYTES
             local base = mapOrFail(bytes)
+            h.stats.chunkBytesMapped = h.stats.chunkBytesMapped + bytes
             wordsPush(h.regions, base)
             wordsPush(h.regions, bytes)
             h.regionCursor = (base + CHUNK_MASK) & ~CHUNK_MASK
@@ -841,6 +847,9 @@ end
 --- here: the collector's `allocate` runs its safepoint first. The payload is
 --- what the slot last held; the caller initializes it.
 export function allocRaw(h: Heap*, kind: uint64, inlineBytes: uint64): Header*
+    if inlineBytes > 4294967295ULL - HEADER_BYTES then
+        error("heap: object extent exceeds its header")
+    end
     @unsafe do
         local size = HEADER_BYTES + inlineBytes
         local class = classFor(h, size)
@@ -927,6 +936,24 @@ end
 export function reclaim(h: Heap*, o: Header*): nil
     retire(h, o)
     recycle(h, o)
+end
+
+--- Drops the large list's freed entries, keeping each survivor's index.
+export function compactLarge(h: Heap*): nil
+    @unsafe do
+        local kept: uint64 = 0
+        local i: uint64 = 0
+        while i < h.large.count do
+            local header = wordAt(h.large, i)
+            if header ~= 0 then
+                setWordAt(h.large, kept, header)
+                native.store64(native.pointer(header - LARGE_PREFIX), 0, kept)
+                kept = kept + 1
+            end
+            i = i + 1
+        end
+        h.large.count = kept
+    end
 end
 
 --- Whether `address` is the header of a live object: a slot boundary of a

@@ -68,6 +68,65 @@ local function headerLayout(): int64
     end
 end
 
+-- The smallest objects exercise class zero beside the heap record's final
+-- fields. Allocator metadata and the heap's statistics must stay disjoint.
+local function minimumObjects(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local stats = native.address(h.stats as voidptr)
+            h.stats.cycles = 19
+            local first = heap.allocRaw(h, heap.KIND_INTEGER, 0)
+            local second = heap.allocRaw(h, heap.KIND_INTEGER, 0)
+            local wrong: int64 = 0
+            if native.address(h.stats as voidptr) ~= stats then
+                wrong = wrong + 1
+            end
+            if h.stats.allocated ~= 2 or h.stats.cycles ~= 19 then
+                wrong = wrong + 1
+            end
+            if first.epoch ~= 19 or second.epoch ~= 19 or first == second then
+                wrong = wrong + 1
+            end
+            if not heap.isLiveSlot(h, native.address(first as voidptr)) then
+                wrong = wrong + 1
+            end
+            heap.reclaim(h, first)
+            local reused = heap.allocRaw(h, heap.KIND_INTEGER, 0)
+            if reused ~= first or h.stats.freed ~= 1 or h.liveCount ~= 2 then
+                wrong = wrong + 1
+            end
+            heap.destroy(h)
+            return wrong
+        end
+    end
+end
+
+-- Writing the first allocation must not change the arena's growable flag.
+local function arenaMetadataSurvivesAllocation(): int64
+    @unsafe do
+        with a = arena.openGrowable(32) do
+            local first = arena.alloc(a, 1, 1)
+            if first == nil then
+                return 100
+            end
+            native.store8(first, 0, 0)
+            local wrong: int64 = 0
+            if not a.growable then
+                wrong = wrong + 1
+            end
+            local remaining = a.limit - a.cursor
+            if arena.alloc(a, remaining, 1) == nil then
+                wrong = wrong + 1
+            end
+            if arena.alloc(a, 1, 1) == nil then
+                wrong = wrong + 1
+            end
+            return wrong
+        end
+    end
+end
+
 -- The class of every size from 1 to the largest slot, summed with weights so
 -- a class off by one anywhere changes the answer.
 local function classSum(): uint64

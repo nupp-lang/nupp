@@ -1024,7 +1024,9 @@ function calls.install(c: state.Checker): calls.Ops
         for j, binder in ipairs(params or {}) do
             local argument = written[j]
             if argument then
-                map[binder] = c.resolveType(argument)
+                local resolved = c.resolveType(argument)
+                argument.resolvedType = resolved
+                map[binder] = resolved
             end
         end
     end

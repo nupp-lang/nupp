@@ -1,6 +1,7 @@
 module nupp.compiler.vm.nativegraph
 
 local graph = require("nupp.compiler.vm.graph")
+local nativelayout = require("nupp.compiler.vm.nativelayout")
 local cst = require("nupp.compiler.syntax.cst")
 local programcontract = require("nupp.compiler.vm.programcontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
@@ -376,6 +377,11 @@ function nativegraph.compile(fn: any, options: any): any
                     operands[index + 1] = expression(args[index], kind)
                 end
                 return emit(n, "NativeHelperCall", operands, declaration.result) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and (name == "sizeOf" or name == "alignmentOf") then
+                signature(n, {}, "uint64")
+                need(expected == nil or expected == "uint64", "native type layout changes exact kind")
+                local property = name == "sizeOf" and "size" or "alignment"
+                return emit(n, "NativeConstant", {nativelayout.constant(n, property)}, "uint64") as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "layout" then
                 signature(n, {"string"}, "int64")
                 need(expected == nil or expected == "int64", "layout offset changes exact kind")
