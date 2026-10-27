@@ -1,0 +1,211 @@
+module nupp.compiler.vm.nativegraph
+
+local graph = require("nupp.compiler.vm.graph")
+local cst = require("nupp.compiler.syntax.cst")
+local programcontract = require("nupp.compiler.vm.programcontract")
+local slotcontract = require("nupp.compiler.vm.slotcontract")
+
+local nativegraph = {}
+local admitted = {
+    IK = true,
+    IMov = true,
+    IAddK = true,
+    IMaskU32 = true,
+    IAdd = true,
+    ISub = true,
+    IAnd = true,
+    IOr = true
+}
+local arithmetic = {["+"] = "IAdd", ["-"] = "ISub", ["&"] = "IAnd", ["|"] = "IOr"}
+local wrappers = {literal = "base", const = "inner"}
+
+local function need(ok: any, message: string): any
+    assert(ok, "native graph: " .. message)
+    return ok
+end
+
+local function exactKind(t: any): string
+    while t and wrappers[t.tag] do
+        t = t[wrappers[t.tag]]
+    end
+    return t and t.tag or "missing"
+end
+
+local function signature(n: any, params: {string}, result: string): nil
+    local t = n.obj.inferredType
+    while t and wrappers[t.tag] do
+        t = t[wrappers[t.tag]]
+    end
+    need(t and t.tag == "func" and #t.params == #params and #t.rets == 1, "checked call signature required")
+    for index, kind in ipairs(params) do
+        need(exactKind(t.params[index]) == kind, "call parameter kind differs from its contract")
+    end
+    need(exactKind(t.rets[1]) == result, "call result kind differs from its contract")
+    need(#(n.args.exprs or {}) == #params, "call argument count differs from its contract")
+end
+
+local function member(n: any): (string?, string?)
+    if n.kind ~= "dotIndex" or n.obj.kind ~= "name" then
+        return nil, nil
+    end
+    local definition = n.obj.token.definition
+
+    return definition and definition.requiredModule or nil, n.name.text
+end
+
+local function integerText(n: any): string
+    local text = n.token.text:gsub("[Uu]?[Ll][Ll]$", "")
+    need(text:match("^%d+$") or text:match("^0[xX]%x+$"), "exact integer literal required")
+    return text
+end
+
+--- Reports whether a function belongs to the complete native graph slice.
+---
+--- Admission is independent of the signature so a changed signature fails
+--- graph compilation instead of selecting the temporary direct lowering.
+function nativegraph.admits(fn: any): boolean
+    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true
+end
+
+--- Lowers a complete checked handler to the shared Nupp semantic graph.
+---
+--- The initial slice has one closed block and immutable local bindings. It
+--- retains exact scalar kinds, checked program and slot contracts, positions
+--- and the dispatch transfer. No machine IR or second SSA builder is used.
+--- @raises string when an admitted handler contains unsupported checked syntax
+function nativegraph.compile(fn: any, options: any): any
+    need(nativegraph.admits(fn), "function is outside the admitted handler slice")
+    local body = fn.body
+    need(fn.isHandler == true and fn.resultKind == "uint64", "handler signature required")
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain handler required")
+    need(#body.params == 6 and #fn.paramKinds == 6, "six handler parameters required")
+    for index, parameter in ipairs(body.params) do
+        need(
+            fn.paramKinds[index] == "voidptr"
+            and exactKind(parameter.type and parameter.type.resolvedType) == "voidptr",
+            "raw pointer handler parameter required"
+        )
+    end
+    local g = graph.newNative(fn.paramKinds, "uint64", "handler")
+    g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
+    local block = graph.block(g)
+    local bindings: {[any]: integer} = {}
+    for index, parameter in ipairs(body.params) do
+        bindings[parameter.name.definition or parameter.name] = index
+    end
+
+    local function position(n: any): integer
+        local token = need(cst.firstToken(n), "source position required")
+        return graph.position(g, token.line, token.col)
+    end
+
+    local function emit(n: any, op: string, args: any, kind: string?): integer?
+        return graph.emitNative(g, block, op, args, kind, position(n))
+    end
+
+    local expression: function(any, string?): integer
+    expression = function(n: any, expected: string?): integer
+        if n.kind == "number" then
+            local kind = expected or exactKind(n.inferredType)
+            need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
+            return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
+        elseif n.kind == "name" then
+            local value = bindings[n.token.definition or n.token]
+            need(value ~= nil, "name is not a checked local binding")
+            need(expected == nil or g.exactTypes[value] == expected, "local changes exact kind")
+            return value as integer
+        elseif n.kind == "dotIndex" then
+            local moduleName, name = member(n)
+            need(moduleName == "nupp.runtime.vm.values" and name == "LOW_WORD", "unsupported module constant")
+            local home = options.modules and options.modules[moduleName]
+            local text = home and home.exportedConstants and home.exportedConstants[name]
+            need(
+                type(text) == "string" and (text:match("^%d+$") or text:match("^0[xX]%x+$")),
+                "checked exact module constant required"
+            )
+            need(expected == "int64" or expected == "uint64", "module constant needs an exact integer kind")
+            return emit(n, "NativeConstant", {text}, expected) as integer
+        elseif n.kind == "binop" then
+            local op = need(arithmetic[n.op.text], "unsupported arithmetic operator")
+            local kind = exactKind(n.inferredType)
+            need(kind == "int64" or kind == "uint64", "exact integer arithmetic required")
+            need(expected == nil or expected == kind, "arithmetic changes exact kind")
+            local lhs = expression(n.lhs, kind)
+            local rhs = expression(n.rhs, kind)
+            return emit(n, op, {lhs, rhs}, kind) as integer
+        elseif n.kind == "call" then
+            local moduleName, name = member(n.obj)
+            local args = n.args.exprs or {}
+            if moduleName == "nupp.runtime.vm.program" then
+                local contract = programcontract.read(n.obj.name.definition, name as string)
+                signature(n, {"voidptr", "int64"}, contract.result)
+                need(expected == nil or expected == contract.result, "program load changes exact kind")
+                local base = expression(args[1], "voidptr")
+                local offset = expression(args[2], "int64")
+                return emit(n, "ProgramLoad", {base, offset, contract}, contract.result) as integer
+            elseif moduleName == "nupp.runtime.vm.slots" then
+                local contract = slotcontract.read(n.obj.name.definition, name as string)
+                need(not contract.write, "slot write is a statement")
+                signature(n, {"voidptr", "voidptr", "int64"}, contract.kind)
+                need(expected == nil or expected == contract.kind, "slot read changes exact kind")
+                local frame = expression(args[1], "voidptr")
+                local window = expression(args[2], "voidptr")
+                local slot = expression(args[3], "int64")
+                return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "offset" then
+                signature(n, {"voidptr", "int64"}, "voidptr")
+                need(expected == nil or expected == "voidptr", "pointer offset changes exact kind")
+                local base = expression(args[1], "voidptr")
+                local offset = expression(args[2], "int64")
+                return emit(n, "PointerOffset", {base, offset}, "voidptr") as integer
+            end
+            error("native graph: unsupported checked call " .. tostring(moduleName) .. "." .. tostring(name), 0)
+        end
+        error("native graph: unsupported checked expression " .. tostring(n.kind), 0)
+    end
+    for _, stat in ipairs(body.body.stats) do
+        need(block.term == nil or stat.kind == "emptyStmt", "statement after dispatch")
+        if stat.kind == "localStmt" then
+            need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
+            for index, token in ipairs(stat.names) do
+                local key = token.definition or token
+                need(bindings[key] == nil, "duplicate local binding")
+                local kind = exactKind(token.inferredType)
+                need(kind == "voidptr" or kind == "int64" or kind == "uint64", "exact native local kind required")
+                bindings[key] = expression(stat.exprs[index], kind)
+            end
+        elseif stat.kind == "callStmt" then
+            local call = stat.expr
+            local moduleName, name = member(call.obj)
+            need(moduleName == "nupp.runtime.vm.slots", "only a logical slot write may be a statement")
+            local contract = slotcontract.read(call.obj.name.definition, name as string)
+            need(contract.write, "slot read is not a statement")
+            signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
+            local args = call.args.exprs
+            local frame = expression(args[1], "voidptr")
+            local window = expression(args[2], "voidptr")
+            local slot = expression(args[3], "int64")
+            local value = expression(args[4], contract.kind)
+            emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+        elseif stat.kind == "returnStmt" then
+            need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
+            local call = stat.exprs[1]
+            local moduleName, name = member(call.obj)
+            need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
+            signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+            local args = {}
+            for index, argument in ipairs(call.args.exprs) do
+                args[index] = expression(argument, "voidptr")
+            end
+            block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
+        elseif stat.kind ~= "emptyStmt" then
+            error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)
+        end
+    end
+    need(block.term ~= nil, "handler falls through without dispatch")
+    graph.verify(g)
+
+    return g
+end
+
+export = nativegraph
