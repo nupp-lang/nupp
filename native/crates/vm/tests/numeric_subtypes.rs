@@ -351,3 +351,21 @@ fn numeric_subtypes_fmod_preserves_exact_signed_integer_remainder() {
     ints(&call(&mut vm, "math.fmod", &[min, Value::inline_integer(-1).unwrap()]), &[0]);
     assert_eq!(call(&mut vm, "math.fmod", &[Value::num(-3.0), two]), vec![Value::num(-1.0)]);
 }
+
+#[test]
+fn signed_integer_arithmetic_rejects_fractional_and_nonfinite_operands() {
+    let two = Value::inline_integer(2).unwrap();
+    for op in ["add", "sub", "mul", "idiv", "mod"] {
+        for invalid in [1.5, -1.5, f64::NAN, f64::INFINITY] {
+            for args in [[Value::num(invalid), two], [two, Value::num(invalid)]] {
+                let mut vm = Interp::new();
+                let result = vm.guarded(|vm| numeric::wide_call(vm, &format!("i64.{op}"), &args));
+                assert_eq!(result, Value::ERROR, "{op} accepted {invalid:?}");
+            }
+        }
+    }
+    let mut vm = Interp::new();
+    let result = numeric::binary(&mut vm, Value::num(1.5), two, "mod", None);
+    assert!(result.is_float());
+    assert_eq!(result.as_num(), 1.5);
+}

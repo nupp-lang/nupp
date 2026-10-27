@@ -233,7 +233,7 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         });
     }
     let unsigned = kind.unwrap();
-    let exact_signed = !unsigned && matches!(op, "and" | "or" | "xor" | "shl" | "shr");
+    let exact_signed = !unsigned;
     let a = if exact_signed { bits(vm, x, false) } else { operand_bits(vm, x) };
     let b = if exact_signed { bits(vm, y, false) } else if matches!(op, "shl" | "shr" | "sar" | "rol" | "ror") {
         integer(y)
