@@ -1,72 +1,111 @@
 {
-  "sourceCommit": "699f5c7e0729d5601744e8a7f9bf7b84c487a3ab",
-  "sourceTree": "1c26ecaac39eb72436bc023ed00034fa3ba73bd6",
-  "scope": "Combined ABI10 Nupp objects, allocator, gray marking/barriers, weak entries and 59 core/control graph handlers; P3 remains open.",
+  "sourceCommit": "fd535bd37b179a6b794e7d31bf99cdb8abc1b83e",
+  "sourceTree": "f1e2f06765f2efe6d9961dee1eaec09d5771a758",
+  "scope": "Combined ABI12 Nupp allocator/objects/weak entries, canonical table arrays and record tails, 65 core/control/state graph handlers; P3 remains open.",
   "platform": "aarch64-apple-darwin",
-  "objectAbi": 10,
+  "objectAbi": 12,
   "aotAbi": 4,
   "artifacts": {
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/compiler.image": "5a935eb7070f61ba14ec698fac8e368e5f33a6c4b02a6f651536eb184237c972",
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/runtime-current": "27713c0428bd685e78853792b59ffa72a9c1e36f9f3903bdaa8c5c6dbaae3c9a",
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.o": "0b952b1efcc14c50a1d2cec89b903fbe4d1d0cffa02a247e4ca71de264557037",
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.o.rs": "a3d6091fb1b7fada34dff624c65dbd84c69c097e889bd56e7dfdb83f35cb74d4",
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.clif": "807bcfd02879419610208cdb2c4ff926cb7bf9049d2f9b1a40ceefef24b93fc9",
-    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/compiler.o.manifest": "54a6adf6bf38f4ac843ba06a851fd9d6c6d6705d6edabcd03531e4c8383bea98"
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/compiler.image": "cbe1da08139f8ebfdb9d288ef41c5e1657a7eb058823ddbdfdcb5df8d86a35ba",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/runtime-current": "667f29c5329d9ba6a56fb685db6583812139754b85d880adfeb92d4916d3e53c",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/native/runtime.o": "42e383a9901d951b7547be3d879a3be9904877662f2b70acae698210c3a9ee5b",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/native/runtime.o.rs": "29541fd1553cf845144ece23103ac7ae5689a4ec014980486a2394f85728332d",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/native/runtime.clif": "6bd5b3412e1638e2deb2fc34f55a67250139419a2bee8b1de783cf8947bc2d37",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/compiler.o.manifest": "6435403c72b878fefc2fcd570bceef3b6be9c4649396b14bee561904defd0db4"
   },
   "sourceCheck": {
-    "modules": 554,
+    "modules": 556,
+    "compiledModules": 11,
+    "reusedModules": 545,
     "diagnostics": 0,
-    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/source-check.json"
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/source-check.json"
   },
   "pinnedThreeStageFixpoint": {
     "ok": true,
-    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/fixpoint.json"
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/fixpoint.json",
+    "reuseProof": {
+      "source": "fd535bd37b179a6b794e7d31bf99cdb8abc1b83e",
+      "compilerImageSha256": "cbe1da08139f8ebfdb9d288ef41c5e1657a7eb058823ddbdfdcb5df8d86a35ba",
+      "sourceCheck": true,
+      "pinnedFixpoint": true,
+      "inheritedFrom": "30e2cc39deddf525971bd83cc7eb84b2052c417b",
+      "unchangedCompilerInputs": true,
+      "changedFiles": [
+        "native/crates/vm/src/jit.rs"
+      ],
+      "reason": "Rust record-probe stub offset correction; Nupp sources and verified compiler image unchanged"
+    }
   },
   "rust": {
-    "passed": 645,
+    "passed": 653,
     "failed": 0,
     "ignored": 6,
-    "targets": 72,
+    "targets": 73,
     "docTestsRun": true
   },
-  "rustDetails": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/rust-top-level-summary.json",
+  "rustDetails": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/rust-top-level-summary.json",
   "aot": {
-    "compiledFunctions": 6189,
-    "imageFunctions": 6189,
+    "compiledFunctions": 6191,
+    "imageFunctions": 6191,
     "freshProcesses": 2,
     "passed": 13,
     "executableMemoryDenied": true,
-    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/smoke/results.json"
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/smoke/results.json"
   },
   "cli": {
     "passed": 94,
     "packagedProgramExecuted": true,
-    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/root-cli/summary.json"
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/root-cli/summary.json"
   },
   "nativeInterpreterCompiler": {
     "jitDisabled": true,
     "aotDisabled": true,
     "clifByteIdentical": true,
-    "clifSha256": "807bcfd02879419610208cdb2c4ff926cb7bf9049d2f9b1a40ceefef24b93fc9"
+    "clifSha256": "6bd5b3412e1638e2deb2fc34f55a67250139419a2bee8b1de783cf8947bc2d37"
   },
   "sourceSelectedWorker": {
-    "entry": "main",
-    "workerSha256": "0bfd94f832359a3be01eec820eaf31faf2715460a4e979d1cbb0fae4f5e63a39",
-    "imageSha256": "c78fef07044f363cf4048c71c315f4af1fca5af2eb86c6f4381c93d8de800ff6",
-    "sharedPassed": 2071,
+    "source": "fd535bd37b179a6b794e7d31bf99cdb8abc1b83e",
+    "workerSha256": "03f5ff516457cdd94e4e7904ade3c9b9f739bee6f5f0a17e491e85f7fd510073",
+    "workerImageSha256": "bd7875060d96e3f82965eab88fdd738f6158f73fc5e6f24b4392c155431f8bdc",
+    "payloadEqualsImage": true,
+    "payloadFlags": 2,
+    "status": "accepted",
+    "sharedPassed": 2074,
     "sharedSkipped": 0,
     "sharedNotExecuted": 0,
-    "isolatedNativePassed": 41,
+    "isolatedNativePassed": 44,
     "isolatedSkipped": 0,
     "isolatedNotExecuted": 0,
-    "sharedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/shared-tests.jsonl",
-    "isolatedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/isolated-native-tests.jsonl"
+    "sharedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/shared-tests.jsonl",
+    "isolatedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/isolated-native-combined.json"
   },
-  "harnessCorrection": "Initial normal-AOT invocation lacked its output directory. The directory was created and verification resumed after checking the unchanged source and compiler image digest; completed source and fixpoint gates were retained.",
+  "corrections": [
+    {
+      "kind": "production",
+      "source": "30e2cc39deddf525971bd83cc7eb84b2052c417b",
+      "failure": "Compiled record overflow probe read array capacity through the old HEADER+24 offset; SIGSEGV at address4.",
+      "fix": "fd535bd37b179a6b794e7d31bf99cdb8abc1b83e",
+      "proof": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/lldb-aot.log",
+      "preservedFailedRuntime": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/runtime-failed-30e",
+      "preservedFailure": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/aot/smoke-failed-30e/results.json",
+      "unchangedNuppCompilerImage": true
+    },
+    {
+      "kind": "validationDriver",
+      "failure": "Two heap replay cases recorded ABI10 controller payloads but replayed sourceABI12 layouts.",
+      "fix": "Rerun the exact two cases with the same frozen source worker and the source-matched ABI12 runtime/compiler pair.",
+      "originalResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/isolated-native-tests.jsonl",
+      "correctedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-canonical12/replay-matched-pair.json"
+    }
+  ],
+  "platformCandidate": {
+    "source": "d0164c5324c63647b979d7550c968c499452a41d",
+    "run": "https://github.com/nupp-lang/nupp/actions/runs/40593592164",
+    "status": "running; no remote pass claimed"
+  },
   "limits": [
-    "P3 Linux/Windows validation is not claimed.",
-    "Rust roots, collector orchestration, containers and remaining object policy are still temporary; P3 is not complete.",
-    "The six graph state handlers and Nupp-owned table-array cut remain separate follow-up sources.",
-    "Performance tuning and new comparisons are deferred by the owner."
+    "P3 is incomplete: Rust roots/collector orchestration, intern indexes, remaining payload/storage/object policy and shape ownership still require deletion.",
+    "ABI14 hash ownership/refusal corrections, ABI15 integer initialization and additional module graph work are separate follow-up sources, not included in this proof.",
+    "Performance tuning and comparisons are deferred by the owner."
   ]
 }
