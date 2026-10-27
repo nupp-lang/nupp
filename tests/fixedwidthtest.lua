@@ -688,7 +688,8 @@ function M.multiplicationKeepsEveryLowProductBit()
     local values = {0, 1, 65535, 65536, 2147483647, 2147483648, 4294967295, 0x12345678, 0xdeadbeef,}
     for _, left in ipairs(values) do
         for _, right in ipairs(values) do
-            -- The low 32 bits of the product, from 16-bit halves a double holds exactly.
+            -- The low 32 bits of the product, from 16-bit halves a double holds
+            -- exactly.
             local leftHigh, leftLow = math.floor(left / 65536), left % 65536
             local rightHigh, rightLow = math.floor(right / 65536), right % 65536
             local middle = (leftHigh * rightLow + leftLow * rightHigh) % 65536
@@ -982,6 +983,7 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
     testAssert.equal(#result.errors, 0, "the body parses")
     testAssert.equal(#check.check(result, "byte-carry.nupp", sharedEnv), 0, "and checks")
     local adds = 0
+
     local function walk(node, seen)
         if type(node) ~= "table" or seen[node] then
             return
@@ -994,15 +996,16 @@ function M.aNarrowUnsignedLoadAccumulatesIntoASignedWidthInsideAot()
             walk(child, seen)
         end
     end
+
     walk(result, {})
     testAssert.equal(adds, 1, "the operator is annotated as the signed wrapping add")
 end
 
 function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
-    -- A numeric `for` counts in the box its bounds are, mixing nothing else in.
+    -- Signed counters accept numeric bounds; unsigned counters stay explicit.
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do end"), "")
     testAssert.equal(errorCodes("local n: uint64 = 3\nfor i = 1ULL, n, 1 do end"), "")
-    testAssert.equal(errorCodes("local n: int64 = 3\nlocal m: number = 2\nfor i = m, n do end"), "NUPP2001")
+    testAssert.equal(errorCodes("local n: int64 = 3\nlocal m: number = 2\nfor i = m, n do end"), "")
     testAssert.equal(errorCodes("local n: int64 = 3\nlocal u: uint64 = 1\nfor i = u, n do end"), "NUPP2001")
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: int64 = i end"), "")
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: number = i end"), "NUPP2001")
@@ -1013,40 +1016,67 @@ function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
     testAssert.equal(errorCodes("local x: int64 = 1\nlocal n: number = 2\nx += n"), "")
     -- A recursive local function's result is its declared result.
     testAssert.equal(
-        errorCodes(table.concat({
-            "local function fib(n: int64): int64",
-            "    if n < 2 then return n end",
-            "    return fib(n - 1) + fib(n - 2)",
-            "end",
-            "return fib(10)",
-        }, "\n")),
+        errorCodes(
+            table.concat(
+                {
+                    "local function fib(n: int64): int64",
+                    "    if n < 2 then return n end",
+                    "    return fib(n - 1) + fib(n - 2)",
+                    "end",
+                    "return fib(10)",
+                },
+                "\n"
+            )
+        ),
         ""
     )
     -- And the VM counts, stores and recurses in the box.
-    local total, fib, descending, product = run(table.concat({
-        "local n: int64 = 5",
-        "local total: int64 = 0",
-        "for i = 1, n do",
-        "    total += i",
-        "end",
-        "local function fib(k: int64): int64",
-        "    if k < 2 then return k end",
-        "    return fib(k - 1) + fib(k - 2)",
-        "end",
-        "local steps: int64 = 0",
-        "for i = n, 1, -1 do",
-        "    steps = steps + 1",
-        "end",
-        "local product: uint64 = 1",
-        "for i = 1ULL, 20ULL do",
-        "    product *= i",
-        "end",
-        "return total == 15LL, fib(20) == 6765LL, steps == 5LL, product == 2432902008176640000ULL",
-    }, "\n"), "fixed-width-boxed-loops.nupp")
+    local total, fib, descending, product = run(
+        table.concat(
+            {
+                "local n: int64 = 5",
+                "local total: int64 = 0",
+                "for i = 1, n do",
+                "    total += i",
+                "end",
+                "local function fib(k: int64): int64",
+                "    if k < 2 then return k end",
+                "    return fib(k - 1) + fib(k - 2)",
+                "end",
+                "local steps: int64 = 0",
+                "for i = n, 1, -1 do",
+                "    steps = steps + 1",
+                "end",
+                "local product: uint64 = 1",
+                "for i = 1ULL, 20ULL do",
+                "    product *= i",
+                "end",
+                "return total == 15LL, fib(20) == 6765LL, steps == 5LL, product == 2432902008176640000ULL",
+            },
+            "\n"
+        ),
+        "fixed-width-boxed-loops.nupp"
+    )
     testAssert.equal(total, true)
     testAssert.equal(fib, true)
     testAssert.equal(descending, true)
     testAssert.equal(product, true)
+end
+
+function M.signedLoopsAllowOrdinaryNumericBoundsAndSteps()
+    testAssert.equal(
+        errorCodes(
+            [[
+local stop: number = 3
+local step: number = -1
+for i = 1LL, stop do end
+for i = 3LL, 1LL, step do end
+for i = 1LL, 3LL, 1LL do end
+]]
+        ),
+        ""
+    )
+    testAssert.equal(errorCodes("local stop: number = 3\nfor i = 1ULL, stop do end"), "NUPP2001")
 end
 
 return M

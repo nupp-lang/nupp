@@ -1805,10 +1805,14 @@ function control.install(c: state.Checker): state.StatHandlers
         local stepT = stat.step and c.infer(stat.step) or nil
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
+        if stepT then
+            c.numericOperand(stepT, stat.step, "for")
+        end
 
-        -- A bound that is a 64-bit box makes the loop count in that box: the
-        -- other bound and the step must be the same box or an exact literal,
-        -- since a Lua number and a box do not mix silently anywhere else.
+        -- Signed integer loops use the integer counter only when all
+        -- operands are known integral. A generic number bound or step keeps
+        -- the ordinary numeric loop. Unsigned counters retain their explicit
+        -- fixed-width operand contract.
         local function wideOf(t)
             local raw = T.unwrapOwnership(t)
             return (raw.tag == "int64" or raw.tag == "uint64") and raw or nil
@@ -1831,8 +1835,18 @@ function control.install(c: state.Checker): state.StatHandlers
             return nil
         end
 
-        local wide = wideOf(st) or wideOf(et) or (stepT and wideOf(stepT)) or nil
-        if wide then
+        local function knownInteger(t)
+            return t and (wideOf(t) ~= nil or isA(t, T.integer))
+        end
+
+        local integerLoop = knownInteger(st) and knownInteger(et) and (not stepT or knownInteger(stepT))
+        local firstWide, lastWide, stepWide = wideOf(st), wideOf(et), stepT and wideOf(stepT) or nil
+        local unsigned = (firstWide and firstWide.tag == "uint64" and firstWide)
+            or (lastWide and lastWide.tag == "uint64" and lastWide)
+            or (stepWide and stepWide.tag == "uint64" and stepWide)
+            or nil
+        local wide = unsigned or (integerLoop and (firstWide or lastWide or stepWide)) or nil
+        if unsigned then
             local operands: {{any}} = {{st, from}, {et, to}, {stepT, stat.step}}
             for _, pair in ipairs(operands) do
                 local t: any, at: any = pair[1], pair[2]
@@ -1863,7 +1877,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
-        c.bindVar(var.text, wide or (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
+        c.bindVar(var.text, wide or (integerLoop and T.integer) or T.number, false, var)
 
         -- A range witness dominates this loop only when both bounds name the same
         -- const range and the loop uses the ordinary ascending unit step.
