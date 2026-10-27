@@ -83,6 +83,7 @@ return {
         "nativegraphcontracttest",
         "nativefloatingcontracttest",
         "nativenumbermodeltest",
+        "vmfornumtest",
         "nativegraphtest",
         "nativegraphcliftest",
         "nativeruntimetest",
