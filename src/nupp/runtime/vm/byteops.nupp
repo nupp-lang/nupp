@@ -38,7 +38,7 @@ local function readBytes(
     end
     local header = native.pointer(source & values.PAYLOAD)
     local kind = native.load8(header, native.layout("Header.kind"))
-    if kind ~= values.KIND_STRING and kind ~= values.KIND_SLICE and kind ~= values.KIND_BYTES then
+    if native.both(native.both(kind ~= values.KIND_STRING, kind ~= values.KIND_SLICE), kind ~= values.KIND_BYTES) then
         return typeError(pc, context, source, 0)
     end
     local length = native.load64(header, native.layout("Header.aux_len"))

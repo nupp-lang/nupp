@@ -92,6 +92,104 @@ fn source(vm: &mut Interp, carrier: usize, data: &[u8]) -> Value {
 }
 
 #[test]
+fn native_byte_graph_reads_match_fixed_binary_answers_under_gc() {
+    let data = [0, 1, 0xff, 0x80, 0x78, 0x56, 0x34, 0x12];
+    for carrier in [0, 1, 2, 5] {
+        for (op, index, expected) in [
+            (Op::BytesLen(0, 1), 6, 8),
+            (Op::LoadU8(0, 1, 0), 2, 255),
+            (Op::LoadU8K(0, 1, 0), 3, 128),
+            (Op::LoadU32W(0, 1, 0), 0, 0x80ff0100),
+            (Op::LoadU32W(0, 1, 0), 1, 0x12345678),
+        ] {
+            let (mut vm, tid) = fixture(op);
+            let input = source(&mut vm, carrier, &data);
+            value_set(&mut vm, tid, 1, input);
+            integer_set(&mut vm, tid, 0, index);
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            assert_eq!(run(&mut vm, tid, true), None);
+            assert_eq!(integer_get(&vm, tid, 0), expected);
+            assert_eq!(vm.bytes_of(input), data);
+            vm.full_cycle();
+            vm.check_oracle();
+            assert!(vm.heap.is_live_slot(input.as_obj().unwrap()));
+        }
+        for (op, index, message) in [
+            (
+                Op::LoadU8(0, 1, 0),
+                8,
+                "runtime error: byte read out of range",
+            ),
+            (
+                Op::LoadU32W(0, 1, 0),
+                2,
+                "runtime error: word read out of range",
+            ),
+        ] {
+            let (mut vm, tid) = fixture(op);
+            let input = source(&mut vm, carrier, &data);
+            value_set(&mut vm, tid, 1, input);
+            integer_set(&mut vm, tid, 0, index);
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            assert_eq!(run(&mut vm, tid, true).as_deref(), Some(message));
+            assert_eq!(integer_get(&vm, tid, 0), index as u64);
+            assert_eq!(vm.bytes_of(input), data);
+            vm.full_cycle();
+            vm.check_oracle();
+            assert!(vm.heap.is_live_slot(input.as_obj().unwrap()));
+        }
+    }
+}
+
+#[test]
+fn native_byte_graph_writes_match_fixed_bytes_and_preserve_failed_destinations() {
+    for carrier in [2, 5] {
+        for (op, index, expected, bad_index, message) in [
+            (
+                Op::StoreU8(1, 0, 1),
+                2,
+                [0xa5, 0xa5, 0x10, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5],
+                8,
+                "runtime error: byte write out of range",
+            ),
+            (
+                Op::StoreU32(1, 0, 1),
+                1,
+                [0xa5, 0x10, 0x32, 0x54, 0x76, 0xa5, 0xa5, 0xa5],
+                5,
+                "runtime error: word write out of range",
+            ),
+        ] {
+            let (mut vm, tid) = fixture(op);
+            let input = source(&mut vm, carrier, &[0xa5; 8]);
+            value_set(&mut vm, tid, 1, input);
+            value_set(&mut vm, tid, 2, input);
+            integer_set(&mut vm, tid, 0, index);
+            integer_set(&mut vm, tid, 1, 0xfedcba9876543210u64 as i64);
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            assert_eq!(run(&mut vm, tid, true), None);
+            assert_eq!(vm.bytes_of(input), expected);
+            integer_set(&mut vm, tid, 0, bad_index);
+            assert_eq!(run(&mut vm, tid, true).as_deref(), Some(message));
+            assert_eq!(vm.bytes_of(input), expected);
+            assert_eq!(value_get(&vm, tid, 2), input);
+            vm.full_cycle();
+            vm.check_oracle();
+            assert!(vm.heap.is_live_slot(input.as_obj().unwrap()));
+        }
+    }
+}
+
+#[test]
 fn native_byte_read_encodings_bounds_and_error_precedence_match_reference() {
     let data = [0, 1, 0xff, 0x80, 0x78, 0x56, 0x34, 0x12];
     for which in 0..4 {

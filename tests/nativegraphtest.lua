@@ -114,6 +114,42 @@ local function checkedJumps()
     return checkedWithModules({"calls", "protocol"})
 end
 
+function M.byteAccessHandlersComposeLoopsAndTerminalErrors()
+    local _, options = checkedWithModules({"byteops", "protocol"})
+    options.helperModules["nupp.runtime.vm.bytehelpers"] = "nupp_rt_"
+    local scope = options.modules["nupp.runtime.vm.byteops"]
+    for _, name in ipairs({"BytesLen", "LoadU8", "LoadU8K", "LoadU32W", "StoreU8", "StoreU32"}) do
+        local fn = assert(scope.functions[name])
+        assert(nativegraph.admits(fn))
+        local g = nativegraph.compile(fn, options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        local calls, dispatches = 0, 0
+        for _, block in ipairs(g.blocks) do
+            if block.term.kind == "dispatch" then
+                dispatches = dispatches + 1
+            end
+            for index, op in ipairs(block.op) do
+                assert(op ~= "FrameRecover" and op ~= "FrameWindow", "byte access invented recovery authority")
+                if op == "NativeHelperCall" then
+                    local call = block.args[index][1]
+                    assert(call.name == "byteTypeError" or call.name == "byteRangeError")
+                    assert(call.effects.mayCollect and call.effects.mayRaise and not call.effects.mayPark)
+                    assert(call.normalReturn == nil)
+                    assert(block.term.kind == "nativeFail", "byte error has a normal successor")
+                    calls = calls + 1
+                end
+            end
+        end
+        assert(calls > 0 and dispatches == 1)
+        assert(g.compositions[1].name == (name:match("^Store") and "writeBytes" or "readBytes"))
+        fn.paramKinds[1] = "uint64"
+        assert(not pcall(nativegraph.compile, fn, options), "byte handler bypassed signature validation")
+        fn.paramKinds[1] = "voidptr"
+    end
+end
+
 function M.boxingHandlersPreserveEffectsAndRecoverAllocationWindows()
     local _, options = checkedWithModules({"boxing", "protocol"})
     options.helperModules["nupp.runtime.vm.numerichelpers"] = "nupp_rt_"
