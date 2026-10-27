@@ -50,14 +50,14 @@ local function protectSlow(
     local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
     local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
 
-    return calls.pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base + 1, supplied)
+    return calls.pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base + 1, supplied, false)
 end
 
 -- `PCall base nargs`: the callee at `base + 1` called on the `nargs` values
 -- after it, the status landing at `base` and the results after it. A plain
 -- function or closure the core can push now is pushed here; anything else
 -- (a builtin, `pcall` of `pcall`, a spread, a vararg or typed callee, no
--- budget or room) is the step's whole.
+-- room) is the step's whole.
 export function PCall(
     pc: voidptr,
     regs: voidptr,
@@ -66,11 +66,8 @@ export function PCall(
     context: voidptr,
     frame: voidptr
 ): uint64
-    -- PCall itself is not a budget point; its guest calls are. The finite
-    -- path must not inherit pushFrame's ordinary-call charge.
-    if native.load64(context, native.layout("budget")) ~= 0xffffffffffffffffULL then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
+    -- PCall itself is not a budget point; its guest calls are. The shared
+    -- push preserves a finite or exhausted budget for those calls.
     local base = program.readByte(pc, 1)
     local nargs = program.readByte(pc, 2)
     local value = slots.readValue(frame, regs, base + 1)
@@ -99,10 +96,7 @@ export function PCall(
                 native.load32(callee, native.layout("FuncInfo.typed")) == 0
             ),
             native.both(
-                native.both(
-                    fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD),
-                    native.load64(context, native.layout("budget")) ~= 0
-                ),
+                fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD),
                 next + (
                     native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
                 ) <= native.load64(context, native.layout("cap"))

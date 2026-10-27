@@ -167,7 +167,9 @@ end
 -- The Rust core's `push`: the callee's frame goes above the caller's,
 -- `supplied` argument words copied from the argument window and the
 -- remaining parameters nil, and the caller's header remembers where to
--- resume. A call the stack cannot hold grows it in Rust.
+-- resume. A call the stack cannot hold grows it in Rust. Protected calls
+-- share this push but are not budget points; `budgeted` selects the call
+-- instruction's policy before a frame is made.
 export function pushFrame(
     pc: voidptr,
     regs: voidptr,
@@ -179,7 +181,8 @@ export function pushFrame(
     fid: uint64,
     closure: uint64,
     base: int64,
-    supplied: int64
+    supplied: int64,
+    budgeted: boolean
 ): uint64
     -- The budget: a call the task may not take yet is Rust's, which parks
     -- the task or raises at this instruction.
@@ -187,10 +190,15 @@ export function pushFrame(
     local current = native.load64(context, native.layout("cur"))
     local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
     local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-    if native.either(budget == 0, next + words > native.load64(context, native.layout("cap"))) then
+    if native.either(
+        native.both(budgeted, budget == 0),
+        next + words > native.load64(context, native.layout("cap"))
+    ) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        chargeBudget(context, budget)
+        if budgeted then
+            chargeBudget(context, budget)
+        end
         local caller = native.loadPointer(
             native.loadPointer(context, native.layout("funcs")),
             native.index(
@@ -382,7 +390,7 @@ local function dynamicCall(
             local base = program.readByte(pc, 2)
             local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
             local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-            return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied)
+            return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied, true)
         end
     end
 end
@@ -416,7 +424,8 @@ export function Call(
             fid,
             values.NIL,
             program.readByte(pc, 1),
-            nargs
+            nargs,
+            true
         )
     end
 end
@@ -940,7 +949,7 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
             ) then
                 local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
                 local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied)
+                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied, true)
             end
         end
     end

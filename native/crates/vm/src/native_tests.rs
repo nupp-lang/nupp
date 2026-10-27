@@ -2609,3 +2609,86 @@ entry 0
         );
     }
 }
+#[test]
+fn native_protected_push_preserves_finite_and_exhausted_budgets() {
+    let source = r#"
+function protected 0 3 8 1 vvv:v
+PCall 1 1
+Ret 2
+end
+function identity 1 1 4 1 v:v
+Ret 1
+end
+entry 0
+"#;
+    for scheduled in [false, true] {
+        for budget in [0usize, 1, 7, usize::MAX] {
+            for closure in [false, true] {
+                let mut vm = Box::new(crate::interp::Interp::new());
+                crate::image::load(&mut vm, source).unwrap();
+                let callee = if closure {
+                    vm.new_closure(1, &[])
+                } else {
+                    Value::func(1)
+                };
+                vm.registered.push(callee);
+                vm.entries.resize(vm.funcs.len(), 0);
+                vm.prepare_threaded();
+                let args = [Value::NIL, callee, Value::TRUE];
+                let tid = if scheduled {
+                    vm.enable_scheduler().unwrap();
+                    vm.schedule(Value::func(0), &args, None).unwrap().index
+                } else {
+                    vm.spawn(0, &args)
+                };
+                vm.execution_limit = (budget != usize::MAX).then_some(budget);
+                vm.instruction_budget = if scheduled && budget != usize::MAX {
+                    Some(budget)
+                } else {
+                    None
+                };
+                let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+                ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+                ctx.tid = tid as u64;
+                crate::threaded::sync(&mut ctx, &mut vm);
+                let frame = ctx.stack;
+                let pc = vm.finfo[0].code;
+                let next = unsafe {
+                    nupp_native_runtime_entry(
+                        pc,
+                        frame.add(HDR),
+                        frame.add(vm.funcs[0].off_i()).cast(),
+                        frame.add(vm.funcs[0].off_f()).cast(),
+                        &mut ctx,
+                        frame,
+                    )
+                };
+                let pushed = vm.funcs[0].frame_words();
+                assert_eq!(
+                    ctx.cur, pushed as u64,
+                    "scheduled {scheduled}, budget {budget}, closure {closure}"
+                );
+                // The chain reached the protected callee's Ret, where the
+                // existing protected-result service takes over. It did not
+                // send PCall itself to the Rust opcode executor.
+                assert_eq!(next, vm.finfo[1].code as u64);
+                assert_eq!(vm.tasks[tid].protected.len(), 1);
+                let protected = &vm.tasks[tid].protected[0];
+                assert_eq!(
+                    (protected.frame, protected.caller, protected.result),
+                    (pushed, 0, HDR + 1)
+                );
+                assert_eq!(ctx.guard, pushed as u64);
+                assert_eq!(ctx.budget, budget as u64);
+                assert_eq!(ctx.budget_mark, budget as u64);
+                assert_eq!(vm.execution_limit, (budget != usize::MAX).then_some(budget));
+                assert_eq!(vm.tasks[tid].stack[pushed + HDR + 1], Value::TRUE.0);
+                assert_eq!(
+                    vm.tasks[tid].stack[pushed + 2],
+                    if closure { callee.0 } else { Value::NIL.0 }
+                );
+                assert_eq!(vm.tasks[tid].stack[0] >> 32, 1);
+            }
+        }
+    }
+}
