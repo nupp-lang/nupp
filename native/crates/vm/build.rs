@@ -4,25 +4,34 @@ fn main() {
     native_runtime();
     let mimalloc = std::env::var_os("CARGO_FEATURE_ALLOCATOR_MIMALLOC").is_some();
     let jemalloc = std::env::var_os("CARGO_FEATURE_ALLOCATOR_JEMALLOC").is_some();
-    assert!(!(mimalloc && jemalloc), "allocator-mimalloc and allocator-jemalloc are mutually exclusive");
+    assert!(
+        !(mimalloc && jemalloc),
+        "allocator-mimalloc and allocator-jemalloc are mutually exclusive"
+    );
     if mimalloc || jemalloc {
         let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
         let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap();
-        assert!(matches!(arch.as_str(), "aarch64" | "x86_64")
-            && (os == "macos" || os == "linux" && env == "gnu"),
-            "allocator experiments support only aarch64/x86_64 macOS and GNU Linux");
+        assert!(
+            matches!(arch.as_str(), "aarch64" | "x86_64")
+                && (os == "macos" || os == "linux" && env == "gnu"),
+            "allocator experiments support only aarch64/x86_64 macOS and GNU Linux"
+        );
     }
     println!("cargo:rerun-if-env-changed=NUPP_AOT_OBJECT");
-    let generated = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("aot_entries.rs");
+    let generated =
+        std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("aot_entries.rs");
     if let Ok(object) = std::env::var("NUPP_AOT_OBJECT") {
-        assert!(std::env::var("CARGO_FEATURE_AOT_LINKED").is_ok(), "NUPP_AOT_OBJECT requires --features aot-linked (or aot)");
+        assert!(
+            std::env::var("CARGO_FEATURE_AOT_LINKED").is_ok(),
+            "NUPP_AOT_OBJECT requires --features aot-linked (or aot)"
+        );
         let object = std::fs::canonicalize(object).unwrap();
         let object = object.to_str().unwrap();
         println!("cargo:rerun-if-changed={object}");
         println!("cargo:rerun-if-changed={object}.rs");
         println!("cargo:rerun-if-changed={object}.maps");
-        println!("cargo:rustc-link-arg-bin=nupp-vm={object}");
+        println!("cargo:rustc-link-arg-bin=nupp-vm={}", linker_path(object));
         std::fs::copy(format!("{object}.rs"), &generated).unwrap();
     } else {
         std::fs::write(&generated, "pub const ABI_VERSION: u32 = 4;\npub fn image_hash() -> [u8; 32] { [0; 32] }\npub fn entries() -> Vec<(usize, u64)> { vec![] }\npub fn frame_entries() -> Vec<(usize, u64)> { vec![] }\npub fn maps() -> Vec<(usize, usize, Vec<(u32, u32, Vec<u32>)>)> { vec![] }\n").unwrap();
@@ -45,7 +54,7 @@ fn native_runtime() {
         let object = object.to_str().unwrap();
         println!("cargo:rerun-if-changed={object}");
         println!("cargo:rerun-if-changed={object}.rs");
-        println!("cargo:rustc-link-arg={object}");
+        println!("cargo:rustc-link-arg={}", linker_path(object));
         let generated =
             std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("native_runtime.rs");
         std::fs::copy(format!("{object}.rs"), generated).unwrap();
@@ -54,5 +63,69 @@ fn native_runtime() {
             std::env::var_os("NUPP_NATIVE_RUNTIME_OBJECT").is_none(),
             "NUPP_NATIVE_RUNTIME_OBJECT requires native-runtime"
         );
+    }
+}
+
+// Rust's canonical Windows paths use the verbatim prefix. MinGW's linker
+// response-file parser does not accept that prefix, even for an existing file.
+// Keep canonical paths for file access and normalize only the linker argument.
+fn linker_path(path: &str) -> String {
+    if cfg!(windows) {
+        windows_linker_path(path)
+    } else {
+        path.to_owned()
+    }
+}
+
+fn windows_linker_path(path: &str) -> String {
+    let ordinary = if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).to_owned()
+    };
+    ordinary.replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{linker_path, windows_linker_path};
+
+    #[test]
+    fn windows_link_arguments_accept_canonical_drive_and_unc_paths() {
+        assert_eq!(
+            windows_linker_path(r"\\?\D:\a\nupp\runtime.o"),
+            "D:/a/nupp/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path(r"\\?\C:\Program Files\nupp\runtime.o"),
+            "C:/Program Files/nupp/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path(r"\\?\UNC\host\shared folder\runtime.o"),
+            "//host/shared folder/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path(r"\\host\shared folder\runtime.o"),
+            "//host/shared folder/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path(r"D:\ordinary\runtime.o"),
+            "D:/ordinary/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path("D:/ordinary/runtime.o"),
+            "D:/ordinary/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path("/tmp/native core/runtime.o"),
+            "/tmp/native core/runtime.o"
+        );
+        assert_eq!(
+            windows_linker_path("relative/runtime.o"),
+            "relative/runtime.o"
+        );
+        if !cfg!(windows) {
+            assert_eq!(linker_path(r"/tmp/a\b.o"), r"/tmp/a\b.o");
+        }
     }
 }
