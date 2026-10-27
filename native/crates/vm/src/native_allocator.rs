@@ -83,6 +83,15 @@ impl NativeAllocator {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn heap_pointer(&self) -> *mut c_void {
+        self.heap.as_ptr()
+    }
+
+    pub(crate) fn value_array(&self, capacity: usize) -> crate::native_value_array::ValueArray {
+        unsafe { crate::native_value_array::ValueArray::new(self.heap.as_ptr(), capacity) }
+    }
+
     pub(crate) fn allocate(
         &mut self,
         kind: u8,

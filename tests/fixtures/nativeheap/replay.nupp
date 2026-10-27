@@ -180,6 +180,7 @@ local function releaseBuffers(r: Replay*, o: heap.Header*, kind: uint64): nil
             local t = native.pointer(body) as heap.TableBody*
             bufferGive(r, t.arrayPtr, t.arrayCap)
             bufferGive(r, t.hashPtr, t.hashCap * 2)
+            t.arrayOwner = 0ULL
             t.arrayPtr = 0
             t.arrayLen = 0
             t.arrayCap = 0
@@ -253,6 +254,7 @@ local function allocateAgain(r: Replay*, kind: uint64, size: uint64): nil
         local body = native.address(o as voidptr) + heap.HEADER_BYTES
         if kind == heap.KIND_TABLE then
             local t = native.pointer(body) as heap.TableBody*
+            t.arrayOwner = 0ULL
             t.arrayPtr = 0
             t.arrayLen = 0
             t.arrayCap = 0

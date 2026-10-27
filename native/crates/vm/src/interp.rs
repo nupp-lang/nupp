@@ -1512,7 +1512,7 @@ impl Interp {
                     } else {
                         t.array[k - 1] = v;
                         if v == Value::NIL && k == t.array.len() {
-                            while t.array.last() == Some(&Value::NIL) { t.array.pop(); }
+                            t.array.trim();
                         }
                     }
                 } else { t.hash.insert(iv, v); }
@@ -1809,7 +1809,7 @@ impl Interp {
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
     pub fn array_get(&self, t: Value, i: usize) -> Value { let h = hdr!(self, t, "not a table"); match h.kind { KIND_TABLE => h.table_ref().array[i], KIND_RECORD => h.record_array_ref()[i], _ => self.err("not a table") } }
     pub fn push_array(&mut self, t: Value, v: Value) { self.set_index(t, Value::num((self.array_len(t) + 1) as f64), v); }
-    pub fn pop_array(&mut self, t: Value) { if let Some(p) = t.as_obj() { self.heap.schema_write(p); } let h = hdr!(self, t, "not a table"); let a = if h.kind == KIND_RECORD { h.record_array() } else { &mut h.table().array }; while a.last() == Some(&Value::NIL) { a.pop(); } h.refresh(); }
+    pub fn pop_array(&mut self, t: Value) { if let Some(p) = t.as_obj() { self.heap.schema_write(p); } let h = hdr!(self, t, "not a table"); if h.kind == KIND_RECORD { let a = h.record_array(); while a.last() == Some(&Value::NIL) { a.pop(); } } else { h.table().array.trim(); } h.refresh(); }
     /// Every key of a table, array part first, for `pairs` and `next`.
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
         let h = hdr!(self, t, "pairs of a non-table");

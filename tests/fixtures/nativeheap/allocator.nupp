@@ -361,7 +361,7 @@ local function accounting(): uint64
     @unsafe do
         with a = arena.openGrowable(65536) do
             local h = heap.create(a)
-            local one = heap.allocRaw(h, heap.KIND_TABLE, 80)
+            local one = heap.allocRaw(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>())
             heap.allocRaw(h, heap.KIND_STR, 9)
             local three = heap.allocRaw(h, heap.KIND_STR, 50000)
             heap.accountResize(h, 0, 64)

@@ -1819,7 +1819,7 @@ fn entry_from(it: &mut Interp, obj: Value, pos: usize, last: Value) -> Option<(V
     loop {
         match phase {
             0 => {
-                let a: &Vec<Value> = if record { h.record_array_ref() } else { &h.table_ref().array };
+                let a: &[Value] = if record { h.record_array_ref() } else { &h.table_ref().array };
                 while i < a.len() {
                     let v = a[i]; i += 1;
                     if v != Value::NIL { return Some((integer(it, i as i64), v, i)); }

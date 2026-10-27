@@ -651,16 +651,21 @@ fn back_edges_finish_without_native_recursion() {
 struct NativeTableFixture {
     header: Header,
     payload: crate::heap::TablePayload,
+    _allocator: crate::native_allocator::NativeAllocator,
 }
 impl NativeTableFixture {
     fn new(values: &[Value]) -> Box<Self> {
+        let allocator = crate::native_allocator::NativeAllocator::new();
+        let mut array = allocator.value_array(values.len());
+        array.extend(values);
         let mut fixture = Box::new(Self {
             header: unsafe { std::mem::zeroed() },
             payload: crate::heap::TablePayload {
-                array: values.to_vec(),
+                array,
                 hash: Default::default(),
                 meta: Value::NIL,
             },
+            _allocator: allocator,
         });
         fixture.header.kind = KIND_TABLE;
         fixture.header.aux_len = values.len() as u64;

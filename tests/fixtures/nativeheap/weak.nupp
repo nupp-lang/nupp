@@ -54,8 +54,9 @@ end
 -- A table of `arrayCount` array slots and `pairs` hash entries under `mode`.
 local function newTable(h: heap.Heap*, a: arena.Arena*, arrayCount: uint64, pairs: uint64, mode: uint64): uint64
     @unsafe do
-        local o = collector.allocate(h, heap.KIND_TABLE, 80)
+        local o = collector.allocate(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>())
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+        t.arrayOwner = 0ULL
         t.arrayPtr = 0
         t.arrayLen = 0
         t.arrayCap = 0
@@ -315,10 +316,10 @@ local function released(): uint64
             answer = answer + bit(native.both(o.aux as uint64 == heap.KIND_TABLE, body(withParts).arrayPtr ~= 0)) * 100
             -- The bare table's slot is free already; the next allocation of the
             -- class takes it, and the released one only after it is recycled.
-            local next = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, 80))
+            local next = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>()))
             answer = answer + bit(next == bare) * 10
             gcweak.recycleReleased(h, first)
-            local again = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, 80))
+            local again = heap.objectValue(heap.allocRaw(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>()))
             answer = answer + bit(again == withParts)
             heap.destroy(h)
             return answer

@@ -432,6 +432,14 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "arrayInitialize" => ("nupp_array_initialize", 3, true),
+        "arrayReserve" => ("nupp_array_reserve", 2, true),
+        "arrayPush" => ("nupp_array_push", 2, true),
+        "arrayExtend" => ("nupp_array_extend", 3, true),
+        "arrayResize" => ("nupp_array_resize", 3, true),
+        "arrayTruncate" => ("nupp_array_truncate", 2, false),
+        "arrayTrim" => ("nupp_array_trim", 1, false),
+        "arrayRelease" => ("nupp_array_release", 1, false),
         "allocatorArenaOpen" => ("nupp_allocator_arena_open", 1, true),
         "allocatorArenaClose" => ("nupp_allocator_arena_close", 1, false),
         "allocatorCreate" => ("nupp_allocator_create", 1, true),
@@ -623,7 +631,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 10;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 11;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );

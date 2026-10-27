@@ -151,12 +151,26 @@ export struct Words
     capacity: uint64
 end
 
---- A table's payload: the array part (mirrored in the header's `auxPtr` and
---- `auxLen`, as `heap.rs` keeps it), the hash part at `heap.rs`'s offsets
---- (its `ValueTable`: key and value words per bucket, `NIL` keys empty), and
---- the metatable. Rust keeps the array part as a `Vec`, whose layout is not
---- C; this is the Nupp layout of the same 24 bytes.
+--- An owned array. The owner outlives its backing and every borrowed slice.
+export struct ArrayBacking
+    pool: uint64
+    mapped: uint64
+end
+
+export struct ArrayPoolSlot
+    pool: uint64
+end
+
+export struct ValueArray
+    owner: uint64
+    base: uint64
+    length: uint64
+    capacity: uint64
+end
+
+--- A table's canonical array descriptor, hash part and metatable.
 export struct TableBody
+    arrayOwner: uint64
     arrayPtr: uint64
     arrayLen: uint64
     arrayCap: uint64
@@ -260,6 +274,9 @@ export struct Heap
     gray: uint64
 
     grayPool: arena.Pool*
+
+    --- Pools of small owned value arrays, indexed by their backing class.
+    arrayPools: uint64
 
     --- The sweep cursor: chunk index and slot index, then the large index.
     sweepChunk: uint64
@@ -645,8 +662,9 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
             ((LARGEST_SLOT >> 4) + 1) * native.sizeOf<ClassByte>(),
             native.alignmentOf<ClassByte>()
         )
+        local arrayPools = arena.alloc(a, 11ULL * native.sizeOf<ArrayPoolSlot>(), native.alignmentOf<ArrayPoolSlot>())
         local stats = arena.alloc(a, native.sizeOf<Stats>(), native.alignmentOf<Stats>())
-        if raw == nil or classes == nil or lookup == nil or stats == nil then
+        if raw == nil or classes == nil or lookup == nil or stats == nil or arrayPools == nil then
             error("heap: the arena is full")
         end
         local h = raw as Heap*
@@ -658,6 +676,7 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.classOf = native.address(lookup)
         h.stats = stats as Stats*
         h.grayPool = pool
+        h.arrayPools = native.address(arrayPools)
         h.chunks = zeroWords(a)
         h.chunkSet = zeroSet(a)
         h.regions = zeroWords(a)

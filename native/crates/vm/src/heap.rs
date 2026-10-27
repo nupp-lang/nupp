@@ -240,7 +240,7 @@ impl Drop for ValueTable { fn drop(&mut self) { self.free(); } }
 impl Default for ValueTable { fn default() -> ValueTable { ValueTable::new() } }
 impl ValueTable { pub fn keys(&self) -> impl Iterator<Item = &Value> + '_ { self.iter().map(|(k, _)| k) } }
 #[repr(C)]
-pub struct TablePayload { pub array: Vec<Value>, pub hash: ValueTable, pub meta: Value }
+pub struct TablePayload { pub array: crate::native_value_array::ValueArray, pub hash: ValueTable, pub meta: Value }
 pub const OFF_T_HASH_PTR: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, ptr)) as i32;
 pub const OFF_T_HASH_MASK: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, mask)) as i32;
 pub const OFF_T_META: i32 = (HEADER + std::mem::offset_of!(TablePayload, meta)) as i32;
@@ -430,7 +430,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 10);
+    assert!(crate::dispatch::OBJECT_ABI == 11);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
@@ -773,7 +773,7 @@ impl Heap {
         let p = self.alloc(KIND_TABLE, std::mem::size_of::<TablePayload>(), roots);
         unsafe {
             let h = &mut *p.as_ptr();
-            (h.payload() as *mut TablePayload).write(TablePayload { array: Vec::with_capacity(n), hash: ValueTable::with_capacity(m), meta: Value::NIL });
+            (h.payload() as *mut TablePayload).write(TablePayload { array: self.allocator.value_array(n), hash: ValueTable::with_capacity(m), meta: Value::NIL });
             h.refresh();
         }
         self.account_resize(0, unsafe { p.as_ref().external_bytes() });
@@ -1636,7 +1636,7 @@ mod tests {
         let dead_key = heap.new_cell(Value::NIL, &roots);
         let dead_value = heap.new_cell(Value::NIL, &roots);
         let mut table = TablePayload {
-            array: Vec::new(),
+            array: heap.allocator.value_array(0),
             hash: ValueTable::new(),
             meta: Value::NIL,
         };
