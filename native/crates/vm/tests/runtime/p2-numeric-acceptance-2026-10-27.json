@@ -74,5 +74,17 @@
     "imageSource": "26fc4b8591e85d4cdee4e885fd6c12a6b61f0b78",
     "runtimeSource": "98b58367092c29c3bd6918291450eff29385e3a5",
     "note": "Full combined image will be rebuilt after common-graph and guest JIT correctness changes; this proves current number-model AOT continuity."
+  },
+  "finalRustSweep": {
+    "source": "02898a6dab0bf31a55fb127d80bceb99bab07365",
+    "targets": 67,
+    "passed": 597,
+    "failed": 0,
+    "ignored": 5,
+    "sweepLog": "build/native-p2-finish/numeric-final-cargo-tests.log",
+    "note": "The full sweep had one formatter-dependent cleanup assertion. Production Rust was unchanged for the corrected specialization-only rerun; all other target results are reused.",
+    "assertionFix": "02898a6da",
+    "coreSha256": "c942b142562e6fd6dad8387799295360829ee03fbc2541162e10772d09a64b0c",
+    "detailedReceipt": "build/native-p2-finish/numeric-final-cargo-receipt.json"
   }
 }
