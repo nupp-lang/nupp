@@ -34,6 +34,7 @@ local json = require("nupp.codec.json")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
 local slotcontract = require("nupp.compiler.vm.slotcontract")
 local programcontract = require("nupp.compiler.vm.programcontract")
+local specializationcontract = require("nupp.compiler.vm.specializationcontract")
 
 local lower = {}
 
@@ -45,6 +46,9 @@ lower.SLOTS = "nupp.runtime.vm.slots"
 
 -- Frozen code bytes retain their owning body lifetime through the Nupp graph.
 lower.PROGRAM = "nupp.runtime.vm.program"
+
+-- Ordinary implementations carry the semantic specialization contracts.
+lower.SPECIALIZATION = "nupp.runtime.vm.specialization"
 
 --- The atomics declaration: loads, stores, exchanges and fences on words the
 --- lowering emits as Cranelift's sequentially consistent atomic instructions.
@@ -1070,6 +1074,51 @@ local function compileFunction(fn: Fn, options: any): string
         return {kind = access.result, value = load(access.result, address)}
     end
 
+    -- This path emits only ordinary interpreter meanings. Deriving variants,
+    -- proving constants and balancing contexts belong to the Nupp graph.
+    local function specializationCall(n: any): any
+        local member = n.obj.name.text
+        local operation = specializationcontract.read(n.obj.name.definition, member)
+        local signature = raw(n.obj.inferredType)
+        local args = n.args.exprs or {}
+        local counts = {assertConstant = 1, specializeValue = 3, pushContext = 1, popContext = 0, inInterpreter = 0}
+        local count = counts[operation]
+        need(
+            signature and signature.tag == "func" and #signature.params == count and #args == count,
+            member .. ": specialization argument count"
+        )
+        need(#signature.rets == 1, member .. ": specialization result count")
+        local resultKind = tag(n.inferredType)
+        if operation == "assertConstant" then
+            local kind = tag(args[1].inferredType)
+            need(kind == resultKind, member .. ": specialization result kind")
+            machine(kind)
+            return expression(args[1])
+        elseif operation == "specializeValue" then
+            for _, param in ipairs(signature.params) do
+                need(tag(param) == "int64", member .. ": specialization argument kind")
+            end
+            need(resultKind == "int64", member .. ": specialization result kind")
+            local value = expression(args[1])
+            local low, high = expression(args[2]), expression(args[3])
+            need(low.literal and high.literal, member .. ": specialization bounds must be constant")
+            specializationcontract.domain(low.literal, high.literal, options.specializationVariantCap)
+            return value
+        elseif operation == "pushContext" then
+            need(tag(signature.params[1]) == "int64", member .. ": specialization argument kind")
+            need(resultKind == "nil", member .. ": specialization result kind")
+            -- Evaluate the key once even though its ordinary result is unused.
+            expression(args[1])
+        elseif operation == "inInterpreter" then
+            need(resultKind == "boolean", member .. ": specialization result kind")
+            return {kind = "boolean", value = constant("i8", "1")}
+        else
+            need(resultKind == "nil", member .. ": specialization result kind")
+        end
+
+        return {kind = "nil", value = ""}
+    end
+
     local function intrinsic(intrinsicName: string, args: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
@@ -1323,6 +1372,8 @@ local function compileFunction(fn: Fn, options: any): string
             return programCall(n)
         elseif calledModule(n) == lower.SLOTS then
             return slotCall(n)
+        elseif calledModule(n) == lower.SPECIALIZATION then
+            return specializationCall(n)
         elseif calledModule(n) == ATOMICS then
             return atomic(n.obj.name.text, n.args.exprs or {})
         elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
@@ -1968,6 +2019,12 @@ end
 --- @raises string when the source does not check or the lowering refuses it.
 function lower.compile(root: string, paths: {string}, options: any?): string
     local settings: any = options or {}
+    local variantCap = settings.specializationVariantCap
+    if variantCap == nil then
+        variantCap = 256
+    end
+    -- Validate the configured limit even in a module without a bounded call.
+    specializationcontract.domain("0", "0", variantCap)
     local handlers = settings.handlers == true
     need(not handlers or settings.layouts ~= nil, "handler modules need the glue's layout file")
     trivia.installDefault(provider)
@@ -1996,6 +2053,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
                 required == INTRINSICS
                 or required == lower.PROGRAM
                 or required == lower.SLOTS
+                or required == lower.SPECIALIZATION
                 or required == ATOMICS
                 or HELPER_MODULES[required] ~= nil
                 or modules[required] ~= nil,
@@ -2021,6 +2079,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     local functionOptions = {
         handlers = handlers,
         layout = handlers and layouts(settings.layouts as string) or nil,
+        specializationVariantCap = variantCap,
         modules = modules
     }
     local text = {}

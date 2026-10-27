@@ -16,9 +16,7 @@ return {
     -- Reaches Windows-specific process, path and loader behaviour. Run before
     -- the broad suite on that platform so a loader failure names the last case
     -- instead of arriving twenty minutes later as unrun shards.
-    [
-        "windows-preflight"
-    ] = {"netnativetest", "runnertest", "worktreetest",},
+    ["windows-preflight"] = {"netnativetest", "runnertest", "worktreetest",},
 
     -- Fixtures whose inputs come from outside the repository. Kept nameable
     -- because a configured corpus used to be absent and silently skipped.
@@ -57,12 +55,7 @@ return {
     ["fmt"] = {"fmt*test"},
 
     -- Browser delivery: the worker seam and generated browser templates.
-    [
-        "browser"
-    ] = {
-        "portableiocontractstest",
-        "templatetest",
-    },
+    ["browser"] = {"portableiocontractstest", "templatetest",},
 
     ["gpu"] = {"gputest"},
 
@@ -82,5 +75,16 @@ return {
 
     -- The Nupp-authored interpreter core: the lowering, the glue and the object
     -- it links. Both build Rust; the second runs the runtime crate's tests.
-    ["native-runtime"] = {"nativelowertest", "nativeruntimetest", "nativejittest", "nativestringstest", "nativetablestest", "nativeclosurestest", "nativeheaptest"},
+    [
+        "native-runtime"
+    ] = {
+        "nativelowertest",
+        "nativeruntimetest",
+        "nativejittest",
+        "nativestringstest",
+        "nativetablestest",
+        "nativeclosurestest",
+        "nativeheaptest",
+        "specializationcontracttest"
+    },
 }

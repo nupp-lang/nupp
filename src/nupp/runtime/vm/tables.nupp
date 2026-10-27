@@ -13,6 +13,7 @@ module nupp.runtime.vm.tables
 const native = require("nupp.runtime.vm.intrinsics")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
+const specialization = require("nupp.runtime.vm.specialization")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -468,7 +469,7 @@ export function SetField(
         ) * native.layout("FuncInfo.size") + native.layout("FuncInfo.consts")
     )
     local name = native.load64(consts, program.readSigned32(pc, 4) * 8)
-    if native.load32(context, native.layout("feedback")) ~= 0 then
+    if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
         return observeStoreSlow(pc, context, object, name, value)
     else
         return storeKeyed(pc, regs, ints, floats, context, frame, object, name, value)

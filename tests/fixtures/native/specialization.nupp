@@ -1,0 +1,21 @@
+module tests.fixtures.native.specialization
+
+const specialization = require("nupp.runtime.vm.specialization")
+
+export function identity(value: uint64): uint64
+    return specialization.assertConstant(value)
+end
+
+export function bounded(value: int64): int64
+    return specialization.specializeValue(value, -1LL, 1LL)
+end
+
+export function context(value: int64): int64
+    specialization.pushContext(value)
+    specialization.popContext()
+    return value
+end
+
+export function interpreter(): boolean
+    return specialization.inInterpreter()
+end

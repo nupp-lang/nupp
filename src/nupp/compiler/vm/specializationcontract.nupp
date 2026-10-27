@@ -1,0 +1,122 @@
+module nupp.compiler.vm.specializationcontract
+
+local contract = {}
+local operations = {
+    assertConstant = true,
+    specializeValue = true,
+    pushContext = true,
+    popContext = true,
+    inInterpreter = true
+}
+
+--- Returns a specialization operation from checked function metadata.
+--- @raises string when the metadata is absent or malformed
+function contract.read(definition: any, name: string): string
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmSpecialization" then
+            assert(found == nil, "specialization " .. name .. " has duplicate contracts")
+            found = annotation
+        end
+    end
+    assert(found ~= nil, "specialization " .. name .. " has no declared contract")
+    local arguments = found.arguments or {}
+    assert(#arguments == 1, "specialization " .. name .. " requires one operation")
+    local argument = arguments[1]
+    assert(
+        argument.name == "operation"
+        and argument.kind == "value"
+        and type(argument.value) == "string"
+        and operations[argument.value] == true,
+        "specialization " .. name .. " has an invalid operation"
+    )
+    assert(argument.value == name, "specialization " .. name .. " has a mismatched operation")
+
+    return argument.value as string
+end
+
+-- Decimal strings preserve all int64 endpoints on every compiler host. Domain
+-- arithmetic is capped before accumulation, never performed in an int64 word.
+local function endpoint(text: string): (boolean, string)
+    assert(type(text) == "string" and text:match("^%-?%d+$"), "specialization bounds require decimal integers")
+    local negative = text:sub(1, 1) == "-"
+    local digits = negative and text:sub(2) or text
+    digits = digits:gsub("^0+", "")
+    if digits == "" then
+        return false, "0"
+    end
+    local limit = negative and "9223372036854775808" or "9223372036854775807"
+    assert(#digits < #limit or (#digits == #limit and digits <= limit), "specialization bound exceeds int64")
+
+    return negative, digits
+end
+
+local function magnitudeOrder(left: string, right: string): boolean
+    return #left < #right or (#left == #right and left <= right)
+end
+
+-- The nonnegative difference, computed a decimal digit at a time.
+local function difference(high: string, low: string, cap: number): number
+    local count, place, borrow = 0, 1, 0
+    for i = #high, 1, -1 do
+        local j = i - #high + #low
+        local digit = (tonumber(high:sub(i, i)) as number) - borrow
+        if j > 0 then
+            digit = digit - (tonumber(low:sub(j, j)) as number)
+        end
+        if digit < 0 then
+            digit = digit + 10
+            borrow = 1
+        else
+            borrow = 0
+        end
+        if digit ~= 0 then
+            assert(place <= cap and digit <= (cap - count) / place, "specialization domain exceeds variant cap")
+            count = count + digit * place
+        end
+        place = math.min(cap + 1, place * 10)
+    end
+
+    return count
+end
+
+--- Returns the inclusive domain size without overflowing endpoint arithmetic.
+---
+--- `variantCap` is supplied by the semantic consumer and is limited to 4,096.
+--- This bounds compiler work only; an out-of-domain runtime value is valid.
+--- @raises string when bounds or the variant budget are invalid
+function contract.domain(low: string, high: string, variantCap: number): number
+    assert(
+        type(variantCap) == "number"
+        and variantCap == math.floor(variantCap)
+        and variantCap >= 1
+        and variantCap <= 4096,
+        "specialization variant cap must be an integer from 1 through 4096"
+    )
+    local lowNegative, lowDigits = endpoint(low)
+    local highNegative, highDigits = endpoint(high)
+    assert(
+        (lowNegative and not highNegative)
+        or (
+            lowNegative == highNegative
+            and (
+                lowNegative and magnitudeOrder(highDigits, lowDigits)
+                or not lowNegative and magnitudeOrder(lowDigits, highDigits)
+            )
+        ),
+        "specialization bounds are reversed"
+    )
+    local distance: number
+    if lowNegative ~= highNegative then
+        distance = difference(lowDigits, "0", variantCap - 1)
+        distance = distance + difference(highDigits, "0", variantCap - 1 - distance)
+    elseif lowNegative then
+        distance = difference(lowDigits, highDigits, variantCap - 1)
+    else
+        distance = difference(highDigits, lowDigits, variantCap - 1)
+    end
+
+    return distance + 1
+end
+
+export = contract

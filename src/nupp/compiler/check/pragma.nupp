@@ -529,6 +529,18 @@ function pragma.install(c: state.Checker): state.StatHandlers
             if stat.stat then
                 c.checkStat(stat.stat)
             end
+            -- Function consumers read the same checked metadata as field
+            -- consumers, through the durable definition exported by a module.
+            if valid and targetBody and targetAny.semanticAnnotations then
+                local token = targetAny.name
+                if targetKind == "funcStmt" then
+                    local _, member = c.funcOwner(targetAny.name)
+                    token = member or targetAny.name.base
+                end
+                if token and token.definition then
+                    token.definition.annotations = targetAny.semanticAnnotations
+                end
+            end
             return
         end
 

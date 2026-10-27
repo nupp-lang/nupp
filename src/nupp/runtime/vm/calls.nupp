@@ -11,6 +11,7 @@ module nupp.runtime.vm.calls
 const native = require("nupp.runtime.vm.intrinsics")
 const slots = require("nupp.runtime.vm.slots")
 const program = require("nupp.runtime.vm.program")
+const specialization = require("nupp.runtime.vm.specialization")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -540,7 +541,7 @@ export function CallK(
 ): uint64
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
-    if native.load32(context, native.layout("feedback")) ~= 0 then
+    if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     elseif value == values.TAG_FUNC | program.readWord(pc, 8) then
         return dynamicCall(pc, regs, ints, floats, context, frame, program.readWord(pc, 8), values.NIL, nargs)
@@ -810,7 +811,7 @@ export function CallDyn(
 ): uint64
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
-    if native.load32(context, native.layout("feedback")) ~= 0 then
+    if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     else
         return callValue(pc, regs, ints, floats, context, frame, value, nargs)
@@ -858,7 +859,7 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
     local current = native.load64(context, native.layout("cur"))
     local frame = native.offset(stack, native.index(current * 8))
     local receiver = slots.readValue(frame, native.offset(frame, 32), base + 1)
-    if native.load32(context, native.layout("feedback")) ~= 0 then
+    if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
         helpers.observe(
             context,
             native.index(native.load64(frame, 0) & values.LOW_WORD),
