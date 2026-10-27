@@ -237,7 +237,9 @@ fn unstable_sites_settle_within_the_version_cap() {
 #[test]
 fn deopt_exits_resume_every_live_value() {
     let want = { let mut vm = fixture_of(DEOPT_IMAGE, Tier::Single, Spec::Off, Gc::Plain); text(&mut vm, Tier::Single, "deopt") };
-    assert!(want.contains("closed=3300"), "every lease closed once: {want}");
+    let closed = want.split_whitespace().find_map(|field| field.strip_prefix("closed="))
+        .and_then(|count| count.parse::<f64>().ok());
+    assert_eq!(closed, Some(3300.0), "every lease closed once: {want}");
     for gc in [Gc::Plain, Gc::Interleave] {
         let mut vm = fixture_of(DEOPT_IMAGE, Tier::Frames, Spec::Specialize, gc);
         assert_eq!(text(&mut vm, Tier::Frames, "deopt"), want, "{gc:?}");
