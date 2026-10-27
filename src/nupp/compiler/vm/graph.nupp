@@ -391,7 +391,7 @@ function graph.verify(g: any): nil
         error("assertion failed", 0)
     end
     local nparams = g.nparams
-    if not (nparams >= 0 and nparams < 240 and #types >= nparams) then
+    if not (nparams >= 0 and nparams < 240 and nparams % 1 == 0 and #types >= nparams) then
         error("assertion failed", 0)
     end
     local native = g.native ~= nil
@@ -422,7 +422,14 @@ function graph.verify(g: any): nil
     local localValues, occupied = {}, {}
     local classBase = {v = 0, i = 1000000, f = 2000000, x = 3000000}
 
-    local function define(v: integer): nil
+    local function valueId(v: any): boolean
+        return type(v) == "number" and v >= 1 and v <= #types and v % 1 == 0
+    end
+
+    local function define(v: any): nil
+        if not valueId(v) then
+            error("graph value id outside dense table", 0)
+        end
         local ty, slot = types[v], slots[v]
         if not (ty and not defined[v]) then
             error("duplicate graph definition", 0)
@@ -448,7 +455,7 @@ function graph.verify(g: any): nil
     end
 
     local function usable(v: any): boolean
-        return localValues[v] == true or (type(v) == "number" and v >= 1 and v <= nparams)
+        return valueId(v) and (localValues[v] == true or v <= nparams)
     end
 
     local ncerts = #g.certificates
@@ -578,6 +585,9 @@ function graph.verify(g: any): nil
         end
         for ei = 1, #edges do
             local e = edges[ei]
+            if not (type(e.target) == "number" and e.target >= 1 and e.target <= #blocks and e.target % 1 == 0) then
+                error("bad graph target", 0)
+            end
             local target = assert(blocks[e.target], "bad graph target")
             local args, targetParams = e.args, target.params
             if not (e.target ~= 1 and #args == #targetParams) then

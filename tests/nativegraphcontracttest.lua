@@ -282,4 +282,89 @@ function M.nativeGraphsCannotDeriveOrSerializeAsGuestInstructions()
     )
 end
 
+function M.nativeDefinitionsRequireDenseFiniteIntegerValueIds()
+    for _, invalid in ipairs({7.5, 99.5, 0, -1, "7", math.huge, -math.huge}) do
+        local g, b = fresh()
+        local id = constant(g, b, "1", "uint64")
+        local kind, slot, exact = g.types[id], g.slots[id], g.exactTypes[id]
+        g.types[id], g.slots[id], g.exactTypes[id] = nil, nil, nil
+        -- Hash-only entries must not extend the graph's dense SSA namespace.
+        g.types[invalid], g.slots[invalid], g.exactTypes[invalid] = kind, slot, exact
+        b.dst[1] = invalid
+        dispatch(b)
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "value id outside dense table"
+        )
+    end
+    for _, invalid in ipairs({7, 999, 0 / 0}) do
+        local g, b = fresh()
+        local id = constant(g, b, "1", "uint64")
+        b.dst[1] = invalid
+        if invalid == 7 then
+            g.types[id], g.slots[id], g.exactTypes[id] = nil, nil, nil
+        end
+        dispatch(b)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+end
+
+function M.nativeUsesCannotForgeFractionalGlobalParameters()
+    for _, invalid in ipairs({1.5, 6.5, 999, 0, -1, math.huge, -math.huge}) do
+        local g, b = fresh()
+        g.types[invalid], g.slots[invalid], g.exactTypes[invalid] = "i", 0, "voidptr"
+        dispatch(b, invalid)
+        rejects(function()
+            G.verify(g)
+        end)
+    end
+    local g, b = fresh()
+    dispatch(b, 0 / 0)
+    rejects(function()
+        G.verify(g)
+    end)
+    -- The same dense-id rule applies to existing guest graphs.
+    g = G.new(2)
+    b = G.block(g)
+    g.types[1.5], g.slots[1.5] = "v", 0
+    local result = G.emit(g, b, "Move", {1.5})
+    b.term = {kind = "return", value = result, edges = {}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "outside its closed block"
+    )
+end
+
+function M.nativeEdgesCannotTargetDictionaryOnlyBlocks()
+    for _, invalid in ipairs({0, -1, 1.5, 2.5, 999, "2", math.huge, -math.huge}) do
+        local g, b = fresh()
+        local following = G.block(g)
+        dispatch(following)
+        if invalid ~= 999 then
+            g.blocks[invalid] = {params = {}}
+        end
+        b.term = {kind = "jump", edges = {{target = invalid, args = {}}}}
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "bad graph target"
+        )
+    end
+    local g, b = fresh()
+    b.term = {kind = "jump", edges = {{target = 0 / 0, args = {}}}}
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "bad graph target"
+    )
+end
+
 return M
