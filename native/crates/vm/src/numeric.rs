@@ -1,4 +1,4 @@
-//! Exact wide integers at value boundaries. Small exact values remain doubles.
+//! Exact integers at value boundaries, with signed 48-bit immediate payloads.
 use crate::{heap::KIND_INTEGER, interp::Interp, value::Value};
 use std::cmp::Ordering;
 
@@ -19,12 +19,15 @@ impl Integer {
         self.magnitude() as f64
     }
     pub fn immediate(self) -> Option<Value> {
-        let f = self.double();
-        // A saturating f64 -> u64 cast would incorrectly accept u64::MAX.
-        (f as i128 == self.magnitude()).then(|| Value::num(f))
+        let n = self.magnitude();
+        if n < i64::MIN as i128 || n > i64::MAX as i128 { return None; }
+        Value::inline_integer(n as i64)
     }
 }
 pub fn integer(v: Value) -> Option<Integer> {
+    if let Some(n) = v.as_inline_integer() {
+        return Some(Integer { bits: n as u64, unsigned: false });
+    }
     let h = unsafe { v.as_obj()?.as_ref() };
     (h.kind == KIND_INTEGER).then_some(Integer {
         bits: h.aux_len,
@@ -33,6 +36,20 @@ pub fn integer(v: Value) -> Option<Integer> {
 }
 pub fn is_numeric(v: Value) -> bool {
     v.is_num() || integer(v).is_some()
+}
+/// Integral table keys share one exact representation across numeric subtypes.
+pub fn key_integer(v: Value) -> Option<Integer> {
+    if let Some(mut i) = integer(v) {
+        if i.unsigned && i.bits <= i64::MAX as u64 { i.unsigned = false; }
+        return Some(i);
+    }
+    if v.is_float() {
+        let f = v.as_num();
+        if f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < 18446744073709551616.0 {
+            return Some(Integer { bits: (f as i128) as u64, unsigned: f >= 9223372036854775808.0 });
+        }
+    }
+    None
 }
 pub fn double(vm: &Interp, v: Value) -> f64 {
     if v.is_num() {
@@ -256,6 +273,7 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
 }
 
 pub fn is_kind(v: Value, unsigned: bool) -> bool {
+    if let Some(n) = v.as_inline_integer() { return !unsigned || n >= 0; }
     if let Some(i) = integer(v) {
         return i.unsigned == unsigned;
     }

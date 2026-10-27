@@ -1635,9 +1635,8 @@ impl Interp {
     /// as the interned string with those bytes, or none, in which case the
     /// key is absent.
     pub(crate) fn key_of(&mut self, key: Value) -> Option<Value> {
-        if key.is_num() && key.as_num() == 0.0 { return Some(Value::num(0.0)); }
-        if let Some(i) = crate::numeric::integer(key) {
-            if i.unsigned && i.bits <= i64::MAX as u64 { return self.heap.integer_lookup(crate::numeric::Integer { bits: i.bits, unsigned: false }); }
+        if let Some(i) = crate::numeric::key_integer(key) {
+            return i.immediate().or_else(|| self.heap.integer_lookup(i));
         }
         if let Some(h) = key.as_obj().map(|p| unsafe { &*p.as_ptr() }) {
             if h.kind == KIND_SLICE || (h.kind == KIND_STR && h.flags & heap::F_INTERNED == 0) { return self.heap.intern_lookup_bytes(h.bytes()); }
@@ -1646,18 +1645,17 @@ impl Interp {
     }
     /// The key as stored: interned when it is a slice or an uninterned string.
     pub fn key_for_store(&mut self, key: Value) -> Value {
-        if let Some(i) = crate::numeric::integer(key) {
-            if i.unsigned && i.bits <= i64::MAX as u64 { return self.box_integer(crate::numeric::Integer { bits: i.bits, unsigned: false }); }
+        if let Some(i) = crate::numeric::key_integer(key) {
+            return self.box_integer(i);
         }
         match self.key_of(key) { Some(k) => k, None => { let s = self.bytes_of(key).to_vec(); self.intern_bytes(&s) } }
     }
 
     pub fn get_index(&self, tv: Value, key: Value) -> Value {
-        let key = if key.is_num() && key.as_num() == 0.0 { Value::num(0.0) }
-        else if let Some(i) = crate::numeric::integer(key) {
-            if i.unsigned && i.bits <= i64::MAX as u64 {
-                match self.heap.integer_key(i.bits) { Some(k) => k, None => return Value::NIL }
-            } else { key }
+        let key = if let Some(i) = crate::numeric::key_integer(key) {
+            match i.immediate().or_else(|| self.heap.integer_value(i)) {
+                Some(k) => k, None => return Value::NIL,
+            }
         } else { key };
         let Some(p) = tv.as_obj() else { self.op_error(OpErr::Index, tv) };
         let h = unsafe { &*p.as_ptr() };
@@ -1696,7 +1694,7 @@ impl Interp {
                         if v != Value::NIL {
                             t.array.push(v);
                             loop {
-                                let next = Value::num((t.array.len() + 1) as f64);
+                                let next = Value::inline_integer((t.array.len() + 1) as i64).expect("table length exceeds immediate integer range");
                                 let Some(value) = t.hash.get(&next).copied() else { break; };
                                 t.hash.insert(next, Value::NIL);
                                 t.array.push(value);
@@ -1724,7 +1722,7 @@ impl Interp {
                             if v != Value::NIL {
                                 h.record_array().push(v);
                                 loop {
-                                    let next = Value::num((h.record_array_ref().len() + 1) as f64);
+                                    let next = Value::inline_integer((h.record_array_ref().len() + 1) as i64).expect("record length exceeds immediate integer range");
                                     let Some(value) = h.record_extra_ref().as_ref().and_then(|m| m.get(&next).copied()) else { break; };
                                     h.record_extra().as_mut().unwrap().insert(next, Value::NIL);
                                     h.record_array().push(value);

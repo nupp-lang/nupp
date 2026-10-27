@@ -28,6 +28,9 @@ export const TAG_FUNC = 0x7ffc000000000000ULL
 --- A heap object: `TAG_OBJ | address`.
 export const TAG_OBJ = 0x7ffd000000000000ULL
 
+--- A signed integer with a two's-complement 48-bit payload.
+export const TAG_INTEGER = 0x7fff000000000000ULL
+
 --- A frame guard that guards nothing (`NO_GUARD` in the Rust core).
 export const NO_GUARD = 0xffffffffffffffffULL
 

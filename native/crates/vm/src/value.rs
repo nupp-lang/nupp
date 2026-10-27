@@ -24,6 +24,7 @@ pub const T_TRUE: u64 = 3 << TAG_SHIFT;
 pub const T_FUNC: u64 = 4 << TAG_SHIFT;
 pub const T_OBJ: u64 = 5 << TAG_SHIFT;
 pub const T_PARKED: u64 = 6 << TAG_SHIFT;
+pub const T_INTEGER: u64 = 7 << TAG_SHIFT;
 
 /// The image id of the runtime's own functions: builtins and host services.
 pub const RUNTIME_IMAGE: u16 = 0xffff;
@@ -63,9 +64,22 @@ impl Value {
     pub fn obj(p: NonNull<Header>) -> Value { Value(QNAN | T_OBJ | (p.as_ptr() as u64 & PAYLOAD)) }
 
     #[inline]
-    pub fn is_num(self) -> bool { self.0 & QNAN != QNAN || self.0 == QNAN }
+    pub fn is_float(self) -> bool { self.0 & QNAN != QNAN || self.0 == QNAN }
     #[inline]
-    pub fn as_num(self) -> f64 { f64::from_bits(self.0) }
+    pub fn is_num(self) -> bool { self.is_float() || self.as_inline_integer().is_some() }
+    #[inline]
+    pub fn as_num(self) -> f64 { self.as_inline_integer().map_or_else(|| f64::from_bits(self.0), |n| n as f64) }
+    /// A signed integer whose two's-complement payload fits in 48 bits.
+    #[inline]
+    pub fn inline_integer(n: i64) -> Option<Value> {
+        (-(1i64 << 47)..(1i64 << 47)).contains(&n)
+            .then_some(Value(QNAN | T_INTEGER | (n as u64 & PAYLOAD)))
+    }
+    #[inline]
+    pub fn as_inline_integer(self) -> Option<i64> {
+        ((self.0 & !PAYLOAD) == (QNAN | T_INTEGER))
+            .then_some(((self.0 << 16) as i64) >> 16)
+    }
     #[inline]
     pub fn is_nil(self) -> bool { self == Value::NIL }
     #[inline]
@@ -124,5 +138,23 @@ mod tests {
         assert_eq!(Value::builtin(9).as_builtin(), Some(9));
         assert_eq!(Value::builtin(9).as_func(), None);
         assert!(!Value::FALSE.truthy() && Value::num(0.0).truthy());
+    }
+    #[test]
+    fn inline_integer_preserves_subtype_and_signed_payload() {
+        for n in [-(1i64 << 47), -1, 0, 1, (1i64 << 47) - 1] {
+            let v = Value::inline_integer(n).unwrap();
+            assert_eq!(v.as_inline_integer(), Some(n));
+            assert!(v.is_num() && !v.is_float() && v.truthy());
+            assert_eq!(v.as_num(), n as f64);
+            assert!(v.as_obj().is_none() && v.as_func_in().is_none());
+            assert_ne!(v, Value::num(n as f64));
+        }
+        assert!(Value::inline_integer(-(1i64 << 47) - 1).is_none());
+        assert!(Value::inline_integer(1i64 << 47).is_none());
+        for v in [Value::NIL, Value::FALSE, Value::TRUE, Value::PARKED,
+                  Value::ERROR, Value::func(0), Value::num(f64::NAN),
+                  Value::num(f64::NEG_INFINITY), Value::num(-0.0)] {
+            assert_eq!(v.as_inline_integer(), None);
+        }
     }
 }

@@ -716,6 +716,7 @@ impl Heap {
     }
 
     pub fn integer_key(&self, bits: u64) -> Option<Value> { self.integers.get(&(false, bits)).map(|p| Value::obj(*p)) }
+    pub fn integer_value(&self, value: crate::numeric::Integer) -> Option<Value> { self.integers.get(&(value.unsigned, value.bits)).map(|p| Value::obj(*p)) }
     pub fn integer_lookup(&mut self, value: crate::numeric::Integer) -> Option<Value> {
         let key = (value.unsigned, value.bits);
         let p = *self.integers.get(&key)?;
