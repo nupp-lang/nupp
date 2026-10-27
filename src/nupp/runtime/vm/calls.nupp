@@ -754,7 +754,17 @@ local function returnSlow(pc: voidptr, context: voidptr, kind: int64): uint64
     local copied: int64 = 0
     while copied < count do
         local value: uint64 = values.NIL
-        if native.both(trailing, copied >= fixed + 8) then
+        if kind == 3 then
+            local ownInfo = native.offset(
+                native.loadPointer(context, native.layout("funcs")),
+                native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+            )
+            local ownFloats = native.offset(frame, native.load32(ownInfo, native.layout("FuncInfo.off_f")) * 8)
+            local bits = native.bits(slots.readFloat(frame, ownFloats, from))
+            -- Exactly Value::num: preserve finite/signed-zero/signaling bits;
+            -- quiet NaNs canonicalize so no payload can alias a value tag.
+            value = native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
+        elseif native.both(trailing, copied >= fixed + 8) then
             value = native.load64(extra, (copied - fixed - 1) * 8)
         else
             value = slots.readValue(frame, regs, from + copied)
@@ -769,7 +779,7 @@ local function returnSlow(pc: voidptr, context: voidptr, kind: int64): uint64
     if caller == values.LOW_WORD then
         helpers.resultRoots(context, 0)
         native.store64(context, native.layout("last_nres"), native.word(count))
-        helpers.completeTask(context, first, pack, native.chooseIndex(kind == 0, -1, count))
+        helpers.completeTask(context, first, pack, native.chooseIndex(native.either(kind == 0, kind == 3), -1, count))
         native.store64(context, native.layout("result"), first)
         native.store32(context, native.layout("status"), 4294967294)
         return native.fail()
@@ -778,7 +788,7 @@ local function returnSlow(pc: voidptr, context: voidptr, kind: int64): uint64
     local callerRegs = native.offset(resumed, 32)
     local slot = native.index(link >> 32) - native.index(caller) - 4
     local delivered: int64 = -1
-    if kind == 0 then
+    if native.either(kind == 0, kind == 3) then
         local flags = native.load64(frame, 24)
         if (flags >> 32) & 1 ~= 0 then
             local callerInfo = native.offset(
@@ -858,6 +868,19 @@ export function RetN(
     frame: voidptr
 ): uint64
     return returnSlow(pc, context, 2)
+end
+
+-- A float return shares the scalar transfer policy after boxing its exact
+-- logical float slot under the value encoding's NaN rule.
+export function FRet(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return returnSlow(pc, context, 3)
 end
 
 local function padResultsSlow(pc: voidptr, context: voidptr): uint64

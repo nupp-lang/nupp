@@ -3410,3 +3410,147 @@ entry 0
     restored.run_ready(16).unwrap();
     assert_eq!(restored.get_index(result, closed), Value::num(1.0));
 }
+
+#[test]
+fn native_float_returns_keep_scalar_bits_and_typed_caller_windows() {
+    let patterns = [
+        0,
+        (-0.0f64).to_bits(),
+        3.25f64.to_bits(),
+        f64::INFINITY.to_bits(),
+        0x7ff8_0000_0000_0042,
+        0xfffc_dead_beef_1234,
+        0x7ff0_0000_0000_0001,
+    ];
+    for bits in patterns {
+        for terminal in [false, true] {
+            for indirect in [false, true] {
+                let source = "function caller 0 0 24 8 :v\nRetNil\nend\nfunction callee 1 0 24 8 :f\nFRet 1\nend\nentry 0\n";
+                let mut vm = Box::new(crate::interp::Interp::new());
+                crate::image::load(&mut vm, source).unwrap();
+                vm.prepare_threaded();
+                vm.funcs[0].ins[0] = Ins::default();
+                let tid = vm.spawn(if terminal { 1 } else { 0 }, &[]);
+                vm.tasks[tid].stack.resize(512, 0);
+                let mut ctx = return_context(&mut vm, tid);
+                if !terminal {
+                    unsafe {
+                        push(&mut ctx, ctx.stack, 1, (HDR + 3) as u32, 0, 0, Value::NIL.0);
+                    }
+                    if indirect {
+                        vm.tasks[tid].stack[ctx.cur as usize + 3] |=
+                            (1 << 32) | (vm.funcs[0].off_f() + 4) as u64;
+                    }
+                }
+                let callee = ctx.cur as usize;
+                let at = callee + vm.funcs[1].off_f() + 1;
+                vm.tasks[tid].stack[at] = bits;
+                vm.execution_limit = Some(0);
+                vm.instruction_budget = Some(0);
+                ctx.budget = 0;
+                ctx.budget_mark = 0;
+                let expected = Value::num(f64::from_bits(bits));
+                let before = vm.tasks[tid].stack.clone();
+                let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+                if terminal {
+                    assert_eq!(
+                        exit, 0,
+                        "FRet must complete rather than return an instruction"
+                    );
+                    assert_eq!(ctx.status, ST_DONE);
+                    assert_eq!(vm.tasks[tid].result, expected);
+                    assert!(vm.tasks[tid].results.is_empty());
+                } else {
+                    assert_eq!(
+                        exit, vm.finfo[0].code as u64,
+                        "FRet must reach caller marker"
+                    );
+                    let destination = if indirect {
+                        vm.funcs[0].off_f() + 4
+                    } else {
+                        HDR + 3
+                    };
+                    let mut after = before;
+                    after[destination] = expected.0;
+                    assert_eq!(
+                        vm.tasks[tid].stack, after,
+                        "bits {bits:x}, indirect {indirect}"
+                    );
+                    assert_eq!(ctx.cur, 0);
+                }
+                assert_eq!(ctx.last_nres, 1);
+                assert_eq!(ctx.result, expected.0);
+                assert_eq!(vm.execution_limit, Some(0));
+                assert_eq!(vm.instruction_budget, Some(0));
+            }
+        }
+    }
+}
+
+#[test]
+fn native_float_returns_poll_cleanup_and_keep_error_precedence() {
+    let source = r#"
+function root 0 0 16 4 :f
+FRet 2
+end
+function cleanup 1 1 16 2 v:v
+const 0 str "closed"
+const 1 num 1
+GetField 2 1 0
+K 3 1
+Add 2 2 3
+SetField 1 0 2
+RetNil
+end
+function failure 2 1 8 2 v:v
+const 0 builtin error
+const 1 str "float cleanup failed"
+K 2 0
+K 4 1
+CallDyn 2 3 1
+RetNil
+end
+entry 0
+"#;
+    for fails in [false, true] {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, source).unwrap();
+        vm.install_globals();
+        vm.prepare_threaded();
+        vm.threaded = true;
+        let object = vm.new_table();
+        vm.registered.push(object);
+        let closed = vm.intern("closed");
+        vm.set_index(object, closed, Value::num(0.0));
+        let tid = vm.spawn(0, &[]);
+        let at = vm.funcs[0].off_f() + 2;
+        vm.tasks[tid].stack[at] = (-0.0f64).to_bits();
+        vm.tasks[tid].cleanups.push(crate::interp::Cleanup {
+            frame: 0,
+            value: object,
+            callback: Value::func(if fails { 2 } else { 1 }),
+        });
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.last_nres = 13;
+        let mut ctx = return_context(&mut vm, tid);
+        let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+        assert_eq!(exit, 0);
+        assert!(vm.tasks[tid].cleanups.is_empty());
+        if fails {
+            assert_eq!(ctx.status, ST_ERROR);
+            assert_eq!(ctx.last_nres, 13);
+            assert!(matches!(
+                vm.tasks[tid].state,
+                crate::interp::State::Runnable
+            ));
+            let error = vm.pending_error.take().unwrap();
+            assert_eq!(vm.bytes_of(error), b"float cleanup failed");
+        } else {
+            assert_eq!(ctx.status, ST_DONE);
+            assert_eq!(ctx.last_nres, 1);
+            assert_eq!(vm.tasks[tid].result.0, (-0.0f64).to_bits());
+            assert_eq!(vm.get_index(object, closed), Value::num(1.0));
+        }
+    }
+}

@@ -101,6 +101,7 @@ codes! {
     Disarm, AffineMark, AffineEnter, Park, Checkpoint, VarargTable,
     BytesLen, LoadU8, LoadU8K, LoadU32W, StoreU8, StoreU32, NewBytes, BytesToStr,
     NewBuffer, BufAppend, BufAppendSub, Substring, BufFinish,
+    FRet,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -190,6 +191,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::CallK(fid, fr, base, nargs, nres) => Ins { imm: nres as i32, k: fid as i64, ..i(Code::CallK, fr, base, nargs) },
         Op::CallDyn(fr, base, nargs) => i(Code::CallDyn, fr, base, nargs),
         Op::Ret(s) => i(Code::Ret, s, 0, 0),
+        Op::FRet(s) => i(Code::FRet, s, 0, 0),
         Op::RetNil => i(Code::RetNil, 0, 0, 0),
         Op::RetN(start, n) => i(Code::RetN, start, n, 0),
         Op::GetField(d, t, k) => Ins { imm: k as i32, ..i(Code::GetField, d, t, 0) },
