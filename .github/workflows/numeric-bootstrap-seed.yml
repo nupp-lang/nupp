@@ -1,4 +1,4 @@
-name: Numeric bootstrap execution seeds
+name: Native bootstrap cold acceptance
 
 on:
   workflow_dispatch:
@@ -8,14 +8,9 @@ on:
         type: choice
         options: [all, windows, linux]
         default: all
-      seed_run:
-        description: Reuse manufactured numeric seeds from this workflow run
-        default: ""
-        required: false
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   seed:
@@ -33,12 +28,6 @@ jobs:
       NUPP_VM_AUTO_REBUILD: "0"
     steps:
       - uses: actions/checkout@v5
-      # Keep the factory's exact source outside the consumer's source walk.
-      - uses: actions/checkout@v5
-        if: inputs.seed_run == ''
-        with:
-          ref: 4e6e9d449519f799e122526cacf505fd1f016b0a
-          path: .seed-source
       - name: Select Windows GNU tools
         if: runner.os == 'Windows'
         run: |
@@ -50,23 +39,11 @@ jobs:
           echo "CONFIG_SHELL=$(cygpath -m -s /usr/bin/sh.exe)" >> "$GITHUB_ENV"
           echo "CC=gcc" >> "$GITHUB_ENV"
           echo "CXX=g++" >> "$GITHUB_ENV"
-      - name: Retrieve the manufactured immutable pair
-        if: inputs.seed_run != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SEED_RUN: ${{ inputs.seed_run }}
-        run: gh run download "$SEED_RUN" -n "numeric-bootstrap-seed-$SEED_HOST" -D prior-seed
-      - name: Manufacture the matching seed and prove a cold consuming build
-        if: inputs.seed_run == ''
-        run: python3 .github/scripts/numeric-bootstrap-seed.py
-      - name: Prove the current cold consumer with the manufactured seed
-        if: inputs.seed_run != ''
-        env:
-          SEED_RUN: ${{ inputs.seed_run }}
-        run: python3 .github/scripts/numeric-bootstrap-seed.py --reuse-seed prior-seed
+      - name: Prove a cold build from the published execution seed
+        run: python3 .github/scripts/native-bootstrap-cold.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: numeric-bootstrap-seed-${{ matrix.host }}
-          path: release/
+          name: native-bootstrap-cold-${{ matrix.host }}
+          path: build/native-bootstrap-cold/
           if-no-files-found: error
