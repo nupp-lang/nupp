@@ -308,3 +308,15 @@ fn numeric_subtypes_unsigned_semantics_are_selected_by_the_operation() {
     assert_eq!(call(&mut vm, "wide.u64.float", &[value]), vec![Value::num(18446744073709551616.0)]);
     assert_eq!(numeric::double(&vm, value), -1.0);
 }
+
+#[cfg(feature = "compiled-runtime")]
+#[test]
+fn numeric_subtypes_compiled_number_check_accepts_boxed_wide_integer() {
+    let mut vm = Box::new(Interp::new());
+    let value = numeric::signed(&mut vm, 9007199254740993);
+    vm.register(value);
+    nupp_vm::compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(nupp_vm::compiled::j_numeric(value.0, 2), value.0);
+    assert!(vm.pending_error.is_none());
+    nupp_vm::compiled::CTX.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Relaxed);
+}

@@ -200,7 +200,7 @@ impl Interp {
             if pending != Value::NIL {
                 let task = TaskId {
                     index: pending.as_num() as usize,
-                    generation: field(self, state, "generation").as_num() as u64,
+                    generation: crate::numeric::integer(field(self, state, "generation")).expect("cleanup task generation").bits,
                 };
                 let status = self
                     .scheduler
@@ -287,13 +287,8 @@ impl Interp {
                     .schedule_inner(c.callback, &[c.value], None)
                     .unwrap_or_else(|e| self.err(&e));
                 self.tasks[tid].cleanups.pop();
-                put(self, state, "pending", Value::num(task.index as f64));
-                put(
-                    self,
-                    state,
-                    "generation",
-                    Value::num(task.generation as f64),
-                );
+                crate::task_api::put_integer(self, state, "pending", task.index as u64);
+                crate::task_api::put_integer(self, state, "generation", task.generation);
             }
         }
         let extra = field(self, state, "extra");
@@ -458,5 +453,36 @@ impl Interp {
         put(self, meta, "drop", Value::NIL);
         self.release(root);
         body
+    }
+}
+
+#[cfg(test)]
+mod numeric_generation_tests {
+    use super::*;
+
+    #[test]
+    fn suspended_cleanup_recovers_exact_high_generation_after_snapshot() {
+        let mut vm = Interp::new();
+        crate::image::load(&mut vm, "function done 0 0 2 1 :v\nRetNil\nend\nentry 0\n").unwrap();
+        vm.install_globals();
+        vm.enable_scheduler().unwrap();
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        vm.scheduler.as_mut().unwrap().next_generation = (1u64 << 63) + 17;
+        let parent = vm.schedule(Value::func(0), &[], None).unwrap();
+        let child = vm.schedule(Value::func(0), &[], None).unwrap();
+        vm.begin_unwind(parent.index, 0, 0, "normal", Value::NIL, None);
+        let state = vm.unwind_state(parent.index);
+        crate::task_api::put_integer(&mut vm, state, "pending", child.index as u64);
+        crate::task_api::put_integer(&mut vm, state, "generation", child.generation);
+        let saved = crate::persist::save_vm(&mut vm, &crate::persist::Policies::default(), &mut crate::persist::ResourceCodecs::default()).unwrap();
+        let mut vm = crate::persist::load_vm(&saved, &crate::persist::Policies::default(), &mut crate::persist::ResourceCodecs::default()).unwrap();
+        assert!(vm.drive_cleanups(parent.index).is_some());
+        vm.finish_scheduled(child.index, Status::Completed);
+        assert!(vm.drive_cleanups(parent.index).is_none());
+        assert!(vm.scheduler.as_ref().unwrap().status(child).is_none());
+        vm.full_cycle();
+        vm.check_oracle();
     }
 }

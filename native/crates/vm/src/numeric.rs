@@ -26,7 +26,7 @@ pub fn signed(vm: &mut Interp, value: i64) -> Value {
     vm.box_integer(Integer { bits: value as u64, unsigned: false })
 }
 pub fn unsigned(vm: &mut Interp, value: u64) -> Value {
-    vm.box_integer(Integer { bits: value, unsigned: value > i64::MAX as u64 })
+    vm.box_integer(Integer { bits: value, unsigned: false })
 }
 pub fn integer(v: Value) -> Option<Integer> {
     if let Some(n) = v.as_inline_integer() {

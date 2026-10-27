@@ -729,27 +729,31 @@ impl Drop for Worker {
 
 use crate::task_api::{field, put};
 impl Interp {
+    fn worker_record(&self, table: Value, generation: u64) -> Value {
+        Value::inline_integer(generation as i64)
+            .or_else(|| self.heap.integer_key(generation))
+            .map_or(Value::NIL, |key| self.get_index(table, key))
+    }
+    fn set_worker_record(&mut self, table: Value, generation: u64, record: Value) {
+        let key = crate::numeric::signed(self, generation as i64);
+        self.set_index(table, key, record);
+    }
     // This host origin belongs to the VM graph, not an OS thread. It survives
     // worker checkpoints while generic supervised VMs remain unrestricted.
     fn mark_structured_worker(&mut self, task: TaskId) {
         let marker = self.new_table();
         self.registered.push(marker);
         self.loaded.insert(STRUCTURED_WORKER.into(), marker);
-        put(self, marker, "task", Value::num(task.index as f64));
-        put(
-            self,
-            marker,
-            "generation",
-            Value::num(task.generation as f64),
-        );
+        crate::task_api::put_integer(self, marker, "task", task.index as u64);
+        crate::task_api::put_integer(self, marker, "generation", task.generation);
     }
     pub(crate) fn is_structured_worker(&self) -> bool {
         self.loaded.contains_key(STRUCTURED_WORKER)
     }
     fn structured_worker_root(&mut self, task: TaskId) -> Option<Value> {
         let marker = *self.loaded.get(STRUCTURED_WORKER)?;
-        (field(self, marker, "task") == Value::num(task.index as f64)
-            && field(self, marker, "generation") == Value::num(task.generation as f64))
+        (crate::numeric::integral(field(self, marker, "task")) == Some(task.index as i128)
+            && crate::numeric::integer(field(self, marker, "generation")).map(|n| n.bits) == Some(task.generation))
         .then_some(marker)
     }
     pub(crate) fn capture_worker_traceback(&mut self, tid: usize) {
@@ -895,19 +899,14 @@ impl Interp {
         let root = self.open_scope();
         let record = self.new_table();
         self.handles.push(record);
-        put(self, record, "task", Value::num(task.index as f64));
+        crate::task_api::put_integer(self, record, "task", task.index as u64);
         put(self, record, "started", Value::FALSE);
-        put(
-            self,
-            record,
-            "generation",
-            Value::num(task.generation as f64),
-        );
+        crate::task_api::put_integer(self, record, "generation", task.generation);
         // The record's snapshot is written when the parent checkpoints
         // (`snapshot_workers`), not here: a snapshot at the fork would copy
         // every argument the crossing just shared or moved.
         let table = self.loaded["nupp.vm.workers"];
-        self.set_index(table, Value::num(task.generation as f64), record);
+        self.set_worker_record(table, task.generation, record);
         self.workers.insert(task.generation, worker);
         self.close_scope(root);
         Ok(task)
@@ -923,7 +922,7 @@ impl Interp {
             .unwrap_or_default();
         ids.into_iter()
             .filter_map(|task| {
-                let record = self.get_index(table, Value::num(task.generation as f64));
+                let record = self.worker_record(table, task.generation);
                 if record == Value::NIL {
                     None
                 } else {
@@ -997,7 +996,7 @@ impl Interp {
     }
     pub(crate) fn worker_started(&self, task: TaskId) -> Option<bool> {
         let table = *self.loaded.get("nupp.vm.workers")?;
-        let record = self.get_index(table, Value::num(task.generation as f64));
+        let record = self.worker_record(table, task.generation);
         if record == Value::NIL {
             return None;
         }
@@ -1020,7 +1019,7 @@ impl Interp {
         }
         self.workers.remove(&task.generation);
         let table = self.loaded["nupp.vm.workers"];
-        self.set_index(table, Value::num(task.generation as f64), Value::NIL);
+        self.set_worker_record(table, task.generation, Value::NIL);
         Some(self.finish_scheduled(task.index, Status::Cancelled))
     }
     pub(crate) fn poll_workers(&mut self) -> Result<Vec<crate::scheduler::Event>> {
@@ -1075,14 +1074,14 @@ impl Interp {
                     traceback.filter(|_| !cancelled && matches!(status, Status::Failed(_)))
                 {
                     let handles = self.loaded["nupp.vm.taskHandles"];
-                    let handle = self.get_index(handles, Value::num(task.generation as f64));
+                    let handle = self.worker_record(handles, task.generation);
                     if handle != Value::NIL {
                         let trace = self.heap_new_string(&trace);
                         put(self, handle, "_workerTraceback", trace);
                     }
                 }
                 let table = self.loaded["nupp.vm.workers"];
-                self.set_index(table, Value::num(task.generation as f64), Value::NIL);
+                self.set_worker_record(table, task.generation, Value::NIL);
                 events.push(self.finish_scheduled(task.index, status));
             } else {
                 self.workers.insert(task.generation, worker);
@@ -1122,7 +1121,7 @@ impl Interp {
         let message = self.intern(&error);
         self.tasks[task.index].error = message;
         let table = self.loaded["nupp.vm.workers"];
-        self.set_index(table, Value::num(task.generation as f64), Value::NIL);
+        self.set_worker_record(table, task.generation, Value::NIL);
         self.finish_scheduled(task.index, Status::Failed(error))
     }
     pub(crate) fn snapshot_workers(&mut self) -> Result<()> {
@@ -1152,6 +1151,30 @@ mod admission_tests {
         vm.install_globals();
         vm.enable_scheduler().unwrap();
         vm
+    }
+    #[test]
+    fn worker_generation_metadata_and_keys_keep_all_bits_through_snapshots() {
+        for generation in [9007199254740993u64, (1u64 << 63) + 17] {
+            let mut vm = fixture(CODE);
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            vm.scheduler.as_mut().unwrap().next_generation = generation;
+            let task = vm.fork_inner(Value::func(0), &[], None).unwrap();
+            assert_eq!(task.generation, generation);
+            assert_eq!(vm.worker_started(task), Some(false));
+            let record = vm.worker_records()[0].1;
+            assert_eq!(crate::numeric::integer(field(&mut vm, record, "generation")).unwrap().bits, generation);
+            vm.full_cycle();
+            vm.check_oracle();
+            let saved = persist::save_vm(&mut vm, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+            let mut restored = persist::load_vm(&saved, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+            assert_eq!(restored.worker_started(task), Some(false));
+            assert_eq!(restored.worker_records()[0].0, task);
+            vm.mark_structured_worker(task);
+            assert!(vm.structured_worker_root(task).is_some());
+            assert!(vm.structured_worker_root(TaskId { generation: generation + 1, ..task }).is_none());
+        }
     }
     #[test]
     fn descendant_code_is_validated_before_native_binding() {
