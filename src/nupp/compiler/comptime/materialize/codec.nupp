@@ -2,6 +2,8 @@ module nupp.compiler.comptime.materialize.codec
 
 -- Deterministic, bounded serialization for materialized semantic recipes.
 
+local numbertext = require("nupp.compiler.numbertext")
+
 local MAX_CANONICAL_BYTES = 1048576
 local MAX_OUTPUT_BYTES = 2097152
 
@@ -32,7 +34,7 @@ canonicalValue = function(value, opts, active): (string?, string?)
     elseif kind == "boolean" then
         scalar = value and "t" or "f"
     elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
-        scalar = "d" .. string.format("%.17g", value)
+        scalar = "d" .. numbertext.key(value)
     elseif kind == "string" then
         scalar = "s" .. #value .. ":" .. value
     elseif kind ~= "table" then
@@ -116,7 +118,7 @@ renderValue = function(value, opts, active): (string?, string?)
     elseif kind == "string" then
         scalar = quoted(value)
     elseif kind == "number" and value == value and value ~= math.huge and value ~= -math.huge then
-        scalar = value == 0 and 1 / value < 0 and "-0.0" or ("%.17g"):format(value)
+        scalar = numbertext.literal(value)
     elseif kind ~= "table" then
         return nil, "invalid"
     end

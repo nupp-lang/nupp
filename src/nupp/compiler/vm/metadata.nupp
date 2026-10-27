@@ -3,6 +3,7 @@ module nupp.compiler.vm.metadata
 -- Expand checked metadata into ordinary syntax understood by the VM emitter.
 -- Recipes and descriptors come from semantic analysis, never generated Lua.
 local metadata = {}
+local numbertext = require("nupp.compiler.numbertext")
 
 -- Declaration keys are spelled independently of the checkout's location.
 local portable = require("nupp.compiler.reflection").portableKey
@@ -60,7 +61,7 @@ local function data(value)
         end) .. '"'
         return node("string", {token = {text = quoted}})
     elseif kind == "number" then
-        return node("number", {token = {text = string.format("%.17g", value)}})
+        return node("number", {token = {text = numbertext.literal(value)}})
     else
         assert(kind == "table", "metadata must be plain data")
     end

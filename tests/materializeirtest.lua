@@ -115,4 +115,60 @@ function M.rejectsAMalformedWorkerEnvelope()
     testAssert.equal(failure.code, "NUPP2415", "worker data is validated before lowering")
 end
 
+function M.canonicalNumbersPreserveSubtypeAndExactBits()
+    local seen = {}
+    for _, text in ipairs({
+        "9007199254740992",
+        "9007199254740993",
+        "9223372036854775806",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "-9223372036854775807",
+        "1",
+        "1.0",
+        "0",
+        "0.0",
+        "-0.0",
+    }) do
+        local value = assert(tonumber(text))
+        local encoded, failure = codec.canonical(value)
+        testAssert.equal(failure, nil, "numeric canonical data is valid")
+        assert(not seen[encoded], text .. " collides with " .. tostring(seen[encoded]))
+        seen[encoded] = text
+        testAssert.equal(codec.canonical(value), encoded, "canonical identity is stable")
+    end
+end
+
+function M.numericRenderersPreserveExactLiterals()
+    local metadata = require("nupp.compiler.vm.metadata")
+    for _, text in ipairs({
+        "9007199254740993",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "-9223372036854775807",
+        "0",
+        "1",
+        "1.0",
+        "0.0",
+        "-0.0",
+    }) do
+        local value = assert(tonumber(text))
+        local data, dataFailure = codec.render(value)
+        local expression, expressionFailure = ir.render({tag = "literal", value = value})
+        testAssert.equal(dataFailure, nil, "numeric data renders")
+        testAssert.equal(expressionFailure, nil, "numeric IR renders")
+        testAssert.equal(data, text, "data preserves numeric literal")
+        testAssert.equal(expression, text, "IR preserves numeric literal")
+        testAssert.equal(metadata.literal(value).token.text, text, "metadata preserves numeric token")
+        for _, rendered in ipairs({data, expression}) do
+            local decoded = assert(loadstring("return " .. rendered))()
+            testAssert.equal(math.type(decoded), math.type(value), "rendering preserves numeric subtype")
+            testAssert.equal(decoded, value, "rendering preserves numeric value")
+            if value == 0 then
+                testAssert.equal(1 / decoded, 1 / value, "rendering preserves zero sign")
+            end
+        end
+    end
+end
+
 return M
