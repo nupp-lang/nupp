@@ -904,3 +904,24 @@ fn dot_reducers_take_a_scalar_on_either_side() {
         }
     }
 }
+
+#[test]
+fn extrema_equal_negative_lanes_match_the_existing_jit() {
+    for kind in [8, 9] {
+        let bytes: Vec<u8> = [-3.5f64, -16.0]
+            .into_iter()
+            .flat_map(|x| {
+                if kind == 8 {
+                    (x as f32).to_ne_bytes().to_vec()
+                } else {
+                    x.to_ne_bytes().to_vec()
+                }
+            })
+            .collect();
+        for name in ["propagatingMin", "propagatingMax", "numberMin", "numberMax"] {
+            // execute checks the machine/JIT result against the scalar loop.
+            let (vm, result) = execute(kind, name, &[bytes.clone(), bytes.clone()], false, 2);
+            assert_eq!(&vm.bytes_of(result)[16..], bytes, "{name}, kind {kind}");
+        }
+    }
+}

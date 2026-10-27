@@ -54,7 +54,7 @@ fn fminmax(a: f64, c: f64, minimum: bool) -> f64 {
     if a.is_nan() || c.is_nan() {
         return f64::NAN;
     }
-    if a == c {
+    if a == c && a == 0.0 {
         let negative = if minimum { a.is_sign_negative() || c.is_sign_negative() } else { a.is_sign_negative() && c.is_sign_negative() };
         return if negative { -0.0 } else if a == 0.0 { 0.0 } else { a };
     }
@@ -446,6 +446,48 @@ mod tests {
         assert_eq!(saturated("saturatingAdd", 1, 0x7f, 1), 0x7f);
         assert_eq!(saturated("saturatingSub", 1, 0x80, 1), 0x80);
         assert_eq!(saturated("saturatingAdd", 7, i64::MAX as u64, 1), i64::MAX as u64);
+    }
+    #[test]
+    fn equal_negative_extrema_keep_the_operand_in_both_float_widths() {
+        for kind in [8, 9] {
+            let value = bits_of(-3.5, kind);
+            for op in ["propagatingMin", "propagatingMax", "numberMin", "numberMax"] {
+                assert_eq!(extremum(op, kind, value, value), value, "{op}, kind {kind}");
+            }
+            for a in [0.0f64, -0.0] {
+                for b in [0.0f64, -0.0] {
+                    let x = bits_of(a, kind);
+                    let y = bits_of(b, kind);
+                    assert_eq!(
+                        extremum("propagatingMin", kind, x, y),
+                        bits_of(
+                            if a.is_sign_negative() || b.is_sign_negative() {
+                                -0.0
+                            } else {
+                                0.0
+                            },
+                            kind
+                        )
+                    );
+                    assert_eq!(
+                        extremum("propagatingMax", kind, x, y),
+                        bits_of(
+                            if a.is_sign_negative() && b.is_sign_negative() {
+                                -0.0
+                            } else {
+                                0.0
+                            },
+                            kind
+                        )
+                    );
+                }
+            }
+            let nan = bits_of(f64::NAN, kind);
+            for (a, b) in [(nan, value), (value, nan)] {
+                assert!(f_of(extremum("propagatingMin", kind, a, b), kind).is_nan());
+                assert_eq!(extremum("numberMin", kind, a, b), value);
+            }
+        }
     }
     #[test]
     fn extrema_keep_cranelift_zero_and_nan_rules() {
