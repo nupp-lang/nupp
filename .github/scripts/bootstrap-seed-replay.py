@@ -48,7 +48,8 @@ env = dict(os.environ, NO_JIT="1", NO_AOT="1", SIMD_INTERPRET="1",
            NUPP_VM_EMIT_CACHE="", NUPP_COMPILER_ROOT=str(SOURCE), NUPP_VM_BINARY=str(runtime))
 env.pop("NO_THREADED", None)
 record = {"source": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True).strip(),
-          "seedSource": pin["sourceRevision"], "runtimeSha256": sha(runtime),
+          "seedSource": json.loads((package / "manifest.json").read_text())["sourceRevision"],
+          "runtimeSha256": sha(runtime),
           "originalImageSha256": sha(original), "host": host, "variants": {}}
 layouts = OUT / "layouts.json"
 record["layouts"] = invoke([runtime, "native", "layouts", layouts], env, OUT / "layouts")
