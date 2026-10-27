@@ -225,6 +225,17 @@ function M.openScalarTypeCallsCloseAfterConstInference()
     )
 end
 
+function M.scalarTypeFunctionsKeepIntegerConstDomainsDistinctFromFractions()
+    local declaration = [[
+@comptime local function Literal(value: integer): type
+    return nupp.types.literal(value)
+end
+]]
+    clean(declaration .. "local value: Literal(1) = 1\nreturn value")
+    testAssert.equal(codes(declaration .. "local value: Literal(1.5) = 1\nreturn value"):match("NUPP2421"), "NUPP2421")
+    testAssert.equal(codes(declaration .. "local value: Literal('1') = 1\nreturn value"):match("NUPP2421"), "NUPP2421")
+end
+
 function M.comptimeTypeFunctionsPreserveExistingNominalIdentity()
     clean(
         table.concat(
@@ -2144,12 +2155,12 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
             {
                 'local array = require("nupp.mem.array")',
                 'local simd = require("nupp.simd")',
-                "local species = assert(simd.species(array.float))",
-                "local fixed = assert(simd.species(array.float, 8))",
-                "local left: simd.Vector<float, simd.Preferred> = nil as any",
-                "local right: simd.Vector<float, simd.Preferred> = nil as any",
-                "local selected: simd.Mask<float, simd.Preferred> = (left < right) & (left <= right)",
-                "local positive: simd.Mask<float, simd.Preferred> = left > 0.0",
+                "local species = assert(simd.species(array.float32))",
+                "local fixed = assert(simd.species(array.float32, 8))",
+                "local left: simd.Vector<float32, simd.Preferred> = nil as any",
+                "local right: simd.Vector<float32, simd.Preferred> = nil as any",
+                "local selected: simd.Mask<float32, simd.Preferred> = (left < right) & (left <= right)",
+                "local positive: simd.Mask<float32, simd.Preferred> = left > 0.0",
                 "return species, fixed, selected, positive",
             },
             "\n"
@@ -2160,7 +2171,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
             table.concat(
                 {
                     'local simd = require("nupp.simd")',
-                    "local function wrong(value: simd.Vector<number, simd.Fixed<4>>): simd.Vector<number, simd.Fixed<8>>",
+                    "local function wrong(value: simd.Vector<float64, simd.Fixed<4>>): simd.Vector<float64, simd.Fixed<8>>",
                     "   return value",
                     "end",
                     "return wrong",
@@ -2175,8 +2186,8 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
             table.concat(
                 {
                     'local simd = require("nupp.simd")',
-                    "local left: simd.Vector<float, simd.Preferred> = nil as any",
-                    "local right: simd.Vector<float, simd.Preferred> = nil as any",
+                    "local left: simd.Vector<float32, simd.Preferred> = nil as any",
+                    "local right: simd.Vector<float32, simd.Preferred> = nil as any",
                     "return left & right",
                 },
                 "\n"
@@ -2240,8 +2251,8 @@ function M.simdHorizontalContractsPreserveTheirNestedIntrinsicIdentity()
                 'local simd = require("nupp.simd")',
                 "local horizontal = simd.horizontal",
                 "local ordered = horizontal.orderedSum",
-                "local value: simd.Vector<float, simd.Fixed<8>> = nil as any",
-                "local result: float = ordered(value)",
+                "local value: simd.Vector<float32, simd.Fixed<8>> = nil as any",
+                "local result: float32 = ordered(value)",
                 "return result",
             },
             "\n"
@@ -2328,7 +2339,7 @@ function M.everyFloatingReducerNamesItsType()
         "AlgebraicDot",
     }) do
         local constructor = name:sub(1, 1):lower() .. name:sub(2)
-        lines[#lines + 1] = ("local %s: simd.%s<number> = simd.reducer.%s(0.0)"):format(constructor, name, constructor)
+        lines[#lines + 1] = ("local %s: simd.%s<float64> = simd.reducer.%s(0.0)"):format(constructor, name, constructor)
     end
     lines[#lines + 1] = "return orderedSum, algebraicDot"
     clean(table.concat(lines, "\n"))
@@ -2403,7 +2414,7 @@ return simd.reducer.wrappingSum<uint32>(array.int32, 0)
             [[
 local array = require("nupp.mem.array")
 local simd = require("nupp.simd")
-return simd.reducer.xorBits(array.float, 0)
+return simd.reducer.xorBits(array.float32, 0)
 ]]
         )
             :match("NUPP%d+"),
@@ -2415,8 +2426,8 @@ end
 function M.theOrderedPrefixSumNamesItsPolicyFirst()
     local source = [[
 local simd = require("nupp.simd")
-local value: simd.Vector<float, simd.Fixed<4>> = nil as any
-local prefix: simd.Vector<float, simd.Fixed<4>> = value:NAME()
+local value: simd.Vector<float32, simd.Fixed<4>> = nil as any
+local prefix: simd.Vector<float32, simd.Fixed<4>> = value:NAME()
 return prefix
 ]]
     clean((source:gsub("NAME", "orderedPrefixSum")))
@@ -2432,7 +2443,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 "local function total(): number",
                 "   local sum = simd.reducer.orderedSum(0.0)",
                 "   for i = 1, 4 do",
-                "      sum:add(i)",
+                "      sum:add(i * 1.0)",
                 "   end",
                 "   return sum:value()",
                 "end",
@@ -2451,7 +2462,7 @@ function M.reducerLifecyclesAreCheckedWithoutTargetLowering()
                 "   local sum = simd.reducer.orderedSum(0.0)",
                 "   local copy = sum",
                 "   for i = 1, 4 do",
-                "      copy:add(i)",
+                "      copy:add(i * 1.0)",
                 "   end",
                 "   return copy:value()",
                 "end",

@@ -424,7 +424,7 @@ function M.absentOptionalMemberNeedsAClosedSource()
                 "    id: integer",
                 "end",
                 "local struct Point",
-                "    x: number",
+                "    x: float64",
                 "end",
                 "local function show(v: {@readonly name: string?}): nil",
                 "    if v.name then print(v.name:upper()) end",

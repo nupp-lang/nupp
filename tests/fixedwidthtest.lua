@@ -440,7 +440,7 @@ uint32_t oracle_fma(uint32_t a, uint32_t b, uint32_t c) {
     local oracle = run(
         table.concat(
             {
-                "cdef function oracle_round(a: number): uint32" .. from,
+                "cdef function oracle_round(a: float64): uint32" .. from,
                 "cdef function oracle_add(a: uint32, b: uint32): uint32" .. from,
                 "cdef function oracle_sub(a: uint32, b: uint32): uint32" .. from,
                 "cdef function oracle_mul(a: uint32, b: uint32): uint32" .. from,
@@ -745,23 +745,22 @@ function M.unsignedWideBitCountsAndPrefixParityCoverEveryBit()
     assert(u64.prefixXor(1ULL) == 18446744073709551615ULL, "prefix parity of 1")
 end
 
-function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
-    -- int64 and uint64 are cdata boxes: a Lua number is not one and one is not a
-    -- Lua number, so neither side converts silently and the signs do not mix
-    testAssert.equal(errorCodes("local n: number = 1LL"), "NUPP2001")
-    testAssert.equal(errorCodes("local i: integer = 1LL"), "NUPP2001")
+function M.canonicalSignedIntegersWidenWithoutLosingUnsignedContracts()
+    -- Signed integers are the canonical integer subtype of number. Unsigned
+    -- annotations retain their separate static arithmetic and range contract.
+    testAssert.equal(errorCodes("local n: number = 1LL"), "")
+    testAssert.equal(errorCodes("local i: integer = 1LL"), "")
     testAssert.equal(errorCodes("local x: int64 = 1.5"), "NUPP2001")
-    -- An integral literal a double spells exactly is the box's own value, which is
-    -- what the native path reads it as; a fraction, an out-of-range value, and a
-    -- negative into the unsigned box are not.
+    -- Integer tokens retain all signed64 bits. Floats and negative unsigned
+    -- initializers still require an explicit conversion.
     testAssert.equal(errorCodes("local x: int64 = 1"), "")
     testAssert.equal(errorCodes("local x: int64 = 4294967296"), "")
     testAssert.equal(errorCodes("local x: uint64 = 1"), "")
     testAssert.equal(errorCodes("local x: uint64 = -1"), "NUPP2001")
-    testAssert.equal(errorCodes("local x: int64 = 9007199254740994"), "NUPP2001")
+    testAssert.equal(errorCodes("local x: int64 = 9007199254740994"), "")
     testAssert.equal(errorCodes("local x: uint64 = -1LL"), "NUPP2001")
     testAssert.equal(errorCodes("local x: int64 = 1ULL"), "NUPP2001")
-    testAssert.equal(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "NUPP2001")
+    testAssert.equal(errorCodes("local w: int32 = 1\nlocal x: int64 = w"), "")
     testAssert.equal(errorCodes("local n: number = 1\nlocal x: int64 = n"), "NUPP2001")
     testAssert.equal(
         errorCodes(
@@ -778,8 +777,8 @@ function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
         ),
         ""
     )
-    -- LuaJIT's operators take a box beside a Lua number or the other box, and the
-    -- result is the wider box; a numeric for does not take one
+    -- Signed arithmetic retains integer results; mixed unsigned operands select
+    -- the explicit unsigned family.
     testAssert.equal(
         errorCodes(
             table.concat(
@@ -798,9 +797,9 @@ function M.boxedSixtyFourBitTypesStandApartFromLuaNumbers()
         ""
     )
     testAssert.equal(errorCodes("local a: int64 = 1LL + 1ULL"), "NUPP2001")
-    -- a numeric for counts in the box its bounds are
+    -- A numeric loop with integer initial value and step keeps an integer counter.
     testAssert.equal(errorCodes("for i = 1LL, 3LL do end"), "")
-    -- a physical slot converts on the store and loads the box back
+    -- A physical slot converts on the store and loads the declared width back.
     testAssert.equal(
         errorCodes(
             table.concat(
@@ -1038,19 +1037,19 @@ return value
     )
 end
 
-function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
+function M.sixtyFourBitIntegersCountLoopsAssignCompoundlyAndRecurse()
     -- Signed counters accept numeric bounds; unsigned counters stay explicit.
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do end"), "")
     testAssert.equal(errorCodes("local n: uint64 = 3\nfor i = 1ULL, n, 1 do end"), "")
     testAssert.equal(errorCodes("local n: int64 = 3\nlocal m: number = 2\nfor i = m, n do end"), "")
     testAssert.equal(errorCodes("local n: int64 = 3\nlocal u: uint64 = 1\nfor i = u, n do end"), "NUPP2001")
     testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: int64 = i end"), "")
-    testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: number = i end"), "NUPP2001")
-    -- A compound assignment on a box is the box's operator and a store.
+    testAssert.equal(errorCodes("local n: int64 = 3\nfor i = 1, n do local j: number = i end"), "")
+    -- A compound assignment uses its declared arithmetic family and stores the result.
     testAssert.equal(errorCodes("local x: int64 = 1\nx += 10\nx *= 2"), "")
     testAssert.equal(errorCodes("local x: uint64 = 1\nx <<= 3\nx += 1ULL"), "")
-    -- A number beside a box converts to the box, as it does under the operators.
-    testAssert.equal(errorCodes("local x: int64 = 1\nlocal n: number = 2\nx += n"), "")
+    -- A generic numeric operand remains generic; it cannot narrow into integer.
+    testAssert.equal(errorCodes("local x: int64 = 1\nlocal n: number = 2\nx += n"), "NUPP2001")
     -- A recursive local function's result is its declared result.
     testAssert.equal(
         errorCodes(
@@ -1067,7 +1066,7 @@ function M.sixtyFourBitBoxesCountLoopsAssignCompoundlyAndRecurse()
         ),
         ""
     )
-    -- And the VM counts, stores and recurses in the box.
+    -- The VM counts, stores, and recurses without losing integer bits.
     local total, fib, descending, product = run(
         table.concat(
             {
@@ -1114,7 +1113,10 @@ for i = 1LL, 3LL, 1LL do end
         ""
     )
     testAssert.equal(errorCodes("local stop: number = 3\nfor i = 1ULL, stop do end"), "NUPP2001")
-    testAssert.equal(errorCodes("for i = 1LL, 3LL do i = 2LL end"), "NUPP2008")
+    -- Numeric mode does not change the existing loop-binding policy.
+    testAssert.equal(errorCodes("for i = 1LL, 3LL do i = 2LL end"), "")
+    testAssert.equal(errorCodes("for _ = 1LL, 3LL do for _, value in ipairs({1}) do end end"), "")
+    testAssert.equal(errorCodes("for i = 1LL, 3LL do local i = 2LL end"), "")
 end
 
 function M.unsignedFormattingKeepsStaticMagnitudeAndRespectsCalleeBindings()

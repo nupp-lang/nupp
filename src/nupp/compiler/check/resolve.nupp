@@ -1091,7 +1091,8 @@ function resolve.install(c: state.Checker): nil
                         and (reduced.tag == "constLiteral" or reduced.tag == "constVar")
                         and reduced.domain
                         or nil
-                    if constFailure or not reduced or domain ~= expected.tag then
+                    local expectedDomain = expected == T.integer and "integer" or expected.tag
+                    if constFailure or not reduced or domain ~= expectedDomain then
                         c.diag(
                             "NUPP2421",
                             argumentNode,
