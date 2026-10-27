@@ -32,7 +32,7 @@ const TRUE: i64 = (0x7ff8_0000_0000_0000u64 | (3 << 48)) as i64;
 const FALSE: i64 = (0x7ff8_0000_0000_0000u64 | (2 << 48)) as i64;
 const ERROR: i64 = (0x7ff8_0000_0000_0000u64 | (6 << 48) | 1) as i64;
 /// What a stub answers when the runtime must decide: never a value.
-const MISS: i64 = (0x7ff8_0000_0000_0000u64 | (7 << 48)) as i64;
+const MISS: i64 = (0x7ff8_0000_0000_0000u64 | (6 << 48) | 2) as i64;
 
 /// The shared stubs: sequences every site would otherwise carry inline,
 /// compiled once. Compile time of the sites was the cost of inlining them.
@@ -1674,6 +1674,12 @@ impl<M: Module> Compiler<M> {
                         b.switch_to_block(immediate); b.seal_block(immediate);
                         let fv = b.ins().bitcast(types::F64, cast, v); let i = if unsigned { b.ins().fcvt_to_uint_sat(types::I64, fv) } else { b.ins().fcvt_to_sint_sat(types::I64, fv) }; b.ins().jump(join, &[i.into()]);
                         b.switch_to_block(boxed); b.seal_block(boxed);
+                        let tag = b.ins().band_imm(v, !PAYLOAD); let inline = b.ins().icmp_imm(IntCC::Equal, tag, QNAN | crate::value::T_INTEGER as i64);
+                        let immediate_integer = b.create_block(); let heap_integer = b.create_block();
+                        b.ins().brif(inline, immediate_integer, &[], heap_integer, &[]);
+                        b.switch_to_block(immediate_integer); b.seal_block(immediate_integer);
+                        let shifted = b.ins().ishl_imm(v, 16); let i = b.ins().sshr_imm(shifted, 16); b.ins().jump(join, &[i.into()]);
+                        b.switch_to_block(heap_integer); b.seal_block(heap_integer);
                         let obj = b.ins().band_imm(v, PAYLOAD); let i = b.ins().load(types::I64, flags, obj, OFF_AUX_LEN); b.ins().jump(join, &[i.into()]);
                         b.switch_to_block(join); b.seal_block(join); seti!(d, b.block_params(join)[0]);
                     }
@@ -1877,7 +1883,7 @@ impl<M: Module> Compiler<M> {
                         let i0 = b.ins().iadd_imm(idx, -1); let inr = b.ins().icmp(IntCC::UnsignedLessThan, i0, len);
                         b.ins().brif(inr, inb, &[], outb, &[]);
                         b.switch_to_block(inb); b.seal_block(inb);
-                        let a = b.ins().iadd(ptr, i0); let byte = b.ins().uload8(types::I64, flags, a, 0); let fl = b.ins().fcvt_from_uint(types::F64, byte); let bits = b.ins().bitcast(types::I64, cast, fl);
+                        let a = b.ins().iadd(ptr, i0); let byte = b.ins().uload8(types::I64, flags, a, 0); let bits = b.ins().bor_imm(byte, QNAN | crate::value::T_INTEGER as i64);
                         b.ins().jump(join, &[bits.into()]);
                         b.switch_to_block(outb); b.seal_block(outb);
                         // Preserve the hot positive byte load; only relative
@@ -2164,16 +2170,13 @@ impl<M: Module> Compiler<M> {
                         let magnitude = b.ins().band_imm(magnitude, i64::MAX);
                         let zeros = b.ins().icmp_imm(IntCC::Equal, magnitude, 0);
                         let same = b.ins().bor(same, zeros);
-                        let objs = b.create_block(); let slow = b.create_block(); let join = b.create_block();
+                        let slow = b.create_block(); let join = b.create_block();
                         b.append_block_param(join, types::I8);
                         b.set_cold_block(slow);
-                        let one = b.ins().iconst(types::I8, 1); let zero = b.ins().iconst(types::I8, 0);
-                        b.ins().brif(same, join, &[one.into()], objs, &[]);
-                        b.switch_to_block(objs); b.seal_block(objs);
-                        let tp = b.ins().band_imm(p, !PAYLOAD); let po = b.ins().icmp_imm(IntCC::Equal, tp, QNAN | T_OBJ_TAG);
-                        let tq = b.ins().band_imm(q, !PAYLOAD); let qo = b.ins().icmp_imm(IntCC::Equal, tq, QNAN | T_OBJ_TAG);
-                        let both = b.ins().band(po, qo);
-                        b.ins().brif(both, slow, &[], join, &[zero.into()]);
+                        let one = b.ins().iconst(types::I8, 1);
+                        // Unequal words can still denote equal integer/float values.
+                        // The shared equality service owns numeric and object policy.
+                        b.ins().brif(same, join, &[one.into()], slow, &[]);
                         b.switch_to_block(slow); b.seal_block(slow);
                         let c = hcall!("j_eq_slow", &[p, q]); let r = b.inst_results(c)[0]; let r8 = b.ins().ireduce(types::I8, r);
                         b.ins().jump(join, &[r8.into()]);

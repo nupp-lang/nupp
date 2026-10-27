@@ -658,7 +658,7 @@ pub extern "C" fn j_numeric(v: u64, op: u64) -> u64 { ctx().guarded(|_| {
     let _hp = enter_helper!(); let it = ctx(); let v = V(v);
     match op {
         0 => V::num(crate::numeric::double(it, v)),
-        1 | 6 => { crate::numeric::bits(it, v, op == 6); v },
+        1 | 6 => { crate::numeric::word(it, v, op == 6); v },
         4 | 5 => crate::numeric::check_kind(it, v, op == 5),
         2 => { if !crate::numeric::is_numeric(v) { it.err("value is not a number"); } v },
         _ => crate::numeric::negate(it, v),

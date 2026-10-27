@@ -35,7 +35,7 @@ fn exact_boundaries_comparison_and_numeric_keys() {
     ];
     for (bits, unsigned) in cases {
         let v = integer(&mut vm, bits, unsigned);
-        assert_eq!(numeric::bits(&vm, v, unsigned), bits);
+        assert_eq!(numeric::word(&vm, v, unsigned), bits);
         assert_eq!(
             vm.kind_of(v) == Some(KIND_INTEGER),
             Integer { bits, unsigned }.immediate().is_none()
@@ -109,11 +109,11 @@ fn wrapping_operations_and_graph_roundtrip() {
     let signed_max = integer(&mut vm, i64::MAX as u64, false);
     assert_eq!(
         call(&mut vm, "wide.u64.add", &[max, Value::num(1.0)]),
-        Value::num(0.0)
+        Value::inline_integer(0).unwrap()
     );
     assert_eq!(
         call(&mut vm, "wide.i64.add", &[signed_max, Value::num(1.0)]),
-        Value::num(i64::MIN as f64)
+        integer(&mut vm, i64::MIN as u64, false)
     );
     assert_eq!(
         call(
@@ -121,7 +121,7 @@ fn wrapping_operations_and_graph_roundtrip() {
             "wide.i64.idiv",
             &[Value::num(-7.0), Value::num(3.0)]
         ),
-        Value::num(-3.0)
+        Value::inline_integer(-3).unwrap()
     );
     assert_eq!(
         call(
@@ -129,19 +129,19 @@ fn wrapping_operations_and_graph_roundtrip() {
             "wide.i64.mod",
             &[Value::num(-7.0), Value::num(3.0)]
         ),
-        Value::num(-1.0)
+        Value::inline_integer(2).unwrap()
     );
     assert_eq!(
         call(&mut vm, "scalar.u64.popcount", &[max]),
-        Value::num(64.0)
+        Value::inline_integer(64).unwrap()
     );
     assert_eq!(
         call(&mut vm, "scalar.u64.leadingZeros", &[max]),
-        Value::num(0.0)
+        Value::inline_integer(0).unwrap()
     );
     assert_eq!(
         call(&mut vm, "scalar.u64.trailingZeros", &[Value::num(0.0)]),
-        Value::num(64.0)
+        Value::inline_integer(64).unwrap()
     );
     let table = vm.new_table();
     vm.register(table);
@@ -165,7 +165,7 @@ fn wrapping_operations_and_graph_roundtrip() {
         numeric::integer(roots[1]),
         Some(Integer {
             bits: u64::MAX,
-            unsigned: true
+            unsigned: false
         })
     );
     assert_eq!(
@@ -185,7 +185,7 @@ const PROGRAM: &str = r#"
 function main 0 0 30 5 :v
 const 0 int64 9007199254740993
 const 1 uint64 18446744073709551615
-const 2 num 2
+const 2 int64 2
 const 3 builtin tostring
 K 1 0
 K 2 1
@@ -210,11 +210,13 @@ entry 0
 "#;
 
 fn check_program(vm: &mut Interp, entry: u32) {
-    let result = vm.call_value(Value::func(entry), &[]);
+    let result = vm
+        .call_direct(Value::func(entry), &[])
+        .unwrap_or_else(|| vm.call_value(Value::func(entry), &[]));
     assert_eq!(result[0], Value::TRUE);
     assert_eq!(result[3], Value::TRUE);
     assert_eq!(result[6], Value::TRUE);
-    assert_eq!(result[7], Value::num(1.0));
+    assert_eq!(result[7], Value::inline_integer(1).unwrap());
 }
 
 #[test]
@@ -274,8 +276,8 @@ fn weak_interning_does_not_keep_discarded_numbers_alive() {
     vm.heap.quarantine = true;
     vm.heap.oracle = true;
     let value = Integer {
-        bits: u64::MAX,
-        unsigned: true,
+        bits: (1 << 53) + 1,
+        unsigned: false,
     };
     vm.box_integer(value);
     vm.full_cycle();
@@ -406,7 +408,10 @@ entry 0
         if threaded {
             vm.prepare_threaded();
         }
-        assert_eq!(vm.call_value(Value::func(0), &[]), vec![Value::num(106.0)]);
+        assert_eq!(
+            vm.call_value(Value::func(0), &[]),
+            vec![Value::inline_integer(106).unwrap()]
+        );
     }
     let protected = TUPLE
         .replace(
@@ -514,21 +519,16 @@ fn check_unsigned_registers(vm: &mut Interp, scheduled: bool) {
             assert_eq!(vm.tasks[task.index].state, nupp_vm::interp::State::Done);
             vm.tasks[task.index].result
         } else {
-            vm.call_value(Value::func(0), &[input])[0]
+            vm.call_direct(Value::func(0), &[input])
+                .unwrap_or_else(|| vm.call_value(Value::func(0), &[input]))[0]
         };
         vm.register(result);
-        assert_eq!(numeric::bits(vm, result, true), bits);
+        assert_eq!(numeric::word(vm, result, true), bits);
         assert_eq!(
             numeric::integer(result),
-            Integer {
+            Some(Integer {
                 bits,
-                unsigned: true
-            }
-            .immediate()
-            .is_none()
-            .then_some(Integer {
-                bits,
-                unsigned: true
+                unsigned: false
             })
         );
         let table = vm.new_table();
@@ -538,7 +538,7 @@ fn check_unsigned_registers(vm: &mut Interp, scheduled: bool) {
         let bytes = persist::save_graph(vm, &[result, table], &Policies::default()).unwrap();
         let mut restored = Interp::new();
         let roots = persist::load_graph(&mut restored, &bytes, &Policies::default(), None).unwrap();
-        assert_eq!(numeric::bits(&restored, roots[0], true), bits);
+        assert_eq!(numeric::word(&restored, roots[0], true), bits);
         assert_eq!(numeric::integer(roots[0]), numeric::integer(result));
         assert_eq!(restored.get_index(roots[1], roots[0]), Value::TRUE);
     }
@@ -554,6 +554,18 @@ fn check_unsigned_registers(vm: &mut Interp, scheduled: bool) {
     ] {
         #[cfg(feature = "compiled-runtime")]
         nupp_vm::compiled::CTX.store(vm, std::sync::atomic::Ordering::Relaxed);
+        if vm.entries.first().copied().unwrap_or(0) != 0 {
+            let result = vm.guarded(|vm| {
+                vm.call_direct(Value::func(0), &[invalid]).unwrap();
+                Value::TRUE
+            });
+            assert_eq!(
+                result,
+                Value::ERROR,
+                "compiled unsigned register accepted {invalid:?}"
+            );
+            assert!(vm.pending_error.take().is_some());
+        }
         let result = vm.call_value(
             Value::builtin(builtins::id_of("pcall").unwrap()),
             &[Value::func(0), invalid],
@@ -644,8 +656,66 @@ fn unsigned_register_survives_parked_checkpoint() {
                 numeric::integer(value),
                 Some(Integer {
                     bits: u64::MAX,
-                    unsigned: true
+                    unsigned: false
                 })
+            );
+        }
+    }
+}
+
+#[cfg(feature = "jit")]
+#[test]
+fn compiled_numeric_boundaries_keep_float_coercion_and_cross_subtype_equality() {
+    use nupp_vm::{compiled, jit::Jit};
+    let mut vm = Box::new(Interp::new());
+    image::load(&mut vm, "function mixed 0 2 8 1 vv:v\nAdd 3 1 2\nSub 4 3 2\nRetN 3 2\nend\nfunction equal 1 2 8 1 vv:v\nEq 3 1 2\nNe 4 1 2\nRetN 3 2\nend\nentry 0\n").unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    let mut jit = Jit::new();
+    jit.extra_addr = vm.extra.as_ptr() as i64;
+    jit.last_nres_addr = &vm.last_nres as *const _ as i64;
+    compiled::CTX.store(&mut *vm, std::sync::atomic::Ordering::Relaxed);
+    let exact = integer(&mut vm, (1 << 53) + 1, false);
+    let even = integer(&mut vm, 1 << 53, false);
+    let entries: Vec<u64> = (0..2)
+        .map(|fid| jit.try_compile(&vm.funcs[fid], fid as u32).unwrap() as u64)
+        .collect();
+    for direct in [false, true] {
+        vm.entries[..2].copy_from_slice(if direct { &entries } else { &[0, 0] });
+        let result = if direct {
+            vm.call_direct(Value::func(0), &[exact, Value::num(2.0)])
+                .unwrap()
+        } else {
+            vm.call_value(Value::func(0), &[exact, Value::num(2.0)])
+        };
+        assert_eq!(
+            result,
+            [
+                Value::num(9007199254740994.0),
+                Value::num(9007199254740992.0)
+            ],
+            "direct={direct}"
+        );
+        assert!(
+            result
+                .iter()
+                .all(|value| value.is_float() && numeric::integer(*value).is_none())
+        );
+        for (left, right, equal) in [
+            (Value::inline_integer(1).unwrap(), Value::num(1.0), true),
+            (Value::inline_integer(0).unwrap(), Value::num(-0.0), true),
+            (even, Value::num((1u64 << 53) as f64), true),
+            (exact, Value::num((1u64 << 53) as f64), false),
+            (Value::num(f64::NAN), Value::num(f64::NAN), false),
+        ] {
+            assert_eq!(
+                if direct {
+                    vm.call_direct(Value::func(1), &[left, right]).unwrap()
+                } else {
+                    vm.call_value(Value::func(1), &[left, right])
+                },
+                [Value::boolean(equal), Value::boolean(!equal)],
+                "direct={direct}, {left:?} == {right:?}"
             );
         }
     }

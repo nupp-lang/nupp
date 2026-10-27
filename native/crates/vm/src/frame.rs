@@ -322,7 +322,10 @@ impl Interp {
     #[cfg(feature = "compiled-runtime")]
     pub(crate) fn run_callee(&mut self, tid: usize, stop: usize) -> Result<bool, crate::interp::Step> {
         let s = self.tasks[tid].cur();
-        let fid = (self.tasks[tid].stack[s] & 0xffff_ffff) as u32;
+        let state = self.tasks[tid].stack[s];
+        let (fid, pc) = (state as u32, (state >> 32) as usize);
+        // A shared call handler may already have entered compiled code and
+        // returned at a deopt or continuation. Resume its published PC.
         // The same entry accounting `run_compiled_frame` does.
         #[cfg(feature = "jit")]
         if self.spec.frames { self.spec_frame_entry(fid); }
@@ -330,9 +333,10 @@ impl Interp {
         if entry != 0 && entry != u64::MAX {
             let header = unsafe { self.tasks[tid].stack.as_mut_ptr().add(s) };
             self.compiled_frame_entries += 1;
+            if pc != 0 { self.compiled_frame_continuations += 1; }
             self.native_frame_depth += 1;
             self.refresh_native_frame_context();
-            let next = unsafe { std::mem::transmute::<u64, extern "C" fn(*mut u64, usize) -> u64>(entry)(header, 0) };
+            let next = unsafe { std::mem::transmute::<u64, extern "C" fn(*mut u64, usize) -> u64>(entry)(header, pc) };
             self.native_frame_depth -= 1;
             return self.finish_callee(tid, stop, next);
         }
