@@ -507,3 +507,7 @@ pub(crate) unsafe fn run(ctx: *mut Ctx) -> u32 {
 #[cfg(test)]
 #[path = "native_simd_tests.rs"]
 mod native_simd_tests;
+
+#[cfg(test)]
+#[path = "native_numeric_tests.rs"]
+mod native_numeric_tests;

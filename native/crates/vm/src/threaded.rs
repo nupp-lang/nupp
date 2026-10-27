@@ -97,6 +97,7 @@ codes! {
     VAdd, VMul, VLoadM, VStoreM, LoopFact, GuardLenLe, VMov, FFma,
     StorageLen, FLoad, FStore, VSplat, VLoad, VStore, VFma, VLane,
     Require, RequireV, SetMethod,
+    UUnbox, UBox, Div, Pow, IDiv, TagCheckInt, TagCheckStr, Scalar, IJmpIfUle, IJmpIfUlt,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -109,6 +110,16 @@ pub fn code_by_name(name: &str) -> Option<u8> {
 pub fn encode(op: &Op) -> Ins {
     let i = |op: Code, a: u8, b: u8, c: u8| Ins { op: op as u8, a, b, c, imm: 0, k: 0 };
     match *op {
+        Op::UUnbox(d, a) => i(Code::UUnbox, d, a, 0),
+        Op::UBox(d, a) => i(Code::UBox, d, a, 0),
+        Op::TagCheckStr(d, a) => i(Code::TagCheckStr, d, a, 0),
+        Op::Div(d, a, b) => i(Code::Div, d, a, b),
+        Op::Pow(d, a, b) => i(Code::Pow, d, a, b),
+        Op::IDiv(d, a, b) => i(Code::IDiv, d, a, b),
+        Op::TagCheckInt(d, a, unsigned) => i(Code::TagCheckInt, d, a, unsigned as u8),
+        Op::Scalar(k, d, a, b) => Ins { imm: k as i32, ..i(Code::Scalar, d, a, b) },
+        Op::IJmpIfUle(a, b, off) => Ins { imm: off, ..i(Code::IJmpIfUle, a, b, 0) },
+        Op::IJmpIfUlt(a, b, off) => Ins { imm: off, ..i(Code::IJmpIfUlt, a, b, 0) },
         Op::Move(d, s) => i(Code::Move, d, s, 0),
         Op::K(d, k) => Ins { imm: k as i32, ..i(Code::K, d, 0, 0) },
         Op::Nil(d) => i(Code::Nil, d, 0, 0),

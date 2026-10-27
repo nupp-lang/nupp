@@ -1,0 +1,417 @@
+module nupp.runtime.vm.numeric
+
+-- Numeric instruction policy, including exact boxed integers. Managed
+-- coercion and callbacks prepare operands; they never select arithmetic.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.numerichelpers")
+const managed = require("nupp.runtime.vm.recordhelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+const calls = require("nupp.runtime.vm.calls")
+
+local function isNumber(value: uint64): boolean
+    return native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN)
+end
+
+local function integerKind(value: uint64): int64
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.load8(header, native.layout("Header.kind")) == values.KIND_INTEGER then
+            return native.chooseIndex(native.load32(header, native.layout("Header.aux")) ~= 0, 1, 0)
+        end
+    end
+
+    return -1
+end
+
+local function isNumeric(value: uint64): boolean
+    return isNumber(value) or integerKind(value) >= 0
+end
+
+local function integral(value: uint64): boolean
+    if not isNumber(value) then
+        return integerKind(value) >= 0
+    end
+    local number = native.fromBits(value)
+    -- The subtraction excludes both infinities as well as NaNs.
+
+    return number - number == 0.0 and native.floor(number) == number
+end
+
+local function double(value: uint64): number
+    local kind = integerKind(value)
+    if kind < 0 then
+        return native.fromBits(value)
+    end
+    local bits = native.load64(native.pointer(value & values.PAYLOAD), native.layout("Header.aux_len"))
+    if kind == 1 then
+        return native.unsignedFloat(bits)
+    end
+
+    return native.toFloat(native.index(bits))
+end
+
+local function numberBits(number: number): uint64
+    local bits = native.bits(number)
+    return native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
+end
+
+local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, operation: int64): uint64
+    local packet = native.stackBytes(32)
+    local x = left
+    local y = right
+    protocol.publishPc(pc, context)
+    if not (isNumeric(x) and isNumeric(y)) then
+        helpers.arithmeticOperands(context, x, y, operation, packet)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        if native.load64(packet, 0) ~= 0ULL then
+            return protocol.continueAfter(pc, context, program.readByte(pc, 1), native.load64(packet, 8), true)
+        end
+        x = native.load64(packet, 16)
+        y = native.load64(packet, 24)
+    end
+    local xkind = integerKind(x)
+    local ykind = integerKind(y)
+    if (xkind >= 0 and integral(y)) or (ykind >= 0 and integral(x)) then
+        local unsigned: boolean = xkind == 1 or ykind == 1
+        local a = helpers.operandBits(context, x)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        local b = helpers.operandBits(context, y)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        local result = 0ULL
+        if operation == 1 then
+            if not unsigned and native.index(b) < 0 then
+                if a == 1ULL then
+                    result = 1ULL
+                elseif a == 0xffffffffffffffffULL then
+                    result = native.chooseWord(b & 1ULL == 0ULL, 1ULL, a)
+                end
+            else
+                result = 1ULL
+                local base = a
+                local exponent = b
+                while exponent ~= 0ULL do
+                    if exponent & 1ULL ~= 0ULL then
+                        result = result * base
+                    end
+                    base = base * base
+                    exponent = exponent >> 1ULL
+                end
+            end
+        else
+            if b == 0ULL then
+                helpers.numericError(context, 3)
+                return native.fail()
+            end
+            if unsigned then
+                result = a // b
+            elseif a == 0x8000000000000000ULL and b == 0xffffffffffffffffULL then
+                result = a
+            else
+                result = native.word(native.signedQuotient(native.index(a), native.index(b)))
+                if operation == 2 and (native.index(a) ~ native.index(b)) < 0 and a - result * b ~= 0ULL then
+                    result = result - 1ULL
+                end
+            end
+        end
+        local value = managed.boxInteger(context, result, native.chooseIndex(unsigned, 1, 0))
+        return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+    end
+    local a = double(x)
+    local b = double(y)
+    local result: number = 0.0
+    if operation == 1 then
+        result = helpers.power(a, b)
+    elseif operation == 2 then
+        result = native.floor(a / b)
+    else
+        result = a / b
+    end
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), numberBits(result), true)
+end
+
+export function Div(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        0
+    )
+end
+
+export function Pow(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        1
+    )
+end
+
+export function IDiv(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        2
+    )
+end
+
+export function IUnbox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    protocol.publishPc(pc, context)
+    local bits = managed.numericBits(context, value, 0)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- Successful exact conversion cannot collect or change the frame.
+    slots.writeInteger(frame, ints, program.readByte(pc, 1), native.index(bits))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function UUnbox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    protocol.publishPc(pc, context)
+    local bits = managed.numericBits(context, value, 1)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    -- Successful exact conversion cannot collect or change the frame.
+    slots.writeInteger(frame, ints, program.readByte(pc, 1), native.index(bits))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function IBox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local bits = native.word(slots.readInteger(frame, ints, program.readByte(pc, 2)))
+    protocol.publishPc(pc, context)
+    local value = managed.boxInteger(context, bits, 0)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end
+
+export function UBox(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local bits = native.word(slots.readInteger(frame, ints, program.readByte(pc, 2)))
+    protocol.publishPc(pc, context)
+    local value = managed.boxInteger(context, bits, 1)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), value, true)
+end
+
+export function TagCheckInt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local unsigned = program.readByte(pc, 3)
+    local kind = integerKind(value)
+    local valid = kind == unsigned
+    if isNumber(value) then
+        local number = native.fromBits(value)
+        if unsigned ~= 0 then
+            valid = integral(value) and number >= 0.0 and number < 18446744073709551616.0
+        else
+            valid = integral(value) and number >= -values.INT64_RANGE and number < values.INT64_RANGE
+        end
+    end
+    if not valid then
+        protocol.publishPc(pc, context)
+        helpers.numericError(context, 0)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function TagCheckStr(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local valid: boolean = false
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local kind = native.load8(native.pointer(value & values.PAYLOAD), native.layout("Header.kind"))
+        valid = kind == values.KIND_STRING or kind == values.KIND_SLICE
+    end
+    if not valid then
+        protocol.publishPc(pc, context)
+        helpers.numericError(context, 1)
+        return native.fail()
+    end
+    slots.writeValue(frame, regs, program.readByte(pc, 1), value)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+local function scalar(kind: int64, left: number, right: number): number
+    local x = native.word(native.toInt(left)) & 0xffffffffULL
+    local y = native.word(native.toInt(right)) & 0xffffffffULL
+    local shift = y & 31ULL
+    local result = x
+    if kind == 1 or kind == 11 then
+        result = x + y
+    elseif kind == 2 or kind == 12 then
+        result = x - y
+    elseif kind == 3 or kind == 13 then
+        result = x & y
+    elseif kind == 4 or kind == 14 then
+        result = x | y
+    elseif kind == 5 or kind == 15 then
+        result = x ~ y
+    elseif kind == 6 then
+        result = x << shift
+    elseif kind == 7 then
+        result = x >> shift
+    elseif kind == 18 or kind == 19 then
+        result = x * y
+    elseif kind == 20 or kind == 21 then
+        result = x ~ 0xffffffffULL
+    elseif kind == 22 then
+        result = (x << shift) | (x >> ((32ULL - shift) & 31ULL))
+    elseif kind == 23 then
+        result = (x >> shift) | (x << ((32ULL - shift) & 31ULL))
+    elseif kind == 24 then
+        local signed = native.index(x << 32ULL) ~>> 32
+        return native.toFloat(signed ~>> native.index(shift))
+    elseif kind < 0 or kind > 24 then
+        return native.fromBits(values.QNAN)
+    end
+    result = result & 0xffffffffULL
+    if kind == 9 or kind == 10 or kind == 16 or (kind >= 11 and kind <= 15) or kind == 19 or kind == 21 then
+        return native.toFloat(native.index(result << 32ULL) ~>> 32)
+    end
+
+    return native.unsignedFloat(result)
+end
+
+export function Scalar(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local x = slots.readValue(frame, regs, program.readByte(pc, 2))
+    local y = slots.readValue(frame, regs, program.readByte(pc, 3))
+    if not (isNumber(x) and isNumber(y)) then
+        protocol.publishPc(pc, context)
+        helpers.numericError(context, 2)
+        return native.fail()
+    end
+    local result = scalar(program.readSigned32(pc, 4), native.fromBits(x), native.fromBits(y))
+    slots.writeValue(frame, regs, program.readByte(pc, 1), numberBits(result))
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function IJmpIfUle(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.word(slots.readInteger(frame, ints, program.readByte(pc, 1)))
+    local b = native.word(slots.readInteger(frame, ints, program.readByte(pc, 2)))
+    if a <= b then
+        local displacement = program.readSigned32(pc, 4)
+        if displacement < 0 then
+            return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
+        end
+        return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function IJmpIfUlt(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = native.word(slots.readInteger(frame, ints, program.readByte(pc, 1)))
+    local b = native.word(slots.readInteger(frame, ints, program.readByte(pc, 2)))
+    if a < b then
+        local displacement = program.readSigned32(pc, 4)
+        if displacement < 0 then
+            return calls.backEdge(pc, regs, ints, floats, context, frame, displacement)
+        end
+        return native.dispatch(native.offset(pc, (displacement + 1) * 16), regs, ints, floats, context, frame)
+    end
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end

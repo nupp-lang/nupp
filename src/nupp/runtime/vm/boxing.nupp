@@ -25,45 +25,6 @@ export function TagCheckNum(
     end
 end
 
-export function IBox(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local value = slots.readInteger(frame, ints, program.readByte(pc, 2))
-    if native.either(value < -values.MAX_EXACT_INTEGER, values.MAX_EXACT_INTEGER < value) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        slots.writeValue(frame, regs, program.readByte(pc, 1), native.bits(native.toFloat(value)))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    end
-end
-
-export function IUnbox(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
-    if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
-        local d = native.fromBits(value)
-        if native.both(native.both(-values.INT64_RANGE <= d, d < values.INT64_RANGE), native.floor(d) == d) then
-            slots.writeInteger(frame, ints, program.readByte(pc, 1), native.toInt(d))
-            return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-end
-
 export function StrByte(
     pc: voidptr,
     regs: voidptr,

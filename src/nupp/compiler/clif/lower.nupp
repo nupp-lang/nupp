@@ -69,6 +69,7 @@ lower.HELPER_MODULES = {
     ["nupp.runtime.vm.recordhelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.simdhelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.modulehelpers"] = "nupp_rt_",
+    ["nupp.runtime.vm.numerichelpers"] = "nupp_rt_",
     ["nupp.runtime.vm.os"] = "nupp_os_"
 }
 
@@ -87,7 +88,8 @@ lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/control.nupp",
     "src/nupp/runtime/vm/records.nupp",
     "src/nupp/runtime/vm/simd.nupp",
-    "src/nupp/runtime/vm/modules.nupp"
+    "src/nupp/runtime/vm/modules.nupp",
+    "src/nupp/runtime/vm/numeric.nupp"
 }
 
 local INTRINSICS = lower.INTRINSICS

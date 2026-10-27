@@ -144,3 +144,6 @@ pub mod specialize;
 
 #[cfg(feature = "native-runtime")]
 mod native_simd_helpers;
+
+#[cfg(feature = "native-runtime")]
+mod native_numeric_helpers;

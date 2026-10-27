@@ -1,0 +1,13 @@
+-- Managed numeric preparation and primitive math. The operand packet holds
+-- [handled, result, left, right]; arithmetic itself belongs to Nupp.
+local record NumericHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    arithmeticOperands: function(context: voidptr, left: uint64, right: uint64, method: int64, packet: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    operandBits: function(context: voidptr, value: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    numericError: function(context: voidptr, error: int64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = true)
+    power: function(left: number, right: number): number
+end
+return NumericHelpers
