@@ -1395,7 +1395,7 @@ mod tests {
         let m = metrics.borrow();
         assert_eq!(h.stats.allocated, 3);
         assert_eq!(h.stats.freed, 1);
-        assert_eq!(m.inline_requested_bytes, (HEADER + std::mem::size_of::<TablePayload>() + 2 * (HEADER + 8 + 4)) as u64);
+        assert_eq!(m.inline_requested_bytes, (HEADER + std::mem::size_of::<TablePayload>() + 2 * (HEADER + 9 + 4)) as u64);
         assert_eq!(m.chunk_bytes_requested, h.chunk_bytes_mapped);
         assert!(m.chunk_bytes_requested >= h.stats.chunks * 256 * 1024);
         assert_eq!(m.root_passes, 2);
