@@ -1,6 +1,8 @@
-//! Temporary managed-packet and storage ownership boundary. Opcode control,
-//! bounds, scalar lanes and reductions are in the Nupp interpreter. Scratch
-//! packets and views contain no managed pointers and never cross a dispatch.
+//! Temporary managed-packet and storage boundary. Nupp owns opcode control,
+//! typed span bounds, packet arithmetic, conversions and reductions. Existing
+//! prepare/finish still own managed permutations, gather/scatter, object
+//! packaging and storage commits. Scratch packets and views contain no
+//! managed pointers and never cross a dispatch.
 use crate::threaded::{Ctx, ST_ERROR, enter_rust, sync};
 use crate::{simd, value::Value};
 const _: () = {

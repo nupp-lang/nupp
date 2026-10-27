@@ -268,11 +268,9 @@ impl Interp {
         if self.spec.frames { self.spec_frame_entry(fid); }
         let entry = self.prepare_frame_entry(fid);
         if entry == 0 || entry == u64::MAX {
-            // A host without a code generator runs SIMD interpreted only by
-            // policy: the no-JIT product refuses an unmatched plugin before
-            // its first side effect rather than running a kernel a thousand
-            // times slower without saying so. JIT-capable hosts under NO_JIT
-            // are the oracle path and interpret freely.
+            // A linked Nupp core and a JIT-capable host can execute these
+            // instructions without a compiled frame. A host with neither
+            // backend retains the explicit interpreter opt-in policy.
             if !self.simd_interpret && self.function_needs_native(fid) {
                 self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
             }

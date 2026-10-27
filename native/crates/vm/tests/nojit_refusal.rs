@@ -1,8 +1,6 @@
-//! The linked no-JIT host's refusal of vector code it has no compiled
-//! implementation for (P5 "No-JIT build"). Such a host leaves
-//! `Interp::simd_interpret` off; these tests turn it off on any build. The
-//! process-level cases, the linked object and the executable-memory denial
-//! are in `tests/nojit-gate.py`.
+//! Vector-load refusal when interpreter execution is explicitly disabled.
+//! A linked Nupp core supplies SIMD execution without a code generator; hosts
+//! with neither backend retain the no-JIT refusal and explicit opt-in.
 use nupp_vm::{
     builtins, image,
     interp::Interp,
@@ -139,4 +137,62 @@ fn startup_names_the_first_vector_function_without_a_compiled_entry() {
     assert!(message.starts_with(
         "image refused: function plugin in module nupp.tests.plugin has vector instructions"
     ));
+}
+
+#[cfg(feature = "native-runtime")]
+#[test]
+fn a_linked_nupp_core_loads_and_enters_vector_functions_without_opt_in() {
+    let mut vm = Box::new(Interp::new());
+    assert!(
+        vm.simd_interpret,
+        "the linked core supplies this execution backend"
+    );
+    image::load(&mut vm, "function host 0 0 2 1 :v\nRetNil\nend\nentry 0\n").unwrap();
+    vm.install_globals();
+    let kernel = load_image(&mut vm, "function add 0 2 8 1 vv:v\nsource nupp.tests.core-simd\nSimd add number 0 2\nRet 0\nend\nmodule nupp.tests.core-simd 0\nentry 0\n").unwrap();
+    let shape = nupp_vm::simd::Shape {
+        kind: 9,
+        lanes: 2,
+        mask: false,
+        species: false,
+    };
+    let mut bits = [0; nupp_vm::simd::CAPACITY];
+    bits[..8].copy_from_slice(&1.25f64.to_ne_bytes());
+    bits[8..16].copy_from_slice(&(-0.0f64).to_ne_bytes());
+    let vector = nupp_vm::simd::value(&mut vm, shape, &bits);
+    vm.register(vector);
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    vm.heap.quarantine = true;
+    vm.prepare_threaded();
+    assert!(vm.threaded);
+    assert_eq!(vm.first_uncompiled_native(), None);
+    let fid = kernel.as_func().unwrap() as usize;
+    assert_eq!(
+        vm.funcs[fid].ins[0].op,
+        nupp_vm::threaded::code_by_name("Simd").unwrap()
+    );
+    let values = vm.call_value(kernel, &[vector, vector]);
+    let result = vm.bytes_of(values[0]);
+    assert_eq!(&result[16..24], &2.5f64.to_ne_bytes());
+    assert_eq!(&result[24..32], &(-0.0f64).to_ne_bytes());
+    #[cfg(feature = "compiled-runtime")]
+    assert_eq!(vm.compiled_frame_entries, 0);
+}
+
+#[cfg(all(not(feature = "jit"), not(feature = "native-runtime")))]
+#[test]
+fn a_host_without_either_backend_keeps_the_default_load_refusal() {
+    if std::env::var_os("SIMD_INTERPRET").is_some() {
+        return;
+    }
+    let mut vm = Box::new(Interp::new());
+    assert!(!vm.simd_interpret);
+    image::load(&mut vm, "function host 0 0 2 1 :v\nRetNil\nend\nentry 0\n").unwrap();
+    vm.install_globals();
+    let problem = load_image(&mut vm, PLUGIN).unwrap_err();
+    assert!(
+        problem.contains("image refused: function plugin"),
+        "{problem}"
+    );
 }
