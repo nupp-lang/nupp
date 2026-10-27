@@ -56,9 +56,23 @@
   "open": [
     "Physical witness migration and complete compiler corpus",
     "Final pinned three-stage fixpoint",
-    "Normal compiler AOT continuity",
     "Linux and Windows numeric seed cold bootstraps",
-    "Common graph integration and matched-object verification"
+    "Common graph integration and matched-object verification",
+    "Repeat normal AOT acceptance for the final combined compiler image"
   ],
-  "performance": "Deferred by owner; these are correctness receipts, not performance acceptance."
+  "performance": "Deferred by owner; these are correctness receipts, not performance acceptance.",
+  "normalCompilerAot": {
+    "status": "passed",
+    "compiledFunctions": 6162,
+    "imageFunctions": 6162,
+    "freshProcesses": 2,
+    "executableMemoryDenied": true,
+    "binarySha256": "d4800657b952bb119769c6cc962baaab0e2c1f2ea905dade993f5ebcb51170f5",
+    "imageSha256": "f2a485545b58a1918cd3935dbca188a548785d4a4b0090728c0f37dd7851d62c",
+    "checks": 13,
+    "receipt": "build/native-p2-finish/normal-compiler-aot/smoke-current/results.json",
+    "imageSource": "26fc4b8591e85d4cdee4e885fd6c12a6b61f0b78",
+    "runtimeSource": "98b58367092c29c3bd6918291450eff29385e3a5",
+    "note": "Full combined image will be rebuilt after common-graph and guest JIT correctness changes; this proves current number-model AOT continuity."
+  }
 }
