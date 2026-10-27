@@ -73,6 +73,14 @@ local function compileFixture(name, runtimeModules)
             seen[module] = true
         end
     end
+    if seen.collector then
+        for _, module in ipairs({"childwalk", "objecttable", "backing"}) do
+            if not seen[module] then
+                selected[#selected + 1] = module
+                seen[module] = true
+            end
+        end
+    end
     -- The collector's weak release path uses the same native indexes.
     if seen.gcweak then
         for _, module in ipairs({"weakindex", "backing", "objecttable"}) do

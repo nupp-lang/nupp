@@ -80,6 +80,13 @@ local function newTable(h: heap.Heap*, a: arena.Arena*, arrayCount: uint64, pair
         if pairs > 0 then
             t.hashPtr = words(a, pairs * 2)
             t.hashCap = pairs
+            t.hashLen = pairs
+            t.hashOrder = words(a, (pairs + 1ULL) // 2ULL)
+            local position: uint64 = 0ULL
+            while position < pairs do
+                native.store32(native.pointer(t.hashOrder), native.index(position * 4ULL), native.index(position))
+                position = position + 1ULL
+            end
         end
         o.aux = mode
         collector.initialized(h, o)

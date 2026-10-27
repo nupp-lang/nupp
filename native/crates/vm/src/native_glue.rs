@@ -436,6 +436,7 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "childNext" => ("nupp_object_child_next", 2, true),
         "weakStringPeek" => ("nupp_weak_string_peek", 3, true),
         "weakIntegerPeek" => ("nupp_weak_integer_peek", 3, true),
         "weakStringLookup" => ("nupp_weak_string_lookup", 5, true),
@@ -654,7 +655,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 17;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 18;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -706,6 +707,10 @@ fn metadata_header() -> String {
         std::mem::offset_of!(crate::heap::RecordTail, extra),
         std::mem::size_of::<crate::heap::RecordExtra>(),
     ));
+    metadata.push_str("assert!(std::mem::size_of::<crate::heap::ChildCursor>() == 24 && std::mem::align_of::<crate::heap::ChildCursor>() == 8);\n");
+    metadata.push_str("assert!(std::mem::offset_of!(crate::heap::ChildCursor, phase) == 0 && std::mem::offset_of!(crate::heap::ChildCursor, index) == 8 && std::mem::offset_of!(crate::heap::ChildCursor, value) == 16);\n");
+    metadata.push_str("assert!(std::mem::size_of::<crate::heap::UserdataPayload>() == 40 && std::mem::align_of::<crate::heap::UserdataPayload>() == 8);\n");
+    metadata.push_str("assert!(std::mem::offset_of!(crate::heap::UserdataPayload, meta) == 0 && std::mem::offset_of!(crate::heap::UserdataPayload, uservalue) == 8);\n");
     for field in ["size", "a", "b", "c", "out", "lanes", "kind", "operation", "mask"] {
         let key = format!("Packet.{field}");
         let value = layout(&key).unwrap();

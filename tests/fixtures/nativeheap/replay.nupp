@@ -180,6 +180,7 @@ local function releaseBuffers(r: Replay*, o: heap.Header*, kind: uint64): nil
             local t = native.pointer(body) as heap.TableBody*
             bufferGive(r, t.arrayPtr, t.arrayCap)
             bufferGive(r, t.hashPtr, t.hashCap * 2)
+            bufferGive(r, t.hashOrder, (t.hashCap + 1ULL) // 2ULL)
             t.arrayOwner = 0ULL
             t.arrayPtr = 0
             t.arrayLen = 0
@@ -187,6 +188,7 @@ local function releaseBuffers(r: Replay*, o: heap.Header*, kind: uint64): nil
             t.hashPtr = 0
             t.hashCap = 0
             t.hashLen = 0
+            t.hashOrder = 0
             o.auxPtr = 0
             o.auxLen = 0
         elseif kind == heap.KIND_RECORD then
@@ -360,6 +362,12 @@ local function setChildren(r: Replay*): nil
                 t.hashCap = pairs
                 t.hashLen = pairs
                 t.hashMask = 0
+                t.hashOrder = bufferTake(r, (pairs + 1ULL) // 2ULL)
+                local position: uint64 = 0ULL
+                while position < pairs do
+                    native.store32(native.pointer(t.hashOrder), native.index(position * 4ULL), native.index(position))
+                    position = position + 1ULL
+                end
             end
             o.aux = info & 3
         elseif kind == heap.KIND_RECORD then

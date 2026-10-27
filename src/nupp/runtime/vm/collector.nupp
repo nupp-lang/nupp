@@ -19,11 +19,9 @@ not at the rescan, and task frame stacks followed through their frame
 headers. Every candidate is accepted only when it addresses a live slot, as
 a frame word may be stale.
 
-Where an object keeps its references follows `heap.rs`'s layouts where they
-are C (slots at the header's payload pointer, a table's hash part and
-metatable, a slice's source, a userdata's two values) and the Nupp layouts
-in `heap.nupp` where Rust's are not (a table's and a record's array part, a
-record's overflow, an iterator's keys).
+The shared child cursor (`nupp.runtime.vm.childwalk`) reads canonical object
+layouts in insertion order. Marking visits every stored value; the oracle
+retains only object references from the same sequence.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
@@ -31,6 +29,7 @@ const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const weak = require("nupp.runtime.vm.gcweak")
 const marking = require("nupp.runtime.vm.marking")
+const childwalk = require("nupp.runtime.vm.childwalk")
 
 --- A task's frame stack as the root walk reads it (5.1): the base of its
 --- words and the index of the top frame, or `NO_FRAME` once it is done.
@@ -156,73 +155,13 @@ local function visit(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
     end
 end
 
-local function visitRun(h: heap.Heap*, base: uint64, count: uint64, stack: heap.Words*?): nil
-    @unsafe do
-        local i: uint64 = 0
-        while i < count do
-            visit(h, native.load64(native.pointer(base), native.index(i * 8)), stack)
-            i = i + 1
-        end
-    end
-end
-
---- Both sides of every entry of an open-addressed part whose key and value
---- are present (`heap.rs`'s `ValueTable`: key and value words per bucket).
-local function visitPairs(h: heap.Heap*, base: uint64, buckets: uint64, stack: heap.Words*?): nil
-    @unsafe do
-        local i: uint64 = 0
-        while i < buckets do
-            local key = native.load64(native.pointer(base), native.index(i * 16))
-            local item = native.load64(native.pointer(base), native.index(i * 16 + 8))
-            if key ~= values.NIL and item ~= values.NIL then
-                visit(h, key, stack)
-                visit(h, item, stack)
-            end
-            i = i + 1
-        end
-    end
-end
-
---- Every reference an object holds, by kind: the one walk marking and the
---- oracle share (`Heap::each_child`).
+--- Visits every child in the canonical object order.
 export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): nil
     @unsafe do
-        local kind = o.kind as uint64
-        if kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
-            visitRun(h, o.auxPtr, o.auxLen, stack)
-        elseif kind == heap.KIND_TABLE then
-            local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
-            visitRun(h, o.auxPtr, o.auxLen, stack)
-            if t.hashPtr ~= 0 then
-                visitPairs(h, t.hashPtr, t.hashCap, stack)
-            end
-            if t.meta ~= values.NIL then
-                visit(h, t.meta, stack)
-            end
-        elseif kind == heap.KIND_RECORD then
-            visitRun(h, o.auxPtr, o.auxLen, stack)
-            local tail = native.pointer(o.auxPtr + o.auxLen * 8) as heap.RecordTail*
-            if tail.arrayPtr ~= 0 then
-                visitRun(h, tail.arrayPtr, tail.arrayLen, stack)
-            end
-            if tail.extra ~= 0 then
-                local extra = native.pointer(tail.extra) as heap.RecordExtra*
-                visit(h, extra.meta, stack)
-                if extra.hashPtr ~= 0 then
-                    visitPairs(h, extra.hashPtr, extra.hashCap, stack)
-                end
-            end
-        elseif kind == heap.KIND_SLICE then
-            visit(h, native.load64(native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES), 0), stack)
-        elseif kind == heap.KIND_ITER then
-            local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
-            visit(h, native.load64(body, 0), stack)
-            visit(h, native.load64(body, 8), stack)
-            visitRun(h, o.auxPtr, o.auxLen, stack)
-        elseif kind == heap.KIND_USERDATA then
-            local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
-            visit(h, native.load64(body, 0), stack)
-            visit(h, native.load64(body, 8), stack)
+        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local cursor = state as childwalk.Cursor*
+        while childwalk.childNext(o, cursor) ~= 0ULL do
+            visit(h, cursor.value, stack)
         end
     end
 end

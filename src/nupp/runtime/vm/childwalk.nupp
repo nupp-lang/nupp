@@ -1,0 +1,121 @@
+module nupp.runtime.vm.childwalk
+
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const objecttable = require("nupp.runtime.vm.objecttable")
+
+-- A cursor borrows one unchanged object and its backing until exhausted.
+-- Zero-initialize it before walking. Values include scalar and nil slots.
+export struct Cursor
+    phase: uint64
+    index: uint64
+    value: uint64
+end
+
+local function childRun(base: uint64, count: uint64, cursor: Cursor*): uint64
+    @unsafe do
+        if cursor.index >= count then
+            return 0ULL
+        end
+        cursor.value = native.load64(native.pointer(base), native.index(cursor.index * 8ULL))
+        cursor.index = cursor.index + 1ULL
+        return 1ULL
+    end
+end
+
+-- The low bit selects the value after a live key, preserving insertion order.
+local function childPairs(table: heap.ValueTable*, cursor: Cursor*): uint64
+    @unsafe do
+        local position = cursor.index >> 1ULL
+        if cursor.index & 1ULL == 0ULL then
+            position = objecttable.tableOwnedNextPosition(table, position)
+            if position == 0xffffffffffffffffULL then
+                return 0ULL
+            end
+        end
+        local bucket = objecttable.tableOwnedEntryBucket(table, position)
+        if bucket == 0xffffffffffffffffULL then
+            return 0ULL
+        end
+        local half = cursor.index & 1ULL
+        cursor.value = native.load64(native.pointer(table.ptr), native.index(bucket * 16ULL + half * 8ULL))
+        cursor.index = position * 2ULL + half + 1ULL
+        return 1ULL
+    end
+end
+
+-- Returns one for a value in cursor.value, including nil, or zero at the end.
+-- This operation never allocates, collects, reenters, or mutates the object.
+export function childNext(o: heap.Header*, cursor: Cursor*): uint64
+    @unsafe do
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        local kind = o.kind as uint64
+        while cursor.phase < 4ULL do
+            local phase = cursor.phase
+            if kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
+                if phase == 0ULL and childRun(o.auxPtr, o.auxLen, cursor) ~= 0ULL then
+                    return 1ULL
+                end
+            elseif kind == heap.KIND_TABLE then
+                local table = body as heap.TableBody*
+                if phase == 0ULL then
+                    if childRun(o.auxPtr, o.auxLen, cursor) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif phase == 1ULL then
+                    local hash = native.offset(body, native.fieldOffset<heap.TableBody>("hashPtr"))
+                    if childPairs(hash as heap.ValueTable*, cursor) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif phase == 2ULL and table.meta ~= values.NIL then
+                    cursor.phase = 4ULL
+                    cursor.value = table.meta
+                    return 1ULL
+                end
+            elseif kind == heap.KIND_RECORD then
+                local tail = native.pointer(o.auxPtr + o.auxLen * 8ULL) as heap.RecordTail*
+                if phase == 0ULL then
+                    if childRun(o.auxPtr, o.auxLen, cursor) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif phase == 1ULL then
+                    if childRun(tail.arrayPtr, tail.arrayLen, cursor) ~= 0ULL then
+                        return 1ULL
+                    end
+                elseif tail.extra ~= 0ULL then
+                    local extra = native.pointer(tail.extra) as heap.RecordExtra*
+                    if phase == 2ULL then
+                        cursor.phase = 3ULL
+                        cursor.index = 0ULL
+                        cursor.value = extra.meta
+                        return 1ULL
+                    elseif phase == 3ULL then
+                        if childPairs(extra as heap.ValueTable*, cursor) ~= 0ULL then
+                            return 1ULL
+                        end
+                    end
+                end
+            elseif kind == heap.KIND_SLICE then
+                if phase == 0ULL then
+                    cursor.phase = 4ULL
+                    cursor.value = native.load64(body, 0)
+                    return 1ULL
+                end
+            elseif kind == heap.KIND_ITER or kind == heap.KIND_USERDATA then
+                if phase < 2ULL then
+                    cursor.phase = phase + 1ULL
+                    cursor.value = native.load64(body, native.index(phase * 8ULL))
+                    return 1ULL
+                elseif kind == heap.KIND_ITER and phase == 2ULL then
+                    if childRun(o.auxPtr, o.auxLen, cursor) ~= 0ULL then
+                        return 1ULL
+                    end
+                end
+            end
+            cursor.phase = phase + 1ULL
+            cursor.index = 0ULL
+        end
+        return 0ULL
+    end
+end

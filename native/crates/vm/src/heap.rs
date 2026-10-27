@@ -265,6 +265,10 @@ impl Header {
     }
 }
 
+// Borrowed cursor transport; object traversal policy belongs to childwalk.nupp.
+#[repr(C)]
+pub(crate) struct ChildCursor { pub(crate) phase: u64, pub(crate) index: u64, pub(crate) value: u64 }
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 
@@ -282,6 +286,7 @@ unsafe extern "C" {
     fn nupp_object_iterator_initialize(header: *mut Header, kind: u64, object: u64, pattern: u64, keys: *mut crate::native_value_array::ValueArray) -> u64;
     fn nupp_object_iterator_refresh(header: *mut Header) -> u64;
     fn nupp_object_slot_hash(bits: u64) -> u64;
+    fn nupp_object_child_next(header: *const Header, cursor: *mut ChildCursor) -> u64;
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
     fn nupp_object_integer_initialize(header: *mut Header, bits: u64) -> u64;
     fn nupp_object_record_initialize(header: *mut Header, owner: *mut std::ffi::c_void, shape: u64, count: u64) -> u64;
@@ -295,7 +300,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 17);
+    assert!(crate::dispatch::OBJECT_ABI == 18);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<IterPayload>() == 56);
     assert!(std::mem::offset_of!(IterPayload, keys) == 24);
@@ -959,15 +964,15 @@ impl Heap {
     /// Every reference an object holds, by kind: the one walk the marker, the
     /// oracle and the serializer share.
     pub fn each_child(h: &Header, f: &mut dyn FnMut(Value)) {
-        match h.kind {
-            KIND_TABLE => { let t = h.table_ref(); for &v in &t.array { f(v); } for (k, v) in t.hash.iter() { f(*k); f(*v); } if t.meta != Value::NIL { f(t.meta); } }
-            KIND_RECORD => { for &v in h.slots() { f(v); } for &v in h.record_array_ref() { f(v); } if let Some(m) = h.record_extra_ref() { f(m.meta); for (k, v) in m.iter() { f(*k); f(*v); } } }
-            KIND_CLOSURE | KIND_CELL => { for &v in h.slots() { f(v); } }
-            KIND_SLICE => f(h.slice().source),
-            KIND_ITER => { let i = unsafe { &*(h.payload() as *const IterPayload) }; f(i.obj); f(i.pattern); for &v in &i.keys { f(v); } }
-            KIND_USERDATA => { let u = h.userdata(); f(u.meta); f(u.uservalue); }
-            _ => {}
+        #[cfg(feature = "native-runtime")]
+        {
+            let mut cursor = ChildCursor { phase: 0, index: 0, value: Value::NIL.0 };
+            while unsafe { nupp_object_child_next(h, &mut cursor) } != 0 {
+                f(Value(cursor.value));
+            }
         }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = (h, f); panic!("object child walks require a linked Nupp core"); }
     }
 
     fn scan(&mut self, p: NonNull<Header>) {
