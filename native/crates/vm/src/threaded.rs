@@ -110,8 +110,8 @@ pub fn code_by_name(name: &str) -> Option<u8> {
     CODE_NAMES.iter().position(|n| *n == name).map(|i| i as u8)
 }
 
-/// The core's encoding of one opcode; anything it does not handle is `Slow`,
-/// which hands the instruction to the Rust interpreter.
+/// Every guest opcode has a native encoding. Adding a variant requires an
+/// explicit encoding here and a linked Nupp handler.
 pub fn encode(op: &Op) -> Ins {
     let i = |op: Code, a: u8, b: u8, c: u8| Ins { op: op as u8, a, b, c, imm: 0, k: 0 };
     match *op {
@@ -282,7 +282,6 @@ pub fn encode(op: &Op) -> Ins {
         Op::BytesToStr(a,b,c) => i(Code::BytesToStr,a,b,c),
         Op::BufAppendSub(a,b,c,d) => Ins { imm:d as i32, ..i(Code::BufAppendSub,a,b,c) },
         Op::Substring(a,b,c,d) => Ins { imm:d as i32, ..i(Code::Substring,a,b,c) },
-        _ => i(Code::Slow, 0, 0, 0),
     }
 }
 

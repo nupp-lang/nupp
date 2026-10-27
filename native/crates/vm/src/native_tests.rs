@@ -146,6 +146,11 @@ fn leaf_words_match_rust_at_extremes_with_aliasing() {
 
 #[test]
 fn every_encoded_native_opcode_has_a_linked_nupp_handler() {
+    assert_eq!(CODE_NAMES.len(), Op::NAMES.len() + 1);
+    for name in Op::NAMES {
+        let code = code_by_name(name).unwrap_or_else(|| panic!("{name} has no native dispatch entry"));
+        assert_ne!(code, Code::Slow as u8);
+    }
     for (code, name) in CODE_NAMES.iter().enumerate().skip(1) {
         assert!(NATIVE_RUNTIME_HANDLER_CODES.contains(&(code as u8)), "{name} silently uses the leave table entry");
     }
