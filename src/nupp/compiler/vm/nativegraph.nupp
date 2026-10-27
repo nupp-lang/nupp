@@ -160,10 +160,18 @@ end
 --- Admission is independent of the signature so a changed signature fails
 --- graph compilation instead of selecting the temporary direct lowering.
 function nativegraph.admits(fn: any): boolean
-    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true
+    return fn.scope ~= nil
+        and (
+            fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true
+            or fn.scope.name == "nupp.runtime.vm.objecthash" and fn.name == "slotHash"
+        )
 end
 
---- Lowers a complete checked handler to the shared Nupp semantic graph.
+function nativegraph.isLeaf(fn: any): boolean
+    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.objecthash" and fn.name == "slotHash"
+end
+
+--- Lowers an admitted checked native function to the shared Nupp graph.
 ---
 --- Exact scalar values and checked memory contracts remain in this graph.
 --- Branches and joins carry checked local bindings through graph parameters.
@@ -172,17 +180,30 @@ end
 function nativegraph.compile(fn: any, options: any): any
     need(nativegraph.admits(fn), "function is outside the admitted handler slice")
     local body = fn.body
-    need(fn.isHandler == true and fn.resultKind == "uint64", "handler signature required")
-    need(not body.varargParam and not body.generics and not body.captureTakes, "plain handler required")
-    need(#body.params == 6 and #fn.paramKinds == 6, "six handler parameters required")
-    for index, parameter in ipairs(body.params) do
-        need(
-            fn.paramKinds[index] == "voidptr"
-            and exactKind(parameter.type and parameter.type.resolvedType) == "voidptr",
-            "raw pointer handler parameter required"
-        )
+    local leaf = nativegraph.isLeaf(fn)
+    need(fn.resultKind == "uint64" and (leaf or fn.isHandler == true), "exact native signature required")
+    need(not body.varargParam and not body.generics and not body.captureTakes, "plain native function required")
+    if leaf then
+        need(#body.params == #fn.paramKinds and #body.params >= 1 and #body.params <= 8, "native leaf parameter count")
+        for index, parameter in ipairs(body.params) do
+            local kind = fn.paramKinds[index]
+            need(kind == "voidptr" or kind == "int64" or kind == "uint64", "native leaf requires exact word parameters")
+            need(
+                exactKind(parameter.type and parameter.type.resolvedType) == kind,
+                "checked native leaf parameter required"
+            )
+        end
+    else
+        need(#body.params == 6 and #fn.paramKinds == 6, "six handler parameters required")
+        for index, parameter in ipairs(body.params) do
+            need(
+                fn.paramKinds[index] == "voidptr"
+                and exactKind(parameter.type and parameter.type.resolvedType) == "voidptr",
+                "raw pointer handler parameter required"
+            )
+        end
     end
-    local g = graph.newNative(fn.paramKinds, "uint64", "handler")
+    local g = graph.newNative(fn.paramKinds, "uint64", leaf and "leaf" or "handler")
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     local block = graph.block(g)
     local bindings: {[any]: integer} = {}
@@ -573,17 +594,28 @@ function nativegraph.compile(fn: any, options: any): any
                 end
                 bindings, bindingOrder = scoped, outer
             elseif stat.kind == "returnStmt" then
-                need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
-                local call = stat.exprs[1]
-                local moduleName, name = member(call.obj)
-                need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
-                signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
-                local args = {}
-                for index, argument in ipairs(call.args.exprs) do
-                    args[index] = expression(argument, "voidptr")
+                if leaf then
+                    need(#stat.exprs == 1, "native leaf returns one scalar")
+                    block.term = {
+                        kind = "return",
+                        value = expression(stat.exprs[1], "uint64"),
+                        edges = {},
+                        pos = position(stat)
+                    }
+                    block = nil
+                else
+                    need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
+                    local call = stat.exprs[1]
+                    local moduleName, name = member(call.obj)
+                    need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
+                    signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+                    local args = {}
+                    for index, argument in ipairs(call.args.exprs) do
+                        args[index] = expression(argument, "voidptr")
+                    end
+                    block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
+                    block = nil
                 end
-                block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
-                block = nil
             elseif stat.kind ~= "emptyStmt" then
                 error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)
             end

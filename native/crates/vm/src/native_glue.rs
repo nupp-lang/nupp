@@ -309,10 +309,48 @@ fn require_handler_clif(
     Ok(())
 }
 
+// These are raw, non-reentrant Nupp object-library entries. The C wrappers
+// below transport their word arguments without reconstructing VM state.
+fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
+    match name {
+        "slotHash" => Some(("nupp_object_slot_hash", 1)),
+        _ => None,
+    }
+}
+
+fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
+    if f.signature.call_conv != CallConv::Tail
+        || f.signature.params.len() != arity
+        || f.signature.params.iter().any(|p| p.value_type != types::I64)
+        || f.signature.returns.len() != 1
+        || f.signature.returns[0].value_type != types::I64
+    {
+        return Err(format!("{}: object leaf word signature required", f.name));
+    }
+    if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty()
+        || !f.dynamic_stack_slots.is_empty() || !f.dfg.ext_funcs.is_empty()
+    {
+        return Err(format!("{}: object leaf references no symbols, stack or calls", f.name));
+    }
+    for block in f.layout.blocks() {
+        for inst in f.layout.block_insts(block) {
+            let opcode = f.dfg.insts[inst].opcode();
+            if opcode.is_call() {
+                return Err(format!("{}: object leaf cannot call or dispatch", f.name));
+            }
+            if opcode.can_load() || opcode.can_store() {
+                return Err(format!("{}: scalar object hash cannot access memory", f.name));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The build-time sidecar: every layout the handlers were compiled against,
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 1;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -431,8 +469,9 @@ fn metadata_header() -> String {
 /// `nupp-vm native object IN.clif OUT.o`: compiles the handler file into the
 /// object the `native-runtime` feature links, beside its `.rs` sidecar and
 /// `.txt` listings. A function named like a core opcode is that opcode's
-/// handler; any other function is a support function the handlers reach by
-/// tail call. The entry derives the frame from the register window and
+/// handler. Object-library leaves have C word entry points; the remaining
+/// functions support the handlers through tail calls. The entry derives the
+/// frame from the register window and
 /// dispatches through the 256-entry table, which handlers receive as their
 /// sixth argument. `resumeSlow`, the frame driver's entry for the frame on
 /// top, is exported beside it as `nupp_native_runtime_resume(ctx)`.
@@ -485,7 +524,11 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         let name = name_of(function);
         let opcode = code_by_name(&name);
         if name == "Simd" && simd_abi.is_none() { return Err("Simd handler requires its descriptor ABI".into()); }
-        require_handler_clif(function, &tail, opcode.is_some(), &locals)?;
+        if let Some((_, arity)) = object_leaf(&name) {
+            require_object_leaf(function, arity)?;
+        } else {
+            require_handler_clif(function, &tail, opcode.is_some(), &locals)?;
+        }
         let mut signature = function.signature.clone();
         if opcode.is_none() {
             signature.call_conv = CallConv::Tail;
@@ -553,6 +596,32 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
             .define_function(function_ids[index], &mut ctx)
             .map_err(|e| format!("{}: {e}", function.name))?;
         listings.push_str(ctx.compiled_code().unwrap().vcode.as_deref().unwrap_or(""));
+        module.clear_context(&mut ctx);
+    }
+    // Object-library leaves have ordinary C entry points and exact Tail
+    // implementations. Only this mechanical ABI transport is generated here.
+    for (index, name) in names.iter().enumerate() {
+        let Some((symbol, _)) = object_leaf(name) else { continue; };
+        let mut signature = sources[index].signature.clone();
+        signature.call_conv = conv;
+        let wrapper = module.declare_function(symbol, Linkage::Export, &signature)
+            .map_err(|e| e.to_string())?;
+        ctx.func.signature = signature;
+        {
+            let mut fbc = FunctionBuilderContext::new();
+            let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbc);
+            let entry = b.create_block();
+            b.append_block_params_for_function_params(entry);
+            b.switch_to_block(entry);
+            let args = b.block_params(entry).to_vec();
+            let target = module.declare_func_in_func(function_ids[index], b.func);
+            let call = b.ins().call(target, &args);
+            let result = b.inst_results(call)[0];
+            b.ins().return_(&[result]);
+            b.seal_all_blocks();
+            b.finalize(module.target_config());
+        }
+        module.define_function(wrapper, &mut ctx).map_err(|e| e.to_string())?;
         module.clear_context(&mut ctx);
     }
     // The entry: check the frame contract, then dispatch the first
@@ -780,5 +849,34 @@ mod context_transport_tests {
             "jump block1()\nblock1(v6:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v6,v5)",
             "jump block2()\nblock1(v6:i64):\n return_call_indirect sig0, v5(v0,v1,v2,v3,v6,v5)\nblock2:\n return v0",
         ] { assert!(check(body).is_err(), "{body}"); }
+    }
+}
+
+#[cfg(test)]
+mod object_leaf_tests {
+    use super::*;
+    fn parse(text: &str) -> Function {
+        cranelift_reader::parse_functions(text).unwrap().remove(0)
+    }
+    #[test]
+    fn object_leaves_keep_exact_word_abi_without_vm_context_or_calls() {
+        let valid = "function %slotHash(i64) -> i64 tail { block0(v0:i64): return v0 }";
+        require_object_leaf(&parse(valid), 1).unwrap();
+        assert!(require_object_leaf(&parse(valid), 2).unwrap_err().contains("word signature"));
+        for invalid in [
+            "function %slotHash(f64) -> i64 tail { block0(v0:f64): v1 = iconst.i64 0 return v1 }",
+            "function %slotHash(i64) -> f64 tail { block0(v0:i64): v1 = f64const 0.0 return v1 }",
+            "function %slotHash(i64) -> i64 system_v { block0(v0:i64): return v0 }",
+        ] {
+            assert!(require_object_leaf(&parse(invalid), 1).unwrap_err().contains("word signature"));
+        }
+        let stack = "function %slotHash(i64) -> i64 tail { ss0 = explicit_slot 8 block0(v0:i64): return v0 }";
+        assert!(require_object_leaf(&parse(stack), 1).unwrap_err().contains("symbols, stack or calls"));
+        let call = "function %slotHash(i64) -> i64 tail { sig0 = (i64) -> i64 fn0 = %nupp_rt_any sig0 block0(v0:i64): v1 = call fn0(v0) return v1 }";
+        assert!(require_object_leaf(&parse(call), 1).unwrap_err().contains("symbols, stack or calls"));
+        let indirect = "function %slotHash(i64) -> i64 tail { sig0 = (i64) -> i64 tail block0(v0:i64): try_call_indirect v0(v0), sig0, block1(ret0), [] block1(v1:i64): return v1 }";
+        assert!(require_object_leaf(&parse(indirect), 1).unwrap_err().contains("cannot call or dispatch"));
+        let load = "function %slotHash(i64) -> i64 tail { block0(v0:i64): v1 = load.i64 v0 return v1 }";
+        assert!(require_object_leaf(&parse(load), 1).unwrap_err().contains("cannot access memory"));
     }
 }

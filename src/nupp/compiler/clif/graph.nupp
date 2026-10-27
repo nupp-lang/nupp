@@ -40,7 +40,7 @@ local function need(value: any, message: string): any
     return value
 end
 
---- Emits one native handler from the verified Nupp graph.
+--- Emits one native function from the verified Nupp graph.
 ---
 --- Graph values and block parameters retain their identities. Temporary
 --- machine addresses occupy fresh ids beyond the graph's values.
@@ -48,16 +48,23 @@ end
 function emitter.emit(g: any, options: any): string
     graph.verify(g)
     local native = need(g.native, "native graph required")
-    need(native.abi == "handler" and g.nparams == 6, "six-argument handler required")
+    local handler = native.abi == "handler"
+    need(handler and g.nparams == 6 or native.abi == "leaf", "native handler or leaf required")
     local name: string = need(options and options.name, "function name required")
     need(name:match("^[%w_%.]+$") ~= nil, "invalid function name")
     local frameOffset: integer = options.frameRegsOff or 32
     need(frameOffset == 32, "unsupported frame window offset")
+    local parameters = {}
+    for index, kind in ipairs(native.params) do
+        parameters[index] = need(machineKinds[kind], "exact native parameter kind required")
+    end
     local out = {
-        "function %" .. name .. "(i64, i64, i64, i64, i64, i64) -> i64 tail {",
-        "    ; Nupp native graph: " .. name,
-        "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
+        "function %" .. name .. "(" .. table.concat(parameters, ", ") .. ") -> i64 tail {",
+        "    ; Nupp native graph: " .. name
     }
+    if handler then
+        out[#out + 1] = "    sig0 = (i64, i64, i64, i64, i64, i64) -> i64 tail"
+    end
     local counter: integer = #g.types
     local imports, preamble = {}, {}
     local importCount: integer = 0
@@ -128,14 +135,18 @@ function emitter.emit(g: any, options: any): string
 
     -- The physical sixth argument is the dispatch table. The graph's sixth
     -- parameter names the logical frame derived from the value window.
-    local tableValue = fresh()
+    local tableValue: string = handler and fresh() or ""
     for bi, block in ipairs(g.blocks) do
         local params = {}
-        if bi == 1 then
+        if bi == 1 and handler then
             for id = 1, 5 do
                 params[id] = value(id) .. ": i64"
             end
             params[6] = tableValue .. ": i64"
+        elseif bi == 1 then
+            for id = 1, g.nparams do
+                params[id] = value(id) .. ": " .. need(machineKinds[g.exactTypes[id]], "exact entry kind required")
+            end
         else
             for i, id in ipairs(block.params) do
                 params[i] = value(id) .. ": " .. need(machineKinds[g.exactTypes[id]], "exact block kind required")
@@ -143,7 +154,7 @@ function emitter.emit(g: any, options: any): string
         end
         out[#out + 1] = ""
         out[#out + 1] = "block" .. tostring(block.id - 1) .. "(" .. table.concat(params, ", ") .. "):"
-        if bi == 1 then
+        if bi == 1 and handler then
             line(value(6) .. " = iadd " .. value(2) .. ", " .. constant(tostring(-frameOffset)))
         end
         for i, op in ipairs(block.op) do
@@ -279,7 +290,11 @@ function emitter.emit(g: any, options: any): string
             line("jump " .. edge(term.edges[1]))
         elseif term.kind == "branch" then
             line("brif " .. value(term.value) .. ", " .. edge(term.edges[1]) .. ", " .. edge(term.edges[2]))
+        elseif term.kind == "return" then
+            need(not handler, "handler cannot return a scalar")
+            line("return " .. value(term.value))
         elseif term.kind == "dispatch" then
+            need(handler, "leaf cannot dispatch")
             local args = term.args
             local opcode = temporary("uload8.i64 notrap " .. value(args[1]))
             local shifted = temporary("ishl " .. opcode .. ", " .. constant("3"))

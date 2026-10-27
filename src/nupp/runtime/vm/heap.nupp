@@ -28,6 +28,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const os = require("nupp.runtime.vm.os")
 const arena = require("nupp.runtime.vm.arena")
 const values = require("nupp.runtime.vm.values")
+const objecthash = require("nupp.runtime.vm.objecthash")
 
 -- Object kinds, as the header byte compiled code reads (`heap.rs`).
 export const KIND_FREED: uint64 = 0
@@ -390,7 +391,7 @@ end
 
 local function spread(word: uint64): uint64
     @unsafe do
-        return ((word >> 4) * values.HASH_MULTIPLIER) >> 32
+        return objecthash.slotHash(word)
     end
 end
 

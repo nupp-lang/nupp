@@ -380,8 +380,17 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 
 /// The probe the shape tables and the core share: the interned string's
 /// address bits, spread.
-/// Object code computes the same hash inline (`jit.rs`, `GetField`).
-#[inline] pub fn slot_hash(bits: u64) -> u64 { (bits >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32 }
+/// Nupp owns the hash; compiled object code calls the same leaf bridge.
+#[inline] pub fn slot_hash(bits: u64) -> u64 {
+    #[cfg(feature = "native-runtime")]
+    { unsafe { nupp_object_slot_hash(bits) } }
+    #[cfg(not(feature = "native-runtime"))]
+    { let _ = bits; panic!("object hashing requires a linked Nupp core") }
+}
+#[cfg(feature = "native-runtime")]
+unsafe extern "C" { fn nupp_object_slot_hash(bits: u64) -> u64; }
+#[cfg(feature = "native-runtime")]
+const _: () = assert!(crate::dispatch::OBJECT_ABI == 1);
 impl Shape {
     /// The slot a name occupies, by the table.
     #[inline] pub fn slot_of(&self, name: Value) -> Option<usize> {

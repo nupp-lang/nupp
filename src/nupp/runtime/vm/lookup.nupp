@@ -3,6 +3,7 @@ module nupp.runtime.vm.lookup
 -- Field and index lookups, stores, equality and cells: fast paths in Nupp
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
+const objecthash = require("nupp.runtime.vm.objecthash")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const specialization = require("nupp.runtime.vm.specialization")
@@ -37,7 +38,7 @@ local function getField(
     else
         local header = native.pointer(object & values.PAYLOAD)
         local kind = native.load8(header, native.layout("Header.kind"))
-        local hash = ((name >> 4) * values.HASH_MULTIPLIER) >> 32
+        local hash = objecthash.slotHash(name)
         if kind == 3 then
             local shape = native.offset(
                 native.loadPointer(context, native.layout("shapes")),

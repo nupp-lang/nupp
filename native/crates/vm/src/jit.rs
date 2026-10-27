@@ -2005,7 +2005,7 @@ impl<M: Module> Compiler<M> {
                         }
                         if let Some(st) = stub_refs.as_ref() {
                             let nb = kval!(k);
-                            let hb = if runtime.is_some() { let x = b.ins().ushr_imm(nb, 4); let x = b.ins().imul_imm(x, 0x9E37_79B9_7F4A_7C15u64 as i64); b.ins().ushr_imm(x, 32) }
+                            let hb = if runtime.is_some() { let c = b.ins().call(helper_refs["j_slot_hash"], &[nb]); b.inst_results(c)[0] }
                                 else { b.ins().iconst(types::I64, crate::heap::slot_hash(consts[k as usize]) as i64) };
                             let c = b.ins().call(st.probe, &[o, nb, hb]); let r = b.inst_results(c)[0];
                             let miss = b.ins().icmp_imm(IntCC::Equal, r, MISS);

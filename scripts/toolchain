@@ -819,10 +819,14 @@ EOF
 # is built once per source state without the program runtime's LTO.
 build_rust_vm_aot_tool() {
     select_rust_tools
+    core=$(python3 "$ROOT/scripts/vm-cli" runtime --reuse | tail -n 1) \
+        || die "cannot build the Nupp object core"
+    [ -f "$core" ] || die "native core builder named no object"
     rust_environment=$(rust_environment_material)
     digest=$({
         printf '%s|%s|%s|%s\n' nupp-vm-aot-tool "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
         printf '%s\n' "$rust_environment"
+        printf 'native-core %s\n' "$(sha256 "$core")"
     } | sha256_stdin | cut -c1-16)
     executable=nupp-vm
     [ "$PLATFORM" = windows ] && executable=nupp-vm.exe
@@ -834,7 +838,7 @@ build_rust_vm_aot_tool() {
     [ -f "$out/.complete" ] && [ -f "$RUST_VM_AOT_TOOL_OUT" ] && { release_lock; return 0; }
     note "building the VM object emitter with $RUSTC"
     set -- "$CARGO" build --manifest-path "$ROOT/Cargo.toml" --package nupp-vm --bin nupp-vm \
-        --release --locked --features aot --target-dir "$(cargo_dir "$target")"
+        --release --locked --features aot,native-runtime --target-dir "$(cargo_dir "$target")"
     offline && set -- "$@" --offline
     vendor_arguments=$(rust_vendor_arguments)
     if [ -n "$vendor_arguments" ]; then
@@ -844,7 +848,7 @@ build_rust_vm_aot_tool() {
 $vendor_arguments
 EOF
     fi
-    (unset NUPP_AOT_OBJECT; CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
+    (unset NUPP_AOT_OBJECT; NUPP_NATIVE_RUNTIME_OBJECT="$core" CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2) \
         || die "Cargo could not build the VM object emitter"
     mkdir -p "$out"
     cp "$target/release/$executable" "$out/$executable.partial" \

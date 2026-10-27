@@ -79,6 +79,7 @@ lower.HELPER_MODULES = {
 --- repository root.
 lower.RUNTIME_MODULES = {
     "src/nupp/runtime/vm/values.nupp",
+    "src/nupp/runtime/vm/objecthash.nupp",
     "src/nupp/runtime/vm/core.nupp",
     "src/nupp/runtime/vm/calls.nupp",
     "src/nupp/runtime/vm/protocol.nupp",
@@ -2245,7 +2246,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
     }
     local text = {}
     for index, fn in ipairs(compiled) do
-        if handlers and nativegraph.admits(fn) then
+        if (handlers or nativegraph.isLeaf(fn)) and nativegraph.admits(fn) then
             local g = nativegraph.compile(fn, functionOptions)
             graph.verify(g)
             graph.prune(g)

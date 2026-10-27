@@ -57,7 +57,7 @@ local function write(path, text)
 end
 
 -- The runtime modules a fixture is compiled with.
-local RUNTIME = {"heap", "arena", "values"}
+local RUNTIME = {"heap", "arena", "values", "objecthash"}
 
 local compiled = {}
 
@@ -230,13 +230,13 @@ local GRAPHS = {
 }
 
 function M.theCollectorKeepsWhatIsReachableAndFreesTheRest()
-    check(compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"}), GRAPHS)
+    check(compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values", "objecthash"}), GRAPHS)
 end
 
 -- Pacing alone runs the cycles: a million allocations of 48 bytes keep a
 -- bounded ring live, and live bytes stay near the threshold's floor.
 function M.allocationDebtPacesTheCycles()
-    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"})
+    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values", "objecthash"})
     local answer = tonumber(run(clif, "paced", {1000000, 100}))
     assert(answer and answer > 0, "paced answered " .. tostring(answer))
     assert(answer % 1000 == 65, "the ring and its 64 nodes survive, got " .. answer)
@@ -245,7 +245,7 @@ end
 
 -- Smoke numbers, read from the report rather than asserted.
 function M.allocationAndCollectionThroughputRun()
-    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values"})
+    local clif = compileFixture("graphs", {"heap", "collector", "gcweak", "arena", "values", "objecthash"})
     for _, case in ipairs({{"allocNanos", {1000000, 1}}, {"collectNanos", {500000}}}) do
         local nanos = tonumber(run(clif, case[1], case[2]))
         assert(nanos and nanos > 0, case[1] .. " answered no time")
@@ -331,7 +331,7 @@ end
 
 -- Replays a trace into the Nupp heap: its counts by label, and the answer.
 local function replay(trace)
-    local clif = compileFixture("replay", {"heap", "collector", "gcweak", "arena", "values"})
+    local clif = compileFixture("replay", {"heap", "collector", "gcweak", "arena", "values", "objecthash"})
     local output = run(clif, "replayTrace", {}, trace)
     local counts = {}
     for label, count in output:gmatch("(%a+) (%d+)\n") do
@@ -394,7 +394,7 @@ local WEAK = {
 }
 
 function M.weakTablesClearWhatOnlyTheyHold()
-    check(compileFixture("weak", {"heap", "collector", "gcweak", "arena", "values"}), WEAK)
+    check(compileFixture("weak", {"heap", "collector", "gcweak", "arena", "values", "objecthash"}), WEAK)
 end
 
 return M

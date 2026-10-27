@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tarfile
 import tempfile
@@ -207,6 +208,90 @@ class Routing(unittest.TestCase):
             self.assertEqual([c[0][1] for c in commands], ["native", "run", "native"])
             self.assertEqual(commands[1][1]["NO_AOT"], "1")
             self.assertNotIn("NO_THREADED", commands[1][1])
+
+    def test_aot_image_loader_is_linked_only_after_the_nupp_object_core(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            out = root / "out"
+            out.mkdir()
+            (root / "native/crates/vm/src").mkdir(parents=True)
+            (root / "native/crates/vm/src/lib.rs").touch()
+            built = root / "cargo-runtime"
+            built.write_bytes(b"machine tool")
+            core = root / "core.o"
+            core.write_bytes(b"Nupp object policy")
+            calls = []
+            def cargo(features, target, env=None, **options):
+                calls.append(("cargo", features, env))
+                return built
+            def native(runner, image, destination, target, tool):
+                calls.append(("core", tool.read_bytes()))
+                return core
+            def step(command, env=None, what=""):
+                calls.append(("aot", command))
+                self.assertEqual(command[0], str(out / "aot-tool"))
+            with patch.object(cli, "ROOT", root), patch.object(cli, "cargo", side_effect=cargo), \
+                    patch.object(cli, "execution_seed", return_value=root / "seed"), \
+                    patch.object(cli, "native_runtime_object", side_effect=native), \
+                    patch.object(cli, "run_step", side_effect=step):
+                cli.linked_runtime(root / "compiler.image", out, root / "target")
+            self.assertEqual([call[0] for call in calls], ["cargo", "core", "cargo", "aot", "cargo"])
+            self.assertEqual(calls[0][1], "aot")
+            self.assertEqual(calls[1][1], b"machine tool")
+            self.assertEqual(calls[2][1:], ("aot,native-runtime", {"NUPP_NATIVE_RUNTIME_OBJECT": str(core)}))
+            self.assertEqual(calls[4][2]["NUPP_NATIVE_RUNTIME_OBJECT"], str(core))
+
+    def test_packaged_aot_loader_links_and_keys_the_nupp_core(self):
+        source = (ROOT / "scripts/toolchain").read_text()
+        function = source.split("build_rust_vm_aot_tool() {", 1)[1].split("\n# The runner as a static archive", 1)[0]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            core = root / "core.o"
+            core.write_text("first core")
+            cargo = root / "cargo"
+            cargo.write_text('''#!/bin/sh
+printf '%s|%s\n' "$NUPP_NATIVE_RUNTIME_OBJECT" "$*" >> "$ROOT/cargo.log"
+while [ "$1" != --target-dir ]; do shift; done
+shift
+mkdir -p "$1/release"
+printf tool > "$1/release/nupp-vm"
+''')
+            cargo.chmod(0o755)
+            script = '''set -eu
+ROOT=$1; RUST_BUILD_ROOT=$ROOT/build; CARGO=$ROOT/cargo
+PLATFORM=darwin; RUST_TOOL_MATERIAL=fixture; KEY=fixture
+CC=cc; CXX=c++; RUSTC=rustc
+export ROOT
+select_rust_tools() { :; }
+python3() { printf '%s/core.o\n' "$ROOT"; }
+rust_environment_material() { printf fixture; }
+rust_sources_digest() { printf fixture; }
+sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+sha256_stdin() { shasum -a 256; }
+take_lock() { return 0; }
+release_lock() { :; }
+note() { :; }
+die() { echo "$*" >&2; exit 1; }
+offline() { return 1; }
+rust_vendor_arguments() { :; }
+cargo_dir() { printf '%s' "$1"; }
+build_rust_vm_aot_tool() {
+''' + function + '''
+build_rust_vm_aot_tool
+printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
+printf 'second core' > "$ROOT/core.o"
+build_rust_vm_aot_tool
+printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
+'''
+            result = subprocess.run(["sh", "-c", script, "fixture", str(root)], text=True, capture_output=True, check=True)
+            outputs = result.stdout.splitlines()
+            self.assertEqual(len(outputs), 2)
+            self.assertNotEqual(outputs[0], outputs[1])
+            calls = (root / "cargo.log").read_text().splitlines()
+            self.assertEqual(len(calls), 2)
+            for call in calls:
+                self.assertTrue(call.startswith(str(core) + "|"), call)
+                self.assertIn("--features aot,native-runtime", call)
 
     def test_cold_lowering_image_uses_seed_not_cargo_execution(self):
         with tempfile.TemporaryDirectory() as temp:

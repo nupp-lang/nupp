@@ -294,7 +294,13 @@ function graph.newNative(parameterKinds: {string}, resultKind: string, abi: stri
         g.types[i], g.slots[i], g.exactTypes[i] = class, g.counts[class], kind
         g.counts[class] = g.counts[class] + 1
     end
-    g.native = {params = params, result = resultKind, abi = abi, frameFromWindow = 2, tableArgument = 6}
+    g.native = {
+        params = params,
+        result = resultKind,
+        abi = abi,
+        frameFromWindow = abi == "handler" and 2 or nil,
+        tableArgument = abi == "handler" and 6 or nil
+    }
 
     return g
 end
@@ -411,6 +417,12 @@ end
 
 local function verifyNativeOperation(g: any, op: string, args: any, dst: integer): nil
     local kinds, kind = g.exactTypes, g.exactTypes[dst]
+    if g.native.abi == "leaf" then
+        assert(
+            op ~= "NativeHelperCall" and op ~= "ProgramLoad" and op ~= "FrameSlotRead" and op ~= "FrameSlotWrite",
+            "native leaf cannot access VM state or invoke managed helpers"
+        )
+    end
 
     local function hasKind(value: integer, expected: string): nil
         assert(kinds[value] == expected, "native graph operand kind mismatch")
@@ -635,22 +647,35 @@ function graph.verify(g: any): nil
     local native = g.native ~= nil
     if native then
         local signature = g.native
-        assert(
-            type(signature) == "table"
-            and signature.abi == "handler"
-            and signature.result == "uint64"
-            and #signature.params == 6
-            and nparams == 6
-            and signature.frameFromWindow == 2
-            and signature.tableArgument == 6,
-            "invalid native handler signature"
-        )
+        assert(type(signature) == "table" and signature.result == "uint64", "invalid native result signature")
+        if signature.abi == "handler" then
+            assert(
+                #signature.params == 6
+                and nparams == 6
+                and signature.frameFromWindow == 2
+                and signature.tableArgument == 6,
+                "invalid native handler signature"
+            )
+            for i = 1, 6 do
+                assert(signature.params[i] == "voidptr", "native handler parameter kind")
+            end
+        else
+            assert(signature.abi == "leaf" and nparams >= 1 and nparams <= 8, "invalid native leaf signature")
+            assert(#signature.params == nparams, "native leaf parameter count")
+            assert(
+                signature.frameFromWindow == nil and signature.tableArgument == nil,
+                "native leaf has no VM entry transport"
+            )
+            for _, kind in ipairs(signature.params) do
+                assert(kind == "voidptr" or kind == "int64" or kind == "uint64", "native leaf parameter kind")
+            end
+        end
         assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing native exact types")
         for i = 1, #types do
             assert(nativeClasses[g.exactTypes[i]] == types[i], "invalid native exact type")
         end
-        for i = 1, 6 do
-            assert(signature.params[i] == "voidptr" and g.exactTypes[i] == "voidptr", "native handler parameter kind")
+        for i = 1, nparams do
+            assert(signature.params[i] == g.exactTypes[i], "native entry parameter kind")
         end
         assert(#g.certificates == 0, "native certificate transport is outside the leaf profile")
     end
@@ -781,7 +806,10 @@ function graph.verify(g: any): nil
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native terminator source position outside table")
         end
         if kind == "dispatch" then
-            assert(native and type(t.args) == "table" and #t.args == 6, "invalid native dispatch")
+            assert(
+                native and g.native.abi == "handler" and type(t.args) == "table" and #t.args == 6,
+                "invalid native dispatch"
+            )
             for i = 1, 6 do
                 assert(usable(t.args[i]) and g.exactTypes[t.args[i]] == "voidptr", "native dispatch operand kind")
                 if i > 1 then
@@ -792,8 +820,11 @@ function graph.verify(g: any): nil
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
         elseif native and kind == "branch" then
             assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
+        elseif native and kind == "return" then
+            assert(g.native.abi == "leaf", "native handler cannot return a scalar")
+            assert(usable(t.value) and g.exactTypes[t.value] == g.native.result, "native leaf return kind")
         elseif native and kind ~= "jump" then
-            error("native graph requires jump, branch or dispatch terminators", 0)
+            error("native graph requires a jump, branch, dispatch or leaf return", 0)
         elseif kind == "branch" then
             if not (usable(t.value) and (types[t.value] == "i" or types[t.value] == "v")) then
                 error("graph branch condition", 0)

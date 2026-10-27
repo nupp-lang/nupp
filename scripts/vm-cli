@@ -551,19 +551,21 @@ def runtime(args):
 def linked_runtime(image, out, target):
     """A runtime with `image`'s functions compiled in, and with `native` the
     Nupp-authored interpreter core linked in as well."""
-    aot_tool = cargo("aot", target)
+    machine_tool = cargo("aot", target)
+    shutil.copyfile(machine_tool, out / "object-tool.new")
+    (out / "object-tool.new").chmod(0o755)
+    os.replace(out / "object-tool.new", out / "object-tool")
+    # Object policy also lives in Nupp. Build the core with the mechanical
+    # layout/object tool before an AOT tool loads the compiler's objects.
+    core = native_runtime_object(execution_seed() / "runtime", image, out / "native", target, out / "object-tool")
+    aot_tool = cargo("aot,native-runtime", target, {"NUPP_NATIVE_RUNTIME_OBJECT": str(core)})
     shutil.copyfile(aot_tool, out / "aot-tool.new")
     (out / "aot-tool.new").chmod(0o755)
     os.replace(out / "aot-tool.new", out / "aot-tool")
     obj = out / "compiler.o"
     run_step([str(out / "aot-tool"), "aot", str(image), str(obj), "--frames"], None, "AOT of the root image")
-    features = "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown"
-    env = {"NUPP_AOT_OBJECT": str(obj)}
-    # AOT retains the normal compiler route. Its boundary operations still need
-    # the Nupp interpreter, and the machine tool must not execute guest code.
-    core = native_runtime_object(execution_seed() / "runtime", image, out / "native", target, out / "aot-tool")
-    features += ",native-runtime"
-    env["NUPP_NATIVE_RUNTIME_OBJECT"] = str(core)
+    features = "aot-linked,c-headers,native-ffi,compression,net,http,regex,markdown,native-runtime"
+    env = {"NUPP_AOT_OBJECT": str(obj), "NUPP_NATIVE_RUNTIME_OBJECT": str(core)}
     # The object is read by the build script, which does not see a changed
     # file behind an unchanged variable.
     (ROOT / "native/crates/vm/src/lib.rs").touch()

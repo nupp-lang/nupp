@@ -86,6 +86,7 @@ return {
         "vmfornumtest",
         "nativegraphtest",
         "nativegraphcliftest",
+        "nativeobjecthashtest",
         "nativeruntimetest",
         "nativejittest",
         "nativestringstest",
