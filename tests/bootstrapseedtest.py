@@ -484,7 +484,7 @@ class ColdAcceptance(unittest.TestCase):
             hashes = {key.replace("\\", "/"): value for key, value in receipt["sha256"].items()}
             self.assertEqual(receipt["fixpointImageSha256"], receipt["interpreted"]["imageSha256"])
             self.assertEqual(receipt["aotExecution"]["compiledFrameEntries"], [17])
-            self.assertEqual(receipt["allocatorTests"]["passed"], 9)
+            self.assertEqual(receipt["allocatorTests"]["passed"], 1 + len(cold.ALLOCATOR_TARGETS))
             self.assertEqual(receipt["allocatorTests"]["excludedNestedSummaries"], 1)
             self.assertEqual(receipt["allocatorTests"]["objectSha256"], cold.digest(linked_native / "runtime.o"))
             self.assertEqual(receipt["allocatorTests"]["sidecarSha256"], cold.digest(linked_native / "runtime.o.rs"))

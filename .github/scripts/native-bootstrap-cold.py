@@ -72,6 +72,8 @@ def require_aot_execution(log, functions):
 ALLOCATOR_TARGETS = (
     "native_allocator", "object_constructors", "record_tail", "object_hash",
     "object_shapes", "object_tables", "record_tables", "weak_tables",
+    "weak_indexes", "value_table_ownership", "iterator_payloads", "child_walk",
+    "numeric_storage_payloads",
 )
 
 
