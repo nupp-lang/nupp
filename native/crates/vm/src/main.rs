@@ -398,11 +398,14 @@ pub(crate) fn main() {
     let argv = if executable {
         let argv = it.new_table(); it.registered.push(argv);
         for (index, argument) in call_args_text.iter().enumerate() {
+            let key = nupp_vm::numeric::signed(&mut it, (index + 1) as i64);
+            let root = it.register(key);
             let value = it.heap_new_string(argument);
-            it.set_index(argv, Value::num((index + 1) as f64), value);
+            it.set_index(argv, key, value);
+            it.release(root);
         }
         // A program's `arg[0]` is the executable, as a script's is its file.
-        if stamped { let value = it.heap_new_string(&args[0]); it.set_index(argv, Value::num(0.0), value); }
+        if stamped { let key = nupp_vm::numeric::signed(&mut it, 0); let value = it.heap_new_string(&args[0]); it.set_index(argv, key, value); }
         let global = it.require("_G"); let key = it.intern("arg"); it.set_index(global, key, argv);
         Some(argv)
     } else { None };
@@ -438,6 +441,7 @@ pub(crate) fn main() {
     } else if let Some(argv) = argv { call_args.push(argv); }
     for a in call_args_text.iter().filter(|_| !executable) {
         let v = if let Some(p) = a.strip_prefix('@') { let s = std::fs::read_to_string(p).unwrap_or_else(|e| { eprintln!("{p}: {e}"); std::process::exit(1) }); it.heap_new_string(&s) }
+            else if let Ok(n) = a.parse::<i64>() { nupp_vm::numeric::signed(&mut it, n) }
             else if let Ok(n) = a.parse::<f64>() { Value::num(n) } else { it.heap_new_string(a) };
         it.registered.push(v); call_args.push(v);
     }
@@ -492,7 +496,7 @@ pub(crate) fn main() {
     let first_s = cpu_now() - t1;
     if executable {
         // A program that returns from its body has succeeded; `os.exit` is how one says otherwise.
-        let status = if stamped { Value::num(0.0) } else { outs.first().copied().unwrap_or(Value::NIL) };
+        let status = if stamped { nupp_vm::numeric::signed(&mut it, 0) } else { outs.first().copied().unwrap_or(Value::NIL) };
         if !status.is_num() || !status.as_num().is_finite() || status.as_num().fract() != 0.0 || !(0.0..=255.0).contains(&status.as_num()) {
             eprintln!("{}.main must return an exit status from 0 to 255", args[3]);
             it.heap.emit_allocation_metrics("cli-invalid-status");
