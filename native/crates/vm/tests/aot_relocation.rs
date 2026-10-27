@@ -302,6 +302,7 @@ entry 0
 "#;
         let object = Object::build_with_probe(program, true, probe);
         let (mut vm, value) = vm(object.entry, false, true, program);
+        vm.reserve_jit_tables();
         vm.jit = Some(Box::new(nupp_vm::jit::Jit::new()));
         vm.spec.frames = specialized;
         vm.spec.feedback = specialized;
@@ -370,7 +371,7 @@ entry 0
             .join(" ");
         let report = nupp_vm::hotpatch::apply(
             &mut vm,
-            &format!("patch dynamic\nmap {map}\n{changed}"),
+            format!("patch dynamic\nmap {map}\n{changed}").as_bytes(),
             true,
         )
         .unwrap();
