@@ -124,6 +124,9 @@ pub fn word(vm: &Interp, value: Value, unsigned: bool) -> u64 {
     integer(value).map_or_else(|| bits(vm, value, unsigned), |n| n.bits)
 }
 pub fn compare(x: Value, y: Value) -> Option<Ordering> {
+    compare_with_unsigned(x, y, false)
+}
+fn compare_with_unsigned(x: Value, y: Value, unsigned: bool) -> Option<Ordering> {
     fn int_float(i: i128, f: f64) -> Option<Ordering> {
         if f.is_nan() {
             return None;
@@ -140,11 +143,12 @@ pub fn compare(x: Value, y: Value) -> Option<Ordering> {
         }
         0.0f64.partial_cmp(&f.fract())
     }
+    let magnitude = |i: Integer| if unsigned { i.bits as i128 } else { i.magnitude() };
     match (integer(x), integer(y)) {
-        (Some(a), Some(b)) => Some(a.magnitude().cmp(&b.magnitude())),
-        (Some(a), None) if y.is_num() => int_float(a.magnitude(), y.as_num()),
+        (Some(a), Some(b)) => Some(magnitude(a).cmp(&magnitude(b))),
+        (Some(a), None) if y.is_num() => int_float(magnitude(a), y.as_num()),
         (None, Some(b)) if x.is_num() => {
-            int_float(b.magnitude(), x.as_num()).map(Ordering::reverse)
+            int_float(magnitude(b), x.as_num()).map(Ordering::reverse)
         }
         (None, None) if x.is_num() && y.is_num() => x.as_num().partial_cmp(&y.as_num()),
         _ => None,
@@ -194,11 +198,10 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         return result;
     }
     if matches!(op, "lt" | "le" | "eq" | "ne") {
-        let order = if let Some(unsigned) = kind {
-            let a = word(vm, x, unsigned);
-            let b = word(vm, y, unsigned);
-            Some(if unsigned { a.cmp(&b) } else { (a as i64).cmp(&(b as i64)) })
-        } else { compare(x, y) };
+        if !(is_numeric(x) && is_numeric(y)) && matches!(op, "lt" | "le") {
+            vm.err("expected a number");
+        }
+        let order = compare_with_unsigned(x, y, kind == Some(true));
         return Value::boolean(match op {
             "lt" => order == Some(Ordering::Less),
             "le" => matches!(order, Some(Ordering::Less | Ordering::Equal)),
@@ -339,7 +342,12 @@ pub fn wide_call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         return Value::boolean(is_kind(a, unsigned));
     }
     if op == "eq" || op == "ne" {
-        let equal = vm.lua_equal(a, args.get(1).copied().unwrap_or(Value::NIL));
+        let b = args.get(1).copied().unwrap_or(Value::NIL);
+        let equal = if unsigned && is_numeric(a) && is_numeric(b) {
+            compare_with_unsigned(a, b, true) == Some(Ordering::Equal)
+        } else {
+            vm.lua_equal(a, b)
+        };
         return Value::boolean(equal == (op == "eq"));
     }
     if op == "float" {

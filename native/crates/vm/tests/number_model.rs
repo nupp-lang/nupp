@@ -145,3 +145,26 @@ fn integer_equality_keeps_optional_and_mixed_value_semantics() {
         }
     }
 }
+
+#[test]
+fn unsigned_static_comparisons_are_exact_without_changing_erased_values() {
+    let mut vm = Interp::new();
+    let max = numeric::unsigned(&mut vm, u64::MAX);
+    vm.register(max);
+    let above_double = numeric::unsigned(&mut vm, (1 << 53) + 1);
+    vm.register(above_double);
+    for (operation, left, right, expected) in [
+        ("eq", max, Value::num(-1.0), false),
+        ("ne", max, Value::num(-1.0), true),
+        ("lt", Value::num(-1.0), max, true),
+        ("lt", max, Value::num(18446744073709551616.0), true),
+        ("le", above_double, Value::num(9007199254740992.0), false),
+        ("lt", Value::inline_integer(1).unwrap(), Value::num(1.5), true),
+        ("eq", above_double, Value::num(9007199254740992.0), false),
+        ("le", max, Value::num(f64::NAN), false),
+    ] {
+        let id = builtins::id_of(&format!("wide.u64.{operation}")).unwrap();
+        assert_eq!(vm.call_value(Value::builtin(id), &[left, right])[0], Value::boolean(expected));
+    }
+    assert!(vm.values_equal(max, Value::num(-1.0)));
+}
