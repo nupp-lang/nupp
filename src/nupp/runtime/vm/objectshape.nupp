@@ -1,0 +1,72 @@
+module nupp.runtime.vm.objectshape
+
+-- Shape probes use caller-owned buffers: one word per name and two words
+-- per bucket (name bits, slot). These leaves cannot collect or enter the VM.
+-- The caller sizes the table with shapeCapacity before shapeFill writes it.
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const objecthash = require("nupp.runtime.vm.objecthash")
+
+export function shapeCapacity(count: uint64): uint64
+    if count > values.LOW_WORD then
+        return 0ULL
+    end
+    local capacity: uint64 = 8ULL
+    while capacity < count * 2ULL do
+        capacity = capacity << 1ULL
+    end
+
+    return capacity
+end
+
+export function shapeFill(names: voidptr, count: uint64, table: voidptr, capacity: uint64): uint64
+    local index: uint64 = 0ULL
+    while index < capacity do
+        native.store64(table, native.index(index * 16ULL), 0ULL)
+        native.store64(table, native.index(index * 16ULL + 8ULL), 0ULL)
+        index = index + 1ULL
+    end
+    local mask: uint64 = capacity - 1ULL
+    index = 0ULL
+    while index < count do
+        local name = native.load64(names, native.index(index * 8ULL))
+        local bucket: uint64 = objecthash.slotHash(name) & mask
+        while native.load64(table, native.index(bucket * 16ULL)) ~= 0ULL do
+            bucket = (bucket + 1ULL) & mask
+        end
+        native.store64(table, native.index(bucket * 16ULL), name)
+        native.store64(table, native.index(bucket * 16ULL + 8ULL), index)
+        index = index + 1ULL
+    end
+
+    return mask
+end
+
+export function shapeFind(table: voidptr, capacity: uint64, mask: uint64, name: uint64): uint64
+    if capacity < 8ULL then
+        return 0xffffffffffffffffULL
+    end
+    local below: uint64 = capacity - 1ULL
+    if mask ~= below then
+        return 0xffffffffffffffffULL
+    end
+    local remainder: uint64 = capacity & below
+    if remainder ~= 0ULL then
+        return 0xffffffffffffffffULL
+    end
+    local bucket: uint64 = objecthash.slotHash(name) & mask
+    local probes: uint64 = 0ULL
+    while probes < capacity do
+        local key = native.load64(table, native.index(bucket * 16ULL))
+        if key == name then
+            return native.load64(table, native.index(bucket * 16ULL + 8ULL))
+        end
+        if key == 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        bucket = (bucket + 1ULL) & mask
+        probes = probes + 1ULL
+    end
+
+    return 0xffffffffffffffffULL
+end

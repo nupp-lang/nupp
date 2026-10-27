@@ -103,9 +103,9 @@ local memoryIntrinsics = {
     storeFloat = {kind = "float64", width = 8, signed = false, write = true}
 }
 
-local function memoryContract(specification: any): any
+local function memoryContract(specification: any, borrowed: boolean?): any
     return {
-        source = "live",
+        source = borrowed and "borrowed" or "live",
         kind = specification.kind,
         width = specification.width,
         signed = specification.signed,
@@ -161,14 +161,16 @@ end
 --- graph compilation instead of selecting the temporary direct lowering.
 function nativegraph.admits(fn: any): boolean
     return fn.scope ~= nil
-        and (
-            fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true
-            or fn.scope.name == "nupp.runtime.vm.objecthash" and fn.name == "slotHash"
-        )
+        and (fn.scope.name == "nupp.runtime.vm.core" and admitted[fn.name] == true or nativegraph.isLeaf(fn))
 end
 
 function nativegraph.isLeaf(fn: any): boolean
-    return fn.scope ~= nil and fn.scope.name == "nupp.runtime.vm.objecthash" and fn.name == "slotHash"
+    return fn.scope ~= nil
+        and (
+            fn.scope.name == "nupp.runtime.vm.objecthash" and fn.name == "slotHash"
+            or fn.scope.name == "nupp.runtime.vm.objectshape"
+            and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")
+        )
 end
 
 --- Lowers an admitted checked native function to the shared Nupp graph.
@@ -315,7 +317,22 @@ function nativegraph.compile(fn: any, options: any): any
         elseif n.kind == "call" then
             local moduleName, name = member(n.obj)
             local args = n.args.exprs or {}
-            if moduleName == "nupp.runtime.vm.program" then
+            if moduleName == "nupp.runtime.vm.objecthash" and name == "slotHash" then
+                local home = options.modules and options.modules[moduleName]
+                local target = home and home.exports and home.exports[name]
+                need(target and nativegraph.isLeaf(target), "checked leaf definition required")
+                signature(n, {"uint64"}, "uint64")
+                need(expected == nil or expected == "uint64", "leaf call changes exact result kind")
+                return emit(
+                    n,
+                    "NativeLeafCall",
+                    {
+                        {moduleName = moduleName, name = name, params = {"uint64"}, result = "uint64", abi = "leaf"},
+                        expression(args[1], "uint64")
+                    },
+                    "uint64"
+                ) as integer
+            elseif moduleName == "nupp.runtime.vm.program" then
                 local contract = programcontract.read(n.obj.name.definition, name as string)
                 signature(n, {"voidptr", "int64"}, contract.result)
                 need(expected == nil or expected == contract.result, "program load changes exact kind")
@@ -351,7 +368,7 @@ function nativegraph.compile(fn: any, options: any): any
                     "int64"
                 ) as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
-                local access = memoryContract(memoryIntrinsics[name])
+                local access = memoryContract(memoryIntrinsics[name], leaf)
                 need(not access.write, "native memory write is a statement")
                 signature(n, {"voidptr", "int64"}, access.kind)
                 need(expected == nil or expected == access.kind, "native load changes exact kind")
@@ -473,7 +490,7 @@ function nativegraph.compile(fn: any, options: any): any
                     local value = expression(args[4], contract.kind)
                     emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
                 elseif moduleName == "nupp.runtime.vm.intrinsics" and memoryIntrinsics[name] then
-                    local access = memoryContract(memoryIntrinsics[name])
+                    local access = memoryContract(memoryIntrinsics[name], leaf)
                     need(access.write, "native memory read is not a statement")
                     signature(call, {"voidptr", "int64", access.kind}, "nil")
                     emit(

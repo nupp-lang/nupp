@@ -388,14 +388,29 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
     { let _ = bits; panic!("object hashing requires a linked Nupp core") }
 }
 #[cfg(feature = "native-runtime")]
-unsafe extern "C" { fn nupp_object_slot_hash(bits: u64) -> u64; }
+unsafe extern "C" {
+    fn nupp_object_slot_hash(bits: u64) -> u64;
+    fn nupp_object_shape_capacity(count: u64) -> u64;
+    fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
+    fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
+}
 #[cfg(feature = "native-runtime")]
-const _: () = assert!(crate::dispatch::OBJECT_ABI == 1);
+const _: () = {
+    assert!(crate::dispatch::OBJECT_ABI == 2);
+    assert!(std::mem::size_of::<Value>() == 8);
+    assert!(std::mem::size_of::<[u64; 2]>() == 16);
+    assert!(std::mem::align_of::<[u64; 2]>() == 8);
+};
 impl Shape {
     /// The slot a name occupies, by the table.
     #[inline] pub fn slot_of(&self, name: Value) -> Option<usize> {
-        let mut k = slot_hash(name.0) & self.mask;
-        loop { let (b, i) = self.table[k as usize]; if b == name.0 { return Some(i as usize); } if b == 0 { return None; } k = (k + 1) & self.mask; }
+        #[cfg(feature = "native-runtime")]
+        {
+            let index = unsafe { nupp_object_shape_find(self.table.as_ptr(), self.table.len() as u64, self.mask, name.0) };
+            (index != u64::MAX).then_some(index as usize)
+        }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = name; panic!("shape probing requires a linked Nupp core") }
     }
 }
 pub struct Shape {
@@ -408,7 +423,7 @@ pub struct Shape {
     /// Slot by name: an open-addressed table of (name bits, slot) with a
     /// power-of-two size, empty entries zero, that the core probes the same
     /// way; names are interned, so bits compare as identity.
-    pub table: Vec<(u64, u32)>,
+    pub table: Vec<[u64; 2]>,
     pub mask: u64,
     /// The descriptor: method name (interned) to the function value that runs it.
     pub methods: HashMap<Value, Value, crate::value::BitsBuild>,
@@ -559,12 +574,17 @@ impl Heap {
     }
 
     pub fn shape(&mut self, name: &str, names: &[Value], types: &[SlotTy]) -> u32 {
-        let mut size = 8usize; while size < names.len() * 2 { size *= 2; }
-        let mask = (size - 1) as u64;
-        let mut table = vec![(0u64, 0u32); size];
-        for (i, n) in names.iter().enumerate() { let mut k = slot_hash(n.0) & mask; while table[k as usize].0 != 0 { k = (k + 1) & mask; } table[k as usize] = (n.0, i as u32); }
-        self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
-        (self.shapes.len() - 1) as u32
+        #[cfg(feature = "native-runtime")]
+        {
+            let size = unsafe { nupp_object_shape_capacity(names.len() as u64) };
+            assert!(size != 0, "shape exceeds the slot index range");
+            let mut table = vec![[0u64; 2]; usize::try_from(size).expect("shape capacity")];
+            let mask = unsafe { nupp_object_shape_fill(names.as_ptr(), names.len() as u64, table.as_mut_ptr(), size) };
+            self.shapes.push(Shape { name: name.to_string(), structural: name.starts_with("struct:"), names: names.to_vec(), types: types.to_vec(), methods: HashMap::default(), table, mask, mm_cache: 0 });
+            (self.shapes.len() - 1) as u32
+        }
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = (name, names, types); panic!("shape construction requires a linked Nupp core") }
     }
 
     /// Keep GC pacing and retained-byte accounting consistent with native

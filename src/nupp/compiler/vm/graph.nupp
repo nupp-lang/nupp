@@ -102,6 +102,7 @@ signatures.VExtractI = "Ix##"
 -- Nupp kinds and static contracts are verified before machine emission.
 signatures.NativeConstant = "I#"
 signatures.NativeHelperCall = "I#"
+signatures.NativeLeafCall = "I#"
 signatures.NativeLoad = "Iii#"
 signatures.NativeStore = "iia#"
 signatures.NativeLayout = "I#"
@@ -132,6 +133,7 @@ signatures.NativeSqrt = "Ff"
 local nativeOnly = {
     NativeConstant = true,
     NativeHelperCall = true,
+    NativeLeafCall = true,
     NativeLoad = true,
     NativeStore = true,
     NativeLayout = true,
@@ -233,6 +235,7 @@ end
 -- its checked declaration is immediate metadata; arguments remain visible to
 -- the common closed-block verifier and transport pruning.
 parsed.NativeHelperCall.variadic = true
+parsed.NativeLeafCall.variadic = true
 
 local function operationArity(sig: any, args: any): boolean
     return #args == sig.n or sig.variadic == true and #args >= sig.n
@@ -428,7 +431,27 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         assert(kinds[value] == expected, "native graph operand kind mismatch")
     end
 
-    if op == "NativeHelperCall" then
+    if op == "NativeLeafCall" then
+        assert(g.native.abi == "leaf", "scalar leaf calls require a leaf graph")
+        local declaration = args[1]
+        nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, abi = true})
+        assert(
+            declaration.moduleName == "nupp.runtime.vm.objecthash"
+            and declaration.name == "slotHash"
+            and declaration.abi == "leaf"
+            and declaration.result == "uint64",
+            "native leaf call requires the pure slot hash declaration"
+        )
+        assert(
+            type(declaration.params) == "table" and #declaration.params == 1 and #args == 2,
+            "native leaf argument count"
+        )
+        for index, parameter in pairs(declaration.params) do
+            assert(index == 1 and parameter == "uint64", "native leaf exact parameter kind")
+        end
+        hasKind(args[2], "uint64")
+        assert(kind == "uint64", "native leaf result kind")
+    elseif op == "NativeHelperCall" then
         local declaration = args[1]
         nativeContract(declaration, {moduleName = true, name = true, params = true, result = true, effects = true})
         assert(
@@ -473,7 +496,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         local write = op == "NativeStore"
         local contract = args[write and 4 or 3]
         nativeContract(contract, {source = true, kind = true, width = true, signed = true, write = true})
-        assert(contract.source == "live" and contract.write == write, "native memory requires live access semantics")
+        local source = g.native.abi == "leaf" and "borrowed" or "live"
+        assert(
+            contract.source == source and contract.write == write,
+            "native memory requires " .. source .. " access semantics"
+        )
         assert(type(contract.signed) == "boolean", "native memory requires explicit signedness")
         local width, memoryKind = contract.width, contract.kind
         assert(width == 1 or width == 2 or width == 4 or width == 8, "native memory width")

@@ -160,7 +160,21 @@ function emitter.emit(g: any, options: any): string
         for i, op in ipairs(block.op) do
             local args, dst = block.args[i], block.dst[i]
             local result = dst ~= 0 and value(dst) or ""
-            if op == "NativeHelperCall" then
+            if op == "NativeLeafCall" then
+                local declaration = args[1]
+                local symbol = declaration.name
+                local known = imports[symbol]
+                if not known then
+                    local sig, ref = "sig" .. tostring(importCount + 1), "fn" .. tostring(importCount)
+                    importCount = importCount + 1
+                    preamble[#preamble + 1] = sig .. " = (i64) -> i64 tail"
+                    preamble[#preamble + 1] = ref .. " = %" .. symbol .. " " .. sig
+                    known = {signature = "(i64) -> i64 tail", exact = "uint64->uint64", ref = ref}
+                    imports[symbol] = known
+                end
+                need(known.signature == "(i64) -> i64 tail", "leaf signature changed")
+                line(result .. " = call " .. known.ref .. "(" .. value(args[2]) .. ")")
+            elseif op == "NativeHelperCall" then
                 local words = {}
                 for index = 2, #args do
                     words[index - 1] = value(args[index])
@@ -170,13 +184,14 @@ function emitter.emit(g: any, options: any): string
             elseif op == "NativeLoad" or op == "NativeStore" then
                 local write = op == "NativeStore"
                 local contract = args[write and 4 or 3]
+                local flags = contract.source == "live" and " notrap " or " "
                 local address = temporary("iadd " .. value(args[1]) .. ", " .. value(args[2]))
                 if write then
                     local store = "store"
                     if contract.kind ~= "float32" and contract.kind ~= "float64" and contract.width ~= 8 then
                         store = ({[1] = "istore8", [2] = "istore16", [4] = "istore32"})[contract.width]
                     end
-                    line(store .. " notrap " .. value(args[3]) .. ", " .. address)
+                    line(store .. flags .. value(args[3]) .. ", " .. address)
                 else
                     local load: string
                     if contract.kind == "float32" or contract.kind == "float64" then
@@ -188,7 +203,7 @@ function emitter.emit(g: any, options: any): string
                     else
                         load = "uload" .. tostring(contract.width * 8) .. ".i64"
                     end
-                    line(result .. " = " .. load .. " notrap " .. address)
+                    line(result .. " = " .. load .. flags .. address)
                 end
             elseif op == "NativeLayout" then
                 local offset = need(options.layout, "native ABI layout provider required")(args[1])

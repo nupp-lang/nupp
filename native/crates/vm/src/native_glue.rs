@@ -314,6 +314,9 @@ fn require_handler_clif(
 fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
     match name {
         "slotHash" => Some(("nupp_object_slot_hash", 1)),
+        "shapeCapacity" => Some(("nupp_object_shape_capacity", 1)),
+        "shapeFill" => Some(("nupp_object_shape_fill", 4)),
+        "shapeFind" => Some(("nupp_object_shape_find", 4)),
         _ => None,
     }
 }
@@ -327,19 +330,37 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     {
         return Err(format!("{}: object leaf word signature required", f.name));
     }
+    let name = name_of(f);
+    let memory = matches!(name.as_str(), "shapeFill" | "shapeFind");
+    let write = name == "shapeFill";
     if !f.global_values.is_empty() || !f.sized_stack_slots.is_empty()
-        || !f.dynamic_stack_slots.is_empty() || !f.dfg.ext_funcs.is_empty()
+        || !f.dynamic_stack_slots.is_empty() || !memory && !f.dfg.ext_funcs.is_empty()
     {
         return Err(format!("{}: object leaf references no symbols, stack or calls", f.name));
+    }
+    let word_hash = Signature {
+        params: vec![AbiParam::new(types::I64)],
+        returns: vec![AbiParam::new(types::I64)],
+        call_conv: CallConv::Tail,
+    };
+    for (_, declaration) in f.dfg.ext_funcs.iter() {
+        let ExternalName::TestCase(target) = &declaration.name else {
+            return Err(format!("{}: object leaf requires a local scalar callee", f.name));
+        };
+        if target.to_string().trim_start_matches('%') != "slotHash"
+            || f.dfg.signatures[declaration.signature] != word_hash
+        {
+            return Err(format!("{}: object leaf may call only the exact slot hash leaf", f.name));
+        }
     }
     for block in f.layout.blocks() {
         for inst in f.layout.block_insts(block) {
             let opcode = f.dfg.insts[inst].opcode();
-            if opcode.is_call() {
+            if opcode.is_call() && (!memory || opcode != Opcode::Call) {
                 return Err(format!("{}: object leaf cannot call or dispatch", f.name));
             }
-            if opcode.can_load() || opcode.can_store() {
-                return Err(format!("{}: scalar object hash cannot access memory", f.name));
+            if opcode.can_load() && !memory || opcode.can_store() && !write {
+                return Err(format!("{}: object leaf cannot access memory with this capability", f.name));
             }
         }
     }
@@ -350,7 +371,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 1;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 2;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -879,4 +900,17 @@ mod object_leaf_tests {
         let load = "function %slotHash(i64) -> i64 tail { block0(v0:i64): v1 = load.i64 v0 return v1 }";
         assert!(require_object_leaf(&parse(load), 1).unwrap_err().contains("cannot access memory"));
     }
+    #[test]
+    fn shape_leaves_use_borrowed_memory_and_only_the_exact_hash_callee() {
+        let fill = "function %shapeFill(i64, i64, i64, i64) -> i64 tail { sig0 = (i64) -> i64 tail fn0 = %slotHash sig0 block0(v0:i64, v1:i64, v2:i64, v3:i64): v4 = load.i64 v0 v5 = call fn0(v4) store v5, v2 return v3 }";
+        require_object_leaf(&parse(fill), 4).unwrap();
+        let find = fill.replace("%shapeFill", "%shapeFind").replace(" store v5, v2", "");
+        require_object_leaf(&parse(&find), 4).unwrap();
+        assert!(require_object_leaf(&parse(&fill.replace("%shapeFill", "%shapeFind")), 4).is_err());
+        assert!(require_object_leaf(&parse(&fill.replace("%slotHash", "%nupp_rt_new_table")), 4).is_err());
+        assert!(require_object_leaf(&parse(&fill.replace("(i64) -> i64 tail", "(i64) -> i64 system_v")), 4).is_err());
+        let indirect = "function %shapeFind(i64, i64, i64, i64) -> i64 tail { sig0 = (i64) -> i64 tail block0(v0:i64, v1:i64, v2:i64, v3:i64): v4 = call_indirect sig0, v0(v1) return v4 }";
+        assert!(require_object_leaf(&parse(indirect), 4).is_err());
+    }
+
 }

@@ -88,4 +88,101 @@ function M.canonicalSlotHashSourceUsesTheSharedGraphInOrdinaryNativeCompilation(
     assert(not body:find("call", 1, true), body)
 end
 
+function M.shapeLeavesUseTheSharedGraphAndLocalTailHashCalls()
+    local text = lower.compile(
+        ROOT,
+        {
+            ROOT .. "/src/nupp/runtime/vm/values.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objecthash.nupp",
+            ROOT .. "/src/nupp/runtime/vm/objectshape.nupp"
+        },
+        {include = {"src"}}
+    )
+    for _, name in ipairs({"shapeCapacity", "shapeFill", "shapeFind"}) do
+        local body = assert(text:match("function %%" .. name .. "%b()%s*%-%>%s*i64%s+tail%s*(%b{})"), text)
+        assert(body:find("Nupp native graph: " .. name, 1, true), body)
+        assert(not body:find("return_call_indirect", 1, true), body)
+        if name ~= "shapeCapacity" then
+            assert(body:find(" = %slotHash sig", 1, true), body)
+            assert(body:find(" = (i64) -> i64 tail", 1, true), body)
+            assert(body:find("load.i64 v", 1, true), body)
+            assert(not body:find("notrap", 1, true), body)
+        end
+    end
+end
+
+function M.localLeafCallsRetainKindsAndRefuseManagedOrChangedCallees()
+    local function callGraph()
+        local g = G.newNative({"uint64"}, "uint64", "leaf")
+        local b = G.block(g)
+        G.emitNative(g, b, "NativeConstant", {"42"}, "uint64")
+        local declaration = {
+            moduleName = "nupp.runtime.vm.objecthash",
+            name = "slotHash",
+            params = {"uint64"},
+            result = "uint64",
+            abi = "leaf"
+        }
+        local answer = G.emitNative(g, b, "NativeLeafCall", {declaration, 1}, "uint64")
+        b.term = {kind = "return", value = answer, edges = {}}
+
+        return g, declaration
+    end
+
+    local g = callGraph()
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    local text = clif.emit(g, {name = "shapeCapacity"})
+    assert(text:find("fn0 = %slotHash sig1", 1, true), text)
+    assert(text:find("sig1 = (i64) -> i64 tail", 1, true), text)
+    assert(not text:find("nupp_rt_", 1, true), text)
+    for field, value in pairs({
+        moduleName = "nupp.runtime.vm.helpers",
+        name = "newTable",
+        abi = "c",
+        result = "int64"
+    }) do
+        local bad, declaration = callGraph()
+        declaration[field] = value
+        rejects(
+            function()
+                G.verify(bad)
+            end,
+            "slot hash declaration"
+        )
+    end
+    local bad, declaration = callGraph()
+    declaration.params[1] = "float64"
+    rejects(
+        function()
+            G.verify(bad)
+        end,
+        "exact parameter kind"
+    )
+end
+
+function M.borrowedLeafMemoryKeepsItsGuardsAndCannotClaimHandlerAccess()
+    local g = G.newNative({"voidptr", "int64", "uint64"}, "uint64", "leaf")
+    local b = G.block(g)
+    local read = {source = "borrowed", kind = "uint64", width = 8, signed = false, write = false}
+    local write = {source = "borrowed", kind = "uint64", width = 8, signed = false, write = true}
+    local answer = G.emitNative(g, b, "NativeLoad", {1, 2, read}, "uint64")
+    G.emitNative(g, b, "NativeStore", {1, 2, 3, write})
+    b.term = {kind = "return", value = answer, edges = {}}
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    local text = clif.emit(g, {name = "shapeFind"})
+    assert(text:find("load.i64 v", 1, true) and text:find("store v", 1, true), text)
+    assert(not text:find("notrap", 1, true), text)
+    read.source = "live"
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "borrowed access semantics"
+    )
+end
+
 return M
