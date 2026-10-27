@@ -276,6 +276,7 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
+    fn nupp_object_integer_initialize(header: *mut Header, bits: u64) -> u64;
     fn nupp_object_record_initialize(header: *mut Header, owner: *mut std::ffi::c_void, shape: u64, count: u64) -> u64;
     fn nupp_object_string_initialize(header: *mut Header, count: u64) -> u64;
     fn nupp_object_slice_initialize(header: *mut Header, source: u64, offset: u64, count: u64) -> u64;
@@ -288,7 +289,7 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 14);
+    assert!(crate::dispatch::OBJECT_ABI == 15);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<RecordTail>() == 40);
     assert!(std::mem::size_of::<RecordExtra>() == 64);
@@ -609,8 +610,8 @@ impl Heap {
     pub fn box_integer(&mut self, value: crate::numeric::Integer, roots: &dyn Roots) -> Value {
         let value = crate::numeric::Integer { bits: value.bits, unsigned: false };
         if let Some(v) = value.immediate().or_else(|| self.integer_lookup(value)) { return v; }
-        let p = self.alloc(KIND_INTEGER, 0, roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = value.unsigned as u32; h.aux_len = value.bits; }
+        let p = self.alloc(KIND_INTEGER, constructor_payload(KIND_INTEGER, 0), roots);
+        initialize_object!(nupp_object_integer_initialize(p.as_ptr(), value.bits));
         self.integers.insert((value.unsigned, value.bits), p);
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });

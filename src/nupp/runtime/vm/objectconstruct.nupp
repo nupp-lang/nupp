@@ -29,6 +29,8 @@ export function constructorPayload(kind: uint64, count: uint64): uint64
             return 0xffffffffffffffffULL
         end
         return count * word + tail
+    elseif kind == heap.KIND_INTEGER then
+        return 0ULL
     elseif kind == heap.KIND_CELL then
         return native.sizeOf<heap.CellBody>()
     elseif kind == heap.KIND_SLICE then
@@ -197,6 +199,22 @@ export function recordInitialize(header: voidptr, owner: uint64, shape: uint64, 
     native.store64(tail, native.fieldOffset<heap.RecordTail>("extra"), 0ULL)
     native.store32(header, native.fieldOffset<heap.Header>("aux"), native.index(shape))
     native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
+
+    return 0ULL
+end
+
+-- Every word is a valid signed integer payload; no floating conversion occurs.
+export function integerInitialize(header: voidptr, bits: uint64): uint64
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_INTEGER then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>()
+    then
+        return 1ULL
+    end
+    native.store32(header, native.fieldOffset<heap.Header>("aux"), 0)
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), bits)
 
     return 0ULL
 end
