@@ -4322,14 +4322,37 @@ function lower.emit(
             end
             f:jump(y.done)
         elseif k == "compoundAssign" then
-            -- `x op= e` is `x = x op e`; the target's own subexpressions are
-            -- evaluated twice, as they are side-effect free in practice.
+            -- Capture the target address and current value before the right
+            -- operand, which may rebind any local used by that target.
             local opText = tokText(node.op):sub(1, -2)
             opText = OPERATOR_SPELLINGS[opText] or opText
             local target = node.target
-            -- The target's table and key are evaluated once, before the value,
-            -- and read back from those registers.
-            local prepared = prepareTarget(f, target, true)
+            local row = target.kind == "dotIndex" and soaField(target) and target.obj
+                or target.kind == "bracketIndex" and target.soaRow and target
+            if row then
+                local function hold(operand)
+                    local value = f:reg()
+                    exprAs(f, operand, "v", value)
+                    return {kind = "vmRegister", reg = value, inferredType = operand.inferredType}
+                end
+
+                local heldRow = {}
+                for key, value in pairs(row) do
+                    heldRow[key] = value
+                end
+                heldRow.obj, heldRow.expr = hold(row.obj), hold(row.expr)
+                if row == target then
+                    target = heldRow
+                else
+                    local heldTarget = {}
+                    for key, value in pairs(target) do
+                        heldTarget[key] = value
+                    end
+                    heldTarget.obj = heldRow
+                    target = heldTarget
+                end
+            end
+            local prepared = prepareTarget(f, target, true, true)
             local current = target
             if prepared and target.kind == "dotIndex" then
                 current = {
@@ -4348,9 +4371,11 @@ function lower.emit(
                     inferredType = target.inferredType,
                 }
             end
+            local previous = f:reg()
+            exprAs(f, current, "v", previous)
             local bin = {
                 kind = "binop",
-                lhs = current,
+                lhs = {kind = "vmRegister", reg = previous, inferredType = current.inferredType},
                 rhs = node.value,
                 op = {text = opText},
                 inferredType = node.inferredType or node.target.inferredType,

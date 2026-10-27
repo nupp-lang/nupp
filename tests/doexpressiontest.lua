@@ -342,6 +342,100 @@ return n == 5 and count == 0 and obj.value == 6
     end
 end
 
+function M.compoundTargetsKeepTheirOriginalBaseAndKey()
+    assert(
+        run(
+            [[
+local values: any = {2, 40}
+local original = values
+local index = 1
+values[index] += do values = {100, 200}; index = 2; yield 3 end
+return original[1] == 5 and original[2] == 40 and values[2] == 200
+]]
+        )
+    )
+end
+
+function M.compoundMetamethodsReadOnceBeforeTheRightHandSide()
+    local result = run(
+        [[
+local trail = {}
+local stored = 0
+local written: any = nil
+local original: any = nil
+original = setmetatable({}, {
+    __index = function(receiver, key)
+        trail[#trail + 1] = "read:" .. key
+        return 2
+    end,
+    __newindex = function(receiver, key, value)
+        trail[#trail + 1] = "write:" .. key
+        written = receiver
+        stored = value
+    end,
+})
+local target: any = original
+local key = "before"
+local function base(): any
+    trail[#trail + 1] = "base"
+    return target
+end
+local function index(): string
+    trail[#trail + 1] = "key"
+    return key
+end
+base()[index()] += do
+    trail[#trail + 1] = "rhs"
+    target = {}
+    key = "after"
+    yield 3
+end
+return {stored, written == original, table.concat(trail, ",")}
+]]
+    )
+    assert(result[1] == 5 and result[2] == true, tostring(result[1]))
+    assert(result[3] == "base,key,read:before,rhs,write:before", result[3])
+end
+
+function M.compoundLocalsPreserveWideAndFloatingValues()
+    local wide = run([[
+local value: integer = 9007199254740993
+value += do value = 100; yield 2 end
+return value
+]])
+    assert(wide == 9007199254740995, tostring(wide))
+    local floating = run([[
+local value = 2.0
+value += do value = 100.0; yield 3.0 end
+return {math.type(value), value}
+]])
+    assert(floating[1] == "float" and floating[2] == 5.0, tostring(floating[2]))
+end
+
+function M.compoundSoAFieldsKeepTheirOriginalRowIndex()
+    assert(
+        run(
+            [[
+local soa = require("nupp.mem.soa")
+local struct Row
+    value: float64
+end
+local owner = soa.allocate(ffi.typeof<Row>(), 2)
+local answer = false
+with rows = owner:write() do
+    rows[1].value = 2.0
+    rows[2].value = 40.0
+    local index: integer = 1
+    rows[index].value += do index = 2; yield 3.0 end
+    answer = rows[1].value == 5.0 and rows[2].value == 40.0
+end
+nupp.drop(owner)
+return answer
+]]
+        )
+    )
+end
+
 function M.loopBodiesKeepBlockSideEffects()
     assert(
         run(
