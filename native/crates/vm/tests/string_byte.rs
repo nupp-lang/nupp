@@ -129,7 +129,7 @@ fn expected(bytes: &[u8], index: i64) -> Value {
         index as i128 - 1
     };
     if zero >= 0 && zero < bytes.len() as i128 {
-        Value::num(bytes[zero as usize] as f64)
+        Value::inline_integer(bytes[zero as usize] as i64).unwrap()
     } else {
         Value::NIL
     }
@@ -223,7 +223,7 @@ fn lowered_float_negative_index_reads_the_decimal_suffix() {
             let text = input(&mut vm, b"1.", slice);
             assert_eq!(
                 run(&mut vm, mode, &[text]),
-                Value::num(46.0),
+                Value::inline_integer(46).unwrap(),
                 "{mode:?}, slice={slice}"
             );
             vm.full_cycle();
