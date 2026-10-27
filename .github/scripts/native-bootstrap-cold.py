@@ -69,6 +69,63 @@ def require_aot_execution(log, functions):
         raise ValueError("normal AOT compiler executed no compiled frames")
     return {"attachedEntries": attached, "compiledFrameEntries": executed}
 
+ALLOCATOR_TARGETS = (
+    "native_allocator", "object_constructors", "record_tail", "object_hash",
+    "object_shapes", "object_tables", "record_tables", "weak_tables",
+)
+
+
+def require_cargo_tests(log):
+    targets = re.findall(r"^\s*Running (unittests src[/\\]lib\.rs|tests[/\\][a-z_]+\.rs) \(", log, re.M)
+    names = ["lib" if target.startswith("unittests") else re.split(r"[/\\]", target)[-1][:-3]
+             for target in targets]
+    expected = {"lib", *ALLOCATOR_TARGETS}
+    if len(names) != len(expected) or set(names) != expected:
+        raise ValueError("allocator Cargo proof did not run every selected target exactly once")
+    stack, outer, nested = [], [], 0
+    for line in log.splitlines():
+        if re.fullmatch(r"running [0-9]+ tests?", line):
+            stack.append(line)
+        result = re.match(r"test result: (ok|FAILED)\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) ignored;", line)
+        if result:
+            if not stack:
+                raise ValueError("allocator Cargo proof has an unmatched result")
+            stack.pop()
+            if stack:
+                nested += 1
+            else:
+                outer.append({"passed": int(result[2]), "failed": int(result[3]), "ignored": int(result[4])})
+    if stack or len(outer) != len(names) or any(row["passed"] <= 0 or row["failed"] for row in outer):
+        raise ValueError("allocator Cargo proof has missing, empty, or failed test results")
+    return {"targets": dict(zip(names, outer)), "passed": sum(row["passed"] for row in outer),
+            "ignored": sum(row["ignored"] for row in outer), "excludedNestedSummaries": nested}
+
+
+def matched_core_tests(native, env):
+    object_path, sidecar = native / "runtime.o", native / "runtime.o.rs"
+    if any(not path.is_file() or not path.stat().st_size for path in (object_path, sidecar)):
+        raise ValueError("allocator Cargo proof requires a nonempty final native object and sidecar")
+    before = (digest(object_path), digest(sidecar))
+    test_env = dict(env, NUPP_NATIVE_RUNTIME_OBJECT=str(object_path.resolve()))
+    # Tests deliberately exercise their own tier matrix rather than inherit the
+    # compiler driver's execution switches. The only core is the final object.
+    for name in ("NO_JIT", "NO_AOT", "NO_THREADED", "SIMD_INTERPRET", "JIT_ONLY", "NUPP_AOT_OBJECT"):
+        test_env.pop(name, None)
+    if "RUSTC_WRAPPER" not in test_env and shutil.which("sccache"):
+        test_env["RUSTC_WRAPPER"] = "sccache"
+    command = [os.environ.get("CARGO", "cargo"), "test", "--locked", "--release", "-p", "nupp-vm",
+               "--features", "aot,native-runtime,allocation-metrics", "--lib"]
+    for target in ALLOCATOR_TARGETS:
+        command.extend(["--test", target])
+    command.extend(["--", "--test-threads=1"])
+    run(command, "allocator-cargo", env=test_env)
+    if before != (digest(object_path), digest(sidecar)):
+        raise ValueError("allocator Cargo proof changed its final native object or sidecar")
+    result = require_cargo_tests((OUT / "allocator-cargo.log").read_text())
+    result.update({"object": str(object_path.relative_to(ROOT)), "objectSha256": before[0],
+                   "sidecarSha256": before[1]})
+    return result
+
 
 def cold():
     if (ROOT / ".nupp/vm-cli/current").exists():
@@ -128,6 +185,7 @@ def cold():
     functions = read_aot_manifest(object_manifest, linked_image, int(count[1]))
     final_native = ROOT / "build/vm-cli/link/native"
     require_same_bytes(output, final_native / "runtime.clif", "final linked core CLIF differs from the cold-build core")
+    allocator_tests = matched_core_tests(final_native, normal_env)
     project = ROOT / "native/crates/vm/tests/project"
     reference, compiled = OUT / "emitted-interpreted.image", OUT / "emitted-aot.image"
     reference.unlink(missing_ok=True)
@@ -149,6 +207,7 @@ def cold():
                "host": host, "productionPin": pin, "seedManifest": manifest,
                "interpreted": interpreted, "fixpointImageSha256": fixed_sha,
                "linkedGeneration": linked_generation, "compiledFunctions": functions,
+               "allocatorTests": allocator_tests,
                "aotExecution": execution, "emittedImageSha256": emitted_sha,
                "sha256": {str(path.relative_to(ROOT)): digest(path) for path in
                    [linked / "runtime", linked / "compiler.image", output, native / "runtime.clif",

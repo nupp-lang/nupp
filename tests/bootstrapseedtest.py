@@ -399,11 +399,41 @@ class ColdAcceptance(unittest.TestCase):
                         delivery["runtimeSha256"] = "0" * 64
                     (linked / "receipt.json").write_text(json.dumps(delivery))
                     core(linked_native)
+                    if fault == "cargo-object":
+                        (linked_native / "runtime.o").write_bytes(b"")
+                    if fault == "cargo-sidecar":
+                        (linked_native / "runtime.o.rs").write_bytes(b"")
                     if fault == "core":
                         (linked_native / "runtime.clif").write_text("different final core")
                     (linked_native.parent / "compiler.o.manifest").write_text(
                         "runtime-abi\t4\nimage-sha256\t" + delivery["imageSha256"]
                         + "\nfunctions\t2\n0\tnupp_aot_0\n1\tnupp_aot_1\n")
+                elif name == "allocator-cargo":
+                    self.assertEqual(env["NUPP_NATIVE_RUNTIME_OBJECT"], str((linked_native / "runtime.o").resolve()))
+                    self.assertIn("--lib", command)
+                    self.assertEqual(command[command.index("--features") + 1], "aot,native-runtime,allocation-metrics")
+                    self.assertEqual([command[i + 1] for i, part in enumerate(command) if part == "--test"], list(cold.ALLOCATOR_TARGETS))
+                    for key in ("NO_JIT", "NO_AOT", "NO_THREADED", "SIMD_INTERPRET", "JIT_ONLY", "NUPP_AOT_OBJECT"):
+                        self.assertNotIn(key, env)
+                    if fault == "cargo-exit":
+                        raise RuntimeError("allocator-cargo failed (7)")
+                    selected = ["lib", *cold.ALLOCATOR_TARGETS]
+                    if fault == "cargo-missing":
+                        selected.pop()
+                    lines = []
+                    for index, target in enumerate(selected):
+                        filename = "unittests src/lib.rs" if target == "lib" else "tests/" + target + ".rs"
+                        if windows_receipt_keys:
+                            filename = filename.replace("/", "\\")
+                        lines.extend(["     Running " + filename + " (target.exe)", "", "running 1 test"])
+                        if index == 0:
+                            lines.extend(["running 99 tests", "test result: ok. 99 passed; 0 failed; 0 ignored;"])
+                        passed, failed = (0, 1) if fault == "cargo-failed" else (0, 0) if fault == "cargo-empty" else (1, 0)
+                        status = "FAILED" if failed else "ok"
+                        lines.append(f"test result: {status}. {passed} passed; {failed} failed; 0 ignored;")
+                    (out / "allocator-cargo.log").write_text("\n".join(lines) + "\n")
+                    if fault == "cargo-mutated":
+                        (linked_native / "runtime.o").write_bytes(b"different native core")
                 elif name == "aot-verify":
                     return "verified 2 functions\n"
                 elif name in ("emit-interpreted", "emit-aot"):
@@ -428,7 +458,7 @@ class ColdAcceptance(unittest.TestCase):
                     patch.object(cold.subprocess, "check_output", return_value="fixture-source\n"), \
                     patch.dict(os.environ, {"SEED_HOST": "fixture-host"}):
                 if fault:
-                    with self.assertRaises(ValueError):
+                    with self.assertRaises((ValueError, RuntimeError)):
                         cold.cold()
                     self.assertFalse((out / "acceptance.json").exists())
                     return None
@@ -439,6 +469,10 @@ class ColdAcceptance(unittest.TestCase):
             hashes = {key.replace("\\", "/"): value for key, value in receipt["sha256"].items()}
             self.assertEqual(receipt["fixpointImageSha256"], receipt["interpreted"]["imageSha256"])
             self.assertEqual(receipt["aotExecution"]["compiledFrameEntries"], [17])
+            self.assertEqual(receipt["allocatorTests"]["passed"], 9)
+            self.assertEqual(receipt["allocatorTests"]["excludedNestedSummaries"], 1)
+            self.assertEqual(receipt["allocatorTests"]["objectSha256"], cold.digest(linked_native / "runtime.o"))
+            self.assertEqual(receipt["allocatorTests"]["sidecarSha256"], cold.digest(linked_native / "runtime.o.rs"))
             for filename in ("runtime.clif", "runtime.o", "runtime.o.rs"):
                 self.assertEqual(hashes["build/vm-cli/link/native/" + filename], cold.digest(linked_native / filename))
             final_calls = [args for name, args, _ in calls if name in ("aot-help", "aot-verify", "emit-aot")]
@@ -453,7 +487,9 @@ class ColdAcceptance(unittest.TestCase):
         self.assertIn("build\\vm-cli\\link\\native\\runtime.clif", receipt["sha256"])
 
     def test_incoherent_delivery_or_missing_execution_cannot_publish_acceptance(self):
-        for fault in ("fixpoint", "core", "execution", "receipt", "output", "generation"):
+        for fault in ("fixpoint", "core", "execution", "receipt", "output", "generation",
+                      "cargo-object", "cargo-sidecar", "cargo-exit", "cargo-empty", "cargo-missing",
+                      "cargo-failed", "cargo-mutated"):
             with self.subTest(fault=fault):
                 self.synthetic_cold(fault)
 
