@@ -1457,6 +1457,29 @@ entry 0
 }
 
 #[test]
+fn native_helper_preserves_the_current_return_count() {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    program(&mut vm);
+    let table = vm.new_table();
+    vm.registered.push(table);
+    let key = vm.intern("missing");
+    vm.registered.push(key);
+    let tid = vm.spawn(6, &[]);
+    let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+    ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+    ctx.tid = tid as u64;
+    crate::threaded::sync(&mut ctx, &mut vm);
+    for (stale, returned) in [(3, 1), (1, 0), (0, 4)] {
+        vm.last_nres = stale;
+        ctx.last_nres = returned;
+        let result = unsafe { crate::threaded::rt_get_field(&mut ctx, table.0, key.0) };
+        assert_eq!(result, Value::NIL.0);
+        assert_eq!(ctx.last_nres, returned);
+        assert_eq!(vm.last_nres, returned as usize);
+    }
+}
+
+#[test]
 fn native_array_resize_preserves_unpublished_frame_state_and_budget() {
     let mut vm = Box::new(crate::interp::Interp::new());
     program(&mut vm);

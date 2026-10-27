@@ -375,6 +375,7 @@ pub(crate) fn enter_rust(ctx: &mut Ctx) -> (&'static mut Interp, usize) {
     charge(ctx, it);
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.tasks[tid].note_pc(ctx.pc as usize + 1);
+    it.last_nres = ctx.last_nres as usize;
     (it, tid)
 }
 /// A field read by name the core could not resolve from the shape: a table's

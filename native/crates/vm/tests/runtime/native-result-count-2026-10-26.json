@@ -1,0 +1,98 @@
+{
+  "recordedAt": "2026-10-27T00:37:54.456963+00:00",
+  "base": "87cd78f02d3d88172007fddc814e5fd9473a4dd6",
+  "problem": "Native helper entry published the frame and PC but left Interp.last_nres stale. sync then overwrote the handler return count, corrupting trailing-result argument spreads and producing Move with three operands while compiling tests/run.lua.",
+  "change": "Publish Ctx.last_nres in enter_rust before invoking helpers.",
+  "regression": "native_helper_preserves_the_current_return_count checks stale/current count pairs (3,1), (1,0), (0,4) across rt_get_field.",
+  "validation": [
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/loop-budget/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib native_helper_preserves_the_current_return_count",
+      "before": {
+        "passed": 0,
+        "failed": 1,
+        "actualCount": 3,
+        "expectedCount": 1
+      }
+    },
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/loop-budget/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "after": {
+        "passed": 104,
+        "failed": 0,
+        "ignored": 2
+      }
+    },
+    {
+      "command": "NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT=$PWD NUPP_VM_BINARY=$PWD/build/native-result-regression/runtime NUPP_VM_CLI_IMAGE=$PWD/.nupp/vm-cli/38beded458f01e50c7bd01edf101dce44831f65c8e67b17b6730c5f8e49d4ce5/compiler.image ./bin/nupp test --list-suites --group=native-runtime",
+      "before": "Move takes 2 operands, not 3",
+      "after": {
+        "listedSuites": 7,
+        "runnerCompiledAndLoaded": true
+      }
+    },
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/loop-budget/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --test frame_transfers --test specialization --test coroutines --test persistence",
+      "after": {
+        "passed": 46,
+        "failed": 0,
+        "suites": [
+          "frame_transfers",
+          "specialization",
+          "coroutines",
+          "persistence"
+        ]
+      },
+      "note": "Persistence also launches child processes for cross-process restoration; child tests are not counted twice."
+    },
+    {
+      "command": "NO_JIT=1 NO_AOT=1 SIMD_INTERPRET=1 GC_INTERLEAVE=1 GC_ORACLE=1 NUPP_VM_AUTO_REBUILD=0 NUPP_COMPILER_ROOT=$PWD NUPP_VM_BINARY=$PWD/build/native-result-regression/runtime NUPP_VM_CLI_IMAGE=$PWD/.nupp/vm-cli/38beded458f01e50c7bd01edf101dce44831f65c8e67b17b6730c5f8e49d4ce5/compiler.image ./bin/nupp run tests/fixtures/native/closures/NAME.nupp",
+      "after": [
+        {
+          "name": "varargs",
+          "returnCode": 0
+        },
+        {
+          "name": "methods",
+          "returnCode": 0
+        },
+        {
+          "name": "closures",
+          "returnCode": 0
+        },
+        {
+          "name": "cleanups",
+          "returnCode": 0
+        },
+        {
+          "name": "pcall",
+          "returnCode": 0
+        }
+      ]
+    }
+  ],
+  "validationScope": "Validation used the complete worktree, including the separate unlimited-budget correction in calls.nupp and its two native tests. This commit contains only helper return-count publication and its regression. It fixes the reproduced compiler blocker; it does not establish full native compiler acceptance or a performance result.",
+  "artifacts": {
+    "build/native-result-regression/runtime": "a3384c00f849c384f918041fac29b8ee9e489402921acf82668c4fd33d7bd0ab",
+    "build/loop-budget/runtime.o": "90e1df1ebc91578e31973a63ec30899bceacf00575c39d87a41f015e93c0a8f1",
+    ".nupp/vm-cli/38beded458f01e50c7bd01edf101dce44831f65c8e67b17b6730c5f8e49d4ce5/compiler.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913"
+  },
+  "sourceSha256": {
+    "native/crates/vm/src/threaded.rs": "c9ec29d002f4acbc0993f1900b00bd544fcd0662eb0fbe9fc9ab8d5d730e08ae",
+    "native/crates/vm/src/native_tests.rs": "ddc194dbec97fff312d70e11c25c75419c826b3422d777acc68c3f4658646139",
+    "src/nupp/runtime/vm/calls.nupp": "e739b5b83c8bfd3c108480c81fff5ea9a2326832ea1dcecbd5e12203c46bc839"
+  },
+  "logs": {
+    "helper-before.log": "d79bdd49114677f57c49395793a9e97f0875625f7db2f8b4f5206095753497a3",
+    "helper-after.log": "c25ea8fcd9c6df5a02d4f74408527f07c9c45a419cdbb3a443498144fca154d7",
+    "compiler-before.log": "d50e14724675c8908e32e3f1eec721be82671cec336bbb17200be32de3cd0586",
+    "compiler-after.log": "9d27f5541692671a5ecc0a580a790a5fb4d6306c494e75ee5984621a799f6099",
+    "integration-tests.log": "27bca5b0834190b6f95014f2d1ef7f93bc7d67eecb74180984b6cf6653574d14",
+    "runtime-build.log": "2a5ce76b8eca06443f238252f39a2ceeb1c550b8a504fc5ad5b6427540b3bf48",
+    "native-compiler-varargs.log": "4e7bb5da7d16442004721fc3a62775178896f73ee51d69795e94a39eec1bae5a",
+    "native-compiler-methods.log": "8f8722265264b842b37899ba53e11d391c76086fdb3f72992bd965b4a4b4d2dc",
+    "native-compiler-closures.log": "194f19aad78f51bb3580b2f14c2a8afff770440bbe3cfc5791605db3e9f7941e",
+    "native-compiler-cleanups.log": "4e92c1c8d7d1df0326ace3b247dae420df40efb694dd500ac72908727dcb34c5",
+    "native-compiler-pcall.log": "aad3df6ea5278db0295437d0d4211e003f8c3faff4d7566fdbadc117ed2487c5"
+  },
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression"
+}
