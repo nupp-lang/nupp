@@ -1,0 +1,735 @@
+{
+  "recordedAt": "2026-10-27T04:43:04.127714+00:00",
+  "base": "1c129dcb51cf54d0b42bdf5462b6f81ce8f10e3b",
+  "sourceRevision": "ebca5373989f7d2ee181074543b23885b2214007",
+  "scope": "P1a logical return destinations, retained program-body loads, ordinary specialization contracts and current helper/park/finite-budget correctness. This does not complete the Rust VM deletion or the common semantic graph.",
+  "ownership": "Nupp declarations, checked metadata, validators and ordinary implementations own the contracts. Temporary checked-source-to-CLIF adapters emit only ordinary operations; semantic optimization, lifetime proofs, slot promotion, context balance and recovery belong to the existing Nupp graph in P1b/P7.",
+  "contracts": {
+    "programLoads": {
+      "calls": 253,
+      "kinds": [
+        "uint8",
+        "int32",
+        "uint64",
+        "int64",
+        "number"
+      ],
+      "source": "code",
+      "lifetime": "body",
+      "scope": "Retained encoded instructions and jump words only. No readonly machine flag, folding permission or process-wide immutability is inferred. Live function tables, heap-bearing constants, budgets, heat and GC state remain live loads."
+    },
+    "logicalSlots": {
+      "calls": 230,
+      "returns": [
+        "Ret",
+        "RetNil",
+        "RetN",
+        "PadResults"
+      ],
+      "scope": "Current ABI headers are decoded at the boundary into caller frame/window/logical-slot destinations. Single float returns retain exact raw bits; value-slot0 padding is distinct from the -1 no-value sentinel. Vector slots remain part of the SIMD port."
+    },
+    "specialization": {
+      "operations": [
+        "assertConstant",
+        "specializeValue",
+        "pushContext",
+        "popContext",
+        "inInterpreter"
+      ],
+      "ordinary": "Identity with ownership preserved; identity even outside the bounded domain; no-op context push/pop; inInterpreter=true. Context keys are still evaluated exactly once. Checked function metadata survives export lookup.",
+      "defaultVariantCap": 256,
+      "maximumVariantCap": 4096,
+      "int64EndpointArithmetic": "decimal strings, checked without endpoint overflow",
+      "interpreterFeedbackGates": 5,
+      "derivedGraphImplemented": false
+    }
+  },
+  "correctness": {
+    "equality": "rt_eq_slow publishes the actual native frame, PC, budget and result count before a guest callback, then reloads context on success and error. A callee-only root survives allocation stress, oracle checking and full collection; zero/multiple results and raising callbacks retain state.",
+    "parkResume": "Three one-edge scheduler pauses retain closure captures, heap varargs, integer/float windows and a trailing-nil result pack across full GC. A clobbered global last_nres is restored per task. Exact-once counter 3, final [-7,0.25,message,payload,nil], cumulative source limit 99 -> 95; source limit 1 fails rather than parks.",
+    "budgets": "Calls and taken backward conditional edges charge exactly once. Untaken edges and terminal instructions do not charge; terminal returns can finish at zero. A source-limit error wins when source and slice are both zero. Parking an unexecuted edge consumes neither budget. Builtins, iterators, resolved calls, typed/host/task and stack-growth fallbacks are covered against the shared temporary Rust boundary.",
+    "temporaryFiniteBridges": [
+      "CallMethod gates before __index resolution via the whole-op Rust boundary",
+      "PCall preserves its existing distinction from ordinary call budget points via the whole-op boundary"
+    ],
+    "removedRust": "Unused rt_grow helper, twelve lines; no callers or imports.",
+    "automaticGraphRootPublicationProof": false
+  },
+  "validation": [
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --group=native-runtime annotationtest --jobs=1 --json",
+      "scope": "113 cases on 780a13e16: integrated program loads, return transfers, specialization contracts and equality publication; before later finite-budget correction.",
+      "passed": 113,
+      "failed": 0,
+      "ok": true,
+      "logSha256": "3a8076f479f1b7bcdaf19a799f5c26f7c46ee6aba8225de4ef139f419b4cde4d"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test --lane=shared --exclude-group=native-runtime --jobs=2 --json",
+      "scope": "1972 cases in 116 suites on 780a13e16; broad checker/metadata regression coverage before the later runtime-only budget correction.",
+      "passed": 1972,
+      "failed": 0,
+      "ok": true,
+      "logSha256": "60694fd4f3b98c92228343d313f3da1b0414d41618e5fe905aea10ccbbb3fab5"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp check --json src/nupp/compiler/check/pragma.nupp src/nupp/compiler/clif/lower.nupp src/nupp/compiler/vm/programcontract.nupp src/nupp/compiler/vm/specializationcontract.nupp src/nupp/runtime/vm/boxing.nupp src/nupp/runtime/vm/calls.nupp src/nupp/runtime/vm/closures.nupp src/nupp/runtime/vm/control.nupp src/nupp/runtime/vm/core.nupp src/nupp/runtime/vm/effects.nupp src/nupp/runtime/vm/lookup.nupp src/nupp/runtime/vm/program.d.nupp src/nupp/runtime/vm/specialization.nupp src/nupp/runtime/vm/strings.nupp src/nupp/runtime/vm/tables.nupp",
+      "scope": "Final production sources. Standalone native fixtures use harness module names and are validated by the native lowering suite.",
+      "passed": null,
+      "failed": null,
+      "ok": true,
+      "logSha256": "ef330933fb28480eb45dac2ce31cc61f978de5ab62c09bbc7185e9fd095e1086"
+    },
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/handler-contracts/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target RUSTC_WRAPPER=sccache cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "passed": 114,
+      "failed": 0,
+      "ignored": 2,
+      "scope": "Final source and final native object, including all ten new return/equality/park/budget regressions.",
+      "logSha256": "7391f65be59499cc7a6f3e18933ad735a4ed220e6fd1f229b04f212a2aa77ae3"
+    },
+    {
+      "command": "python3 scripts/vm-cli runtime --link",
+      "ok": true,
+      "logSha256": "5d63908059273fd9f1aabd2f2988da144dfcb0faafd4dbb4663d70b9800fff85"
+    },
+    {
+      "command": "python3 scripts/vm-cli build",
+      "ok": true,
+      "scope": "Rebuilt after Rust budget/dead-helper changes. The later Nupp-only removal of unreachable helper branches is outside the compiler image; the final pinned-seed fixpoint matches this image.",
+      "logSha256": "f867805f9580883ea76a96cd36d62dbed48cb663f5c7856fa7cb33350ceaf49b"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp check --json src/nupp/compiler/check/pragma.nupp src/nupp/compiler/clif/lower.nupp src/nupp/compiler/vm/programcontract.nupp src/nupp/compiler/vm/specializationcontract.nupp src/nupp/runtime/vm/boxing.nupp src/nupp/runtime/vm/calls.nupp src/nupp/runtime/vm/closures.nupp src/nupp/runtime/vm/control.nupp src/nupp/runtime/vm/core.nupp src/nupp/runtime/vm/effects.nupp src/nupp/runtime/vm/lookup.nupp src/nupp/runtime/vm/program.d.nupp src/nupp/runtime/vm/specialization.nupp src/nupp/runtime/vm/strings.nupp src/nupp/runtime/vm/tables.nupp tests/fixtures/native/programloads.nupp tests/fixtures/native/specialization.nupp",
+      "ok": false,
+      "scope": "This overbroad invocation used the project module namespace for the standalone programloads fixture, reporting NUPP1002. The existing slots fixture follows the same standalone convention. Production-only check passes; native lowering/execution validates the fixture in its intended context.",
+      "logSha256": "42daf891084902ed09f79d73fa9760b59005ec901d98a22a763a000ad88624da"
+    }
+  ],
+  "compiler": {
+    "generation": "7edb1c7dcb0c06a2aa7968cd641389709acfc71cc59752e338774a4bbcb8c576",
+    "linked": true,
+    "runtimeSha256": "36210c2cdcd70b8def57fe0d5fea93d33b1b97fda6cf7610c2c46f0cbae8383f",
+    "imageSha256": "db59a441091f76289ce8635624825dbe3e91c58c0e15e87bbc7af44cfb277588",
+    "aotFunctions": 6128,
+    "manifestSha256": "a39247c6727a0b348a695dd96ac49aa375c5d6e1507493bd68a3278eabad4c47",
+    "aotProof": {
+      "runtimeAbi": 4,
+      "binarySha256": "36210c2cdcd70b8def57fe0d5fea93d33b1b97fda6cf7610c2c46f0cbae8383f",
+      "imageSha256": "db59a441091f76289ce8635624825dbe3e91c58c0e15e87bbc7af44cfb277588",
+      "manifestSha256": "a39247c6727a0b348a695dd96ac49aa375c5d6e1507493bd68a3278eabad4c47",
+      "compiledFunctions": 6128,
+      "imageFunctions": 6128,
+      "platform": "macOS-26.6-arm64-arm-64bit",
+      "freshProcesses": 2,
+      "results": [
+        {
+          "name": "symbols",
+          "exitStatus": 0,
+          "seconds": 0.041,
+          "status": "passed"
+        },
+        {
+          "name": "build-denial",
+          "exitStatus": 0,
+          "seconds": 0.049,
+          "status": "passed"
+        },
+        {
+          "name": "build-probe",
+          "exitStatus": 0,
+          "seconds": 0.036,
+          "status": "passed"
+        },
+        {
+          "name": "deny-mapping",
+          "exitStatus": 86,
+          "seconds": 0.327,
+          "status": "passed"
+        },
+        {
+          "name": "deny-protection",
+          "exitStatus": 86,
+          "seconds": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "emit-interpreted",
+          "exitStatus": 0,
+          "seconds": 0.306,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-0",
+          "exitStatus": 0,
+          "seconds": 0.205,
+          "status": "passed"
+        },
+        {
+          "name": "emit-aot-1",
+          "exitStatus": 0,
+          "seconds": 0.209,
+          "status": "passed"
+        },
+        {
+          "name": "verify-emitted",
+          "exitStatus": 0,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "execute-emitted",
+          "exitStatus": 0,
+          "seconds": 0.008,
+          "status": "passed"
+        },
+        {
+          "name": "reject-mismatched-image",
+          "exitStatus": 1,
+          "seconds": 0.007,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-interpreted",
+          "exitStatus": 1,
+          "seconds": 0.273,
+          "status": "passed"
+        },
+        {
+          "name": "invalid-aot",
+          "exitStatus": 1,
+          "seconds": 0.197,
+          "status": "passed"
+        }
+      ],
+      "scope": "Host-native compiler AOT; fresh processes use normal host ASLR policy. No cross-platform or console validation.",
+      "executableMemoryDenied": true,
+      "emittedImageSha256": "5bb70d319907c56b1ec9ed1a2375fbc612163453e860cb1975444721a8e3feb2",
+      "diagnosticCodes": [
+        "NUPP2001"
+      ],
+      "status": "passed"
+    },
+    "actualCompiledFrameEntries": [
+      1343924,
+      1343924
+    ]
+  },
+  "fixpoint": {
+    "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp fixpoint",
+    "status": "passed",
+    "pinnedSeedSha256": "6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9",
+    "rootImageSha256": "db59a441091f76289ce8635624825dbe3e91c58c0e15e87bbc7af44cfb277588",
+    "matchesInstalledCompiler": true,
+    "logSha256": "e4f556513f44030a0c36d0f0b18b6636f36b0bad0edc3e678b936cf3bbc35728"
+  },
+  "artifacts": {
+    "runtime": {
+      "sha256": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+      "bytes": 17313720
+    },
+    "runtime.o": {
+      "sha256": "c80c1d9a26c3099c04da6c1c08a1fe70cb5ae6745545d2061243c2d5207d6f12",
+      "bytes": 64448
+    },
+    "runtime.o.rs": {
+      "sha256": "35a9c8910cfee7bc440fe6a442b23795cf3ed262b98ebe978721f79c1afaec6d",
+      "bytes": 7950
+    },
+    "runtime.clif": {
+      "sha256": "e9caa971a6fd1445e11be1e2eebc7a3d8794335fd308f392c310e01e03fd6f50",
+      "bytes": 507535
+    }
+  },
+  "abi": {
+    "dispatchSidecarIdenticalToLogicalSlotControl": true,
+    "textBytes": 49760,
+    "constantBytes": 4096
+  },
+  "productionLuaJIT": {
+    "metadata": {
+      "command": [
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter",
+        "bench",
+        "--file",
+        "build/native-runtime-p0/workloads.bench.nupp",
+        "--against",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-main-on",
+        "--forks",
+        "12",
+        "--margin",
+        "2",
+        "--json"
+      ],
+      "exitCode": 0,
+      "seconds": 358.95510241700003,
+      "inputsSha256": {
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads.bench.nupp": "556ab0396710562852e6fdc9043cfaf6fad9bb4be7a5a44998c50cd5932cc0d6",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/logical-slots/control.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter": "b7929035c7dc25dcf433e3f2a13ab4b775ea09c925b6c5e1d75399320a2573f4",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-main-on": "0ca9f03add3f437908180d7143709d86ac5283881f947116e30f982009732acf",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/luajit-mode.lua": "4def938b781f8c90f56edaaf6d9404919b815392a792a8fc6ce671162f968635",
+        "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/bin/luajit": "065a64738679bec1295e75ed1606de90465eb47157fab7b08cae42ebbc3f8bdd",
+        "/Users/dowling/projects/nupp/build/nupp/tools/main.lua": "8225b7ed3c3bc3a14ba590e89603a631faf95e731afa12b017b5e046632b755e",
+        "/Users/dowling/projects/nupp/build/lib/libnupp_native_dev.dylib": "23d9e19009622cd631a4cd825b5f5388bf2a8f854ecfa011c15cd87b5cf52e90",
+        "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/.nupp-runtime-patch": "b6a4f893432004d56514737a64d1f8dbe5049c2951a72e17d199b7570e2b89c6",
+        "/Users/dowling/projects/nupp/scripts/patches/luajit.patch": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
+      },
+      "inputsUnchanged": true,
+      "mainRevisionBefore": "fca53ef827b72d314c5dc228353d50007eb95b03",
+      "mainRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+      "scope": "Current Nupp interpreter (NO_JIT=1, NO_AOT=1) versus production LuaJIT-on main; frozen identical compiler image controls the candidate runtime route."
+    },
+    "candidate": "Nupp interpreter with NO_JIT=1, NO_AOT=1 and native core enabled",
+    "method": "12 interleaved fresh process pairs per workload;2% practical margin; identical sources and required checksums",
+    "verifiedJitEnabledProcesses": 72,
+    "verdicts": [
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 9.822863407165732,
+        "interval": {
+          "low": 9.365219423783897,
+          "upper": 9.96143861141906
+        },
+        "meanRatio": 10.689868888305446,
+        "name": "fib",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      },
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 1.6824927024889393,
+        "interval": {
+          "low": 1.6262272377324138,
+          "upper": 1.7624090303476474
+        },
+        "meanRatio": 2.6947565926317005,
+        "name": "loops",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      },
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 16.504012754290354,
+        "interval": {
+          "low": 15.978692579659231,
+          "upper": 16.98701974933261
+        },
+        "meanRatio": 17.507975455578187,
+        "name": "tables",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      },
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 3.2272218277789184,
+        "interval": {
+          "low": 3.179647755265737,
+          "upper": 3.396275019863908
+        },
+        "meanRatio": 4.295005615221561,
+        "name": "strings",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      },
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 3.361579994504953,
+        "interval": {
+          "low": 3.2995155234317872,
+          "upper": 3.424264575030727
+        },
+        "meanRatio": 4.360887600103156,
+        "name": "records",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      },
+      {
+        "adjusted": 0.00048828125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 12.497716431484616,
+        "interval": {
+          "low": 11.641333655646214,
+          "upper": 12.626027205196152
+        },
+        "meanRatio": 13.328173491903412,
+        "name": "closures",
+        "noninferiority": false,
+        "pValue": 0.00048828125,
+        "verdict": "regressed"
+      }
+    ],
+    "allSixWithinProductionMargin": false,
+    "raw": "native-contracts-luajit-main-on-2026-10-26.json"
+  },
+  "refactorCost": {
+    "metadata": {
+      "command": [
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter",
+        "bench",
+        "--file",
+        "build/native-runtime-p0/workloads.bench.nupp",
+        "--against",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp",
+        "--forks",
+        "12",
+        "--margin",
+        "2",
+        "--json"
+      ],
+      "exitCode": 0,
+      "seconds": 193.09251216700002,
+      "inputsSha256": {
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads.bench.nupp": "556ab0396710562852e6fdc9043cfaf6fad9bb4be7a5a44998c50cd5932cc0d6",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/logical-slots/control.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter": "b7929035c7dc25dcf433e3f2a13ab4b775ea09c925b6c5e1d75399320a2573f4",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp": "5c9ec6686b54c34c5eb850d2d50142e5399453504c01c5a3d1eaa7157beb45ef",
+        "/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression/runtime": "a3384c00f849c384f918041fac29b8ee9e489402921acf82668c4fd33d7bd0ab",
+        "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/bin/luajit": "065a64738679bec1295e75ed1606de90465eb47157fab7b08cae42ebbc3f8bdd",
+        "/Users/dowling/projects/nupp/build/nupp/tools/main.lua": "8225b7ed3c3bc3a14ba590e89603a631faf95e731afa12b017b5e046632b755e",
+        "/Users/dowling/projects/nupp/build/lib/libnupp_native_dev.dylib": "23d9e19009622cd631a4cd825b5f5388bf2a8f854ecfa011c15cd87b5cf52e90",
+        "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/.nupp-runtime-patch": "b6a4f893432004d56514737a64d1f8dbe5049c2951a72e17d199b7570e2b89c6",
+        "/Users/dowling/projects/nupp/scripts/patches/luajit.patch": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
+      },
+      "inputsUnchanged": true,
+      "mainRevisionBefore": "fca53ef827b72d314c5dc228353d50007eb95b03",
+      "mainRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+      "scope": "Secondary refactor-cost check: current Nupp interpreter versus preserved Nupp native interpreter a3384c00f849, with the same frozen compiler image. Production acceptance remains the separate LuaJIT-on main comparison."
+    },
+    "scope": "Secondary comparison to preserved earlier Nupp native interpreter only; this is not the production performance target. It does not use the Rust interpreter attempt.",
+    "verdicts": [
+      {
+        "adjusted": 1.3387253718440347e-06,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 0.011846133405486015,
+        "interval": {
+          "low": 0.008792170863023863,
+          "upper": 0.02016689183989606
+        },
+        "meanRatio": 1.014459690384299,
+        "name": "fib",
+        "noninferiority": false,
+        "pValue": 1.3387253718440347e-06,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.034205064013136166,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.026295314101456246,
+        "interval": {
+          "low": -0.03052877510085783,
+          "upper": -0.0016462498775524637
+        },
+        "meanRatio": 0.9856725855206815,
+        "name": "loops",
+        "noninferiority": true,
+        "pValue": 0.034205064013136166,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.005806211376964465,
+        "interval": {
+          "low": -0.02845848087773195,
+          "upper": 0.015599501709872454
+        },
+        "meanRatio": 0.9939230408857175,
+        "name": "tables",
+        "noninferiority": true,
+        "pValue": 0.5185546875,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.0039058843568374746,
+        "interval": {
+          "low": -0.009844574456346344,
+          "upper": 0.009352124952155538
+        },
+        "meanRatio": 1.0055056655177919,
+        "name": "strings",
+        "noninferiority": true,
+        "pValue": 0.5693359375,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.791015625,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 0.0023370328879039892,
+        "interval": {
+          "low": -0.006809890063942281,
+          "upper": 0.0070448683609865
+        },
+        "meanRatio": 0.992898762691592,
+        "name": "records",
+        "noninferiority": true,
+        "pValue": 0.791015625,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.0029296875,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.01634933051477927,
+        "interval": {
+          "low": -0.019523724320968938,
+          "upper": -0.008816257009235273
+        },
+        "meanRatio": 0.9855027608000918,
+        "name": "closures",
+        "noninferiority": true,
+        "pValue": 0.00048828125,
+        "verdict": "unchanged"
+      }
+    ],
+    "allSixWithinTwoPercent": false,
+    "raw": "native-contracts-refactor-cost-2026-10-26.json",
+    "initialVerdicts": [
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 0.011515730248487621,
+        "interval": {
+          "low": -0.008144373522984805,
+          "upper": 0.030599447300704075
+        },
+        "meanRatio": 1.011127335999095,
+        "name": "fib",
+        "noninferiority": false,
+        "pValue": 0.26611328125,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.031222211528067367,
+        "interval": {
+          "low": -0.045848897730534244,
+          "upper": 0.04108785238139889
+        },
+        "meanRatio": 0.9945292157776451,
+        "name": "loops",
+        "noninferiority": false,
+        "pValue": 0.5693359375,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.005806211376964465,
+        "interval": {
+          "low": -0.02845848087773195,
+          "upper": 0.015599501709872454
+        },
+        "meanRatio": 0.9939230408857175,
+        "name": "tables",
+        "noninferiority": true,
+        "pValue": 0.5185546875,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.683203125,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.0039058843568374746,
+        "interval": {
+          "low": -0.009844574456346344,
+          "upper": 0.009352124952155538
+        },
+        "meanRatio": 1.0055056655177919,
+        "name": "strings",
+        "noninferiority": true,
+        "pValue": 0.5693359375,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.791015625,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": 0.0023370328879039892,
+        "interval": {
+          "low": -0.006809890063942281,
+          "upper": 0.0070448683609865
+        },
+        "meanRatio": 0.992898762691592,
+        "name": "records",
+        "noninferiority": true,
+        "pValue": 0.791015625,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.0029296875,
+        "case": "build/native-runtime-p0/workloads.bench.nupp",
+        "change": -0.01634933051477927,
+        "interval": {
+          "low": -0.019523724320968938,
+          "upper": -0.008816257009235273
+        },
+        "meanRatio": 0.9855027608000918,
+        "name": "closures",
+        "noninferiority": true,
+        "pValue": 0.00048828125,
+        "verdict": "unchanged"
+      }
+    ],
+    "repeats": [
+      {
+        "case": "fib",
+        "reason": "The initial 12-pair upper bound did not establish the 2% cost margin. This repeat replaces that case regardless of outcome.",
+        "metadata": {
+          "command": [
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter",
+            "bench",
+            "--file",
+            "build/native-runtime-p0/workloads.bench.nupp",
+            "--case",
+            "^fib$",
+            "--against",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp",
+            "--forks",
+            "96",
+            "--margin",
+            "2",
+            "--json"
+          ],
+          "exitCode": 0,
+          "seconds": 115.08756295900001,
+          "inputsSha256": {
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads.bench.nupp": "556ab0396710562852e6fdc9043cfaf6fad9bb4be7a5a44998c50cd5932cc0d6",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/logical-slots/control.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter": "b7929035c7dc25dcf433e3f2a13ab4b775ea09c925b6c5e1d75399320a2573f4",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp": "5c9ec6686b54c34c5eb850d2d50142e5399453504c01c5a3d1eaa7157beb45ef",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression/runtime": "a3384c00f849c384f918041fac29b8ee9e489402921acf82668c4fd33d7bd0ab",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/bin/luajit": "065a64738679bec1295e75ed1606de90465eb47157fab7b08cae42ebbc3f8bdd",
+            "/Users/dowling/projects/nupp/build/nupp/tools/main.lua": "8225b7ed3c3bc3a14ba590e89603a631faf95e731afa12b017b5e046632b755e",
+            "/Users/dowling/projects/nupp/build/lib/libnupp_native_dev.dylib": "23d9e19009622cd631a4cd825b5f5388bf2a8f854ecfa011c15cd87b5cf52e90",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/.nupp-runtime-patch": "b6a4f893432004d56514737a64d1f8dbe5049c2951a72e17d199b7570e2b89c6",
+            "/Users/dowling/projects/nupp/scripts/patches/luajit.patch": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
+          },
+          "inputsUnchanged": true,
+          "mainRevisionBefore": "fca53ef827b72d314c5dc228353d50007eb95b03",
+          "mainRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+          "scope": "Prespecified 96-pair fib repeat after the 12-pair comparison was inconclusive: current Nupp interpreter versus preserved Nupp native interpreter a3384c00f849, with the same frozen compiler image. Production acceptance remains the separate LuaJIT-on main comparison."
+        },
+        "raw": "native-contracts-refactor-fib-96-2026-10-26.json",
+        "verdict": {
+          "adjusted": 1.3387253718440347e-06,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": 0.011846133405486015,
+          "interval": {
+            "low": 0.008792170863023863,
+            "upper": 0.02016689183989606
+          },
+          "meanRatio": 1.014459690384299,
+          "name": "fib",
+          "noninferiority": false,
+          "pValue": 1.3387253718440347e-06,
+          "verdict": "inconclusive"
+        }
+      },
+      {
+        "case": "loops",
+        "reason": "The initial 12-pair upper bound did not establish the 2% cost margin. This repeat replaces that case regardless of outcome.",
+        "metadata": {
+          "command": [
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter",
+            "bench",
+            "--file",
+            "build/native-runtime-p0/workloads.bench.nupp",
+            "--case",
+            "^loops$",
+            "--against",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp",
+            "--forks",
+            "48",
+            "--margin",
+            "2",
+            "--json"
+          ],
+          "exitCode": 0,
+          "seconds": 321.30378575,
+          "inputsSha256": {
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-runtime-p0/workloads.bench.nupp": "556ab0396710562852e6fdc9043cfaf6fad9bb4be7a5a44998c50cd5932cc0d6",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/runtime": "1e996b259aa0fab8433647b94844e9d30c1c6fa5523db0f602304557cca09120",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/logical-slots/control.image": "0725c2f3132bca54125484931b69c446c61410dbd7a1179c5510fe3466e40913",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/nupp-interpreter": "b7929035c7dc25dcf433e3f2a13ab4b775ea09c925b6c5e1d75399320a2573f4",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts/control-nupp": "5c9ec6686b54c34c5eb850d2d50142e5399453504c01c5a3d1eaa7157beb45ef",
+            "/Users/dowling/projects/nupp-wt/native-runtime/build/native-result-regression/runtime": "a3384c00f849c384f918041fac29b8ee9e489402921acf82668c4fd33d7bd0ab",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/bin/luajit": "065a64738679bec1295e75ed1606de90465eb47157fab7b08cae42ebbc3f8bdd",
+            "/Users/dowling/projects/nupp/build/nupp/tools/main.lua": "8225b7ed3c3bc3a14ba590e89603a631faf95e731afa12b017b5e046632b755e",
+            "/Users/dowling/projects/nupp/build/lib/libnupp_native_dev.dylib": "23d9e19009622cd631a4cd825b5f5388bf2a8f854ecfa011c15cd87b5cf52e90",
+            "/Users/dowling/projects/nupp/.nupp-cache/toolchain/d4edac07602cf2b3/luajit/.nupp-runtime-patch": "b6a4f893432004d56514737a64d1f8dbe5049c2951a72e17d199b7570e2b89c6",
+            "/Users/dowling/projects/nupp/scripts/patches/luajit.patch": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
+          },
+          "inputsUnchanged": true,
+          "mainRevisionBefore": "fca53ef827b72d314c5dc228353d50007eb95b03",
+          "mainRevision": "fca53ef827b72d314c5dc228353d50007eb95b03",
+          "scope": "Prespecified 48-pair loops repeat after the 12-pair comparison was inconclusive: current Nupp interpreter versus preserved Nupp native interpreter a3384c00f849, with the same frozen compiler image. Production acceptance remains the separate LuaJIT-on main comparison."
+        },
+        "raw": "native-contracts-refactor-loops-48-2026-10-26.json",
+        "verdict": {
+          "adjusted": 0.034205064013136166,
+          "case": "build/native-runtime-p0/workloads.bench.nupp",
+          "change": -0.026295314101456246,
+          "interval": {
+            "low": -0.03052877510085783,
+            "upper": -0.0016462498775524637
+          },
+          "meanRatio": 0.9856725855206815,
+          "name": "loops",
+          "noninferiority": true,
+          "pValue": 0.034205064013136166,
+          "verdict": "inconclusive"
+        }
+      }
+    ],
+    "disposition": "Five cases meet the 2% refactor-cost margin. Fib remains inconclusive after 96 pairs: median change+1.1846%, interval+0.8792% through +2.0167%. No claim of noninferiority or a speedup on fib. The required correctness migration continues; graph-owned optimization remains P1b/P7."
+  },
+  "remaining": [
+    "P1a generalized publication/root/exception/resume proof; current execution still uses manual helper protocol",
+    "P1b typed native functions and semantic operations in the existing Nupp graph; remove direct checked-source-to-CLIF lowering before P7 closes",
+    "P2 records/physical fields, scalar SIMD/storage operations and remaining Slow variants",
+    "P2 pinned runtime/image seed pair and replacement of compiled.rs step boundaries before Rust execution-loop deletion",
+    "P0 matched compiler performance/resource controls and whole native CLI acceptance",
+    "P3-P8 heap/tasks/I-O/snapshots/Pattern/derived tiers and tiny bridge deletion gates"
+  ],
+  "sources": {
+    "native/crates/vm/src/dispatch.rs": "1b3b3ca1e225b7d42f9bd22bb152d76afe5cb8178cfb3ce0d34031696edc1c8b",
+    "native/crates/vm/src/interp.rs": "fb7b5e4a98254991b342d73dbce626d8c34c072c0a3be0154e8600b194fb0043",
+    "native/crates/vm/src/native_tests.rs": "f56855c55ee14e793366af1c701a2bf9f8fd2b5eec5abaa26f69fd63dabee178",
+    "native/crates/vm/src/threaded.rs": "bc766c0304dfd2834d5e3583dcb877372bc0b8be0e4e3f71652b15b50f8ede80",
+    "src/nupp/compiler/check/pragma.nupp": "a69a04c71b1b5e47c1097ed3369d771bb667fe9226e20f54b604c1d0375422c8",
+    "src/nupp/compiler/clif/lower.nupp": "ad34bcaa6d94f2a90b2ef141b888a01f95059051258e2eb8eb3f6dbe448e5bf8",
+    "src/nupp/compiler/vm/programcontract.nupp": "84cebd0b893c15e7bee2bbae6a1f38bd2db45005a74624c0b6f5efc96fed4e56",
+    "src/nupp/compiler/vm/specializationcontract.nupp": "3c68ef1e5a884ae70cabaa9290bd5f1c058ea0cd4b13d4087a869acb630bb601",
+    "src/nupp/runtime/vm/boxing.nupp": "ae79fe4a6837fe2fc6fca132acf9714ae95e6feba810e18c0cac185a3e702843",
+    "src/nupp/runtime/vm/calls.nupp": "e5e09a80701833db3566cf2e22b89588de0e54ea5689020aba411c9592481503",
+    "src/nupp/runtime/vm/closures.nupp": "149f1eee3a0a2f8fc0da048729578feec0cccb5ffb5c95622a645a54947a18c5",
+    "src/nupp/runtime/vm/control.nupp": "6221235235af673e6a3711825bf3b4270cea349c1915bf21b15c982cee60416c",
+    "src/nupp/runtime/vm/core.nupp": "bfd334a52f5d00c948c32967e51ef96662b750acdd2822bd764c484b6515b130",
+    "src/nupp/runtime/vm/effects.nupp": "842b44ff473a9822480b28fb2b4506daf0a07d1e7e515670754ab38f8a3f88a2",
+    "src/nupp/runtime/vm/lookup.nupp": "acd9aecce824417f819f48d926b7dc27f4ee5e783476a5d3b6b5112d85054458",
+    "src/nupp/runtime/vm/program.d.nupp": "5f02aeda087830331d23f85b1273fc6dd46828444799a359128c26f2dba75be0",
+    "src/nupp/runtime/vm/specialization.nupp": "075dcedaead53dbb3247475d2a92ab887bba97502fb99a9a90342146e953df65",
+    "src/nupp/runtime/vm/strings.nupp": "4c1672d4b121042e973518078cffb8e23f9e5ba69c0714e16cef59dee1eedc47",
+    "src/nupp/runtime/vm/tables.nupp": "2a2505e824ab96568d27ea6ce323b8af5364df4b43998f91339c64f4aa2aa881",
+    "tests/fixtures/native/programloads.nupp": "a7fb17daea0dc60df30a9e86531be6c7c0d13c777404c49b5d6cf15cc43c3916",
+    "tests/fixtures/native/specialization.nupp": "b04afbc46b67bb0f2773feef51be53875f6d447292ad1878dae7c76085cb1d82",
+    "tests/groups.lua": "2624ef927e8bf8cecc3a1002e0c044683cdda572bd0dbde72f0ea73831dda785",
+    "tests/nativelowertest.lua": "f8eab737fb4ab08d7472afbe7eb883f483b01edc2626e99d3569d5e68b9974db",
+    "tests/specializationcontracttest.lua": "15125859f5a9f2200dc34ac7c92961e1fdd0773ca72abc35e04106bfbcc54cd5"
+  },
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/handler-contracts"
+}

@@ -118,3 +118,28 @@ All six workloads meet the 2% refactor-cost margin against the preserved Nupp
 control. Each has twelve fresh pairs; loops has a 48-pair repeat whose upper
 regression bound is 1.0%. These timings establish no speedup. Production
 acceptance still uses the LuaJIT-on main control recorded above.
+
+`native-contracts-2026-10-26.json` records retained program-body loads, logical
+caller destinations and ordinary specialization functions with checked Nupp
+metadata. Code-body loads do not classify live function tables or heap-bearing
+constants as immutable. Specialization contexts are no-ops in the interpreter;
+constant proofs, context balance and slot promotion belong to the common Nupp
+graph.
+
+The equality helper now publishes native frame state before guest callbacks and
+reloads it on success and error. GC, parked frames, typed windows, captures,
+varargs and result packs have focused regressions. In the native interpreter,
+finite calls and taken back edges charge once; untaken edges and parked attempts do not charge, and terminal
+returns can finish at zero. Finite method and protected calls retain their
+existing Rust boundary until P2 replaces it. General graph root/publication
+proofs remain open.
+
+The checker change passes 1,972 shared cases and the integrated contracts pass
+113 native/annotation cases. The final object passes all 114 crate tests, with
+two existing ignores. The pinned-seed fixpoint matches the installed compiler;
+all 6,128 AOT entries link, and fresh processes execute compiled compiler
+frames with executable memory denied. All six interpreter workloads still miss production LuaJIT's margin.
+The receipt keeps that comparison separate from refactor-cost measurements
+against the preserved Nupp runtime.
+The cost comparison meets the 2% margin on five cases. Fib remains inconclusive
+after 96 pairs: +1.18%, with an interval from +0.88% to +2.02%.
