@@ -213,11 +213,11 @@ local function run(options: any): integer
     end
     local forks: integer? = nil
     if values.forks then
-        local given = tonumber(values.forks)
+        local given = math.tointeger(tonumber(values.forks))
         if not given or given < 1 or given ~= math.floor(given) then
             return usageError("--forks needs a positive whole number")
         end
-        forks = math.floor(given)
+        forks = given
     end
     local margin: number? = nil
     if values.margin then
@@ -238,11 +238,11 @@ local function run(options: any): integer
     end
     local timeoutMs: integer? = nil
     if values.timeoutMs then
-        local given = tonumber(values.timeoutMs)
+        local given = math.tointeger(tonumber(values.timeoutMs))
         if not given or given < 1 or given ~= math.floor(given) then
             return usageError("--timeout-ms needs a positive whole number")
         end
-        timeoutMs = math.floor(given)
+        timeoutMs = given
     end
     for _, entry in ipairs({
         {name = "--case", patterns = values.caseGmatch},

@@ -98,7 +98,7 @@ end
 --- The number of words needed to hold `bits` bits, at least one. Ordinary
 --- arithmetic rather than a shift, which would wrap for a count near 2^32.
 local function wordsFor(bits: integer): integer
-    local words = math.floor((bits + BIT_MASK) / BITS_PER_WORD)
+    local words = ((bits + BIT_MASK) // BITS_PER_WORD)
     return words >= 1 ? words : 1
 end
 

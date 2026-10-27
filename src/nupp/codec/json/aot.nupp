@@ -117,13 +117,13 @@ end
 
 local function classify(value: any): (string, integer)
     local marker = getmetatable(value)
-    local count, highest: integer = 0, 0
+    local count: integer, highest: integer = 0, 0
     local numbers, strings = false, false
     for key in pairs(value) do
         count = count + 1
         if type(key) == "number" and key >= 1 and key % 1 == 0 then
             numbers = true
-            highest = math.max(highest, math.floor(key))
+            highest = math.max(highest, assert(math.tointeger(key)))
         elseif type(key) == "string" then
             strings = true
         else
@@ -146,7 +146,7 @@ local function classify(value: any): (string, integer)
         size = highest
     end
 
-    return kind, math.floor(size)
+    return kind, size
 end
 
 local simpleEscapes = {[8] = "\\b", [9] = "\\t", [10] = "\\n", [12] = "\\f", [13] = "\\r", [34] = '\\"', [92] = "\\\\",}
@@ -338,7 +338,7 @@ function json.asArray(value: any): any
             error("an array-marked table must contain consecutive positive indexes", 2)
         end
         count = count + 1
-        highest = math.max(highest, math.floor(key))
+        highest = math.max(highest, assert(math.tointeger(key)))
     end
     if count ~= highest then
         error("an array-marked table must contain consecutive positive indexes", 2)

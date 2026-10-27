@@ -65,7 +65,7 @@ local function collectBody(body: cst.Funcbody, edits: {migrate.Edit})
             for _, ret in ipairs(body.rets or {}) do
                 pieces[#pieces + 1] = typeText(ret)
             end
-            addEdit(edits, math.floor(close.offset + #close.text), ": " .. table.concat(pieces, ", "))
+            addEdit(edits, assert(math.tointeger(close.offset + #close.text)), ": " .. table.concat(pieces, ", "))
         end
     end
 end
@@ -78,7 +78,7 @@ local function collectNode(node: any, edits: {migrate.Edit})
         for index, name in ipairs(node.names or {}) do
             local t = node.types and node.types[index]
             if t and t.foreignAnnotation then
-                addEdit(edits, math.floor(name.offset + #name.text), ": " .. typeText(t))
+                addEdit(edits, assert(math.tointeger(name.offset + #name.text)), ": " .. typeText(t))
             end
         end
     end
@@ -201,7 +201,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
             #edits + 1
         ] = new migrate.Edit(
             offset = first.offset,
-            length = math.floor(last.offset + #last.text - first.offset),
+            length = assert(math.tointeger(last.offset + #last.text - first.offset)),
             newText = replacement
         )
     end

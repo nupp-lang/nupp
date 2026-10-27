@@ -745,7 +745,7 @@ end
 local function previousIterations(record: any): integer?
     for _, measurement in ipairs(record and record.cases or {}) do
         if measurement.kind == "case" and type(measurement.n) == "number" and measurement.n >= 1 then
-            return math.floor(measurement.n)
+            return math.tointeger(math.floor(measurement.n))
         end
     end
 
@@ -1129,7 +1129,7 @@ local function machineKey(): string?
             return trimmed
         end
     end
-    local generator = new random.Xoshiro128(math.floor(os.time() * 1000 + os.clock() * 1000000))
+    local generator = new random.Xoshiro128(assert(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000000))))
     local letters = "0123456789abcdef"
     local built: {string} = {}
     for _ = 1, 32 do
@@ -1510,7 +1510,7 @@ function runner.run(options: runner.Options): integer
         variantPatterns,
         executionFailures
     )
-    local seed = options.seed or math.floor(os.time() * 1000 + os.clock() * 1000) % 0x7FFFFFFF
+    local seed = options.seed or assert(math.tointeger(math.floor(os.time() * 1000 + os.clock() * 1000) % 0x7FFFFFFF))
     local shuffler = new random.Xoshiro128(seed)
 
     -- Rounds outside, benchmarks inside. Running every fork of one benchmark back to

@@ -67,11 +67,11 @@ local function run(options: any): integer
     end
     local width: integer = 120
     if values.width then
-        local given = tonumber(values.width)
+        local given = math.tointeger(tonumber(values.width))
         if not given or given < 20 or given ~= math.floor(given) then
             return usageError("--width takes a whole number of columns, at least 20, not " .. values.width)
         end
-        width = math.floor(given)
+        width = given
     end
     local fs = require("nupp.compiler.fs")
     local fmt = require("nupp.tools.fmt")

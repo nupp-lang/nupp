@@ -19,7 +19,7 @@ end
 local function nodeSize(value: Value): integer
     local tag = nodeKind(value)
     if tag == "structure" or tag == "union" or tag == "map" then
-        return math.floor((#value - 1) / 2)
+        return (#value - 1) // 2
     end
 
     return #value - 1

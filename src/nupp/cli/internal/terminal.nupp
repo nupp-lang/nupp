@@ -189,7 +189,7 @@ export function columns(stream: LuaFile): integer?
     end
     local declared = tonumber(os.getenv("COLUMNS") or "")
 
-    return declared ~= nil and declared > 0 and math.floor(declared) or nil
+    return declared ~= nil and declared > 0 and math.tointeger(math.floor(declared)) or nil
 end
 
 --- Returns a stable style table for a stream.

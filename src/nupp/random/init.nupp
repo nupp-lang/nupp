@@ -151,7 +151,7 @@ export record Xoshiro128
         end
         local span = high - low + 1
         if span <= TWO32 then
-            return low + math.floor(self:next() * span)
+            return low + assert(math.tointeger(math.floor(self:next() * span)))
         end
         if span > TWO53 then
             error(
@@ -185,7 +185,7 @@ export record Xoshiro128
     --- Shuffles a list in place with Fisher-Yates and returns the same list.
     function shuffle<T>(self, values: {T}): {T}
         for index = #values, 2, -1 do
-            local other = 1 + math.floor(self:next() * index)
+            local other = 1 + assert(math.tointeger(math.floor(self:next() * index)))
             values[index], values[other] = values[other], values[index]
         end
 

@@ -55,7 +55,7 @@ function host.columns(fd: integer): integer?
         return nil
     end
 
-    return math.floor(answer as number)
+    return math.tointeger(math.floor(answer as number))
 end
 
 export = host

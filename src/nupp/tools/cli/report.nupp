@@ -48,7 +48,7 @@ local function positionAtByte(source: Source?, offset: number?): any
     local starts = source.lineStarts
     local low: integer, high: integer = 1, #starts
     while low < high do
-        local middle = math.floor((low + high + 1) / 2)
+        local middle = (low + high + 1) // 2
         if starts[middle] <= offset then
             low = middle
         else

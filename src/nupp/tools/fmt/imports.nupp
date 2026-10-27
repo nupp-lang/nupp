@@ -449,7 +449,7 @@ function imports.new(environment: any?, enabled: boolean?): any
             for _, nextToken in ipairs(parsed.tokens) do
                 if nextToken.offset >= ending and nextToken.kind ~= "eof" then
                     if nextToken.offset < newline then
-                        return math.floor(ending)
+                        return assert(math.tointeger(ending))
                     end
                     break
                 end

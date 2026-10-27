@@ -87,7 +87,7 @@ local function classify(value: any): string, integer
         count = count + 1
         if type(key) == "number" and key >= 1 and key % 1 == 0 then
             numberKeys = true
-            highest = math.max(highest, math.floor(key))
+            highest = math.max(highest, assert(math.tointeger(key)))
         elseif type(key) == "string" then
             stringKeys = true
         else
@@ -156,7 +156,7 @@ function json.asArray(value: any): any
             error("an array-marked table must contain consecutive positive indexes", 2)
         end
         count = count + 1
-        highest = math.max(highest, math.floor(key))
+        highest = math.max(highest, assert(math.tointeger(key)))
     end
     if count ~= highest then
         error("an array-marked table must contain consecutive positive indexes", 2)

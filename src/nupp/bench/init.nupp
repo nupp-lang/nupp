@@ -535,7 +535,7 @@ local function median(values: {number}): number
     end
     table.sort(sorted)
 
-    return sorted[math.ceil(#sorted / 2)]
+    return sorted[(#sorted + 1) // 2]
 end
 
 local function smallest(values: {number}): number
@@ -561,7 +561,7 @@ local function quantile(sorted: {number}, fraction: number): number
         rank = #sorted
     end
 
-    return sorted[rank]
+    return sorted[assert(math.tointeger(rank))]
 end
 
 --- Grows `n` until one round takes long enough to time. Timing-derived, and therefore

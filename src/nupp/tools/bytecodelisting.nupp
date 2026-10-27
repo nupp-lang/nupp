@@ -127,8 +127,8 @@ function listing.group(functions: {any}): {[integer]: {any}}
     for _, fn in ipairs(functions) do
         order = order + 1
         for _, ins in ipairs(fn.instructions) do
-            local at = math.floor(tonumber(ins.line) or 0)
-            if at >= 1 then
+            local at = math.tointeger(math.floor(tonumber(ins.line) or 0))
+            if at ~= nil and at >= 1 then
                 local bucket = byLine[at] or {}
                 bucket[#bucket + 1] = {ins = ins, order = order}
                 byLine[at] = bucket
@@ -219,7 +219,7 @@ function listing.render(functions: {any}, source: string, opts: listing.Options?
     -- row it is on instead, which costs that row and no other.
     local reserve = math.min(widestCode, CODE_RESERVE)
     local available = (settings.width or DEFAULT_WIDTH) - numbers - 2 * #DIVIDER - reserve
-    local column = math.floor(math.min(widest, math.max(MIN_SOURCE, available)))
+    local column = assert(math.tointeger(math.floor(math.min(widest, math.max(MIN_SOURCE, available)))))
 
     local function gutter(at: integer?, trailing: boolean): string
         local label = at ~= nil and ("%" .. tostring(numbers) .. "d"):format(at) or (" "):rep(numbers)

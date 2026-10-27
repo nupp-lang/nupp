@@ -62,7 +62,7 @@ local REPORT_SCHEMA = {
 --- different machines.
 local function width(options: any): integer?
     if options.width ~= nil and options.width > 0 then
-        return math.floor(options.width)
+        return math.tointeger(math.floor(options.width))
     end
 
     return cliModule.colorEnabled(io.stdout) and cliModule.columns(io.stdout) or nil
