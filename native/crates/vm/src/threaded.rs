@@ -92,7 +92,7 @@ codes! {
     VarargN,
     CallMethod,
     PCall, Raise, Defer, DeferMethod, DisarmAt, RearmAt, CleanupLive, Unwind,
-    Switch,
+    Switch, IXor, INot, IBswap32,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -124,6 +124,9 @@ pub fn encode(op: &Op) -> Ins {
         Op::IK(d, k) => Ins { k, ..i(Code::IK, d, 0, 0) },
         Op::IAdd(d, a, b) => i(Code::IAdd, d, a, b),
         Op::ISub(d, a, b) => i(Code::ISub, d, a, b),
+        Op::IXor(d, a, b) => i(Code::IXor, d, a, b),
+        Op::INot(d, a) => i(Code::INot, d, a, 0),
+        Op::IBswap32(d, a) => i(Code::IBswap32, d, a, 0),
         Op::IAnd(d, a, b) => i(Code::IAnd, d, a, b),
         Op::IOr(d, a, b) => i(Code::IOr, d, a, b),
         Op::IShl(d, a, b) => i(Code::IShl, d, a, b),

@@ -79,12 +79,15 @@ fn derived_frame_entry_rejects_nonconforming_windows_without_writes() {
 
 #[test]
 fn leaf_words_match_rust_at_extremes_with_aliasing() {
-    let values = [0, 1, 63, 64, 127, 0x7fff_ffff_ffff_ffff, 1 << 63, u64::MAX];
-    let operations: [(Code, fn(u64, u64) -> u64); 12] = [
+    let values = [0, 1, 63, 64, 127, 0x0123_4567_89ab_cdef, 0x7fff_ffff_ffff_ffff, 1 << 63, u64::MAX];
+    let operations: [(Code, fn(u64, u64) -> u64); 15] = [
         (Code::IAdd, u64::wrapping_add),
         (Code::ISub, u64::wrapping_sub),
         (Code::IAnd, |a, b| a & b),
         (Code::IOr, |a, b| a | b),
+        (Code::IXor, |a, b| a ^ b),
+        (Code::INot, |a, _| !a),
+        (Code::IBswap32, |a, _| (a as u32).swap_bytes() as u64),
         (Code::IShl, |a, b| a.wrapping_shl(b as u32)),
         (Code::IShrU, |a, b| a.wrapping_shr(b as u32)),
         (Code::ICmpSLt, |a, b| ((a as i64) < (b as i64)) as u64),
@@ -137,6 +140,20 @@ fn leaf_words_match_rust_at_extremes_with_aliasing() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn remaining_integer_leaf_encodings_reach_their_native_handlers() {
+    use crate::interp::Op;
+    let cases = [
+        (Op::IXor(255, 254, 253), Code::IXor, 253),
+        (Op::INot(255, 254), Code::INot, 0),
+        (Op::IBswap32(255, 254), Code::IBswap32, 0),
+    ];
+    for (op, code, third) in cases {
+        let ins = encode(&op);
+        assert_eq!((ins.op, ins.a, ins.b, ins.c), (code as u8, 255, 254, third));
     }
 }
 

@@ -160,6 +160,51 @@ export function IOr(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
+export function IXor(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local a = program.readByte(pc, 1)
+    local b = program.readByte(pc, 2)
+    local c = program.readByte(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x ~ y)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function INot(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local x = slots.readIntegerBits(frame, ints, program.readByte(pc, 2))
+    slots.writeIntegerBits(frame, ints, program.readByte(pc, 1), ~x)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
+export function IBswap32(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local x = slots.readIntegerBits(frame, ints, program.readByte(pc, 2))
+    local swapped = (x & 255) << 24 | (x & 65280) << 8 | (x >> 8 & 65280) | (x >> 24 & 255)
+    slots.writeIntegerBits(frame, ints, program.readByte(pc, 1), swapped)
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+end
+
 export function IShl(
     pc: voidptr,
     regs: voidptr,
