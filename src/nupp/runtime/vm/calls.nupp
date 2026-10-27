@@ -425,12 +425,11 @@ end
 -- and its results delivered from `base` by the helper, which may grow the
 -- stack. The protected calls and the task API, which park or run frames of
 -- their own, are the slow-call table's and go to Rust whole.
+-- CallK/CallDyn gate zero before reaching this helper; native CallMethod
+-- reaches it only with the unlimited sentinel. The destination need not
+-- contain the callee, so it cannot stand in for a resolved-call boundary.
 local function callBuiltinSlow(pc: voidptr, context: voidptr, id: int64, base: uint64, nargs: int64): uint64
     local budget = native.load64(context, native.layout("budget"))
-    if budget == 0 then
-        local current = native.load64(context, native.layout("cur"))
-        return callResolvedSlow(pc, context, native.index(base) - native.index(current) - 4, nargs)
-    end
     chargeBudget(context, budget)
     protocol.publishPc(pc, context)
     helpers.callBuiltin(context, id, base, nargs)
@@ -438,13 +437,10 @@ local function callBuiltinSlow(pc: voidptr, context: voidptr, id: int64, base: u
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
--- One step of an iterator object called as a function.
+-- One step of an iterator object called as a function. CallK/CallDyn have
+-- already gated zero before reaching this helper.
 local function callIterSlow(pc: voidptr, context: voidptr, iterator: uint64, base: uint64): uint64
     local budget = native.load64(context, native.layout("budget"))
-    if budget == 0 then
-        local current = native.load64(context, native.layout("cur"))
-        return callResolvedSlow(pc, context, native.index(base) - native.index(current) - 4, 0)
-    end
     chargeBudget(context, budget)
     protocol.publishPc(pc, context)
     helpers.callIter(context, iterator, base)
