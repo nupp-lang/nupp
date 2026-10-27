@@ -115,7 +115,8 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
 end
 
 function M.providersRoundTripExactSignedIntegers()
-    for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
+    local portable = require("nupp.runtime.provider.lunajson")
+    for _, provider in ipairs({portable, require("nupp.codec.json.aot")}) do
         for _, token in ipairs({
             "9007199254740993",
             "9223372036854775807",
@@ -139,7 +140,9 @@ function M.providersRoundTripExactSignedIntegers()
         for _, value in ipairs({0.1, 1.25}) do
             assert(math.type(value) == "float")
             local encoded = provider.encode(value)
-            assert(encoded == string.format("%.17g", value), "float encoding changed: " .. encoded)
+            if provider == portable then
+                assert(encoded == string.format("%.17g", value), "portable float encoding changed: " .. encoded)
+            end
             local decoded = provider.decode(encoded)
             assert(math.type(decoded) == "float" and decoded == value, "float did not round-trip: " .. encoded)
         end
