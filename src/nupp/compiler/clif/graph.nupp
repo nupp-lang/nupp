@@ -2,8 +2,38 @@ module nupp.compiler.clif.graph
 
 local graph = require("nupp.compiler.vm.graph")
 local emitter = {}
-local integerOps = {IAdd = "iadd", ISub = "isub", IAnd = "band", IOr = "bor"}
-local programLoads = {uint8 = "uload8.i64", int32 = "sload32.i64", uint64 = "load.i64", int64 = "load.i64"}
+local integerOps = {
+    IAdd = "iadd",
+    ISub = "isub",
+    NativeIMul = "imul",
+    IAnd = "band",
+    IOr = "bor",
+    IXor = "bxor",
+    INot = "bnot",
+    IShl = "ishl",
+    IShrU = "ushr"
+}
+local floatOps = {
+    FAdd = "fadd",
+    FSub = "fsub",
+    FMul = "fmul",
+    FDiv = "fdiv",
+    FNeg = "fneg",
+    NativeFloor = "floor",
+    NativeCeil = "ceil",
+    NativeSqrt = "sqrt"
+}
+local machineKinds = {voidptr = "i64", int64 = "i64", uint64 = "i64", boolean = "i8", float32 = "f32", float64 = "f64"}
+local compareSigned = {["<"] = "slt", ["<="] = "sle", [">"] = "sgt", [">="] = "sge", ["=="] = "eq", ["~="] = "ne"}
+local compareUnsigned = {["<"] = "ult", ["<="] = "ule", [">"] = "ugt", [">="] = "uge", ["=="] = "eq", ["~="] = "ne"}
+local compareFloat = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne"}
+local programLoads = {
+    uint8 = "uload8.i64",
+    int32 = "sload32.i64",
+    uint64 = "load.i64",
+    int64 = "load.i64",
+    float64 = "load.f64"
+}
 
 local function need(value: any, message: string): any
     assert(value, "graph CLIF: " .. message)
@@ -74,7 +104,7 @@ function emitter.emit(g: any, options: any): string
             params[6] = tableValue .. ": i64"
         else
             for i, id in ipairs(block.params) do
-                params[i] = value(id) .. ": i64"
+                params[i] = value(id) .. ": " .. need(machineKinds[g.exactTypes[id]], "exact block kind required")
             end
         end
         out[#out + 1] = ""
@@ -89,8 +119,64 @@ function emitter.emit(g: any, options: any): string
                 line(result .. " = iconst.i64 " .. args[1])
             elseif op == "PointerOffset" then
                 line(result .. " = iadd " .. value(args[1]) .. ", " .. value(args[2]))
-            elseif integerOps[op] then
-                line(result .. " = " .. integerOps[op] .. " " .. value(args[1]) .. ", " .. value(args[2]))
+            elseif integerOps[op] or floatOps[op] then
+                local operands = {}
+                for index, id in ipairs(args) do
+                    operands[index] = value(id)
+                end
+                line(result .. " = " .. (integerOps[op] or floatOps[op]) .. " " .. table.concat(operands, ", "))
+            elseif op == "NativeBoolean" then
+                line(result .. " = iconst.i8 " .. (args[1] and "1" or "0"))
+            elseif op == "NativeICmp" or op == "NativeFCmp" then
+                local predicates = op == "NativeFCmp" and compareFloat
+                    or (g.exactTypes[args[1]] == "int64" and compareSigned or compareUnsigned)
+                line(
+                    result .. " = " .. (
+                        op == "NativeFCmp" and "fcmp " or "icmp "
+                    ) .. need(
+                        predicates[args[3]],
+                        "comparison predicate required"
+                    ) .. " " .. value(args[1]) .. ", " .. value(args[2])
+                )
+            elseif op == "NativeAsWord" then
+                line(result .. " = uextend.i64 " .. value(args[1]))
+            elseif op == "NativeWordCast" then
+                line(result .. " = iadd_imm " .. value(args[1]) .. ", 0")
+            elseif op == "NativeIntToFloat" then
+                line(
+                    result .. " = " .. (
+                        g.exactTypes[args[1]] == "uint64" and "fcvt_from_uint." or "fcvt_from_sint."
+                    ) .. machineKinds[g.exactTypes[dst]] .. " " .. value(args[1])
+                )
+            elseif op == "NativeFloatToInt" then
+                line(
+                    result .. " = " .. (
+                        g.exactTypes[dst] == "uint64" and "fcvt_to_uint_sat.i64 " or "fcvt_to_sint_sat.i64 "
+                    ) .. value(args[1])
+                )
+            elseif op == "NativeFloatConvert" then
+                local source, target = g.exactTypes[args[1]], g.exactTypes[dst]
+                if source == target then
+                    local yes = temporary("iconst.i8 1")
+                    line(result .. " = select " .. yes .. ", " .. value(args[1]) .. ", " .. value(args[1]))
+                else
+                    line(
+                        result .. " = " .. (target == "float32" and "fdemote.f32 " or "fpromote.f64 ") .. value(args[1])
+                    )
+                end
+            elseif op == "NativeFloatBits" or op == "NativeFloatFromBits" then
+                line(result .. " = bitcast." .. (op == "NativeFloatBits" and "i64 " or "f64 ") .. value(args[1]))
+            elseif op == "NativeFloat32Bits" then
+                local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                local bits = temporary("bitcast.i32 " .. narrowed)
+                line(result .. " = uextend.i64 " .. bits)
+            elseif op == "NativeFloat32FromBits" then
+                local low = temporary("ireduce.i32 " .. value(args[1]))
+                local decoded = temporary("bitcast.f32 " .. low)
+                line(result .. " = fpromote.f64 " .. decoded)
+            elseif op == "NativeRoundFloat32" then
+                local narrowed = temporary("fdemote.f32 " .. value(args[1]))
+                line(result .. " = fpromote.f64 " .. narrowed)
             elseif op == "ProgramLoad" then
                 local access = args[3]
                 local load = need(programLoads[access.kind], "unsupported program load kind")
@@ -98,11 +184,14 @@ function emitter.emit(g: any, options: any): string
                 line(result .. " = " .. load .. " notrap " .. address)
             elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
                 local access = args[op == "FrameSlotRead" and 4 or 5]
-                need(access.class == "i" and access.width == 8, "unsupported frame slot class")
+                need(
+                    (access.class == "i" or access.class == "v" or access.class == "f") and access.width == 8,
+                    "unsupported frame slot class"
+                )
                 local offset = temporary("imul " .. value(args[3]) .. ", " .. constant(tostring(access.width)))
                 local address = temporary("iadd " .. value(args[2]) .. ", " .. offset)
                 if op == "FrameSlotRead" then
-                    line(result .. " = load.i64 notrap " .. address)
+                    line(result .. " = load." .. machineKinds[access.kind] .. " notrap " .. address)
                 else
                     line("store notrap " .. value(args[4]) .. ", " .. address)
                 end
@@ -113,6 +202,8 @@ function emitter.emit(g: any, options: any): string
         local term = block.term
         if term.kind == "jump" then
             line("jump " .. edge(term.edges[1]))
+        elseif term.kind == "branch" then
+            line("brif " .. value(term.value) .. ", " .. edge(term.edges[1]) .. ", " .. edge(term.edges[2]))
         elseif term.kind == "dispatch" then
             local args = term.args
             local opcode = temporary("uload8.i64 notrap " .. value(args[1]))

@@ -126,6 +126,77 @@ local function capture(command)
     return status, output:gsub("__exit__:%d+%s*$", "")
 end
 
+local function floatingGraph()
+    local g = newGraph()
+    local entry = graph.block(g)
+    local yes, no = graph.block(g), graph.block(g)
+    local slot = constant(g, entry, "0")
+    local word = constant(g, entry, "18446744073709551615", "uint64")
+    local x = graph.emitNative(
+        g,
+        entry,
+        "FrameSlotRead",
+        {6, 4, slot, {class = "f", kind = "float64", write = false, width = 8}},
+        "float64"
+    )
+    local y = graph.emitNative(g, entry, "NativeIntToFloat", {slot}, "float64")
+    graph.emitNative(g, entry, "NativeIntToFloat", {word}, "float32")
+    graph.emitNative(g, entry, "NativeFloatToInt", {x}, "int64")
+    graph.emitNative(g, entry, "NativeFloatToInt", {x}, "uint64")
+    local narrowed = graph.emitNative(g, entry, "NativeFloatConvert", {x}, "float32")
+    local promoted = graph.emitNative(g, entry, "NativeFloatConvert", {narrowed}, "float64")
+    graph.emitNative(g, entry, "NativeFloatConvert", {x}, "float64")
+    local bits = graph.emitNative(g, entry, "NativeFloatBits", {x}, "uint64")
+    graph.emitNative(g, entry, "NativeFloatFromBits", {bits}, "float64")
+    graph.emitNative(g, entry, "NativeFloat32Bits", {x}, "uint64")
+    graph.emitNative(g, entry, "NativeFloat32FromBits", {bits}, "float64")
+    graph.emitNative(g, entry, "NativeRoundFloat32", {x}, "float64")
+    for _, op in ipairs({"FAdd", "FSub", "FMul", "FDiv"}) do
+        graph.emitNative(g, entry, op, {x, y}, "float64")
+        graph.emitNative(g, entry, op, {narrowed, narrowed}, "float32")
+    end
+    for _, op in ipairs({"FNeg", "NativeFloor", "NativeCeil", "NativeSqrt"}) do
+        graph.emitNative(g, entry, op, {x}, "float64")
+        graph.emitNative(g, entry, op, {narrowed}, "float32")
+    end
+    local condition = graph.emitNative(g, entry, "NativeFCmp", {x, promoted, "~="}, "boolean")
+    graph.emitNative(g, entry, "NativeAsWord", {condition}, "uint64")
+    local carry = graph.nativeValue(g, "float64")
+    yes.params = {carry}
+    entry.term = {
+        kind = "branch",
+        value = condition,
+        edges = {{target = yes.id, args = {promoted}}, {target = no.id, args = {}}}
+    }
+    local index = constant(g, yes, "1")
+    graph.emitNative(g, yes, "FrameSlotWrite", {
+        6,
+        4,
+        index,
+        carry,
+        {class = "f", kind = "float64", write = true, width = 8}
+    })
+    dispatch(yes, 1)
+    dispatch(no, 1)
+
+    return g
+end
+
+function M.floatingValuesAndConditionsRetainTheirMachineWidths()
+    local g = floatingGraph()
+    graph.prune(g)
+    local text = emitter.emit(g, {name = "FAdd"})
+    assert(text:find("load.f64 notrap", 1, true))
+    assert(text:find(": f64):", 1, true), "float edge parameter lost its width")
+    assert(text:find("fcvt_from_uint.f32", 1, true))
+    assert(text:find("fcvt_from_sint.f64", 1, true))
+    assert(text:find("fcvt_to_sint_sat.i64", 1, true))
+    assert(text:find("fcvt_to_uint_sat.i64", 1, true))
+    assert(text:find("fdemote.f32", 1, true) and text:find("fpromote.f64", 1, true))
+    assert(text:find("fcmp ne", 1, true) and text:find("brif ", 1, true))
+    assert(not text:find("readonly", 1, true))
+end
+
 function M.machineCompilerAcceptsTheGraphSsaAndHandlerAbi()
     local status, output = capture("python3 scripts/vm-cli glue")
     assert(status == 0, output:sub(-4000))
@@ -137,6 +208,7 @@ function M.machineCompilerAcceptsTheGraphSsaAndHandlerAbi()
     local transported = jumpGraph()
     graph.prune(transported)
     file:write(emitter.emit(transported, {name = "IMov"}))
+    file:write(emitter.emit(floatingGraph(), {name = "FAdd"}))
     -- Object assembly requires the driver's separate resume symbol. This
     -- fixture only compiles the handlers; it never executes the driver.
     file:write(
