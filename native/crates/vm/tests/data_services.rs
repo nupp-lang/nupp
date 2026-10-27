@@ -81,12 +81,12 @@ fn crc_state_and_snapshots_survive_collection_and_graph_transfer() {
             &[Value::num(id as f64), roots[0], empty, Value::num(0.0)],
         );
         assert_eq!(
-            numeric::bits(&other, unchanged[0], true),
-            numeric::bits(&other, roots[0], true)
+            numeric::word(&other, unchanged[0], true),
+            numeric::word(&other, roots[0], true)
         );
         assert_eq!(
-            numeric::bits(&other, unchanged[1], true),
-            numeric::bits(&other, roots[1], true)
+            numeric::word(&other, unchanged[1], true),
+            numeric::word(&other, roots[1], true)
         );
         let tail = other.intern("56789");
         let answer = call(
@@ -94,7 +94,7 @@ fn crc_state_and_snapshots_survive_collection_and_graph_transfer() {
             "crc.update",
             &[Value::num(id as f64), roots[0], tail, Value::num(5.0)],
         );
-        assert_eq!(numeric::bits(&other, answer[1], true), expected);
+        assert_eq!(numeric::word(&other, answer[1], true), expected);
     }
 }
 
@@ -183,7 +183,7 @@ fn calendar_dates_preserve_utc_fields_and_empty_formats() {
         ("yday", 1),
     ] {
         let key = vm.intern(name);
-        assert_eq!(vm.get_index(date, key), Value::num(number as f64));
+        assert_eq!(vm.get_index(date, key), Value::inline_integer(number).unwrap());
     }
     vm.release(root);
     let format = vm.intern("!");

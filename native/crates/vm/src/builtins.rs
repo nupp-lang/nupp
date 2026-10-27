@@ -1041,7 +1041,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         Special::CrcUpdate => {
             let id = crate::numeric::double(it, arg(args, 0));
             if !(1.0..=4.0).contains(&id) || id.fract() != 0.0 { it.err("unknown CRC algorithm"); }
-            let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::bits(it, arg(args, 1), true)) };
+            let state = if arg(args, 1) == Value::NIL { None } else { Some(crate::numeric::word(it, arg(args, 1), true)) };
             let bytes = crate::storage::borrowed_bytes(it, arg(args, 2), arg(args, 3));
             let [state, snapshot] = nupp_crc::update(id as u32, state, bytes).unwrap_or_else(|e| it.err(e));
             let scope = it.open_scope();

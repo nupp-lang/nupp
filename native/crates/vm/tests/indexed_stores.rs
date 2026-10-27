@@ -233,7 +233,10 @@ fn assert_seen(vm: &mut Interp, object: Value, key: Value, value: Value) {
     let seen_key = vm.intern("seenKey");
     let seen_value = vm.intern("seenValue");
     let reentered = vm.intern("reentered");
-    assert_eq!(vm.get_index(object, seen_key), key);
+    let observed = vm.get_index(object, seen_key);
+    if nupp_vm::numeric::is_numeric(key) {
+        assert_eq!(nupp_vm::numeric::compare(observed, key), Some(std::cmp::Ordering::Equal));
+    } else { assert_eq!(observed, key); }
     assert_eq!(vm.get_index(object, seen_value), value);
     assert_eq!(vm.get_index(object, reentered), Value::num(19.0));
     assert_eq!(vm.get_index(object, key), Value::NIL);
@@ -303,7 +306,7 @@ fn array_holes_call_newindex_but_occupied_slots_stay_raw() {
             assert_eq!(vm.get_index(table, Value::num(1.0)), Value::num(11.0));
             store(&mut vm, mode, table, Value::num(2.0), Value::num(12.0)).unwrap();
             let seen = vm.intern("seenKey");
-            if vm.get_index(table, seen) != Value::num(2.0)
+            if nupp_vm::numeric::compare(vm.get_index(table, seen), Value::num(2.0)) != Some(std::cmp::Ordering::Equal)
                 || vm.get_index(table, Value::num(2.0)) != Value::NIL
             {
                 bypassed.push(format!("{mode:?} {op}"));

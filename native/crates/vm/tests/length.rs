@@ -175,7 +175,7 @@ fn length_metamethods_preserve_values_numbers_errors_and_roots_in_each_tier() {
             let root = vm.register(object);
             vm.set_index(object, Value::num(1.0), Value::TRUE);
             for fid in [0, 1] {
-                assert_eq!(call(&mut vm, mode, fid, object).unwrap(), Value::num(1.0));
+                assert_eq!(call(&mut vm, mode, fid, object).unwrap(), if fid == 0 { Value::inline_integer(1).unwrap() } else { Value::num(1.0) });
             }
             hook(&mut vm, object, 2);
             for fid in [0, 1] {
@@ -202,10 +202,10 @@ fn length_metamethods_preserve_values_numbers_errors_and_roots_in_each_tier() {
             assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::NIL);
             hook(&mut vm, object, 8);
             let value = call(&mut vm, mode, 0, object).unwrap();
-            assert_eq!(numeric::bits(&vm, value, true), u64::MAX);
+            assert_eq!(numeric::word(&vm, value, true), u64::MAX);
             assert_eq!(
                 call(&mut vm, mode, 1, object).unwrap(),
-                Value::num(u64::MAX as f64)
+                Value::num(-1.0)
             );
             hook(&mut vm, object, 5);
             assert!(
@@ -214,7 +214,7 @@ fn length_metamethods_preserve_values_numbers_errors_and_roots_in_each_tier() {
                     .contains("callback")
             );
             vm.set_metatable(object, Value::NIL);
-            assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(1.0));
+            assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::inline_integer(1).unwrap());
             vm.release(root);
         }
         let string = vm.intern("hello");
@@ -222,8 +222,8 @@ fn length_metamethods_preserve_values_numbers_errors_and_roots_in_each_tier() {
         let slice = vm.new_slice(string, 1, 3);
         let slice_root = vm.register(slice);
         for fid in [0, 1] {
-            assert_eq!(call(&mut vm, mode, fid, string).unwrap(), Value::num(5.0));
-            assert_eq!(call(&mut vm, mode, fid, slice).unwrap(), Value::num(3.0));
+            assert_eq!(call(&mut vm, mode, fid, string).unwrap(), if fid == 0 { Value::inline_integer(5).unwrap() } else { Value::num(5.0) });
+            assert_eq!(call(&mut vm, mode, fid, slice).unwrap(), if fid == 0 { Value::inline_integer(3).unwrap() } else { Value::num(3.0) });
         }
         vm.release(slice_root);
         vm.release(root);
@@ -260,12 +260,12 @@ fn record_lengths_follow_live_declarations_with_explicit_override() {
         // An explicitly empty metatable suppresses the declaration fallback.
         let empty = vm.new_table();
         vm.set_metatable(object, empty);
-        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(0.0));
+        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::inline_integer(0).unwrap());
         vm.set_metatable(object, Value::NIL);
         vm.set_index(declaration, len, Value::func(6));
         assert_eq!(call(&mut vm, mode, 9, object).unwrap(), Value::num(99.0));
         vm.set_index(declaration, len, Value::NIL);
-        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::num(0.0));
+        assert_eq!(call(&mut vm, mode, 0, object).unwrap(), Value::inline_integer(0).unwrap());
         vm.release(object_root);
         vm.release(len_root);
         vm.release(root);

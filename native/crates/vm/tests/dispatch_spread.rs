@@ -53,7 +53,7 @@ entry 0
 fn builtin_spread_uses_the_latest_fast_return_count_and_wide_tail() {
     for n in [0, 1, 3, 8, 10] {
         let (_, result) = call(n, false);
-        assert_eq!(result, Value::num(n as f64), "result count {n}");
+        assert_eq!(result, Value::inline_integer(n as i64).unwrap(), "result count {n}");
     }
 }
 

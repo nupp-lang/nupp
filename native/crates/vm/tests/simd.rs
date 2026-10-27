@@ -201,14 +201,14 @@ fn reductions_preserve_order_width_and_odd_pairwise_leaves() {
         .flat_map(u64::to_ne_bytes)
         .collect();
     let (vm, result) = execute(6, "wrappingSum", &[source], false, 3);
-    assert_eq!(nupp_vm::numeric::bits(&vm, result, true), 9007199254740993);
+    assert_eq!(nupp_vm::numeric::word(&vm, result, true), 9007199254740993);
 }
 
 #[test]
 fn masks_keep_all_sixty_four_bits_and_float_mask_equality() {
     let source = vec![255; 64 * 8];
     let (vm, result) = execute(9, "bits", &[source.clone()], true, 64);
-    assert_eq!(nupp_vm::numeric::bits(&vm, result, true), u64::MAX);
+    assert_eq!(nupp_vm::numeric::word(&vm, result, true), u64::MAX);
     let (vm, result) = execute(9, "maskEq", &[source.clone(), source.clone()], true, 64);
     assert_eq!(&vm.bytes_of(result)[16..], source);
 }
@@ -297,9 +297,9 @@ fn extrema_and_dot_preserve_nan_zero_and_f32_rounding() {
             false,
             4,
         );
-        assert_eq!(v, Value::num(2.0));
+        assert_eq!(v, Value::inline_integer(2).unwrap());
         let (_, v) = execute(kind, "horizontal.numberArgMin", &[source], false, 4);
-        assert_eq!(v, Value::num(3.0));
+        assert_eq!(v, Value::inline_integer(3).unwrap());
         let (_, v) = execute(
             kind,
             "orderedDot",

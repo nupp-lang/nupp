@@ -106,17 +106,17 @@ fn record_table_iteration_omits_absent_and_deleted_values() {
     let keys = vm.table_keys(record);
     assert_eq!(keys.len(), 3);
     assert!(!keys.contains(&absent));
-    assert!(!keys.contains(&Value::num(2.0)));
+    assert!(!keys.contains(&Value::inline_integer(2).unwrap()));
     let iterator = call(&mut vm, id_of("pairs").unwrap(), &[record])[0];
     let iterator_root = vm.register(iterator);
     vm.set_index(record, present, Value::NIL);
     assert_eq!(
         iter_next(&mut vm, iterator).as_slice(),
-        &[Value::num(1.0), Value::TRUE]
+        &[Value::inline_integer(1).unwrap(), Value::TRUE]
     );
     assert_eq!(
         iter_next(&mut vm, iterator).as_slice(),
-        &[Value::num(3.0), Value::FALSE]
+        &[Value::inline_integer(3).unwrap(), Value::FALSE]
     );
     assert_eq!(iter_next(&mut vm, iterator).as_slice(), &[Value::NIL]);
     vm.release(iterator_root);

@@ -98,7 +98,8 @@ impl R {
         if v == Value::NIL { return "nil".into(); }
         if v == Value::TRUE { return "true".into(); }
         if v == Value::FALSE { return "false".into(); }
-        if v.is_num() { return builtins::num_text(v.as_num()); }
+        if let Some(n) = nupp_vm::numeric::integer(v) { return (n.bits as i64).to_string(); }
+        if v.is_float() { return v.as_num().to_string(); }
         if self.vm.is_stringish(v) { return format!("{:?}", String::from_utf8_lossy(self.vm.bytes_of(v))); }
         if self.vm.kind_of(v) == Some(nupp_vm::heap::KIND_TABLE) {
             let mut array = Vec::new();

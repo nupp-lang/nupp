@@ -162,7 +162,7 @@ fn a_scalar_or_empty_call_replaces_a_wide_transpose_tail() {
                 if empty {
                     vec![]
                 } else {
-                    vec![Value::num(64.0)]
+                    vec![Value::inline_integer(64).unwrap()]
                 }
             );
             assert_eq!(vm.last_nres, usize::from(!empty));

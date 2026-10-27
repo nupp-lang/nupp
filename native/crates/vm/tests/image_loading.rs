@@ -110,7 +110,7 @@ fn compiler_host_sha256_and_process_identity() {
     let module = it.require("nupp.compiler.hostpid");
     let key = it.intern("get");
     let get = it.get_index(module, key);
-    assert_eq!(it.call_value(get, &[]), vec![Value::num(std::process::id() as f64)]);
+    assert_eq!(it.call_value(get, &[]), vec![Value::inline_integer(std::process::id() as i64).unwrap()]);
 }
 
 #[test]
