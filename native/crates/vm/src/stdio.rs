@@ -5,12 +5,9 @@ use std::io::{BufRead, Read, Write};
 pub(crate) fn read(vm: &mut Interp, format: Value) -> Outs {
     let mut stdin = std::io::stdin().lock();
     let mut bytes = Vec::new();
-    let count = if format.is_num() {
-        let count = format.as_num();
-        if !count.is_finite() || count < 0.0 || count.fract() != 0.0 {
-            vm.err("invalid stdin read count");
-        }
-        Some(count as u64)
+    let count = if crate::numeric::is_numeric(format) {
+        Some(crate::numeric::integral(format).filter(|n| (0..=u64::MAX as i128).contains(n))
+            .unwrap_or_else(|| vm.err("invalid stdin read count")) as u64)
     } else {
         None
     };

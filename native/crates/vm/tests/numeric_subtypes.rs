@@ -320,3 +320,34 @@ fn numeric_subtypes_compiled_number_check_accepts_boxed_wide_integer() {
     assert!(vm.pending_error.is_none());
     nupp_vm::compiled::CTX.store(std::ptr::null_mut(), std::sync::atomic::Ordering::Relaxed);
 }
+
+#[test]
+fn numeric_subtypes_format_directives_choose_integer_signedness_without_rounding() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let format = text(&mut vm, b"%d|%u|%x");
+    for (bits, expected) in [
+        (u64::MAX, "-1|18446744073709551615|ffffffffffffffff"),
+        (9007199254740993, "9007199254740993|9007199254740993|20000000000001"),
+        (1u64 << 63, "-9223372036854775808|9223372036854775808|8000000000000000"),
+    ] {
+        let value = numeric::signed(&mut vm, bits as i64);
+        vm.register(value);
+        let result = call(&mut vm, "string.format", &[format, value, value, value])[0];
+        assert_eq!(vm.bytes_of(result), expected.as_bytes());
+    }
+}
+
+#[test]
+fn numeric_subtypes_fmod_preserves_exact_signed_integer_remainder() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let odd = numeric::signed(&mut vm, -9007199254740993);
+    vm.register(odd);
+    let two = Value::inline_integer(2).unwrap();
+    ints(&call(&mut vm, "math.fmod", &[odd, two]), &[-1]);
+    let min = numeric::signed(&mut vm, i64::MIN);
+    vm.register(min);
+    ints(&call(&mut vm, "math.fmod", &[min, Value::inline_integer(-1).unwrap()]), &[0]);
+    assert_eq!(call(&mut vm, "math.fmod", &[Value::num(-3.0), two]), vec![Value::num(-1.0)]);
+}

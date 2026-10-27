@@ -36,7 +36,7 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "char" => {
             let mut text = String::new();
             for &v in args {
-                let code = v.as_num() as u32;
+                let code = crate::numeric::double(it, v) as u32;
                 text.push(char::from_u32(code).unwrap_or_else(|| it.err(&format!("bad argument to 'char' (value out of range: {code})"))));
             }
             one(it.heap_new_string(&text))
@@ -45,16 +45,16 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "len" => { let bytes = it.bytes_of(arg(args, 0)).to_vec(); one(crate::numeric::signed(it, decode(&bytes).len() as i64)) }
         "codepoint" => {
             let bytes = it.bytes_of(arg(args, 0)).to_vec(); let chars = decode(&bytes);
-            let first = if arg(args, 1) == Value::NIL { 1 } else { position(arg(args, 1).as_num(), bytes.len()) };
-            let last = if arg(args, 2) == Value::NIL { first } else { position(arg(args, 2).as_num(), bytes.len()) };
+            let first = if arg(args, 1) == Value::NIL { 1 } else { position(crate::numeric::double(it, arg(args, 1)), bytes.len()) };
+            let last = if arg(args, 2) == Value::NIL { first } else { position(crate::numeric::double(it, arg(args, 2)), bytes.len()) };
             let mut out = Outs::new();
             for (at, c, _) in chars { let at = at as i64 + 1; if at >= first && at <= last { out.push(Value::inline_integer(c.map(|c| c as u32).unwrap_or(bytes[at as usize - 1] as u32) as i64).unwrap()); } }
             out
         }
         "sub" => {
             let bytes = it.bytes_of(arg(args, 0)).to_vec(); let chars = decode(&bytes); let n = chars.len();
-            let first = position(if arg(args, 1) == Value::NIL { 1.0 } else { arg(args, 1).as_num() }, n).max(1);
-            let last = position(if arg(args, 2) == Value::NIL { -1.0 } else { arg(args, 2).as_num() }, n).min(n as i64);
+            let first = position(if arg(args, 1) == Value::NIL { 1.0 } else { crate::numeric::double(it, arg(args, 1)) }, n).max(1);
+            let last = position(if arg(args, 2) == Value::NIL { -1.0 } else { crate::numeric::double(it, arg(args, 2)) }, n).min(n as i64);
             if first > last { return one(it.intern("")); }
             let (from, _, _) = chars[first as usize - 1]; let (to, _, width) = chars[last as usize - 1];
             one(it.new_string_bytes(&bytes[from..to + width]))

@@ -641,8 +641,9 @@ fn refuse_open_file(vm: &mut Interp, value: Value) -> Result<()> {
         return Ok(());
     }
     let handle = get(vm, value, "_handle");
-    let path = (handle.is_num())
-        .then(|| vm.nfiles.snapshot.files.get(&(handle.as_num() as u64)))
+    let path = crate::numeric::integer(handle).map(|n| n.bits)
+        .or_else(|| crate::numeric::integral(handle).filter(|n| *n >= 0).map(|n| n as u64))
+        .map(|id| vm.nfiles.snapshot.files.get(&id))
         .flatten()
         .map(|o| o.path.display().to_string())
         .unwrap_or_else(|| "a file".into());
@@ -934,7 +935,7 @@ fn durable(vm: &mut Interp, root: Value, options: Value) -> Result<Vec<u8>> {
         return Err("snapshot: the application name must not be empty".into());
     }
     let version = get(vm, options, "version");
-    if !version.is_num() || version.as_num().fract() != 0.0 || version.as_num() < 0.0 {
+    if !crate::numeric::integral(version).is_some_and(|n| n >= 0) {
         return Err("snapshot: the version must be a whole number".into());
     }
     for hook in ["select", "metadata", "sections"] {

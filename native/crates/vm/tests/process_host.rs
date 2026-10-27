@@ -232,3 +232,32 @@ fn provider_handles_separate_child_and_pipe_lifetimes() {
     vm.release(argv_root);
     vm.release(root);
 }
+
+#[cfg(unix)]
+#[test]
+fn pipe_number_io_preserves_integer_text_and_accepts_wide_counts() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    let path = std::env::temp_dir().join(format!("nupp-pipe-integers-{}", std::process::id()));
+    let command = vm.heap_new_string(&format!("cat > '{}'", path.display()));
+    let command_root = vm.register(command);
+    let mode = vm.intern("w");
+    let pipe = invoke(&mut vm, "io.popen", &[command, mode])[0];
+    let pipe_root = vm.register(pipe);
+    let wide = nupp_vm::numeric::signed(&mut vm, 9007199254740993);
+    let wide_root = vm.register(wide);
+    invoke(&mut vm, "process.pipeWrite", &[pipe, Value::inline_integer(7).unwrap(), Value::num(7.0), wide]);
+    invoke(&mut vm, "process.pipeClose", &[pipe]);
+    assert_eq!(std::fs::read(&path).unwrap(), b"77.09007199254740993");
+    std::fs::remove_file(path).unwrap();
+    let command = vm.intern("printf ok");
+    let pipe = invoke(&mut vm, "io.popen", &[command])[0];
+    let result = invoke(&mut vm, "process.pipeRead", &[pipe, wide])[0];
+    assert_eq!(vm.bytes_of(result), b"ok");
+    invoke(&mut vm, "process.pipeClose", &[pipe]);
+    for root in [wide_root, pipe_root, command_root] { vm.release(root); }
+    vm.full_cycle();
+    vm.check_oracle();
+}

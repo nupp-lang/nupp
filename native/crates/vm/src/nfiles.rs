@@ -155,8 +155,8 @@ pub fn call(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
         }
         "currentDirectory" => { let r = files::current_directory(); bytes(it, r) }
         "canonicalize" => { let r = files::canonicalize(&text(it, arg(args, 0))); bytes(it, r) }
-        "userFolder" => { let r = files::user_folder(arg(args, 0).as_num() as u32); bytes(it, r) }
-        "applicationBase" => { let r = files::application_base(arg(args, 0).as_num() as u32); bytes(it, r) }
+        "userFolder" => { let r = files::user_folder(crate::numeric::word(it, arg(args, 0), true) as u32); bytes(it, r) }
+        "applicationBase" => { let r = files::application_base(crate::numeric::word(it, arg(args, 0), true) as u32); bytes(it, r) }
         "executablePath" => { let r = files::executable_path(); bytes(it, r) }
         _ => it.err(&format!("unknown filesystem operation {name}")),
     }

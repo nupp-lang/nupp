@@ -1443,7 +1443,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
                 // Numeric conversions are C's, flags and all; the rest pad here.
                 let integer = |it: &mut Interp, v: Value| crate::numeric::integer(v).map(|i| i.bits as i64).unwrap_or_else(|| crate::numeric::double(it, v) as i64);
                 let numeric: Option<Vec<u8>> = match conv {
-                    b'd' | b'i' => Some(match crate::numeric::integer(v) { Some(i) if i.unsigned => c_format(&spec, b'u', CArg::U(i.bits)), _ => c_format(&spec, b'd', CArg::I(integer(it, v))) }),
+                    b'd' | b'i' => Some(c_format(&spec, b'd', CArg::I(integer(it, v)))),
                     b'u' | b'x' | b'X' | b'o' => Some(c_format(&spec, conv, CArg::U(crate::numeric::integer(v).map(|i| i.bits).unwrap_or_else(|| crate::numeric::double(it, v) as i64 as u64)))),
                     b'f' | b'F' | b'e' | b'E' | b'g' | b'G' | b'a' | b'A' => Some(c_format(&spec, conv, CArg::F(crate::numeric::double(it, v)))),
                     _ => None,
@@ -1666,7 +1666,15 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         59 => { let v = arg(args, 0); if crate::numeric::integer(v).is_some() { return outs![v]; } let n = crate::numeric::double(it, v).ceil(); outs![match crate::numeric::exact_integer(n) { Some(i) => it.box_integer(i), None => Value::num(n) }] }
         60 => outs![Value::num(crate::numeric::double(it, arg(args, 0)).sqrt())],
         61 => { let x = crate::numeric::double(it, arg(args, 0)); if args.len() > 1 { outs![Value::num(x.ln() / crate::numeric::double(it, arg(args, 1)).ln())] } else { outs![Value::num(x.ln())] } }
-        62 => outs![Value::num(crate::numeric::double(it, arg(args, 0)) % crate::numeric::double(it, arg(args, 1)))],
+        62 => {
+            let (x, y) = (arg(args, 0), arg(args, 1));
+            if let (Some(a), Some(b)) = (crate::numeric::integer(x), crate::numeric::integer(y)) {
+                let (a, b) = (a.bits as i64, b.bits as i64);
+                if b == 0 { it.err("attempt to perform 'n%0'"); }
+                let result = if b == -1 { 0 } else { a % b };
+                outs![crate::numeric::signed(it, result)]
+            } else { outs![Value::num(crate::numeric::double(it, x) % crate::numeric::double(it, y))] }
+        },
         63 => { let value = arg(args, 0); if crate::numeric::integer(value).is_some() { return outs![value, Value::num(0.0)]; } let x = crate::numeric::double(it, value); let i = x.trunc(); let whole = crate::numeric::exact_integer(i).map(|n| it.box_integer(n)).unwrap_or(Value::num(i)); outs![whole, Value::num(if x.is_infinite() { 0.0 } else { x - i })] }
         64 => { let (m, e) = frexp(crate::numeric::double(it, arg(args, 0))); outs![Value::num(m), Value::inline_integer(e as i64).unwrap()] }
         // io.open for reading: the whole file now, as a string behind a file

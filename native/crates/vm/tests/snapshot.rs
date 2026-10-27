@@ -319,6 +319,15 @@ fn durable_saves_are_plain_data_envelopes() {
     // The live value was copied, never touched.
     assert_eq!(get(&mut vm, state, "self"), state);
 
+    let wide_version = nupp_vm::numeric::signed(&mut vm, 9007199254740993);
+    put(&mut vm, options, "version", wide_version);
+    let saved = call(&mut vm, "snapshot.durable", &[Arg::V(state), Arg::V(options)])[0];
+    let bytes = vm.bytes_of(saved).to_vec();
+    let envelope = persist::load_data(&mut vm, &bytes).unwrap();
+    vm.register(envelope);
+    let version = get(&mut vm, envelope, "version");
+    assert_eq!(nupp_vm::numeric::integer(version).unwrap().bits, 9007199254740993);
+
     // Functions bind a save to one build; a durable save refuses them.
     put(&mut vm, state, "behavior", Value::builtin(nupp_vm::builtins::id_of("print").unwrap()));
     let closure = vm.new_closure(0, &[]);

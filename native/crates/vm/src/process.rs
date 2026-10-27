@@ -375,7 +375,7 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "process.pipeRead" => {
             let pipe = stream(vm, handle);
             let format = args.get(1).copied().unwrap_or(Value::NIL);
-            let numeric = format.is_num();
+            let numeric = crate::numeric::is_numeric(format);
             let spec = if numeric || format == Value::NIL {
                 String::new()
             } else {
@@ -387,11 +387,9 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
                 vm.err("unsupported pipe read format");
             }
             let limit = if numeric {
-                let n = format.as_num();
-                if n < 0.0 || n.fract() != 0.0 {
-                    vm.err("invalid read count");
-                }
-                n as usize
+                crate::numeric::integral(format)
+                    .filter(|n| (0..=usize::MAX as i128).contains(n))
+                    .unwrap_or_else(|| vm.err("invalid read count")) as usize
             } else {
                 usize::MAX
             };
@@ -462,8 +460,8 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
         "process.pipeWrite" => {
             let pipe = stream(vm, handle);
             for &value in &args[1..] {
-                let bytes = if value.is_num() {
-                    crate::builtins::num_text(value.as_num()).into_bytes()
+                let bytes = if crate::numeric::is_numeric(value) {
+                    crate::builtins::tostring(vm, value)
                 } else {
                     text(vm, value).into_bytes()
                 };

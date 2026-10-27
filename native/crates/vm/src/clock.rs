@@ -37,10 +37,14 @@ pub(crate) fn call(vm: &mut Interp, name: &str, args: &[Value]) -> Outs {
         .collect(),
         "vm.clockSleep" => {
             let value = args.first().copied().unwrap_or(Value::NIL);
-            if !value.is_num() || !value.as_num().is_finite() || value.as_num() < 0.0 {
+            if !crate::numeric::is_numeric(value) {
                 vm.err("sleep duration must be a finite non-negative number");
             }
-            let duration = Duration::try_from_secs_f64(value.as_num() / 1000.0)
+            let number = crate::numeric::double(vm, value);
+            if !number.is_finite() || number < 0.0 {
+                vm.err("sleep duration must be a finite non-negative number");
+            }
+            let duration = Duration::try_from_secs_f64(number / 1000.0)
                 .unwrap_or_else(|_| vm.err("sleep duration is too large"));
             std::thread::sleep(duration);
             Outs::new()
