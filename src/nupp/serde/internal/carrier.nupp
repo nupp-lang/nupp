@@ -38,10 +38,10 @@ end
 export function parse(decimal: string, signed: boolean): any
     local negative = decimal:sub(1, 1) == "-"
     if signed then
-        local result: int64 = 0LL
+        local result: int64 = 0
         for position = negative and 2 or 1, #decimal do
             local digit = assert(decimal:byte(position)) - 48
-            result = result * 10LL + (negative and -digit or digit)
+            result = result * 10 + (negative and -digit or digit)
         end
         return result
     end

@@ -212,7 +212,7 @@ local function integerLane(op: int64, kind: int64, x: uint64, y: uint64): uint64
     end
     local quotient: uint64 = 0ULL
     if signed(kind) then
-        if a == -9223372036854775808LL and b == -1 then
+        if a == 0x8000000000000000 and b == -1 then
             if op == 51 then
                 return 0ULL
             end
