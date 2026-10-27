@@ -237,6 +237,8 @@ function nativegraph.isLeaf(fn: any): boolean
                 or fn.name == "integerInitialize"
                 or fn.name == "iteratorInitialize"
                 or fn.name == "iteratorRefresh"
+                or fn.name == "storageInitialize"
+                or fn.name == "storageRefresh"
             )
             or fn.scope.name == "nupp.runtime.vm.objectshape"
             and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")

@@ -31,6 +31,8 @@ export function constructorPayload(kind: uint64, count: uint64): uint64
         return count * word + tail
     elseif kind == heap.KIND_INTEGER then
         return 0ULL
+    elseif kind == heap.KIND_STORAGE then
+        return native.sizeOf<heap.ValueArray>()
     elseif kind == heap.KIND_ITER then
         return native.sizeOf<heap.IteratorBody>()
     elseif kind == heap.KIND_CELL then
@@ -294,6 +296,71 @@ export function iteratorRefresh(header: voidptr): uint64
         header,
         native.fieldOffset<heap.Header>("auxLen"),
         native.load64(body, native.fieldOffset<heap.IteratorBody>("keysLen"))
+    )
+
+    return 0ULL
+end
+
+-- Fixed numeric storage uses the same descriptor and backing as other word
+-- arrays, but these words are never managed children, regardless of their bits.
+-- The caller prepares its zeroed words before publishing a managed header.
+export function storageInitialize(header: voidptr, words: voidptr): uint64
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_STORAGE then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.ValueArray>()
+    then
+        return 1ULL
+    end
+    local owner = native.load64(words, native.fieldOffset<heap.ValueArray>("owner"))
+    local base = native.load64(words, native.fieldOffset<heap.ValueArray>("base"))
+    local length = native.load64(words, native.fieldOffset<heap.ValueArray>("length"))
+    local capacity = native.load64(words, native.fieldOffset<heap.ValueArray>("capacity"))
+    if owner == 0ULL then
+        return 1ULL
+    end
+    if length > capacity then
+        return 1ULL
+    end
+    if capacity > 0ULL then
+        if base == 0ULL then
+            return 1ULL
+        end
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(body, native.fieldOffset<heap.ValueArray>("owner"), owner)
+    native.store64(body, native.fieldOffset<heap.ValueArray>("base"), base)
+    native.store64(body, native.fieldOffset<heap.ValueArray>("length"), length)
+    native.store64(body, native.fieldOffset<heap.ValueArray>("capacity"), capacity)
+    native.store64(header, native.fieldOffset<heap.Header>("auxPtr"), base)
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), length)
+    native.store64(words, native.fieldOffset<heap.ValueArray>("base"), 0ULL)
+    native.store64(words, native.fieldOffset<heap.ValueArray>("length"), 0ULL)
+    native.store64(words, native.fieldOffset<heap.ValueArray>("capacity"), 0ULL)
+
+    return 0ULL
+end
+
+export function storageRefresh(header: voidptr): uint64
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_STORAGE then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + native.sizeOf<heap.ValueArray>()
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    native.store64(
+        header,
+        native.fieldOffset<heap.Header>("auxPtr"),
+        native.load64(body, native.fieldOffset<heap.ValueArray>("base"))
+    )
+    native.store64(
+        header,
+        native.fieldOffset<heap.Header>("auxLen"),
+        native.load64(body, native.fieldOffset<heap.ValueArray>("length"))
     )
 
     return 0ULL

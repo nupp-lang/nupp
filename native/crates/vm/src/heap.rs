@@ -109,7 +109,7 @@ pub const OFF_T_HASH_PTR: i32 = (HEADER + std::mem::offset_of!(TablePayload, has
 pub const OFF_T_HASH_MASK: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, mask)) as i32;
 pub const OFF_T_META: i32 = (HEADER + std::mem::offset_of!(TablePayload, meta)) as i32;
 #[repr(C)]
-pub struct StoragePayload { pub data: Vec<f64> }
+pub struct StoragePayload { pub data: crate::native_numeric_array::NumericArray }
 #[repr(C)]
 // Ordinary buffers retain Vec storage; native aggregates request an explicit
 // allocation alignment. The header still exposes only a logical byte span.
@@ -252,7 +252,12 @@ impl Header {
         crate::allocation_metrics::observe(self);
         match self.kind {
             KIND_TABLE => { let t = self.table(); let (p, n) = (t.array.as_mut_ptr() as *mut u8, t.array.len() as u64); self.aux_ptr = p; self.aux_len = n; }
-            KIND_STORAGE => { let s = self.storage(); let (p, n) = (s.data.as_mut_ptr() as *mut u8, s.data.len() as u64); self.aux_ptr = p; self.aux_len = n; }
+            KIND_STORAGE => {
+                #[cfg(feature = "native-runtime")]
+                assert_eq!(unsafe { nupp_object_storage_refresh(self) }, 0, "invalid storage payload");
+                #[cfg(not(feature = "native-runtime"))]
+                panic!("numeric storage requires a linked Nupp core");
+            }
             KIND_BYTES => { let b = self.byte_buffer(); let (p, n) = (b.data.as_mut_ptr(), b.data.len() as u64); self.aux_ptr = p; self.aux_len = n; }
             KIND_ITER => {
                 #[cfg(feature = "native-runtime")]
@@ -283,6 +288,8 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 }
 #[cfg(feature = "native-runtime")]
 unsafe extern "C" {
+    fn nupp_object_storage_initialize(header: *mut Header, words: *mut crate::native_value_array::ValueArray) -> u64;
+    fn nupp_object_storage_refresh(header: *mut Header) -> u64;
     fn nupp_object_iterator_initialize(header: *mut Header, kind: u64, object: u64, pattern: u64, keys: *mut crate::native_value_array::ValueArray) -> u64;
     fn nupp_object_iterator_refresh(header: *mut Header) -> u64;
     fn nupp_object_slot_hash(bits: u64) -> u64;
@@ -300,8 +307,10 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 18);
+    assert!(crate::dispatch::OBJECT_ABI == 19);
     assert!(std::mem::size_of::<Value>() == 8);
+    assert!(std::mem::size_of::<StoragePayload>() == 32);
+    assert!(std::mem::align_of::<StoragePayload>() == 8);
     assert!(std::mem::size_of::<IterPayload>() == 56);
     assert!(std::mem::offset_of!(IterPayload, keys) == 24);
     assert!(std::mem::size_of::<RecordTail>() == 40);
@@ -770,9 +779,12 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_storage(&mut self, n: usize, roots: &dyn Roots) -> Value {
-        let p = self.alloc(KIND_STORAGE, std::mem::size_of::<StoragePayload>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); (h.payload() as *mut StoragePayload).write(StoragePayload { data: vec![0.0; n] }); h.refresh(); }
-        self.account_resize(0, 8 * n);
+        // Nupp fills raw +0.0 words before the header can become visible.
+        let mut words = self.allocator.value_array(n);
+        words.resize(n, Value(0));
+        let p = self.alloc(KIND_STORAGE, constructor_payload(KIND_STORAGE, 0), roots);
+        initialize_object!(nupp_object_storage_initialize(p.as_ptr(), &mut words));
+        self.account_resize(0, unsafe { p.as_ref().external_bytes() });
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::register(&self.metrics, unsafe { p.as_ref() });
         Value::obj(p)

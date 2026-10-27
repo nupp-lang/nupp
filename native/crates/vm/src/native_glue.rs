@@ -319,6 +319,8 @@ fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
         "sliceInitialize" => Some(("nupp_object_slice_initialize", 4)),
         "cellInitialize" => Some(("nupp_object_cell_initialize", 2)),
         "closureInitialize" => Some(("nupp_object_closure_initialize", 4)),
+        "storageInitialize" => Some(("nupp_object_storage_initialize", 2)),
+        "storageRefresh" => Some(("nupp_object_storage_refresh", 1)),
         "iteratorInitialize" => Some(("nupp_object_iterator_initialize", 5)),
         "iteratorRefresh" => Some(("nupp_object_iterator_refresh", 1)),
         "recordInitialize" => Some(("nupp_object_record_initialize", 4)),
@@ -351,7 +353,7 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind" | "tableProbe");
     let rehash = name == "tableRehash";
     let constructor = matches!(name.as_str(), "stringInitialize" | "closureInitialize" | "recordInitialize" | "iteratorInitialize");
-    let initializing = matches!(name.as_str(), "stringInitialize" | "sliceInitialize" | "cellInitialize" | "closureInitialize" | "recordInitialize" | "integerInitialize" | "iteratorInitialize" | "iteratorRefresh");
+    let initializing = matches!(name.as_str(), "stringInitialize" | "sliceInitialize" | "cellInitialize" | "closureInitialize" | "recordInitialize" | "integerInitialize" | "iteratorInitialize" | "iteratorRefresh" | "storageInitialize" | "storageRefresh");
     let calls = hash_call || rehash || constructor;
     let memory = initializing || hash_call || matches!(name.as_str(), "stringHash" | "tableInitialize" | "tableLiveCount" | "tableRehash");
     let write = initializing || matches!(name.as_str(), "shapeFill" | "tableInitialize" | "tableRehash");
@@ -655,7 +657,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 18;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 19;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
