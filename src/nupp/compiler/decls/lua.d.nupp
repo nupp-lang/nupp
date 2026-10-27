@@ -824,30 +824,29 @@ const table: {
 -- math
 ----------------------------------------------------------------------------
 
---- Mathematical functions and constants, operating on the doubles that plain Lua
---- numbers are.
+--- Mathematical functions and constants for integer and floating-point values.
 local math: {
     --- Returns the absolute value of `x`.
     ---
     --- @param x the number to take the magnitude of
     --- @return the absolute value
-    abs: @nosuspend function<N is number>(x: N): N,
+    abs: @nosuspend function(x: number): number,
 
     --- Returns the smallest integer that is not less than `x`. NaN and the
-    --- infinities pass through unchanged, so the result is a whole number only
-    --- when `x` is finite.
+    --- infinities pass through unchanged. A finite result outside the integer
+    --- range stays a float.
     ---
     --- @param x the number to round up
     --- @return the rounded value
-    ceil: @nosuspend function(x: number): integer,
+    ceil: @nosuspend function(x: number): number,
 
     --- Returns the largest integer that is not greater than `x`. NaN and the
-    --- infinities pass through unchanged, so the result is a whole number only
-    --- when `x` is finite.
+    --- infinities pass through unchanged. A finite result outside the integer
+    --- range stays a float.
     ---
     --- @param x the number to round down
     --- @return the rounded value
-    floor: @nosuspend function(x: number): integer,
+    floor: @nosuspend function(x: number): number,
 
     --- Returns the square root of `x`.
     ---
@@ -887,7 +886,7 @@ local math: {
     --- @param x the number to split
     --- @return the integral part
     --- @return the fractional part
-    modf: @nosuspend function(x: number): (number, number),
+    modf: @nosuspend function(x: number): (number, float),
 
     --- Returns the sine of `x`, which is in radians.
     ---
@@ -983,7 +982,9 @@ local math: {
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
     --- @return the generated number
-    random: @nosuspend function(): number & function(m: number): number & function(m: number, n: number): number,
+    random: (@nosuspend function(): float)
+    & (@nosuspend function(m: number): integer)
+    & (@nosuspend function(m: number, n: number): integer),
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---
@@ -996,7 +997,7 @@ local math: {
     --- @param x the number to split
     --- @return the fraction
     --- @return the exponent
-    frexp: @nosuspend function(x: number): (number, number),
+    frexp: @nosuspend function(x: number): (float, integer),
 
     --- Returns `m` times 2 raised to the power `e`.
     ---

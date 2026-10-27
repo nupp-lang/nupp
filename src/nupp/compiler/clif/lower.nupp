@@ -1489,7 +1489,20 @@ local function compileDirectFunction(fn: Fn, options: any): string
             and n.obj.name.text == "floor"
             and not b.typeOf(n.obj.obj.token.definition or "math")
         then
-            local operand = expression(need(n.args.exprs and n.args.exprs[1], "math.floor takes a number"))
+            local argument = need(n.args.exprs and n.args.exprs[1], "math.floor takes a number")
+            local operand = expression(argument)
+            local kind = kindOf(argument, operand, nil)
+            if kind == "int64"
+                or kind == "uint64"
+                or isFixed32(kind)
+                or kind == "int8"
+                or kind == "uint8"
+                or kind == "int16"
+                or kind == "uint16"
+            then
+                return {kind = kind, value = materialize(operand, kind)}
+            end
+            need(kind == "float64", "math.floor requires a proven integer or float")
             return {kind = "float64", value = emit("floor " .. materialize(operand, "float64"))}
         elseif n.kind == "call" then
             local target = resolveCallee(n, scope, modules)

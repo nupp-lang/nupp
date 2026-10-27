@@ -784,4 +784,20 @@ function M.theRuntimeCoreCompilesToOneObjectWithItsSidecar()
     assert(not sidecar:find("Code::Slow as u8", 1, true), "Slow stays Rust by definition")
 end
 
+function M.floorKeepsExactIntegerMachineValues()
+    local path = compileFixture("numericfloor")
+    assert(run(path, "integerIdentity", {"9007199254740993"}) == "9007199254740993")
+    assert(run(path, "integerIdentity", {"-9223372036854775808"}) == "-9223372036854775808")
+    assert(run(path, "integerLiteral", {}) == "9007199254740993")
+    assert(tonumber(run(path, "floating", {"-1.5"})) == -2)
+    local clif = read(path)
+    assert(not clif:find("fcvt_from_sint.f64", 1, true), "integer floor must retain all 64 bits")
+    assert(clif:find("floor ", 1, true), "floating floor uses the machine operation")
+    local dir = tempDirectory()
+    local generic = dir .. "/generic.nupp"
+    write(generic, "module generic\nlocal function floor(value: number): number return math.floor(value) end\n")
+    local accepted = pcall(lower.compile, ROOT, {generic}, {include = {"src", dir}})
+    assert(not accepted, "generic numeric values have no unboxed native ABI")
+end
+
 return M

@@ -204,7 +204,7 @@ function targetLayout.hostKey(): string?
 end
 
 local function roundUp(value: integer, alignment: integer): integer
-    return math.floor((value + alignment - 1) / alignment) * alignment
+    return ((value + alignment - 1) // alignment) * alignment
 end
 
 --- The storage a `Fixed<lanes>` vector of an element `elementBytes` wide

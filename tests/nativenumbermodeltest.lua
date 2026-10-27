@@ -134,4 +134,51 @@ return true
     assert(program.run(parsed, "number-record-fields") == true)
 end
 
+function M.numericLibraryContractsPreserveOnlyProvenIntegerResults()
+    local parsed = checked(
+        [[
+local function rounded(value: number): number
+    return math.floor(value)
+end
+local function ceiling(value: number): number
+    return math.ceil(value)
+end
+local whole: number = math.floor(7)
+local above: number = math.ceil(7)
+local absolute: number = math.abs(-2147483648 as int32)
+local real: number = math.abs(-1.5)
+local part: number, fraction: float = math.modf(1.5)
+local mantissa: float, exponent: integer = math.frexp(1.5)
+local randomReal: float = math.random()
+local randomWhole: integer = math.random(10)
+local randomRange: integer = math.random(-10, 10)
+local narrowed = math.tointeger(rounded(1.5))
+if narrowed ~= nil then
+    local index: integer = narrowed
+end
+return whole, above, absolute, real, part, fraction, mantissa, exponent,
+       randomReal, randomWhole, randomRange, ceiling(1.5)
+]]
+    )
+    assert(parsed.root ~= nil)
+    for _, case in ipairs({
+        {"local function bad(value: number): integer return math.floor(value) end", "NUPP2002"},
+        {"local function bad(value: number): integer return math.ceil(value) end", "NUPP2002"},
+        {"local function bad(value: float): integer return math.floor(value) end", "NUPP2002"},
+        {"local value: int32 = -2147483648; local bad: int32 = math.abs(value)", "NUPP2011"},
+    }) do
+        local source, code = case[1], case[2]
+        local result = parser.parse(source, "numeric-library-contract.nupp")
+        assert(#result.errors == 0)
+        local rejected = false
+        for _, diagnostic in ipairs(checker.check(result, "numeric-library-contract.nupp", env)) do
+            if diagnostic.severity == "error" then
+                assert(diagnostic.code == code, diagnostic.code .. ": " .. diagnostic.msg)
+                rejected = true
+            end
+        end
+        assert(rejected, "unproven integer result was accepted: " .. source)
+    end
+end
+
 return M

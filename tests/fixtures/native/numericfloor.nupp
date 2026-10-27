@@ -1,0 +1,13 @@
+module numericfloor
+
+local function integerIdentity(value: int64): int64
+    return math.floor(value) as int64
+end
+
+local function integerLiteral(): int64
+    return math.floor(9007199254740993) as int64
+end
+
+local function floating(value: float): float
+    return math.floor(value) as float
+end

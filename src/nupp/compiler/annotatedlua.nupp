@@ -114,7 +114,7 @@ function annotated.tags(source: string, parsedTokens: {lexer.Token}?): {annotate
                             end
                             if blockBody then
                                 local matchedPrefix = prefix or ""
-                                local at = math.floor(offset + #opener + cursor + #matchedPrefix)
+                                local at = assert(math.tointeger(offset + #opener + cursor + #matchedPrefix))
                                 local currentCol = currentLine == line and col + #opener + #matchedPrefix
                                     or #matchedPrefix + 1
                                 appendTag(out, blockBody, currentLine, currentCol, at, "@" .. blockBody, offset + #text)
