@@ -1504,7 +1504,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- Both sides have to be concatenable, and each is reported where it is
             -- written rather than at the operator.
             local function concatenable(t: Type, at: Node)
-                if t == T.any or isA(t, T.number) or isA(t, T.string) then
+                if t == T.any or isA(t, T.number) or rawType(t).tag == "uint64" or isA(t, T.string) then
                     return
                 end
                 c.diag("NUPP2003", at, ("cannot concatenate %s"):format(T.tostring(t)))

@@ -659,6 +659,15 @@ function lower.emit(
         return tag == "int64" and "i64" or tag == "uint64" and "u64" or nil
     end
 
+    local function staticNumber(t)
+        if tyTag(t) == "literal" then
+            return staticNumber(t.base)
+        end
+        local tag = tyTag(t)
+
+        return wideKind(t) ~= nil or isNumeric(t) or tag == "int32" or tag == "uint32"
+    end
+
     local function unsignedProducer(node)
         if node.kind == "paren" then
             return unsignedProducer(node.expr)
@@ -1329,6 +1338,25 @@ function lower.emit(
     -- the results are then moved down to `dst` (`nres` of them).
     -- `local byte = string.byte`: a local the module never assigns to, bound to
     -- a library function, so a call through it can become an intrinsic.
+    local function resolvedBuiltin(f: Fn, node)
+        while node and (node.kind == "paren" or node.kind == "castExpr") do
+            node = node.expr
+        end
+        if not node or node.kind ~= "name" then
+            return nil
+        end
+        local name = tokText(node.token)
+        local binding = f:binding(name)
+        if binding then
+            return binding.builtin
+        end
+        if not environment and BUILTINS[name] and not assignedNames[name] then
+            return name
+        end
+
+        return nil
+    end
+
     local function markLibraryLocals(f: Fn, names, exprs)
         for i, nameTok in ipairs(names) do
             local e = exprs[i]
@@ -1866,6 +1894,27 @@ function lower.emit(
             end
             return
         end
+        local args = node.args and node.args.exprs or {}
+        if node.kind == "call"
+            and not (node.args and node.args.loweredArgs)
+            and resolvedBuiltin(f, callee) == "tostring"
+            and args[1]
+            and wideKind(args[1].inferredType) == "u64"
+        then
+            local value = f:reg()
+            exprAs(f, args[1], "v", value)
+            -- Extra arguments still run, although tostring ignores them.
+            for index = 2, #args do
+                if args[index].kind ~= "vararg" then
+                    exprAs(f, args[index], "v")
+                end
+            end
+            builtinRegisters(f, "wide.u64.tostring", {value}, dst)
+            for index = 1, nres - 1 do
+                f:op("Nil", dst + index)
+            end
+            return
+        end
         if callee.kind == "name" then
             local bnd = f:binding(tokText(callee.token))
             if bnd and bnd.builtin == "string.byte" and emitStrByte(f, node, dst, nres) then
@@ -2385,6 +2434,41 @@ function lower.emit(
                 [">"] = "lt",
                 [">="] = "le"
             }
+            local unsigned = leftWide == "u64" or rightWide == "u64"
+            local knownOperands = staticNumber(node.lhs.inferredType) and staticNumber(node.rhs.inferredType)
+            local comparison = knownOperands
+                and (op == "==" or op == "~=" or op == "<" or op == "<=" or op == ">" or op == ">=")
+            local floatOperation = op == "/" or op == "^" or isNumeric(node.inferredType)
+            local arithmetic = {
+                ["+"] = "Add",
+                ["-"] = "Sub",
+                ["*"] = "Mul",
+                ["/"] = "Div",
+                ["//"] = "IDiv",
+                ["%"] = "Mod",
+                ["^"] = "Pow"
+            }
+            if unsigned and (comparison or (floatOperation and arithmetic[op])) then
+                -- Evaluate the source operands in order, including > and >=.
+                -- Helpers consume those values; they never reevaluate a syntax node.
+                local left, right = f:reg(), f:reg()
+                exprAs(f, node.lhs, "v", left)
+                exprAs(f, node.rhs, "v", right)
+                local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+                if comparison then
+                    local values = (op == ">" or op == ">=") and {right, left} or {left, right}
+                    return builtinRegisters(f, "wide.u64." .. operations[op], values, target), "v"
+                end
+                if leftWide == "u64" then
+                    left = builtinRegisters(f, "wide.u64.float", {left})
+                end
+                if rightWide == "u64" then
+                    right = builtinRegisters(f, "wide.u64.float", {right})
+                end
+                target = target or f:reg()
+                f:op(arithmetic[op], target, left, right)
+                return target, "v"
+            end
             -- An erased assertion can claim uint64 for a negative or fractional
             -- value. Only these producer nodes establish an unsigned operand;
             -- other operations retain the wide helper's coercion contract.
@@ -2405,13 +2489,14 @@ function lower.emit(
                 family = nil
             end
             if family and operations[op] then
-                local args = (op == ">" or op == ">=") and {node.rhs, node.lhs} or {node.lhs, node.rhs}
-                return wideOperation(
-                    f,
-                    "wide." .. family .. "." .. operations[op],
-                    args,
-                    (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
-                )
+                local target = (want ~= "f" and want ~= "i" and want ~= "u") and dst or nil
+                if op == ">" or op == ">=" then
+                    local left, right = f:reg(), f:reg()
+                    exprAs(f, node.lhs, "v", left)
+                    exprAs(f, node.rhs, "v", right)
+                    return builtinRegisters(f, "wide." .. family .. "." .. operations[op], {right, left}, target), "v"
+                end
+                return wideOperation(f, "wide." .. family .. "." .. operations[op], {node.lhs, node.rhs}, target)
             end
         end
         if k == "unop"
@@ -2815,7 +2900,8 @@ function lower.emit(
                         f:op("K", value, f:const("str", assert(lexer.stringValue("`" .. piece .. "`"), piece)))
                     end
                 elseif type(child) == "table" and child.kind then
-                    value = builtinRegisters(f, "tostring", {exprAs(f, child, "v")})
+                    local convert = wideKind(child.inferredType) == "u64" and "wide.u64.tostring" or "tostring"
+                    value = builtinRegisters(f, convert, {exprAs(f, child, "v")})
                 end
                 if value then
                     if started then
@@ -2924,6 +3010,16 @@ function lower.emit(
                 end
 
                 flatten(node)
+
+                local function concatOperand(part, into)
+                    local value = exprAs(f, part, "v", into)
+                    if wideKind(part.inferredType) == "u64" then
+                        return builtinRegisters(f, "wide.u64.tostring", {value}, into)
+                    end
+
+                    return value
+                end
+
                 local mark = f.nregs
                 if dispatching and #parts > 2 then
                     -- An operand that may carry `__concat` sees the chain as
@@ -2932,17 +3028,17 @@ function lower.emit(
                     local held = {}
                     for i = 1, #parts do
                         held[i] = f:reg()
-                        exprAs(f, parts[i], "v", held[i])
+                        concatOperand(parts[i], held[i])
                     end
                     f:op("Concat", dst, held[#parts - 1], held[#parts])
                     for i = #parts - 2, 1, -1 do
                         f:op("Concat", dst, held[i], dst)
                     end
                 else
-                    exprAs(f, parts[1], "v", dst)
+                    concatOperand(parts[1], dst)
                     for i = 2, #parts do
                         f.nregs = math.max(mark, f.declTop or 0)
-                        local b = exprAs(f, parts[i], "v")
+                        local b = concatOperand(parts[i])
                         f:op("Concat", dst, dst, b)
                     end
                 end
@@ -4054,7 +4150,9 @@ function lower.emit(
                         class = "f"
                     end
                 end
-                declared[i] = {name = name, class = class}
+                declared[
+                    i
+                ] = {name = name, class = class, builtin = not assignedNames[name] and resolvedBuiltin(f, value) or nil}
             end
             local exprs = node.exprs or {}
             if #names == 1 and #exprs <= 1 and not node.syntheticCapture then
@@ -4097,6 +4195,9 @@ function lower.emit(
                 else
                     f:op("FK", r, 0)
                 end
+                if binding then
+                    binding.builtin = d.builtin
+                end
                 scope[d.name] = binding
                 markLibraryLocals(f, names, exprs)
                 return
@@ -4105,6 +4206,10 @@ function lower.emit(
             exprsInto(f, exprs, #names, base)
             for i, d in ipairs(declared) do
                 local r, cell, spill = f:declare(d.name, d.class, true)
+                local binding = f.scopes[#f.scopes][d.name]
+                if binding then
+                    binding.builtin = d.builtin
+                end
                 if spill then
                     local v = base + i - 1
                     if cell then

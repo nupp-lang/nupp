@@ -987,19 +987,68 @@ function narrow.install(c: state.Checker): narrow.Ops
                 local key = refNode and facts.pathKey(refNode)
                 if key then
                     local litT = c.infer(litNode)
+                    local refT = c.refType(refNode)
+
+                    -- Numeric equality does not change an operand's numeric
+                    -- subtype or give an erased operand an unsigned reading.
+                    local function equalityFact(original)
+                        if litNode.kind ~= "number" or not original then
+                            return litT
+                        end
+                        local raw = T.unwrapOwnership(original)
+                        if litT.tag == "literal" and litT.base == raw then
+                            return litT
+                        end
+                        if raw.tag == "union" then
+                            local members = {}
+                            for _, member in ipairs(raw.members) do
+                                local base = T.unwrapOwnership(member)
+                                while base.tag == "literal" do
+                                    base = base.base
+                                end
+                                if base.tag == "nil" then
+                                    -- Equality with a numeric literal excludes nil.
+                                elseif base.tag == "number"
+                                    or base.tag == "int64"
+                                    or base.tag == "uint64"
+                                    or base.tag == "float64"
+                                    or base.tag == "float32"
+                                    or base.tag == "int32"
+                                    or base.tag == "uint32"
+                                then
+                                    local literal = T.unwrapOwnership(member)
+                                    if not (
+                                        literal.tag == "literal"
+                                        and litT.tag == "literal"
+                                        and type(literal.constant) == "number"
+                                        and type(litT.constant) == "number"
+                                        and literal.constant ~= litT.constant
+                                    ) then
+                                        members[#members + 1] = member
+                                    end
+                                else
+                                    return original
+                                end
+                            end
+                            return T.union(members)
+                        end
+
+                        return original
+                    end
+
                     local out = {t = {}, f = {}}
                     if aliasNode then
                         local aliasKey = facts.pathKey(aliasNode)
                         if aliasKey then
-                            out.t[aliasKey] = litT
                             local aliasT = c.refType(aliasNode)
+                            out.t[aliasKey] = equalityFact(aliasT)
                             local rest = aliasT and withoutMember(aliasT, litT) or nil
                             if rest then
                                 out.f[aliasKey] = rest
                             end
                         end
                     end
-                    out.t[key] = litT
+                    out.t[key] = equalityFact(refT)
                     if refNode.kind == "name" and refNode.token then
                         local entry = c.lookupEntry(refNode.token.text)
                         if entry
@@ -1026,7 +1075,6 @@ function narrow.install(c: state.Checker): narrow.Ops
                         end
                     end
                     -- what the value can still hold once this member is ruled out
-                    local refT = c.refType(refNode)
                     local rest, emptied = withoutMember(refT, litT)
                     if rest then
                         out.f[key] = rest

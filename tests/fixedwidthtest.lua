@@ -29,7 +29,11 @@ local function run(source, name)
     local result = parser.parse(source, name)
     testAssert.equal(#result.errors, 0, "syntax")
     local diagnostics = check.check(result, name, sharedEnv)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local messages = {}
+    for _, diagnostic in ipairs(diagnostics) do
+        messages[#messages + 1] = tostring(diagnostic.line) .. ": " .. diagnostic.msg
+    end
+    testAssert.equal(#diagnostics, 0, table.concat(messages, "; "))
 
     return program.run(result, (name:gsub("%.nupp$", "")))
 end
@@ -1111,6 +1115,207 @@ for i = 1LL, 3LL, 1LL do end
     )
     testAssert.equal(errorCodes("local stop: number = 3\nfor i = 1ULL, stop do end"), "NUPP2001")
     testAssert.equal(errorCodes("for i = 1LL, 3LL do i = 2LL end"), "NUPP2008")
+end
+
+function M.unsignedFormattingKeepsStaticMagnitudeAndRespectsCalleeBindings()
+    local direct, alias, parens, interpolation, concat, erased, shadowed, reassigned = run(
+        [[
+local value: uint64 = 18446744073709551615ULL
+local convert = tostring
+local alias = convert
+local function erased(value: any): string return tostring(value) end
+local direct = tostring(value)
+local aliased = alias(value)
+local parens = (tostring)(value)
+local interpolated = `value=${value}`
+local concatenated = "[" .. value .. "]"
+local function custom(value: uint64): string return "custom" end
+local changed: any = tostring
+changed = custom
+local changedResult = changed(value)
+local function apply(tostring: any): string return (tostring)(value) end
+assert(apply(custom) == "custom")
+local function captured(): string return alias(value) end
+assert(captured() == "18446744073709551615")
+do
+    local tostring = custom
+    return direct, aliased, parens, interpolated, concatenated, erased(value), tostring(value), changedResult
+end
+]],
+        "unsigned-formatting.nupp"
+    )
+    testAssert.equal(direct, "18446744073709551615")
+    testAssert.equal(alias, direct)
+    testAssert.equal(parens, direct)
+    testAssert.equal(interpolation, "value=" .. direct)
+    testAssert.equal(concat, "[" .. direct .. "]")
+    testAssert.equal(erased, "-1")
+    testAssert.equal(shadowed, "custom")
+    testAssert.equal(reassigned, "custom")
+    testAssert.equal(
+        run(
+            [[
+local function erased(value: any): string return `${value}` .. "|" .. value end
+return erased(18446744073709551615ULL)
+]],
+            "unsigned-erased-formatting.nupp"
+        ),
+        "-1|-1"
+    )
+    testAssert.equal(
+        run(
+            [[
+local value: uint64 = 9223372036854775808ULL
+local tostring = tostring
+return tostring(value)
+]],
+            "unsigned-shadow-initializer.nupp"
+        ),
+        "9223372036854775808"
+    )
+end
+
+function M.unsignedFloatArithmeticUsesMagnitudeInBothOperandPositions()
+    testAssert.equal(
+        run(
+            [[
+local value: uint64 = 18446744073709551615ULL
+local magnitude: float64 = 18446744073709551616.0
+assert(value + 0.0 == magnitude)
+assert(0.0 + value == magnitude)
+assert(value - 0.0 == magnitude)
+assert(0.0 - value == -magnitude)
+assert(value * 0.5 == 9223372036854775808.0)
+assert(0.5 * value == 9223372036854775808.0)
+assert(value / 1ULL == magnitude)
+assert(1.0 / value > 0.0)
+assert(value // 2.0 == 9223372036854775808.0)
+assert(1.0 // value == 0.0)
+assert(value % 2.0 == 0.0)
+assert(1.0 % value == 1.0)
+assert(value ^ 1ULL == magnitude)
+assert(1.0 ^ value == 1.0)
+local function erased(value: any): number return value + 0.0 end
+assert(erased(value) == -1.0)
+return true
+]],
+            "unsigned-float-arithmetic.nupp"
+        ),
+        true
+    )
+end
+
+function M.unsignedFloatComparisonsKeepExactIntegersAndNanRules()
+    testAssert.equal(
+        run(
+            [[
+local wide: uint64 = 9007199254740993ULL
+local rounded: float64 = 9007199254740992.0
+assert(wide > rounded and wide >= rounded and wide ~= rounded, "unsigned comparison 1")
+assert(not (wide < rounded) and not (wide <= rounded) and not (wide == rounded), "unsigned comparison 2")
+assert(rounded < wide and rounded <= wide and rounded ~= wide, "unsigned comparison 3")
+assert(not (rounded > wide) and not (rounded >= wide) and not (rounded == wide), "unsigned comparison 4")
+local max: uint64 = 18446744073709551615ULL
+assert(max < 18446744073709551616.0 and max ~= 18446744073709551616.0, "unsigned comparison 5")
+local high: uint64 = 9223372036854775808ULL
+assert(high == 9223372036854775808.0, "unsigned high equality")
+local retained: uint64 = high
+local copy = high
+assert(copy == 9223372036854775808.0)
+local copied: uint64 = copy
+assert(tostring(retained) == "9223372036854775808" and tostring(copied) == "9223372036854775808")
+assert(high >= 9223372036854775808.0, "unsigned high ordering high=" .. high)
+assert(max > -0.5 and -0.5 < max, "unsigned comparison 7")
+local small: uint64 = 1ULL
+assert(small < 1.5 and 1.5 > small and small > -0.5, "unsigned comparison 8")
+local nan: float64 = 0.0 / 0.0
+assert(not (max < nan) and not (max <= nan) and not (max > nan) and not (max >= nan), "unsigned comparison 9")
+assert(not (nan < max) and not (nan <= max) and not (nan > max) and not (nan >= max), "unsigned comparison 10")
+assert(max ~= nan and nan ~= max and not (max == nan) and not (nan == max), "unsigned comparison 11")
+local function erased(value: any): boolean return value < 0.0 and value == -1.0 end
+assert(erased(max), "unsigned comparison 12")
+local function mixed(value: number): boolean return max < value end
+assert(mixed(0.0), "unsigned comparison 13")
+local function erasedEquality(value: any): boolean
+    assert(value == 18446744073709551615ULL)
+    return value < 0.0 and tostring(value) == "-1"
+end
+local function numberEquality(value: number): boolean
+    assert(value == 18446744073709551615ULL)
+    return value < 0.0 and tostring(value) == "-1"
+end
+assert(erasedEquality(max) and numberEquality(max as any))
+local signed: integer = 1
+assert(signed == 1.0)
+local stillSigned: integer = signed
+local floating: float64 = 1.0
+assert(floating == 1)
+local stillFloating: float64 = floating
+local function optional(value: integer?): integer
+    assert(value == 1.0)
+    local retained: integer = value
+    return retained
+end
+assert(optional(stillSigned) == 1 and tostring(stillFloating) == "1.0")
+local function pick(value: 1 | 2): 1 | 2
+    if value == 1.0 then
+        local one: 1 = value
+        return one
+    else
+        return value
+    end
+end
+assert(pick(1) == 1 and pick(2) == 2)
+return true
+]],
+            "unsigned-float-comparisons.nupp"
+        ),
+        true
+    )
+end
+
+function M.wideOrderingKeepsOriginalEvaluationOrder()
+    local answer, order = run(
+        [[
+local order = ""
+local function left(): int64 order ..= "L"; return 3 end
+local function right(): int64 order ..= "R"; return 2 end
+local answer = left() > right()
+return answer, order
+]],
+        "wide-ordering.nupp"
+    )
+    testAssert.equal(answer, true)
+    testAssert.equal(order, "LR")
+end
+
+function M.unsignedConversionsReadOperandsOnceInSourceOrder()
+    local order, comparison, arithmetic, formatted = run(
+        [[
+local order = ""
+local value: uint64 = 18446744073709551615ULL
+local function left(): uint64 order ..= "L"; return value end
+local function right(): float64 order ..= "R"; value = 1ULL; return 2.0 end
+local comparison = left() > right()
+value = 18446744073709551615ULL
+local arithmetic = left() + right()
+value = 18446744073709551615ULL
+local direct = value + right()
+assert(direct == 18446744073709551616.0)
+value = 18446744073709551615ULL
+local directComparison = value > right()
+assert(directComparison)
+value = 18446744073709551615ULL
+local convert: any = tostring
+local formatted = convert(value, right())
+return order, comparison, arithmetic, formatted
+]],
+        "unsigned-evaluation-order.nupp"
+    )
+    testAssert.equal(order, "LRLRRRR")
+    testAssert.equal(comparison, true)
+    testAssert.equal(arithmetic, 18446744073709551616.0)
+    testAssert.equal(formatted, "18446744073709551615")
 end
 
 return M
