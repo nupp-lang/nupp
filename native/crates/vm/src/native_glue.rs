@@ -305,7 +305,7 @@ fn require_handler_clif(
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
     metadata.push_str(
-        "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16);\n",
+        "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
     for (field, offset) in [("op", 0), ("a", 1), ("b", 2), ("c", 3), ("imm", 4), ("k", 8)] {
         metadata.push_str(&format!("assert!(std::mem::offset_of!(Ins, {field}) == {offset});\n"));

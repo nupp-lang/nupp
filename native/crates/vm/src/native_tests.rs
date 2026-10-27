@@ -941,6 +941,7 @@ fn native_lengths_preserve_unsigned_conversion_and_kind_guards() {
 // the whole-program and specialization suites; here the policy's own
 // decisions -- counting heat, interpreting -- are what is checked.
 struct Machine {
+    interp: Box<crate::interp::Interp>,
     stack: Vec<u64>,
     funcs: Vec<FuncInfo>,
     codes: Vec<Vec<Ins>>,
@@ -955,6 +956,7 @@ impl Machine {
     /// Two functions: the caller at frame 0, and a callee with `nparams`.
     fn new(caller: Vec<Ins>, callee: Vec<Ins>, nparams: u32) -> Box<Self> {
         let mut m = Box::new(Self {
+            interp: Box::new(crate::interp::Interp::new()),
             stack: vec![0x5a5a_0000_0000_5a5a; 4096],
             funcs: Vec::new(),
             codes: vec![caller, callee],
@@ -987,6 +989,7 @@ impl Machine {
         m
     }
     fn sync(&mut self) {
+        self.ctx.interp = (&mut *self.interp as *mut crate::interp::Interp).cast();
         self.ctx.stack = self.stack.as_mut_ptr();
         self.ctx.cap = self.stack.len() as u64;
         self.ctx.funcs = self.funcs.as_ptr();
@@ -1380,12 +1383,6 @@ fn native_returns_deliver_results_and_resume_the_caller() {
         let mut m = returning(&values[..n], false);
         let before = m.stack.clone();
         let exit = unsafe { m.run(2) };
-        if n > 8 {
-            assert_eq!(exit, m.code(1, 2), "wide returns go to Rust");
-            assert_eq!(m.stack, before);
-            assert_eq!(m.ctx.cur, TEST_FRAME_WORDS as u64);
-            continue;
-        }
         assert_eq!(exit, m.code(0, 6));
         assert_eq!(m.ctx.cur, 0);
         assert_eq!(m.ctx.last_nres, n as u64);
@@ -1393,33 +1390,16 @@ fn native_returns_deliver_results_and_resume_the_caller() {
         if n == 0 {
             expected[HDR + 2] = NIL;
         }
-        expected[HDR + 2..HDR + 2 + n].copy_from_slice(&values[..n]);
+        expected[HDR + 2..HDR + 2 + n.min(8)].copy_from_slice(&values[..n.min(8)]);
         assert_eq!(m.stack, expected, "RetN {n}");
     }
-    // Guarded frames and the task's last frame return through Rust.
-    for (guard, caller, slow) in [
-        (NO_GUARD, 0u64, false),
-        (TEST_FRAME_WORDS as u64, 0, true),
-        (TEST_FRAME_WORDS as u64 + 1, 0, true),
-        (TEST_FRAME_WORDS as u64 - 1, 0, false),
-        (NO_GUARD, u32::MAX as u64, true),
-    ] {
-        for pc in 0..3 {
-            let mut m = returning(&values[..2], false);
-            m.ctx.guard = guard;
-            let s = TEST_FRAME_WORDS as usize;
-            m.stack[s + 1] = caller | (((HDR + 2) as u64) << 32);
-            let before = m.stack.clone();
-            let exit = unsafe { m.run(pc) };
-            if slow {
-                assert_eq!(exit, m.code(1, pc), "guard {guard:#x} caller {caller:#x}");
-                assert_eq!(m.stack, before);
-                assert_eq!(m.ctx.cur, s as u64);
-            } else {
-                assert_eq!(exit, m.code(0, 6));
-                assert_eq!(m.ctx.cur, 0);
-            }
-        }
+    // A guard belonging to a lower frame does not affect this return.
+    for pc in 0..3 {
+        let mut m = returning(&values[..2], false);
+        m.ctx.guard = TEST_FRAME_WORDS as u64 - 1;
+        let exit = unsafe { m.run(pc) };
+        assert_eq!(exit, m.code(0, 6));
+        assert_eq!(m.ctx.cur, 0);
     }
 }
 
@@ -1565,10 +1545,8 @@ fn native_result_padding_fills_only_missing_results() {
             m.ctx.last_nres = delivered;
             let mut expected = m.stack.clone();
             let exit = unsafe { m.run(0) };
-            if wanted > 8 {
-                assert_eq!(exit, m.code(0, 0));
-                assert_eq!(m.stack, expected);
-                continue;
+            for i in 8..delivered.min(wanted as u64) {
+                expected[HDR + 2 + i as usize] = Value::NIL.0;
             }
             for i in delivered..wanted as u64 {
                 expected[HDR + 2 + i as usize] = NIL;
@@ -2638,6 +2616,7 @@ entry 0
                 vm.registered.push(callee);
                 vm.entries.resize(vm.funcs.len(), 0);
                 vm.prepare_threaded();
+                vm.funcs[1].ins[0] = Ins::default();
                 let args = [Value::NIL, callee, Value::TRUE];
                 let tid = if scheduled {
                     vm.enable_scheduler().unwrap();
@@ -2672,9 +2651,8 @@ entry 0
                     ctx.cur, pushed as u64,
                     "scheduled {scheduled}, budget {budget}, closure {closure}"
                 );
-                // The chain reached the protected callee's Ret, where the
-                // existing protected-result service takes over. It did not
-                // send PCall itself to the Rust opcode executor.
+                // Stop explicitly at the callee entry to isolate the native
+                // protected push from the native return path.
                 assert_eq!(next, vm.finfo[1].code as u64);
                 assert_eq!(vm.tasks[tid].protected.len(), 1);
                 let protected = &vm.tasks[tid].protected[0];
@@ -2759,13 +2737,14 @@ entry 0
                         frame,
                     )
                 };
-                // The first handoff is the caller's terminal Ret, after the
-                // method already executed. CallMethod itself stayed in Nupp.
+                // The method and terminal return both stay in Nupp; completion
+                // exits by status rather than an instruction handoff.
                 assert_eq!(
                     next,
-                    unsafe { pc.add(1) } as u64,
+                    0,
                     "scheduled {scheduled}, budget {budget}, mode {mode}"
                 );
+                assert_eq!(ctx.status, ST_DONE);
                 assert_eq!(ctx.cur, 0);
                 assert_eq!(ctx.budget, (budget - 1) as u64);
                 assert_eq!(vm.execution_limit, Some(budget - 1));
@@ -3027,4 +3006,407 @@ fn native_slot_float_errors_match_reference_after_name_resolution() {
             assert_eq!(vm.bytes_of(error), b"runtime error: slot is not a number");
         }
     }
+}
+
+// Enter just the native chain. Any instruction fallback remains an address,
+// so these regressions cannot pass by silently running the Rust step.
+unsafe fn return_chain(vm: &mut crate::interp::Interp, ctx: &mut Ctx, pc: usize) -> u64 {
+    let frame = ctx.stack.add(ctx.cur as usize);
+    let fid = (*frame & u32::MAX as u64) as usize;
+    let info = &vm.finfo[fid];
+    nupp_native_runtime_entry(
+        info.code.add(pc),
+        frame.add(HDR),
+        frame.add(info.off_i as usize).cast(),
+        frame.add(info.off_f as usize).cast(),
+        ctx,
+        frame,
+    )
+}
+
+fn return_context(vm: &mut crate::interp::Interp, tid: usize) -> Ctx {
+    let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+    ctx.interp = (vm as *mut crate::interp::Interp).cast();
+    ctx.tid = tid as u64;
+    crate::threaded::sync(&mut ctx, vm);
+    ctx
+}
+
+#[test]
+fn native_terminal_returns_own_full_packs_and_zero_budget_roots() {
+    for scheduled in [false, true] {
+        for instruction in ["Ret 1", "RetNil", "RetN 1 0", "RetN 1 127", "RetN 1 255"] {
+            let source = format!("function root 0 0 255 2 :v\n{instruction}\nend\nentry 0\n");
+            let mut vm = Box::new(crate::interp::Interp::new());
+            crate::image::load(&mut vm, &source).unwrap();
+            vm.prepare_threaded();
+            let tid = if scheduled {
+                vm.enable_scheduler().unwrap();
+                vm.schedule(Value::func(0), &[], None).unwrap().index
+            } else {
+                vm.spawn(0, &[])
+            };
+            // Give every value distinct managed identity, with the only tail
+            // roots in extra. Completion must transfer that ownership to Task.
+            let mut input = Vec::new();
+            for i in 0..255 {
+                let value = vm.new_string_bytes(format!("return-managed-{i}").as_bytes());
+                vm.registered.push(value);
+                input.push(value);
+            }
+            for i in 0..135 {
+                vm.tasks[tid].stack[HDR + 1 + i] = input[i].0;
+            }
+            for i in 0..127 {
+                vm.extra[i] = input[128 + i];
+            }
+            vm.extra_n = 127;
+            vm.last_nres = 128;
+            vm.registered.clear();
+            vm.execution_limit = Some(0);
+            vm.instruction_budget = Some(0);
+            let mut ctx = return_context(&mut vm, tid);
+            let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+            assert_eq!(
+                exit, 0,
+                "terminal {instruction}, scheduled {scheduled} returned an instruction"
+            );
+            assert_eq!(ctx.status, ST_DONE);
+            assert!(matches!(vm.tasks[tid].state, crate::interp::State::Done));
+            let expected: &[Value] = match instruction {
+                "Ret 1" => &input[..1],
+                "RetNil" | "RetN 1 0" => &[],
+                "RetN 1 127" => &input[..127],
+                _ => &input,
+            };
+            assert_eq!(ctx.last_nres as usize, expected.len());
+            assert_eq!(
+                ctx.result,
+                expected.first().copied().unwrap_or(Value::NIL).0
+            );
+            if instruction != "Ret 1" {
+                assert_eq!(vm.tasks[tid].results, expected);
+            }
+            assert_eq!(vm.extra_n, 0);
+            assert_eq!(vm.execution_limit, Some(0));
+            assert_eq!(vm.instruction_budget, Some(0));
+            vm.full_cycle();
+            for (i, value) in expected.iter().enumerate() {
+                assert_eq!(
+                    vm.bytes_of(*value),
+                    format!("return-managed-{i}").as_bytes()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn native_large_return_packs_survive_gc_before_wide_padding() {
+    for trailing in [false, true] {
+        let encoded = if trailing { 255 } else { 127 };
+        let source = format!(
+            "function caller 0 0 255 2 :v\nCall 1 0 0\nPadResults 0 255\nRetNil\nend\nfunction callee 1 0 150 2 :v\nRetN 1 {encoded}\nend\nentry 0\n"
+        );
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, &source).unwrap();
+        vm.prepare_threaded();
+        // Stop before PadResults, force a collection, then restore it. The
+        // second native entry must execute padding and reach the next marker.
+        let padding = vm.funcs[0].ins[1];
+        vm.funcs[0].ins[1] = Ins::default();
+        vm.funcs[0].ins[2] = Ins::default();
+        let tid = vm.spawn(0, &[]);
+        vm.tasks[tid].stack.resize(1024, 0);
+        let mut ctx = return_context(&mut vm, tid);
+        let caller_words = vm.funcs[0].frame_words();
+        unsafe {
+            push(&mut ctx, ctx.stack, 1, HDR as u32, 0, 1, Value::NIL.0);
+        }
+        let callee = ctx.cur as usize;
+        assert_eq!(callee, caller_words);
+        let mut input = Vec::new();
+        for i in 0..255 {
+            let value = vm.new_string_bytes(format!("wide-return-{i}").as_bytes());
+            vm.registered.push(value);
+            input.push(value);
+        }
+        for i in 0..135 {
+            vm.tasks[tid].stack[callee + HDR + 1 + i] = input[i].0;
+        }
+        for i in 0..127 {
+            vm.extra[i] = input[128 + i];
+        }
+        vm.extra_n = 127;
+        ctx.last_nres = 128;
+        // Re-derive after the helper above expanded the task stack.
+        ctx.stack = vm.tasks[tid].stack.as_mut_ptr();
+        vm.registered.clear();
+        let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+        assert_eq!(
+            exit,
+            unsafe { vm.finfo[0].code.add(1) } as u64,
+            "RetN must not fall back"
+        );
+        assert_eq!(ctx.cur, 0);
+        let count = if trailing { 128 } else { 127 };
+        assert_eq!(ctx.last_nres, count);
+        assert_eq!(vm.extra_n, count as usize - 1);
+        vm.tasks[tid].set_cur(0);
+        vm.last_nres = count as usize;
+        vm.full_cycle();
+        for i in 0..count as usize - 1 {
+            assert_eq!(
+                vm.bytes_of(vm.extra[i]),
+                format!("wide-return-{}", i + 1).as_bytes()
+            );
+        }
+        vm.funcs[0].ins[1] = padding;
+        let exit = unsafe { return_chain(&mut vm, &mut ctx, 1) };
+        assert_eq!(
+            exit,
+            unsafe { vm.finfo[0].code.add(2) } as u64,
+            "PadResults must not fall back"
+        );
+        assert_eq!(vm.extra_n, 0);
+        for i in 0..255 {
+            let expected = if i < count as usize {
+                input[i]
+            } else {
+                Value::NIL
+            };
+            assert_eq!(vm.tasks[tid].stack[HDR + i], expected.0);
+        }
+    }
+}
+
+#[test]
+fn native_guarded_returns_finalize_protection_without_instruction_fallback() {
+    let source = "function caller 0 0 40 2 :v\nPCall 1 0\nPadResults 1 16\nRetNil\nend\nfunction callee 1 0 20 2 :v\nRetN 1 12\nend\nentry 0\n";
+    for scheduled in [false, true] {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, source).unwrap();
+        vm.prepare_threaded();
+        vm.funcs[0].ins[2] = Ins::default();
+        let tid = if scheduled {
+            vm.enable_scheduler().unwrap();
+            vm.schedule(Value::func(0), &[], None).unwrap().index
+        } else {
+            vm.spawn(0, &[])
+        };
+        let mut ctx = return_context(&mut vm, tid);
+        unsafe {
+            push(&mut ctx, ctx.stack, 1, (HDR + 2) as u32, 0, 1, Value::NIL.0);
+        }
+        let retired = ctx.cur as usize;
+        for i in 0..12 {
+            vm.tasks[tid].stack[retired + HDR + 1 + i] = num(i as f64 + 0.5);
+        }
+        vm.tasks[tid].protected.push(crate::interp::Protected {
+            frame: retired,
+            caller: 0,
+            result: HDR + 1,
+            handler: Value::NIL,
+        });
+        ctx.guard = retired as u64;
+        ctx.budget = 0;
+        ctx.budget_mark = 0;
+        vm.execution_limit = Some(0);
+        vm.instruction_budget = Some(0);
+        let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+        assert_eq!(exit, unsafe { vm.finfo[0].code.add(2) } as u64);
+        assert_eq!(ctx.status, 0);
+        assert_eq!(ctx.cur, 0);
+        assert_eq!(ctx.last_nres, 13);
+        assert_eq!(ctx.guard, NO_GUARD);
+        assert!(vm.tasks[tid].protected.is_empty());
+        assert_eq!(vm.tasks[tid].stack[HDR + 1], Value::TRUE.0);
+        for i in 0..12 {
+            assert_eq!(vm.tasks[tid].stack[HDR + 2 + i], num(i as f64 + 0.5));
+        }
+        assert_eq!(&vm.tasks[tid].stack[HDR + 14..HDR + 17], &[Value::NIL.0; 3]);
+        assert_eq!(vm.execution_limit, Some(0));
+        assert_eq!(vm.instruction_budget, Some(0));
+    }
+}
+
+#[test]
+fn native_cleanup_returns_reload_roots_and_preserve_error_before_transfer() {
+    let source = r#"
+function root 0 0 32 2 :v
+RetN 1 12
+end
+function cleanup 1 1 255 2 v:v
+const 0 str "closed"
+const 1 num 1
+NewTable 20
+GetField 2 1 0
+K 3 1
+Add 2 2 3
+SetField 1 0 2
+RetNil
+end
+function failedCleanup 2 1 8 2 v:v
+const 0 builtin error
+const 1 str "cleanup failed exactly"
+K 2 0
+K 4 1
+CallDyn 2 3 1
+RetNil
+end
+entry 0
+"#;
+    for fails in [false, true] {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, source).unwrap();
+        vm.install_globals();
+        vm.prepare_threaded();
+        vm.threaded = true;
+        let object = vm.new_table();
+        vm.registered.push(object);
+        let closed = vm.intern("closed");
+        vm.set_index(object, closed, Value::num(0.0));
+        let tid = vm.spawn(0, &[]);
+        let mut expected = Vec::new();
+        for i in 0..12 {
+            let value = vm.new_string_bytes(format!("cleanup-root-{i}").as_bytes());
+            vm.tasks[tid].stack[HDR + 1 + i] = value.0;
+            expected.push(value);
+        }
+        vm.tasks[tid].cleanups.push(crate::interp::Cleanup {
+            frame: 0,
+            value: object,
+            callback: Value::func(if fails { 2 } else { 1 }),
+        });
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        vm.last_nres = 77;
+        let mut ctx = return_context(&mut vm, tid);
+        let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+        assert_eq!(
+            exit, 0,
+            "guarded return must not become an instruction fallback"
+        );
+        assert!(vm.tasks[tid].cleanups.is_empty());
+        if fails {
+            assert_eq!(ctx.status, ST_ERROR);
+            assert!(matches!(
+                vm.tasks[tid].state,
+                crate::interp::State::Runnable
+            ));
+            assert_eq!(ctx.cur, 0);
+            assert_eq!(ctx.last_nres, 77);
+            let error = vm.pending_error.take().unwrap();
+            assert_eq!(vm.bytes_of(error), b"cleanup failed exactly");
+            assert!(vm.tasks[tid].results.is_empty());
+        } else {
+            assert_eq!(ctx.status, ST_DONE);
+            assert_eq!(vm.tasks[tid].results, expected);
+            assert_eq!(vm.get_index(object, closed), Value::num(1.0));
+            vm.full_cycle();
+            for (i, value) in expected.iter().enumerate() {
+                assert_eq!(vm.bytes_of(*value), format!("cleanup-root-{i}").as_bytes());
+            }
+        }
+    }
+}
+
+#[test]
+fn native_return_cleanup_parks_snapshots_and_completes_once() {
+    use crate::persist::{self, Policies, ResourceCodecs};
+    let source = r#"
+function root 0 1 16 2 v:v
+RetN 1 1
+end
+function cleanup 1 1 16 2 v:v
+const 0 str "nupp.host"
+const 1 str "sleep"
+const 2 num 5
+const 3 str "closed"
+const 4 num 1
+Require 2 0
+GetField 3 2 1
+K 5 2
+CallDyn 3 4 1
+GetField 6 1 3
+K 7 4
+Add 6 6 7
+SetField 1 3 6
+RetNil
+end
+entry 0
+"#;
+    let mut vm = Box::new(crate::interp::Interp::new());
+    crate::image::load(&mut vm, source).unwrap();
+    vm.install_globals();
+    let host = vm.host_table();
+    vm.loaded.insert("nupp.host".into(), host);
+    vm.prepare_threaded();
+    vm.threaded = true;
+    vm.enable_scheduler().unwrap();
+    let object = vm.new_table();
+    vm.registered.push(object);
+    let closed = vm.intern("closed");
+    vm.set_index(object, closed, Value::num(0.0));
+    let task = vm.schedule(Value::func(0), &[object], None).unwrap();
+    vm.tasks[task.index].cleanups.push(crate::interp::Cleanup {
+        frame: 0,
+        value: object,
+        callback: Value::func(1),
+    });
+    vm.scheduler
+        .as_mut()
+        .unwrap()
+        .ready
+        .retain(|&tid| tid != task.index);
+    vm.execution_limit = Some(20);
+    let mut ctx = return_context(&mut vm, task.index);
+    let exit = unsafe { return_chain(&mut vm, &mut ctx, 0) };
+    assert_eq!(
+        exit, 0,
+        "cleanup park must leave by status, not Rust instruction"
+    );
+    assert_eq!(ctx.status, ST_PARKED);
+    assert_eq!(ctx.cur, 0);
+    assert_eq!(
+        vm.tasks[task.index].stack[0] >> 32,
+        0,
+        "retry same return after wait"
+    );
+    assert_eq!(
+        vm.execution_limit,
+        Some(20),
+        "return/cleanup polling charges no call edge"
+    );
+    vm.run_ready(16).unwrap();
+    assert_eq!(vm.scheduler.as_ref().unwrap().next_wakeup(), Some(5));
+    vm.full_cycle();
+    let bytes = persist::save_vm(
+        &mut vm,
+        &Policies::default(),
+        &mut ResourceCodecs::default(),
+    )
+    .unwrap();
+    let mut restored =
+        persist::load_vm(&bytes, &Policies::default(), &mut ResourceCodecs::default()).unwrap();
+    restored.prepare_threaded();
+    restored.threaded = true;
+    restored.heap.stress_steps = true;
+    restored.heap.oracle = true;
+    restored.heap.quarantine = true;
+    restored.advance_to(5).unwrap();
+    for _ in 0..8 {
+        restored.run_ready(16).unwrap();
+    }
+    assert!(matches!(
+        restored.tasks[task.index].state,
+        crate::interp::State::Done
+    ));
+    let result = restored.tasks[task.index].result;
+    assert_eq!(restored.tasks[task.index].results, [result]);
+    let closed = restored.intern("closed");
+    assert_eq!(restored.get_index(result, closed), Value::num(1.0));
+    restored.run_ready(16).unwrap();
+    assert_eq!(restored.get_index(result, closed), Value::num(1.0));
 }

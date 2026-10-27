@@ -979,7 +979,7 @@ impl Interp {
         while k > 0 && c[k - 1].frame >= frame { k -= 1; }
         k
     }
-    fn finish_protected(&mut self, tid: usize, frame: usize) {
+    pub(crate) fn finish_protected(&mut self, tid: usize, frame: usize) {
         if self.tasks[tid].protected.last().is_some_and(|h| h.frame == frame) {
             let handler = self.tasks[tid].protected.pop().unwrap();
             let first = Value(self.tasks[tid].stack[handler.result + 1]);

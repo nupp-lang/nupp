@@ -147,3 +147,6 @@ mod native_simd_helpers;
 
 #[cfg(feature = "native-runtime")]
 mod native_numeric_helpers;
+
+#[cfg(feature = "native-runtime")]
+mod native_return_helpers;

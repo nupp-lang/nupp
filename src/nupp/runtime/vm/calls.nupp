@@ -704,8 +704,129 @@ export function backEdge(
     end
 end
 
--- A return the Rust path must take: a cleanup or protected call at or above
--- this frame, an unwind in progress, or the task's own end.
+-- Task completion, cleanup polling and protected records remain named task
+-- services until P4. Instruction decoding, result packs and destinations are
+-- Nupp's. Scratch contains at most 127 fixed values plus 128 trailing results;
+-- no service that can collect is called while it contains unrooted values.
+local function returnSlow(pc: voidptr, context: voidptr, kind: int64): uint64
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local current = native.load64(context, native.layout("cur"))
+    local frame = native.offset(stack, native.index(current * 8))
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local code = native.loadPointer(info, native.layout("FuncInfo.code"))
+    local pcIndex = native.index(native.address(pc) - native.address(code)) >> 4
+    native.store32(context, native.layout("pc"), pcIndex)
+    local guard = native.load64(context, native.layout("guard"))
+    local guarded = native.both(guard ~= values.NO_GUARD, guard >= current)
+    if guarded then
+        helpers.pollReturnCleanups(context)
+        if native.load32(context, native.layout("status")) ~= 0 then
+            return native.fail()
+        end
+    end
+    -- Cleanup may run callbacks, collect, relocate windows or suspend. Its
+    -- successful continuation is a fresh frame root, never cached windows.
+    stack = native.loadPointer(context, native.layout("stack"))
+    current = native.load64(context, native.layout("cur"))
+    frame = native.offset(stack, native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    local link = native.load64(frame, 8)
+    local caller = link & values.LOW_WORD
+    local count: int64 = 1
+    local fixed: int64 = 0
+    local from: int64 = program.readByte(pc, 1)
+    local trailing = false
+    if kind == 1 then
+        count = 0
+    elseif kind == 2 then
+        count = program.readByte(pc, 2)
+        if count >= 128 then
+            fixed = count & 127
+            count = fixed + native.loadIndex(context, native.layout("last_nres"))
+            trailing = true
+        end
+    end
+    local pack = native.stackBytes(2040)
+    local extra = helpers.resultStorage(context)
+    local copied: int64 = 0
+    while copied < count do
+        local value: uint64 = values.NIL
+        if native.both(trailing, copied >= fixed + 8) then
+            value = native.load64(extra, (copied - fixed - 1) * 8)
+        else
+            value = slots.readValue(frame, regs, from + copied)
+        end
+        native.store64(pack, copied * 8, value)
+        copied = copied + 1
+    end
+    local first: uint64 = values.NIL
+    if count > 0 then
+        first = native.load64(pack, 0)
+    end
+    if caller == values.LOW_WORD then
+        helpers.resultRoots(context, 0)
+        native.store64(context, native.layout("last_nres"), native.word(count))
+        helpers.completeTask(context, first, pack, native.chooseIndex(kind == 0, -1, count))
+        native.store64(context, native.layout("result"), first)
+        native.store32(context, native.layout("status"), 4294967294)
+        return native.fail()
+    end
+    local resumed = native.offset(stack, native.index(caller * 8))
+    local callerRegs = native.offset(resumed, 32)
+    local slot = native.index(link >> 32) - native.index(caller) - 4
+    local delivered: int64 = -1
+    if kind == 0 then
+        local flags = native.load64(frame, 24)
+        if (flags >> 32) & 1 ~= 0 then
+            local callerInfo = native.offset(
+                native.loadPointer(context, native.layout("funcs")),
+                native.index(native.load64(resumed, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+            )
+            local off = native.load32(callerInfo, native.layout("FuncInfo.off_f"))
+            local callerFloats = native.offset(resumed, off * 8)
+            local floatSlot = native.index(flags & values.LOW_WORD) - native.index(caller) - off
+            slots.writeFloat(resumed, callerFloats, floatSlot, native.fromBits(first))
+        else
+            slots.writeValue(resumed, callerRegs, slot, first)
+            delivered = slot
+        end
+        native.store64(context, native.layout("result"), first)
+    else
+        copied = 0
+        while native.both(copied < count, copied < 8) do
+            slots.writeValue(resumed, callerRegs, slot + copied, native.load64(pack, copied * 8))
+            copied = copied + 1
+        end
+        if count == 0 then
+            slots.writeValue(resumed, callerRegs, slot, values.NIL)
+        end
+    end
+    copied = 1
+    while native.both(copied < count, copied < 128) do
+        native.store64(extra, (copied - 1) * 8, native.load64(pack, copied * 8))
+        copied = copied + 1
+    end
+    helpers.resultRoots(context, native.chooseIndex(count > 8, copied - 1, 0))
+    native.store64(context, native.layout("last_nres"), native.word(native.chooseIndex(count < 128, count, 128)))
+    native.store64(context, native.layout("cur"), caller)
+    if guarded then
+        helpers.finishProtected(context, current)
+        -- A protected result prepends success and changes the pack's shape.
+        delivered = -1
+    end
+    local callerInfo = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(resumed, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local callerInts = native.offset(resumed, native.load32(callerInfo, native.layout("FuncInfo.off_i")) * 8)
+    local callerFloats = native.offset(resumed, native.load32(callerInfo, native.layout("FuncInfo.off_f")) * 8)
+
+    return resumeCaller(pc, callerRegs, callerInts, callerFloats, context, resumed, caller, delivered)
+end
+
 export function Ret(
     pc: voidptr,
     regs: voidptr,
@@ -714,39 +835,7 @@ export function Ret(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local guard = native.load64(context, native.layout("guard"))
-    local current = native.load64(context, native.layout("cur"))
-    local link = native.load64(frame, 8)
-    local caller = link & values.LOW_WORD
-    if native.either(native.both(guard ~= values.NO_GUARD, guard >= current), caller == values.LOW_WORD) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local value = slots.readValue(frame, regs, program.readByte(pc, 1))
-        local flags = native.load64(frame, 24)
-        local indirect = (flags >> 32) & 1 ~= 0
-        local resumed = native.offset(native.loadPointer(context, native.layout("stack")), native.index(caller * 8))
-        -- The header is the current ABI adapter. Beyond this boundary a
-        -- destination is a caller frame, a typed window and a logical slot.
-        local slot: int64 = native.index(link >> 32) - native.index(caller) - 4
-        local delivered: int64 = slot
-        if indirect then
-            delivered = -1
-            local info = native.offset(
-                native.loadPointer(context, native.layout("funcs")),
-                native.index(native.load64(resumed, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
-            )
-            local off = native.load32(info, native.layout("FuncInfo.off_f"))
-            local callerFloats = native.offset(resumed, off * 8)
-            local floatSlot: int64 = native.index(flags & values.LOW_WORD) - native.index(caller) - off
-            slots.writeFloat(resumed, callerFloats, floatSlot, native.fromBits(value))
-        else
-            slots.writeValue(resumed, native.offset(resumed, 32), slot, value)
-        end
-        native.store64(context, native.layout("result"), value)
-        native.store64(context, native.layout("cur"), caller)
-        native.store64(context, native.layout("last_nres"), 1)
-        return resumeCaller(pc, regs, ints, floats, context, frame, caller, delivered)
-    end
+    return returnSlow(pc, context, 0)
 end
 
 export function RetNil(
@@ -757,20 +846,7 @@ export function RetNil(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local guard = native.load64(context, native.layout("guard"))
-    local current = native.load64(context, native.layout("cur"))
-    local link = native.load64(frame, 8)
-    local caller = link & values.LOW_WORD
-    if native.either(native.both(guard ~= values.NO_GUARD, guard >= current), caller == values.LOW_WORD) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local resumed = native.offset(native.loadPointer(context, native.layout("stack")), native.index(caller * 8))
-        local slot: int64 = native.index(link >> 32) - native.index(caller) - 4
-        slots.writeValue(resumed, native.offset(resumed, 32), slot, values.NIL)
-        native.store64(context, native.layout("cur"), caller)
-        native.store64(context, native.layout("last_nres"), 0)
-        return resumeCaller(pc, regs, ints, floats, context, frame, caller, -1)
-    end
+    return returnSlow(pc, context, 1)
 end
 
 export function RetN(
@@ -781,33 +857,36 @@ export function RetN(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local count = program.readByte(pc, 2)
-    local guard = native.load64(context, native.layout("guard"))
-    local current = native.load64(context, native.layout("cur"))
-    local link = native.load64(frame, 8)
-    local caller = link & values.LOW_WORD
-    if native.either(
-        native.either(count > 8, native.both(guard ~= values.NO_GUARD, guard >= current)),
-        caller == values.LOW_WORD
-    ) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local resumed = native.offset(native.loadPointer(context, native.layout("stack")), native.index(caller * 8))
-        local callerRegs = native.offset(resumed, 32)
-        local slot: int64 = native.index(link >> 32) - native.index(caller) - 4
-        local from = program.readByte(pc, 1)
-        local copied: int64 = 0
-        while copied < count do
-            slots.writeValue(resumed, callerRegs, slot + copied, slots.readValue(frame, regs, from + copied))
-            copied = copied + 1
-        end
-        if count == 0 then
-            slots.writeValue(resumed, callerRegs, slot, values.NIL)
-        end
-        native.store64(context, native.layout("cur"), caller)
-        native.store64(context, native.layout("last_nres"), native.word(count))
-        return resumeCaller(pc, regs, ints, floats, context, frame, caller, -1)
+    return returnSlow(pc, context, 2)
+end
+
+local function padResultsSlow(pc: voidptr, context: voidptr): uint64
+    local stack = native.loadPointer(context, native.layout("stack"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local regs = native.offset(frame, 32)
+    local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
+    local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
+    local wanted = program.readByte(pc, 2)
+    local base = program.readByte(pc, 1)
+    local got = native.loadIndex(context, native.layout("last_nres"))
+    local extra = helpers.resultStorage(context)
+    local copied: int64 = 8
+    while native.both(copied < got, copied < wanted) do
+        slots.writeValue(frame, regs, base + copied, native.load64(extra, (copied - 1) * 8))
+        copied = copied + 1
     end
+    copied = got
+    while copied < wanted do
+        slots.writeValue(frame, regs, base + copied, values.NIL)
+        copied = copied + 1
+    end
+    helpers.resultRoots(context, 0)
+
+    return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 export function PadResults(
@@ -818,18 +897,7 @@ export function PadResults(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local wanted = program.readByte(pc, 2)
-    if wanted > 8 then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local base = program.readByte(pc, 1)
-        local filled: int64 = native.loadIndex(context, native.layout("last_nres"))
-        while filled < wanted do
-            slots.writeValue(frame, regs, base + filled, values.NIL)
-            filled = filled + 1
-        end
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    end
+    return padResultsSlow(pc, context)
 end
 
 -- A dynamic call through a register is the same path as `CallK`; the Rust

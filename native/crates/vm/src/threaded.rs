@@ -330,8 +330,8 @@ pub(crate) fn sync(ctx: &mut Ctx, it: &mut Interp) {
     { ctx.frame_entries = it.frame_entries.as_ptr(); ctx.nframe_entries = it.frame_entries.len() as u64; }
 }
 
-/// The highest frame of `tid` whose return the Rust path must take.
-fn guard(it: &mut Interp, tid: usize) -> u64 {
+/// The highest frame of `tid` whose return needs cleanup or protection policy.
+pub(crate) fn guard(it: &mut Interp, tid: usize) -> u64 {
     if it.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid)) && it.unwind_state(tid) != Value::NIL { return GUARD_ALL; }
     let t = &it.tasks[tid];
     let cleanup = t.cleanups.last().map(|c| c.frame as u64);
