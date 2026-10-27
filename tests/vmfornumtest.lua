@@ -23,7 +23,7 @@ end
 
 local function run(source)
     local parsed, name = checked(source)
-    return program.run(parsed, name:gsub("%.nupp$", ""))
+    return program.run(parsed, (name:gsub("%.nupp$", "")))
 end
 
 local COLLECT = [[
@@ -71,14 +71,16 @@ function M.unsignedCountersKeepTheirStaticOrderAcrossTheSignedBoundary()
         {"18446744073709551614ULL, 18446744073709551615ULL", "18446744073709551614ULL, 18446744073709551615ULL", 2},
         {"1ULL, 18446744073709551615ULL, 18446744073709551615ULL", "1ULL", 1},
         {"0ULL, 18446744073709551615ULL, 9223372036854775808ULL", "0ULL, 9223372036854775808ULL", 2},
+        {"1.0, 3ULL, 1.0", "1ULL, 2ULL, 3ULL", 3},
     }) do
         local source = "local expected: {uint64} = {" .. row[
             2
-        ] .. "}\nlocal count = 0\nfor i = " .. row[
+        ] .. "}\nlocal count: integer = 0\nlocal library: any = math\nfor i = " .. row[
             1
         ]
             .. [[ do
     count += 1
+    if library.type(i) ~= "integer" then error("unsigned counter lost integer subtype") end
     if count > #expected then error("unsigned loop did not terminate") end
     if i ~= expected[count] then error("unsigned loop counter changed bits") end
 end
@@ -128,10 +130,64 @@ return calls, i, tostring(captures[1]()) .. "," .. tostring(captures[2]()) .. ",
     test.equal(result, "7,8,9")
 end
 
+function M.bodyMutationsCannotChangeTheCapturedControls()
+    test.equal(
+        run(
+            [[
+local first, last, increment = 1LL, 3LL, 1LL
+local total = 0LL
+for i = first, last, increment do
+    first, last, increment = 99LL, -9LL, 0LL
+    total += i
+end
+return total
+]]
+        ),
+        6
+    )
+    test.equal(
+        run([[
+local total = 0LL
+for i = 1LL, 4LL do
+    if i == 2LL then continue end
+    total += i
+end
+return total
+]]),
+        8
+    )
+end
+
+function M.loopBodyAssignmentsAndShadowsKeepTheExistingPolicy()
+    test.equal(
+        run(
+            [[
+local count = 0
+for _ = 1LL, 3LL do
+    for _, value in ipairs({1}) do
+        local _ = value
+        count += _
+    end
+end
+for i = 1LL, 3LL do
+    i = 99LL
+    count += 1
+end
+for i = 1LL, 3LL do
+    local i = 7LL
+    count += i
+end
+return count
+]]
+        ),
+        27
+    )
+end
+
 function M.zeroStepRaisesEvenWhenTheInitialRangeIsEmpty()
     for _, step in ipairs({"0LL", "0.0", "-0.0"}) do
         local parsed, name = checked("for i = 3LL, 1LL, " .. step .. " do end")
-        local chunk, problem = program.load(parsed, name:gsub("%.nupp$", ""))
+        local chunk, problem = program.load(parsed, (name:gsub("%.nupp$", "")))
         test.assert(chunk ~= nil, problem)
         local ok, message = pcall(chunk)
         test.equal(ok, false)

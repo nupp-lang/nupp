@@ -1877,7 +1877,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.facts.forgetWritten(stat.body)
         c.pushScope()
         c.scope.completionScope = stat.body
-        c.bindVar(var.text, wide or (integerLoop and T.integer) or T.number, false, var, nil, true)
+        c.bindVar(var.text, wide or (integerLoop and T.integer) or T.number, false, var)
 
         -- A range witness dominates this loop only when both bounds name the same
         -- const range and the loop uses the ordinary ascending unit step.

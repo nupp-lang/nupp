@@ -4538,6 +4538,15 @@ function lower.emit(
             f:branch("JmpIfNot", isZero, validStep)
             f:op("Raise", f:const("str", "'for' step is zero"))
             f:place(validStep)
+            if unsignedLoop then
+                -- Exact literal controls may arrive as floats. The unsigned
+                -- window validates those and retains every canonical integer bit.
+                local bits = f:freg()
+                for _, control in ipairs({counter, limit, step}) do
+                    f:op("UUnbox", bits, control)
+                    f:op("UBox", control, bits)
+                end
+            end
 
             -- Lua's integer mode depends on the initial value and step,
             -- independently of the limit. Unknown numeric subtypes are
@@ -4545,8 +4554,8 @@ function lower.emit(
             local integerMode = f:reg()
             local knownStart = wideKind(node.start.inferredType)
             local knownStep = not node.step or wideKind(node.step.inferredType)
-            if knownStart and knownStep then
-                f:op("K", integerMode, f:const("bool", true))
+            if unsignedLoop or (knownStart and knownStep) then
+                f:op("K", integerMode, f:const("true", ""))
             else
                 local integerName = f:reg()
                 f:op("K", integerName, f:const("str", "integer"))
@@ -4561,7 +4570,7 @@ function lower.emit(
                     local classified = f:label()
                     f:jump(classified)
                     f:place(noninteger)
-                    f:op("K", integerMode, f:const("bool", false))
+                    f:op("K", integerMode, f:const("false", ""))
                     f:place(classified)
                 end
             end
