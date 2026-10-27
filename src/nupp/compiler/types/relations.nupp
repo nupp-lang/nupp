@@ -1126,6 +1126,18 @@ local function check(a: Type, b: Type): boolean, string?
         return true
     end
     if btag == "union" then
+        -- A generic number has exactly the signed integer and binary64
+        -- domains. Both must be covered; binary32 alone is not the float domain.
+        if atag == "number" then
+            local integer, floating = false, false
+            for _, member in ipairs(b.members) do
+                integer = integer or isA(T.integer, member)
+                floating = floating or isA(T.float64, member)
+            end
+            if integer and floating then
+                return true
+            end
+        end
         for _, m in ipairs(b.members) do
             if isA(a, m) then
                 return true
