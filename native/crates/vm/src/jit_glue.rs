@@ -672,3 +672,62 @@ impl Interp {
         }
     }
 }
+
+#[cfg(all(test, feature = "native-runtime"))]
+mod native_step_tests {
+    use super::*;
+
+    #[test]
+    fn guest_boundary_preserves_self_pc_and_completion_park_and_error_statuses() {
+        for (opcode, expected) in [
+            ("Jmp -1", 0),
+            ("RetNil", EXIT_LEFT),
+            ("Park 1", EXIT_LEFT),
+            ("CallDyn 1 2 0", ERROR),
+        ] {
+            let mut vm = Box::new(Interp::new());
+            crate::image::load(
+                &mut vm,
+                &format!("function root 0 0 8 0 :v\n{opcode}\nRetNil\nend\nentry 0\n"),
+            )
+            .unwrap();
+            vm.entries.resize(1, 0);
+            vm.prepare_threaded();
+            let tid = vm.spawn(0, &[]);
+            vm.execution_limit = Some(2);
+            vm.tasks[tid].stack[5] = if opcode == "Park 1" {
+                Value::num(37.0).0
+            } else {
+                Value::NIL.0
+            };
+            let mut context = vm.native_context(tid);
+            LEFT.with(|left| left.borrow_mut().take());
+            let word = unsafe { exported::nupp_jit_step(&mut context, 0) };
+            assert_eq!(word, expected, "{opcode}");
+            match opcode {
+                "Jmp -1" => {
+                    assert_eq!(context.status, 0);
+                    assert_eq!(context.budget, 1);
+                    assert!(LEFT.with(|left| left.borrow().is_none()));
+                }
+                "RetNil" => {
+                    assert_eq!(context.status, ST_DONE);
+                    assert!(matches!(
+                        LEFT.with(|left| left.borrow_mut().take()),
+                        Some(Step::Return(Outcome::Done(Value::NIL)))
+                    ));
+                }
+                "Park 1" => {
+                    assert_eq!(context.status, ST_PARKED);
+                    assert!(
+                        matches!(LEFT.with(|left| left.borrow_mut().take()), Some(Step::Return(Outcome::Parked(key))) if key == Value::num(37.0).0)
+                    );
+                }
+                _ => {
+                    assert_eq!(context.status, ST_ERROR);
+                    assert!(vm.pending_error.is_some());
+                }
+            }
+        }
+    }
+}
