@@ -2074,11 +2074,9 @@ impl Interp {
             Caller::Task(tid) => { let task = &self.tasks[tid]; (task.stack[task.cur()] & 0xffff_ffff) as usize }
         })
     }
-    /// Run task `tid` until it finishes or parks: on the threaded core when
-    /// it is built and enabled, else on the Rust loop. Every task runs as the
-    /// frame driver runs it: compiled code is entered through frame entries,
-    /// protected calls are frames a task can suspend in, and cleanups run on
-    /// the task's own stack.
+    /// Run task `tid` through the shared Nupp core until it finishes or parks.
+    /// Compiled code enters through frame entries; protected calls and cleanups
+    /// retain their resumable state on the task's own stack.
     pub fn run(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(Caller::Task(tid));
         loop {
