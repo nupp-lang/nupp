@@ -31,6 +31,7 @@ local admitted = {
     ICmpLe = true,
     ICmpSLt = true,
     ICmpSLe = true,
+    FBox = true,
     FAdd = true,
     FSub = true,
     FMul = true,
@@ -131,9 +132,9 @@ end
 
 --- Lowers a complete checked handler to the shared Nupp semantic graph.
 ---
---- The initial slice has one closed block and immutable local bindings. It
---- retains exact scalar kinds, checked program and slot contracts, positions
---- and the dispatch transfer. No machine IR or second SSA builder is used.
+--- Exact scalar values and checked memory contracts remain in this graph.
+--- Terminal branches carry local bindings through explicit block parameters.
+--- Positions and dispatch identity survive without another SSA builder.
 --- @raises string when an admitted handler contains unsupported checked syntax
 function nativegraph.compile(fn: any, options: any): any
     need(nativegraph.admits(fn), "function is outside the admitted handler slice")
@@ -152,8 +153,11 @@ function nativegraph.compile(fn: any, options: any): any
     g.source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
     local block = graph.block(g)
     local bindings: {[any]: integer} = {}
+    local bindingOrder: {any} = {}
     for index, parameter in ipairs(body.params) do
-        bindings[parameter.name.definition or parameter.name] = index
+        local key = parameter.name.definition or parameter.name
+        bindings[key] = index
+        bindingOrder[#bindingOrder + 1] = key
     end
 
     local function position(n: any): integer
@@ -270,46 +274,88 @@ function nativegraph.compile(fn: any, options: any): any
         end
         error("native graph: unsupported checked expression " .. tostring(n.kind), 0)
     end
-    for _, stat in ipairs(body.body.stats) do
-        need(block.term == nil or stat.kind == "emptyStmt", "statement after dispatch")
-        if stat.kind == "localStmt" then
-            need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
-            for index, token in ipairs(stat.names) do
-                local key = token.definition or token
-                need(bindings[key] == nil, "duplicate local binding")
-                local kind = exactKind(token.inferredType)
-                need(exactKinds[kind], "exact native local kind required")
-                bindings[key] = expression(stat.exprs[index], kind)
+    local statements: function(any): nil
+    statements = function(stats: any): nil
+        for _, stat in ipairs(stats) do
+            need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
+            if stat.kind == "localStmt" then
+                need(#stat.names == #stat.exprs and not stat.pattern, "plain initialized locals required")
+                for index, token in ipairs(stat.names) do
+                    local key = token.definition or token
+                    need(bindings[key] == nil, "duplicate local binding")
+                    local kind = exactKind(token.inferredType)
+                    need(exactKinds[kind], "exact native local kind required")
+                    bindings[key] = expression(stat.exprs[index], kind)
+                    bindingOrder[#bindingOrder + 1] = key
+                end
+            elseif stat.kind == "callStmt" then
+                local call = stat.expr
+                local moduleName, name = member(call.obj)
+                need(moduleName == "nupp.runtime.vm.slots", "only a logical slot write may be a statement")
+                local contract = slotcontract.read(call.obj.name.definition, name as string)
+                need(contract.write, "slot read is not a statement")
+                signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
+                local args = call.args.exprs
+                local frame = expression(args[1], "voidptr")
+                local window = expression(args[2], "voidptr")
+                local slot = expression(args[3], "int64")
+                local value = expression(args[4], contract.kind)
+                emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
+            elseif stat.kind == "ifStmt" then
+                need(
+                    #stat.clauses == 1 and stat.elseClause ~= nil and not stat.clauses[1].binding,
+                    "unsupported checked statement: nonterminal conditional"
+                )
+                local condition = expression(stat.clauses[1].cond, "boolean")
+                local parent, parentBindings, parentOrder = block, bindings, bindingOrder
+
+                local function branch(): (any, any, any, any)
+                    local target = graph.block(g)
+                    local transported, order, args = {}, {}, {}
+                    for _, key in ipairs(parentOrder) do
+                        local value = parentBindings[key]
+                        order[#order + 1] = key
+                        if value <= g.nparams then
+                            transported[key] = value
+                        else
+                            local parameter = graph.nativeValue(g, g.exactTypes[value])
+                            target.params[#target.params + 1] = parameter
+                            args[#args + 1] = value
+                            transported[key] = parameter
+                        end
+                    end
+
+                    return target, transported, order, {target = target.id, args = args}
+                end
+
+                local yes, yesBindings, yesOrder, yesEdge = branch()
+                local no, noBindings, noOrder, noEdge = branch()
+                parent.term = {kind = "branch", value = condition, edges = {yesEdge, noEdge}, pos = position(stat)}
+                block, bindings, bindingOrder = yes, yesBindings, yesOrder
+                statements(stat.clauses[1].body.stats)
+                need(block == nil, "unsupported checked statement: conditional branch falls through")
+                block, bindings, bindingOrder = no, noBindings, noOrder
+                statements(stat.elseClause.body.stats)
+                need(block == nil, "unsupported checked statement: conditional branch falls through")
+            elseif stat.kind == "returnStmt" then
+                need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
+                local call = stat.exprs[1]
+                local moduleName, name = member(call.obj)
+                need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
+                signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
+                local args = {}
+                for index, argument in ipairs(call.args.exprs) do
+                    args[index] = expression(argument, "voidptr")
+                end
+                block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
+                block = nil
+            elseif stat.kind ~= "emptyStmt" then
+                error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)
             end
-        elseif stat.kind == "callStmt" then
-            local call = stat.expr
-            local moduleName, name = member(call.obj)
-            need(moduleName == "nupp.runtime.vm.slots", "only a logical slot write may be a statement")
-            local contract = slotcontract.read(call.obj.name.definition, name as string)
-            need(contract.write, "slot read is not a statement")
-            signature(call, {"voidptr", "voidptr", "int64", contract.kind}, "nil")
-            local args = call.args.exprs
-            local frame = expression(args[1], "voidptr")
-            local window = expression(args[2], "voidptr")
-            local slot = expression(args[3], "int64")
-            local value = expression(args[4], contract.kind)
-            emit(call, "FrameSlotWrite", {frame, window, slot, value, contract}, nil)
-        elseif stat.kind == "returnStmt" then
-            need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
-            local call = stat.exprs[1]
-            local moduleName, name = member(call.obj)
-            need(moduleName == "nupp.runtime.vm.intrinsics" and name == "dispatch", "dispatch return required")
-            signature(call, {"voidptr", "voidptr", "voidptr", "voidptr", "voidptr", "voidptr"}, "uint64")
-            local args = {}
-            for index, argument in ipairs(call.args.exprs) do
-                args[index] = expression(argument, "voidptr")
-            end
-            block.term = {kind = "dispatch", args = args, edges = {}, pos = position(stat)}
-        elseif stat.kind ~= "emptyStmt" then
-            error("native graph: unsupported checked statement " .. tostring(stat.kind), 0)
         end
     end
-    need(block.term ~= nil, "handler falls through without dispatch")
+    statements(body.body.stats)
+    need(block == nil, "handler falls through without dispatch")
     graph.verify(g)
 
     return g

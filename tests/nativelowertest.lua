@@ -758,9 +758,49 @@ function M.theGlueChecksTheHandlerContractOnTheParsedFunction()
     rejectsObject("syntax", (iadd:gsub("uload8.i64", "uload8.i65", 1)), "expected")
 end
 
-function M.wholeIntegerHandlersUseTheNuppGraph()
+function M.wholeScalarHandlersUseTheNuppGraph()
     local clif = coreClif()
-    for _, name in ipairs({"IK", "IMov", "IAddK", "IMaskU32", "IAdd", "ISub", "IAnd", "IOr"}) do
+    for _, name in ipairs({
+        "Move",
+        "Nil",
+        "Not",
+        "Truthy",
+        "BoolFromI",
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IXor",
+        "INot",
+        "IBswap32",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe",
+        "FBox"
+    }) do
         local text = functionText(clif, name)
         assert(text:find("Nupp native graph: " .. name, 1, true), name .. " bypassed the Nupp graph")
         assert(text:find("return_call_indirect sig0, ", 1, true), name .. " lost its dispatch")

@@ -144,11 +144,17 @@ function M.exactScalarHandlersProduceTheSharedGraph()
         for index = 1, 6 do
             assert(g.exactTypes[index] == "voidptr")
         end
-        assert(#g.blocks == 1 and g.blocks[1].term.kind == "dispatch")
-        local term = g.blocks[1].term
-        assert(#term.args == 6 and #term.edges == 0 and term.pos > 0)
-        for index = 2, 6 do
-            assert(term.args[index] == index)
+        assert(#g.blocks == (name == "FBox" and 3 or 1))
+        for _, block in ipairs(g.blocks) do
+            local term = block.term
+            if term.kind == "dispatch" then
+                assert(#term.args == 6 and #term.edges == 0 and term.pos > 0)
+                for index = 2, 6 do
+                    assert(term.args[index] == index)
+                end
+            else
+                assert(name == "FBox" and term.kind == "branch" and #term.edges == 2)
+            end
         end
         local block, index = operation(g, "ProgramLoad")
         local contract = block.args[index][3]

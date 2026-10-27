@@ -476,7 +476,7 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         hasKind(args[1], "voidptr")
         hasKind(args[2], "voidptr")
         hasKind(args[3], "int64")
-        -- This leaf profile preserves the entry frame and its integer window.
+        -- This profile preserves the entry frame and its matching logical window.
         local write = op == "FrameSlotWrite"
         local contract = args[write and 5 or 4]
         local windows = {v = 2, i = 3, f = 4}
