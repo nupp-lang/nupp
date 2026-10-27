@@ -92,9 +92,9 @@ end
 --- them. The trip is exact either way: every `binary32` is a double, so decoding is
 --- a scale of an integer significand and nothing rounds.
 local function decode32(bits: number): number
-    local sign = 1
+    local sign = 1.0
     if bits >= SIGN then
-        sign, bits = -1, bits - SIGN
+        sign, bits = -1.0, bits - SIGN
     end
     local exponent = (bits - bits % 8388608) / 8388608
     local significand = bits % 8388608
