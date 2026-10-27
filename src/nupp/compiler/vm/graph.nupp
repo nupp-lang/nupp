@@ -103,17 +103,67 @@ signatures.VExtractI = "Ix##"
 signatures.NativeConstant = "I#"
 signatures.ProgramLoad = "Iii#"
 signatures.FrameSlotRead = "Iiii#"
-signatures.FrameSlotWrite = "iiii#"
+signatures.FrameSlotWrite = "iiia#"
 signatures.PointerOffset = "Iii"
+signatures.NativeBoolean = "I#"
+signatures.NativeIMul = "Iii"
+signatures.NativeICmp = "Iii#"
+signatures.NativeFCmp = "Iff#"
+signatures.NativeAsWord = "Ii"
+signatures.NativeWordCast = "Ii"
+signatures.NativeIntToFloat = "Fi"
+signatures.NativeFloatToInt = "If"
+signatures.NativeFloatConvert = "Ff"
+signatures.NativeFloatBits = "If"
+signatures.NativeFloatFromBits = "Fi"
+signatures.NativeFloat32Bits = "If"
+signatures.NativeFloat32FromBits = "Fi"
+signatures.NativeRoundFloat32 = "Ff"
+signatures.NativeFloor = "Ff"
+signatures.NativeCeil = "Ff"
+signatures.NativeSqrt = "Ff"
 local nativeOnly = {
     NativeConstant = true,
     ProgramLoad = true,
     FrameSlotRead = true,
     FrameSlotWrite = true,
-    PointerOffset = true
+    PointerOffset = true,
+    NativeBoolean = true,
+    NativeIMul = true,
+    NativeICmp = true,
+    NativeFCmp = true,
+    NativeAsWord = true,
+    NativeWordCast = true,
+    NativeIntToFloat = true,
+    NativeFloatToInt = true,
+    NativeFloatConvert = true,
+    NativeFloatBits = true,
+    NativeFloatFromBits = true,
+    NativeFloat32Bits = true,
+    NativeFloat32FromBits = true,
+    NativeRoundFloat32 = true,
+    NativeFloor = true,
+    NativeCeil = true,
+    NativeSqrt = true
 }
-local nativeArithmetic = {IAdd = true, ISub = true, IAnd = true, IOr = true}
-local nativeKinds = {voidptr = true, int64 = true, uint64 = true}
+local nativeArithmetic = {
+    IAdd = true,
+    ISub = true,
+    NativeIMul = true,
+    IAnd = true,
+    IOr = true,
+    IXor = true,
+    INot = true,
+    IShl = true,
+    IShrU = true,
+    FAdd = true,
+    FSub = true,
+    FMul = true,
+    FDiv = true,
+    FNeg = true
+}
+local nativeClasses = {voidptr = "i", int64 = "i", uint64 = "i", boolean = "i", float32 = "f", float64 = "f"}
+local nativeFloatKinds = {float32 = true, float64 = true}
 local terminators = {
     Jmp = true,
     JmpIf = true,
@@ -212,19 +262,20 @@ function graph.newNative(parameterKinds: {string}, resultKind: string, abi: stri
     local params = {}
     g.exactTypes = {}
     for i, kind in ipairs(parameterKinds) do
+        local class = assert(nativeClasses[kind], "native parameter requires an exact scalar kind")
         params[i] = kind
-        g.types[i], g.slots[i], g.exactTypes[i] = "i", i - 1, kind
+        g.types[i], g.slots[i], g.exactTypes[i] = class, g.counts[class], kind
+        g.counts[class] = g.counts[class] + 1
     end
-    g.counts.i = #parameterKinds
     g.native = {params = params, result = resultKind, abi = abi, frameFromWindow = 2, tableArgument = 6}
 
     return g
 end
 
---- Allocates an exact native value in the graph's existing integer storage class.
+--- Allocates an exact native value in the graph's existing storage classes.
 function graph.nativeValue(g: any, kind: string, slot: integer?): integer
-    assert(g.native ~= nil and nativeKinds[kind], "invalid native graph value kind")
-    local id = graph.value(g, "i", slot)
+    assert(g.native ~= nil and nativeClasses[kind], "invalid native graph value kind")
+    local id = graph.value(g, nativeClasses[kind], slot)
     g.exactTypes[id] = kind
     return id
 end
@@ -275,13 +326,17 @@ end
 --- Appends a native operation without erasing its exact kind or contracts.
 function graph.emitNative(g: any, b: any, op: string, args: any, kind: string?, pos: integer?): integer?
     assert(g.native ~= nil and (nativeOnly[op] or nativeArithmetic[op]), "unsupported native graph operation")
-    local result = graph.emit(g, b, op, args, pos)
-    if result then
-        assert(nativeKinds[kind], "native result requires an exact kind")
-        g.exactTypes[result] = kind
+    local sig = assert(parsed[op], "unknown native graph operation")
+    assert(#args == sig.n and not sig.terminator, "invalid native operation arity")
+    local result: integer? = nil
+    if sig.result ~= "-" then
+        assert(kind ~= nil and nativeClasses[kind], "native result requires an exact kind")
+        result = graph.nativeValue(g, kind as string)
     else
         assert(kind == nil, "native effect has no result kind")
     end
+    local at = #b.op + 1
+    b.op[at], b.dst[at], b.args[at], b.pos[at], b.cert[at] = op, result or 0, args, pos or 0, 0
 
     return result
 end
@@ -332,13 +387,75 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
 
     if op == "NativeConstant" then
         nativeInteger(args[1], kind)
+    elseif op == "NativeBoolean" then
+        assert(kind == "boolean" and type(args[1]) == "boolean", "native boolean constant required")
+    elseif op == "NativeICmp" or op == "NativeFCmp" then
+        assert(kind == "boolean", "native comparison result must be boolean")
+        local operandKind = kinds[args[1]]
+        hasKind(args[2], operandKind)
+        if op == "NativeFCmp" then
+            assert(nativeFloatKinds[operandKind], "native float comparison requires an exact float kind")
+        else
+            assert(
+                operandKind == "int64"
+                or operandKind == "uint64"
+                or operandKind == "voidptr"
+                or operandKind == "boolean",
+                "native integer comparison requires exact scalar operands"
+            )
+        end
+        assert(
+            args[3] == "=="
+            or args[3] == "~="
+            or args[3] == "<"
+            or args[3] == "<="
+            or args[3] == ">"
+            or args[3] == ">=",
+            "invalid native comparison predicate"
+        )
+    elseif op == "NativeAsWord" then
+        hasKind(args[1], "boolean")
+        assert(kind == "uint64", "native boolean conversion produces a word")
+    elseif op == "NativeWordCast" then
+        local source = kinds[args[1]]
+        assert(
+            (source == "int64" or source == "uint64" or source == "voidptr")
+            and (kind == "int64" or kind == "uint64" or kind == "voidptr"),
+            "native word cast requires exact word/pointer kinds"
+        )
+    elseif op == "NativeIntToFloat" then
+        assert(
+            kinds[args[1]] == "int64" or kinds[args[1]] == "uint64",
+            "native integer conversion requires exact signedness"
+        )
+        assert(nativeFloatKinds[kind], "native integer conversion requires an exact float result")
+    elseif op == "NativeFloatToInt" then
+        assert(nativeFloatKinds[kinds[args[1]]], "native float conversion requires an exact source kind")
+        assert(kind == "int64" or kind == "uint64", "native float conversion requires exact integer signedness")
+    elseif op == "NativeFloatConvert" then
+        assert(
+            nativeFloatKinds[kinds[args[1]]] and nativeFloatKinds[kind],
+            "native float conversion requires exact widths"
+        )
+    elseif op == "NativeFloatBits" or op == "NativeFloat32Bits" then
+        hasKind(args[1], "float64")
+        assert(kind == "uint64", "native float encoding produces a word")
+    elseif op == "NativeFloatFromBits" or op == "NativeFloat32FromBits" then
+        hasKind(args[1], "uint64")
+        assert(kind == "float64", "native float decoding produces float64")
+    elseif op == "NativeFloor" or op == "NativeCeil" or op == "NativeSqrt" then
+        assert(nativeFloatKinds[kind], "native float operation requires an exact width")
+        hasKind(args[1], kind)
+    elseif op == "NativeRoundFloat32" then
+        hasKind(args[1], "float64")
+        assert(kind == "float64", "float32 rounding promotes its result to float64")
     elseif op == "ProgramLoad" then
         hasKind(args[1], "voidptr")
         hasKind(args[2], "int64")
         local contract = args[3]
         nativeContract(contract, {source = true, kind = true, lifetime = true, result = true, width = true})
-        local widths = {uint8 = 1, int32 = 4, int64 = 8, uint64 = 8}
-        local result = contract.kind == "uint64" and "uint64" or "int64"
+        local widths = {uint8 = 1, int32 = 4, int64 = 8, uint64 = 8, float64 = 8}
+        local result = contract.kind == "float64" and "float64" or (contract.kind == "uint64" and "uint64" or "int64")
         assert(
             contract.source == "code"
             and contract.lifetime == "body"
@@ -353,15 +470,20 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         hasKind(args[2], "voidptr")
         hasKind(args[3], "int64")
         -- This leaf profile preserves the entry frame and its integer window.
-        assert(args[1] == 6 and args[2] == 3, "native slot frame/window identity mismatch")
         local write = op == "FrameSlotWrite"
         local contract = args[write and 5 or 4]
+        local windows = {v = 2, i = 3, f = 4}
         nativeContract(contract, {class = true, kind = true, write = true, width = true})
+        assert(args[1] == 6 and args[2] == windows[contract.class], "native slot frame/window identity mismatch")
         assert(
-            contract.class == "i"
+            windows[contract.class] ~= nil
             and contract.width == 8
             and contract.write == write
-            and (contract.kind == "int64" or contract.kind == "uint64"),
+            and (
+                (contract.class == "f" and contract.kind == "float64")
+                or (contract.class == "v" and contract.kind == "uint64")
+                or (contract.class == "i" and (contract.kind == "int64" or contract.kind == "uint64"))
+            ),
             "invalid native slot contract"
         )
         if write then
@@ -374,7 +496,11 @@ local function verifyNativeOperation(g: any, op: string, args: any, dst: integer
         hasKind(args[2], "int64")
         assert(kind == "voidptr", "native pointer offset result kind")
     elseif nativeArithmetic[op] then
-        assert(kind == "int64" or kind == "uint64", "native arithmetic result kind")
+        assert(
+            op:sub(1, 1) == "F" and nativeFloatKinds[kind]
+            or (op:sub(1, 1) == "I" or op == "NativeIMul") and (kind == "int64" or kind == "uint64"),
+            "native arithmetic result kind"
+        )
         for _, value in ipairs(args) do
             hasKind(value, kind)
         end
@@ -409,7 +535,7 @@ function graph.verify(g: any): nil
         )
         assert(type(g.exactTypes) == "table" and #g.exactTypes == #types, "missing native exact types")
         for i = 1, #types do
-            assert(types[i] == "i" and nativeKinds[g.exactTypes[i]], "invalid native exact type")
+            assert(nativeClasses[g.exactTypes[i]] == types[i], "invalid native exact type")
         end
         for i = 1, 6 do
             assert(signature.params[i] == "voidptr" and g.exactTypes[i] == "voidptr", "native handler parameter kind")
@@ -489,7 +615,7 @@ function graph.verify(g: any): nil
             end
             for j = 1, #args do
                 local ty = argClasses[j]
-                if classes[ty] then
+                if classes[ty] or ty == "a" then
                     local v = args[j]
                     if not (usable(v)) then
                         error(
@@ -499,7 +625,7 @@ function graph.verify(g: any): nil
                             0
                         )
                     end
-                    if not (types[v] == ty) then
+                    if not (ty == "a" or types[v] == ty) then
                         error(
                             "graph value class mismatch: value " .. tostring(
                                 v
@@ -514,7 +640,10 @@ function graph.verify(g: any): nil
             end
             local result = sig.result
             if result ~= "-" then
-                if not (types[dsts[i]] == lowered[result]) then
+                if not (
+                    native and types[dsts[i]] == nativeClasses[g.exactTypes[dsts[i]]]
+                    or not native and types[dsts[i]] == lowered[result]
+                ) then
                     error("assertion failed", 0)
                 end
                 define(dsts[i])
@@ -542,8 +671,10 @@ function graph.verify(g: any): nil
             end
             local pos = t.pos or 0
             assert(pos >= 0 and pos % 1 == 0 and pos <= #g.positions, "native dispatch source position outside table")
+        elseif native and kind == "branch" then
+            assert(usable(t.value) and g.exactTypes[t.value] == "boolean", "native branch requires a boolean condition")
         elseif native and kind ~= "jump" then
-            error("native leaf graph requires jump or dispatch terminators", 0)
+            error("native graph requires jump, branch or dispatch terminators", 0)
         elseif kind == "branch" then
             if not (usable(t.value) and (types[t.value] == "i" or types[t.value] == "v")) then
                 error("graph branch condition", 0)
@@ -645,7 +776,7 @@ function graph.prune(g: any): nil
         for i = 1, #ops do
             local argClasses, args = parsed[ops[i]].args, allArgs[i]
             for j = 1, #args do
-                if classes[argClasses[j]] then
+                if classes[argClasses[j]] or argClasses[j] == "a" then
                     used[args[j]] = true
                 end
             end
@@ -737,7 +868,7 @@ function graph.prune(g: any): nil
         for i = 1, #ops do
             local argClasses, args = parsed[ops[i]].args, allArgs[i]
             for j = 1, #args do
-                if classes[argClasses[j]] then
+                if classes[argClasses[j]] or argClasses[j] == "a" then
                     args[j] = assert(remap[args[j]])
                 end
             end

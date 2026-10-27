@@ -367,4 +367,78 @@ function M.nativeEdgesCannotTargetDictionaryOnlyBlocks()
     )
 end
 
+function M.nativeFloatWidthsAndBooleanBranchesKeepExactKinds()
+    local g, entry = fresh()
+    local yes, no = G.block(g), G.block(g)
+    local slot = constant(g, entry, "0")
+    local fp = {class = "f", kind = "float64", write = false, width = 8}
+    local left = G.emitNative(g, entry, "FrameSlotRead", {6, 4, slot, fp}, "float64")
+    local right = G.emitNative(g, entry, "NativeIntToFloat", {slot}, "float64")
+    local sum = G.emitNative(g, entry, "FAdd", {left, right}, "float64")
+    local narrowed = G.emitNative(g, entry, "NativeFloatConvert", {sum}, "float32")
+    local promoted = G.emitNative(g, entry, "NativeFloatConvert", {narrowed}, "float64")
+    local condition = G.emitNative(g, entry, "NativeFCmp", {sum, promoted, "=="}, "boolean")
+    local carried = G.nativeValue(g, "float64")
+    yes.params = {carried}
+    entry.term = {
+        kind = "branch",
+        value = condition,
+        edges = {{target = yes.id, args = {promoted}}, {target = no.id, args = {}}}
+    }
+    local index = constant(g, yes, "1")
+    G.emitNative(
+        g,
+        yes,
+        "FrameSlotWrite",
+        {6, 4, index, carried, {class = "f", kind = "float64", write = true, width = 8}},
+        nil
+    )
+    dispatch(yes)
+    dispatch(no)
+    G.verify(g)
+    G.prune(g)
+    G.verify(g)
+    assert(#yes.params == 1, "float slot effect lost its transported value")
+    assert(g.exactTypes[yes.params[1]] == "float64")
+    assert(g.exactTypes[entry.term.value] == "boolean")
+    assert(g.exactTypes[entry.dst[5]] == "float32")
+end
+
+function M.nativeScalarConversionsRejectErasedWidthsAndSignedness()
+    for _, kind in ipairs({"number", "float", "int32", "uint32"}) do
+        local g = fresh()
+        rejects(
+            function()
+                G.nativeValue(g, kind)
+            end,
+            "invalid native graph value kind"
+        )
+    end
+    for _, op in ipairs({"FAdd", "NativeFCmp"}) do
+        local g, b = fresh()
+        local word = constant(g, b, "1")
+        local f64 = G.emitNative(g, b, "NativeIntToFloat", {word}, "float64")
+        local f32 = G.emitNative(g, b, "NativeFloatConvert", {f64}, "float32")
+        G.emitNative(g, b, op, op == "FAdd" and {f64, f32} or {f64, f32, "=="}, op == "FAdd" and "float64" or "boolean")
+        dispatch(b)
+        rejects(
+            function()
+                G.verify(g)
+            end,
+            "operand kind mismatch"
+        )
+    end
+    local g, b = fresh()
+    local word = constant(g, b, "1")
+    local value = G.emitNative(g, b, "NativeIntToFloat", {word}, "float64")
+    G.emitNative(g, b, "NativeFloatBits", {value}, "int64")
+    dispatch(b)
+    rejects(
+        function()
+            G.verify(g)
+        end,
+        "encoding produces a word"
+    )
+end
+
 return M
