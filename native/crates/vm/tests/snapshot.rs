@@ -272,10 +272,21 @@ fn restores_are_transactions() {
     let before = vm.new_table();
     vm.register(before);
     vm.set_slot(target, 1, before);
+    for i in 1..=4098 {
+        vm.set_index(target, Value::inline_integer(i).unwrap(), before);
+    }
+    let overflow = vm.intern("prior-overflow");
+    vm.register(overflow);
+    vm.set_index(target, overflow, target);
+    vm.set_metatable(target, before);
     let (ok, out) = pcall(&mut vm, "snapshot.loadInto", &[Arg::V(saved), Arg::V(target), Arg::Nil, Arg::V(bad)]);
     assert!(!ok && message(&vm, &out).contains("restore of game.thing"), "{}", message(&vm, &out));
     assert_eq!(vm.get_slot(target, 0), Value::num(1.0));
     assert_eq!(vm.get_slot(target, 1), before);
+    assert_eq!(vm.array_len(target), 4098);
+    assert_eq!(vm.get_index(target, Value::inline_integer(4098).unwrap()), before);
+    assert_eq!(vm.get_index(target, overflow), target);
+    assert_eq!(vm.metatable_of(target), before);
     assert_eq!(tracked(&vm), 2);
     vm.full_cycle();
     vm.check_oracle();
@@ -285,6 +296,9 @@ fn restores_are_transactions() {
     assert_eq!(out[0], target);
     assert_eq!(vm.get_slot(target, 0), Value::num(5.0));
     assert_ne!(vm.get_slot(target, 1), before);
+    assert_eq!(vm.array_len(target), 0);
+    assert_eq!(vm.get_index(target, overflow), Value::NIL);
+    assert_eq!(vm.metatable_of(target), Value::NIL);
     assert_eq!(tracked(&vm), 3);
     vm.full_cycle();
     vm.check_oracle();

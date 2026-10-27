@@ -722,7 +722,7 @@ fn target_state(vm: &mut Interp, target: Value) -> TargetState {
     let h = unsafe { target.as_obj().unwrap().as_ref() };
     let state = TargetState {
         slots: h.slots().to_vec(),
-        array: h.record_array_ref().clone(),
+        array: h.record_array_ref().to_vec(),
         extra: h.record_extra_ref().as_ref().map(|e| (e.fields.iter().map(|(k, v)| (*k, *v)).collect(), e.meta)),
         meta_flag: h.flags & F_METATABLE,
     };
@@ -740,15 +740,19 @@ fn restore_target(vm: &mut Interp, target: Value, state: TargetState) {
     let h = unsafe { &mut *p.as_ptr() };
     let before = h.external_bytes();
     h.slots_mut().copy_from_slice(&state.slots);
-    *h.record_array() = state.array;
+    h.record_array().truncate(0);
+    h.record_array().extend(state.array);
     h.flags = (h.flags & !F_METATABLE) | state.meta_flag;
-    *h.record_extra() = state.extra.map(|(pairs, meta)| {
+    h.record_tail().clear_extra();
+    if let Some((pairs, meta)) = state.extra {
         let mut fields = ValueTable::new();
         for (k, v) in pairs {
             fields.insert(k, v);
         }
-        Box::new(RecordExtra { fields, meta })
-    });
+        let extra = h.ensure_record_extra();
+        extra.fields = fields;
+        extra.meta = meta;
+    }
     vm.heap.account_resize(before, h.external_bytes());
     let mut children = Vec::new();
     Heap::each_child(h, &mut |v| children.push(v));

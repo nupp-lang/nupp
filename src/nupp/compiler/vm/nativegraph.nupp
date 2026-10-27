@@ -220,6 +220,7 @@ function nativegraph.isLeaf(fn: any): boolean
                 or fn.name == "sliceInitialize"
                 or fn.name == "cellInitialize"
                 or fn.name == "closureInitialize"
+                or fn.name == "recordInitialize"
             )
             or fn.scope.name == "nupp.runtime.vm.objectshape"
             and (fn.name == "shapeCapacity" or fn.name == "shapeFill" or fn.name == "shapeFind")

@@ -1541,14 +1541,14 @@ impl Interp {
                             let a = h.record_array();
                             a[k - 1] = v;
                             if v == Value::NIL && k == a.len() {
-                                while a.last() == Some(&Value::NIL) { a.pop(); }
+                                a.trim();
                             }
                         }
-                    } else { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); }
+                    } else if v != Value::NIL { h.ensure_record_extra().insert(iv, v); } else if let Some(extra) = h.record_extra() { extra.insert(iv, v); }
                     self.heap.account_resize(before, h.external_bytes());
                     return;
                 }
-                let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(iv) { Some(i) => h.slots_mut()[i] = v, None => { h.record_extra().get_or_insert_with(Default::default).insert(iv, v); } }
+                let sh = &self.heap.shapes[h.shape() as usize]; match sh.slot_of(iv) { Some(i) => h.slots_mut()[i] = v, None => { if v != Value::NIL { h.ensure_record_extra().insert(iv, v); } else if let Some(extra) = h.record_extra() { extra.insert(iv, v); } } }
             }
             _ => self.err(&format!("index of a non-table ({})", Heap::describe(h))),
         }
@@ -1684,7 +1684,7 @@ impl Interp {
         match h.kind {
             KIND_TABLE => h.table().meta = meta,
             KIND_RECORD => {
-                if meta != Value::NIL { h.record_extra().get_or_insert_with(Default::default).meta = meta; h.flags |= heap::F_METATABLE; }
+                if meta != Value::NIL { h.ensure_record_extra().meta = meta; h.flags |= heap::F_METATABLE; }
                 else { if let Some(extra) = h.record_extra() { extra.meta = Value::NIL; } h.flags &= !heap::F_METATABLE; }
             }
             _ => self.err("setmetatable expects a table"),
@@ -1790,7 +1790,7 @@ impl Interp {
                     let h = unsafe { &mut *p.as_ptr() };
                     let before = h.external_bytes();
                     if v == Value::NIL { if let Some(extra) = h.record_extra() { extra.insert(name, v); } }
-                    else { h.record_extra().get_or_insert_with(Default::default).insert(name, v); }
+                    else { h.ensure_record_extra().insert(name, v); }
                     self.heap.account_resize(before, h.external_bytes());
                     return;
                 }
@@ -1809,7 +1809,7 @@ impl Interp {
     pub fn array_len(&self, t: Value) -> usize { let h = hdr!(self, t, "length of a non-table"); match h.kind { KIND_TABLE => h.table_ref().array.len(), KIND_RECORD => h.record_array_ref().len(), _ => self.err("length of a non-table") } }
     pub fn array_get(&self, t: Value, i: usize) -> Value { let h = hdr!(self, t, "not a table"); match h.kind { KIND_TABLE => h.table_ref().array[i], KIND_RECORD => h.record_array_ref()[i], _ => self.err("not a table") } }
     pub fn push_array(&mut self, t: Value, v: Value) { self.set_index(t, Value::num((self.array_len(t) + 1) as f64), v); }
-    pub fn pop_array(&mut self, t: Value) { if let Some(p) = t.as_obj() { self.heap.schema_write(p); } let h = hdr!(self, t, "not a table"); if h.kind == KIND_RECORD { let a = h.record_array(); while a.last() == Some(&Value::NIL) { a.pop(); } } else { h.table().array.trim(); } h.refresh(); }
+    pub fn pop_array(&mut self, t: Value) { if let Some(p) = t.as_obj() { self.heap.schema_write(p); } let h = hdr!(self, t, "not a table"); if h.kind == KIND_RECORD { let a = h.record_array(); a.trim(); } else { h.table().array.trim(); } h.refresh(); }
     /// Every key of a table, array part first, for `pairs` and `next`.
     pub fn table_keys(&self, t: Value) -> Vec<Value> {
         let h = hdr!(self, t, "pairs of a non-table");

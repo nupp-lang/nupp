@@ -319,6 +319,7 @@ fn object_leaf(name: &str) -> Option<(&'static str, usize)> {
         "sliceInitialize" => Some(("nupp_object_slice_initialize", 4)),
         "cellInitialize" => Some(("nupp_object_cell_initialize", 2)),
         "closureInitialize" => Some(("nupp_object_closure_initialize", 4)),
+        "recordInitialize" => Some(("nupp_object_record_initialize", 4)),
         "stringHash" => Some(("nupp_object_string_hash", 3)),
         "weakLookupAction" => Some(("nupp_object_weak_lookup_action", 7)),
         "tableProbe" => Some(("nupp_object_table_probe", 4)),
@@ -346,8 +347,8 @@ fn require_object_leaf(f: &Function, arity: usize) -> Result<(), String> {
     let name = name_of(f);
     let hash_call = matches!(name.as_str(), "shapeFill" | "shapeFind" | "tableProbe");
     let rehash = name == "tableRehash";
-    let constructor = matches!(name.as_str(), "stringInitialize" | "closureInitialize");
-    let initializing = matches!(name.as_str(), "stringInitialize" | "sliceInitialize" | "cellInitialize" | "closureInitialize");
+    let constructor = matches!(name.as_str(), "stringInitialize" | "closureInitialize" | "recordInitialize");
+    let initializing = matches!(name.as_str(), "stringInitialize" | "sliceInitialize" | "cellInitialize" | "closureInitialize" | "recordInitialize");
     let calls = hash_call || rehash || constructor;
     let memory = initializing || hash_call || matches!(name.as_str(), "stringHash" | "tableInitialize" | "tableLiveCount" | "tableRehash");
     let write = initializing || matches!(name.as_str(), "shapeFill" | "tableInitialize" | "tableRehash");
@@ -432,6 +433,8 @@ fn allocator_support_names(
 
 fn allocator_entry(name: &str) -> Option<(&'static str, usize, bool)> {
     Some(match name {
+        "recordEnsureExtra" => ("nupp_record_ensure_extra", 1, true),
+        "recordReleaseExtra" => ("nupp_record_release_extra", 1, true),
         "arrayInitialize" => ("nupp_array_initialize", 3, true),
         "arrayReserve" => ("nupp_array_reserve", 2, true),
         "arrayPush" => ("nupp_array_push", 2, true),
@@ -631,7 +634,7 @@ fn require_allocator_support(
 /// and every opcode number they handle, asserted where the object is linked.
 fn metadata_header() -> String {
     let mut metadata = String::from("// Generated with the native object. Private ABI.\n");
-    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 11;\n");
+    metadata.push_str("pub(crate) const OBJECT_ABI: u32 = 12;\n");
     metadata.push_str(
         "const _: () = { assert!(HDR == 4); assert!(std::mem::size_of::<Ins>() == 16); assert!(crate::interp::MAX_RESULTS == 128);\n",
     );
@@ -677,6 +680,12 @@ fn metadata_header() -> String {
             "assert!(std::mem::offset_of!(crate::heap::Header, {field}) == {offset});\n"
         ));
     }
+    metadata.push_str(&format!(
+        "assert!(std::mem::size_of::<crate::heap::RecordTail>() == {} && std::mem::offset_of!(crate::heap::RecordTail, extra) == {} && std::mem::size_of::<crate::heap::RecordExtra>() == {});\n",
+        std::mem::size_of::<crate::heap::RecordTail>(),
+        std::mem::offset_of!(crate::heap::RecordTail, extra),
+        std::mem::size_of::<crate::heap::RecordExtra>(),
+    ));
     for field in ["size", "a", "b", "c", "out", "lanes", "kind", "operation", "mask"] {
         let key = format!("Packet.{field}");
         let value = layout(&key).unwrap();

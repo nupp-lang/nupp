@@ -1835,7 +1835,7 @@ fn entry_from(it: &mut Interp, obj: Value, pos: usize, last: Value) -> Option<(V
                 phase = 2; i = 0;
             }
             _ => {
-                let table: &crate::heap::ValueTable = if record { &h.record_extra_ref().as_deref()?.fields } else { &h.table_ref().hash };
+                let table: &crate::heap::ValueTable = if record { &h.record_extra_ref()?.fields } else { &h.table_ref().hash };
                 if i > 0 && table.entry_at(i - 1).map(|(k, _)| k) != Some(last) { i = table.position_of(last)? + 1; }
                 while let Some((k, v)) = table.entry_at(i) {
                     i += 1;
@@ -1867,7 +1867,7 @@ fn next_entry(it: &mut Interp, t: Value, key: Value) -> Option<Option<(Value, Va
         if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= alen { n as usize }
         else if let Some(slot) = (record && !key.is_num()).then(|| it.heap.shapes[h.shape() as usize].slot_of(key)).flatten() { PHASE + slot + 1 }
         else {
-            let table: Option<&crate::heap::ValueTable> = if record { h.record_extra_ref().as_deref().map(|e| &e.fields) } else { Some(&h.table_ref().hash) };
+            let table: Option<&crate::heap::ValueTable> = if record { h.record_extra_ref().map(|e| &e.fields) } else { Some(&h.table_ref().hash) };
             match table.and_then(|t| t.position_of(key)) { Some(at) => 2 * PHASE + at + 1, None => return None }
         }
     };

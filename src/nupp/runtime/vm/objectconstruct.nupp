@@ -22,6 +22,13 @@ export function constructorPayload(kind: uint64, count: uint64): uint64
             return 0xffffffffffffffffULL
         end
         return count * word
+    elseif kind == heap.KIND_RECORD then
+        local word = native.sizeOf<heap.CellBody>()
+        local tail = native.sizeOf<heap.RecordTail>()
+        if count > (maximum - tail) // word then
+            return 0xffffffffffffffffULL
+        end
+        return count * word + tail
     elseif kind == heap.KIND_CELL then
         return native.sizeOf<heap.CellBody>()
     elseif kind == heap.KIND_SLICE then
@@ -151,6 +158,44 @@ export function sliceInitialize(header: voidptr, source: uint64, offset: uint64,
         native.fieldOffset<heap.Header>("auxPtr"),
         native.offset(bytes, native.index(totalOffset))
     )
+    native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
+
+    return 0ULL
+end
+
+-- Fresh record payload only. The owner is transport metadata, never a child.
+export function recordInitialize(header: voidptr, owner: uint64, shape: uint64, count: uint64): uint64
+    local payload = constructorPayload(heap.KIND_RECORD, count)
+    if payload == 0xffffffffffffffffULL then
+        return 1ULL
+    end
+    if owner == 0ULL then
+        return 1ULL
+    end
+    if shape > values.LOW_WORD then
+        return 1ULL
+    end
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_RECORD then
+        return 1ULL
+    end
+    if native.word(native.load32(header, native.fieldOffset<heap.Header>("size")))
+        & values.LOW_WORD ~= native.sizeOf<heap.Header>() + payload
+    then
+        return 1ULL
+    end
+    local body = native.offset(header, native.index(native.sizeOf<heap.Header>()))
+    local i: uint64 = 0ULL
+    while i < count do
+        native.store64(body, native.index(i * native.sizeOf<heap.CellBody>()), values.NIL)
+        i = i + 1ULL
+    end
+    local tail = native.offset(body, native.index(count * native.sizeOf<heap.CellBody>()))
+    native.store64(tail, native.fieldOffset<heap.RecordTail>("arrayOwner"), owner)
+    native.store64(tail, native.fieldOffset<heap.RecordTail>("arrayPtr"), 0ULL)
+    native.store64(tail, native.fieldOffset<heap.RecordTail>("arrayLen"), 0ULL)
+    native.store64(tail, native.fieldOffset<heap.RecordTail>("arrayCap"), 0ULL)
+    native.store64(tail, native.fieldOffset<heap.RecordTail>("extra"), 0ULL)
+    native.store32(header, native.fieldOffset<heap.Header>("aux"), native.index(shape))
     native.store64(header, native.fieldOffset<heap.Header>("auxLen"), count)
 
     return 0ULL

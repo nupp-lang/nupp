@@ -43,7 +43,13 @@ fn source_layout_extents_match_the_remaining_rust_readers_without_allocating_lim
     assert_eq!(payload(KIND_CLOSURE, capture_limit + 1), u64::MAX);
     assert_eq!(payload(KIND_STR, u64::MAX), u64::MAX);
     assert_eq!(payload(KIND_CLOSURE, u64::MAX), u64::MAX);
-    assert_eq!(payload(KIND_RECORD, 0), u64::MAX);
+    let tail = std::mem::size_of::<nupp_vm::heap::RecordTail>() as u64;
+    assert_eq!(payload(KIND_RECORD, 0), tail);
+    let slot_limit = (maximum - tail) / std::mem::size_of::<Value>() as u64;
+    assert_eq!(payload(KIND_RECORD, slot_limit), slot_limit * 8 + tail);
+    assert_eq!(payload(KIND_RECORD, slot_limit + 1), u64::MAX);
+    assert_eq!(payload(KIND_RECORD, u64::MAX), u64::MAX);
+    assert_eq!(payload(nupp_vm::heap::KIND_TABLE, 0), u64::MAX);
 }
 
 #[test]

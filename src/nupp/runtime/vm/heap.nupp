@@ -183,9 +183,9 @@ export struct TableBody
     meta: uint64
 end
 
---- What follows a record's slots: its array part and its overflow, the
---- Nupp layout of `heap.rs`'s `Vec` and `Option<Box<RecordExtra>>`.
+--- A record's owned array descriptor and nullable overflow pointer.
 export struct RecordTail
+    arrayOwner: uint64
     arrayPtr: uint64
     arrayLen: uint64
     arrayCap: uint64
@@ -277,6 +277,8 @@ export struct Heap
 
     --- Pools of small owned value arrays, indexed by their backing class.
     arrayPools: uint64
+
+    recordExtraPool: uint64
 
     --- The sweep cursor: chunk index and slot index, then the large index.
     sweepChunk: uint64
@@ -677,6 +679,7 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.stats = stats as Stats*
         h.grayPool = pool
         h.arrayPools = native.address(arrayPools)
+        h.recordExtraPool = 0ULL
         h.chunks = zeroWords(a)
         h.chunkSet = zeroSet(a)
         h.regions = zeroWords(a)

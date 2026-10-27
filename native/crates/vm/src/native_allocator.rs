@@ -83,7 +83,6 @@ impl NativeAllocator {
         }
     }
 
-    #[cfg(test)]
     pub(crate) fn heap_pointer(&self) -> *mut c_void {
         self.heap.as_ptr()
     }

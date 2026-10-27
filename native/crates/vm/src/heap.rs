@@ -115,7 +115,7 @@ pub const VT_EMPTY: u64 = Value::NIL.0;
 /// Optional overflow for a shaped table; the field map stays first for native probes.
 #[repr(C)]
 pub struct RecordExtra { pub fields: ValueTable, pub meta: Value }
-impl Default for RecordExtra { fn default() -> Self { Self { fields: ValueTable::new(), meta: Value::NIL } } }
+pub use crate::native_record_tail::RecordTail;
 impl std::ops::Deref for RecordExtra { type Target = ValueTable; fn deref(&self) -> &ValueTable { &self.fields } }
 impl std::ops::DerefMut for RecordExtra { fn deref_mut(&mut self) -> &mut ValueTable { &mut self.fields } }
 impl ValueTable {
@@ -350,16 +350,14 @@ impl Header {
     /// A record's ordered children: the array part a record type declares
     /// (`{cst.Node | lexer.Token}` inside the record), after its slots.
     #[inline]
-    pub fn record_array(&mut self) -> &mut Vec<Value> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize) as *mut Vec<Value>) } }
-    #[inline]
-    pub fn record_array_ref(&self) -> &Vec<Value> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize) as *const Vec<Value>) } }
-    /// A structural object's fields beyond its shape: the overflow a closed
-    /// constructor's shape does not know (an optional field of the declared
-    /// type written later). Nominal records never have one (2.5).
-    #[inline]
-    pub fn record_extra(&mut self) -> &mut Option<Box<RecordExtra>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<RecordExtra>>) } }
-    #[inline]
-    pub fn record_extra_ref(&self) -> &Option<Box<RecordExtra>> { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize + std::mem::size_of::<Vec<Value>>()) as *const Option<Box<RecordExtra>>) } }
+    pub fn record_tail(&mut self) -> &mut RecordTail { debug_assert!(self.kind == KIND_RECORD); unsafe { &mut *(self.payload().add(8 * self.aux_len as usize) as *mut RecordTail) } }
+    pub fn record_tail_ref(&self) -> &RecordTail { debug_assert!(self.kind == KIND_RECORD); unsafe { &*(self.payload().add(8 * self.aux_len as usize) as *const RecordTail) } }
+    pub fn record_array(&mut self) -> &mut crate::native_value_array::ValueArray { &mut self.record_tail().array }
+    pub fn record_array_ref(&self) -> &crate::native_value_array::ValueArray { &self.record_tail_ref().array }
+    pub fn record_extra(&mut self) -> Option<&mut RecordExtra> { self.record_tail().extra_mut() }
+    pub fn record_extra_ref(&self) -> Option<&RecordExtra> { self.record_tail_ref().extra() }
+    pub fn ensure_record_extra(&mut self) -> &mut RecordExtra { self.record_tail().ensure_extra() }
+
     #[inline]
     pub fn fid(&self) -> u32 { debug_assert!(self.kind == KIND_CLOSURE); self.aux }
     /// Whether this object reads as a string: a string or a slice.
@@ -413,6 +411,7 @@ pub enum SlotTy { Any, Num, Str, Bool, Record(u32) }
 unsafe extern "C" {
     fn nupp_object_slot_hash(bits: u64) -> u64;
     fn nupp_object_constructor_payload(kind: u64, count: u64) -> u64;
+    fn nupp_object_record_initialize(header: *mut Header, owner: *mut std::ffi::c_void, shape: u64, count: u64) -> u64;
     fn nupp_object_string_initialize(header: *mut Header, count: u64) -> u64;
     fn nupp_object_slice_initialize(header: *mut Header, source: u64, offset: u64, count: u64) -> u64;
     fn nupp_object_cell_initialize(header: *mut Header, value: u64) -> u64;
@@ -430,8 +429,10 @@ unsafe extern "C" {
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 11);
+    assert!(crate::dispatch::OBJECT_ABI == 12);
     assert!(std::mem::size_of::<Value>() == 8);
+    assert!(std::mem::size_of::<RecordTail>() == 40);
+    assert!(std::mem::size_of::<RecordExtra>() == 56);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
 };
@@ -788,8 +789,8 @@ impl Heap {
 
     pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
         let n = self.shapes[shape as usize].names.len();
-        let p = self.alloc(KIND_RECORD, 8 * n + std::mem::size_of::<Vec<Value>>() + std::mem::size_of::<Option<Box<RecordExtra>>>(), roots);
-        unsafe { let h = &mut *p.as_ptr(); h.aux = shape; h.aux_len = n as u64; for s in h.slots_mut() { *s = Value::NIL; } (h.payload().add(8 * n) as *mut Vec<Value>).write(Vec::new()); (h.payload().add(8 * n + std::mem::size_of::<Vec<Value>>()) as *mut Option<Box<RecordExtra>>).write(None); }
+        let p = self.alloc(KIND_RECORD, constructor_payload(KIND_RECORD, n), roots);
+        initialize_object!(nupp_object_record_initialize(p.as_ptr(), self.allocator.heap_pointer(), shape as u64, n as u64));
         // Allocated black during marking, so never scanned: its shape's
         // declaration is held for it here.
         if self.phase == Phase::Marking { if let Some(live) = self.live_shapes.get_mut(shape as usize) { *live = true; } }
@@ -1220,7 +1221,7 @@ impl Heap {
                 KIND_BYTES => { let b = h.byte_buffer(); std::ptr::drop_in_place(b); }
                 KIND_ITER => std::ptr::drop_in_place(h.iter()),
                 KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()),
-                KIND_RECORD => { let a = h.record_array(); std::ptr::drop_in_place(a); std::ptr::drop_in_place(h.record_extra()); }
+                KIND_RECORD => { std::ptr::drop_in_place(h.record_tail()); }
                 _ => {}
             }
             self.allocator.reclaim(p, self.stress, self.quarantine);
@@ -1321,7 +1322,7 @@ impl Drop for Heap {
         for p in self.objects() {
             #[cfg(feature = "allocation-metrics")]
             crate::allocation_metrics::unregister(unsafe { p.as_ref() });
-            unsafe { let h = &mut *p.as_ptr(); match h.kind { KIND_TABLE => std::ptr::drop_in_place(h.table()), KIND_STORAGE => std::ptr::drop_in_place(h.storage()), KIND_BYTES => std::ptr::drop_in_place(h.byte_buffer()), KIND_ITER => std::ptr::drop_in_place(h.iter()), KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()), KIND_RECORD => { std::ptr::drop_in_place(h.record_array()); std::ptr::drop_in_place(h.record_extra()); } _ => {} } }
+            unsafe { let h = &mut *p.as_ptr(); match h.kind { KIND_TABLE => std::ptr::drop_in_place(h.table()), KIND_STORAGE => std::ptr::drop_in_place(h.storage()), KIND_BYTES => std::ptr::drop_in_place(h.byte_buffer()), KIND_ITER => std::ptr::drop_in_place(h.iter()), KIND_USERDATA => std::ptr::drop_in_place(h.userdata_mut()), KIND_RECORD => { std::ptr::drop_in_place(h.record_tail()); } _ => {} } }
         }
         // NativeAllocator drops after payload teardown and releases its arena.
 

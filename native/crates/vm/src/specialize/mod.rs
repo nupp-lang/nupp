@@ -66,9 +66,8 @@ pub const K_TABLE: u64 = 6 << 60;
 /// the live metatable, never the key.
 pub const K_RMETA: u64 = 7 << 60;
 pub const K_OTHER: u64 = 8 << 60;
-/// Where a record's metatable is: its `RecordExtra` box follows the slots and
-/// the ordered children's `Vec`; the metatable sits after the overflow table.
-pub const RECORD_EXTRA_OFFSET: usize = crate::heap::HEADER + std::mem::size_of::<Vec<Value>>();
+/// The canonical nullable overflow pointer follows the fixed record slots.
+pub const RECORD_EXTRA_OFFSET: usize = crate::heap::HEADER + std::mem::offset_of!(crate::heap::RecordTail, extra);
 pub const EXTRA_META_OFFSET: usize = std::mem::offset_of!(crate::heap::RecordExtra, meta);
 pub const EXTRA_FIELDS_PTR_OFFSET: usize = std::mem::offset_of!(crate::heap::RecordExtra, fields) + std::mem::offset_of!(crate::heap::ValueTable, ptr);
 pub const EXTRA_FIELDS_MASK_OFFSET: usize = std::mem::offset_of!(crate::heap::RecordExtra, fields) + std::mem::offset_of!(crate::heap::ValueTable, mask);

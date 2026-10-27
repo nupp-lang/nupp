@@ -130,7 +130,7 @@ fn payloads(h: &Header) -> Payloads {
             out[1] = p("record_children", a.len(), a.capacity(), 8);
             let present = usize::from(h.record_extra_ref().is_some());
             out[3] = p(
-                "record_extra_box",
+                "record_extra",
                 present,
                 present,
                 std::mem::size_of::<RecordExtra>(),
@@ -437,13 +437,13 @@ mod tests {
         let h = unsafe { &mut *record.as_obj().unwrap().as_ptr() };
         unregister(h);
         register(&Some(metrics.clone()), h);
-        h.record_extra().get_or_insert_with(Default::default);
+        h.ensure_record_extra();
         h.external_bytes();
         let m = metrics.borrow();
-        assert_eq!(m.initial["record_extra_box"].capacity.sum, 0);
-        assert_eq!(m.changed["record_extra_box"].capacity.sum, 1);
+        assert_eq!(m.initial["record_extra"].capacity.sum, 0);
+        assert_eq!(m.changed["record_extra"].capacity.sum, 1);
         assert_eq!(
-            m.changed["record_extra_box"].capacity_bytes.sum,
+            m.changed["record_extra"].capacity_bytes.sum,
             std::mem::size_of::<RecordExtra>() as u64
         );
         assert!(!m.changed.contains_key("record_overflow_key_slots"));

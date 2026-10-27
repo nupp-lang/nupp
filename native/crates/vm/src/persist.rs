@@ -1613,8 +1613,9 @@ fn load_graph_mode(
                 Node::Record(_, slots, array, extra, meta) => {
                     h.slots_mut()
                         .copy_from_slice(&resolve_all(slots, &objects)?);
-                    *h.record_array() = resolve_all(array, &objects)?;
-                    *h.record_extra() = None;
+                    h.record_array().truncate(0);
+                    h.record_array().extend(resolve_all(array, &objects)?);
+                    h.record_tail().clear_extra();
                     let meta = resolve(meta, &objects)?;
                     h.flags &= !F_METATABLE;
                     if meta != Value::NIL { h.flags |= F_METATABLE; }
@@ -1624,7 +1625,9 @@ fn load_graph_mode(
                             table
                                 .insert(resolve(&pair[0], &objects)?, resolve(&pair[1], &objects)?);
                         }
-                        *h.record_extra() = Some(Box::new(RecordExtra { fields: table, meta }));
+                        let extra = h.ensure_record_extra();
+                        extra.fields = table;
+                        extra.meta = meta;
                     }
                 }
                 Node::Closure(_, caps) => {

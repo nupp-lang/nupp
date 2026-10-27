@@ -268,12 +268,13 @@ local function allocateAgain(r: Replay*, kind: uint64, size: uint64): nil
             o.auxPtr = 0
         elseif kind == heap.KIND_RECORD then
             local slots: uint64 = 0
-            if inline >= 32 then
-                slots = (inline - 32) // 8
+            if inline >= native.sizeOf<heap.RecordTail>() then
+                slots = (inline - native.sizeOf<heap.RecordTail>()) // 8
             end
             o.auxLen = slots
             fillNil(body, slots)
             local tail = native.pointer(body + slots * 8) as heap.RecordTail*
+            tail.arrayOwner = 0
             tail.arrayPtr = 0
             tail.arrayLen = 0
             tail.arrayCap = 0

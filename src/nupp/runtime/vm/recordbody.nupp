@@ -1,0 +1,70 @@
+module nupp.runtime.vm.recordbody
+
+-- Tail descriptors and their owner are exclusively borrowed until return.
+-- These calls can grow native backing, but never collect, reenter, or suspend.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+
+export function recordEnsureExtra(tail: heap.RecordTail*): uint64
+    @unsafe do
+        if tail.extra ~= 0ULL then
+            return tail.extra
+        end
+        if tail.arrayOwner == 0ULL then
+            return 0ULL
+        end
+        local owner = native.pointer(tail.arrayOwner) as heap.Heap*
+        if owner.recordExtraPool == 0ULL then
+            local pool = arena.pool(owner.grayPool.arena, native.sizeOf<heap.RecordExtra>())
+            if pool == nil then
+                return 0ULL
+            end
+            owner.recordExtraPool = native.address(pool as voidptr)
+        end
+        local pool = native.pointer(owner.recordExtraPool) as arena.Pool*
+        local raw = arena.take(pool)
+        if raw == nil then
+            return 0ULL
+        end
+        local extra = raw as heap.RecordExtra*
+        extra.hashPtr = 0ULL
+        extra.hashMask = 0ULL
+        extra.hashCap = 0ULL
+        extra.hashLen = 0ULL
+        extra.hashOrder = 0ULL
+        extra.hashRank = 0ULL
+        extra.meta = values.NIL
+        tail.extra = native.address(raw as voidptr)
+        return tail.extra
+    end
+end
+
+-- The host must destroy/reset the temporary hash backing before this call.
+-- A failed precondition leaves the descriptor and owner unchanged.
+export function recordReleaseExtra(tail: heap.RecordTail*): uint64
+    @unsafe do
+        if tail.extra == 0ULL then
+            return 0ULL
+        end
+        if tail.arrayOwner == 0ULL then
+            return 1ULL
+        end
+        local owner = native.pointer(tail.arrayOwner) as heap.Heap*
+        local extra = native.pointer(tail.extra) as heap.RecordExtra*
+        if owner.recordExtraPool == 0ULL
+            or extra.hashPtr ~= 0ULL
+            or extra.hashMask ~= 0ULL
+            or extra.hashCap ~= 0ULL
+            or extra.hashLen ~= 0ULL
+            or extra.hashOrder ~= 0ULL
+            or extra.hashRank ~= 0ULL
+        then
+            return 1ULL
+        end
+        arena.give(native.pointer(owner.recordExtraPool) as arena.Pool*, extra as voidptr)
+        tail.extra = 0ULL
+        return 0ULL
+    end
+end
