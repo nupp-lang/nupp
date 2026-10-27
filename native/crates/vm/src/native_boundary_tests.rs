@@ -191,3 +191,46 @@ fn single_handler_returns_stop_before_caller_result_padding() {
         matches!(vm.native_handler_step(tid, 2), Step::Return(Outcome::Done(value)) if value == Value::inline_integer(9).unwrap())
     );
 }
+
+#[test]
+fn raw_unsigned_physical_reads_reinterpret_integer_bits_and_check_floats() {
+    let mut vm = vm(
+        "function read 0 1 4 1 v:v\nconst 0 str \"erased.Unsigned\"\nconst 1 str \"x\"\nGetPhysU 0 1 0 1 0 0 8\nUBox 2 0\nRet 2\nend\nentry 0\n",
+    );
+    let object = vm.new_table();
+    vm.register(object);
+    let key = vm.intern("x");
+    vm.register(key);
+    let wide = vm.box_integer(crate::numeric::Integer {
+        bits: i64::MIN as u64,
+        unsigned: false,
+    });
+    vm.register(wide);
+    let error_bits = vm.box_integer(crate::numeric::Integer {
+        bits: Value::ERROR.0,
+        unsigned: false,
+    });
+    vm.register(error_bits);
+    for (input, expected) in [
+        (
+            Value::inline_integer(-1).unwrap(),
+            Value::inline_integer(-1).unwrap(),
+        ),
+        (wide, wide),
+        (error_bits, error_bits),
+        (Value::num(2.0), Value::inline_integer(2).unwrap()),
+    ] {
+        vm.set_index(object, key, input);
+        assert_eq!(vm.call_value(Value::func(0), &[object]), [expected]);
+    }
+    for input in [Value::num(-1.0), Value::num(0.5), Value::NIL] {
+        vm.set_index(object, key, input);
+        let result = vm.guarded(|vm| vm.call_value(Value::func(0), &[object])[0]);
+        assert_eq!(
+            result,
+            Value::ERROR,
+            "raw unsigned field accepted {input:?}"
+        );
+        assert!(vm.pending_error.take().is_some());
+    }
+}

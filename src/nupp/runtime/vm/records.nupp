@@ -8,6 +8,7 @@ const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const records = require("nupp.runtime.vm.recordhelpers")
+const numeric = require("nupp.runtime.vm.numerichelpers")
 const protocol = require("nupp.runtime.vm.protocol")
 
 -- Every collecting/callback service invalidates window pointers. Result kinds
@@ -299,7 +300,7 @@ local function physicalRead(
     if kind == 1 then
         value = native.bits(records.numericDouble(context, value))
     elseif kind >= 2 then
-        value = records.numericBits(context, value, native.chooseIndex(kind == 3, 1, 0))
+        value = numeric.numericWord(context, value, native.chooseIndex(kind == 3, 1, 0))
     end
 
     return finish(pc, context, value, native.chooseIndex(kind == 3, 2, kind))
