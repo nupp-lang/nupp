@@ -249,6 +249,7 @@ pub(crate) mod native_helpers {
         let (win, _) = it.window(tid);
         let mark = it.handles.len();
         let flow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if !it.take_budget_point(tid, pc) { return Flow::Return(Outcome::Parked(0)); }
             it.op_call_dyn(tid, &win, pc + 1, base as u8, base as u8, nargs as u8)
         }));
         if flow.is_err() {

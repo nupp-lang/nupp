@@ -294,16 +294,6 @@ pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     // The core moved frames on its own; the task record learns the top first.
     it.tasks[tid].set_cur(ctx.cur as usize);
     it.last_nres = ctx.last_nres as usize;
-    // A spent budget: the core handed this instruction over before taking
-    // the call or the back edge. A scheduled task's slice ends here, parked
-    // at the instruction; a source chunk's limit raises.
-    if ctx.budget == 0 && budgeted(it, tid) && it.instruction_budget == Some(0) {
-        it.tasks[tid].note_pc(pc as usize);
-        ctx.result = 0;
-        sync(ctx, it);
-        return ST_PARKED;
-    }
-    let limited = ctx.budget == 0 && it.execution_limit == Some(0);
     // The frame's pc, for the backtrace of an error this op raises.
     it.tasks[tid].note_pc(pc as usize + 1);
     let (win, _) = it.window(tid);
@@ -313,7 +303,10 @@ pub(crate) fn rt_exec_op(ctx: *mut Ctx, pc: u32) -> u32 {
     // and `run_threaded` re-raises where Rust frames can carry it.
     let mark = it.handles.len();
     let stepped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        if limited { it.err("source chunk instruction limit exceeded"); }
+        if crate::interp::budget_point(&it.funcs[win.fid as usize].code[pc as usize], &win)
+            && !it.take_budget_point(tid, pc as usize) {
+            return Step::Return(Outcome::Parked(0));
+        }
         it.step(tid, &win, pc as usize)
     }));
     if stepped.is_err() { it.handles.truncate(mark); }

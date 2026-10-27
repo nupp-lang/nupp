@@ -426,15 +426,29 @@ end
 -- stack. The protected calls and the task API, which park or run frames of
 -- their own, are the slow-call table's and go to Rust whole.
 local function callBuiltinSlow(pc: voidptr, context: voidptr, id: int64, base: uint64, nargs: int64): uint64
+    local budget = native.load64(context, native.layout("budget"))
+    if budget == 0 then
+        local current = native.load64(context, native.layout("cur"))
+        return callResolvedSlow(pc, context, native.index(base) - native.index(current) - 4, nargs)
+    end
+    chargeBudget(context, budget)
     protocol.publishPc(pc, context)
     helpers.callBuiltin(context, id, base, nargs)
+
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
 -- One step of an iterator object called as a function.
 local function callIterSlow(pc: voidptr, context: voidptr, iterator: uint64, base: uint64): uint64
+    local budget = native.load64(context, native.layout("budget"))
+    if budget == 0 then
+        local current = native.load64(context, native.layout("cur"))
+        return callResolvedSlow(pc, context, native.index(base) - native.index(current) - 4, 0)
+    end
+    chargeBudget(context, budget)
     protocol.publishPc(pc, context)
     helpers.callIter(context, iterator, base)
+
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
@@ -539,6 +553,9 @@ export function CallK(
     context: voidptr,
     frame: voidptr
 ): uint64
+    if native.load64(context, native.layout("budget")) == 0 then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
     if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
@@ -809,6 +826,9 @@ export function CallDyn(
     context: voidptr,
     frame: voidptr
 ): uint64
+    if native.load64(context, native.layout("budget")) == 0 then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
     if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
@@ -942,6 +962,11 @@ export function CallMethod(
     context: voidptr,
     frame: voidptr
 ): uint64
+    -- A finite call is gated before an __index callback can resolve its
+    -- target. The whole-op boundary charges before resolving and calling.
+    if native.load64(context, native.layout("budget")) ~= 0xffffffffffffffffULL then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
     local info = native.offset(
         native.loadPointer(context, native.layout("funcs")),
         native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")

@@ -66,6 +66,11 @@ export function PCall(
     context: voidptr,
     frame: voidptr
 ): uint64
+    -- PCall itself is not a budget point; its guest calls are. The finite
+    -- path must not inherit pushFrame's ordinary-call charge.
+    if native.load64(context, native.layout("budget")) ~= 0xffffffffffffffffULL then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
     local base = program.readByte(pc, 1)
     local nargs = program.readByte(pc, 2)
     local value = slots.readValue(frame, regs, base + 1)

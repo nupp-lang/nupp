@@ -337,10 +337,19 @@ pub static TABLE_COUNTS: [std::sync::atomic::AtomicU64; 12] = [const { std::sync
 /// lie just below the header (a vararg function's surplus arguments, in the
 /// frame rather than in any object).
 const NONE: u32 = u32::MAX;
-/// Where a budget is charged: a call or a backward jump, before it runs.
+/// Where a budget is charged: a call or a taken backward jump, before it runs.
 /// The native core charges at the same instructions.
-#[inline] fn budget_point(op: &Op) -> bool {
-    matches!(op, Op::Call(..) | Op::CallK(..) | Op::CallDyn(..) | Op::CallT(..) | Op::CallMethod(..)) || crate::frame::back_edge(op)
+#[inline] pub(crate) fn budget_point(op: &Op, win: &Win) -> bool {
+    match *op {
+        Op::Call(..) | Op::CallK(..) | Op::CallDyn(..) | Op::CallT(..) | Op::CallMethod(..) => true,
+        Op::Jmp(off) => off < 0,
+        Op::JmpIf(c, off) => off < 0 && unsafe { (*win.regs.add(c as usize)).truthy() },
+        Op::JmpIfNot(c, off) => off < 0 && !unsafe { (*win.regs.add(c as usize)).truthy() },
+        Op::JmpIfIZero(c, off) => off < 0 && unsafe { *win.iregs.add(c as usize) == 0 },
+        Op::IJmpIfUle(a, b, off) => off < 0 && unsafe { (*win.iregs.add(a as usize) as u64) <= (*win.iregs.add(b as usize) as u64) },
+        Op::IJmpIfUlt(a, b, off) => off < 0 && unsafe { (*win.iregs.add(a as usize) as u64) < (*win.iregs.add(b as usize) as u64) },
+        _ => false,
+    }
 }
 #[inline] fn frame_words_of(h3: u64) -> usize { ((h3 >> 33) & 0xffff) as usize }
 #[inline] fn nvar_of(h3: u64) -> usize { (h3 >> 49) as usize }
@@ -2359,11 +2368,24 @@ impl Interp {
         self.nested_calls = nested;
         outcome
     }
+    // Shared by the Rust loop and the native boundary that executes an
+    // instruction the Nupp handlers did not take. A spent source limit wins
+    // over a spent slice; a park consumes neither budget.
+    pub(crate) fn take_budget_point(&mut self, tid: usize, pc: usize) -> bool {
+        if self.execution_limit == Some(0) { self.err("source chunk instruction limit exceeded"); }
+        let budgeted = self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid));
+        if budgeted && self.instruction_budget == Some(0) {
+            self.tasks[tid].note_pc(pc);
+            return false;
+        }
+        if let Some(left) = self.execution_limit.as_mut() { *left -= 1; }
+        if budgeted { if let Some(left) = self.instruction_budget.as_mut() { *left -= 1; } }
+        true
+    }
     fn run_rust_outer(&mut self, tid: usize) -> Outcome {
         let _caller = self.enter_caller(Caller::Task(tid));
         let _execution = crate::persist::Execution::enter(&self.execution_depth);
         assert_eq!(self.tasks[tid].state, State::Runnable);
-        let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
         loop {
             let (mut win, mut pc) = self.window(tid);
             if !self.simd_interpret && !self.compiled_frames_active() && self.function_needs_native(win.fid) {
@@ -2382,15 +2404,8 @@ impl Interp {
             loop {
                 // Budgets are charged where the core charges them: a call or
                 // a back edge, before it is taken.
-                if budget_point(unsafe { &*win.code.add(pc) }) {
-                    if let Some(left) = self.execution_limit.as_mut() {
-                        if *left == 0 { self.err("source chunk instruction limit exceeded"); }
-                        *left -= 1;
-                    }
-                    if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
-                        if *left == 0 { self.tasks[tid].note_pc(pc); return Outcome::Parked(0); }
-                        *left -= 1;
-                    } }
+                if budget_point(unsafe { &*win.code.add(pc) }, &win) {
+                    if !self.take_budget_point(tid, pc) { return Outcome::Parked(0); }
                 }
                 // The frame's pc, for the backtrace of an error this op raises.
                 self.tasks[tid].note_pc(pc + 1);
@@ -2411,7 +2426,6 @@ impl Interp {
     /// current in the heap frames by then, so it resumes them flat.
     #[cfg(feature = "compiled-runtime")]
     pub(crate) fn drive_until(&mut self, tid: usize, stop: usize) -> Result<(), Step> {
-        let budgeted = self.scheduler.as_ref().is_some_and(|s|s.controls.contains_key(&tid));
         loop {
             if self.tasks[tid].cur == stop { return Ok(()); }
             let (mut win, mut pc) = self.window(tid);
@@ -2422,15 +2436,8 @@ impl Interp {
             }
             win = self.window(tid).0;
             loop {
-                if budget_point(unsafe { &*win.code.add(pc) }) {
-                    if let Some(left) = self.execution_limit.as_mut() {
-                        if *left == 0 { self.err("source chunk instruction limit exceeded"); }
-                        *left -= 1;
-                    }
-                    if budgeted { if let Some(left) = self.instruction_budget.as_mut() {
-                        if *left == 0 { self.tasks[tid].note_pc(pc); return Err(Step::Return(Outcome::Parked(0))); }
-                        *left -= 1;
-                    } }
+                if budget_point(unsafe { &*win.code.add(pc) }, &win) {
+                    if !self.take_budget_point(tid, pc) { return Err(Step::Return(Outcome::Parked(0))); }
                 }
                 self.tasks[tid].note_pc(pc + 1);
                 match self.step(tid, &win, pc) {

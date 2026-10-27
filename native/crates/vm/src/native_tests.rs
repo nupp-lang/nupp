@@ -1770,7 +1770,7 @@ entry 0
 "#;
     for (fid, expected, nres, status, budget) in [
         (1, 1, 3, 0, 17),
-        (2, 0, 4, crate::threaded::ST_ERROR, 17),
+        (2, 0, 4, crate::threaded::ST_ERROR, 16),
         (3, 0, 0, 0, 17),
     ] {
         let mut vm = Box::new(crate::interp::Interp::new());
@@ -2058,4 +2058,401 @@ entry 0
     );
     assert_eq!(limited.execution_limit, Some(0));
     assert_eq!(limited.tasks[task.index].state, crate::interp::State::Done);
+}
+
+const CALL_BUDGET_IMAGE: &str = r#"
+function builtin 0 1 10 2 v:v
+const 0 builtin math.floor
+K 2 0
+Move 4 1
+CallK 0 2 3 1 1
+Ret 3
+end
+function iterator 1 1 14 2 v:v
+const 0 builtin ipairs
+const 1 num 1
+NewTable 2
+K 3 1
+SetIdx 2 3 1
+K 4 0
+Move 6 2
+CallK 0 4 5 1 1
+CallK 0 5 6 0 2
+Ret 7
+end
+function typed_call 2 0 8 4 :v
+FK 1 2.75
+CallT 3 2 1 0
+FRet 1
+end
+function typed 3 1 8 4 f:f
+FRet 0
+end
+function growth_call 4 0 8 2 :v
+Call 5 2 0
+Ret 2
+end
+function answer 5 0 8 2 :v
+const 0 num 42
+K 2 0
+Ret 2
+end
+function error_call 6 0 8 2 :v
+const 0 builtin error
+const 1 str "budget error"
+K 2 0
+K 4 1
+CallK 0 2 3 1 0
+RetNil
+end
+function protected 7 0 8 2 :v
+const 0 func 5
+K 2 0
+PCall 1 0
+Ret 2
+end
+function terminal 8 0 4 2 :v
+RetNil
+end
+function builtin_dyn 9 1 10 2 v:v
+const 0 builtin math.floor
+K 2 0
+Move 4 1
+CallDyn 2 3 1
+Ret 3
+end
+function protected_alias 10 0 8 2 :v
+const 0 builtin pcall
+const 1 func 5
+K 1 0
+K 3 1
+CallDyn 1 2 1
+Ret 3
+end
+entry 0
+"#;
+
+fn call_budget_vm(threaded: bool) -> Box<crate::interp::Interp> {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    crate::image::load(&mut vm, CALL_BUDGET_IMAGE).unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    vm.prepare_threaded();
+    vm.threaded = threaded;
+    vm
+}
+
+fn call_budget_outcome(vm: &mut crate::interp::Interp, tid: usize) -> String {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.run(tid))) {
+        Ok(crate::interp::Outcome::Done(value)) => format!("done:{:#x}", value.0),
+        Ok(crate::interp::Outcome::Parked(key)) => format!("parked:{key}"),
+        Err(error) => {
+            let value = vm.error_value(error);
+            format!("error:{}", String::from_utf8_lossy(vm.bytes_of(value)))
+        }
+    }
+}
+
+#[test]
+fn native_finite_call_budgets_match_the_rust_budget_points() {
+    for fid in [0u32, 1, 2, 4, 6, 7, 8, 9, 10] {
+        for limit in [Some(7usize), Some(2), Some(1), Some(0), None] {
+            let mut expected = None;
+            for threaded in [false, true] {
+                let mut vm = call_budget_vm(threaded);
+                let tid = vm.spawn(fid, &[Value::num(41.75)]);
+                if fid == 4 {
+                    // Force the call to fall back before a native push.
+                    vm.tasks[tid]
+                        .stack
+                        .truncate(vm.funcs[fid as usize].frame_words());
+                }
+                vm.execution_limit = limit;
+                let outcome = call_budget_outcome(&mut vm, tid);
+                let row = (outcome, vm.execution_limit);
+                if let Some(expected) = &expected {
+                    assert_eq!(&row, expected, "function {fid}, limit {limit:?}");
+                } else {
+                    expected = Some(row);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_scheduled_call_budgets_match_rust_and_allow_terminal_instructions() {
+    for fid in [0u32, 1, 2, 4, 6, 7, 8, 9, 10] {
+        for slice in [Some(0usize), Some(1), Some(2), None] {
+            for limit in [None, Some(0usize), Some(7)] {
+                let mut expected = None;
+                for threaded in [false, true] {
+                    let mut vm = call_budget_vm(threaded);
+                    vm.enable_scheduler().unwrap();
+                    let task = vm
+                        .schedule(Value::func(fid), &[Value::num(41.75)], None)
+                        .unwrap();
+                    vm.execution_limit = limit;
+                    vm.instruction_budget = slice;
+                    let outcome = call_budget_outcome(&mut vm, task.index);
+                    let error = vm.tasks[task.index].error;
+                    let error = if error == Value::NIL {
+                        String::new()
+                    } else {
+                        String::from_utf8_lossy(vm.bytes_of(error)).into_owned()
+                    };
+                    let row = (outcome, vm.execution_limit, vm.instruction_budget, error);
+                    if let Some(expected) = &expected {
+                        assert_eq!(
+                            &row, expected,
+                            "function {fid}, slice {slice:?}, limit {limit:?}"
+                        );
+                    } else {
+                        if limit == Some(0) && matches!(fid, 0 | 1 | 2 | 4 | 6 | 9 | 10) {
+                            assert!(
+                                row.0.contains("source chunk instruction limit exceeded"),
+                                "source limit must win over a slice park: {row:?}"
+                            );
+                        }
+                        if slice == Some(0)
+                            && limit == Some(7)
+                            && matches!(fid, 0 | 1 | 2 | 4 | 6 | 9 | 10)
+                        {
+                            assert_eq!(row.0, "parked:0");
+                            assert_eq!(row.1, Some(7), "a park must not consume source budget");
+                        }
+                        if fid == 8 {
+                            assert_eq!(row.0, format!("done:{:#x}", Value::NIL.0));
+                            assert!(row.3.is_empty());
+                        }
+                        expected = Some(row);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_resolved_call_boundary_charges_once_and_does_not_run_at_zero() {
+    for scheduled in [false, true] {
+        for budget in [0usize, 1, 7] {
+            let mut vm = call_budget_vm(true);
+            let tid = if scheduled {
+                vm.enable_scheduler().unwrap();
+                vm.schedule(Value::func(0), &[], None).unwrap().index
+            } else {
+                vm.spawn(0, &[])
+            };
+            // A target already resolved into the result/argument window.
+            vm.tasks[tid].stack[HDR + 3] =
+                Value::builtin(crate::builtins::id_of("math.floor").unwrap()).0;
+            vm.tasks[tid].stack[HDR + 4] = Value::num(41.75).0;
+            vm.execution_limit = if scheduled { Some(20) } else { Some(budget) };
+            vm.instruction_budget = scheduled.then_some(budget);
+            let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+            ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
+            ctx.tid = tid as u64;
+            ctx.pc = 2;
+            crate::threaded::sync(&mut ctx, &mut vm);
+            let before = vm.tasks[tid].stack[HDR + 3];
+            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1) };
+            if budget == 0 {
+                assert_eq!(vm.tasks[tid].stack[HDR + 3], before);
+                if scheduled {
+                    assert_eq!(result, ST_PARKED as u64);
+                    assert_eq!(vm.execution_limit, Some(20));
+                    assert_eq!(vm.tasks[tid].stack[vm.tasks[tid].cur()] >> 32, 2);
+                } else {
+                    assert_eq!(result, ST_ERROR as u64);
+                    assert!(
+                        vm.bytes_of(vm.pending_error.unwrap())
+                            .ends_with(b"source chunk instruction limit exceeded")
+                    );
+                }
+            } else {
+                assert_eq!(result, 3);
+                assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::num(41.0).0);
+                assert_eq!(
+                    vm.execution_limit,
+                    Some(if scheduled { 19 } else { budget - 1 })
+                );
+                assert_eq!(vm.instruction_budget, scheduled.then_some(budget - 1));
+            }
+        }
+    }
+}
+
+#[test]
+fn native_method_call_budget_is_taken_before_resolving_the_target() {
+    let source = r#"
+function caller 0 1 8 2 v:v
+const 0 str "target"
+CallMethod 0 0 1
+Ret 0
+end
+function resolve 1 2 8 2 vv:v
+const 0 str "hits"
+const 1 num 1
+const 2 func 2
+GetField 3 1 0
+K 4 1
+Add 3 3 4
+SetField 1 0 3
+K 5 2
+Ret 5
+end
+function method 2 1 4 2 v:v
+const 0 num 42
+K 2 0
+Ret 2
+end
+entry 0
+"#;
+    for scheduled in [false, true] {
+        for budget in [Some(0usize), Some(1), Some(7), None] {
+            let mut expected = None;
+            for threaded in [false, true] {
+                let mut vm = Box::new(crate::interp::Interp::new());
+                crate::image::load(&mut vm, source).unwrap();
+                vm.entries.resize(vm.funcs.len(), 0);
+                vm.prepare_threaded();
+                vm.threaded = threaded;
+                if scheduled {
+                    vm.enable_scheduler().unwrap();
+                }
+                let receiver = vm.new_table();
+                vm.registered.push(receiver);
+                let hits = vm.intern("hits");
+                vm.set_index(receiver, hits, Value::num(0.0));
+                let meta = vm.new_table();
+                vm.registered.push(meta);
+                let index = vm.intern("__index");
+                vm.set_index(meta, index, Value::func(1));
+                vm.set_metatable(receiver, meta);
+                let tid = if scheduled {
+                    vm.schedule(Value::func(0), &[receiver], None)
+                        .unwrap()
+                        .index
+                } else {
+                    vm.spawn(0, &[receiver])
+                };
+                vm.execution_limit = if scheduled { None } else { budget };
+                vm.instruction_budget = if scheduled { budget } else { None };
+                let outcome = call_budget_outcome(&mut vm, tid);
+                let observed = vm.get_index(receiver, hits);
+                assert_eq!(
+                    observed,
+                    Value::num(if budget == Some(0) { 0.0 } else { 1.0 })
+                );
+                let row = (outcome, vm.execution_limit, vm.instruction_budget);
+                if let Some(expected) = &expected {
+                    assert_eq!(&row, expected);
+                } else {
+                    expected = Some(row);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_and_rust_charge_only_taken_backward_conditions() {
+    for instruction in [
+        "JmpIf 1 -1",
+        "JmpIfNot 1 -1",
+        "JmpIfIZero 0 -1",
+        "IJmpIfUle 0 1 -1",
+        "IJmpIfUlt 0 1 -1",
+    ] {
+        for taken in [false, true] {
+            let setup = match instruction {
+                "JmpIf 1 -1" => {
+                    if taken {
+                        "K 1 0"
+                    } else {
+                        "Nil 1"
+                    }
+                }
+                "JmpIfNot 1 -1" => {
+                    if taken {
+                        "Nil 1"
+                    } else {
+                        "K 1 0"
+                    }
+                }
+                "JmpIfIZero 0 -1" => {
+                    if taken {
+                        "IK 0 0"
+                    } else {
+                        "IK 0 1"
+                    }
+                }
+                _ => {
+                    if taken {
+                        "IK 0 1\nIK 1 2"
+                    } else {
+                        "IK 0 2\nIK 1 1"
+                    }
+                }
+            };
+            // The text fixture reader predates the unsigned conditional
+            // opcodes. Install those existing operations after parsing.
+            let parsed = if instruction.starts_with("IJmpIf") {
+                "JmpIfIZero 0 -1"
+            } else {
+                instruction
+            };
+            let source = format!(
+                "function condition 0 0 4 2 :v\nconst 0 num 1\n{setup}\n{parsed}\nRetNil\nend\nentry 0\n"
+            );
+            for (limit, slice) in [
+                (Some(0usize), None),
+                (Some(1), None),
+                (None, Some(0usize)),
+                (None, Some(1)),
+                (Some(7), Some(1)),
+            ] {
+                let mut expected = None;
+                for threaded in [false, true] {
+                    let mut vm = Box::new(crate::interp::Interp::new());
+                    crate::image::load(&mut vm, &source).unwrap();
+                    if instruction.starts_with("IJmpIf") {
+                        let at = vm.funcs[0].code.len() - 2;
+                        vm.funcs[0].code[at] = if instruction.starts_with("IJmpIfUle") {
+                            crate::interp::Op::IJmpIfUle(0, 1, -1)
+                        } else {
+                            crate::interp::Op::IJmpIfUlt(0, 1, -1)
+                        };
+                    }
+                    vm.entries.resize(vm.funcs.len(), 0);
+                    vm.prepare_threaded();
+                    vm.threaded = threaded;
+                    let tid = if slice.is_some() {
+                        vm.enable_scheduler().unwrap();
+                        vm.schedule(Value::func(0), &[], None).unwrap().index
+                    } else {
+                        vm.spawn(0, &[])
+                    };
+                    vm.execution_limit = limit;
+                    vm.instruction_budget = slice;
+                    let outcome = call_budget_outcome(&mut vm, tid);
+                    let row = (outcome, vm.execution_limit, vm.instruction_budget);
+                    if !taken {
+                        assert_eq!(row, (format!("done:{:#x}", Value::NIL.0), limit, slice));
+                    } else if limit == Some(7) {
+                        assert_eq!(row, ("parked:0".into(), Some(6), Some(0)));
+                    }
+                    if let Some(expected) = &expected {
+                        assert_eq!(
+                            &row, expected,
+                            "{instruction}, taken {taken}, limit {limit:?}, slice {slice:?}"
+                        );
+                    } else {
+                        expected = Some(row);
+                    }
+                }
+            }
+        }
+    }
 }
