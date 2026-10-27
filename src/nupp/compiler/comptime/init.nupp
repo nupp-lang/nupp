@@ -48,10 +48,6 @@ local isToken = cst.isToken
 -- Limits
 ----------------------------------------------------------------------------
 
---- The exact-integer range, matching what `OPT-3` treats as exact for the same reason:
---- a double holds these and reads them back unchanged.
-local MAX_EXACT_INTEGER = 9007199254740991
-
 local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
@@ -1716,8 +1712,7 @@ local function typeOf(value)
     elseif kind == "string" then
         return T.literal(value, T.string)
     elseif kind == "number" then
-        local exact = value == math.floor(value) and math.abs(value) <= MAX_EXACT_INTEGER
-        return T.literal(value, exact and T.integer or T.number)
+        return T.literal(value, math.type(value) == "integer" and T.integer or T.float64)
     elseif kind ~= "table" then
         return T.any
     end

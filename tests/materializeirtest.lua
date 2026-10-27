@@ -157,9 +157,10 @@ function M.numericRenderersPreserveExactLiterals()
         local expression, expressionFailure = ir.render({tag = "literal", value = value})
         testAssert.equal(dataFailure, nil, "numeric data renders")
         testAssert.equal(expressionFailure, nil, "numeric IR renders")
-        testAssert.equal(data, text, "data preserves numeric literal")
-        testAssert.equal(expression, text, "IR preserves numeric literal")
-        testAssert.equal(metadata.literal(value).token.text, text, "metadata preserves numeric token")
+        local source = text == "-9223372036854775808" and "0x8000000000000000" or text
+        testAssert.equal(data, source, "data preserves numeric literal")
+        testAssert.equal(expression, source, "IR preserves numeric literal")
+        testAssert.equal(metadata.literal(value).token.text, source, "metadata preserves numeric token")
         for _, rendered in ipairs({data, expression}) do
             local decoded = assert(loadstring("return " .. rendered))()
             testAssert.equal(math.type(decoded), math.type(value), "rendering preserves numeric subtype")

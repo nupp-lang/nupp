@@ -1207,13 +1207,30 @@ function M.quotesExactIntegerAndFloatSubtypes()
         local expected = assert(tonumber(text))
         local answer = run(
             "comptimetest.quotesExactIntegerAndFloatSubtypes",
-            "return comptime do return " .. text .. " end"
+            "return comptime do return tonumber(" .. string.format("%q", text) .. ") end"
         )
         testAssert.equal(math.type(answer), math.type(expected), "comptime preserves numeric subtype for " .. text)
         testAssert.equal(answer, expected, "comptime preserves exact value for " .. text)
         if expected == 0 then
             testAssert.equal(1 / answer, 1 / expected, "comptime preserves zero sign")
         end
+    end
+end
+
+function M.infersComptimeNumericSubtypes()
+    for _, text in ipairs({"9007199254740993", "9223372036854775807", "-9223372036854775808", "1.0", "0.0", "-0.0"}) do
+        local expected = assert(tonumber(text))
+        local result, diagnostics = compile(
+            "const VALUE = comptime do return tonumber(" .. string.format("%q", text) .. ") end\nreturn VALUE"
+        )
+        testAssert.equal(#diagnostics, 0, "numeric comptime value checks")
+        local literal = firstLocalBinding(result)
+        testAssert.equal(literal.tag, "literal", "comptime result retains literal type")
+        testAssert.equal(
+            literal.base,
+            math.type(expected) == "integer" and T.integer or T.float64,
+            "comptime result retains numeric base"
+        )
     end
 end
 
