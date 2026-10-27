@@ -414,6 +414,8 @@ pub fn write_object(input: &str, output: &str) -> Result<(), String> {
         }
     }
     metadata.push_str("};\n");
+    let handler_codes = handled.iter().map(|(code, _)| code.to_string()).collect::<Vec<_>>().join(", ");
+    metadata.push_str(&format!("#[cfg(test)] const NATIVE_RUNTIME_HANDLER_CODES: &[u8] = &[{handler_codes}];\n"));
     // Calls to the exported helpers import them; tail calls name functions of
     // this file. Imported signatures take the platform convention.
     let mut imports: BTreeMap<String, FuncId> = BTreeMap::new();

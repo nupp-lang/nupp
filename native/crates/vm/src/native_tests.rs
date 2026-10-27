@@ -144,6 +144,14 @@ fn leaf_words_match_rust_at_extremes_with_aliasing() {
 }
 
 #[test]
+fn every_encoded_native_opcode_has_a_linked_nupp_handler() {
+    for (code, name) in CODE_NAMES.iter().enumerate().skip(1) {
+        assert!(NATIVE_RUNTIME_HANDLER_CODES.contains(&(code as u8)), "{name} silently uses the leave table entry");
+    }
+    assert!(!NATIVE_RUNTIME_HANDLER_CODES.contains(&(Code::Slow as u8)));
+}
+
+#[test]
 fn remaining_integer_leaf_encodings_reach_their_native_handlers() {
     use crate::interp::Op;
     let cases = [
