@@ -1,4 +1,4 @@
-use nupp_vm::{interp::Interp, numeric::{self, Integer}, persist::{self, Policies}, value::Value};
+use nupp_vm::{builtins, interp::Interp, numeric::{self, Integer}, persist::{self, Policies}, value::Value};
 
 #[test]
 fn numeric_key_identity_survives_integer_storage_boundaries_and_gc() {
@@ -57,4 +57,67 @@ fn graph_save_retains_integer_and_float_subtypes_with_shared_table_keys() {
     }
     restored.full_cycle();
     restored.check_oracle();
+}
+
+#[test]
+fn integer_arithmetic_wraps_and_float_operands_keep_the_float_subtype() {
+    let mut vm = Interp::new();
+    let a = vm.box_integer(Integer { bits: i64::MAX as u64, unsigned: false });
+    vm.register(a);
+    let one = Value::inline_integer(1).unwrap();
+    let wrapped = numeric::binary(&mut vm, a, one, "add", None);
+    assert_eq!(numeric::integer(wrapped).unwrap().bits, i64::MIN as u64);
+    let two = Value::inline_integer(2).unwrap();
+    assert_eq!(numeric::binary(&mut vm, one, two, "add", None), Value::inline_integer(3).unwrap());
+    for (x, y) in [(one, Value::num(2.0)), (Value::num(1.0), two)] {
+        let result = numeric::binary(&mut vm, x, y, "add", None);
+        assert!(result.is_float());
+        assert_eq!(result, Value::num(3.0));
+    }
+    assert_eq!(numeric::binary(&mut vm, two, two, "div", None), Value::num(1.0));
+    assert_eq!(numeric::binary(&mut vm, two, two, "pow", None), Value::num(4.0));
+    for (a, b, q, r) in [(-7, 3, -3, 2), (7, -3, -3, -2), (-7, -3, 2, -1)] {
+        let x = Value::inline_integer(a).unwrap();
+        let y = Value::inline_integer(b).unwrap();
+        assert_eq!(numeric::binary(&mut vm, x, y, "idiv", None), Value::inline_integer(q).unwrap());
+        assert_eq!(numeric::binary(&mut vm, x, y, "mod", None), Value::inline_integer(r).unwrap());
+    }
+}
+
+#[test]
+fn standard_numeric_operations_keep_subtypes_and_exact_decimal_integers() {
+    let mut vm = Interp::new();
+    vm.install_globals();
+    let call = |vm: &mut Interp, name: &str, args: &[Value]| vm.call_value(Value::builtin(builtins::id_of(name).unwrap()), args)[0];
+    let text = vm.intern("9007199254740993");
+    vm.register(text);
+    let integer = call(&mut vm, "tonumber", &[text]);
+    vm.register(integer);
+    assert_eq!(numeric::integer(integer).unwrap().bits, 9007199254740993);
+    assert_eq!(call(&mut vm, "tonumber", &[integer]), integer);
+    assert_eq!(call(&mut vm, "math.tointeger", &[text]), integer);
+    assert_eq!(call(&mut vm, "math.tointeger", &[Value::num(0.5)]), Value::NIL);
+    assert_eq!(call(&mut vm, "math.tointeger", &[Value::num(9223372036854775808.0)]), Value::NIL);
+    for (name, x, expected) in [("math.floor", -1.5, -2), ("math.ceil", -1.5, -1)] {
+        assert_eq!(call(&mut vm, name, &[Value::num(x)]), Value::inline_integer(expected).unwrap());
+        assert_eq!(call(&mut vm, name, &[integer]), integer);
+    }
+    let kind = call(&mut vm, "math.type", &[integer]);
+    assert_eq!(vm.bytes_of(kind), b"integer");
+    let kind = call(&mut vm, "math.type", &[Value::num(1.0)]);
+    assert_eq!(vm.bytes_of(kind), b"float");
+    assert_eq!(call(&mut vm, "math.type", &[Value::TRUE]), Value::NIL);
+}
+
+#[test]
+fn float_text_roundtrips_and_distinguishes_integral_floats() {
+    for n in [0.0, -0.0, 1.0, 0.1, f64::MIN_POSITIVE, f64::from_bits(1), f64::MAX, 1e30, 9007199254740992.0] {
+        let text = builtins::num_text(n);
+        assert_eq!(text.parse::<f64>().unwrap().to_bits(), n.to_bits(), "{text}");
+    }
+    assert_eq!(builtins::num_text(1.0), "1.0");
+    assert_eq!(builtins::num_text(-0.0), "-0.0");
+    let mut vm = Interp::new();
+    assert_eq!(builtins::tostring(&mut vm, Value::inline_integer(1).unwrap()), b"1");
+    assert_eq!(builtins::tostring(&mut vm, Value::num(1.0)), b"1.0");
 }

@@ -37,6 +37,10 @@ pub fn integer(v: Value) -> Option<Integer> {
 pub fn is_numeric(v: Value) -> bool {
     v.is_num() || integer(v).is_some()
 }
+pub fn exact_integer(f: f64) -> Option<Integer> {
+    (f.is_finite() && f.fract() == 0.0 && f >= i64::MIN as f64 && f < 9223372036854775808.0)
+        .then_some(Integer { bits: (f as i64) as u64, unsigned: false })
+}
 /// Integral table keys share one exact representation across numeric subtypes.
 pub fn key_integer(v: Value) -> Option<Integer> {
     if let Some(mut i) = integer(v) {
@@ -175,15 +179,15 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
             _ => order != Some(Ordering::Equal),
         });
     }
-    // An exact integer meeting a double that is not one (1.5 % 1) is Lua's
-    // floating-point arithmetic, as two doubles are; only integral operands
-    // keep the exact width.
-    let integral = |v: Value| v.is_num() && v.as_num().is_finite() && v.as_num().fract() == 0.0;
-    let kind = kind.or_else(|| match (integer(x), integer(y)) {
-        (Some(a), Some(b)) => Some(a.unsigned || b.unsigned),
-        (Some(a), None) if integral(y) => Some(a.unsigned),
-        (None, Some(b)) if integral(x) => Some(b.unsigned),
-        _ => None,
+    // Dynamic arithmetic retains the integer subtype only for two integers.
+    // Division and exponentiation always produce a float. Named unsigned and
+    // fixed-width operations explicitly supply their static integer policy.
+    let kind = kind.or_else(|| {
+        if matches!(op, "div" | "pow") { return None; }
+        match (integer(x), integer(y)) {
+            (Some(a), Some(b)) => Some(a.unsigned || b.unsigned),
+            _ => None,
+        }
     });
     if kind.is_none() {
         let (a, b) = (double(vm, x), double(vm, y));
@@ -258,7 +262,8 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
                     q -= 1;
                 }
                 if op == "mod" {
-                    (a % b) as u64
+                    let r = a % b;
+                    (if r != 0 && (r < 0) != (b < 0) { r + b } else { r }) as u64
                 } else {
                     q as u64
                 }

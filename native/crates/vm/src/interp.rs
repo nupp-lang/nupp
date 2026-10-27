@@ -1321,8 +1321,13 @@ impl Interp {
         let bit = table_of(self, &["bit.band", "bit.bor", "bit.bxor", "bit.bnot", "bit.lshift", "bit.rshift", "bit.arshift", "bit.tobit", "bit.rol", "bit.ror", "bit.bswap", "bit.tohex"]);
         let string = table_of(self, &["string.byte", "string.sub", "string.find", "string.char", "string.rep", "string.format", "string.gsub", "string.gmatch", "string.len", "string.upper", "string.lower", "string.match", "string.reverse"]);
         let table = table_of(self, &["table.concat", "table.insert", "table.remove", "table.unpack", "table.sort", "table.maxn", "table.clone", "table.clear", "table.new"]);
-        let math = table_of(self, &["math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp", "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow"]);
+        let math = table_of(self, &["math.type", "math.tointeger", "math.floor", "math.min", "math.max", "math.abs", "math.ceil", "math.sqrt", "math.log", "math.fmod", "math.modf", "math.frexp", "math.sin", "math.cos", "math.tan", "math.asin", "math.acos", "math.atan", "math.atan2", "math.exp", "math.ldexp", "math.random", "math.randomseed", "math.cosh", "math.sinh", "math.tanh", "math.deg", "math.rad", "math.log10", "math.pow"]);
         for (name, value) in [("huge", f64::INFINITY), ("pi", std::f64::consts::PI)] { let k = self.intern(name); self.set_index(math, k, Value::num(value)); }
+        for (name, n) in [("maxinteger", i64::MAX), ("mininteger", i64::MIN)] {
+            let k = self.intern(name); let root = self.register(k);
+            let v = self.box_integer(crate::numeric::Integer { bits: n as u64, unsigned: false });
+            self.set_index(math, k, v); self.release(root);
+        }
         let os = table_of(self, &["os.getenv", "os.clock", "os.time", "os.date", "os.remove", "os.tmpname", "os.execute", "os.rename", "os.exit"]);
         let io = table_of(self, &["io.type", "io.lines", "io.write", "io.open", "io.read", "io.popen", "io.flush"]);
         // The standard streams: objects whose `write` is a method.
@@ -1931,7 +1936,7 @@ impl Interp {
                 let handler = self.metamethod(value, crate::metamethods::MM::Len);
                 if handler == Value::NIL {
                     if kind == KIND_USERDATA { self.op_error(OpErr::Len, value); }
-                    return Value::num(self.array_len(value) as f64);
+                    return Value::inline_integer(self.array_len(value) as i64).unwrap();
                 }
                 let scope = self.open_scope();
                 let (last_nres, extra_n) = (self.last_nres, self.extra_n);
@@ -1947,7 +1952,7 @@ impl Interp {
                 self.close_scope(scope);
                 match result { Ok(value) => value, Err(error) => std::panic::resume_unwind(error) }
             }
-            Some(KIND_STR | KIND_SLICE) => Value::num(self.bytes_of(value).len() as f64),
+            Some(KIND_STR | KIND_SLICE) => Value::inline_integer(self.bytes_of(value).len() as i64).unwrap(),
             _ => self.op_error(OpErr::Len, value),
         }
     }
@@ -2036,7 +2041,7 @@ impl Interp {
         } else {
             None
         };
-        offset.map_or(Value::NIL, |at| Value::num(bytes[at] as f64))
+        offset.map_or(Value::NIL, |at| Value::inline_integer(bytes[at] as i64).unwrap())
     }
     /// Lua's substring clamping: 1-based inclusive, out-of-range ends clamp, an empty range is empty.
     pub fn sub_bytes(&self, v: Value, i: i64, j: i64) -> &[u8] {
@@ -2559,12 +2564,12 @@ impl Interp {
                     Op::LenF(d, a) => { let value = self.length(r!(a)); fr!(d) = crate::numeric::double(self, value); }
                     Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
                     Op::TagCheckInt(d, a, unsigned) => { r!(d) = crate::numeric::check_kind(self, r!(a), unsigned); }
-                    Op::TagCheckNum(d, a) => { let v = r!(a); if !v.is_num() { self.err("value is not a number") } r!(d) = v; }
+                    Op::TagCheckNum(d, a) => { let v = r!(a); if !crate::numeric::is_numeric(v) { self.err("value is not a number") } r!(d) = v; }
                     Op::TagCheckStr(d, a) => { let v = r!(a); if !self.is_stringish(v) { self.err("value is not a string") } r!(d) = v; }
                     Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
                     Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
                     Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
-                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !x.is_num() || !y.is_num() { self.err("scalar intrinsic on a non-number") } r!(d) = Value::num(crate::builtins::scalar_op(k, x.as_num(), y.as_num())); }
+                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !crate::numeric::is_numeric(x) || !crate::numeric::is_numeric(y) { self.err("scalar intrinsic on a non-number") } r!(d) = crate::builtins::scalar_value(k, crate::numeric::double(self, x), crate::numeric::double(self, y)); }
                     Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in 8..got { r!(base as usize + i) = self.extra[i - 1]; } for i in got..n as usize { r!(base as usize + i) = Value::NIL; } self.extra_n = 0; }
                     Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
                     Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }

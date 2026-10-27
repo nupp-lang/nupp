@@ -94,6 +94,7 @@ pub const NAMES: &[&str] = &[
     "nmarkdown.render",
     "vm.hotPatch",
     "foreign.namespace", "foreign.resolve", "foreign.pin",
+    "math.tointeger", "math.type",
 ];
 
 enum Lit { Num(f64), Str(Vec<u8>), Bool(bool), Nil }
@@ -117,6 +118,15 @@ pub(crate) fn coerce_number(it: &Interp, v: Value) -> Option<f64> {
     let s = String::from_utf8_lossy(it.bytes_of(v)).trim().to_string();
     let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) };
     lua_number(body).map(|x| if negative { -x } else { x })
+}
+fn lua_integer(s: &str) -> Option<i64> {
+    let s = s.trim();
+    let (negative, body) = if let Some(s) = s.strip_prefix('-') { (true, s) } else { (false, s.strip_prefix('+').unwrap_or(s)) };
+    if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+        let n = u64::from_str_radix(hex, 16).ok()?;
+        return Some(if negative { n.wrapping_neg() as i64 } else { n as i64 });
+    }
+    s.parse::<i64>().ok()
 }
 fn lua_number(s: &str) -> Option<f64> {
     if s.is_empty() { return None; }
@@ -429,6 +439,10 @@ pub fn scalar_op(kind: u8, a: f64, b: f64) -> f64 {
         _ => f64::NAN,
     }
 }
+pub fn scalar_value(kind: u8, a: f64, b: f64) -> Value {
+    let n = scalar_op(kind, a, b);
+    if kind < SCALAR_OPS.len() as u8 { Value::inline_integer(n as i64).unwrap() } else { Value::num(n) }
+}
 /// The i32/u32/f32 intrinsics, with the folder's semantics (`nupp.compiler.scalarintrinsics`).
 fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let (family, op) = name.split_once('.').unwrap();
@@ -436,7 +450,7 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
     let bb = args.get(1).map_or(0.0, |value| crate::numeric::double(it, *value));
     let i32_of = |x: f64| -> i32 { (x as i64) as i32 };
     let u32_of = |x: f64| -> u32 { (x as i64) as u32 };
-    let num = |x: f64| Value::num(x);
+    let num = |x: f64| if family == "f32" { Value::num(x) } else { Value::inline_integer(x as i64).unwrap() };
     if family == "f32" {
         let r = match op {
             "narrow" | "round" => (a as f32) as f64,
@@ -459,7 +473,7 @@ fn scalar(it: &mut Interp, name: &str, args: &[Value]) -> Outs {
             "fromBits" => f32::from_bits(u32_of(a)) as f64, "toBits" => (a as f32).to_bits() as f64,
             _ => it.err(&format!("scalar intrinsic f32.{op} is not in this runtime")),
         };
-        return outs![num(r)];
+        return outs![if op == "toBits" { Value::inline_integer(r as i64).unwrap() } else { num(r) }];
     }
     let signed = family == "i32";
     let out = |x: i32| -> Value { if signed { num(x as f64) } else { num((x as u32) as f64) } };
@@ -489,10 +503,12 @@ fn bytes_ref<'a>(it: &'a Interp, v: Value, scratch: &'a mut Vec<u8>) -> &'a [u8]
     if v.is_num() { *scratch = num_text(v.as_num()).into_bytes(); return scratch; }
     it.bytes_of(v)
 }
-/// Lua's number text: `%.14g`, which integers below 1e14 print as written.
+/// Shortest round-trip float text, retaining a visible float subtype.
 pub fn num_text(n: f64) -> String {
-    if n.fract() == 0.0 && n.abs() < 1e14 && !(n == 0.0 && n.is_sign_negative()) { return format!("{}", n as i64); }
-    String::from_utf8(c_format(".14", b'g', CArg::F(n))).unwrap_or_default()
+    if n.is_nan() { return "nan".into(); }
+    if n == f64::INFINITY { return "inf".into(); }
+    if n == f64::NEG_INFINITY { return "-inf".into(); }
+    format!("{n:?}")
 }
 /// One C conversion, as LuaJIT's `string.format` makes it: `spec` is the
 /// flags, width and precision between `%` and the conversion.
@@ -684,7 +700,7 @@ fn classify(name: &str) -> Special {
     if name == "vm.imageModules" { return Special::VmImagemodules; }
     if name == "vm.hotPatch" { return Special::VmHotpatch; }
     if name.starts_with("simd.") || name.starts_with("storage.") || name.starts_with("wide.") || name.starts_with("scalar.u64.")
-        || matches!(name, "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
+        || matches!(name, "math.type" | "math.tointeger" | "math.sin" | "math.cos" | "math.tan" | "math.asin" | "math.acos" | "math.atan" | "math.atan2" | "math.exp" | "math.ldexp" | "math.random" | "math.randomseed" | "math.cosh" | "math.sinh" | "math.tanh" | "math.deg" | "math.rad" | "math.log10" | "math.pow" | "table.new" | "cleanup.describe" | "file.setvbuf" | "file.flush")
         || name.starts_with("files.") || name.starts_with("path.") || name.starts_with("nfiles.") || name.starts_with("ncompression.") || name.starts_with("nnet.") || name.starts_with("nhttp.") || name.starts_with("nregex.") || name.starts_with("nmarkdown.") || name == "nuri.parse" || name.starts_with("utf8.") || name.starts_with("terminal.") || name.starts_with("scalar.") || name.starts_with("sharing.") { return Special::Tail; }
     Special::Plain
 }
@@ -1114,6 +1130,18 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         }
         Special::Tail => {
             let name = &NAMES[id as usize];
+            if *name == "math.type" {
+                let v = arg(args, 0);
+                return outs![if crate::numeric::integer(v).is_some() { it.intern("integer") } else if v.is_float() { it.intern("float") } else { Value::NIL }];
+            }
+            if *name == "math.tointeger" {
+                let v = arg(args, 0);
+                let n = crate::numeric::integer(v).filter(|i| i.magnitude() <= i64::MAX as i128)
+                    .or_else(|| v.is_float().then(|| crate::numeric::exact_integer(v.as_num())).flatten())
+                    .or_else(|| if it.is_stringish(v) { lua_integer(&String::from_utf8_lossy(it.bytes_of(v))).map(|n| crate::numeric::Integer { bits: n as u64, unsigned: false }) } else { None })
+                    .or_else(|| coerce_number(it, v).and_then(crate::numeric::exact_integer));
+                return outs![n.map(|i| it.box_integer(crate::numeric::Integer { bits: i.bits, unsigned: false })).unwrap_or(Value::NIL)];
+            }
             if let Some(op) = name.strip_prefix("simd.") { return outs![crate::simd::call(it, op, args)]; }
             if let Some(op) = name.strip_prefix("storage.") { return outs![crate::storage::call(it, op, args)]; }
             if let Some(op) = name.strip_prefix("sharing.") { return outs![crate::sharing::call(it, op, args)]; }
@@ -1401,7 +1429,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             outs![v]
         }
         N_15 | N_37 => { let t = arg(args, 0); let n = it.array_len(t) as i64; let i = int(args, 1, 1); let j = int(args, 2, n); (i..=j).map(|k| it.get_index(t, Value::num(k as f64))).collect() }
-        N_16 => { let v = arg(args, 0); outs![if crate::numeric::integer(v).is_some() { v } else { Value::num(crate::numeric::double(it, v).floor()) }] }
+        N_16 => { let v = arg(args, 0); if crate::numeric::integer(v).is_some() { return outs![v]; } let n = crate::numeric::double(it, v).floor(); outs![match crate::numeric::exact_integer(n) { Some(i) => it.box_integer(i), None => Value::num(n) }] }
         N_19 => { let v = arg(args, 0); outs![if let Some(i) = crate::numeric::integer(v) { if i.magnitude() < 0 { it.box_integer(crate::numeric::Integer { bits: i.bits.wrapping_neg(), unsigned: i.unsigned }) } else { v } } else { Value::num(crate::numeric::double(it, v).abs()) }] }
         N_17 => { let mut m = arg(args, 0); for &a in &args[1..] { if crate::numeric::compare(a, m) == Some(std::cmp::Ordering::Less) { m = a; } } outs![m] }
         N_18 => { let mut m = arg(args, 0); for &a in &args[1..] { if crate::numeric::compare(a, m) == Some(std::cmp::Ordering::Greater) { m = a; } } outs![m] }
@@ -1437,7 +1465,22 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
         N_24 => { let t = arg(args, 0); let k = arg(args, 1); let keys = it.table_keys(t); let pos = if k == Value::NIL { 0 } else { keys.iter().position(|x| it.values_equal(*x, k)).map(|p| p + 1).unwrap_or(keys.len()) }; if pos < keys.len() { let key = keys[pos]; let v = it.get_index(t, key); outs![key, v] } else { outs![Value::NIL] } }
         N_25 => { let v = arg(args, 0); let n = type_name(it, v); outs![it.intern(n)] }
         N_26 => { let v = arg(args, 0); outs![tostring_value(it, v)] }
-        N_27 => { let v = arg(args, 0); if crate::numeric::is_numeric(v) { return outs![Value::num(crate::numeric::double(it, v))]; } if !it.is_stringish(v) { return outs![Value::NIL]; } let s = String::from_utf8_lossy(&bytes_of(it, v)).trim().to_string(); let base = int(args, 1, 10); let n = if base == 10 { let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) }; lua_number(body).map(|x| if negative { -x } else { x }) } else { i64::from_str_radix(&s, base as u32).ok().map(|x| x as f64) }; outs![n.map(Value::num).unwrap_or(Value::NIL)] }
+        N_27 => {
+            let v = arg(args, 0);
+            if args.len() < 2 || arg(args, 1) == Value::NIL {
+                if crate::numeric::is_numeric(v) { return outs![v]; }
+                if !it.is_stringish(v) { return outs![Value::NIL]; }
+                let s = String::from_utf8_lossy(it.bytes_of(v)).trim().to_string();
+                if let Some(n) = lua_integer(&s) { return outs![it.box_integer(crate::numeric::Integer { bits: n as u64, unsigned: false })]; }
+                return outs![coerce_number(it, v).map(Value::num).unwrap_or(Value::NIL)];
+            }
+            let base = int(args, 1, 10);
+            if !(2..=36).contains(&base) { it.err("bad argument #2 to 'tonumber' (base out of range)"); }
+            if !it.is_stringish(v) { it.err("bad argument #1 to 'tonumber' (string expected)"); }
+            let s = String::from_utf8_lossy(it.bytes_of(v)).trim().to_string();
+            let n = i64::from_str_radix(&s, base as u32).ok();
+            outs![n.map(|n| it.box_integer(crate::numeric::Integer { bits: n as u64, unsigned: false })).unwrap_or(Value::NIL)]
+        }
         N_28 => { let v = arg(args, 0); std::panic::panic_any(LuaError(v.0)) }
         N_29 => { let v = arg(args, 0); if !v.truthy() { let msg = if args.len() > 1 { arg(args, 1) } else { it.intern("assertion failed!") }; std::panic::panic_any(LuaError(msg.0)); } args.iter().copied().collect() }
         N_30 => {
@@ -1554,7 +1597,7 @@ pub fn call(it: &mut Interp, id: u32, args: &[Value]) -> Outs {
             let s = &s[s.len().saturating_sub(width)..];
             outs![str_of(it, s.as_bytes())]
         }
-        59 => outs![Value::num(arg(args, 0).as_num().ceil())],
+        59 => { let v = arg(args, 0); if crate::numeric::integer(v).is_some() { return outs![v]; } let n = crate::numeric::double(it, v).ceil(); outs![match crate::numeric::exact_integer(n) { Some(i) => it.box_integer(i), None => Value::num(n) }] }
         60 => outs![Value::num(arg(args, 0).as_num().sqrt())],
         61 => { let x = arg(args, 0).as_num(); if args.len() > 1 { outs![Value::num(x.ln() / arg(args, 1).as_num().ln())] } else { outs![Value::num(x.ln())] } }
         62 => outs![Value::num(arg(args, 0).as_num() % arg(args, 1).as_num())],
