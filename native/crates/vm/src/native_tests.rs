@@ -2027,13 +2027,8 @@ entry 0
         vm.last_nres = 77;
     }
     vm.instruction_budget = Some(1);
-    // The last call spent the slice; the root return publishes its results
-    // before the driver may finish the task on the next turn.
-    assert!(vm.run_ready(1).unwrap().is_empty());
-    let frame = vm.tasks[task.index].cur();
-    assert_eq!(vm.tasks[task.index].stack[frame] >> 32, 27);
-    vm.full_cycle();
-    vm.instruction_budget = Some(1);
+    // Only calls and taken back edges consume or test the slice. The root
+    // RetN after this call must complete even though the slice reaches zero.
     let events = vm.run_ready(1).unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].status, crate::scheduler::Status::Completed);
