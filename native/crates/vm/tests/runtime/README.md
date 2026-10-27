@@ -160,3 +160,18 @@ and table suite pass; the graph compiler passes shared coverage, AOT continuity
 and the pinned-seed fixpoint. All 6,156 compiler functions link, and fresh
 processes execute compiled frames with executable memory denied. Performance
 tuning and further measurements are deferred by the owner.
+
+`p2-interpreter-2026-10-27.json` records the next interpreter ports: record and
+physical-field handlers, 27 SIMD/storage handlers, three integer leaf handlers,
+protected-frame pushes and method-call budget ordering. Nupp owns instruction
+control and scalar lane arithmetic. Temporary named services retain managed
+object dispatch, storage codecs, SIMD preparation and result packaging. These
+services and the remaining instruction fallbacks still block Rust loop deletion.
+
+Logical vector halves extend the frame-slot contract. The temporary direct
+lowering supports scalar helper composition and preserves declared storage kinds;
+it remains scheduled for deletion under P1b. Context transport validation checks
+unchanged ABI inputs without rewriting or optimizing CLIF. The normal compiler
+retains its linked AOT route while the Nupp interpreter gains coverage. P2's
+remaining instruction semantics, number model and per-platform cold seed pair
+remain open. No performance measurements accompany this receipt.
