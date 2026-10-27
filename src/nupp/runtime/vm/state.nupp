@@ -126,6 +126,9 @@ local function varargTableSlow(pc: voidptr, context: voidptr, count: int64, leng
     end
     if length > 0 then
         helpers.resizeArray(context, table, length)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
         local stack = native.loadPointer(context, native.layout("stack"))
         local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
         local varargs = native.offset(frame, 0 - count * 8)

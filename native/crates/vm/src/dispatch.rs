@@ -356,19 +356,25 @@ pub(crate) mod native_helpers {
         sync(ctx, it);
         v.0
     }
-    /// The array part of a plain table at `length` entries, lengthened with
-    /// nils or truncated: the handlers write the entries, the vector is the
-    /// heap's until N05. This only reallocates outside storage and accounts
-    /// for its capacity: it cannot collect, park, raise or move the VM stack,
-    /// so the native frame and its uncharged budget can stay in the context.
+    // Success preserves the caller's unpublished frame and budget. Only
+    // refusal publishes state before error conversion can collect.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_resize_array(ctx: *mut Ctx, table: u64, length: i64) {
-        let it = unsafe { &mut *((*ctx).interp as *mut crate::interp::Interp) };
-        let h = unsafe { &mut *header(table) };
-        let before = h.external_bytes();
-        h.table().array.resize(length as usize, Value::NIL);
-        h.refresh();
-        it.heap.account_resize(before, h.external_bytes());
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let it = unsafe { &mut *((*ctx).interp as *mut crate::interp::Interp) };
+            let h = unsafe { &mut *header(table) };
+            let before = h.external_bytes();
+            h.table().array.resize(length as usize, Value::NIL);
+            h.refresh();
+            it.heap.account_resize(before, h.external_bytes());
+        }));
+        if let Err(payload) = outcome {
+            let ctx = unsafe { &mut *ctx };
+            let (it, _) = enter_rust(ctx);
+            it.guarded(|_| std::panic::resume_unwind(payload));
+            ctx.status = ST_ERROR;
+            sync(ctx, it);
+        }
     }
     /// A store to a key a table with a metatable lacks (contracts 9): the
     /// `__newindex` dispatch, which is the object library's until N04, and
@@ -396,10 +402,14 @@ pub(crate) mod native_helpers {
     pub unsafe extern "C" fn nupp_rt_grow_hash(ctx: *mut Ctx, table: u64) {
         let ctx = unsafe { &mut *ctx };
         let (it, _) = enter_rust(ctx);
-        let h = unsafe { &mut *header(table) };
-        let before = h.external_bytes();
-        h.table().hash.grow();
-        it.heap.account_resize(before, h.external_bytes());
+        let result = it.guarded(|it| {
+            let h = unsafe { &mut *header(table) };
+            let before = h.external_bytes();
+            h.table().hash.grow();
+            it.heap.account_resize(before, h.external_bytes());
+            Value::NIL
+        });
+        if result == Value::ERROR { ctx.status = ST_ERROR; }
         sync(ctx, it);
     }
     /// A closure over function `fid` with `n` nil captures the core fills in

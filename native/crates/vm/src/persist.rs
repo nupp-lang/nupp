@@ -1620,7 +1620,7 @@ fn load_graph_mode(
                     h.flags &= !F_METATABLE;
                     if meta != Value::NIL { h.flags |= F_METATABLE; }
                     if !extra.is_empty() || meta != Value::NIL {
-                        let mut table = ValueTable::new();
+                        let mut table = unsafe { vm.heap.value_table(0) };
                         for pair in extra.chunks_exact(2) {
                             table
                                 .insert(resolve(&pair[0], &objects)?, resolve(&pair[1], &objects)?);

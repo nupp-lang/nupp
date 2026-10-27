@@ -662,7 +662,7 @@ impl NativeTableFixture {
             header: unsafe { std::mem::zeroed() },
             payload: crate::heap::TablePayload {
                 array,
-                hash: Default::default(),
+                hash: allocator.value_table(0),
                 meta: Value::NIL,
             },
             _allocator: allocator,
@@ -3507,5 +3507,113 @@ fn native_owned_stack_growth_keeps_frame_varargs_and_wide_result_packs() {
                 num(i as f64 + 0.25)
             );
         }
+    }
+}
+
+#[test]
+fn native_hash_growth_refusal_returns_error_without_appending() {
+    use crate::interp::Interp;
+    let mut vm = Box::new(Interp::new());
+    crate::image::load(&mut vm, "function store 0 2 8 1 vv:v\nconst 0 str \"new-key\"\nSetField 1 0 2\nRetNil\nend\nentry 0\n").unwrap();
+    vm.install_globals();
+    vm.entries.resize(vm.funcs.len(), 0);
+    vm.prepare_threaded();
+    vm.heap.automatic_collection = false;
+    let table = vm.new_table_sized(0, 6);
+    vm.handles.push(table);
+    for i in 0..6 {
+        let key = vm.intern(&format!("prior-{i}"));
+        vm.set_index(table, key, Value::inline_integer(i).unwrap());
+    }
+    let new_key = vm.intern("new-key");
+    let header = table.as_obj().unwrap();
+    let hash = unsafe { &mut *header.as_ptr() }.table();
+    let before = (hash.hash.ptr, hash.hash.len, hash.hash.cap, hash.hash.mask);
+    let value = vm.new_table();
+    let tid = vm.spawn(0, &[table, value]);
+    vm.handles.clear();
+    unsafe { &mut *header.as_ptr() }.table().hash.mask = before.3 ^ 1;
+    vm.heap.automatic_collection = true;
+    vm.heap.stress = true;
+    vm.heap.stress_steps = true;
+    vm.heap.oracle = true;
+    let cycles = vm.heap.stats.cycles;
+    let (_, ctx, _) = super::native_module_tests::invoke_task(&mut vm, tid, Op::SetField(1, 0, 2));
+    let hash = unsafe { &mut *header.as_ptr() }.table();
+    let refused_length = hash.hash.len;
+    hash.hash.mask = before.3;
+    assert_eq!(ctx.status, ST_ERROR);
+    assert!(vm.pending_error.is_some());
+    assert_eq!(refused_length, before.1, "failed growth cannot append");
+    assert!(vm.heap.stats.cycles > cycles, "error conversion must exercise GC_STRESS");
+    assert!(vm.heap.is_live_slot(value.as_obj().unwrap()));
+    assert!(vm.heap.is_live_slot(new_key.as_obj().unwrap()));
+    assert_eq!(unsafe { header.as_ref().table_ref().hash.ptr }, before.0);
+    assert!(unsafe { header.as_ref().table_ref().hash.get(&new_key) }.is_none());
+    vm.full_cycle();
+    for i in 0..6 {
+        let key = vm.intern(&format!("prior-{i}"));
+        assert_eq!(vm.get_index(table, key), Value::inline_integer(i).unwrap());
+    }
+}
+
+
+#[test]
+fn native_array_resize_refusal_publishes_error_roots_and_preserves_contents() {
+    let mut vm = Box::new(crate::interp::Interp::new());
+    crate::image::load(&mut vm, "function store 0 3 8 1 vvv:v\nSetIdx 1 2 3\nRetNil\nend\nentry 0\n").unwrap();
+    vm.install_globals(); vm.entries.resize(vm.funcs.len(), 0); vm.prepare_threaded();
+    let table = vm.new_table(); vm.handles.push(table);
+    let child = vm.new_table(); vm.handles.push(child);
+    vm.set_index(table, Value::inline_integer(1).unwrap(), child);
+    let tid = vm.spawn(0, &[table, Value::inline_integer(2).unwrap(), child]);
+    vm.handles.clear();
+    let before = unsafe { header(table.0).as_ref().unwrap().table_ref().array.as_ptr() };
+    vm.heap.stress = true; vm.heap.stress_steps = true; vm.heap.oracle = true;
+    let cycles = vm.heap.stats.cycles;
+    vm.execution_limit = Some(20);
+    let mut ctx: Ctx = unsafe { std::mem::zeroed() };
+    ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast(); ctx.tid = tid as u64;
+    crate::threaded::sync(&mut ctx, &mut vm); ctx.budget -= 3;
+    unsafe { native_helpers::nupp_rt_resize_array(&mut ctx, table.0, -1); }
+    assert_eq!(ctx.status, ST_ERROR); assert!(vm.pending_error.is_some());
+    assert_eq!(vm.execution_limit, Some(17));
+    assert!(vm.heap.stats.cycles > cycles);
+    let h = unsafe { &*header(table.0) };
+    assert_eq!(h.aux_len, 1); assert_eq!(h.table_ref().array.as_ptr(), before);
+    assert_eq!(&*h.table_ref().array, &[child]);
+    assert!(vm.heap.is_live_slot(child.as_obj().unwrap()));
+}
+
+#[test]
+fn native_setidx_array_refusal_keeps_sparse_entries_and_value_roots() {
+    for record in [false, true] {
+        let mut vm = Box::new(crate::interp::Interp::new());
+        crate::image::load(&mut vm, "function store 0 3 8 1 vvv:v\nSetIdx 1 2 3\nRetNil\nend\nentry 0\n").unwrap();
+        vm.install_globals(); vm.entries.resize(vm.funcs.len(), 0); vm.prepare_threaded();
+        vm.heap.automatic_collection = false;
+        let table = if record { let shape = vm.heap.shape("refused-array", &[], &[]); vm.new_record(shape) } else { vm.new_table() };
+        vm.handles.push(table);
+        let prior = vm.new_table(); vm.handles.push(prior);
+        let value = vm.new_table(); vm.handles.push(value);
+        let key = Value::inline_integer(1).unwrap();
+        let h = unsafe { &mut *header(table.0) };
+        if record { h.ensure_record_extra().insert(key, prior); } else { h.table().hash.insert(key, prior); }
+        let tid = vm.spawn(0, &[table, key, value]); vm.handles.clear();
+        let h = unsafe { &mut *header(table.0) };
+        let array = if record { h.record_array() } else { &mut h.table().array };
+        let owner_word = array as *mut crate::native_value_array::ValueArray as *mut u64;
+        let owner = unsafe { *owner_word }; unsafe { *owner_word = 0; }
+        vm.heap.automatic_collection = true; vm.heap.stress = true; vm.heap.stress_steps = true; vm.heap.oracle = true;
+        let cycles = vm.heap.stats.cycles;
+        let (_, ctx, _) = super::native_module_tests::invoke_task(&mut vm, tid, Op::SetIdx(1, 2, 3));
+        unsafe { *owner_word = owner; }
+        assert_eq!(ctx.status, ST_ERROR); assert!(vm.pending_error.is_some());
+        assert!(vm.heap.stats.cycles > cycles);
+        let h = unsafe { &*header(table.0) };
+        assert_eq!(h.aux_len, 0);
+        let (array, fields) = if record { (h.record_array_ref(), &h.record_extra_ref().unwrap().fields) } else { (&h.table_ref().array, &h.table_ref().hash) };
+        assert!(array.is_empty()); assert_eq!(fields.get(&key), Some(&prior));
+        assert!(vm.heap.is_live_slot(prior.as_obj().unwrap())); assert!(vm.heap.is_live_slot(value.as_obj().unwrap()));
     }
 }

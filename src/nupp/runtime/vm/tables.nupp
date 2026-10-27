@@ -13,6 +13,7 @@ module nupp.runtime.vm.tables
 const native = require("nupp.runtime.vm.intrinsics")
 const objecthash = require("nupp.runtime.vm.objecthash")
 const objecttable = require("nupp.runtime.vm.objecttable")
+const heap = require("nupp.runtime.vm.heap")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
 const specialization = require("nupp.runtime.vm.specialization")
@@ -93,13 +94,12 @@ end
 -- key and the value, then the entry's position in the insertion order
 -- (contracts 2.13).
 local function writeEntry(header: voidptr, key: uint64, value: uint64, k: int64): nil
-    local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
-    local n = native.loadIndex(header, native.layout("Table.hash_len"))
-    native.store64(buckets, k * 16, key)
-    native.store64(buckets, k * 16 + 8, value)
-    native.store32(native.loadPointer(header, native.layout("Table.hash_order")), n * 4, k)
-    native.store32(native.loadPointer(header, native.layout("Table.hash_rank")), k * 4, n)
-    native.storeIndex(header, native.layout("Table.hash_len"), n + 1)
+    objecttable.tableWriteEntry(
+        native.offset(header, native.layout("Table.hash_ptr")) as heap.ValueTable*,
+        key,
+        value,
+        native.word(k)
+    )
 end
 
 -- The insertion barrier for a new entry, while marking: the key when it is
@@ -125,6 +125,9 @@ end
 local function growInsertSlow(pc: voidptr, context: voidptr, object: uint64, key: uint64, value: uint64): uint64
     protocol.publishPc(pc, context)
     helpers.growHash(context, object)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
     local header = native.pointer(object & values.PAYLOAD)
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     local mask = native.load64(header, native.layout("Table.hash_mask"))
@@ -203,12 +206,14 @@ local function trimSlow(pc: voidptr, context: voidptr, object: uint64, last: int
     protocol.publishPc(pc, context)
     local header = native.pointer(object & values.PAYLOAD)
     local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
-    native.store64(data, last * 8, values.NIL)
     local n = last
     while native.both(n > 0, native.load64(data, (n - 1) * 8) == values.NIL) do
         n = n - 1
     end
     helpers.resizeArray(context, object, n)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
 
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
@@ -231,12 +236,13 @@ local function appendSlow(pc: voidptr, context: voidptr, object: uint64, key: ui
     local header = native.pointer(object & values.PAYLOAD)
     local buckets = native.loadPointer(header, native.layout("Table.hash_ptr"))
     local mask = native.load64(header, native.layout("Table.hash_mask"))
+    local existing: uint64 = 0xffffffffffffffffULL
     if buckets ~= nil then
         local k = objecthash.slotHash(key) & mask
         while true do
             local bucket = native.load64(buckets, native.index(k * 16))
             if bucket == key then
-                native.store64(buckets, native.index(k * 16 + 8), values.NIL)
+                existing = k
                 break
             end
             if bucket == values.NIL then
@@ -245,9 +251,17 @@ local function appendSlow(pc: voidptr, context: voidptr, object: uint64, key: ui
             k = (k + 1) & mask
         end
     end
+    local n = native.loadIndex(header, native.layout("Header.aux_len"))
     if value ~= values.NIL then
-        local n = native.loadIndex(header, native.layout("Header.aux_len"))
         helpers.resizeArray(context, object, n + 1)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+    end
+    if existing ~= 0xffffffffffffffffULL and buckets ~= nil then
+        native.store64(buckets, native.index(existing * 16 + 8), values.NIL)
+    end
+    if value ~= values.NIL then
         fillArray(context, object, n, value)
         n = n + 1
         if buckets ~= nil then
@@ -261,8 +275,11 @@ local function appendSlow(pc: voidptr, context: voidptr, object: uint64, key: ui
                     if bucket == next then
                         local moved = native.load64(buckets, native.index(k * 16 + 8))
                         if moved ~= values.NIL then
-                            native.store64(buckets, native.index(k * 16 + 8), values.NIL)
                             helpers.resizeArray(context, object, n + 1)
+                            if native.load32(context, native.layout("status")) == -4 then
+                                return native.fail()
+                            end
+                            native.store64(buckets, native.index(k * 16 + 8), values.NIL)
                             fillArray(context, object, n, moved)
                             n = n + 1
                             migrating = true

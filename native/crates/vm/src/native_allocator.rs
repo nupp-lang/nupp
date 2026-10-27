@@ -91,6 +91,10 @@ impl NativeAllocator {
         unsafe { crate::native_value_array::ValueArray::new(self.heap.as_ptr(), capacity) }
     }
 
+    pub(crate) fn value_table(&self, capacity: usize) -> crate::heap::ValueTable {
+        unsafe { crate::heap::ValueTable::new(self.heap.as_ptr(), capacity) }
+    }
+
     pub(crate) fn allocate(
         &mut self,
         kind: u8,

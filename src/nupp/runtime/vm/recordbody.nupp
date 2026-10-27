@@ -6,6 +6,7 @@ const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
+const objecttable = require("nupp.runtime.vm.objecttable")
 
 export function recordEnsureExtra(tail: heap.RecordTail*): uint64
     @unsafe do
@@ -35,13 +36,14 @@ export function recordEnsureExtra(tail: heap.RecordTail*): uint64
         extra.hashLen = 0ULL
         extra.hashOrder = 0ULL
         extra.hashRank = 0ULL
+        extra.hashOwner = tail.arrayOwner
         extra.meta = values.NIL
         tail.extra = native.address(raw as voidptr)
         return tail.extra
     end
 end
 
--- The host must destroy/reset the temporary hash backing before this call.
+-- Release owned hash backing before returning the descriptor to its pool.
 -- A failed precondition leaves the descriptor and owner unchanged.
 export function recordReleaseExtra(tail: heap.RecordTail*): uint64
     @unsafe do
@@ -53,16 +55,10 @@ export function recordReleaseExtra(tail: heap.RecordTail*): uint64
         end
         local owner = native.pointer(tail.arrayOwner) as heap.Heap*
         local extra = native.pointer(tail.extra) as heap.RecordExtra*
-        if owner.recordExtraPool == 0ULL
-            or extra.hashPtr ~= 0ULL
-            or extra.hashMask ~= 0ULL
-            or extra.hashCap ~= 0ULL
-            or extra.hashLen ~= 0ULL
-            or extra.hashOrder ~= 0ULL
-            or extra.hashRank ~= 0ULL
-        then
+        if owner.recordExtraPool == 0ULL or extra.hashOwner ~= tail.arrayOwner then
             return 1ULL
         end
+        objecttable.tableOwnedRelease(extra as heap.ValueTable*)
         arena.give(native.pointer(owner.recordExtraPool) as arena.Pool*, extra as voidptr)
         tail.extra = 0ULL
         return 0ULL

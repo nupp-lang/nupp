@@ -1,0 +1,108 @@
+module valuetable
+
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.vm.objecttable")
+
+local function descriptor(borrows a: arena.Arena*): heap.ValueTable* borrows (a)
+    local raw = arena.alloc(a, native.sizeOf<heap.ValueTable>(), native.alignmentOf<heap.ValueTable>())
+    if raw == nil then
+        error("fixture: descriptor allocation refused")
+    end
+
+    @unsafe do
+        local t = raw as heap.ValueTable*
+        t.ptr = 0ULL
+        t.mask = 0ULL
+        t.capacity = 0ULL
+        t.length = 0ULL
+        t.order = 0ULL
+        t.rank = 0ULL
+        t.owner = 0ULL
+        return t
+    end
+end
+
+export function ownedHashChurn(count: uint64): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local t = descriptor(a)
+            local wrong: int64 = 0
+            if tables.tableOwnedInitialize(t, h, 0ULL) ~= 0ULL then
+                error("fixture: hash initialization refused")
+            end
+            local i: uint64 = 0ULL
+            while i < count do
+                if tables.tableOwnedInsert(t, i * 16ULL, i) ~= 0ULL then
+                    wrong = wrong + 1
+                end
+                if i >= 8ULL then
+                    if tables.tableOwnedInsert(t, (i - 8ULL) * 16ULL, values.NIL) ~= 0ULL then
+                        wrong = wrong + 1
+                    end
+                end
+                if t.capacity > 64ULL then
+                    wrong = wrong + 1
+                end
+                i = i + 1ULL
+            end
+            local next: uint64 = count - 8ULL
+            local key = values.NIL
+            while true do
+                local position = tables.tableOwnedNextAfter(t, key)
+                if position == 0xffffffffffffffffULL then
+                    break
+                end
+                local bucket = tables.tableOwnedEntryBucket(t, position)
+                key = native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL))
+                local value = native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL))
+                if key ~= next * 16ULL or value ~= next then
+                    wrong = wrong + 1
+                end
+                next = next + 1ULL
+            end
+            if next ~= count then
+                wrong = wrong + 1
+            end
+            tables.tableOwnedRelease(t)
+            heap.destroy(h)
+            return wrong
+        end
+    end
+end
+
+export function ownedHashRefusalAndPoolReuse(): int64
+    @unsafe do
+        with a = arena.openGrowable(65536) do
+            local h = heap.create(a)
+            local t = descriptor(a)
+            local wrong: int64 = 0
+            tables.tableOwnedInitialize(t, h, 1ULL)
+            tables.tableOwnedInsert(t, 0ULL, 7ULL)
+            local base = t.ptr
+            local length = t.length
+            t.length = t.capacity + 1ULL
+            if tables.tableOwnedGrow(t) ~= 1ULL or t.ptr ~= base or t.length ~= t.capacity + 1ULL then
+                wrong = wrong + 1
+            end
+            t.length = length
+            if tables.tableOwnedInitialize(t, h, 0xffffffffffffffffULL) ~= 1ULL or t.ptr ~= base then
+                wrong = wrong + 1
+            end
+            tables.tableOwnedRelease(t)
+            if t.ptr ~= 0ULL or t.capacity ~= 0ULL or t.length ~= 0ULL then
+                wrong = wrong + 1
+            end
+            tables.tableOwnedInitialize(t, h, 1ULL)
+            if t.ptr ~= base or tables.tableOwnedNextAfter(t, values.NIL) ~= 0xffffffffffffffffULL then
+                wrong = wrong + 1
+            end
+            tables.tableOwnedRelease(t)
+            heap.destroy(h)
+            return wrong
+        end
+    end
+end

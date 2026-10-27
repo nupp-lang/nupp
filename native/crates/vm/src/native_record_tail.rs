@@ -1,5 +1,5 @@
 //! Borrowed access and teardown transport for a canonical Nupp record tail.
-use crate::heap::{RecordExtra, ValueTable};
+use crate::heap::RecordExtra;
 use crate::native_value_array::ValueArray;
 
 #[repr(C)]
@@ -29,11 +29,6 @@ impl RecordTail {
         panic!("record tails require a linked Nupp core");
     }
     pub fn clear_extra(&mut self) {
-        if let Some(extra) = self.extra_mut() {
-            // Hash containers remain host-owned temporarily. Destroy those before
-            // returning the descriptor itself to its Nupp owner's pool.
-            drop(std::mem::replace(&mut extra.fields, ValueTable::new()));
-        }
         #[cfg(feature = "native-runtime")]
         assert_eq!(
             unsafe { nupp_record_release_extra(self) },
@@ -121,10 +116,10 @@ mod tests {
             (*extra).fields.insert(Value::TRUE, Value::FALSE);
             assert_eq!(
                 nupp_record_release_extra(tail),
-                1,
-                "live hash backing cannot be recycled"
+                0,
+                "Nupp releases owned hash backing before recycling"
             );
-            assert_eq!(tail.extra, extra);
+            assert!(tail.extra.is_null());
             tail.clear_extra();
             assert!(tail.extra().is_none());
             assert_eq!(tail.ensure_extra() as *mut RecordExtra, extra);

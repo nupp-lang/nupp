@@ -3,6 +3,8 @@ module nupp.runtime.vm.objecttable
 const native = require("nupp.runtime.vm.intrinsics")
 const objecthash = require("nupp.runtime.vm.objecthash")
 const values = require("nupp.runtime.vm.values")
+const heap = require("nupp.runtime.vm.heap")
+const backing = require("nupp.runtime.vm.backing")
 
 -- One canonical probe for hash tables and record overflow. A deleted value
 -- keeps its key, so only a NIL key terminates the search. The returned bucket
@@ -226,4 +228,262 @@ export function tableRehash(
     end
 
     return copied
+end
+
+-- Owned descriptors use the same pooled/mapped word backing as value arrays.
+-- Buckets occupy 2*capacity words, followed by capacity u32 order and rank
+-- entries. No operation collects, invokes guest code, or lends a movable view.
+local function tableOwnedValid(t: heap.ValueTable*): boolean
+    @unsafe do
+        if t.owner == 0ULL then
+            return false
+        end
+        if t.capacity == 0ULL then
+            return t.ptr == 0ULL and t.mask == 0ULL and t.length == 0ULL and t.order == 0ULL and t.rank == 0ULL
+        end
+        if t.ptr == 0ULL or t.capacity < 8ULL or t.capacity > 0x100000000ULL then
+            return false
+        end
+        if t.mask ~= t.capacity - 1ULL or t.capacity & t.mask ~= 0ULL or t.length > t.capacity then
+            return false
+        end
+        return t.order == t.ptr + t.capacity * 16ULL and t.rank == t.ptr + t.capacity * 20ULL
+    end
+end
+
+local function tableOwnedTake(owner: uint64, capacity: uint64): uint64
+    local base = backing.wordBackingTake(native.pointer(owner) as heap.Heap*, capacity * 3ULL)
+    if base == 0ULL then
+        return 0ULL
+    end
+    if tableInitialize(native.pointer(base), capacity) ~= 0ULL then
+        backing.wordBackingRelease(base)
+        return 0ULL
+    end
+    local i: uint64 = 0ULL
+    while i < capacity do
+        native.store32(native.pointer(base + capacity * 16ULL), native.index(i * 4ULL), 0)
+        native.store32(native.pointer(base + capacity * 20ULL), native.index(i * 4ULL), 0)
+        i = i + 1ULL
+    end
+
+    return base
+end
+
+-- Initialization accepts a fresh empty descriptor only. Invalid extents do not
+-- write it. A backing refusal leaves a valid empty descriptor with its owner.
+export function tableOwnedInitialize(t: heap.ValueTable*, owner: heap.Heap*, wanted: uint64): uint64
+    local address = native.address(owner as voidptr)
+    local capacity = tableCapacity(wanted)
+    if address == 0ULL or (wanted ~= 0ULL and capacity == 0ULL) then
+        return 1ULL
+    end
+    @unsafe do
+        if t.ptr ~= 0ULL
+            or t.mask ~= 0ULL
+            or t.capacity ~= 0ULL
+            or t.length ~= 0ULL
+            or t.order ~= 0ULL
+            or t.rank ~= 0ULL
+        then
+            return 1ULL
+        end
+        t.owner = address
+        if capacity == 0ULL then
+            return 0ULL
+        end
+        local base = tableOwnedTake(address, capacity)
+        if base == 0ULL then
+            return 2ULL
+        end
+        t.ptr = base
+        t.mask = capacity - 1ULL
+        t.capacity = capacity
+        t.order = base + capacity * 16ULL
+        t.rank = base + capacity * 20ULL
+        return 0ULL
+    end
+end
+
+export function tableOwnedRelease(t: heap.ValueTable*): nil
+    @unsafe do
+        backing.wordBackingRelease(t.ptr)
+        t.ptr = 0ULL
+        t.mask = 0ULL
+        t.capacity = 0ULL
+        t.length = 0ULL
+        t.order = 0ULL
+        t.rank = 0ULL
+    end
+end
+
+-- The source and every descriptor field remain unchanged until a separately
+-- owned target has been completely initialized and rehashed successfully.
+export function tableOwnedGrow(t: heap.ValueTable*): uint64
+    if not tableOwnedValid(t) then
+        return 1ULL
+    end
+    @unsafe do
+        local live = tableLiveCount(native.pointer(t.ptr), native.pointer(t.order), t.length, t.capacity)
+        if live == 0xffffffffffffffffULL then
+            return 1ULL
+        end
+        local capacity = tableCapacity(live + 1ULL)
+        if capacity == 0ULL then
+            return 1ULL
+        end
+        local base = tableOwnedTake(t.owner, capacity)
+        if base == 0ULL then
+            return 2ULL
+        end
+        local order = base + capacity * 16ULL
+        local rank = base + capacity * 20ULL
+        local copied = tableRehash(
+            native.pointer(t.ptr),
+            native.pointer(t.order),
+            t.length,
+            t.capacity,
+            native.pointer(base),
+            native.pointer(order),
+            native.pointer(rank),
+            capacity
+        )
+        if copied ~= live then
+            backing.wordBackingRelease(base)
+            return 1ULL
+        end
+        local old = t.ptr
+        t.ptr = base
+        t.mask = capacity - 1ULL
+        t.capacity = capacity
+        t.length = copied
+        t.order = order
+        t.rank = rank
+        backing.wordBackingRelease(old)
+        return 0ULL
+    end
+end
+
+-- Appends at a prevalidated empty bucket, shared by the managed table handler
+-- and owned insertion. The caller has reserved room and applied GC barriers.
+export function tableWriteEntry(t: heap.ValueTable*, key: uint64, value: uint64, bucket: uint64): nil
+    @unsafe do
+        native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL), key)
+        native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL), value)
+        native.store32(native.pointer(t.order), native.index(t.length * 4ULL), native.index(bucket))
+        native.store32(native.pointer(t.rank), native.index(bucket * 4ULL), native.index(t.length))
+        t.length = t.length + 1ULL
+    end
+end
+
+export function tableOwnedInsert(t: heap.ValueTable*, key: uint64, value: uint64): uint64
+    if not tableOwnedValid(t) then
+        return 1ULL
+    end
+    if key == values.NIL then
+        return 0ULL
+    end
+    @unsafe do
+        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        if bucket ~= 0xffffffffffffffffULL then
+            if native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)) == key then
+                native.store64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL), value)
+                return 0ULL
+            end
+        end
+        if value == values.NIL then
+            return 0ULL
+        end
+        if tableNeedsGrowth(t.length, t.capacity) ~= 0ULL then
+            local status = tableOwnedGrow(t)
+            if status ~= 0ULL then
+                return status
+            end
+            bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        end
+        if bucket == 0xffffffffffffffffULL then
+            return 1ULL
+        end
+        tableWriteEntry(t, key, value, bucket)
+        return 0ULL
+    end
+end
+
+export function tableOwnedGetSlot(t: heap.ValueTable*, key: uint64): uint64
+    @unsafe do
+        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        if bucket == 0xffffffffffffffffULL then
+            return 0ULL
+        end
+        local address = t.ptr + bucket * 16ULL
+        if native.load64(native.pointer(address), 0) ~= key
+            or native.load64(native.pointer(address), 8) == values.NIL
+        then
+            return 0ULL
+        end
+        return address + 8ULL
+    end
+end
+
+-- An order position includes a retained tombstone. MAX means no such entry.
+export function tableOwnedEntryBucket(t: heap.ValueTable*, position: uint64): uint64
+    @unsafe do
+        if position >= t.length or t.ptr == 0ULL then
+            return 0xffffffffffffffffULL
+        end
+        local bucket = native.word(native.load32(native.pointer(t.order), native.index(position * 4ULL)))
+            & values.LOW_WORD
+        if bucket >= t.capacity then
+            return 0xffffffffffffffffULL
+        end
+        return bucket
+    end
+end
+
+export function tableOwnedPosition(t: heap.ValueTable*, key: uint64): uint64
+    @unsafe do
+        local bucket = tableProbe(native.pointer(t.ptr), t.capacity, t.mask, key)
+        if bucket == 0xffffffffffffffffULL then
+            return bucket
+        end
+        if native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL)) ~= key then
+            return 0xffffffffffffffffULL
+        end
+        return native.word(native.load32(native.pointer(t.rank), native.index(bucket * 4ULL))) & values.LOW_WORD
+    end
+end
+
+export function tableOwnedNextPosition(t: heap.ValueTable*, start: uint64): uint64
+    @unsafe do
+        local position = start
+        while position < t.length do
+            local bucket = tableOwnedEntryBucket(t, position)
+            if bucket == 0xffffffffffffffffULL then
+                return bucket
+            end
+            if native.load64(native.pointer(t.ptr), native.index(bucket * 16ULL + 8ULL)) ~= values.NIL then
+                return position
+            end
+            position = position + 1ULL
+        end
+        return 0xffffffffffffffffULL
+    end
+end
+
+export function tableOwnedNextAfter(t: heap.ValueTable*, key: uint64): uint64
+    local start: uint64 = 0ULL
+    if key ~= values.NIL then
+        local position = tableOwnedPosition(t, key)
+        if position == 0xffffffffffffffffULL then
+            return position
+        end
+        start = position + 1ULL
+    end
+
+    return tableOwnedNextPosition(t, start)
+end
+
+-- Logical owned backing includes buckets plus both insertion-order arrays.
+export function tableOwnedBytes(t: heap.ValueTable*): uint64
+    return @unsafe t.capacity * 24ULL
 end

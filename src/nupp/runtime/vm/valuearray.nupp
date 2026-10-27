@@ -5,80 +5,13 @@ module nupp.runtime.vm.valuearray
 -- code, or suspend. Small allocations reuse the owner's existing arena pools;
 -- large allocations own their mapping through the prefix preceding the elements.
 const native = require("nupp.runtime.vm.intrinsics")
-const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
-const os = require("nupp.runtime.vm.os")
+const backing = require("nupp.runtime.vm.backing")
 const values = require("nupp.runtime.vm.values")
-
-local function arrayPrefix(): uint64
-    return native.sizeOf<heap.ArrayBacking>()
-end
-
-local function arrayMaximum(): uint64
-    return (0x7fffffffffffffffULL - arrayPrefix()) // 8ULL
-end
-
-local function arrayBackingRelease(base: uint64): nil
-    @unsafe do
-        if base == 0ULL then
-            return
-        end
-        local raw = native.pointer(base - arrayPrefix())
-        local pool = native.load64(raw, 0)
-        if pool ~= 0ULL then
-            arena.give(native.pointer(pool) as arena.Pool*, raw)
-        else
-            os.unmapPages(raw, native.load64(raw, 8))
-        end
-    end
-end
-
-local function arrayBackingTake(owner: heap.Heap*, capacity: uint64): uint64
-    @unsafe do
-        local bytes = capacity * 8ULL + arrayPrefix()
-        if capacity <= 4096ULL then
-            local class: uint64 = 0ULL
-            local room: uint64 = 4ULL
-            while room < capacity do
-                room = room << 1ULL
-                class = class + 1ULL
-            end
-            local at = native.index(class * native.sizeOf<heap.ArrayPoolSlot>())
-            local poolAddress = native.load64(native.pointer(owner.arrayPools), at)
-            if poolAddress == 0ULL then
-                local pool = arena.pool(owner.grayPool.arena, room * 8ULL + arrayPrefix())
-                if pool == nil then
-                    return 0ULL
-                end
-                poolAddress = native.address(pool as voidptr)
-                native.store64(native.pointer(owner.arrayPools), at, poolAddress)
-            end
-            local currentPool = native.pointer(poolAddress) as arena.Pool*
-            local raw = arena.take(currentPool)
-            if raw == nil then
-                return 0ULL
-            end
-            local prefix = raw as heap.ArrayBacking*
-            prefix.pool = poolAddress
-            prefix.mapped = 0ULL
-            return native.address(raw as voidptr) + arrayPrefix()
-        end
-        local page = os.pageSize()
-        local mapped = (bytes + page - 1ULL) & ~(page - 1ULL)
-        local raw = os.mapPages(mapped)
-        if raw == nil then
-            return 0ULL
-        end
-        local prefix = raw as heap.ArrayBacking*
-        prefix.pool = 0ULL
-        prefix.mapped = mapped
-        return native.address(raw as voidptr) + arrayPrefix()
-    end
-end
 
 local function arrayReserveTo(a: heap.ValueArray*, wanted: uint64, exact: boolean): uint64
     @unsafe do
-        if wanted > arrayMaximum() or a.owner == 0ULL then
+        if wanted > backing.wordBackingMaximum() or a.owner == 0ULL then
             return 1ULL
         end
         if wanted <= a.capacity then
@@ -86,14 +19,14 @@ local function arrayReserveTo(a: heap.ValueArray*, wanted: uint64, exact: boolea
         end
         local capacity: uint64 = wanted
         if not exact then
-            if a.capacity <= arrayMaximum() >> 1ULL and capacity < a.capacity * 2ULL then
+            if a.capacity <= backing.wordBackingMaximum() >> 1ULL and capacity < a.capacity * 2ULL then
                 capacity = a.capacity * 2ULL
             end
             if capacity < 4ULL then
                 capacity = 4ULL
             end
         end
-        local fresh = arrayBackingTake(native.pointer(a.owner) as heap.Heap*, capacity)
+        local fresh = backing.wordBackingTake(native.pointer(a.owner) as heap.Heap*, capacity)
         if fresh == 0ULL then
             return 2ULL
         end
@@ -109,7 +42,7 @@ local function arrayReserveTo(a: heap.ValueArray*, wanted: uint64, exact: boolea
         local before = a.base
         a.base = fresh
         a.capacity = capacity
-        arrayBackingRelease(before)
+        backing.wordBackingRelease(before)
         return 0ULL
     end
 end
@@ -117,7 +50,7 @@ end
 -- Initializes a fresh descriptor; a live descriptor must be released first.
 export function arrayInitialize(a: heap.ValueArray*, owner: heap.Heap*, capacity: uint64): uint64
     @unsafe do
-        if capacity > arrayMaximum() or native.address(owner as voidptr) == 0ULL then
+        if capacity > backing.wordBackingMaximum() or native.address(owner as voidptr) == 0ULL then
             return 1ULL
         end
         a.owner = native.address(owner as voidptr)
@@ -131,7 +64,7 @@ end
 -- Reserve takes an additional element count. Refusal leaves the descriptor intact.
 export function arrayReserve(a: heap.ValueArray*, additional: uint64): uint64
     @unsafe do
-        if additional > arrayMaximum() - a.length then
+        if additional > backing.wordBackingMaximum() - a.length then
             return 1ULL
         end
         return arrayReserveTo(a, a.length + additional, false)
@@ -140,7 +73,7 @@ end
 
 export function arrayPush(a: heap.ValueArray*, value: uint64): uint64
     @unsafe do
-        if a.length >= arrayMaximum() then
+        if a.length >= backing.wordBackingMaximum() then
             return 1ULL
         end
         local status = arrayReserveTo(a, a.length + 1ULL, false)
@@ -155,7 +88,7 @@ end
 
 export function arrayExtend(a: heap.ValueArray*, source: voidptr, count: uint64): uint64
     @unsafe do
-        if count > arrayMaximum() - a.length then
+        if count > backing.wordBackingMaximum() - a.length then
             return 1ULL
         end
         local address = native.address(source)
@@ -227,7 +160,7 @@ end
 
 export function arrayRelease(a: heap.ValueArray*): nil
     @unsafe do
-        arrayBackingRelease(a.base)
+        backing.wordBackingRelease(a.base)
         a.base = 0ULL
         a.length = 0ULL
         a.capacity = 0ULL

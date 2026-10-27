@@ -190,6 +190,15 @@ function M.theAllocatorHandsOutSlotsBySizeClassAndKnowsItsOwn()
     check(compileFixture("allocator"), ALLOCATOR)
 end
 
+function M.ownedHashStorageSharesBackingOrderAndRefusalPolicy()
+    local modules = {"heap", "arena", "values", "objecthash", "objecttable", "backing"}
+    check(compileFixture("valuetable", modules), {
+        {"ownedHashChurn", {8}, 0},
+        {"ownedHashChurn", {10000}, 0},
+        {"ownedHashRefusalAndPoolReuse", {}, 0},
+    })
+end
+
 -- The nodes of a ternary tree of `count` left after the root's first
 -- subtree is unlinked.
 local function ternaryAfterCut(count)

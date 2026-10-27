@@ -1,7 +1,11 @@
 #![cfg(feature = "native-runtime")]
 
+#[path = "support/value_table.rs"]
+mod value_table;
+use value_table::TableFixture;
+
 use nupp_vm::{
-    heap::{ValueTable, slot_hash},
+    heap::slot_hash,
     value::Value,
 };
 
@@ -68,7 +72,7 @@ fn colliding_value_tables_keep_tombstone_ranks_and_live_order_through_rehash() {
         .map(Value)
         .collect();
     assert_eq!(keys.len(), 40);
-    let mut table = ValueTable::new();
+    let mut table = TableFixture::new(0);
     table.insert(Value::NIL, Value::TRUE);
     table.insert(keys[0], Value::NIL);
     assert_eq!(table.capacity(), 0);
@@ -197,7 +201,7 @@ fn capacity_and_initialization_bound_overflow_without_touching_invalid_buffers()
     for bucket in 0..8 {
         assert_eq!(&words[1 + bucket * 2..3 + bucket * 2], &[Value::NIL.0, 0]);
     }
-    assert!(std::panic::catch_unwind(|| ValueTable::with_capacity(usize::MAX)).is_err());
+    assert!(std::panic::catch_unwind(|| TableFixture::new(usize::MAX)).is_err());
 }
 
 #[test]
@@ -369,7 +373,7 @@ fn rehash_preflights_buffers_and_rebuilds_live_order_without_changing_source() {
 #[test]
 fn failed_growth_preserves_the_old_backing_owner() {
     use std::panic::{AssertUnwindSafe, catch_unwind};
-    let mut table = ValueTable::new();
+    let mut table = TableFixture::new(0);
     for key in 0..6 {
         table.insert(Value(key * 16), Value::TRUE);
     }

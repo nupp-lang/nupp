@@ -96,149 +96,14 @@ const _: () = assert!(HEADER == 32);
 pub struct StrPayload { pub hash: u64 /* then the bytes */ }
 #[repr(C)]
 pub struct SlicePayload { pub source: Value, pub off: u32, pub len: u32 }
-/// A table's hash part: open addressing over (key bits, value) pairs, the
-/// key canonical (interned string or number) so bits compare as identity,
-/// nil bits marking an empty entry. A key keeps its entry when its value
-/// becomes nil, as Lua's does, and a rehash drops those. The layout is
-/// fixed so the typed tier and the core probe it inline, with the same hash
-/// the shape slot tables use.
-#[repr(C)]
-/// The hash part of a table and a record's overflow: open-addressed
-/// `(key, value)` slots probed by `slot_hash` of the key's bits, which the C
-/// core and the typed tier read in place at the same offsets, plus two side
-/// arrays that make iteration insertion-ordered (contracts 2.13): `order`
-/// lists slot indices in the order keys were first inserted, and `rank`
-/// gives each slot its position in `order`. Placement may depend on
-/// addresses; the order a program observes never does.
-pub struct ValueTable { pub ptr: *mut u64, pub mask: u64, pub cap: u64, pub len: u64, pub(crate) order: *mut u32, pub(crate) rank: *mut u32 }
+// Hash descriptors and all storage policy live in Nupp. Rust borrows entries.
+pub use crate::native_value_table::ValueTable;
 pub const VT_EMPTY: u64 = Value::NIL.0;
-/// Optional overflow for a shaped table; the field map stays first for native probes.
 #[repr(C)]
 pub struct RecordExtra { pub fields: ValueTable, pub meta: Value }
 pub use crate::native_record_tail::RecordTail;
 impl std::ops::Deref for RecordExtra { type Target = ValueTable; fn deref(&self) -> &ValueTable { &self.fields } }
 impl std::ops::DerefMut for RecordExtra { fn deref_mut(&mut self) -> &mut ValueTable { &mut self.fields } }
-impl ValueTable {
-    pub fn new() -> ValueTable { ValueTable { ptr: std::ptr::null_mut(), mask: 0, cap: 0, len: 0, order: std::ptr::null_mut(), rank: std::ptr::null_mut() } }
-    pub fn with_capacity(m: usize) -> ValueTable {
-        if m == 0 { return ValueTable::new(); }
-        #[cfg(feature = "native-runtime")]
-        {
-            let cap = unsafe { nupp_object_table_capacity(m as u64) };
-            assert!(cap != 0, "table exceeds the insertion order index range");
-            let mut table = ValueTable::new();
-            table.alloc(usize::try_from(cap).expect("table capacity"));
-            table
-        }
-        #[cfg(not(feature = "native-runtime"))]
-        panic!("table capacity requires a linked Nupp core");
-    }
-    #[cfg(feature = "native-runtime")]
-    fn alloc(&mut self, cap: usize) {
-        let mut table = vec![0u64; cap * 2].into_boxed_slice();
-        let order = vec![0u32; cap].into_boxed_slice();
-        let rank = vec![0u32; cap].into_boxed_slice();
-        assert_eq!(unsafe { nupp_object_table_initialize(table.as_mut_ptr(), cap as u64) }, 0, "invalid table backing dimensions");
-        self.ptr = Box::leak(table).as_mut_ptr();
-        self.order = Box::leak(order).as_mut_ptr();
-        self.rank = Box::leak(rank).as_mut_ptr();
-        self.cap = cap as u64; self.mask = (cap - 1) as u64;
-    }
-    #[inline] fn needs_growth(&self) -> bool {
-        #[cfg(feature = "native-runtime")]
-        { unsafe { nupp_object_table_needs_growth(self.len, self.cap) != 0 } }
-        #[cfg(not(feature = "native-runtime"))]
-        panic!("table growth policy requires a linked Nupp core");
-    }
-    #[inline] fn probe(&self, bits: u64) -> Option<usize> {
-        #[cfg(feature = "native-runtime")]
-        {
-            let bucket = unsafe { nupp_object_table_probe(self.ptr, self.cap, self.mask, bits) };
-            (bucket != u64::MAX).then_some(bucket as usize)
-        }
-        #[cfg(not(feature = "native-runtime"))]
-        { let _ = bits; panic!("table probing requires a linked Nupp core") }
-    }
-    #[inline] fn slot(&self, bits: u64) -> Option<usize> {
-        let bucket = self.probe(bits)?;
-        (unsafe { *self.ptr.add(2 * bucket) } == bits).then_some(bucket)
-    }
-    pub fn get(&self, key: &Value) -> Option<&Value> { let k = self.slot(key.0)?; let v = unsafe { &*(self.ptr.add(2 * k + 1) as *const Value) }; if *v == Value::NIL { None } else { Some(v) } }
-    pub fn insert(&mut self, key: Value, v: Value) {
-        if key == Value::NIL { return; }
-        if let Some(k) = self.slot(key.0) { unsafe { *self.ptr.add(2 * k + 1) = v.0; } return; }
-        if v == Value::NIL { return; }
-        if self.needs_growth() { self.grow(); }
-        let k = self.probe(key.0).expect("allocated table has an empty bucket") as u64;
-        unsafe {
-            *self.ptr.add(2 * k as usize) = key.0; *self.ptr.add(2 * k as usize + 1) = v.0;
-            *self.order.add(self.len as usize) = k as u32; *self.rank.add(k as usize) = self.len as u32;
-        }
-        self.len += 1;
-    }
-    pub(crate) fn grow(&mut self) {
-        #[cfg(feature = "native-runtime")]
-        {
-            let live = unsafe { nupp_object_table_live_count(self.ptr, self.order, self.len, self.cap) };
-            assert!(live != u64::MAX, "invalid table insertion order");
-            let mut replacement = ValueTable::with_capacity(usize::try_from(live + 1).expect("live table entries"));
-            let copied = unsafe { nupp_object_table_rehash(self.ptr, self.order, self.len, self.cap, replacement.ptr, replacement.order, replacement.rank, replacement.cap) };
-            assert_eq!(copied, live, "invalid table rehash buffers");
-            replacement.len = copied;
-            // Old backing stays owned and visible until the Nupp copy succeeds.
-            std::mem::swap(self, &mut replacement);
-        }
-        #[cfg(not(feature = "native-runtime"))]
-        panic!("table rehashing requires a linked Nupp core");
-    }
-    fn free(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe {
-                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.ptr, self.cap as usize * 2)));
-                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.order, self.cap as usize)));
-                drop(Box::from_raw(std::slice::from_raw_parts_mut(self.rank, self.cap as usize)));
-            }
-            self.ptr = std::ptr::null_mut(); self.order = std::ptr::null_mut(); self.rank = std::ptr::null_mut(); self.cap = 0; self.mask = 0;
-        }
-    }
-    /// Every key with a non-nil value, in insertion order.
-    pub fn iter(&self) -> impl Iterator<Item = (&Value, &Value)> + '_ {
-        let n = if self.ptr.is_null() { 0 } else { self.len as usize };
-        (0..n).filter_map(move |i| unsafe {
-            let k = *self.order.add(i) as usize;
-            let v = &*(self.ptr.add(2 * k + 1) as *const Value);
-            if *v == Value::NIL { None } else { Some((&*(self.ptr.add(2 * k) as *const Value), v)) }
-        })
-    }
-    /// The first live entry after `key` in insertion order, or the first
-    /// entry when `key` is nil; `None` when the key is absent or last.
-    pub fn next_after(&self, key: Value) -> Option<(Value, Value)> {
-        if self.ptr.is_null() { return None; }
-        let start = if key == Value::NIL { 0 } else { let k = self.slot(key.0)?; unsafe { *self.rank.add(k) as usize + 1 } };
-        for i in start..self.len as usize {
-            let k = unsafe { *self.order.add(i) as usize };
-            let v = Value(unsafe { *self.ptr.add(2 * k + 1) });
-            if v != Value::NIL { return Some((Value(unsafe { *self.ptr.add(2 * k) }), v)); }
-        }
-        None
-    }
-    pub fn len(&self) -> usize { self.len as usize }
-    pub fn capacity(&self) -> usize { self.cap as usize }
-    /// The entry at a position of the insertion order (below `len`), its
-    /// value nil when the key's value went nil; `None` past the end.
-    #[inline]
-    pub fn entry_at(&self, i: usize) -> Option<(Value, Value)> {
-        if self.ptr.is_null() || i >= self.len as usize { return None; }
-        let k = unsafe { *self.order.add(i) as usize };
-        Some(unsafe { (Value(*self.ptr.add(2 * k)), Value(*self.ptr.add(2 * k + 1))) })
-    }
-    /// A key's position in the insertion order.
-    pub fn position_of(&self, key: Value) -> Option<usize> { let k = self.slot(key.0)?; Some(unsafe { *self.rank.add(k) as usize }) }
-
-}
-impl Drop for ValueTable { fn drop(&mut self) { self.free(); } }
-impl Default for ValueTable { fn default() -> ValueTable { ValueTable::new() } }
-impl ValueTable { pub fn keys(&self) -> impl Iterator<Item = &Value> + '_ { self.iter().map(|(k, _)| k) } }
 #[repr(C)]
 pub struct TablePayload { pub array: crate::native_value_array::ValueArray, pub hash: ValueTable, pub meta: Value }
 pub const OFF_T_HASH_PTR: i32 = (HEADER + std::mem::offset_of!(TablePayload, hash) + std::mem::offset_of!(ValueTable, ptr)) as i32;
@@ -370,8 +235,8 @@ impl Header {
         #[cfg(feature = "allocation-metrics")]
         crate::allocation_metrics::observe(self);
         match self.kind {
-            KIND_TABLE => { let t = self.table_ref(); 8 * t.array.capacity() + 16 * t.hash.capacity() },
-            KIND_RECORD => 8 * self.record_array_ref().capacity() + self.record_extra_ref().as_ref().map(|m| std::mem::size_of::<RecordExtra>() + 16 * m.capacity()).unwrap_or(0),
+            KIND_TABLE => { let t = self.table_ref(); 8 * t.array.capacity() + t.hash.backing_bytes() },
+            KIND_RECORD => 8 * self.record_array_ref().capacity() + self.record_extra_ref().as_ref().map(|m| std::mem::size_of::<RecordExtra>() + m.backing_bytes()).unwrap_or(0),
             KIND_STORAGE => unsafe { 8 * (*(self.payload() as *const StoragePayload)).data.capacity() },
             KIND_BYTES => unsafe { (*(self.payload() as *const BytesPayload)).data.capacity() },
             KIND_ITER => unsafe { 8 * (*(self.payload() as *const IterPayload)).keys.capacity() },
@@ -417,22 +282,16 @@ unsafe extern "C" {
     fn nupp_object_cell_initialize(header: *mut Header, value: u64) -> u64;
     fn nupp_object_closure_initialize(header: *mut Header, function_id: u64, captures: *const Value, count: u64) -> u64;
     fn nupp_object_weak_lookup_action(phase: u64, color: u64, epoch: u64, cycle: u64, white: u64, marking: u64, sweeping: u64) -> u64;
-    fn nupp_object_table_probe(table: *const u64, capacity: u64, mask: u64, key: u64) -> u64;
-    fn nupp_object_table_capacity(wanted: u64) -> u64;
-    fn nupp_object_table_needs_growth(length: u64, capacity: u64) -> u64;
-    fn nupp_object_table_initialize(table: *mut u64, capacity: u64) -> u64;
-    fn nupp_object_table_live_count(table: *const u64, order: *const u32, length: u64, capacity: u64) -> u64;
-    fn nupp_object_table_rehash(source: *const u64, order: *const u32, length: u64, capacity: u64, target: *mut u64, target_order: *mut u32, target_rank: *mut u32, target_capacity: u64) -> u64;
     fn nupp_object_shape_capacity(count: u64) -> u64;
     fn nupp_object_shape_fill(names: *const Value, count: u64, table: *mut [u64; 2], capacity: u64) -> u64;
     fn nupp_object_shape_find(table: *const [u64; 2], capacity: u64, mask: u64, name: u64) -> u64;
 }
 #[cfg(feature = "native-runtime")]
 const _: () = {
-    assert!(crate::dispatch::OBJECT_ABI == 12);
+    assert!(crate::dispatch::OBJECT_ABI == 14);
     assert!(std::mem::size_of::<Value>() == 8);
     assert!(std::mem::size_of::<RecordTail>() == 40);
-    assert!(std::mem::size_of::<RecordExtra>() == 56);
+    assert!(std::mem::size_of::<RecordExtra>() == 64);
     assert!(std::mem::size_of::<[u64; 2]>() == 16);
     assert!(std::mem::align_of::<[u64; 2]>() == 8);
 };
@@ -773,7 +632,7 @@ impl Heap {
         if crate::interp::TABLE_STATS.load(std::sync::atomic::Ordering::Relaxed) { crate::interp::TABLE_COUNTS[if n + m == 0 { 4 } else { 4 }].fetch_add(0, std::sync::atomic::Ordering::Relaxed); NEW_TABLES.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
         // Backing reservation can fail. Finish it before publishing a live
         // header; this empty payload holds no guest edges across alloc's GC.
-        let payload = TablePayload { array: self.allocator.value_array(n), hash: ValueTable::with_capacity(m), meta: Value::NIL };
+        let payload = TablePayload { array: self.allocator.value_array(n), hash: self.allocator.value_table(m), meta: Value::NIL };
         let p = self.alloc(KIND_TABLE, std::mem::size_of::<TablePayload>(), roots);
         unsafe {
             let h = &mut *p.as_ptr();
@@ -786,6 +645,12 @@ impl Heap {
         Value::obj(p)
     }
     pub fn new_table(&mut self, roots: &dyn Roots) -> Value { self.new_table_sized(0, 0, roots) }
+
+    // Borrowed-storage construction for embedding fixtures. The returned table
+    // and all its entry borrows must be dropped before this Heap.
+    pub unsafe fn value_table(&self, capacity: usize) -> ValueTable {
+        self.allocator.value_table(capacity)
+    }
 
     pub fn new_record(&mut self, shape: u32, roots: &dyn Roots) -> Value {
         let n = self.shapes[shape as usize].names.len();
@@ -1712,7 +1577,7 @@ mod tests {
         let dead_value = heap.new_cell(Value::NIL, &roots);
         let mut table = TablePayload {
             array: heap.allocator.value_array(0),
-            hash: ValueTable::new(),
+            hash: heap.allocator.value_table(0),
             meta: Value::NIL,
         };
         table.hash.insert(first, second);

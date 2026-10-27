@@ -745,7 +745,7 @@ fn restore_target(vm: &mut Interp, target: Value, state: TargetState) {
     h.flags = (h.flags & !F_METATABLE) | state.meta_flag;
     h.record_tail().clear_extra();
     if let Some((pairs, meta)) = state.extra {
-        let mut fields = ValueTable::new();
+        let mut fields = unsafe { vm.heap.value_table(0) };
         for (k, v) in pairs {
             fields.insert(k, v);
         }

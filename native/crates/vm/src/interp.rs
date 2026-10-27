@@ -1489,7 +1489,7 @@ impl Interp {
         self.heap.barrier(p, iv);
         self.heap.barrier(p, v);
         let h = unsafe { &mut *p.as_ptr() };
-        let before = h.external_bytes();
+        let mut before = h.external_bytes();
         match h.kind {
             // `t[#t] = nil` shrinks the array part, as Lua's border rule reads it.
             KIND_TABLE => {
@@ -1499,16 +1499,23 @@ impl Interp {
                     if k == t.array.len() + 1 {
                         // A sparse key may already live in the hash part. Move
                         // each newly contiguous key rather than keeping two copies.
-                        t.hash.insert(iv, Value::NIL);
                         if v != Value::NIL {
                             t.array.push(v);
+                            t.hash.insert(iv, Value::NIL);
+                            h.refresh();
+                            let after = h.external_bytes();
+                            self.heap.account_resize(before, after); before = after;
                             loop {
+                                let t = h.table();
                                 let next = Value::inline_integer((t.array.len() + 1) as i64).expect("table length exceeds immediate integer range");
                                 let Some(value) = t.hash.get(&next).copied() else { break; };
-                                t.hash.insert(next, Value::NIL);
                                 t.array.push(value);
+                                t.hash.insert(next, Value::NIL);
+                                h.refresh();
+                                let after = h.external_bytes();
+                                self.heap.account_resize(before, after); before = after;
                             }
-                        }
+                        } else { t.hash.insert(iv, Value::NIL); }
                     } else {
                         t.array[k - 1] = v;
                         if v == Value::NIL && k == t.array.len() {
@@ -1527,16 +1534,22 @@ impl Interp {
                     if n >= 1.0 && n.fract() == 0.0 && (n as usize) <= len + 1 {
                         let k = n as usize;
                         if k == len + 1 {
-                            if let Some(extra) = h.record_extra() { extra.insert(iv, Value::NIL); }
                             if v != Value::NIL {
                                 h.record_array().push(v);
+                                if let Some(extra) = h.record_extra() { extra.insert(iv, Value::NIL); }
+                                h.refresh();
+                                let after = h.external_bytes();
+                                self.heap.account_resize(before, after); before = after;
                                 loop {
                                     let next = Value::inline_integer((h.record_array_ref().len() + 1) as i64).expect("record length exceeds immediate integer range");
                                     let Some(value) = h.record_extra_ref().as_ref().and_then(|m| m.get(&next).copied()) else { break; };
-                                    h.record_extra().as_mut().unwrap().insert(next, Value::NIL);
                                     h.record_array().push(value);
+                                    h.record_extra().as_mut().unwrap().insert(next, Value::NIL);
+                                    h.refresh();
+                                    let after = h.external_bytes();
+                                    self.heap.account_resize(before, after); before = after;
                                 }
-                            }
+                            } else if let Some(extra) = h.record_extra() { extra.insert(iv, Value::NIL); }
                         } else {
                             let a = h.record_array();
                             a[k - 1] = v;
