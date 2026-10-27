@@ -38,10 +38,6 @@ local SAVE = [[
 function M.integerCountersStopBeforeSignedOverflowAndKeepTheirSubtype()
     for _, row in ipairs({
         {"1, 3", "integer:1,integer:2,integer:3"},
-        {
-            "18446744073709551614ULL, 18446744073709551615ULL, 1ULL",
-            "integer:18446744073709551614,integer:18446744073709551615"
-        },
         {"9223372036854775806LL, 9223372036854775807LL", "integer:9223372036854775806,integer:9223372036854775807"},
         {
             "-9223372036854775807LL, -9223372036854775808LL, -1LL",
@@ -62,6 +58,33 @@ function M.integerCountersStopBeforeSignedOverflowAndKeepTheirSubtype()
             run(COLLECT .. "for i = " .. row[1] .. " do\n" .. SAVE .. "end\nreturn table.concat(values, \",\")"),
             row[2]
         )
+    end
+end
+
+function M.unsignedCountersKeepTheirStaticOrderAcrossTheSignedBoundary()
+    for _, row in ipairs({
+        {
+            "9223372036854775807ULL, 9223372036854775809ULL",
+            "9223372036854775807ULL, 9223372036854775808ULL, 9223372036854775809ULL",
+            3
+        },
+        {"18446744073709551614ULL, 18446744073709551615ULL", "18446744073709551614ULL, 18446744073709551615ULL", 2},
+        {"1ULL, 18446744073709551615ULL, 18446744073709551615ULL", "1ULL", 1},
+        {"0ULL, 18446744073709551615ULL, 9223372036854775808ULL", "0ULL, 9223372036854775808ULL", 2},
+    }) do
+        local source = "local expected: {uint64} = {" .. row[
+            2
+        ] .. "}\nlocal count = 0\nfor i = " .. row[
+            1
+        ]
+            .. [[ do
+    count += 1
+    if count > #expected then error("unsigned loop did not terminate") end
+    if i ~= expected[count] then error("unsigned loop counter changed bits") end
+end
+return count
+]]
+        test.equal(run(source), row[3])
     end
 end
 

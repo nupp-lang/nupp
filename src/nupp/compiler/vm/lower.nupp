@@ -4503,6 +4503,25 @@ function lower.emit(
             f:push()
             -- Evaluate all three controls before binding the body variable.
             -- It may shadow a name used by any of these expressions.
+            local unsignedLoop = wideKind(node.start.inferredType) == "u64"
+                or wideKind(node.stop.inferredType) == "u64"
+                or (node.step and wideKind(node.step.inferredType) == "u64")
+            -- The runtime stores one signed integer subtype. Unsigned counters
+            -- preserve their static interpretation through the named wide ops.
+            local function loopOperation(op, left, right, dst)
+                if unsignedLoop then
+                    local names = {Add = "add", Lt = "lt", Le = "le"}
+                    wideOperation(
+                        f,
+                        "wide.u64." .. names[op],
+                        {{kind = "vmRegister", reg = left}, {kind = "vmRegister", reg = right}},
+                        dst
+                    )
+                else
+                    f:op(op, dst, left, right)
+                end
+            end
+
             local counter, limit = f:reg(), f:reg()
             exprAs(f, node.start, "v", counter)
             exprAs(f, node.stop, "v", limit)
@@ -4557,7 +4576,7 @@ function lower.emit(
             f:op("FBox", step, floating)
             f:place(initialized)
             local ascending = f:reg()
-            f:op("Lt", ascending, zero, step)
+            loopOperation("Lt", zero, step, ascending)
 
             local varName = tokText(node.var)
             local varCell = f.captured[varName]
@@ -4566,10 +4585,10 @@ function lower.emit(
             f:place(top)
             local continuing = f:reg()
             f:branch("JmpIfNot", ascending, descending)
-            f:op("Le", continuing, counter, limit)
+            loopOperation("Le", counter, limit, continuing)
             f:jump(body)
             f:place(descending)
-            f:op("Le", continuing, limit, counter)
+            loopOperation("Le", limit, counter, continuing)
             f:place(body)
             f:branch("JmpIfNot", continuing, finished)
             f:op("Move", var, counter)
@@ -4585,16 +4604,16 @@ function lower.emit(
             end
             loopContinue(f)
             local nextCounter = f:reg()
-            f:op("Add", nextCounter, counter, step)
+            loopOperation("Add", counter, step, nextCounter)
             local advanced, descendingAdvance = f:label(), f:label()
             f:branch("JmpIfNot", integerMode, advanced)
             f:branch("JmpIfNot", ascending, descendingAdvance)
             local overflow = f:reg()
-            f:op("Lt", overflow, nextCounter, counter)
+            loopOperation("Lt", nextCounter, counter, overflow)
             f:branch("JmpIf", overflow, finished)
             f:jump(advanced)
             f:place(descendingAdvance)
-            f:op("Lt", overflow, counter, nextCounter)
+            loopOperation("Lt", counter, nextCounter, overflow)
             f:branch("JmpIf", overflow, finished)
             f:place(advanced)
             f:op("Move", counter, nextCounter)
