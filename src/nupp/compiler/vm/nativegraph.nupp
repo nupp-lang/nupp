@@ -14,9 +14,60 @@ local admitted = {
     IAdd = true,
     ISub = true,
     IAnd = true,
-    IOr = true
+    IOr = true,
+    IXor = true,
+    INot = true,
+    IBswap32 = true,
+    IShl = true,
+    IShrU = true,
+    ICmpEq = true,
+    ICmpNe = true,
+    ICmpLt = true,
+    ICmpLe = true,
+    ICmpSLt = true,
+    ICmpSLe = true,
+    FAdd = true,
+    FSub = true,
+    FMul = true,
+    FDiv = true,
+    FMod = true,
+    FK = true,
+    FMov = true,
+    FNeg = true,
+    IToF = true,
+    FToI = true,
+    FCmpEq = true,
+    FCmpNe = true,
+    FCmpLt = true,
+    FCmpLe = true
 }
-local arithmetic = {["+"] = "IAdd", ["-"] = "ISub", ["&"] = "IAnd", ["|"] = "IOr"}
+local arithmetic = {
+    ["+"] = "IAdd",
+    ["-"] = "ISub",
+    ["*"] = "NativeIMul",
+    ["&"] = "IAnd",
+    ["|"] = "IOr",
+    ["~"] = "IXor",
+    ["<<"] = "IShl",
+    [">>"] = "IShrU"
+}
+local floatArithmetic = {["+"] = "FAdd", ["-"] = "FSub", ["*"] = "FMul", ["/"] = "FDiv"}
+local comparisons = {["=="] = true, ["~="] = true, ["<"] = true, ["<="] = true, [">"] = true, [">="] = true}
+local exactKinds = {voidptr = true, int64 = true, uint64 = true, boolean = true, float32 = true, float64 = true}
+local floatKinds = {float32 = true, float64 = true}
+local intrinsicUnary = {
+    asWord = {"NativeAsWord", "boolean", "uint64"},
+    floor = {"NativeFloor", "float64", "float64"},
+    ceil = {"NativeCeil", "float64", "float64"},
+    sqrt = {"NativeSqrt", "float64", "float64"},
+    neg = {"FNeg", "float64", "float64"},
+    toFloat = {"NativeIntToFloat", "int64", "float64"},
+    unsignedFloat = {"NativeIntToFloat", "uint64", "float64"},
+    toInt = {"NativeFloatToInt", "float64", "int64"},
+    unsignedInt = {"NativeFloatToInt", "float64", "uint64"},
+    bits = {"NativeFloatBits", "float64", "uint64"},
+    fromBits = {"NativeFloatFromBits", "uint64", "float64"}
+}
 local wrappers = {literal = "base", const = "inner"}
 
 local function need(ok: any, message: string): any
@@ -105,7 +156,9 @@ function nativegraph.compile(fn: any, options: any): any
 
     local expression: function(any, string?): integer
     expression = function(n: any, expected: string?): integer
-        if n.kind == "number" then
+        if n.kind == "paren" then
+            return expression(n.expr, expected)
+        elseif n.kind == "number" then
             local kind = expected or exactKind(n.inferredType)
             need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
             return emit(n, "NativeConstant", {integerText(n)}, kind) as integer
@@ -125,11 +178,40 @@ function nativegraph.compile(fn: any, options: any): any
             )
             need(expected == "int64" or expected == "uint64", "module constant needs an exact integer kind")
             return emit(n, "NativeConstant", {text}, expected) as integer
-        elseif n.kind == "binop" then
-            local op = need(arithmetic[n.op.text], "unsupported arithmetic operator")
+        elseif n.kind == "unop" then
             local kind = exactKind(n.inferredType)
-            need(kind == "int64" or kind == "uint64", "exact integer arithmetic required")
+            need(expected == nil or expected == kind, "unary expression changes exact kind")
+            if n.op.text == "~" then
+                need(kind == "int64" or kind == "uint64", "integer complement requires an exact kind")
+                return emit(n, "INot", {expression(n.operand, kind)}, kind) as integer
+            elseif n.op.text == "-" and floatKinds[kind] then
+                return emit(n, "FNeg", {expression(n.operand, kind)}, kind) as integer
+            end
+            error("native graph: unsupported checked unary operator " .. n.op.text, 0)
+        elseif n.kind == "binop" then
+            local operator = n.op.text
+            if comparisons[operator] then
+                need(expected == nil or expected == "boolean", "comparison produces a boolean")
+                local kind = exactKind(n.lhs.inferredType)
+                if not exactKinds[kind] then
+                    kind = exactKind(n.rhs.inferredType)
+                end
+                need(exactKinds[kind], "comparison needs an exact operand kind")
+                local lhs, rhs = expression(n.lhs, kind), expression(n.rhs, kind)
+                return emit(
+                    n,
+                    floatKinds[kind] and "NativeFCmp" or "NativeICmp",
+                    {lhs, rhs, operator},
+                    "boolean"
+                ) as integer
+            end
+            local kind = exactKind(n.inferredType)
+            need(kind == "int64" or kind == "uint64" or floatKinds[kind], "exact scalar arithmetic required")
             need(expected == nil or expected == kind, "arithmetic changes exact kind")
+            local op = need(
+                (floatKinds[kind] and floatArithmetic or arithmetic)[operator],
+                "unsupported arithmetic operator"
+            )
             local lhs = expression(n.lhs, kind)
             local rhs = expression(n.rhs, kind)
             return emit(n, op, {lhs, rhs}, kind) as integer
@@ -152,6 +234,11 @@ function nativegraph.compile(fn: any, options: any): any
                 local window = expression(args[2], "voidptr")
                 local slot = expression(args[3], "int64")
                 return emit(n, "FrameSlotRead", {frame, window, slot, contract}, contract.kind) as integer
+            elseif moduleName == "nupp.runtime.vm.intrinsics" and intrinsicUnary[name] then
+                local operation = intrinsicUnary[name]
+                signature(n, {operation[2]}, operation[3])
+                need(expected == nil or expected == operation[3], "intrinsic changes exact result kind")
+                return emit(n, operation[1], {expression(args[1], operation[2])}, operation[3]) as integer
             elseif moduleName == "nupp.runtime.vm.intrinsics" and name == "offset" then
                 signature(n, {"voidptr", "int64"}, "voidptr")
                 need(expected == nil or expected == "voidptr", "pointer offset changes exact kind")
@@ -171,7 +258,7 @@ function nativegraph.compile(fn: any, options: any): any
                 local key = token.definition or token
                 need(bindings[key] == nil, "duplicate local binding")
                 local kind = exactKind(token.inferredType)
-                need(kind == "voidptr" or kind == "int64" or kind == "uint64", "exact native local kind required")
+                need(exactKinds[kind], "exact native local kind required")
                 bindings[key] = expression(stat.exprs[index], kind)
             end
         elseif stat.kind == "callStmt" then

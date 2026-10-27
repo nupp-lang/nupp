@@ -86,9 +86,43 @@ local function operation(g, wanted)
     error("missing graph operation " .. wanted)
 end
 
-function M.eightCompleteCheckedHandlersProduceTheSharedGraph()
+function M.exactScalarHandlersProduceTheSharedGraph()
     local functions, options = checked(read(CORE))
-    local admitted = {"IK", "IMov", "IAddK", "IMaskU32", "IAdd", "ISub", "IAnd", "IOr"}
+    local admitted = {
+        "IK",
+        "IMov",
+        "IAddK",
+        "IMaskU32",
+        "IAdd",
+        "ISub",
+        "IAnd",
+        "IOr",
+        "IXor",
+        "INot",
+        "IBswap32",
+        "IShl",
+        "IShrU",
+        "ICmpEq",
+        "ICmpNe",
+        "ICmpLt",
+        "ICmpLe",
+        "ICmpSLt",
+        "ICmpSLe",
+        "FAdd",
+        "FSub",
+        "FMul",
+        "FDiv",
+        "FMod",
+        "FK",
+        "FMov",
+        "FNeg",
+        "IToF",
+        "FToI",
+        "FCmpEq",
+        "FCmpNe",
+        "FCmpLt",
+        "FCmpLe"
+    }
     local count = 0
     for _, fn in pairs(functions) do
         if nativegraph.admits(fn) then
@@ -117,8 +151,9 @@ function M.eightCompleteCheckedHandlersProduceTheSharedGraph()
         assert(g.exactTypes[block.dst[index]] == "int64")
         block, index = operation(g, "FrameSlotWrite")
         contract = block.args[index][5]
-        assert(contract.class == "i" and contract.kind == "uint64" and contract.write)
-        assert(block.args[index][1] == 6 and block.args[index][2] == 3)
+        assert(contract.write and (contract.class == "i" or contract.class == "f"))
+        assert(contract.class ~= "f" or contract.kind == "float64")
+        assert(block.args[index][1] == 6 and block.args[index][2] == (contract.class == "f" and 4 or 3))
         for _, position in ipairs(block.pos) do
             assert(position > 0 and g.positions[position].line > 0)
         end

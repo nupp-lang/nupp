@@ -36,9 +36,15 @@ local function scalarGraph()
     )
     local wide = constant(g, b, "18446744073709551615", "uint64")
     local answer = source
-    for _, op in ipairs({"IAdd", "ISub", "IAnd", "IOr"}) do
+    for _, op in ipairs({"IAdd", "ISub", "NativeIMul", "IAnd", "IOr", "IXor", "IShl", "IShrU"}) do
         answer = graph.emitNative(g, b, op, {answer, wide}, "uint64")
     end
+    answer = graph.emitNative(g, b, "INot", {answer}, "uint64")
+    local signed = graph.emitNative(g, b, "NativeWordCast", {answer}, "int64")
+    local signedComparison = graph.emitNative(g, b, "NativeICmp", {signed, signed, "<"}, "boolean")
+    graph.emitNative(g, b, "NativeAsWord", {signedComparison}, "uint64")
+    graph.emitNative(g, b, "NativeICmp", {answer, answer, "<"}, "boolean")
+    graph.emitNative(g, b, "NativeBoolean", {true}, "boolean")
     graph.emitNative(g, b, "FrameSlotWrite", {
         6,
         3,
@@ -79,6 +85,7 @@ function M.scalarValuesKeepTheirGraphIdsAndExactIntegerBits()
     assert(text:find("uload8.i64 notrap", 1, true))
     assert(text:find("load.i64 notrap", 1, true))
     assert(text:find("store notrap", 1, true))
+    assert(text:find("icmp slt", 1, true) and text:find("icmp ult", 1, true))
     assert(not text:find("readonly", 1, true), "body lifetime is not process-wide immutability")
     for i, dst in ipairs(g.blocks[1].dst) do
         if dst ~= 0 then
