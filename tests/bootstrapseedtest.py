@@ -7,6 +7,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 import tarfile
 import tempfile
@@ -266,8 +267,10 @@ select_rust_tools() { :; }
 python3() { printf '%s/core.o\n' "$ROOT"; test ! -f "$ROOT/fail-core"; }
 rust_environment_material() { printf fixture; }
 rust_sources_digest() { printf fixture; }
-sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
-sha256_stdin() { shasum -a 256; }
+sha256() { sha256_stdin < "$1"; }
+sha256_stdin() {
+    "$FIXTURE_PYTHON" -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
+}
 take_lock() { return 0; }
 release_lock() { :; }
 note() { :; }
@@ -277,6 +280,8 @@ rust_vendor_arguments() { :; }
 cargo_dir() { printf '%s' "$1"; }
 build_rust_vm_aot_tool() {
 ''' + function + '''
+# A pipeline in the extracted function must not hide a missing hash helper.
+sha256 "$ROOT/core.o" > /dev/null || die "cannot hash fixture core"
 touch "$ROOT/fail-core"
 if (build_rust_vm_aot_tool); then
     echo "accepted failed core producer" >&2; exit 3
@@ -289,10 +294,20 @@ printf 'second core' > "$ROOT/core.o"
 build_rust_vm_aot_tool
 printf '%s\n' "$RUST_VM_AOT_TOOL_OUT"
 '''
-            result = subprocess.run(["sh", "-c", script, "fixture", str(root)], text=True, capture_output=True, check=True)
+            command = ["sh", "-c", script, "fixture", str(root)]
+            env = dict(os.environ, FIXTURE_PYTHON=str(root / "missing-python"))
+            failed = subprocess.run(command, env=env, text=True, capture_output=True)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertIn("cannot hash fixture core", failed.stderr)
+            self.assertFalse((root / "cargo.log").exists())
+            self.assertFalse((root / "build").exists())
+            env["FIXTURE_PYTHON"] = sys.executable
+            result = subprocess.run(command, env=env, text=True, capture_output=True, check=True)
             self.assertIn("cannot build the Nupp object core", result.stderr)
             outputs = result.stdout.splitlines()
             self.assertEqual(len(outputs), 2)
+            for output in outputs:
+                self.assertRegex(Path(output).parent.name, r"^[0-9a-f]{16}$")
             self.assertNotEqual(outputs[0], outputs[1])
             calls = (root / "cargo.log").read_text().splitlines()
             self.assertEqual(len(calls), 2)
