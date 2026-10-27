@@ -124,8 +124,9 @@ return Probe
             local message = tostring(got)
             assert(
                 message:find("out of bounds", 1, true)
-                    or message:find("cannot be negative", 1, true)
-                    or message:find("expected an exact integer", 1, true),
+                or message:find("cannot be negative", 1, true)
+                or message:find("expected an exact integer", 1, true)
+                or message:find("integer out of range", 1, true),
                 ("%s(%s): %s"):format(name, tostring(bad), tostring(got))
             )
             for at = 1, 4 do

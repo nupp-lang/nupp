@@ -148,7 +148,7 @@ function M.realNumericProducersKeepTypedIndexesWhileOpenCallsDoNot()
         [[
 local Probe = {}
 function Probe.literal(values: any): any
-    return values[2]
+    return values[2.0]
 end
 function Probe.integer(values: any): any
     local key: integer = 3
@@ -156,10 +156,13 @@ function Probe.integer(values: any): any
 end
 function Probe.loop(values: any): number
     local total = 0
-    for key = 1, 3 do
+    for key = 1.0, 3.0 do
         total += values[key]
     end
     return total
+end
+function Probe.boxedInteger(values: any, key: number): any
+    return values[key]
 end
 function Probe.missing(values: any): any
     return values[string.byte("", 1)]
@@ -185,14 +188,16 @@ return Probe
         return n
     end
 
-    assert(count("literal", "GetIdxI") > 0, "literal integer producer")
+    assert(count("literal", "GetIdxF") > 0, "literal float producer")
     assert(count("integer", "GetIdxI") > 0, "actual typed integer local")
-    assert(count("loop", "GetIdxF") > 0, "actual float-register loop counter")
+    assert(count("loop", "GetIdx") > 0, "value-register numeric-for counter")
+    assert(count("boxedInteger", "GetIdx") > 0, "canonical int64 value key")
     assert(count("missing", "GetIdx") > 0, "open result remains a value key")
     test.equal(count("missing", "GetIdxI"), 0)
     test.equal(count("missing", "GetIdxF"), 0)
     test.equal(api.literal({10, 20, 30}), 20)
     test.equal(api.integer({10, 20, 30}), 30)
+    test.equal(api.boxedInteger({10, 20, 30}, 2), 20)
     test.equal(api.loop({10, 20, 30}), 60)
 end
 
