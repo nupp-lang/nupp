@@ -207,3 +207,24 @@ fn numeric_subtypes_simd_scalar_counts_and_positions_are_integers() {
         ints(&[value], &[expected]);
     }
 }
+
+
+#[test]
+fn numeric_subtypes_casts_and_refinements_depend_on_range() {
+    let mut vm = Interp::new();
+    let signed = numeric::signed(&mut vm, 9007199254740993);
+    vm.register(signed);
+    assert!(numeric::is_kind(signed, true));
+    ints(&call(&mut vm, "wide.u64.cast", &[signed]), &[9007199254740993]);
+    let unsigned = vm.box_integer(Integer { bits: i64::MAX as u64, unsigned: true });
+    vm.register(unsigned);
+    assert!(numeric::is_kind(unsigned, false));
+    ints(&call(&mut vm, "wide.i64.cast", &[unsigned]), &[i64::MAX as i128]);
+    let negative = Value::inline_integer(-1).unwrap();
+    assert!(!numeric::is_kind(negative, true));
+    assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "u64.cast", &[negative])), Value::ERROR);
+    let wide = vm.box_integer(Integer { bits: u64::MAX, unsigned: true });
+    vm.register(wide);
+    assert!(!numeric::is_kind(wide, false));
+    assert_eq!(vm.guarded(|vm| numeric::wide_call(vm, "i64.cast", &[wide])), Value::ERROR);
+}

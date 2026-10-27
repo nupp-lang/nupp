@@ -120,6 +120,12 @@ pub(crate) fn coerce_number(it: &Interp, v: Value) -> Option<f64> {
     let (negative, body) = match s.strip_prefix('-') { Some(rest) => (true, rest), None => (false, s.strip_prefix('+').unwrap_or(&s)) };
     lua_number(body).map(|x| if negative { -x } else { x })
 }
+pub(crate) fn coerce_numeric(it: &mut Interp, value: Value) -> Option<Value> {
+    if !it.is_stringish(value) { return None; }
+    let text = String::from_utf8_lossy(it.bytes_of(value)).trim().to_string();
+    if let Some(integer) = lua_integer(&text) { return Some(crate::numeric::signed(it, integer)); }
+    coerce_number(it, value).map(Value::num)
+}
 fn lua_integer(s: &str) -> Option<i64> {
     let s = s.trim();
     let (negative, body) = if let Some(s) = s.strip_prefix('-') { (true, s) } else { (false, s.strip_prefix('+').unwrap_or(s)) };

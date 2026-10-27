@@ -57,17 +57,19 @@ pub unsafe extern "C" fn nupp_rt_arithmetic_operands(
                 packet.add(1).write(result.0);
             }
         } else {
-            let coerce = |it: &crate::interp::Interp, v: Value| {
+            let coerce = |it: &mut crate::interp::Interp, v: Value| {
                 if numeric::is_numeric(v) {
                     v
                 } else {
-                    match crate::builtins::coerce_number(it, v) {
-                        Some(number) => Value::num(number),
+                    match crate::builtins::coerce_numeric(it, v) {
+                        Some(number) => number,
                         None => it.op_error(crate::interp::OpErr::Arith, v),
                     }
                 }
             };
-            let (x, y) = (coerce(it, x), coerce(it, y));
+            let x = coerce(it, x);
+            it.handles.push(x);
+            let y = coerce(it, y);
             unsafe {
                 packet.write(0);
                 packet.add(2).write(x.0);
@@ -135,11 +137,11 @@ pub unsafe extern "C" fn nupp_rt_unary_operand(ctx: *mut Ctx, value: u64, packet
                 packet.add(1).write(result.0);
             }
         } else {
-            let number = crate::builtins::coerce_number(it, value)
+            let number = crate::builtins::coerce_numeric(it, value)
                 .unwrap_or_else(|| it.op_error(crate::interp::OpErr::Arith, value));
             unsafe {
                 packet.write(0);
-                packet.add(2).write(Value::num(number).0);
+                packet.add(2).write(number.0);
             }
         }
         it.close_scope(scope);

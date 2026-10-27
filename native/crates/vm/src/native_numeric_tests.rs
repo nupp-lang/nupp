@@ -807,3 +807,27 @@ fn native_numeric_scalar_preserves_exact_integer_low_words() {
         assert_eq!(value(&vm, tid, 0), expected, "scalar kind {kind}");
     }
 }
+
+
+#[test]
+fn native_numeric_string_coercions_keep_exact_integer_roots_and_subtypes() {
+    for op in [Op::Add(0, 1, 2), Op::Neg(0, 1)] {
+        let (mut vm, tid) = fixture(op);
+        let left = vm.intern("9007199254740993");
+        vm.register(left);
+        put(&mut vm, tid, 1, left);
+        let right = vm.intern("9223372036854775807");
+        vm.register(right);
+        put(&mut vm, tid, 2, right);
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        let expected = if matches!(op, Op::Neg(..)) { 9007199254740993u64.wrapping_neg() }
+                       else { 9007199254740993u64.wrapping_add(i64::MAX as u64) };
+        assert_eq!(numeric::integer(value(&vm, tid, 0)).unwrap().bits, expected);
+        vm.full_cycle();
+        vm.check_oracle();
+    }
+}

@@ -253,7 +253,15 @@ export function TagCheckInt(
     local value = slots.readValue(frame, regs, program.readByte(pc, 2))
     local unsigned = program.readByte(pc, 3)
     local kind = integerKind(value)
-    local valid = kind == unsigned
+    local valid = false
+    if kind >= 0 then
+        local bits = helpers.integerBits(value)
+        if unsigned ~= 0 then
+            valid = kind == 1 or native.index(bits) >= 0
+        else
+            valid = kind == 0 or bits < 0x8000000000000000ULL
+        end
+    end
     if isNumber(value) then
         local number = native.fromBits(value)
         if unsigned ~= 0 then
@@ -534,9 +542,20 @@ local function negateSlow(pc: voidptr, context: voidptr, value: uint64): uint64
     if native.load64(packet, 0) ~= 0ULL then
         return protocol.continueAfter(pc, context, program.readByte(pc, 1), native.load64(packet, 8), true)
     end
-    local operand = native.fromBits(native.load64(packet, 16))
+    local coerced = native.load64(packet, 16)
+    kind = integerKind(coerced)
+    if kind >= 0 then
+        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(coerced), kind)
+        return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
+    end
 
-    return protocol.continueAfter(pc, context, program.readByte(pc, 1), numberBits(native.neg(operand)), true)
+    return protocol.continueAfter(
+        pc,
+        context,
+        program.readByte(pc, 1),
+        numberBits(native.neg(native.fromBits(coerced))),
+        true
+    )
 end
 
 export function Neg(

@@ -154,7 +154,7 @@ pub fn negate(vm: &mut Interp, x: Value) -> Value {
     if !x.is_num() {
         let handler = vm.metamethod(x, crate::metamethods::MM::Unm);
         if handler != Value::NIL { return vm.call_value(handler, &[x, x]).first().copied().unwrap_or(Value::NIL); }
-        match crate::builtins::coerce_number(vm, x) { Some(n) => return Value::num(-n), None => vm.op_error(crate::interp::OpErr::Arith, x) }
+        match crate::builtins::coerce_numeric(vm, x) { Some(n) => return negate(vm, n), None => vm.op_error(crate::interp::OpErr::Arith, x) }
     }
     Value::num(-double(vm, x))
 }
@@ -178,10 +178,17 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
         // other operand is the error Lua words.
         let coerce = |vm: &mut Interp, v: Value| -> Value {
             if is_numeric(v) { return v; }
-            match crate::builtins::coerce_number(vm, v) { Some(n) => Value::num(n), None => vm.op_error(crate::interp::OpErr::Arith, v) }
+            match crate::builtins::coerce_numeric(vm, v) { Some(n) => n, None => vm.op_error(crate::interp::OpErr::Arith, v) }
         };
-        let (x, y) = (coerce(vm, x), coerce(vm, y));
-        return binary(vm, x, y, op, kind);
+        let scope = vm.open_scope();
+        vm.handles.extend([x, y]);
+        let x = coerce(vm, x);
+        vm.handles.push(x);
+        let y = coerce(vm, y);
+        vm.handles.push(y);
+        let result = binary(vm, x, y, op, kind);
+        vm.close_scope(scope);
+        return result;
     }
     if matches!(op, "lt" | "le" | "eq" | "ne") {
         let order = compare(x, y);
@@ -294,9 +301,9 @@ pub fn binary(vm: &mut Interp, x: Value, y: Value, op: &str, kind: Option<bool>)
 }
 
 pub fn is_kind(v: Value, unsigned: bool) -> bool {
-    if let Some(n) = v.as_inline_integer() { return !unsigned || n >= 0; }
     if let Some(i) = integer(v) {
-        return i.unsigned == unsigned;
+        let n = i.magnitude();
+        return if unsigned { n >= 0 } else { n <= i64::MAX as i128 };
     }
     if !v.is_num() {
         return false;
@@ -328,9 +335,6 @@ pub fn wide_call(vm: &mut Interp, name: &str, args: &[Value]) -> Value {
         op,
         "cast" | "not" | "neg" | "popcount" | "leadingZeros" | "trailingZeros" | "prefixXor"
     ) {
-        if op == "cast" && integer(a).is_some_and(|i| i.unsigned != unsigned) {
-            vm.err("integer kind mismatch");
-        }
         let value = bits(vm, a, unsigned);
         let value = match op {
             "popcount" => return Value::inline_integer(value.count_ones() as i64).unwrap(),
