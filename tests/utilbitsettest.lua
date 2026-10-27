@@ -353,6 +353,25 @@ function M.positionsPastTheBoundAreRefused()
     check.equal(set:wordAt(nan), 0, "wordAt NaN reads zero")
 end
 
+function M.numericValidationKeepsIntegralFloatsAndIgnoresInvalidReads()
+    local set = bitset.Bitset.__nuppCtor1(8)
+    set:set(31.0)
+    set:setRange(64.0, 65.0)
+    check.assert(set:get(31.0))
+    check.equal(set:wordAt(2.0), 3)
+    set:clear(31.0)
+    check.equal(set:get(31), false)
+    local nan = 0.0 / 0.0
+    for _, invalid in ipairs({nan, 1.5, math.huge}) do
+        check.equal(set:get(invalid), false)
+        set:clear(invalid)
+        check.equal(set:wordAt(invalid), 0)
+        check.equal(set:nextSetBit(invalid), -1)
+    end
+    check.equal(set:nextSetBit(64.0), 64)
+    check.equal(set:count(), 2)
+end
+
 function M.clearAllKeepsCapacity()
     local set = bitset.Bitset.__nuppCtor1(8)
     set:set(4000)

@@ -104,7 +104,7 @@ end
 
 --- Whether `index` names a position a set can hold: an integer from 0 through
 --- `MAX_INDEX`. Written so NaN, which fails every comparison, returns false.
-local function isPosition(index: integer): boolean
+local function isPosition(index: number): boolean
     return index % 1 == 0 and index >= 0 and index <= MAX_INDEX
 end
 
@@ -161,11 +161,12 @@ record data.Bitset
     --- amortised.
     --- @param bits how many bits must fit
     --- @raises string when bits is NaN or more than 2^31
-    function reserve(self, bits: integer): nil
-        if not (bits <= MAX_INDEX + 1) then
+    function reserve(self, bits: number): nil
+        local count = math.tointeger(math.ceil(bits))
+        if count == nil or count > MAX_INDEX + 1 then
             error("nupp: bitset cannot hold more than 2^31 bits", 2)
         end
-        local needed = wordsFor(bits)
+        local needed = wordsFor(count)
         if needed <= self.capacity then
             return
         end
@@ -181,7 +182,7 @@ record data.Bitset
     --- Adds a bit, growing when it is past the end.
     --- @param index the bit position, counting from 0
     --- @raises string when index is negative, past 2^31 - 1, or not an integer
-    function set(self, index: integer): nil
+    function set(self, index: number): nil
         -- `rshift` is unsigned, so a negative index names a word near 2^27, and
         -- one past `MAX_INDEX` wraps; either way the store below would land
         -- outside the array. `get` and `clear` read such an index as absent and
@@ -214,7 +215,7 @@ record data.Bitset
     --- so it stays constant-time whichever bit it was.
     --- @param index the bit position, counting from 0. One past the end, a
     ---     negative one included, does nothing.
-    function clear(self, index: integer): nil
+    function clear(self, index: number): nil
         if not isPosition(index) then
             return
         end
@@ -239,7 +240,7 @@ record data.Bitset
     --- @param index the bit position, counting from 0
     --- @return false for any position past the end, so no bound check is needed
     ---     at the call site
-    function get(self, index: integer): boolean
+    function get(self, index: number): boolean
         if not isPosition(index) then
             return false
         end
@@ -260,7 +261,7 @@ record data.Bitset
     ---     empty range needs no guard at the call site.
     --- @raises string when low is negative, when high is past 2^31 - 1, or
     ---     when either is not an integer
-    function setRange(self, low: integer, high: integer): nil
+    function setRange(self, low: number, high: number): nil
         if high < low then
             return
         end
@@ -397,7 +398,7 @@ record data.Bitset
     --- @param index the one position left set, counting from 0
     --- @raises string when index is negative, past 2^31 - 1, or not an
     ---     integer; the set is left unchanged
-    function setOnly(self, index: integer): nil
+    function setOnly(self, index: number): nil
         if not isPosition(index) then
             error("nupp: bitset index cannot be negative, fractional or past 2^31 - 1", 2)
         end
@@ -418,13 +419,14 @@ record data.Bitset
     --- @param index a word index counting from 0, bounded by `wordCount`
     --- @return the word as a signed value, so one with its top bit set reads
     ---     negative, and 0 for any index outside the bound
-    function wordAt(self, index: integer): integer
-        if not (index >= 0 and index < self.used) then
+    function wordAt(self, index: number): integer
+        local position = math.tointeger(index)
+        if position == nil or not (position >= 0 and position < self.used) then
             return 0
         end
 
         @unsafe do
-            return tobit(self.words[index])
+            return tobit(self.words[position])
         end
     end
 
@@ -434,9 +436,9 @@ record data.Bitset
     --- cannot invalidate a walk in progress.
     --- @param from the lowest position that may be returned, counting from 0
     --- @return that position, or -1 when there is none
-    function nextSetBit(self, from: integer): integer
+    function nextSetBit(self, from: number): integer
         local start = from < 0 ? 0 : from
-        if not (start <= MAX_INDEX) then
+        if not isPosition(start) then
             return -1
         end
         local first = rshift(start, WORD_SHIFT)
