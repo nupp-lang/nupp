@@ -14,10 +14,11 @@ const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const numeric = require("nupp.runtime.vm.numeric")
 
 -- Ordering past the number compare of `Lt` and `Le`: two strings by their
--- bytes, unsigned, a proper prefix the lesser. Anything else is the step's: a
--- metamethod, or the error two incomparable values raise.
+-- bytes, unsigned, a proper prefix the lesser. Numeric comparison and
+-- metamethod selection are shared with the other Nupp numeric handlers.
 export function order(
     pc: voidptr,
     regs: voidptr,
@@ -69,7 +70,7 @@ export function order(
         end
     end
 
-    return native.slow(pc, regs, ints, floats, context, frame)
+    return numeric.orderSlow(pc, context, x, y, orEqual)
 end
 
 local function eqSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, negate: uint64): uint64
@@ -172,12 +173,10 @@ local function deliver(pc: voidptr, context: voidptr, value: uint64, n: uint64):
 end
 
 --[[
-The text of a concatenation operand the core spells itself: a string's or a
-slice's bytes; the decimal digits of a boxed integer, or of a number that is
-integral, below 1e14 in magnitude and not negative zero. The two operands are
-visited as the two iterations of one loop, once to measure and once to write,
-so the spelling is written once. A number outside that rule is the step's
-(`%.14g`), as is an operand of any other kind (`__concat`, or the error).
+The text of a concatenation operand written here: a string's or a slice's
+bytes, or the decimal digits of a boxed integer. Both operands are measured
+and then copied into one allocation. Floats, inline integers and other
+operands use the shared number-text and object protocols below.
 ]]
 local function concatSlow(pc: voidptr, context: voidptr, x: uint64, y: uint64): uint64
     local n: uint64 = 0
@@ -271,8 +270,13 @@ local function concatSlow(pc: voidptr, context: voidptr, x: uint64, y: uint64): 
     return deliver(pc, context, result, n)
 end
 
--- `Concat`: two operands the core spells itself (see `concatSlow`) are joined
--- into a new string; anything else is the step's.
+-- Number text and object callbacks remain shared object-library services.
+local function concatValuesSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64): uint64
+    protocol.publishPc(pc, context)
+    local result = helpers.concatValues(context, left, right)
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
+end
+
 export function Concat(
     pc: voidptr,
     regs: voidptr,
@@ -288,13 +292,8 @@ export function Concat(
     while side < 2 do
         local v = native.chooseWord(side == 0, x, y)
         if native.either(v & values.QNAN ~= values.QNAN, v == values.QNAN) then
-            local d = native.fromBits(v)
-            if native.either(
-                native.either(native.floor(d) ~= d, d >= 1e14),
-                native.either(d <= -1e14, v == 0x8000000000000000ULL)
-            ) then
-                plain = false
-            end
+            -- Float formatting belongs to the shared number-text service.
+            plain = false
         elseif v & values.TAG_MASK == values.TAG_OBJ then
             local k = native.load8(native.pointer(v & values.PAYLOAD), native.layout("Header.kind"))
             if native.both(native.both(k ~= values.KIND_STRING, k ~= values.KIND_SLICE), k ~= values.KIND_INTEGER) then
@@ -308,6 +307,6 @@ export function Concat(
     if plain then
         return concatSlow(pc, context, x, y)
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return concatValuesSlow(pc, context, x, y)
     end
 end

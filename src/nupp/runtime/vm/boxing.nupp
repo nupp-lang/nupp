@@ -18,7 +18,10 @@ export function TagCheckNum(
     frame: voidptr
 ): uint64
     local value = slots.readValue(frame, regs, program.readByte(pc, 2))
-    if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
+    if native.either(
+        native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN),
+        numeric.numericKind(value) >= 0
+    ) then
         slots.writeValue(frame, regs, program.readByte(pc, 1), value)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
@@ -63,7 +66,7 @@ export function StrByte(
     local result = values.NIL
     if offset < length then
         local byte = native.load8(native.loadPointer(header, native.layout("Header.aux_ptr")), native.index(offset))
-        result = native.bits(native.toFloat(byte))
+        result = values.TAG_INTEGER | native.word(byte)
     end
     slots.writeValue(frame, regs, program.readByte(pc, 1), result)
 

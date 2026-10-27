@@ -12,6 +12,10 @@ local record Helpers
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     reserveStack: function(context: voidptr, words: uint64): nil
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    objectLength: function(context: voidptr, value: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    concatValues: function(context: voidptr, left: uint64, right: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     storeField: function(context: voidptr, object: uint64, name: uint64, value: uint64): nil
     @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     cellError: function(context: voidptr, value: uint64, kind: int64, slot: int64): nil

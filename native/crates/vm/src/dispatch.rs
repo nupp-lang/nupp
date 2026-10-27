@@ -216,6 +216,26 @@ pub(crate) mod native_helpers {
         })
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_object_length(ctx: *mut Ctx, value: u64) -> u64 {
+        record_service(ctx, |it| {
+            let scope = it.open_scope();
+            it.handles.push(Value(value));
+            let result = it.length(Value(value));
+            it.close_scope(scope);
+            result.0
+        })
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_concat_values(ctx: *mut Ctx, left: u64, right: u64) -> u64 {
+        record_service(ctx, |it| {
+            let scope = it.open_scope();
+            it.handles.extend([Value(left), Value(right)]);
+            let result = it.concat(Value(left), Value(right));
+            it.close_scope(scope);
+            result.0
+        })
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_store_field(ctx: *mut Ctx, object: u64, name: u64, value: u64) {
         record_service(ctx, |it| {
             let scope = it.open_scope();

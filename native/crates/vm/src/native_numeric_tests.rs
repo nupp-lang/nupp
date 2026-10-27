@@ -131,6 +131,11 @@ fn native_numeric_arithmetic_matches_exact_and_float_oracles() {
     // The boxed samples include both signs and both integer kinds. Exact
     // doubles beyond 2^53 intentionally stay doubles under today's model.
     let samples: &[(i8, u64, i8, u64)] = &[
+        (0, (-5i64) as u64, 0, 2),
+        (0, 5, 0, (-2i64) as u64),
+        (0, i64::MIN as u64, 0, u64::MAX),
+        (0, 9007199254740993, 0, 2),
+        (1, u64::MAX, 1, 3),
         (-1, (-7.5f64).to_bits(), -1, 2.0f64.to_bits()),
         (-1, 1.0f64.to_bits(), -1, 0.0f64.to_bits()),
         (-1, (-0.0f64).to_bits(), -1, (-3.0f64).to_bits()),
@@ -146,14 +151,18 @@ fn native_numeric_arithmetic_matches_exact_and_float_oracles() {
         (0, 9007199254740993, -1, 0.0f64.to_bits()),
         (0, 9007199254740993, -1, 18446744073709551616.0f64.to_bits()),
     ];
-    for operation in 0..3 {
+    for operation in 0..7 {
         for &(xkind, xbits, ykind, ybits) in samples {
             let op = match operation {
                 0 => Op::Div(0, 1, 2),
                 1 => Op::Pow(0, 1, 2),
-                _ => Op::IDiv(0, 1, 2),
+                2 => Op::IDiv(0, 1, 2),
+                3 => Op::Add(0, 1, 2),
+                4 => Op::Sub(0, 1, 2),
+                5 => Op::Mul(0, 1, 2),
+                _ => Op::Mod(0, 1, 2),
             };
-            let name = ["div", "pow", "idiv"][operation];
+            let name = ["div", "pow", "idiv", "add", "sub", "mul", "mod"][operation];
             let (mut vm, tid) = fixture(op);
             let x = number(&mut vm, xkind, xbits);
             let y = number(&mut vm, ykind, ybits);
@@ -267,7 +276,11 @@ fn native_numeric_scalar_kinds_match_saturating_conversion_oracle() {
             assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
             assert_eq!(
                 value(&vm, tid, 0),
-                Value::num(crate::builtins::scalar_op(kind, a, b)),
+                if kind < 25 {
+                    Value::inline_integer(crate::builtins::scalar_op(kind, a, b) as i64).unwrap()
+                } else {
+                    Value::num(f64::NAN)
+                },
                 "kind={kind} a={a} b={b}"
             );
         }
@@ -525,7 +538,7 @@ fn native_numeric_arithmetic_errors_and_metamethod_precedence_match_reference() 
             assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
             assert_eq!(
                 value(&vm, tid, 0),
-                Value::num(if left_handler { 17.0 } else { 23.0 })
+                Value::inline_integer(if left_handler { 17 } else { 23 }).unwrap()
             );
         }
     }
@@ -549,8 +562,11 @@ fn native_numeric_unbox_and_number_tag_never_escape_for_boxed_values_or_errors()
         let (mut vm, tid) = fixture(Op::TagCheckNum(0, 1));
         let input = number(&mut vm, kind, bits);
         put(&mut vm, tid, 1, input);
-        assert_eq!(direct(&mut vm, tid, 1).status == ST_ERROR, !input.is_num());
-        if input.is_num() {
+        assert_eq!(
+            direct(&mut vm, tid, 1).status == ST_ERROR,
+            !numeric::is_numeric(input)
+        );
+        if numeric::is_numeric(input) {
             assert_eq!(value(&vm, tid, 0), input);
         } else {
             let error = vm.pending_error.take().unwrap();
@@ -598,5 +614,180 @@ fn native_numeric_string_byte_negative_indices_match_exact_oracle() {
         assert_eq!(direct(&mut vm, tid, 1).status, ST_ERROR);
         let error = vm.pending_error.take().unwrap();
         assert_eq!(vm.bytes_of(error), b"runtime error: byte of a non-string");
+    }
+}
+
+pub(super) fn arithmetic_alias_contract() {
+    for dest in [0u8, 1, 255] {
+        for operation in 0..7 {
+            for (a, b) in [
+                (Value::num(-0.0), Value::num(2.0)),
+                (Value::num(f64::NAN), Value::num(f64::INFINITY)),
+                (
+                    Value::inline_integer(-5).unwrap(),
+                    Value::inline_integer(2).unwrap(),
+                ),
+                (Value::TRUE, Value::NIL),
+            ] {
+                let op = match operation {
+                    0 => Op::Add(dest, 1, 2),
+                    1 => Op::Sub(dest, 1, 2),
+                    2 => Op::Mul(dest, 1, 2),
+                    3 => Op::Div(dest, 1, 2),
+                    4 => Op::IDiv(dest, 1, 2),
+                    5 => Op::Mod(dest, 1, 2),
+                    _ => Op::Pow(dest, 1, 2),
+                };
+                let (mut vm, tid) = super::native_object_tests::large_fixture(op);
+                put(&mut vm, tid, 1, a);
+                put(&mut vm, tid, 2, b);
+                let expected = vm.guarded(|it| {
+                    numeric::binary(
+                        it,
+                        a,
+                        b,
+                        ["add", "sub", "mul", "div", "idiv", "mod", "pow"][operation],
+                        None,
+                    )
+                });
+                let expected = description(expected);
+                let error = vm.pending_error.take().map(|v| vm.bytes_of(v).to_vec());
+                let ctx = direct(&mut vm, tid, 1);
+                assert_eq!(ctx.status == ST_ERROR, error.is_some());
+                if let Some(error) = error {
+                    let e = vm.pending_error.take().unwrap();
+                    assert_eq!(vm.bytes_of(e), error);
+                } else {
+                    assert_eq!(
+                        description(value(&vm, tid, dest as usize)),
+                        expected,
+                        "op={operation} dest={dest}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_numeric_mixed_comparisons_preserve_integer_precision() {
+    for equal in [false, true] {
+        for (xkind, xbits, ykind, ybits) in [
+            (0, i64::MAX as u64, -1, 9223372036854775808.0f64.to_bits()),
+            (1, u64::MAX, -1, 18446744073709551616.0f64.to_bits()),
+            (1, u64::MAX, 0, (-1i64) as u64),
+            (0, (-5i64) as u64, -1, (-5.5f64).to_bits()),
+            (-1, (-5.5f64).to_bits(), 0, (-5i64) as u64),
+            (0, 0, -1, (-0.0f64).to_bits()),
+            (0, 1, -1, f64::NAN.to_bits()),
+            (
+                0,
+                i64::MIN as u64,
+                -1,
+                (-9223372036854775808.0f64).to_bits(),
+            ),
+            (0, 9007199254740993, -1, 9007199254740992.0f64.to_bits()),
+        ] {
+            let (mut vm, tid) = fixture(if equal {
+                Op::Le(0, 1, 2)
+            } else {
+                Op::Lt(0, 1, 2)
+            });
+            let x = number(&mut vm, xkind, xbits);
+            let y = number(&mut vm, ykind, ybits);
+            put(&mut vm, tid, 1, x);
+            put(&mut vm, tid, 2, y);
+            let order = numeric::compare(x, y);
+            let expected = Value::boolean(
+                order == Some(std::cmp::Ordering::Less)
+                    || (equal && order == Some(std::cmp::Ordering::Equal)),
+            );
+            assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+            assert_eq!(
+                value(&vm, tid, 0),
+                expected,
+                "le={equal} x={xkind}:{xbits} y={ykind}:{ybits}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_numeric_negation_and_order_callbacks_preserve_managed_results() {
+    for bits in [
+        i64::MIN as u64,
+        (-5i64) as u64,
+        0,
+        9007199254740993,
+        u64::MAX,
+    ] {
+        let (mut vm, tid) = fixture(Op::Neg(0, 1));
+        let input = vm.box_integer(Integer {
+            bits,
+            unsigned: false,
+        });
+        put(&mut vm, tid, 1, input);
+        let expected = vm.guarded(|it| numeric::negate(it, input));
+        let expected = description(expected);
+        assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        assert_eq!(description(value(&vm, tid, 0)), expected);
+    }
+    for or_equal in [false, true] {
+        let (mut vm, tid) = fixture(if or_equal {
+            Op::Le(0, 1, 2)
+        } else {
+            Op::Lt(0, 1, 2)
+        });
+        crate::image::load(
+            &mut vm,
+            "function truthy 0 2 8 2 vv:v\nNewTable 0\nRet 0\nend\n",
+        )
+        .unwrap();
+        vm.entries.resize(2, 0);
+        vm.prepare_threaded();
+        vm.funcs[0].ins[1].op = Code::Slow as u8;
+        let left = vm.new_table();
+        put(&mut vm, tid, 1, left);
+        let right = vm.new_table();
+        put(&mut vm, tid, 2, right);
+        let meta = vm.new_table();
+        vm.register(meta);
+        let key = vm.intern("__lt");
+        vm.set_index(meta, key, Value::func(1));
+        vm.set_metatable(left, meta);
+        vm.set_metatable(right, meta);
+        vm.heap.stress = true;
+        vm.heap.stress_steps = true;
+        vm.heap.oracle = true;
+        vm.heap.quarantine = true;
+        assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+        assert_eq!(value(&vm, tid, 0), Value::boolean(!or_equal));
+    }
+}
+
+#[test]
+fn native_numeric_equality_uses_exact_subtypes_and_unordered_nan() {
+    for negate in [false, true] {
+        for (xkind, xbits, ykind, ybits) in [
+            (0, 1, -1, 1.0f64.to_bits()),
+            (0, 0, -1, (-0.0f64).to_bits()),
+            (0, 9007199254740993, -1, 9007199254740992.0f64.to_bits()),
+            (0, i64::MAX as u64, 1, i64::MAX as u64),
+            (0, (-1i64) as u64, 1, u64::MAX),
+            (0, 1, -1, f64::NAN.to_bits()),
+        ] {
+            let (mut vm, tid) = fixture(if negate {
+                Op::Ne(0, 1, 2)
+            } else {
+                Op::Eq(0, 1, 2)
+            });
+            let x = number(&mut vm, xkind, xbits);
+            let y = number(&mut vm, ykind, ybits);
+            put(&mut vm, tid, 1, x);
+            put(&mut vm, tid, 2, y);
+            let equal = numeric::compare(x, y) == Some(std::cmp::Ordering::Equal);
+            assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+            assert_eq!(value(&vm, tid, 0), Value::boolean(equal != negate));
+        }
     }
 }

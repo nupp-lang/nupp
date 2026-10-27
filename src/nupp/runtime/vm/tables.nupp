@@ -8,8 +8,8 @@ module nupp.runtime.vm.tables
 -- so by one, and a store to a key a table with a metatable lacks goes to
 -- the `__newindex` dispatch, the object library's until N04, as a read it
 -- lacks goes to the `__index` walk; every other table operation is here. A
--- receiver that is not a plain table (a record, a declaration or prototype
--- table, an error) is the Rust step's for one instruction.
+-- receiver that is not a plain table uses the named object-library services
+-- for records, declaration tables, prototypes and diagnostics.
 const native = require("nupp.runtime.vm.intrinsics")
 const program = require("nupp.runtime.vm.program")
 const slots = require("nupp.runtime.vm.slots")
@@ -483,8 +483,8 @@ local function observeStoreSlow(pc: voidptr, context: voidptr, object: uint64, n
     return storeKeyed(pc, regs, ints, floats, context, frame, object, name, value)
 end
 
--- A store by an interned name (contracts 2.5): the table's hash part; a
--- record's declared slot is the step's.
+-- A store by an interned name (contracts 2.5), including the object-library
+-- protocol for declared record slots.
 export function SetField(
     pc: voidptr,
     regs: voidptr,

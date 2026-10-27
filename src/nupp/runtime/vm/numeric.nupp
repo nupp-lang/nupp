@@ -16,14 +16,7 @@ local function isNumber(value: uint64): boolean
 end
 
 local function integerKind(value: uint64): int64
-    if value & values.TAG_MASK == values.TAG_OBJ then
-        local header = native.pointer(value & values.PAYLOAD)
-        if native.load8(header, native.layout("Header.kind")) == values.KIND_INTEGER then
-            return native.chooseIndex(native.load32(header, native.layout("Header.aux")) ~= 0, 1, 0)
-        end
-    end
-
-    return -1
+    return helpers.numericKind(value)
 end
 
 local function isNumeric(value: uint64): boolean
@@ -41,16 +34,10 @@ local function integral(value: uint64): boolean
 end
 
 local function double(value: uint64): number
-    local kind = integerKind(value)
-    if kind < 0 then
-        return native.fromBits(value)
+    if integerKind(value) >= 0 then
+        return helpers.integerDouble(value)
     end
-    local bits = native.load64(native.pointer(value & values.PAYLOAD), native.layout("Header.aux_len"))
-    if kind == 1 then
-        return native.unsignedFloat(bits)
-    end
-
-    return native.toFloat(native.index(bits))
+    return native.fromBits(value)
 end
 
 local function numberBits(number: number): uint64
@@ -76,50 +63,39 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
     end
     local xkind = integerKind(x)
     local ykind = integerKind(y)
-    if (xkind >= 0 and integral(y)) or (ykind >= 0 and integral(x)) then
+    -- Dynamic arithmetic preserves a float operand's subtype. Division and
+    -- power always produce floats; fixed-width named operations are separate.
+    if xkind >= 0 and ykind >= 0 and operation ~= 0 and operation ~= 1 then
         local unsigned: boolean = xkind == 1 or ykind == 1
-        local a = helpers.operandBits(context, x)
-        if native.load32(context, native.layout("status")) == -4 then
-            return native.fail()
-        end
-        local b = helpers.operandBits(context, y)
-        if native.load32(context, native.layout("status")) == -4 then
-            return native.fail()
-        end
+        local a = helpers.integerBits(x)
+        local b = helpers.integerBits(y)
         local result = 0ULL
-        if operation == 1 then
-            if not unsigned and native.index(b) < 0 then
-                if a == 1ULL then
-                    result = 1ULL
-                elseif a == 0xffffffffffffffffULL then
-                    result = native.chooseWord(b & 1ULL == 0ULL, 1ULL, a)
-                end
-            else
-                result = 1ULL
-                local base = a
-                local exponent = b
-                while exponent ~= 0ULL do
-                    if exponent & 1ULL ~= 0ULL then
-                        result = result * base
-                    end
-                    base = base * base
-                    exponent = exponent >> 1ULL
-                end
-            end
+        if operation == 3 then
+            result = a + b
+        elseif operation == 4 then
+            result = a - b
+        elseif operation == 5 then
+            result = a * b
         else
             if b == 0ULL then
                 helpers.numericError(context, 3)
                 return native.fail()
             end
+            local quotient = 0ULL
             if unsigned then
-                result = a // b
+                quotient = a // b
             elseif a == 0x8000000000000000ULL and b == 0xffffffffffffffffULL then
-                result = a
+                quotient = a
             else
-                result = native.word(native.signedQuotient(native.index(a), native.index(b)))
-                if operation == 2 and (native.index(a) ~ native.index(b)) < 0 and a - result * b ~= 0ULL then
-                    result = result - 1ULL
+                quotient = native.word(native.signedQuotient(native.index(a), native.index(b)))
+                if (native.index(a) ~ native.index(b)) < 0 and a - quotient * b ~= 0ULL then
+                    quotient = quotient - 1ULL
                 end
+            end
+            if operation == 6 then
+                result = a - quotient * b
+            else
+                result = quotient
             end
         end
         local value = managed.boxInteger(context, result, native.chooseIndex(unsigned, 1, 0))
@@ -132,6 +108,14 @@ local function arithmeticSlow(pc: voidptr, context: voidptr, left: uint64, right
         result = helpers.power(a, b)
     elseif operation == 2 then
         result = native.floor(a / b)
+    elseif operation == 3 then
+        result = a + b
+    elseif operation == 4 then
+        result = a - b
+    elseif operation == 5 then
+        result = a * b
+    elseif operation == 6 then
+        result = a - native.floor(a / b) * b
     else
         result = a / b
     end
@@ -363,13 +347,18 @@ export function Scalar(
 ): uint64
     local x = slots.readValue(frame, regs, program.readByte(pc, 2))
     local y = slots.readValue(frame, regs, program.readByte(pc, 3))
-    if not (isNumber(x) and isNumber(y)) then
+    if not (isNumeric(x) and isNumeric(y)) then
         protocol.publishPc(pc, context)
         helpers.numericError(context, 2)
         return native.fail()
     end
-    local result = scalar(program.readSigned32(pc, 4), native.fromBits(x), native.fromBits(y))
-    slots.writeValue(frame, regs, program.readByte(pc, 1), numberBits(result))
+    local kind = program.readSigned32(pc, 4)
+    local result = scalar(kind, double(x), double(y))
+    local bits = numberBits(result)
+    if kind >= 0 and kind <= 24 then
+        bits = values.TAG_INTEGER | (native.word(native.toInt(result)) & values.PAYLOAD)
+    end
+    slots.writeValue(frame, regs, program.readByte(pc, 1), bits)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -416,7 +405,7 @@ export function IJmpIfUlt(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
-local function floatUnboxSlow(pc: voidptr, context: voidptr, value: uint64): uint64
+export function floatUnboxSlow(pc: voidptr, context: voidptr, value: uint64): uint64
     protocol.publishPc(pc, context)
     local number = managed.numericDouble(context, value)
     if native.load32(context, native.layout("status")) == -4 then
@@ -453,4 +442,248 @@ export function FUnbox(
     end
 
     return floatUnboxSlow(pc, context, value)
+end
+
+export function Add(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        3
+    )
+end
+
+export function Sub(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        4
+    )
+end
+
+export function Mul(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        5
+    )
+end
+
+export function Mod(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    return arithmeticSlow(
+        pc,
+        context,
+        slots.readValue(frame, regs, program.readByte(pc, 2)),
+        slots.readValue(frame, regs, program.readByte(pc, 3)),
+        6
+    )
+end
+
+local function negateSlow(pc: voidptr, context: voidptr, value: uint64): uint64
+    protocol.publishPc(pc, context)
+    local kind = integerKind(value)
+    if kind >= 0 then
+        local result = managed.boxInteger(context, 0ULL - helpers.integerBits(value), kind)
+        return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
+    end
+    local packet = native.stackBytes(24)
+    helpers.unaryOperand(context, value, packet)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    if native.load64(packet, 0) ~= 0ULL then
+        return protocol.continueAfter(pc, context, program.readByte(pc, 1), native.load64(packet, 8), true)
+    end
+    local operand = native.fromBits(native.load64(packet, 16))
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), numberBits(native.neg(operand)), true)
+end
+
+export function Neg(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local value = slots.readValue(frame, regs, program.readByte(pc, 2))
+    if isNumber(value) then
+        slots.writeValue(frame, regs, program.readByte(pc, 1), numberBits(native.neg(native.fromBits(value))))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    end
+
+    return negateSlow(pc, context, value)
+end
+
+local function integerFloatOrder(bits: uint64, unsigned: boolean, number: number): int64
+    if number ~= number then
+        return 2
+    end
+    if number >= 18446744073709551616.0 then
+        return -1
+    elseif number < -values.INT64_RANGE then
+        return 1
+    end
+    local truncated: number = 0.0
+    if number >= 0.0 then
+        if not unsigned and native.index(bits) < 0 then
+            return -1
+        end
+        local other = native.unsignedInt(number)
+        if bits < other then
+            return -1
+        elseif bits > other then
+            return 1
+        end
+        truncated = native.unsignedFloat(other)
+    else
+        if unsigned or native.index(bits) >= 0 then
+            return 1
+        end
+        local other = native.toInt(number)
+        if native.index(bits) < other then
+            return -1
+        elseif native.index(bits) > other then
+            return 1
+        end
+        truncated = native.toFloat(other)
+    end
+    if number > truncated then
+        return -1
+    elseif number < truncated then
+        return 1
+    end
+
+    return 0
+end
+
+local function numericOrder(left: uint64, right: uint64): int64
+    local xkind = integerKind(left)
+    local ykind = integerKind(right)
+    if xkind >= 0 and ykind >= 0 then
+        local x = helpers.integerBits(left)
+        local y = helpers.integerBits(right)
+        local xn: boolean = xkind == 0 and native.index(x) < 0
+        local yn: boolean = ykind == 0 and native.index(y) < 0
+        if xn ~= yn then
+            return native.chooseIndex(xn, -1, 1)
+        end
+        if x < y then
+            return -1
+        elseif x > y then
+            return 1
+        end
+        return 0
+    elseif xkind >= 0 then
+        return integerFloatOrder(helpers.integerBits(left), xkind == 1, native.fromBits(right))
+    elseif ykind >= 0 then
+        local order = integerFloatOrder(helpers.integerBits(right), ykind == 1, native.fromBits(left))
+        return native.chooseIndex(order == 2, 2, 0 - order)
+    end
+    local x = native.fromBits(left)
+    local y = native.fromBits(right)
+    if x ~= x or y ~= y then
+        return 2
+    end
+    if x < y then
+        return -1
+    elseif x > y then
+        return 1
+    end
+
+    return 0
+end
+
+export function orderSlow(pc: voidptr, context: voidptr, left: uint64, right: uint64, orEqual: uint64): uint64
+    protocol.publishPc(pc, context)
+    if isNumeric(left) and isNumeric(right) then
+        local order = numericOrder(left, right)
+        local answer: boolean = order == -1 or (orEqual ~= 0ULL and order == 0)
+        return protocol.continueAfter(
+            pc,
+            context,
+            program.readByte(pc, 1),
+            native.chooseWord(answer, values.TRUE, values.FALSE),
+            true
+        )
+    end
+    local callback = helpers.sharedMetamethod(context, left, right, native.chooseIndex(orEqual == 0ULL, 0, 1))
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    if callback ~= values.NIL then
+        local result = helpers.binaryCallback(context, callback, left, right)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        local answer: boolean = result ~= values.NIL and result ~= values.FALSE
+        return protocol.continueAfter(
+            pc,
+            context,
+            program.readByte(pc, 1),
+            native.chooseWord(answer, values.TRUE, values.FALSE),
+            true
+        )
+    end
+    if orEqual ~= 0ULL then
+        callback = helpers.sharedMetamethod(context, left, right, 0)
+        if native.load32(context, native.layout("status")) == -4 then
+            return native.fail()
+        end
+        if callback ~= values.NIL then
+            local result = helpers.binaryCallback(context, callback, right, left)
+            if native.load32(context, native.layout("status")) == -4 then
+                return native.fail()
+            end
+            local answer: boolean = result == values.NIL or result == values.FALSE
+            return protocol.continueAfter(
+                pc,
+                context,
+                program.readByte(pc, 1),
+                native.chooseWord(answer, values.TRUE, values.FALSE),
+                true
+            )
+        end
+    end
+    helpers.orderError(context, left, right)
+
+    return native.fail()
+end
+
+export function equalNumbers(left: uint64, right: uint64): boolean
+    return numericOrder(left, right) == 0
 end

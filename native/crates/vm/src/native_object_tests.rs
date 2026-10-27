@@ -160,11 +160,11 @@ fn native_objects_invalid_receivers_and_keys_do_not_step() {
     }
 }
 
-fn large_fixture(op: Op) -> (Box<crate::interp::Interp>, usize) {
+pub(super) fn large_fixture(op: Op) -> (Box<crate::interp::Interp>, usize) {
     let mut vm = Box::new(crate::interp::Interp::new());
     crate::image::load(
         &mut vm,
-        "function slots 0 0 255 4 :v\nRetNil\nend\nentry 0\n",
+        "function slots 0 0 255 255 :v\nRetNil\nend\nentry 0\n",
     )
     .unwrap();
     vm.funcs[0].code = vec![op, Op::RetNil];
@@ -242,4 +242,160 @@ pub(super) fn cell_alias_contract() {
             assert_eq!(value(&vm, tid, dest as usize), input);
         }
     }
+}
+
+pub(super) fn length_contract() {
+    for float in [false, true] {
+        for original_dest in [0u8, 1, 255] {
+            let dest = if float && original_dest == 255 {
+                254
+            } else {
+                original_dest
+            };
+            for carrier in 0..3 {
+                let (mut vm, tid) = large_fixture(if float {
+                    Op::LenF(dest, 1)
+                } else {
+                    Op::Len(dest, 1)
+                });
+                let input = match carrier {
+                    0 => vm.intern("hello"),
+                    1 => {
+                        let v = vm.new_table();
+                        vm.set_index(v, Value::num(1.0), Value::TRUE);
+                        v
+                    }
+                    _ => Value::TRUE,
+                };
+                put(&mut vm, tid, 1, input);
+                let expected = vm.guarded(|it| it.length(input));
+                let error = vm.pending_error.take().map(|v| vm.bytes_of(v).to_vec());
+                let f = if error.is_none() && float {
+                    Some(crate::numeric::double(&vm, expected))
+                } else {
+                    None
+                };
+                assert_eq!(direct(&mut vm, tid, 1).status == ST_ERROR, error.is_some());
+                if let Some(error) = error {
+                    let e = vm.pending_error.take().unwrap();
+                    assert_eq!(vm.bytes_of(e), error);
+                } else if let Some(f) = f {
+                    let at = vm.tasks[tid].cur() + vm.funcs[0].off_f() + dest as usize;
+                    assert_eq!(vm.tasks[tid].stack[at], f.to_bits());
+                } else {
+                    assert_eq!(value(&vm, tid, dest as usize), expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn native_objects_length_callbacks_keep_values_and_result_tail() {
+    for nonnumber in [false, true] {
+        for float in [false, true] {
+            let (mut vm, tid) = fixture(if float { Op::LenF(0, 1) } else { Op::Len(0, 1) });
+            let source = if nonnumber {
+                "function result 0 1 8 2 v:v\nconst 0 true\nK 0 0\nRet 0\nend\n"
+            } else {
+                "function result 0 1 8 2 v:v\nconst 0 num 1.5\nK 0 0\nRet 0\nend\n"
+            };
+            crate::image::load(&mut vm, source).unwrap();
+            vm.entries.resize(2, 0);
+            vm.prepare_threaded();
+            vm.funcs[0].ins[1].op = Code::Slow as u8;
+            let object = vm.new_table();
+            put(&mut vm, tid, 1, object);
+            let meta = vm.new_table();
+            vm.register(meta);
+            let key = vm.intern("__len");
+            vm.set_index(meta, key, Value::func(1));
+            vm.set_metatable(object, meta);
+            vm.extra[0] = Value::TRUE;
+            vm.extra[1] = Value::NIL;
+            vm.extra_n = 2;
+            vm.last_nres = 3;
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            let ctx = direct(&mut vm, tid, 1);
+            assert_eq!(ctx.status == ST_ERROR, nonnumber && float);
+            assert_eq!(
+                (vm.extra[0], vm.extra[1], vm.extra_n),
+                (Value::TRUE, Value::NIL, 2)
+            );
+            assert_eq!(ctx.last_nres, 3);
+            if !float {
+                assert_eq!(
+                    value(&vm, tid, 0),
+                    if nonnumber {
+                        Value::TRUE
+                    } else {
+                        Value::num(1.5)
+                    }
+                );
+            } else if nonnumber {
+                let e = vm.pending_error.take().unwrap();
+                assert_eq!(vm.bytes_of(e), b"runtime error: expected a number");
+            }
+        }
+    }
+}
+
+#[test]
+fn native_objects_concat_uses_shared_subtype_text_and_metatable_protocol() {
+    for dest in [0u8, 1, 255] {
+        for kind in 0..7 {
+            let (mut vm, tid) = large_fixture(Op::Concat(dest, 1, 2));
+            let left = match kind {
+                0 => vm.intern("left"),
+                1 => Value::num(1.0),
+                2 => Value::num(-0.0),
+                3 => Value::num(f64::NAN),
+                4 => Value::inline_integer(1).unwrap(),
+                5 => vm.box_integer(Integer {
+                    bits: u64::MAX,
+                    unsigned: true,
+                }),
+                _ => Value::TRUE,
+            };
+            put(&mut vm, tid, 1, left);
+            let right = vm.intern("right");
+            put(&mut vm, tid, 2, right);
+            let expected = vm.guarded(|it| it.concat(left, right));
+            let error = vm.pending_error.take().map(|v| vm.bytes_of(v).to_vec());
+            let text = if error.is_none() {
+                Some(vm.bytes_of(expected).to_vec())
+            } else {
+                None
+            };
+            vm.heap.stress = true;
+            vm.heap.stress_steps = true;
+            vm.heap.oracle = true;
+            vm.heap.quarantine = true;
+            assert_eq!(direct(&mut vm, tid, 1).status == ST_ERROR, error.is_some());
+            if let Some(error) = error {
+                let e = vm.pending_error.take().unwrap();
+                assert_eq!(vm.bytes_of(e), error);
+            } else {
+                assert_eq!(vm.bytes_of(value(&vm, tid, dest as usize)), text.unwrap());
+            }
+        }
+    }
+    let (mut vm, tid) = fixture(Op::Concat(0, 1, 2));
+    crate::image::load(&mut vm, "function identity 0 2 8 2 vv:v\nRet 1\nend\n").unwrap();
+    vm.entries.resize(2, 0);
+    vm.prepare_threaded();
+    vm.funcs[0].ins[1].op = Code::Slow as u8;
+    let object = vm.new_table();
+    put(&mut vm, tid, 1, object);
+    put(&mut vm, tid, 2, Value::TRUE);
+    let meta = vm.new_table();
+    vm.register(meta);
+    let key = vm.intern("__concat");
+    vm.set_index(meta, key, Value::func(1));
+    vm.set_metatable(object, meta);
+    assert_ne!(direct(&mut vm, tid, 1).status, ST_ERROR);
+    assert_eq!(value(&vm, tid, 0), object);
 }

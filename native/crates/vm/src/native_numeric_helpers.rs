@@ -32,6 +32,10 @@ pub unsafe extern "C" fn nupp_rt_arithmetic_operands(
             0 => crate::metamethods::MM::Div,
             1 => crate::metamethods::MM::Pow,
             2 => crate::metamethods::MM::IDiv,
+            3 => crate::metamethods::MM::Add,
+            4 => crate::metamethods::MM::Sub,
+            5 => crate::metamethods::MM::Mul,
+            6 => crate::metamethods::MM::Mod,
             _ => it.err("invalid arithmetic metamethod"),
         };
         // These inputs stay rooted even when a callback allocates or grows
@@ -103,4 +107,102 @@ pub extern "C" fn nupp_rt_power(left: f64, right: f64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn nupp_rt_numeric_kind(value: u64) -> i64 {
     numeric::integer(Value(value)).map_or(-1, |value| value.unsigned as i64)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nupp_rt_integer_bits(value: u64) -> u64 {
+    numeric::integer(Value(value)).map_or(0, |value| value.bits)
+}
+#[unsafe(no_mangle)]
+pub extern "C" fn nupp_rt_integer_double(value: u64) -> f64 {
+    numeric::integer(Value(value)).map_or(f64::NAN, |value| value.double())
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_unary_operand(ctx: *mut Ctx, value: u64, packet: *mut u64) {
+    service(ctx, |it| {
+        let value = Value(value);
+        let scope = it.open_scope();
+        it.handles.push(value);
+        let handler = it.metamethod(value, crate::metamethods::MM::Unm);
+        if handler != Value::NIL {
+            let result = it
+                .call_value(handler, &[value, value])
+                .first()
+                .copied()
+                .unwrap_or(Value::NIL);
+            unsafe {
+                packet.write(1);
+                packet.add(1).write(result.0);
+            }
+        } else {
+            let number = crate::builtins::coerce_number(it, value)
+                .unwrap_or_else(|| it.op_error(crate::interp::OpErr::Arith, value));
+            unsafe {
+                packet.write(0);
+                packet.add(2).write(Value::num(number).0);
+            }
+        }
+        it.close_scope(scope);
+        0
+    });
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_shared_metamethod(
+    ctx: *mut Ctx,
+    left: u64,
+    right: u64,
+    kind: i64,
+) -> u64 {
+    service(ctx, |it| {
+        let (left, right) = (Value(left), Value(right));
+        let scope = it.open_scope();
+        it.handles.extend([left, right]);
+        let mm = if kind == 0 {
+            crate::metamethods::MM::Lt
+        } else {
+            crate::metamethods::MM::Le
+        };
+        let callback = it.metamethod(left, mm);
+        let callback = if callback != Value::NIL && callback == it.metamethod(right, mm) {
+            callback
+        } else {
+            Value::NIL
+        };
+        it.close_scope(scope);
+        callback.0
+    })
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_binary_callback(
+    ctx: *mut Ctx,
+    callback: u64,
+    left: u64,
+    right: u64,
+) -> u64 {
+    service(ctx, |it| {
+        let (callback, left, right) = (Value(callback), Value(left), Value(right));
+        let scope = it.open_scope();
+        it.handles.extend([callback, left, right]);
+        let result = it
+            .call_value(callback, &[left, right])
+            .first()
+            .copied()
+            .unwrap_or(Value::NIL);
+        it.close_scope(scope);
+        result.0
+    })
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn nupp_rt_order_error(ctx: *mut Ctx, left: u64, right: u64) {
+    service(ctx, |it| {
+        let (a, b) = (
+            crate::builtins::type_name(it, Value(left)),
+            crate::builtins::type_name(it, Value(right)),
+        );
+        if a == b {
+            it.lua_error(&format!("attempt to compare two {a} values"))
+        } else {
+            it.lua_error(&format!("attempt to compare {a} with {b}"))
+        }
+    });
 }

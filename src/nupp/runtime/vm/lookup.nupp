@@ -10,6 +10,8 @@ const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 const strings = require("nupp.runtime.vm.strings")
+const numeric = require("nupp.runtime.vm.numeric")
+const numbers = require("nupp.runtime.vm.numerichelpers")
 
 local function getFieldSlow(pc: voidptr, context: voidptr, object: uint64, name: uint64): uint64
     protocol.publishPc(pc, context)
@@ -156,6 +158,10 @@ local function equality(
     local yNumber = native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     if native.both(xNumber, yNumber) then
         local equal = native.fromBits(x) == native.fromBits(y)
+        slots.writeValue(frame, regs, a, native.chooseWord(equal == (negate == 0), values.TRUE, values.FALSE))
+        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
+    elseif (xNumber or numbers.numericKind(x) >= 0) and (yNumber or numbers.numericKind(y) >= 0) then
+        local equal = numeric.equalNumbers(x, y)
         slots.writeValue(frame, regs, a, native.chooseWord(equal == (negate == 0), values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif x == y then

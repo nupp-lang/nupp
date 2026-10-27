@@ -14,6 +14,7 @@ const calls = require("nupp.runtime.vm.calls")
 const strings = require("nupp.runtime.vm.strings")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
+const numeric = require("nupp.runtime.vm.numeric")
 
 export function Move(
     pc: voidptr,
@@ -673,114 +674,6 @@ export function GetCell(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
-export function Add(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local c = program.readByte(pc, 3)
-    local x = slots.readValue(frame, regs, b)
-    local y = slots.readValue(frame, regs, c)
-    if native.both(
-        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
-        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
-    ) then
-        local p = native.fromBits(x)
-        local q = native.fromBits(y)
-        local bits = native.bits(p + q)
-        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-end
-
-export function Sub(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local c = program.readByte(pc, 3)
-    local x = slots.readValue(frame, regs, b)
-    local y = slots.readValue(frame, regs, c)
-    if native.both(
-        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
-        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
-    ) then
-        local p = native.fromBits(x)
-        local q = native.fromBits(y)
-        local bits = native.bits(p - q)
-        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-end
-
-export function Mul(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local c = program.readByte(pc, 3)
-    local x = slots.readValue(frame, regs, b)
-    local y = slots.readValue(frame, regs, c)
-    if native.both(
-        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
-        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
-    ) then
-        local p = native.fromBits(x)
-        local q = native.fromBits(y)
-        local bits = native.bits(p * q)
-        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-end
-
-export function Mod(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local c = program.readByte(pc, 3)
-    local x = slots.readValue(frame, regs, b)
-    local y = slots.readValue(frame, regs, c)
-    if native.both(
-        native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
-        native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
-    ) then
-        local p = native.fromBits(x)
-        local q = native.fromBits(y)
-        local bits = native.bits(p - native.floor(p / q) * q)
-        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
-end
-
 export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
     local a = program.readByte(pc, 1)
     local b = program.readByte(pc, 2)
@@ -814,26 +707,6 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return strings.order(pc, regs, ints, floats, context, frame, x, y, 1)
-    end
-end
-
-export function Neg(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr
-): uint64
-    local a = program.readByte(pc, 1)
-    local b = program.readByte(pc, 2)
-    local x = slots.readValue(frame, regs, b)
-    if native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN) then
-        local bits = native.bits(native.neg(native.fromBits(x)))
-        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
-        return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
     end
 end
 
@@ -970,6 +843,19 @@ export function JmpIfNot(
     end
 end
 
+local function lengthSlow(pc: voidptr, context: voidptr, value: uint64, asFloat: int64): uint64
+    protocol.publishPc(pc, context)
+    local result = helpers.objectLength(context, value)
+    if native.load32(context, native.layout("status")) == -4 then
+        return native.fail()
+    end
+    if asFloat ~= 0 then
+        return numeric.floatUnboxSlow(pc, context, result)
+    end
+
+    return protocol.continueAfter(pc, context, program.readByte(pc, 1), result, true)
+end
+
 export function Len(
     pc: voidptr,
     regs: voidptr,
@@ -985,23 +871,29 @@ export function Len(
         local object = native.pointer(bits & values.PAYLOAD)
         local kind = native.load8(object, native.layout("Header.kind"))
         if native.either(kind == 1, kind == 9) then
-            local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-            slots.writeValue(frame, regs, a, native.bits(length))
+            local length = native.load64(object, native.layout("Header.aux_len"))
+            if length > 0x00007fffffffffffULL then
+                return lengthSlow(pc, context, bits, 0)
+            end
+            slots.writeValue(frame, regs, a, values.TAG_INTEGER | length)
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         elseif kind == 2 then
             if native.load64(object, native.layout("Table.meta")) == values.NIL then
-                local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-                slots.writeValue(frame, regs, a, native.bits(length))
+                local length = native.load64(object, native.layout("Header.aux_len"))
+                if length > 0x00007fffffffffffULL then
+                    return lengthSlow(pc, context, bits, 0)
+                end
+                slots.writeValue(frame, regs, a, values.TAG_INTEGER | length)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
-                return native.slow(pc, regs, ints, floats, context, frame)
+                return lengthSlow(pc, context, bits, 0)
             end
         else
-            return native.slow(pc, regs, ints, floats, context, frame)
+            return lengthSlow(pc, context, bits, 0)
 
         end
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return lengthSlow(pc, context, bits, 0)
     end
 end
 
@@ -1029,14 +921,14 @@ export function LenF(
                 slots.writeFloat(frame, floats, a, length)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
-                return native.slow(pc, regs, ints, floats, context, frame)
+                return lengthSlow(pc, context, bits, 1)
             end
         else
-            return native.slow(pc, regs, ints, floats, context, frame)
+            return lengthSlow(pc, context, bits, 1)
 
         end
     else
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return lengthSlow(pc, context, bits, 1)
     end
 end
 

@@ -434,74 +434,7 @@ fn native_cell_read_checks_tag_and_kind_before_loading_payload() {
 
 #[test]
 fn native_boxed_math_matches_numbers_and_leaves_tags_untouched() {
-    let mut values: Vec<u64> = float_values().iter().map(|v| Value::num(*v).0).collect();
-    values.extend([
-        Value::NIL.0,
-        Value::TRUE.0,
-        Value::FALSE.0,
-        Value::func(2).0,
-    ]);
-    let ops: [(Code, fn(f64, f64) -> u64); 6] = [
-        (Code::Add, |a, b| Value::num(a + b).0),
-        (Code::Sub, |a, b| Value::num(a - b).0),
-        (Code::Mul, |a, b| Value::num(a * b).0),
-        (Code::Mod, |a, b| Value::num(a - (a / b).floor() * b).0),
-        (Code::Lt, |a, b| Value::boolean(a < b).0),
-        (Code::Le, |a, b| Value::boolean(a <= b).0),
-    ];
-    for (code, op) in ops {
-        for &x in &values {
-            for &y in &values {
-                for dest in [0, 1, 255] {
-                    let mut regs = [0xa5a5; 258];
-                    regs[1] = x;
-                    regs[2] = y;
-                    let mut expected = regs;
-                    let valid = Value(x).is_num() && Value(y).is_num();
-                    if valid {
-                        expected[dest + 1] = op(f64::from_bits(x), f64::from_bits(y));
-                    }
-                    let mut ints = [-123; 258];
-                    let mut floats = [19.25; 258];
-                    assert_eq!(
-                        unsafe { execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 0) },
-                        valid
-                    );
-                    assert_eq!(regs, expected, "opcode {}", code as u8);
-                    assert_eq!(ints, [-123; 258]);
-                    assert_eq!(floats, [19.25; 258]);
-                }
-            }
-        }
-    }
-    for x in values {
-        for dest in [0, 1, 255] {
-            for code in [Code::Neg, Code::Not, Code::Truthy, Code::BoolFromI] {
-                let mut regs = [0xa5a5; 258];
-                regs[1] = x;
-                let mut expected_r = regs;
-                let mut ints = [-123; 258];
-                ints[1] = x as i64;
-                let mut expected_i = ints;
-                let mut floats = [19.25; 258];
-                let valid = !matches!(code, Code::Neg) || Value(x).is_num();
-                match code {
-                    Code::Neg if valid => expected_r[dest + 1] = Value::num(-f64::from_bits(x)).0,
-                    Code::Not => expected_r[dest + 1] = Value::boolean(!Value(x).truthy()).0,
-                    Code::Truthy => expected_i[dest + 1] = Value(x).truthy() as i64,
-                    Code::BoolFromI => expected_r[dest + 1] = Value::boolean(x != 0).0,
-                    _ => {}
-                }
-                assert_eq!(
-                    unsafe { execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 0) },
-                    valid
-                );
-                assert_eq!(regs, expected_r);
-                assert_eq!(ints, expected_i);
-                assert_eq!(floats, [19.25; 258]);
-            }
-        }
-    }
+    super::native_numeric_tests::arithmetic_alias_contract();
 }
 
 #[test]
@@ -802,48 +735,7 @@ fn native_record_leaf_reads_preserve_aliasing_and_numeric_bits() {
 
 #[test]
 fn native_lengths_preserve_unsigned_conversion_and_kind_guards() {
-    let mut object = NativeTableFixture::new(&[]);
-    for kind in [KIND_TABLE, KIND_STR, KIND_SLICE, KIND_RECORD] {
-        for meta in [Value::NIL, Value::TRUE] {
-            object.header.kind = kind;
-            object.payload.meta = meta;
-            for length in [0, 1, 9007199254740993, 1 << 63, u64::MAX] {
-                object.header.aux_len = length;
-                for word in [object.value(), Value::NIL.0] {
-                    for code in [Code::Len, Code::LenF] {
-                        for dest in [0, 1, 255] {
-                            let mut regs = [0xa5a5; 258];
-                            regs[1] = word;
-                            let mut expected_r = regs;
-                            let mut floats = [19.25; 258];
-                            let mut expected_f = floats.map(f64::to_bits);
-                            let mut ints = [-123; 258];
-                            let valid = word == object.value()
-                                && (kind == KIND_STR
-                                    || kind == KIND_SLICE
-                                    || (kind == KIND_TABLE && meta == Value::NIL));
-                            if valid {
-                                if matches!(code, Code::LenF) {
-                                    expected_f[dest + 1] = (length as f64).to_bits();
-                                } else {
-                                    expected_r[dest + 1] = Value::num(length as f64).0;
-                                }
-                            }
-                            assert_eq!(
-                                unsafe {
-                                    execute_leaf(code, dest, &mut regs, &mut ints, &mut floats, 0)
-                                },
-                                valid
-                            );
-                            assert_eq!(regs, expected_r);
-                            assert_eq!(floats.map(f64::to_bits), expected_f);
-                            assert_eq!(ints, [-123; 258]);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    super::native_object_tests::length_contract();
 }
 
 // Frame transitions. The native call and return handlers run against a real
@@ -1866,7 +1758,7 @@ fn native_frames_run_whole_programs() {
         assert_eq!(call(&mut vm, 8, 5.0), vec![Value::num(12.0)], "two layouts at one frame index");
         // A builtin and an iterator called through CallK run in Rust from the
         // argument window; the chain goes on in the caller with their results.
-        assert_eq!(call(&mut vm, 11, 2.75), vec![Value::num(3.0)], "builtin call");
+        assert_eq!(call(&mut vm, 11, 2.75), vec![Value::inline_integer(3).unwrap()], "builtin call");
         assert_eq!(call(&mut vm, 12, 41.0), vec![Value::num(42.0)], "iterator call");
     }
 }
@@ -1999,7 +1891,7 @@ entry 0
     assert_eq!(
         vm.tasks[task.index].results,
         vec![
-            Value::num(-7.0),
+            Value::inline_integer(-7).unwrap(),
             Value::num(0.25),
             message,
             payload,
@@ -2236,7 +2128,7 @@ fn native_resolved_call_boundary_charges_once_and_does_not_run_at_zero() {
                 }
             } else {
                 assert_eq!(result, 3);
-                assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::num(41.0).0);
+                assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::inline_integer(41).unwrap().0);
                 assert_eq!(
                     vm.execution_limit,
                     Some(if scheduled { 19 } else { budget - 1 })
@@ -2706,7 +2598,7 @@ fn native_precharged_resolved_call_does_not_charge_again() {
             crate::threaded::sync(&mut ctx, &mut vm);
             let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1, 0) };
             assert_eq!(result, 3);
-            assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::num(41.0).0);
+            assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::inline_integer(41).unwrap().0);
             assert_eq!(vm.execution_limit, Some(budget));
             assert_eq!(vm.instruction_budget, scheduled.then_some(budget));
             assert_eq!(ctx.budget, budget as u64);
