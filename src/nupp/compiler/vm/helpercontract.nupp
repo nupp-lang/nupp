@@ -1,0 +1,52 @@
+module nupp.compiler.vm.helpercontract
+
+local contract = {}
+local fields = {"mayCollect", "mayPark", "mayRaise", "pure"}
+local allowed = {mayCollect = true, mayPark = true, mayRaise = true, pure = true}
+
+--- Returns the declared effects of a native helper.
+---
+--- The checked declaration carries plain semantic metadata, so graph consumers
+--- do not need its syntax tree or a second table of helper names.
+--- @raises string when the declaration is missing or inconsistent
+function contract.read(definition: any, name: string): {
+    mayCollect: boolean,
+    mayPark: boolean,
+    mayRaise: boolean,
+    pure: boolean
+}
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmHelperEffects" then
+            assert(found == nil, "helper " .. name .. " has duplicate effect summaries")
+            found = annotation
+        end
+    end
+    assert(found ~= nil, "helper " .. name .. " has no declared effects")
+    local effects: {[string]: boolean} = {}
+    for _, argument in ipairs(found.arguments or {}) do
+        assert(allowed[argument.name] == true, "helper " .. name .. " has an unknown effect")
+        assert(effects[argument.name] == nil, "helper " .. name .. " has a duplicate effect")
+        assert(
+            argument.kind == "value" and type(argument.value) == "boolean",
+            "helper " .. name .. " effects must be booleans"
+        )
+        effects[argument.name] = argument.value
+    end
+    for _, field in ipairs(fields) do
+        assert(effects[field] ~= nil, "helper " .. name .. " has no " .. field .. " effect")
+    end
+    assert(
+        not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
+        "helper " .. name .. " is pure but may collect, park or raise"
+    )
+
+    return {
+        mayCollect = effects.mayCollect == true,
+        mayPark = effects.mayPark == true,
+        mayRaise = effects.mayRaise == true,
+        pure = effects.pure == true,
+    }
+end
+
+export = contract

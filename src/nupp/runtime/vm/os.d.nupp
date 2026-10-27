@@ -5,30 +5,39 @@
 -- export in the glue. Pages first: the runtime's arenas and heap are written
 -- in Nupp over them; standard input and output let a standalone harness read
 -- its data and report.
+-- Blocking OS I/O does not park a guest task. These entries neither collect
+-- the Nupp heap nor raise guest values, and their external effects are not pure.
 local record Os
     --- Maps `bytes` of zeroed, readable and writable memory at a page
     --- boundary, or nil when the system refuses.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     mapPages: function(bytes: uint64): voidptr?
 
     --- Unmaps what `mapPages` mapped at `base` for `bytes`.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     unmapPages: function(base: voidptr, bytes: uint64): nil
 
     --- Advises the system about the pages at `base`: 0 says their contents are
     --- no longer needed, 1 that they are about to be used.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     advisePages: function(base: voidptr, bytes: uint64, advice: int64): nil
 
     --- The system's page size in bytes.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     pageSize: function(): uint64
 
     --- A monotonic clock in nanoseconds, for measurements.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     monotonicNanos: function(): uint64
 
     --- Reads up to `bytes` of standard input into `base`: the count read, 0 at
     --- its end, negative when the read failed.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     readInput: function(base: voidptr, bytes: uint64): int64
 
     --- Writes `bytes` at `base` to standard output: the count written, negative
     --- when the write failed.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     writeOutput: function(base: voidptr, bytes: uint64): int64
 end
 return Os

@@ -31,6 +31,7 @@ local provider = require("nupp.compiler.syntax.triviaarena.table")
 local targetLayout = require("nupp.compiler.targetlayout")
 local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
+local helpercontract = require("nupp.compiler.vm.helpercontract")
 
 local lower = {}
 
@@ -981,6 +982,7 @@ local function compileFunction(fn: Fn, options: any): string
         local member = n.obj.name.text
         local signature = raw(n.obj.inferredType)
         need(signature and signature.tag == "func", "helper " .. member .. " has no declared signature")
+        helpercontract.read(n.obj.name.definition, member)
         local args = n.args.exprs or {}
         need(#args == #signature.params, member .. ": argument count")
         local paramKinds, words = {}, {}

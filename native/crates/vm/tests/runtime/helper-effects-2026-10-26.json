@@ -1,0 +1,66 @@
+{
+  "recordedAt": "2026-10-27T02:07:37.751553+00:00",
+  "base": "32c0801b8b526c3763165bb46985e6262dfd9c85",
+  "scope": "P1a helper effects only. Logical slots, immutable program loads, specialization intrinsics, publication/root proofs and P1b common graph lowering remain open.",
+  "contract": "Nupp field annotations declare all four boolean effects. The validator reads checked semantic metadata, rejects absent/duplicate/incomplete/malformed summaries and rejects pure plus collect/park/raise. Non-collecting operations do not imply purity. Call/lookup summaries conservatively include guest callbacks; OS blocking is not guest-task parking.",
+  "ownership": "The effect contract and its validator are Nupp. Current native lowering validates declarations before importing helper calls; graph consumers can use the same semantic metadata and validator. No Rust helper-name effect switch or CLIF semantic optimizer is added.",
+  "declarations": {
+    "runtimeHelpers": 22,
+    "osEdges": 7,
+    "schema": "src/nupp/runtime/vm/effects.nupp"
+  },
+  "validation": [
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp check --json src/nupp/compiler/vm/helpercontract.nupp src/nupp/compiler/clif/lower.nupp src/nupp/runtime/vm/effects.nupp src/nupp/runtime/vm/helpers.d.nupp src/nupp/runtime/vm/os.d.nupp",
+      "ok": true,
+      "logSha256": "b6ae518de79176716d34f4cfccd9eb7796e1112f8debe3cd1c473360bef7fcd4"
+    },
+    {
+      "command": "python3 scripts/vm-cli build",
+      "ok": true,
+      "logSha256": "5b28295a0d201f905efb57ab4f0b9aecc47212b9d07af63f0376c53645a5a4c4"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test nativelowertest",
+      "passed": 16,
+      "failed": 0,
+      "logSha256": "b0166aeac57cf593099a8a167bdea30c812b014f28ef44838fc3b02f927e796f"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test annotationtest nativeclosurestest nativeheaptest nativejittest nativeruntimetest nativestringstest nativetablestest --jobs=2",
+      "passed": 87,
+      "failed": 0,
+      "logSha256": "633c956301a71ca3a3003d7262780a78355d98b18249c4c5d5f6b3c828947599"
+    }
+  ],
+  "codeGeneration": {
+    "runtime.clif": {
+      "sha256": "9ba7bc4fbb5ede70af41393dc7e3c72765e1b8c6896339b59312611b7c21509b",
+      "identicalToPreContract": true
+    },
+    "runtime.o": {
+      "sha256": "90e1df1ebc91578e31973a63ec30899bceacf00575c39d87a41f015e93c0a8f1",
+      "identicalToPreContract": true
+    },
+    "runtime.o.rs": {
+      "sha256": "35a9c8910cfee7bc440fe6a442b23795cf3ed262b98ebe978721f79c1afaec6d",
+      "identicalToPreContract": true
+    }
+  },
+  "sources": {
+    "src/nupp/compiler/clif/lower.nupp": "17160dbbcfa6ecd4efd62333e14eee7ab2b58132fa41f5567eb2ef9af9236634",
+    "src/nupp/compiler/vm/helpercontract.nupp": "4dd4c82ff7cda6e57b655e81d37b306a7dcf6653373bf010a18561ea97f8f9de",
+    "src/nupp/runtime/vm/effects.nupp": "ba8853c0cb10c8d35fc0e7505947d3ea3ed1d83359a477618fcb33bb268d77ba",
+    "src/nupp/runtime/vm/helpers.d.nupp": "8fcfeb23f912c0b0548e56e2e3dfb90fd4ec94a2912144d25f8fb8cb95c03f39",
+    "src/nupp/runtime/vm/os.d.nupp": "eadd5afc05282ee01b3dc1fed065cc62d8c170607668346157f558c637489fd6",
+    "tests/nativelowertest.lua": "8a18440a11e148e169f2e9e715c344cd0a1961d541403c7c36918e3e0f1d3d6e"
+  },
+  "fixpoint": {
+    "status": "passed",
+    "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp fixpoint",
+    "seedSha256": "6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9",
+    "imageSha256": "ff8e73a0157b18bb15ddee31dd7050525b4c6b7549557733632ed1bdcc068ff5",
+    "logSha256": "0631528e304a7513ac886d707de6b9fa7fbca75f556d7e64875f107f0bdc808a"
+  },
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/helper-contracts"
+}

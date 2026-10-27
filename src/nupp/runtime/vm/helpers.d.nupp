@@ -4,28 +4,52 @@
 -- here is the exported symbol `nupp_rt_<name in snake case>`; the lowering
 -- reads each signature from this declaration, so adding a helper is a line
 -- here, its export in dispatch.rs and its name in the glue's allowlist.
+-- Effects describe the full reachable operation, including guest callbacks.
+-- A non-collecting heap write still mutates state and is not pure.
 local record Helpers
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     getField: function(context: voidptr, object: uint64, name: uint64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     barrier: function(context: voidptr, parent: uint64, child: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     newRecord: function(context: voidptr, shape: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     eqSlow: function(context: voidptr, left: uint64, right: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     callIter: function(context: voidptr, iterator: uint64, base: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     callBuiltin: function(context: voidptr, id: int64, base: uint64, nargs: int64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     observe: function(context: voidptr, fid: int64, pc: int64, value: uint64, kind: int64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     enterFrame: function(context: voidptr, pc: int64, hot: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     newString: function(context: voidptr, length: int64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     intern: function(context: voidptr, value: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     newTable: function(context: voidptr, n: int64, m: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     internKey: function(context: voidptr, key: uint64, create: int64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     resizeArray: function(context: voidptr, table: uint64, length: int64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     growHash: function(context: voidptr, table: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     newIndex: function(context: voidptr, object: uint64, key: uint64, value: uint64): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     newClosure: function(context: voidptr, fid: int64, count: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
     newCell: function(context: voidptr): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     resolveMethod: function(context: voidptr, receiver: uint64, name: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     callResolved: function(context: voidptr, base: int64, nargs: int64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     defer: function(context: voidptr, value: uint64, callback: uint64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     protect: function(context: voidptr, frame: uint64, result: uint64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = true, pure = false)
     raise: function(context: voidptr, value: uint64): nil
 end
 return Helpers

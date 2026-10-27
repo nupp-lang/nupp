@@ -1,0 +1,9 @@
+module nupp.runtime.vm.effects
+
+@annotation(targets = {"field"})
+export record vmHelperEffects
+    mayCollect: boolean
+    mayPark: boolean
+    mayRaise: boolean
+    pure: boolean
+end
