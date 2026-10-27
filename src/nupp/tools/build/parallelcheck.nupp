@@ -414,7 +414,8 @@ function parallelcheck.run(input: any): (any?, string?)
     local waiting: {integer} = {}
     local ready: {integer} = {}
     local queueWaiters: {function(boolean)} = {}
-    local randomState = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED") or "")
+    local randomSeed = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_RANDOM_SEED") or "")
+    local randomState = randomSeed and math.tointeger(randomSeed) or nil
     for index = 1, #components do
         waiting[index] = #componentDependencies[index]
         if waiting[index] == 0 then
@@ -461,8 +462,8 @@ function parallelcheck.run(input: any): (any?, string?)
         end
         local selected: integer = 1
         if randomState ~= nil then
-            randomState = ((randomState as number) * 48271) % 2147483647
-            selected = math.floor((randomState as number) % #ready) + 1
+            randomState = (randomState % 2147483647 * 48271) % 2147483647
+            selected = randomState % #ready + 1
         else
             for position = 2, #ready do
                 local candidate, best = ready[position], ready[selected]

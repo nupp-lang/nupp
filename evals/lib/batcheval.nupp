@@ -139,7 +139,7 @@ local function spread(values: {number}): any
         return json.NULL
     end
     table.sort(values)
-    local middle = math.floor((#values + 1) / 2)
+    local middle = (#values + 1) // 2
     local median = #values % 2 == 1 and values[middle] or (values[middle] + values[middle + 1]) / 2
     local total = 0
     for _, value in ipairs(values) do

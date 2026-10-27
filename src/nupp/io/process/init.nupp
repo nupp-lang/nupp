@@ -173,7 +173,7 @@ record process.Reader is Reader2
     --- @raises string when the provider returns an invalid result, or timeoutMs is
     ---     outside 0 through 2147483647
     function poll(self, limit: integer?, timeoutMs: integer?): (string?, boolean)
-        local wanted = math.floor(limit or READ_LIMIT)
+        local wanted = limit or READ_LIMIT
         if wanted < 1 then
             wanted = 1
         end

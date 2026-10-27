@@ -144,12 +144,13 @@ end
 -- comes back is the start of the last row, leaving everything above it on screen. So a
 -- step line is cut to the width the terminal says it has.
 local function width(): integer
-    local columns = tonumber(os.getenv("COLUMNS") or "") or 80
+    local supplied = tonumber(os.getenv("COLUMNS") or "") or 80
+    local columns = math.tointeger(math.floor(supplied)) or 80
     if columns < 20 then
         columns = 20
     end
 
-    return math.floor(columns) - 1
+    return columns - 1
 end
 
 --- A running build's narrator and stopwatch.
