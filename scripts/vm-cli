@@ -293,7 +293,17 @@ def emit_with(package, image, env):
     on its own runtime: the runtime it was built and checked with, and with its
     functions compiled in when it was linked."""
     run_step([str(package / "runtime"), "run", str(package / "compiler.image"), "nupp.tools.vm.project", "emit",
-              str(ROOT), "nupp.tools.vm.root", root_extras(), "--output", str(image)], env, "VM-hosted root emit")
+              str(ROOT), "nupp.tools.vm.root", root_extras(), "--output", str(image)],
+             emission_environment(package / "compiler.image", env), "VM-hosted root emit")
+
+
+def emission_environment(image, env):
+    """A lowering cache belongs to its exact executing compiler image."""
+    selected_env = dict(env)
+    cache = selected_env.get("NUPP_VM_EMIT_CACHE")
+    if cache:
+        selected_env["NUPP_VM_EMIT_CACHE"] = str(Path(cache) / "compilers" / digest(image))
+    return selected_env
 
 
 def build(args):
@@ -384,14 +394,16 @@ def build_from(args, out, target, image):
         seed_image = pair / "compiler.image"
         runner = pair / "runtime"
         run_step([str(runner), "run", str(seed_image), "nupp.tools.vm.project", "emit", str(ROOT),
-                  "nupp.tools.vm.root", root_extras(), "--output", str(image)], execution_environment(cache), "seed root emit")
+                  "nupp.tools.vm.root", root_extras(), "--output", str(image)],
+                 emission_environment(seed_image, execution_environment(cache)), "seed root emit")
         # A pinned image is an older compiler: what it lowers is these sources
         # as its lowerer spells them. One more pass lowers them with their own
         # lowerer, which is the image the fixpoint verifies.
         first = out / "stage1.image"
         image.replace(first)
         run_step([str(runner), "run", str(first), "nupp.tools.vm.project", "emit", str(ROOT),
-                  "nupp.tools.vm.root", root_extras(), "--output", str(image)], execution_environment(cache), "self-hosting root emit")
+                  "nupp.tools.vm.root", root_extras(), "--output", str(image)],
+                 emission_environment(first, execution_environment(cache)), "self-hosting root emit")
         first.unlink()
     if not image.is_file():
         raise ValueError("the root emit wrote no image")
@@ -466,7 +478,8 @@ def lowering_image(out, target, cache):
     image = out / "lower.image"
     image.unlink(missing_ok=True)
     env = compiler_environment(cache)
-    if (PACKAGES / "current").exists():
+    installed = (PACKAGES / "current").exists()
+    if installed:
         package = selected()
         runner = package / "runtime"
         compiler = package / "compiler.image"
@@ -475,9 +488,21 @@ def lowering_image(out, target, cache):
         runner = package / "runtime"
         compiler = package / "compiler.image"
         env = execution_environment(cache)
-    run_step([str(runner), "run", str(compiler), "nupp.tools.vm.project", "emit", str(ROOT),
-              "nupp.compiler.clif.lower", LOWERING_EXTRAS, "src", "--output", str(image)], env,
-             "emit of the lowering image")
+    def emit():
+        run_step([str(runner), "run", str(compiler), "nupp.tools.vm.project", "emit", str(ROOT),
+                  "nupp.compiler.clif.lower", LOWERING_EXTRAS, "src", "--output", str(image)],
+                 emission_environment(compiler, env), "emit of the lowering image")
+    try:
+        emit()
+    except ValueError:
+        if not installed:
+            raise
+        print("vm-cli: installed compiler cannot emit this lowering; using the verified execution seed", file=sys.stderr)
+        image.unlink(missing_ok=True)
+        pair = execution_seed()
+        runner, compiler = pair / "runtime", pair / "compiler.image"
+        env = execution_environment(cache)
+        emit()
     if not image.is_file():
         raise ValueError("the lowering image was not written")
     return image
