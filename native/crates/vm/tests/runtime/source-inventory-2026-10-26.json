@@ -1028,7 +1028,7 @@
     },
     "workers": {
       "phase": "P4",
-      "action": "Move heap/transfer/channel policy into Nupp; retain only thread and wakeup/completion operations in the bridge.",
+      "action": "Move heap/transfer/channel, admission and completion policy into Nupp. Its reactor and worker model own blocking work; only thread creation stays in the bridge.",
       "owners": [
         {
           "path": "src/nupp/runtime/vm/workers.nupp",
@@ -1046,8 +1046,12 @@
     },
     "host": {
       "phase": "P4/P6",
-      "action": "Move parking/completion and resource policy into Nupp; narrow foreign readiness and OS calls.",
+      "action": "Move the reactor, parking/completion and resource policy into Nupp with direct C system calls. Delete Rust host-I/O orchestration; retain only allowed page/thread/platform primitives in the small bridge.",
       "owners": [
+        {
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
+        },
         {
           "path": "src/nupp/runtime/vm/host.nupp",
           "existsAtInventory": false
@@ -1106,7 +1110,7 @@
     },
     "library": {
       "phase": "P6",
-      "action": "Move builtin/library dispatch, validation and resource lifetimes into Nupp; use narrow library/OS boundaries.",
+      "action": "Move builtin/library dispatch, validation and lifetimes into Nupp. Host I/O uses the Nupp reactor and direct C calls; essential compression/cryptographic library implementations may remain behind thin calls.",
       "owners": [
         {
           "path": "src/nupp/runtime/vm/library.nupp",
@@ -1245,16 +1249,16 @@
       ]
     },
     "files": {
-      "phase": "P6/P8",
-      "action": "Nupp owns globbing, queues, cancellation and file-resource policy; consolidate OS I/O calls into the bridge.",
+      "phase": "P4/P8",
+      "action": "Delete the Rust files provider, queues and blocking lanes. Nupp owns file I/O, globbing, cancellation and resource policy through direct C calls and its own blocking-work pool.",
       "owners": [
         {
-          "path": "src/nupp/io/files.nupp",
-          "existsAtInventory": false
+          "path": "src/nupp/io/files/init.nupp",
+          "existsAtInventory": true
         },
         {
-          "path": "src/nupp/runtime/provider/nativefiles.nupp",
-          "existsAtInventory": true
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
         }
       ]
     },
@@ -1278,29 +1282,29 @@
     },
     "http": {
       "phase": "P6/P8",
-      "action": "Nupp owns requests, admission, queues, redirect/retry/cancellation and restoration; third-party HTTP/TLS wire implementations may remain behind the bridge.",
+      "action": "Delete Reqwest and the Rust HTTP provider. Implement HTTP/1.1 client and server, parser, pooling, deadlines and policy in Nupp over its reactor; fuzz the parser from its first commit.",
       "owners": [
         {
-          "path": "src/nupp/http",
-          "existsAtInventory": false
+          "path": "src/nupp/io/http/init.nupp",
+          "existsAtInventory": true
         },
         {
-          "path": "src/nupp/runtime/provider/nativehttp.nupp",
-          "existsAtInventory": true
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
         }
       ]
     },
     "net": {
-      "phase": "P6/P8",
-      "action": "Nupp owns connection/resource/queue policy; consolidate socket operations and completion delivery into the bridge.",
+      "phase": "P4/P6/P8",
+      "action": "Delete the Rust net provider. Nupp owns socket operations through direct C calls, readiness/completion backends, queues and resource policy; network resources are not restored.",
       "owners": [
         {
-          "path": "src/nupp/net",
-          "existsAtInventory": false
+          "path": "src/nupp/io/net/init.nupp",
+          "existsAtInventory": true
         },
         {
-          "path": "src/nupp/runtime/provider/nativenet.nupp",
-          "existsAtInventory": true
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
         }
       ]
     },
@@ -1319,25 +1323,25 @@
       ]
     },
     "process": {
-      "phase": "P6/P8",
-      "action": "Nupp owns subprocess policy, streams, cancellation and lifetime; keep spawn/read/write/wait primitives.",
+      "phase": "P4/P8",
+      "action": "Delete the Rust process provider. Nupp owns spawn, pipes, exit, kill, cancellation and lifetimes through direct system calls and its reactor.",
       "owners": [
         {
-          "path": "src/nupp/io/process.nupp",
-          "existsAtInventory": false
+          "path": "src/nupp/io/process/init.nupp",
+          "existsAtInventory": true
         },
         {
-          "path": "src/nupp/runtime/provider/nativeprocess.nupp",
-          "existsAtInventory": true
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
         }
       ]
     },
     "executor": {
-      "phase": "P4/P6/P8",
-      "action": "Consolidate foreign async execution/readiness; Nupp owns the guest scheduler and admission policy.",
+      "phase": "P4/P8",
+      "action": "Delete Tokio and the Rust shared async executor/readiness implementation. Nupp owns the reactor, scheduler, deadlines and blocking-work pool; only thread creation stays in the bridge.",
       "owners": [
         {
-          "path": "src/nupp/runtime/vm/host.nupp",
+          "path": "src/nupp/runtime/vm/reactor.nupp",
           "existsAtInventory": false
         },
         {
@@ -1348,11 +1352,15 @@
     },
     "tls": {
       "phase": "P6/P8",
-      "action": "Keep TLS and cryptographic protocol implementation in third-party libraries through the bridge; Nupp owns API/resource policy.",
+      "action": "Delete the Rust TLS provider and Tokio adapter. Use one I/O-free TLS library through a C call; Nupp owns sockets, ciphertext flow, trust-store integration, cancellation and resource policy. No TLS or cryptography implementation is written in Nupp.",
       "owners": [
         {
-          "path": "src/nupp/runtime/provider/nativetls.nupp",
+          "path": "src/nupp/io/tls/init.nupp",
           "existsAtInventory": true
+        },
+        {
+          "path": "src/nupp/runtime/vm/reactor.nupp",
+          "existsAtInventory": false
         }
       ]
     },
@@ -4323,5 +4331,11 @@
       "sha256": "a7e1fb5293afcab55de784885327c4da8e472f73645d1ec000e85d85bb52cb67"
     }
   ],
-  "rustBudget": 3000
+  "rustBudget": 3000,
+  "ownershipPlanUpdate": {
+    "recordedAt": "2026-10-27T02:16:21.522017+00:00",
+    "sourceCountsUnchanged": true,
+    "plan": "nupp-native-runtime.md Decision 9",
+    "decision": "Nupp owns the reactor, blocking pool, file/process/network layers and HTTP/1.1 through direct C calls. Delete Tokio, Reqwest and Rust host-I/O providers; TLS is one I/O-free library. Networking is not restored."
+  }
 }
