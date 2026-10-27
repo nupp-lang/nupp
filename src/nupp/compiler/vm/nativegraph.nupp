@@ -134,7 +134,7 @@ end
 --- Lowers a complete checked handler to the shared Nupp semantic graph.
 ---
 --- Exact scalar values and checked memory contracts remain in this graph.
---- Terminal branches carry local bindings through explicit block parameters.
+--- Branches and joins carry checked local bindings through graph parameters.
 --- Positions and dispatch identity survive without another SSA builder.
 --- @raises string when an admitted handler contains unsupported checked syntax
 function nativegraph.compile(fn: any, options: any): any
@@ -199,6 +199,9 @@ function nativegraph.compile(fn: any, options: any): any
     expression = function(n: any, expected: string?): integer
         if n.kind == "paren" then
             return expression(n.expr, expected)
+        elseif n.kind == "true" or n.kind == "false" then
+            need(expected == nil or expected == "boolean", "boolean literal changes exact kind")
+            return emit(n, "NativeBoolean", {n.kind == "true"}, "boolean") as integer
         elseif n.kind == "number" then
             local kind = expected or exactKind(n.inferredType)
             need(kind == "int64" or kind == "uint64", "integer literal needs an exact integer kind")
@@ -323,6 +326,19 @@ function nativegraph.compile(fn: any, options: any): any
                     bindings[key] = expression(stat.exprs[index], kind)
                     bindingOrder[#bindingOrder + 1] = key
                 end
+            elseif stat.kind == "assignStmt" then
+                need(#stat.targets == #stat.exprs, "parallel local assignment requires one value per target")
+                local values, keys = {}, {}
+                for index, target in ipairs(stat.targets) do
+                    need(target.kind == "name", "unsupported checked assignment target")
+                    local key = target.token.definition or target.token
+                    local previous = need(bindings[key], "assignment requires a checked local binding")
+                    keys[index] = key
+                    values[index] = expression(stat.exprs[index], g.exactTypes[previous])
+                end
+                for index, key in ipairs(keys) do
+                    bindings[key] = values[index]
+                end
             elseif stat.kind == "callStmt" then
                 local call = stat.expr
                 local moduleName, name = member(call.obj)
@@ -348,18 +364,14 @@ function nativegraph.compile(fn: any, options: any): any
                     error("native graph: unsupported checked statement call", 0)
                 end
             elseif stat.kind == "ifStmt" then
-                need(
-                    #stat.clauses == 1 and stat.elseClause ~= nil and not stat.clauses[1].binding,
-                    "unsupported checked statement: nonterminal conditional"
-                )
-                local condition = expression(stat.clauses[1].cond, "boolean")
-                local parent, parentBindings, parentOrder = block, bindings, bindingOrder
+                local originalBindings, originalOrder = bindings, bindingOrder
+                local incoming = {}
 
-                local function branch(): (any, any, any, any)
+                local function branch(): any
                     local target = graph.block(g)
                     local transported, order, args = {}, {}, {}
-                    for _, key in ipairs(parentOrder) do
-                        local value = parentBindings[key]
+                    for _, key in ipairs(bindingOrder) do
+                        local value = bindings[key]
                         order[#order + 1] = key
                         if value <= g.nparams then
                             transported[key] = value
@@ -371,18 +383,79 @@ function nativegraph.compile(fn: any, options: any): any
                         end
                     end
 
-                    return target, transported, order, {target = target.id, args = args}
+                    return {
+                        block = target,
+                        bindings = transported,
+                        order = order,
+                        edge = {target = target.id, args = args}
+                    }
                 end
 
-                local yes, yesBindings, yesOrder, yesEdge = branch()
-                local no, noBindings, noOrder, noEdge = branch()
-                parent.term = {kind = "branch", value = condition, edges = {yesEdge, noEdge}, pos = position(stat)}
-                block, bindings, bindingOrder = yes, yesBindings, yesOrder
-                statements(stat.clauses[1].body.stats)
-                need(block == nil, "unsupported checked statement: conditional branch falls through")
-                block, bindings, bindingOrder = no, noBindings, noOrder
-                statements(stat.elseClause.body.stats)
-                need(block == nil, "unsupported checked statement: conditional branch falls through")
+                local function resume(state: any): nil
+                    block, bindings, bindingOrder = state.block, state.bindings, state.order
+                end
+
+                local function continuation(): nil
+                    if block then
+                        incoming[#incoming + 1] = {block = block, bindings = bindings}
+                    end
+                end
+
+                for _, clause in ipairs(stat.clauses) do
+                    need(not clause.binding, "unsupported checked binding clause")
+                    local condition = expression(clause.cond, "boolean")
+                    local parent = block
+                    local yes, no = branch(), branch()
+                    parent.term = {
+                        kind = "branch",
+                        value = condition,
+                        edges = {yes.edge, no.edge},
+                        pos = position(clause)
+                    }
+                    resume(yes)
+                    statements(clause.body.stats)
+                    continuation()
+                    resume(no)
+                end
+                if stat.elseClause then
+                    statements(stat.elseClause.body.stats)
+                end
+                continuation()
+                block = nil
+                bindings, bindingOrder = {}, {}
+                if #incoming > 0 then
+                    local join = graph.block(g)
+                    local transported = {}
+                    for _, key in ipairs(originalOrder) do
+                        local original = originalBindings[key]
+                        local unchanged = original <= g.nparams
+                        for _, state in ipairs(incoming) do
+                            need(state.bindings[key] ~= nil, "conditional loses a checked local")
+                            unchanged = unchanged and state.bindings[key] == original
+                        end
+                        bindingOrder[#bindingOrder + 1] = key
+                        if unchanged then
+                            bindings[key] = original
+                        else
+                            local parameter = graph.nativeValue(g, g.exactTypes[original])
+                            join.params[#join.params + 1] = parameter
+                            transported[#transported + 1] = key
+                            bindings[key] = parameter
+                        end
+                    end
+                    for _, state in ipairs(incoming) do
+                        local args = {}
+                        for index, key in ipairs(transported) do
+                            args[index] = state.bindings[key]
+                        end
+                        state.block.term = {
+                            kind = "jump",
+                            edges = {{target = join.id, args = args}},
+                            pos = position(stat)
+                        }
+                    end
+                    block = join
+                end
             elseif stat.kind == "returnStmt" then
                 need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
                 local call = stat.exprs[1]

@@ -197,7 +197,10 @@ end
 function M.admittedHandlersRefuseUnsupportedCheckedSyntax()
     local original = read(CORE)
     local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))"
-    for _, inserted in ipairs({"a = a + 0LL\n    ", "if a == 0LL then a = a end\n    ",}) do
+    for _, inserted in ipairs({
+        "local function guestOnly(): nil end\n    ",
+        "for _, value in ipairs({}) do end\n    ",
+    }) do
         local at = assert(original:find(needle, 1, true))
         local source = original:sub(1, at - 1) .. inserted .. original:sub(at)
         local functions, options = checked(source)
@@ -259,6 +262,45 @@ function M.namedHelperCallsKeepCheckedSignaturesEffectsAndOperandIds()
     assert(not ok and tostring(message):find("has no declared effects", 1, true), tostring(message))
     options.helperModules = {}
     assert(not pcall(nativegraph.compile, fn, options), "unadmitted helper bypassed the frontend")
+end
+
+function M.nonterminalConditionalsAndParallelAssignmentsUseSharedGraphJoins()
+    local source = read(CORE)
+    local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))"
+    local replacement = [[local chosen: uint64 = program.readWord(pc, 8)
+    local spare: uint64 = 1ULL
+    if a == 0 then
+        chosen, spare = spare, chosen
+    elseif a == 1 then
+        chosen = chosen + spare
+    end
+    slots.writeIntegerBits(frame, ints, a, chosen + spare)]]
+    local at = assert(source:find(needle, 1, true))
+    local functions, options = checked(source:sub(1, at - 1) .. replacement .. source:sub(at + #needle))
+    local g = nativegraph.compile(functions.IK, options)
+    graph.verify(g)
+    graph.prune(g)
+    graph.verify(g)
+    local taken = g.blocks[g.blocks[1].term.edges[1].target]
+    assert(taken.term.kind == "jump" and #taken.params == 3)
+    local outgoing = taken.term.edges[1].args
+    assert(
+        outgoing[2] == taken.params[3] and outgoing[3] == taken.params[2],
+        "parallel assignment lost the original values"
+    )
+    local branches, joins = 0, 0
+    for _, b in ipairs(g.blocks) do
+        if b.term.kind == "branch" then
+            branches = branches + 1
+        end
+        if b.term.kind == "dispatch" then
+            joins = joins + 1
+            assert(#b.params == 3, "join must retain slot index and both parallel-assigned values")
+            assert(g.exactTypes[b.params[1]] == "int64")
+            assert(g.exactTypes[b.params[2]] == "uint64" and g.exactTypes[b.params[3]] == "uint64")
+        end
+    end
+    assert(branches == 2 and joins == 1)
 end
 
 return M
