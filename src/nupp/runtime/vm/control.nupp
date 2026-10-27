@@ -20,44 +20,8 @@ const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
 const calls = require("nupp.runtime.vm.calls")
 
--- The record and frame of a protected call whose callee the core pushes:
--- the record first, naming the frame the push makes, so the guard sends
--- that frame's return to Rust, which delivers the status.
-local function protectSlow(
-    pc: voidptr,
-    context: voidptr,
-    fid: uint64,
-    closure: uint64,
-    base: int64,
-    nargs: int64
-): uint64
-    protocol.publishPc(pc, context)
-    local current = native.load64(context, native.layout("cur"))
-    local stack = native.loadPointer(context, native.layout("stack"))
-    local frame = native.offset(stack, native.index(current * 8))
-    helpers.protect(
-        context,
-        current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF),
-        current + 4 + native.word(base)
-    )
-    stack = native.loadPointer(context, native.layout("stack"))
-    frame = native.offset(stack, native.index(current * 8))
-    local regs = native.offset(frame, 32)
-    local callee = native.offset(
-        native.loadPointer(context, native.layout("funcs")),
-        native.index(fid) * native.layout("FuncInfo.size")
-    )
-    local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
-    local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-
-    return calls.pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base + 1, supplied, false)
-end
-
--- `PCall base nargs`: the callee at `base + 1` called on the `nargs` values
--- after it, the status landing at `base` and the results after it. A plain
--- function or closure the core can push now is pushed here; anything else
--- (a builtin, `pcall` of `pcall`, a spread, a vararg or typed callee, no
--- room) is the step's whole.
+-- PCall itself is not a budget point. Its target uses the same Nupp call
+-- transfers, including typed/spread frames and managed services.
 export function PCall(
     pc: voidptr,
     regs: voidptr,
@@ -66,47 +30,7 @@ export function PCall(
     context: voidptr,
     frame: voidptr
 ): uint64
-    -- PCall itself is not a budget point; its guest calls are. The shared
-    -- push preserves a finite or exhausted budget for those calls.
-    local base = program.readByte(pc, 1)
-    local nargs = program.readByte(pc, 2)
-    local value = slots.readValue(frame, regs, base + 1)
-    local fid = values.NO_GUARD
-    local closure = values.NIL
-    if value & values.TAG_MASK == values.TAG_FUNC then
-        if (value >> 32) & values.LOW_HALF == 0 then
-            fid = value & values.LOW_WORD
-        end
-    elseif value & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(value & values.PAYLOAD)
-        if native.load8(object, native.layout("Header.kind")) == 5 then
-            fid = native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD)
-            closure = value
-        end
-    end
-    if native.both(nargs < 64, fid < native.load64(context, native.layout("nfuncs"))) then
-        local callee = native.offset(
-            native.loadPointer(context, native.layout("funcs")),
-            native.index(fid) * native.layout("FuncInfo.size")
-        )
-        local next = native.load64(context, native.layout("cur")) + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
-        if native.both(
-            native.both(
-                native.load32(callee, native.layout("FuncInfo.vararg")) == 0,
-                native.load32(callee, native.layout("FuncInfo.typed")) == 0
-            ),
-            native.both(
-                fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD),
-                next + (
-                    native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-                ) <= native.load64(context, native.layout("cap"))
-            )
-        ) then
-            return protectSlow(pc, context, fid, closure, base, nargs)
-        end
-    end
-
-    return native.slow(pc, regs, ints, floats, context, frame)
+    return calls.protectedCallSlow(pc, context, program.readByte(pc, 1), program.readByte(pc, 2), values.NIL)
 end
 
 local function raiseSlow(pc: voidptr, context: voidptr, value: uint64): uint64

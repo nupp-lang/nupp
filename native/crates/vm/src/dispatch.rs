@@ -447,48 +447,6 @@ pub(crate) mod native_helpers {
         sync(ctx, it);
         v.0
     }
-    /// The rest of a dynamic call whose callee is already at `base` of the
-    /// top frame, at the published pc, as the step runs `CallDyn base base
-    /// nargs`: answers the pc to go on at, or a status, as the frame driver's
-    /// service does. `budgeted` is zero when Nupp already charged before
-    /// resolving the callee; a plain boundary charges here.
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_call_resolved(ctx: *mut Ctx, base: u64, nargs: u64, budgeted: u64) -> u64 {
-        use crate::interp::{Flow, Outcome};
-        let ctx = unsafe { &mut *ctx };
-        let (it, tid) = enter_rust(ctx);
-        it.last_nres = ctx.last_nres as usize;
-        let pc = ctx.pc as usize;
-        let (win, _) = it.window(tid);
-        let mark = it.handles.len();
-        let flow = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if budgeted != 0 && !it.take_budget_point(tid, pc) { return Flow::Return(Outcome::Parked(0)); }
-            it.op_call_dyn(tid, &win, pc + 1, base as u8, base as u8, nargs as u8)
-        }));
-        if flow.is_err() {
-            it.handles.truncate(mark);
-        }
-        let r = match flow {
-            Ok(Flow::Next) => (pc + 1) as u32,
-            Ok(Flow::Reenter) => ST_REENTER,
-            Ok(Flow::Return(Outcome::Done(v))) => {
-                ctx.result = v.0;
-                ST_DONE
-            }
-            Ok(Flow::Return(Outcome::Parked(k))) => {
-                ctx.result = k;
-                ST_PARKED
-            }
-            Err(p) => {
-                let v = it.error_value(p);
-                it.pending_error = Some(v);
-                ctx.status = ST_ERROR;
-                ST_ERROR
-            }
-        };
-        sync(ctx, it);
-        r as u64
-    }
     /// Registers a cleanup on the top frame (contracts 6.5b): the record
     /// list is the task's, which only Rust grows; the guard is recomputed,
     /// so the frame's return goes through Rust, which runs it.
@@ -498,19 +456,6 @@ pub(crate) mod native_helpers {
         let (it, tid) = enter_rust(ctx);
         let frame = it.tasks[tid].cur();
         it.tasks[tid].cleanups.push(crate::interp::Cleanup { frame, value: Value(value), callback: Value(callback) });
-        sync(ctx, it);
-    }
-    /// A protected call's record (contracts 5.2b, 6.4a): the callee's frame
-    /// at `frame`, about to be pushed by the core above `caller`, whose
-    /// register `result` takes the status and then the results. Its return
-    /// and any raise below it are settled by Rust, which the guard sends
-    /// them to.
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn nupp_rt_protect(ctx: *mut Ctx, frame: u64, result: u64) {
-        let ctx = unsafe { &mut *ctx };
-        let (it, tid) = enter_rust(ctx);
-        let caller = it.tasks[tid].cur();
-        it.tasks[tid].protected.push(crate::interp::Protected { frame: frame as usize, caller, result: result as usize, handler: Value::NIL });
         sync(ctx, it);
     }
     /// A raise of `value` from the core: pending until the Rust frame that
@@ -536,6 +481,9 @@ pub(crate) mod native_helpers {
     }
 }
 
+#[cfg(test)]
+#[path = "native_target_transfer_tests.rs"]
+mod native_target_transfer_tests;
 #[cfg(test)]
 #[path = "native_cleanup_transfer_tests.rs"]
 mod native_cleanup_transfer_tests;

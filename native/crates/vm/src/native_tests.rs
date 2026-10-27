@@ -1022,36 +1022,9 @@ fn native_calls_push_the_frame_rust_pushes() {
 }
 
 #[test]
-fn native_calls_leave_unsupported_calls_untouched() {
+fn native_calls_stop_at_an_explicit_unencoded_boundary() {
     let mut closure = closure_header(1);
     let closure_value = Value::obj(std::ptr::NonNull::from(&mut *closure)).0;
-    let call = Ins { op: Code::Call as u8, a: 2, b: 1, k: 1, ..Ins::default() };
-    let callk = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
-    type Setup = fn(&mut Machine);
-    let cases: Vec<(&str, Ins, u64, Setup)> = vec![
-        ("typed dynamic", callk, Value::func(1).0, |m| m.funcs[1].typed = 1),
-        ("unavailable", callk, closure_value, |m| m.ctx.unavailable_fid = 1),
-        // Builtins run through the helper, except a host service and one the
-        // slow-call table names; an iterator runs through its helper too, as
-        // does feedback, so none of those leaves anything untouched here.
-        ("host service", callk, Value::builtin(1000).0, |_| {}),
-        ("slow builtin", callk, Value::builtin(3).0, |m| { m.slow_calls = vec![0, 0, 0, 1]; m.sync(); }),
-        ("not callable", callk, Value::num(1.0).0, |_| {}),
-        ("unknown function", callk, Value::func(9).0, |_| {}),
-        // A result pack past the window, and both spread flags at once.
-    ];
-    for (name, ins, callee_word, setup) in cases {
-        let mut m = Machine::new(vec![Ins::default(), ins, Ins::default()], vec![Ins::default()], 1);
-        m.stack[HDR + 1] = callee_word;
-        m.stack[HDR + 3] = Value::num(7.0).0;
-        setup(&mut m);
-        let before = m.stack.clone();
-        let exit = unsafe { m.run(1) };
-        assert_eq!(exit, m.code(0, 1), "{name}: the Rust handler runs the call");
-        assert_eq!(m.ctx.cur, 0, "{name}");
-        assert_eq!(m.stack, before, "{name}: nothing changed");
-        assert_eq!(m.funcs[1].calls, 0, "{name}: nothing counted");
-    }
     // A segment that entered one frame and fell back in another names the
     // instruction and leaves the frame to the context: the entry contract.
     let entering = Ins { op: Code::CallK as u8, a: 1, b: 2, c: 1, ..Ins::default() };
@@ -2106,19 +2079,15 @@ fn native_resolved_call_boundary_charges_once_and_does_not_run_at_zero() {
             vm.tasks[tid].stack[HDR + 4] = Value::num(41.75).0;
             vm.execution_limit = if scheduled { Some(20) } else { Some(budget) };
             vm.instruction_budget = scheduled.then_some(budget);
-            let mut ctx: Ctx = unsafe { std::mem::zeroed() };
-            ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
-            ctx.tid = tid as u64;
-            ctx.pc = 2;
-            crate::threaded::sync(&mut ctx, &mut vm);
             let before = vm.tasks[tid].stack[HDR + 3];
-            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1, 1) };
+            let (_, ctx, _) = native_module_tests::invoke_task(&mut vm, tid, Op::CallDyn(3, 3, 1));
+            let result = if ctx.status == 0 { 3 } else { ctx.status as u64 };
             if budget == 0 {
                 assert_eq!(vm.tasks[tid].stack[HDR + 3], before);
                 if scheduled {
                     assert_eq!(result, ST_PARKED as u64);
                     assert_eq!(vm.execution_limit, Some(20));
-                    assert_eq!(vm.tasks[tid].stack[vm.tasks[tid].cur()] >> 32, 2);
+                    assert_eq!(vm.tasks[tid].stack[vm.tasks[tid].cur()] >> 32, 0);
                 } else {
                     assert_eq!(result, ST_ERROR as u64);
                     assert!(
@@ -2574,38 +2543,6 @@ entry 0
         }
     }
 }
-
-#[test]
-fn native_precharged_resolved_call_does_not_charge_again() {
-    for scheduled in [false, true] {
-        for budget in [0usize, 1, 7] {
-            let mut vm = call_budget_vm(true);
-            let tid = if scheduled {
-                vm.enable_scheduler().unwrap();
-                vm.schedule(Value::func(0), &[], None).unwrap().index
-            } else {
-                vm.spawn(0, &[])
-            };
-            vm.tasks[tid].stack[HDR + 3] =
-                Value::builtin(crate::builtins::id_of("math.floor").unwrap()).0;
-            vm.tasks[tid].stack[HDR + 4] = Value::num(41.75).0;
-            vm.execution_limit = Some(budget);
-            vm.instruction_budget = scheduled.then_some(budget);
-            let mut ctx: Ctx = unsafe { std::mem::zeroed() };
-            ctx.interp = (&mut *vm as *mut crate::interp::Interp).cast();
-            ctx.tid = tid as u64;
-            ctx.pc = 2;
-            crate::threaded::sync(&mut ctx, &mut vm);
-            let result = unsafe { native_helpers::nupp_rt_call_resolved(&mut ctx, 3, 1, 0) };
-            assert_eq!(result, 3);
-            assert_eq!(vm.tasks[tid].stack[HDR + 3], Value::inline_integer(41).unwrap().0);
-            assert_eq!(vm.execution_limit, Some(budget));
-            assert_eq!(vm.instruction_budget, scheduled.then_some(budget));
-            assert_eq!(ctx.budget, budget as u64);
-        }
-    }
-}
-
 
 #[test]
 fn record_and_physical_encodings_have_native_owners() {

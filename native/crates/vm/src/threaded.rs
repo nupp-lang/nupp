@@ -53,7 +53,9 @@ const GUARD_ALL: u64 = u64::MAX - 1;
 fn slow_calls() -> &'static [u8] {
     static SLOW: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     SLOW.get_or_init(|| crate::builtins::NAMES.iter().enumerate().map(|(id, name)| {
-        (id as u32 == crate::builtins::PCALL || id as u32 == crate::builtins::XPCALL || name.starts_with("tasks.")) as u8
+        if id as u32 == crate::builtins::PCALL { 2 }
+        else if id as u32 == crate::builtins::XPCALL { 3 }
+        else { name.starts_with("tasks.") as u8 }
     }).collect())
 }
 

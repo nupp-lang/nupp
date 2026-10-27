@@ -1,5 +1,7 @@
 module nupp.runtime.vm.values
 
+const native = require("nupp.runtime.vm.intrinsics")
+
 -- The value encoding (contracts 2.1), named once for every handler module. A
 -- value is a double unless its top sixteen bits spell a quiet NaN with a tag
 -- in the three bits below the quiet bit; the low 48 bits are the payload.
@@ -90,3 +92,12 @@ export const SPECIAL_TABLE_FLAGS = 224
 --- The guard of a task whose unwind is in progress (`GUARD_ALL` in the
 --- Rust core): every return, and every unwind, is Rust's.
 export const GUARD_ALL = 0xfffffffffffffffeULL
+
+-- The unchecked value-to-float adapter, exactly Value::as_num. Validation is
+-- a separate operation: non-integer words retain their original float bits.
+export function asNumber(value: uint64): number
+    if value & 0xffff000000000000ULL == TAG_INTEGER then
+        return native.toFloat(native.index(value << 16) ~>> 16)
+    end
+    return native.fromBits(value)
+end

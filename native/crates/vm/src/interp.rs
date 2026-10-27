@@ -987,7 +987,7 @@ impl Interp {
             self.tasks[tid].stack[handler.result] = Value::TRUE.0;
         }
     }
-    fn protected_results(&mut self, first: Value) {
+    pub(crate) fn protected_results(&mut self, first: Value) {
         let n = self.last_nres.min(MAX_RESULTS - 1);
         if n > 0 { self.extra.copy_within(0..n - 1, 1); self.extra[0] = first; }
         self.extra_n = if n >= 8 { n } else { 0 };

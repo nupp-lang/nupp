@@ -7,8 +7,34 @@
 -- Effects describe the full reachable operation, including guest callbacks.
 -- A non-collecting heap write still mutates state and is not pure.
 local record Helpers
-    @vmHelperEffects(mayCollect = false, mayPark = true, mayRaise = true, pure = false)
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     budgetStop: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    protectFrame: function(context: voidptr, frame: uint64, result: uint64, handler: uint64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    moveProtection: function(context: voidptr, frame: uint64): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    protectionHandler: function(context: voidptr): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    unprotect: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = false, pure = false)
+    protectedAnswer: function(context: voidptr, answer: uint64, result: uint64, handler: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    protectedCallback: function(context: voidptr, callee: uint64, base: uint64, nargs: int64, handler: uint64): uint64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    parameterClass: function(context: voidptr, fid: uint64, index: int64): int64
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    wrappedCoroutine: function(context: voidptr, value: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    callHost: function(context: voidptr, id: int64, base: uint64, nargs: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    callTask: function(context: voidptr, id: int64, base: uint64, nargs: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    callCoroutine: function(context: voidptr, coroutine: uint64, base: uint64, nargs: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    callObject: function(context: voidptr, object: uint64, base: uint64, nargs: int64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    callError: function(context: voidptr, value: uint64): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     reserveStack: function(context: voidptr, words: uint64): nil
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
@@ -55,12 +81,8 @@ local record Helpers
     newCell: function(context: voidptr): uint64
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     resolveMethod: function(context: voidptr, receiver: uint64, name: uint64): uint64
-    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
-    callResolved: function(context: voidptr, base: int64, nargs: int64, budgeted: int64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     defer: function(context: voidptr, value: uint64, callback: uint64): nil
-    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
-    protect: function(context: voidptr, frame: uint64, result: uint64): nil
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     resultStorage: function(context: voidptr): voidptr
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

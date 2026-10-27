@@ -307,26 +307,14 @@ export function pushFrame(
     return pushFixedSlow(pc, context, fid, closure, base, supplied, native.chooseIndex(budgeted, 1, 0))
 end
 
--- The rest of a call whose callee is already in the window at `base`, in
--- Rust, as `CallDyn base base nargs` would make it: a callee the core does
--- not push (a typed function, a host service, a value with `__call`), or a
--- push the core cannot make (no budget, no room). A method is resolved once,
--- so it is never resolved again; the answer is settled as the frame driver's
--- service's is.
-local function callResolvedSlow(pc: voidptr, context: voidptr, base: int64, nargs: int64): uint64
-    protocol.publishPc(pc, context)
-    return settle(context, helpers.callResolved(context, base, nargs, 0))
-end
-
 -- A call whose argument count is flagged, or whose callee takes varargs
 -- (contracts 5.1). The arguments are `fixed` words from the window at
 -- `base + 1`, then a spread: with 128 the caller's own varargs, which lie
 -- below its header, their count in header word 3; with 64 the results the
--- last call left after the fixed arguments, while they are all in the window
--- (eight or fewer). A vararg callee keeps its surplus just below its own
--- header, the count in its header word 3; any other callee drops it. Both
--- flags at once, and a pack past the window, are the step's, or with
--- `resolved` (a method already resolved) Rust's from the callee on.
+-- last call left after the fixed arguments, with the first eight in the
+-- window and the tail in result storage. A vararg callee keeps its surplus
+-- below its header. `resolved` is zero for a fresh budget point, one for an
+-- already charged call, and two for an already rooted protected call.
 local function pushSpreadSlow(
     pc: voidptr,
     context: voidptr,
@@ -406,67 +394,50 @@ local function pushSpreadSlow(
     -- Argument `i` is a fixed word or a spread word; a parameter's goes to
     -- its register, a surplus one below the header. Nothing overlaps: the
     -- callee lies above the caller's whole frame.
+    local typed = native.both(
+        closure ~= values.NIL,
+        native.both(
+            nargs < 64,
+            native.both(
+                native.load32(callee, native.layout("FuncInfo.typed")) ~= 0,
+                native.load32(callee, native.layout("FuncInfo.vararg")) == 0
+            )
+        )
+    )
+    local pushedFloats = native.offset(pushed, native.load32(callee, native.layout("FuncInfo.off_f")) * 8)
+    local vi: int64 = 0
+    local fi: int64 = 0
     local i: int64 = 0
-    while i < total do
-        local word: uint64 = 0
-        if i < fixed then
-            word = slots.readValue(frame, regs, base + 1 + i)
-        elseif native.both(native.both(nargs >= 64, nargs < 128), i - fixed >= 8) then
-            word = native.load64(extra, (i - fixed - 1) * 8)
-        else
-            word = slots.readValue(frame, source, i - fixed)
+    while i < total or i < nparams do
+        local word = values.NIL
+        if i < total then
+            if i < fixed then
+                word = slots.readValue(frame, regs, base + 1 + i)
+            elseif native.both(native.both(nargs >= 64, nargs < 128), i - fixed >= 8) then
+                word = native.load64(extra, (i - fixed - 1) * 8)
+            else
+                word = slots.readValue(frame, source, i - fixed)
+            end
         end
         if i < nparams then
-            slots.writeValue(pushed, pushedRegs, 1 + i, word)
+            if typed and helpers.parameterClass(context, fid, i) == 102 then
+                slots.writeFloat(pushed, pushedFloats, fi, values.asNumber(word))
+                fi = fi + 1
+            else
+                vi = vi + 1
+                slots.writeValue(pushed, pushedRegs, vi, word)
+            end
         elseif nvar > 0 then
             slots.writeValue(pushed, pushedVarargs, i - nparams, word)
         end
         i = i + 1
     end
-    while i < nparams do
-        slots.writeValue(pushed, pushedRegs, 1 + i, values.NIL)
-        i = i + 1
+    if resolved == 2 then
+        helpers.moveProtection(context, next)
     end
     native.store64(context, native.layout("cur"), next)
 
     return enterPushed(pc, regs, regs, regs, context, pushed, callee, fid)
-end
-
--- The Rust core's `dynamic_call!` once the callee is a known function id:
--- typed parameters and the unavailable function stay in Rust; a flagged
--- count or a vararg callee takes the spread push.
-local function dynamicCall(
-    pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
-    context: voidptr,
-    frame: voidptr,
-    fid: uint64,
-    closure: uint64,
-    nargs: int64
-): uint64
-    if fid >= native.load64(context, native.layout("nfuncs")) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        local callee = native.offset(
-            native.loadPointer(context, native.layout("funcs")),
-            native.index(fid) * native.layout("FuncInfo.size")
-        )
-        if native.either(
-            native.load32(callee, native.layout("FuncInfo.typed")) ~= 0,
-            fid == native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD)
-        ) then
-            return native.slow(pc, regs, ints, floats, context, frame)
-        elseif native.either(nargs >= 64, native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0) then
-            return pushSpreadSlow(pc, context, fid, closure, program.readByte(pc, 2), nargs, 0)
-        else
-            local base = program.readByte(pc, 2)
-            local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
-            local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-            return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, closure, base, supplied, true)
-        end
-    end
 end
 
 -- A static call copies every argument word, as its Rust handler does.
@@ -504,10 +475,17 @@ export function Call(
     end
 end
 
+-- A protected result destination is an absolute logical stack index.
+local function finishManaged(context: voidptr, answer: uint64, result: int64, handler: uint64): uint64
+    if result >= 0 then
+        return helpers.protectedAnswer(context, answer, native.word(result), handler)
+    end
+    return answer
+end
+
 -- A builtin called from the core: its arguments in the window from `base + 1`
 -- and its results delivered from `base` by the helper, which may grow the
--- stack. The protected calls and the task API, which park or run frames of
--- their own, are the slow-call table's and go to Rust whole.
+-- stack. Protected calls and task services have separate named boundaries.
 -- CallK/CallDyn gate zero before reaching this helper; CallMethod has
 -- already charged before resolving its target. The destination need not
 -- contain the callee, so it cannot stand in for a resolved-call boundary.
@@ -517,33 +495,252 @@ local function callBuiltinSlow(
     id: int64,
     base: uint64,
     nargs: int64,
-    budgeted: int64
+    protectedResult: int64,
+    handler: uint64
 ): uint64
-    if budgeted ~= 0 then
-        chargeBudget(context, native.load64(context, native.layout("budget")))
-    end
     protocol.publishPc(pc, context)
     helpers.callBuiltin(context, id, base, nargs)
+
+    if protectedResult >= 0 then
+        return settle(
+            context,
+            finishManaged(
+                context,
+                native.word(native.load32(context, native.layout("pc")) + 1),
+                protectedResult,
+                handler
+            )
+        )
+    end
 
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
 -- One step of an iterator object called as a function. CallK/CallDyn have
 -- already gated zero before reaching this helper.
-local function callIterSlow(pc: voidptr, context: voidptr, iterator: uint64, base: uint64): uint64
-    local budget = native.load64(context, native.layout("budget"))
-    chargeBudget(context, budget)
+local function callIterSlow(
+    pc: voidptr,
+    context: voidptr,
+    iterator: uint64,
+    base: uint64,
+    protectedResult: int64,
+    handler: uint64
+): uint64
     protocol.publishPc(pc, context)
     helpers.callIter(context, iterator, base)
+    if protectedResult >= 0 then
+        return settle(
+            context,
+            finishManaged(
+                context,
+                native.word(native.load32(context, native.layout("pc")) + 1),
+                protectedResult,
+                handler
+            )
+        )
+    end
 
     return protocol.continueAfter(pc, context, 0, 0, false)
 end
 
--- The Rust core's `dynamic_call!`: a closure or a bare function value pushes
--- a frame, a builtin and an iterator run in Rust from the argument window,
--- and anything else is the interpreter's. A builtin whose arguments end in
--- the last call's results is the step's: the helper reads the result count
--- from the task record, which the core does not publish.
+-- The managed subsystem boundaries return only a status or the next pc.
+-- Target classification and frame construction remain in Nupp.
+local function managedCallSlow(
+    pc: voidptr,
+    context: voidptr,
+    kind: int64,
+    target: uint64,
+    base: uint64,
+    nargs: int64,
+    protectedResult: int64
+): uint64
+    local handler = values.NIL
+    if protectedResult >= 0 then
+        handler = helpers.protectionHandler(context)
+    end
+    protocol.publishPc(pc, context)
+    local answer: uint64 = 0
+    if kind == 1 then
+        answer = helpers.callHost(context, native.index(target), base, nargs)
+    elseif kind == 2 then
+        answer = helpers.callTask(context, native.index(target), base, nargs)
+    elseif kind == 3 then
+        answer = helpers.callCoroutine(context, target, base, nargs)
+    else
+        answer = helpers.callObject(context, target, base, nargs)
+    end
+
+    return settle(context, finishManaged(context, answer, protectedResult, handler))
+end
+
+local function callErrorSlow(
+    pc: voidptr,
+    context: voidptr,
+    value: uint64,
+    protectedResult: int64,
+    handler: uint64
+): uint64
+    protocol.publishPc(pc, context)
+    helpers.callError(context, value)
+    if protectedResult >= 0 then
+        return settle(context, finishManaged(context, values.ST_ERROR, protectedResult, handler))
+    end
+
+    return native.fail()
+end
+
+-- `base` is the logical destination, independent of the register holding
+-- the original target. A resolved method has already consumed its edge.
+local function invokeValue(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    value: uint64,
+    nargs: int64,
+    base: int64,
+    budgeted: boolean,
+    protectedResult: int64,
+    handler: uint64
+): uint64
+    if budgeted then
+        local budget = native.load64(context, native.layout("budget"))
+        if budget == 0 then
+            return budgetStop(pc, context)
+        end
+        chargeBudget(context, budget)
+    end
+    local destination = native.load64(context, native.layout("cur")) + 4 + native.word(base)
+    local fid = values.NO_GUARD
+    local closure = values.NIL
+    if value & values.TAG_MASK == values.TAG_OBJ then
+        local object = native.pointer(value & values.PAYLOAD)
+        local kind = native.load8(object, native.layout("Header.kind"))
+        if kind == 5 then
+            fid = native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD)
+            closure = value
+            if fid == native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD) then
+                local coroutine = helpers.wrappedCoroutine(context, value)
+                if coroutine ~= values.NIL then
+                    return managedCallSlow(pc, context, 3, coroutine, destination, nargs, protectedResult)
+                end
+            end
+        elseif kind == 8 then
+            return callIterSlow(pc, context, value, destination, protectedResult, handler)
+        elseif kind == 2 or kind == 3 or kind == 10 then
+            return managedCallSlow(pc, context, 4, value, destination, nargs, protectedResult)
+        end
+    elseif value & values.TAG_MASK == values.TAG_FUNC then
+        local upper = (value >> 32) & values.LOW_HALF
+        if upper == 0 then
+            fid = value & values.LOW_WORD
+        elseif upper == values.LOW_HALF then
+            local id = native.index(value & values.LOW_WORD)
+            if id >= 1000 then
+                return managedCallSlow(pc, context, 1, native.word(id), destination, nargs, protectedResult)
+            elseif native.word(id) < native.load64(context, native.layout("nslow_calls")) then
+                local kind = native.load8(native.loadPointer(context, native.layout("slow_calls")), id)
+                if kind == 1 then
+                    return managedCallSlow(pc, context, 2, native.word(id), destination, nargs, protectedResult)
+                elseif native.both(kind ~= 0, protectedResult >= 0) then
+                    -- A protected call of pcall/xpcall itself is the existing
+                    -- nonsuspending callback policy, rather than two records
+                    -- over the same callee frame.
+                    protocol.publishPc(pc, context)
+                    local answer = helpers.protectedCallback(
+                        context,
+                        value,
+                        native.word(protectedResult),
+                        nargs,
+                        handler
+                    )
+                    helpers.unprotect(context)
+                    return settle(context, answer)
+                end
+            end
+            return callBuiltinSlow(pc, context, id, destination, nargs, protectedResult, handler)
+        end
+    end
+    if fid < native.load64(context, native.layout("nfuncs")) then
+        return pushSpreadSlow(pc, context, fid, closure, base, nargs, native.chooseIndex(protectedResult >= 0, 2, 1))
+    end
+
+    return callErrorSlow(pc, context, value, protectedResult, handler)
+end
+
+-- Every protected target uses the same transfer protocol. The protection
+-- record roots an xpcall handler while managed invocation can collect.
+export function protectedCallSlow(pc: voidptr, context: voidptr, base: int64, nargs: int64, handler: uint64): uint64
+    local current = native.load64(context, native.layout("cur"))
+    local frame = native.offset(native.loadPointer(context, native.layout("stack")), native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    local target = slots.readValue(frame, regs, base + 1)
+    protocol.publishPc(pc, context)
+    helpers.protectFrame(context, current, current + 4 + native.word(base), handler)
+
+    return invokeValue(
+        pc,
+        regs,
+        regs,
+        regs,
+        context,
+        frame,
+        target,
+        nargs,
+        base + 1,
+        false,
+        native.index(current + 4) + base,
+        handler
+    )
+end
+
+local function callTarget(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    value: uint64,
+    nargs: int64,
+    base: int64,
+    budgeted: boolean
+): uint64
+    if value & values.TAG_MASK == values.TAG_FUNC and (value >> 32) & values.LOW_HALF == values.LOW_HALF then
+        local id = native.index(value & values.LOW_WORD)
+        if native.word(id) < native.load64(context, native.layout("nslow_calls")) then
+            local kind = native.load8(native.loadPointer(context, native.layout("slow_calls")), id)
+            if native.both(kind == 2, nargs & 63 ~= 0)
+                or native.both(kind == 3, native.both(nargs >= 2, nargs < 64))
+            then
+                if budgeted then
+                    local budget = native.load64(context, native.layout("budget"))
+                    if budget == 0 then
+                        return budgetStop(pc, context)
+                    end
+                    chargeBudget(context, budget)
+                end
+                local handler = values.NIL
+                local count = nargs - 1
+                if kind == 3 then
+                    handler = slots.readValue(frame, regs, base + 2)
+                    local i: int64 = 2
+                    while i < nargs do
+                        slots.writeValue(frame, regs, base + i, slots.readValue(frame, regs, base + i + 1))
+                        i = i + 1
+                    end
+                    count = nargs - 2
+                end
+                return protectedCallSlow(pc, context, base, count, handler)
+            end
+        end
+    end
+
+    return invokeValue(pc, regs, ints, floats, context, frame, value, nargs, base, budgeted, -1, values.NIL)
+end
+
 local function callValue(
     pc: voidptr,
     regs: voidptr,
@@ -554,59 +751,7 @@ local function callValue(
     value: uint64,
     nargs: int64
 ): uint64
-    if value & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(value & values.PAYLOAD)
-        local kind = native.load8(object, native.layout("Header.kind"))
-        if kind == 5 then
-            return dynamicCall(
-                pc,
-                regs,
-                ints,
-                floats,
-                context,
-                frame,
-                native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD),
-                value,
-                nargs
-            )
-        elseif kind == 8 then
-            return callIterSlow(
-                pc,
-                context,
-                value,
-                native.load64(context, native.layout("cur")) + 4 + native.word(program.readByte(pc, 2))
-            )
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    elseif value & values.TAG_MASK == values.TAG_FUNC then
-        local upper = (value >> 32) & values.LOW_HALF
-        if upper == 0 then
-            return dynamicCall(pc, regs, ints, floats, context, frame, value & values.LOW_WORD, values.NIL, nargs)
-        elseif upper == values.LOW_HALF then
-            local id = native.index(value & values.LOW_WORD)
-            if native.either(id >= 1000, native.both(nargs >= 64, nargs < 128)) then
-                return native.slow(pc, regs, ints, floats, context, frame)
-            elseif native.word(id) < native.load64(context, native.layout("nslow_calls"))
-                and native.load8(native.loadPointer(context, native.layout("slow_calls")), id) ~= 0
-            then
-                return native.slow(pc, regs, ints, floats, context, frame)
-            else
-                return callBuiltinSlow(
-                    pc,
-                    context,
-                    id,
-                    native.load64(context, native.layout("cur")) + 4 + native.word(program.readByte(pc, 2)),
-                    nargs,
-                    1
-                )
-            end
-        else
-            return native.slow(pc, regs, ints, floats, context, frame)
-        end
-    else
-        return native.slow(pc, regs, ints, floats, context, frame)
-    end
+    return callTarget(pc, regs, ints, floats, context, frame, value, nargs, program.readByte(pc, 2), true)
 end
 
 -- The call target reported to the JIT's feedback, then the call itself.
@@ -648,8 +793,6 @@ export function CallK(
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
     if specialization.inInterpreter() and native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
-    elseif value == values.TAG_FUNC | program.readWord(pc, 8) then
-        return dynamicCall(pc, regs, ints, floats, context, frame, program.readWord(pc, 8), values.NIL, nargs)
     else
         return callValue(pc, regs, ints, floats, context, frame, value, nargs)
     end
@@ -1045,13 +1188,12 @@ export function VarargN(
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
--- `recv:name(...)`: the method resolved by the helper (contracts 2.x: a
--- string's from its metatable's `__index`, a record's from its shape, a
--- table's through `__index`), written into `base`, where a dynamic call
--- reads its callee, and called with the receiver as its first argument, as
--- `CallK` calls: a function or a closure pushes a frame here, a builtin
--- runs from the window, and anything else is Rust's from the resolved
--- method on. The receiver goes to the JIT's feedback first, as a receiver.
+-- `recv:name(...)`: the method resolved by the helper (contracts 2.x: a string's from
+-- its metatable's `__index`, a record's from its shape, a table's through `__index`),
+-- written into `base`, where a dynamic call reads its callee, and called with the
+-- receiver as its first argument, as `CallK` calls: a function or a closure pushes a
+-- frame here, a builtin runs from the window, and managed targets use their named
+-- service. The receiver goes to the JIT's feedback first, as a receiver.
 local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base: int64, nargs: int64): uint64
     protocol.publishPc(pc, context)
     local stack = native.loadPointer(context, native.layout("stack"))
@@ -1076,56 +1218,8 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
     frame = native.offset(stack, native.index(current * 8))
     local regs = native.offset(frame, 32)
     slots.writeValue(frame, regs, base, method)
-    local fid = values.NO_GUARD
-    local closure = values.NIL
-    if method & values.TAG_MASK == values.TAG_FUNC then
-        local upper = (method >> 32) & values.LOW_HALF
-        if upper == 0 then
-            fid = method & values.LOW_WORD
-        elseif native.both(upper == values.LOW_HALF, native.either(nargs < 64, nargs >= 128)) then
-            local id = native.index(method & values.LOW_WORD)
-            if native.both(
-                id < 1000,
-                native.either(
-                    native.word(id) >= native.load64(context, native.layout("nslow_calls")),
-                    native.load8(native.loadPointer(context, native.layout("slow_calls")), id) == 0
-                )
-            ) then
-                return callBuiltinSlow(pc, context, id, current + 4 + native.word(base), nargs, 0)
-            end
-        end
-    elseif method & values.TAG_MASK == values.TAG_OBJ then
-        local object = native.pointer(method & values.PAYLOAD)
-        if native.load8(object, native.layout("Header.kind")) == 5 then
-            fid = native.word(native.load32(object, native.layout("Header.aux")) & values.LOW_WORD)
-            closure = method
-        end
-    end
-    if fid < native.load64(context, native.layout("nfuncs")) then
-        local callee = native.offset(
-            native.loadPointer(context, native.layout("funcs")),
-            native.index(fid) * native.layout("FuncInfo.size")
-        )
-        if native.both(
-            native.load32(callee, native.layout("FuncInfo.typed")) == 0,
-            fid ~= native.word(native.load32(context, native.layout("unavailable_fid")) & values.LOW_WORD)
-        ) then
-            if native.either(nargs >= 64, native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0) then
-                return pushSpreadSlow(pc, context, fid, closure, base, nargs, 1)
-            end
-            -- The push's own refusals are decided here, so it never hands
-            -- the instruction back to be resolved a second time.
-            local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
-            local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-            if next + words <= native.load64(context, native.layout("cap")) then
-                local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
-                local supplied = native.chooseIndex(nargs < nparams, nargs, nparams)
-                return pushFrame(pc, regs, regs, regs, context, frame, callee, fid, closure, base, supplied, false)
-            end
-        end
-    end
 
-    return callResolvedSlow(pc, context, base, nargs)
+    return callTarget(pc, regs, regs, regs, context, frame, method, nargs, base, false)
 end
 
 -- `CallMethod k base nargs`: the method named by constant `k` on the
@@ -1170,7 +1264,7 @@ export function CallT(
 ): uint64
     local fid = program.readWord(pc, 8)
     if fid >= native.load64(context, native.layout("nfuncs")) then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return callErrorSlow(pc, context, values.TAG_FUNC | fid, -1, values.NIL)
     end
     local callee = native.offset(
         native.loadPointer(context, native.layout("funcs")),
