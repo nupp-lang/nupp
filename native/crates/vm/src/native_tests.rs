@@ -2490,3 +2490,97 @@ fn native_and_rust_charge_only_taken_backward_conditions() {
         }
     }
 }
+
+#[test]
+fn native_dynamic_record_reads_canonicalize_string_keys() {
+    let source = r#"
+function read 0 2 5 1 vv:v
+GetIdx 3 1 2
+Ret 3
+end
+entry 0
+"#;
+    for threaded in [false, true] {
+        for slice in [false, true] {
+            let mut vm = crate::interp::Interp::new();
+            crate::image::load(&mut vm, source).unwrap();
+            let name = vm.intern("field");
+            vm.registered.push(name);
+            let shape = vm
+                .heap
+                .shape("dynamic-key-record", &[name], &[crate::heap::SlotTy::Any]);
+            let record = vm.new_record(shape);
+            vm.registered.push(record);
+            vm.set_index(record, name, Value::TRUE);
+            let key = if slice {
+                let owner = vm.new_string_bytes(b"__field__");
+                vm.registered.push(owner);
+                vm.new_slice(owner, 2, 5)
+            } else {
+                vm.new_string_bytes(b"field")
+            };
+            vm.registered.push(key);
+            assert_ne!(key, name, "fixture must use a noncanonical string key");
+            assert_eq!(vm.get_index_any(record, key), Value::TRUE);
+            vm.entries.resize(vm.funcs.len(), 0);
+            vm.prepare_threaded();
+            vm.threaded = threaded;
+            let tid = vm.spawn(0, &[record, key]);
+            assert!(
+                matches!(vm.run(tid), crate::interp::Outcome::Done(v) if v == Value::TRUE),
+                "threaded {threaded}, slice {slice}"
+            );
+        }
+    }
+}
+
+#[test]
+fn native_dynamic_record_missing_keys_preserve_index_callbacks() {
+    let source = r#"
+function read 0 2 5 1 vv:v
+GetIdx 3 1 2
+Ret 3
+end
+function echo_key 1 2 4 1 vv:v
+Ret 2
+end
+function answer_true 2 2 4 1 vv:v
+const 0 true
+K 3 0
+Ret 3
+end
+entry 0
+"#;
+    for nil_key in [false, true] {
+        let mut vm = crate::interp::Interp::new();
+        crate::image::load(&mut vm, source).unwrap();
+        let field = vm.intern("field");
+        vm.registered.push(field);
+        let shape = vm
+            .heap
+            .shape("missing-key-record", &[field], &[crate::heap::SlotTy::Any]);
+        let record = vm.new_record(shape);
+        vm.registered.push(record);
+        let key = if nil_key {
+            Value::NIL
+        } else {
+            vm.new_string_bytes(b"unknown-fresh-key")
+        };
+        vm.registered.push(key);
+        let meta = vm.new_table();
+        vm.registered.push(meta);
+        let index = vm.intern("__index");
+        vm.set_index(meta, index, Value::func(if nil_key { 2 } else { 1 }));
+        vm.set_metatable(record, meta);
+        vm.entries.resize(vm.funcs.len(), 0);
+        vm.prepare_threaded();
+        vm.threaded = true;
+        let tid = vm.spawn(0, &[record, key]);
+        let expected = if nil_key { Value::TRUE } else { key };
+        let outcome = vm.run(tid);
+        assert!(
+            matches!(outcome, crate::interp::Outcome::Done(v) if v == expected),
+            "nil key {nil_key}, outcome {outcome:?}"
+        );
+    }
+}
