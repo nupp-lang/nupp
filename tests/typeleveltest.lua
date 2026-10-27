@@ -2527,21 +2527,20 @@ end
 function M.admissionTestsWhatProofLeaves()
     local alias = "local type Small = nupp.types.range(integer, 0, 10)\n"
     local admitted, high, fraction, reads = run(
-        alias
-            .. table.concat(
-                {
-                    "local reads = 0",
-                    "local function read(v: number): number",
-                    "    reads = reads + 1",
-                    "    return v",
-                    "end",
-                    "local function of(v: number): Small",
-                    "    return nupp.admit(read(v) as integer)",
-                    "end",
-                    "return of(1), pcall(of, 11), pcall(of, 1.5), reads",
-                },
-                "\n"
-            ),
+        alias .. table.concat(
+            {
+                "local reads = 0",
+                "local function read(v: number): number",
+                "    reads = reads + 1",
+                "    return v",
+                "end",
+                "local function of(v: number): Small",
+                "    return nupp.admit(read(v) as integer)",
+                "end",
+                "return of(1), pcall(of, 11), pcall(of, 1.5), reads",
+            },
+            "\n"
+        ),
         "admit"
     )
     testAssert.equal(admitted, 1)
@@ -2758,6 +2757,18 @@ function M.aConstrainedTypeReachesAUnionAsItself()
     -- and an assignment into a field resolves what it admits into, like a binding
     local box = alias .. "local record Box\n    text: Short\nend\n"
     clean(box .. "local function put(b: Box, v: string): nil\n    b.text = nupp.admit(v)\nend\nprint(put)")
+end
+
+function M.integerAliasesShareTheCanonicalRangeDomain()
+    local constrain = require("nupp.compiler.types.constrain")
+    assert(constrain.admits(types.integer, false))
+    assert(constrain.admits(types.int64, false))
+    assert(not constrain.admits(types.float, false))
+    local small = assert(constrain.build(types.integer, -10, 10, false))
+    assert(require("nupp.compiler.types.relations").isA(small, types.integer))
+    assert(constrain.build(small, -5, 5, false))
+    assert(not constrain.build(types.int64, 10, 0, false))
+    assert(not constrain.build(types.int64, -9007199254740992, 0, false))
 end
 
 return M

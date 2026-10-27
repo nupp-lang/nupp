@@ -27,7 +27,7 @@ local MAX_EXACT_INTEGER = 9007199254740991
 --- language holds a numeric literal type to.
 local RANGE_DOMAIN: {
     [string]: {number}
-} = {integer = {-MAX_EXACT_INTEGER, MAX_EXACT_INTEGER}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
+} = {int64 = {-MAX_EXACT_INTEGER, MAX_EXACT_INTEGER}, int32 = {-2147483648, 2147483647}, uint32 = {0, 4294967295},}
 
 --- Whether `base` can carry a range or a length constraint, and why not when it
 --- cannot. A constrained alias of an admissible base is admissible: narrowing one
