@@ -41,10 +41,11 @@
     "seedArchive": {
       "executionVerified": true,
       "host": "aarch64-apple-darwin",
-      "url": "file:///Users/dowling/projects/nupp-wt/native-runtime/build/native-p2-finish/nupp-seed-aarch64-apple-darwin.tar.gz",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-seed.3/nupp-seed-aarch64-apple-darwin.tar.gz",
       "sha256": "ddb4cf0288f731e8cf212f952f0526d6373d724e146cf5d45a3640419775c3a7",
       "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
-      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd"
+      "imageSha256": "1df60fd46003a754a54aafea4a479e68cfde84f94a5902aa1dea6e0338ca5bdd",
+      "coldRemoteFetchVerified": true
     }
   },
   "open": [
@@ -53,5 +54,6 @@
     "Linux and Windows cold-bootstrap acceptance",
     "P1b remaining common-graph integration"
   ],
-  "performance": "Deferred by owner; this seed does not claim performance acceptance or full migration completion."
+  "performance": "Deferred by owner; this seed does not claim performance acceptance or full migration completion.",
+  "release": "https://github.com/nupp-lang/nupp/releases/tag/v0.0.15-native-seed.3"
 }
