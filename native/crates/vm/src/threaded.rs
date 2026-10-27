@@ -96,6 +96,7 @@ codes! {
     Simd, SpanLen, SpanBounds, SpanLoad, SpanStore, VOp, VSplatN, VExtractN, VAny, VPrefix,
     VAdd, VMul, VLoadM, VStoreM, LoopFact, GuardLenLe, VMov, FFma,
     StorageLen, FLoad, FStore, VSplat, VLoad, VStore, VFma, VLane,
+    Require, RequireV, SetMethod,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -241,6 +242,9 @@ pub fn encode(op: &Op) -> Ins {
         Op::SpanStore(a,b,c,d,e,f,g) => Ins { imm:d as i32 | ((e as i32)<<8) | ((f as i32)<<16) | ((g as i32)<<24), ..i(Code::SpanStore,a,b,c) },
         Op::VOp(a,b,c,d,e,f) => Ins { imm:a as i32 | ((b as i32)<<8) | ((f as i32)<<16), ..i(Code::VOp,c,d,e) },
         Op::Simd(a,b,c,d,e) => Ins { imm:c as i32 | ((e as i32)<<8), ..i(Code::Simd,a,b,d) },
+        Op::Require(d, k) => Ins { imm: k as i32, ..i(Code::Require, d, 0, 0) },
+        Op::RequireV(d, source) => i(Code::RequireV, d, source, 0),
+        Op::SetMethod(shape, k, value) => Ins { imm: shape as i32, k: k as i64, ..i(Code::SetMethod, value, 0, 0) },
         _ => i(Code::Slow, 0, 0, 0),
     }
 }

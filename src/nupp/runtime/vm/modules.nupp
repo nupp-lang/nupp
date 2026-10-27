@@ -1,0 +1,71 @@
+module nupp.runtime.vm.modules
+
+-- Module instructions and shape registration publish the current frame before
+-- services can run loaders or mutate managed declarations.
+const native = require("nupp.runtime.vm.intrinsics")
+const program = require("nupp.runtime.vm.program")
+const slots = require("nupp.runtime.vm.slots")
+const values = require("nupp.runtime.vm.values")
+const helpers = require("nupp.runtime.vm.modulehelpers")
+const protocol = require("nupp.runtime.vm.protocol")
+
+local function requireSlow(pc: voidptr, context: voidptr, name: uint64, destination: int64): uint64
+    protocol.publishPc(pc, context)
+    local value = helpers.requireModule(context, name)
+    return protocol.continueAfter(pc, context, destination, value, true)
+end
+
+export function Require(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local name = native.load64(
+        native.loadPointer(info, native.layout("FuncInfo.consts")),
+        program.readSigned32(pc, 4) * 8
+    )
+
+    return requireSlow(pc, context, name, program.readByte(pc, 1))
+end
+
+export function RequireV(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local name = slots.readValue(frame, regs, program.readByte(pc, 2))
+    return requireSlow(pc, context, name, program.readByte(pc, 1))
+end
+
+export function SetMethod(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local info = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(native.load64(frame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+    )
+    local name = native.load64(
+        native.loadPointer(info, native.layout("FuncInfo.consts")),
+        program.readInteger(pc, 8) * 8
+    )
+    local method = slots.readValue(frame, regs, program.readByte(pc, 1))
+    protocol.publishPc(pc, context)
+    helpers.registerMethod(context, program.readSigned32(pc, 4) & values.LOW_WORD, name, method)
+
+    return protocol.continueAfter(pc, context, 0, values.NIL, false)
+end

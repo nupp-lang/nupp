@@ -72,6 +72,21 @@ pub(crate) mod native_helpers {
         result
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_require_module(ctx: *mut Ctx, name: u64) -> u64 {
+        record_service(ctx, |it| {
+            let bytes = it.bytes_of(Value(name)).to_vec();
+            let name = String::from_utf8_lossy(&bytes);
+            it.require(&name).0
+        })
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn nupp_rt_register_method(ctx: *mut Ctx, shape: u64, name: u64, method: u64) {
+        record_service(ctx, |it| {
+            it.set_method(shape as u32, Value(name), Value(method));
+            0
+        });
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn nupp_rt_record_index(ctx: *mut Ctx, object: u64, name: u64) -> u64 {
         record_service(ctx, |it| it.index(Value(object), Value(name)).0)
     }
@@ -445,6 +460,10 @@ pub(crate) mod native_helpers {
 #[cfg(test)]
 #[path = "native_tests.rs"]
 mod native_tests;
+
+#[cfg(test)]
+#[path = "native_module_tests.rs"]
+mod native_module_tests;
 
 /// Runs the context's task from its top frame until it finishes, parks or
 /// raises; the status says which. The chain starts at the frame driver's

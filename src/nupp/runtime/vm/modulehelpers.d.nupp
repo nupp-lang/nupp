@@ -1,0 +1,9 @@
+-- Temporary module-loading and shape-registration services. The instruction
+-- operands and result transfers belong to the Nupp handlers.
+local record ModuleHelpers
+    @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
+    requireModule: function(context: voidptr, name: uint64): uint64
+    @vmHelperEffects(mayCollect = true, mayPark = false, mayRaise = true, pure = false)
+    registerMethod: function(context: voidptr, shape: int64, name: uint64, method: uint64): nil
+end
+return ModuleHelpers
