@@ -414,7 +414,7 @@ end
 
 function M.selfEdgesRespectTheExecutionBudget()
     local process = require("nupp.io.process")
-    for _, case in ipairs({
+    for caseIndex, case in ipairs({
         {"Jmp -1", 0},
         {"const 0 num 1\nK 1 0\nJmpIf 1 -1", 1},
         {"Nil 1\nJmpIfNot 1 -1", 1},
@@ -425,17 +425,17 @@ function M.selfEdgesRespectTheExecutionBudget()
         local fn = guest.parse("function spin 0 0 4 2 :v\n" .. case[1] .. "\nRetNil\nend\n")
         local clif, reason = guest.emit(fn, layouts(), {nested = 0})
         assert(clif, reason)
-        -- Give all four harness entries one back edge, then expect the jump's
+        -- Give all five harness entries one back edge, then expect the jump's
         -- pc as the deoptimization exit when its budget is spent.
         local pattern = "(= iconst%.i64 )%-1(\n%s*store notrap v%d+, v%d+%+" .. tostring(layouts()("budget")) .. "\n)"
         local harness, count = guest.harness(fn, clif, layouts()):gsub(pattern, function(prefix, suffix)
             return prefix .. "1" .. suffix
         end)
-        assert(count == 4, "the harness did not set all entry budgets")
+        assert(count == 5, "the harness did not set all entry budgets")
         local path = tempDirectory() .. "/spin.clif"
         write(path, harness)
         local child, problem = process.spawn({
-            args = {glueTool(), "native", "jit", path, "word_0"},
+            args = {glueTool(), "native", "jit", path, "exit_0"},
             stdin = "null",
             timeoutMs = 10000,
         })
@@ -445,6 +445,21 @@ function M.selfEdgesRespectTheExecutionBudget()
         assert(result, failed)
         assert(result:succeeded(), "a self edge did not stop at its budget: " .. result.errorOutput)
         assert(tonumber(result.output) == case[2], "a self edge stopped at the wrong pc: " .. result.output)
+        if caseIndex == 1 then
+            for _, entry in ipairs({"word_0", "integer_word_0"}) do
+                local incomplete = assert(
+                    process.spawn({
+                        args = {glueTool(), "native", "jit", path, entry},
+                        stdin = "null",
+                        timeoutMs = 10000,
+                    })
+                )
+                local refused, problem = incomplete:communicate()
+                incomplete:close()
+                assert(refused, problem)
+                assert(not refused:succeeded(), "an unfinished entry was accepted as a result word")
+            end
+        end
     end
 end
 

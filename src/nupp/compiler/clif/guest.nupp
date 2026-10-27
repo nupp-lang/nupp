@@ -3421,15 +3421,15 @@ function guest.functions(imageText: string): {[string]: string}
     return out
 end
 
---- A test harness for `nupp-vm native jit`: a CLIF function
---- `%run_<fid>(f64...) -> f64` that builds a fake task context and frame in
---- stack slots, places the boxed arguments in the parameter registers, calls
---- the entry at pc 0 and answers the result slot's word as a double; and
---- `%word_<fid>` answering the word itself. The `integer_` and `integer_word_`
---- entries receive and box signed48 integer arguments. Wider integers need a
---- real VM to own their boxes. Helpers the entry imports are defined as stubs
---- answering zero, so the file links alone; a case whose
---- path reaches one is not a harness case.
+--- A test harness for `nupp-vm native jit`: a CLIF function `%run_<fid>(f64...) -> f64`
+--- that builds a fake task context and frame in stack slots, places the boxed arguments
+--- in the parameter registers, calls the entry at pc 0 and answers the result slot's
+--- word as a double; and `%word_<fid>` answering the word itself. The `integer_` and
+--- `integer_word_` entries receive and box signed48 integer arguments. Wider integers
+--- need a real VM to own their boxes. Only `exit_<fid>` permits an unfinished entry and
+--- returns its exit pc for budget tests. Helpers the entry imports are defined as stubs
+--- answering zero, so the file links alone; a case whose path reaches one is not a
+--- harness case.
 function guest.harness(fn: guest.Fn, clif: string, layout: function(string): number): string
     local frameWords = 4 + fn.nregs + 1 + fn.nireg + fn.nfreg + 2 * fn.nvreg
     -- The fake stack: a caller frame of four words at zero whose result slot
@@ -3438,7 +3438,7 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
     local stackWords = frameIndex + frameWords + 8
     local ctxBytes = 512
 
-    local function body(name: string, resultType: string, argumentType: string): string
+    local function body(name: string, resultType: string, argumentType: string, allowExit: boolean): string
         local out = {}
         local params = {}
         local types = {}
@@ -3540,12 +3540,13 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
         line(ok .. " = icmp eq " .. answer .. ", " .. returned)
         local result = fresh()
         line(result .. " = load.i64 notrap " .. stack .. "+64")
-        -- A failed run answers the exit word itself, which no boxed number
-        -- equals, so a test sees the pc or the status.
+        -- Only the explicit exit entry may answer an unfinished exit pc.
         local word = fresh()
         line(word .. " = select " .. ok .. ", " .. result .. ", " .. answer)
-        if resultType == "f64" then
+        if not allowExit then
             line("trapz " .. ok .. ", user3")
+        end
+        if resultType == "f64" then
             local mask, tag, masked, inline = fresh(), fresh(), fresh(), fresh()
             line(mask .. " = iconst.i64 0xffff000000000000")
             line(tag .. " = iconst.i64 " .. guest.TAG_INTEGER)
@@ -3597,16 +3598,24 @@ function guest.harness(fn: guest.Fn, clif: string, layout: function(string): num
     return clif .. "\n" .. body(
         "run_" .. tostring(fn.fid),
         "f64",
-        "f64"
+        "f64",
+        false
     ) .. body(
         "word_" .. tostring(fn.fid),
         "i64",
-        "f64"
+        "f64",
+        false
     ) .. body(
         "integer_" .. tostring(fn.fid),
         "f64",
-        "i64"
-    ) .. body("integer_word_" .. tostring(fn.fid), "i64", "i64") .. table.concat(stubs, "\n")
+        "i64",
+        false
+    ) .. body(
+        "integer_word_" .. tostring(fn.fid),
+        "i64",
+        "i64",
+        false
+    ) .. body("exit_" .. tostring(fn.fid), "i64", "f64", true) .. table.concat(stubs, "\n")
 end
 
 --- Command line: `guest FUNCTION.txt LAYOUTS.json [NESTED]`, the CLIF on
