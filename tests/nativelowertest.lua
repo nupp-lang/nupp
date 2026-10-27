@@ -757,9 +757,15 @@ function M.theGlueChecksTheHandlerContractOnTheParsedFunction()
     rejectsObject("syntax", (iadd:gsub("uload8.i64", "uload8.i65", 1)), "expected")
 end
 
-function M.wholeScalarHandlersUseTheNuppGraph()
+function M.wholeCoreHandlersUseTheNuppGraph()
     local clif = coreClif()
     for _, name in ipairs({
+        "GetCell",
+        "GetUpval",
+        "Lt",
+        "Le",
+        "Len",
+        "LenF",
         "Jmp",
         "JmpIfIZero",
         "JmpIf",

@@ -18,6 +18,40 @@ local function read(path)
     return text
 end
 
+local function functionsFrom(parsed, scope)
+    scope.functions, scope.exports = {}, {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            local node = stat.kind == "exportStmt" and stat.stat or stat
+            if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
+                local body = node.body
+                local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
+                local kinds = {}
+                for index, parameter in ipairs(body.params) do
+                    kinds[index] = parameter.type.resolvedType.tag
+                end
+                local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
+                local fn = {
+                    name = name,
+                    node = node,
+                    body = body,
+                    scope = scope,
+                    paramKinds = kinds,
+                    resultKind = result ~= "nil" and result or nil,
+                    isHandler = scope.name == "nupp.runtime.vm.core" and result == "uint64" and #kinds == 6,
+                    isSupport = name:match("Slow$") ~= nil
+                }
+                scope.functions[name] = fn
+                if stat.kind == "exportStmt" then
+                    scope.exports[name] = fn
+                end
+            end
+        end
+    end
+
+    return scope.functions
+end
+
 local function checked(source)
     trivia.installDefault(provider)
     local env = environment.new(ROOT, {cache = false, config = {include = {"src"}}})
@@ -27,32 +61,7 @@ local function checked(source)
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
     local scope = {name = "nupp.runtime.vm.core", path = CORE}
-    local functions = {}
-    for _, block in ipairs(parsed.root.blocks) do
-        for _, stat in ipairs(block.stats) do
-            if stat.kind == "exportStmt" and stat.stat and stat.stat.kind == "funcStmt" then
-                local node = stat.stat
-                local body = node.body
-                local kinds = {}
-                for index, param in ipairs(body.params) do
-                    kinds[index] = param.type.resolvedType.tag
-                end
-                local result = body.signatureType.rets[1].tag
-                local name = node.name.base.text
-                functions[
-                    name
-                ] = {
-                    name = name,
-                    node = node,
-                    body = body,
-                    scope = scope,
-                    paramKinds = kinds,
-                    resultKind = result,
-                    isHandler = result == "uint64" and #kinds == 6,
-                }
-            end
-        end
-    end
+    local functions = functionsFrom(parsed, scope)
     -- Reproduce the existing checked module record supplied by the native
     -- lowering, taking the constant's lexical text from the actual source.
     local values = parser.parse(read(VALUES), VALUES)
@@ -72,54 +81,92 @@ local function checked(source)
         end
     end
 
-    return functions, {modules = {["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
+    return functions, {modules = {[scope.name] = scope, ["nupp.runtime.vm.values"] = {exportedConstants = constants}}}
 end
 
-local function checkedJumps()
+local function checkedWithModules(moduleNames)
     local functions, options = checked(read(CORE))
     trivia.installDefault(provider)
     local env = environment.new(ROOT, {cache = false, config = {include = {"src"}}})
-    for _, moduleName in ipairs({"calls", "protocol"}) do
+    for _, moduleName in ipairs(moduleNames) do
         local path = ROOT .. "/src/nupp/runtime/vm/" .. moduleName .. ".nupp"
         local parsed = parser.parse(read(path), path)
         assert(#parsed.errors == 0)
         for _, diagnostic in ipairs(checker.check(parsed, path, env, {})) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
-        local scope = {name = "nupp.runtime.vm." .. moduleName, path = path, functions = {}, exports = {}}
+        local scope = {name = "nupp.runtime.vm." .. moduleName, path = path}
         options.modules[scope.name] = scope
-        for _, block in ipairs(parsed.root.blocks) do
-            for _, stat in ipairs(block.stats) do
-                local node = stat.kind == "exportStmt" and stat.stat or stat
-                if node and (node.kind == "localFuncStmt" or node.kind == "funcStmt") then
-                    local body = node.body
-                    local name = node.kind == "localFuncStmt" and node.name.text or node.name.base.text
-                    local kinds = {}
-                    for index, parameter in ipairs(body.params) do
-                        kinds[index] = parameter.type.resolvedType.tag
-                    end
-                    local result = body.signatureType.rets[1] and body.signatureType.rets[1].tag
-                    local fn = {
-                        name = name,
-                        node = node,
-                        body = body,
-                        scope = scope,
-                        paramKinds = kinds,
-                        resultKind = result ~= "nil" and result or nil,
-                        isHandler = false,
-                        isSupport = name:match("Slow$") ~= nil
-                    }
-                    scope.functions[name] = fn
-                    if stat.kind == "exportStmt" then
-                        scope.exports[name] = fn
-                    end
-                end
-            end
-        end
+        functionsFrom(parsed, scope)
     end
     options.helperModules = {["nupp.runtime.vm.helpers"] = "nupp_rt_"}
 
     return functions, options
+end
+
+local function checkedJumps()
+    return checkedWithModules({"calls", "protocol"})
+end
+
+function M.remainingCoreHandlersUseCheckedLoadsLoopsAndManagedTransfers()
+    local functions, options = checkedWithModules({"protocol", "strings", "numeric"})
+    for _, name in ipairs({"GetCell", "GetUpval", "Lt", "Le", "Len", "LenF"}) do
+        local g = nativegraph.compile(functions[name], options)
+        graph.verify(g)
+        graph.prune(g)
+        graph.verify(g)
+        assert(g.source.module == "nupp.runtime.vm.core" and g.source.name == name)
+        local tail, failures, loops, cellErrors = nil, 0, 0, 0
+        for _, block in ipairs(g.blocks) do
+            for index, op in ipairs(block.op) do
+                if op == "NativeHelperCall" then
+                    local declaration = block.args[index][1]
+                    assert(declaration.name == "cellError")
+                    assert(declaration.effects.mayCollect and declaration.effects.mayRaise)
+                    cellErrors = cellErrors + 1
+                end
+            end
+            if block.term.kind == "nativeTail" then
+                tail = block.term
+            elseif block.term.kind == "nativeFail" then
+                failures = failures + 1
+            end
+            for _, edge in ipairs(block.term.edges) do
+                if edge.target <= block.id then
+                    loops = loops + 1
+                end
+            end
+        end
+        if name == "GetCell" or name == "GetUpval" then
+            assert(cellErrors == 2 and failures == 2 and tail == nil)
+        elseif name == "Lt" or name == "Le" then
+            assert(tail and tail.callee.moduleName == "nupp.runtime.vm.numeric" and tail.callee.name == "orderSlow")
+            assert(loops >= 2, "checked string comparison loops were lost")
+            local found = false
+            for _, declaration in ipairs(g.compositions) do
+                if declaration.moduleName == "nupp.runtime.vm.strings" and declaration.name == "order" then
+                    found = true
+                end
+            end
+            assert(found, "string ordering bypassed its checked Nupp body")
+        else
+            assert(tail and tail.callee.moduleName == "nupp.runtime.vm.core" and tail.callee.name == "lengthSlow")
+        end
+    end
+end
+
+function M.coreCompositionRejectsChangedLocalIdentityAndImportedKinds()
+    local functions, options = checkedWithModules({"strings", "numeric"})
+    local length = options.modules["nupp.runtime.vm.core"].functions.lengthSlow
+    local original = length.node.name.definition
+    length.node.name.definition = {}
+    local ok, problem = pcall(nativegraph.compile, functions.Len, options)
+    assert(not ok and tostring(problem):find("checked function", 1, true), tostring(problem))
+    length.node.name.definition = original
+    local order = options.modules["nupp.runtime.vm.strings"].exports.order
+    order.paramKinds[8] = "int64"
+    ok, problem = pcall(nativegraph.compile, functions.Lt, options)
+    assert(not ok and tostring(problem):find("parameter kind", 1, true), tostring(problem))
 end
 
 function M.jumpHandlersComposeCheckedBackEdgePolicy()
@@ -243,7 +290,7 @@ function M.exactScalarHandlersProduceTheSharedGraph()
             count = count + 1
         end
     end
-    assert(count == #admitted + 4)
+    assert(count == #admitted + 10)
     for _, name in ipairs(admitted) do
         local fn = assert(functions[name])
         local g = nativegraph.compile(fn, options)

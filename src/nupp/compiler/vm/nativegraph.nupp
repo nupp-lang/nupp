@@ -9,6 +9,12 @@ local helpercontract = require("nupp.compiler.vm.helpercontract")
 
 local nativegraph = {}
 local admitted = {
+    GetCell = true,
+    GetUpval = true,
+    Lt = true,
+    Le = true,
+    Len = true,
+    LenF = true,
     Jmp = true,
     JmpIfIZero = true,
     JmpIf = true,
