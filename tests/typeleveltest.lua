@@ -92,6 +92,45 @@ function M.integerLiteralIdentitiesPreserveTheWholeSignedDomain()
     )
 end
 
+function M.arithmeticRequiresAConcreteFloatOperandToInferFloat()
+    for _, operator in ipairs({"+", "-", "*", "%", "//"}) do
+        for _, expression in ipairs({"value " .. operator .. " 1", "1 " .. operator .. " value"}) do
+            local source = "local function calculate(value: number): number local result = "
+                .. expression
+                .. " return result end"
+            local parsed = parser.parse(source, "numeric-witness.nupp")
+            testAssert.equal(#parsed.errors, 0)
+            testAssert.equal(#check.check(parsed, "numeric-witness.nupp", env), 0)
+            local result = parsed.root.blocks[1].stats[1].body.body.stats[1].names[1].definition.type
+            testAssert.equal(result, types.number, "integer literal is not a runtime float witness: " .. expression)
+        end
+        local source = "local function calculate(value: number): float local result = value "
+            .. operator
+            .. " 1.0 return result end"
+        local parsed = parser.parse(source, "float-witness.nupp")
+        testAssert.equal(#parsed.errors, 0)
+        testAssert.equal(#check.check(parsed, "float-witness.nupp", env), 0)
+        local result = parsed.root.blocks[1].stats[1].body.body.stats[1].names[1].definition.type
+        testAssert.equal(result, types.float, "float literal establishes a float result")
+    end
+end
+
+function M.genericArithmeticPreservesIntegerAndFloatSubtypes()
+    testAssert.equal(
+        run(
+            [[
+local function calculate(value: number): number
+    local result = value - 1
+    return result
+end
+return tostring(math.type(calculate(2))) .. "|" .. tostring(math.type(calculate(2.0)))
+]],
+            "typeleveltest.genericArithmeticPreservesIntegerAndFloatSubtypes"
+        ),
+        "integer|float"
+    )
+end
+
 function M.closedComptimeTypeFunctionsConstructTypes()
     clean(
         table.concat(

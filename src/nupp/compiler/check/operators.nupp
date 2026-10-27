@@ -146,6 +146,24 @@ local function integral(t: Type): boolean
     return t ~= T.any and isA(t, T.integer)
 end
 
+local function floating(t: Type): boolean
+    t = T.unwrapOwnership(t)
+    if t.tag == "literal" then
+        return floating(t.base)
+    elseif t.tag == "const" then
+        return floating(t.inner)
+    elseif t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if not floating(member) then
+                return false
+            end
+        end
+        return #t.members > 0
+    end
+
+    return t.tag == "float32" or t.tag == "float64"
+end
+
 --- Whether a checked type is one compiler-owned explicit SIMD family.
 local function simdFamily(t: Type): string?
     if t.tag == "const" then
@@ -538,7 +556,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 node.wideArithmetic = true
                 return result
             end
-            if isA(lt, T.float) or isA(rt, T.float) then
+            if floating(lt) or floating(rt) then
                 return T.float
             end
             return T.number
