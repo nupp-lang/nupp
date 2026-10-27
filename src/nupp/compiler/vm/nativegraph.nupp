@@ -312,6 +312,52 @@ function nativegraph.compile(fn: any, options: any): any
         end
         error("native graph: unsupported checked expression " .. tostring(n.kind), 0)
     end
+
+    local function branch(): any
+        local target = graph.block(g)
+        local transported, order, args, keys = {}, {}, {}, {}
+        for _, key in ipairs(bindingOrder) do
+            local value = bindings[key]
+            order[#order + 1] = key
+            if value <= g.nparams then
+                transported[key] = value
+            else
+                local parameter = graph.nativeValue(g, g.exactTypes[value])
+                target.params[#target.params + 1] = parameter
+                args[#args + 1] = value
+                keys[#keys + 1] = key
+                transported[key] = parameter
+            end
+        end
+
+        return {
+            block = target,
+            bindings = transported,
+            order = order,
+            keys = keys,
+            edge = {target = target.id, args = args}
+        }
+    end
+
+    local function resume(state: any): nil
+        block, bindings, bindingOrder = state.block, state.bindings, state.order
+    end
+
+    local function jump(state: any, node: any): nil
+        local args = {}
+        for _, key in ipairs(state.order) do
+            if state.bindings[key] <= g.nparams then
+                need(bindings[key] == state.bindings[key], "loop changes a function parameter binding")
+            end
+        end
+        for index, key in ipairs(state.keys) do
+            args[index] = need(bindings[key], "loop loses a checked local binding")
+        end
+        block.term = {kind = "jump", edges = {{target = state.block.id, args = args}}, pos = position(node)}
+        block = nil
+    end
+
+    local loops = {}
     local statements: function(any): nil
     statements = function(stats: any): nil
         for _, stat in ipairs(stats) do
@@ -366,34 +412,6 @@ function nativegraph.compile(fn: any, options: any): any
             elseif stat.kind == "ifStmt" then
                 local originalBindings, originalOrder = bindings, bindingOrder
                 local incoming = {}
-
-                local function branch(): any
-                    local target = graph.block(g)
-                    local transported, order, args = {}, {}, {}
-                    for _, key in ipairs(bindingOrder) do
-                        local value = bindings[key]
-                        order[#order + 1] = key
-                        if value <= g.nparams then
-                            transported[key] = value
-                        else
-                            local parameter = graph.nativeValue(g, g.exactTypes[value])
-                            target.params[#target.params + 1] = parameter
-                            args[#args + 1] = value
-                            transported[key] = parameter
-                        end
-                    end
-
-                    return {
-                        block = target,
-                        bindings = transported,
-                        order = order,
-                        edge = {target = target.id, args = args}
-                    }
-                end
-
-                local function resume(state: any): nil
-                    block, bindings, bindingOrder = state.block, state.bindings, state.order
-                end
 
                 local function continuation(): nil
                     if block then
@@ -456,6 +474,36 @@ function nativegraph.compile(fn: any, options: any): any
                     end
                     block = join
                 end
+            elseif stat.kind == "whileStmt" then
+                local before = block
+                local header = branch()
+                before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
+                resume(header)
+                local condition = expression(stat.cond, "boolean")
+                local body, exit = branch(), branch()
+                block.term = {kind = "branch", value = condition, edges = {body.edge, exit.edge}, pos = position(stat)}
+                loops[#loops + 1] = {exit = exit, continueTo = header}
+                resume(body)
+                statements(stat.body.stats)
+                if block then
+                    jump(header, stat)
+                end
+                loops[#loops] = nil
+                resume(exit)
+            elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
+                local loop = need(loops[#loops], "loop transfer outside a checked loop")
+                jump(stat.kind == "breakStmt" and loop.exit or loop.continueTo, stat)
+            elseif stat.kind == "doStmt" then
+                local outer = {}
+                for index, key in ipairs(bindingOrder) do
+                    outer[index] = key
+                end
+                statements(stat.body.stats)
+                local scoped = {}
+                for _, key in ipairs(outer) do
+                    scoped[key] = bindings[key]
+                end
+                bindings, bindingOrder = scoped, outer
             elseif stat.kind == "returnStmt" then
                 need(#stat.exprs == 1 and stat.exprs[1].kind == "call", "dispatch return required")
                 local call = stat.exprs[1]

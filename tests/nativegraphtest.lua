@@ -303,4 +303,41 @@ function M.nonterminalConditionalsAndParallelAssignmentsUseSharedGraphJoins()
     assert(branches == 2 and joins == 1)
 end
 
+function M.whileBackedgesBreakAndContinueRetainExactLocalBindings()
+    local source = read(CORE)
+    local needle = "slots.writeIntegerBits(frame, ints, a, program.readWord(pc, 8))"
+    local replacement = [[local index: int64 = 0
+    local total: uint64 = 0ULL
+    while index < a do
+        index = index + 1
+        if index == 1 then continue end
+        do
+            local scoped: uint64 = 1ULL
+            total = total + scoped
+        end
+        if index == 3 then break end
+    end
+    slots.writeIntegerBits(frame, ints, a, total)]]
+    local at = assert(source:find(needle, 1, true))
+    local functions, options = checked(source:sub(1, at - 1) .. replacement .. source:sub(at + #needle))
+    local g = nativegraph.compile(functions.IK, options)
+    graph.prune(g)
+    graph.verify(g)
+    local header = g.blocks[g.blocks[1].term.edges[1].target]
+    local backedges, incoming = 0, {}
+    for _, b in ipairs(g.blocks) do
+        for _, edge in ipairs(b.term.edges) do
+            incoming[edge.target] = (incoming[edge.target] or 0) + 1
+            if edge.target == header.id and b.id ~= 1 then
+                backedges = backedges + 1
+            end
+        end
+    end
+    assert(backedges == 2, "continue and loop fallthrough must both return to the header")
+    assert(incoming[header.id] == 3 and header.term.kind == "branch")
+    local exit = g.blocks[header.term.edges[2].target]
+    assert(incoming[exit.id] == 2 and exit.term.kind == "dispatch", "break must join the normal loop exit")
+    assert(#exit.params == 2, "body-scoped and dead loop locals must not escape")
+end
+
 return M
