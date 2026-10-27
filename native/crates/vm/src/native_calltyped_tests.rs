@@ -121,10 +121,19 @@ fn native_calltyped_checks_budget_and_capacity_before_mutating_frames() {
                 Some((current + vm.funcs[0].frame_words() + vm.funcs[1].frame_words() - 1) as u64)
             };
             let (ctx, exit) = enter(&mut vm, tid, capacity);
-            assert_eq!(exit, vm.funcs[0].ins.as_ptr() as u64);
-            assert_eq!(ctx.cur, current as u64);
-            assert_eq!(ctx.budget, if empty_budget { 0 } else { 5 });
-            assert_eq!(vm.tasks[tid].stack, before);
+            if empty_budget {
+                assert_eq!(exit, 0);
+                assert_eq!(ctx.status, ST_ERROR);
+                assert_eq!(ctx.cur, current as u64);
+                assert_eq!(ctx.budget, 0);
+                assert_eq!(&vm.tasks[tid].stack[1..], &before[1..]);
+                assert_eq!(vm.tasks[tid].stack[0] >> 32, 1, "error position is the call");
+            } else {
+                assert_eq!(exit, vm.funcs[1].ins.as_ptr() as u64);
+                assert_eq!(ctx.cur, vm.funcs[0].frame_words() as u64);
+                assert_eq!(ctx.status, 0);
+                assert_eq!(ctx.budget, 4);
+            }
         }
     }
 }

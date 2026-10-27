@@ -466,7 +466,8 @@ fn native_numeric_unsigned_back_edges_charge_only_when_taken() {
     vm.execution_limit = Some(3);
     let mut ctx = direct(&mut vm, tid, 0);
     assert_eq!(ctx.budget, 0);
-    assert_eq!(ctx.budget_mark, 3);
+    assert_eq!(ctx.budget_mark, 0);
+    assert_eq!(ctx.status, ST_ERROR);
     crate::threaded::charge(&mut ctx, &mut vm);
     assert_eq!(vm.execution_limit, Some(0));
 }

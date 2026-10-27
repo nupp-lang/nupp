@@ -1019,17 +1019,27 @@ impl Machine {
     }
     /// Runs the native chain from `pc` of the top frame's function.
     unsafe fn run(&mut self, pc: usize) -> u64 {
-        let frame = self.frame();
+        // Frame storage remains owned by the VM while a named reservation or
+        // budget service runs. Move ownership, never copy the live windows.
+        if self.interp.tasks.is_empty() {
+            self.interp.tasks.push(crate::interp::Task::restored(Vec::new(), 0, crate::interp::State::Runnable, 0));
+        }
+        self.interp.tasks[0].stack = std::mem::take(&mut self.stack);
+        self.interp.tasks[0].set_cur(self.ctx.cur as usize);
+        self.interp.finfo = std::mem::take(&mut self.funcs);
+        self.interp.execution_limit = (self.ctx.budget != u64::MAX).then_some(self.ctx.budget as usize);
+        self.ctx.budget_mark = self.ctx.budget;
+        self.ctx.stack = self.interp.tasks[0].stack.as_mut_ptr();
+        self.ctx.funcs = self.interp.finfo.as_ptr();
+        let frame = self.ctx.stack.add(self.ctx.cur as usize);
         let fid = (*frame & 0xffff_ffff) as usize;
-        let fi = &self.funcs[fid];
-        nupp_native_runtime_entry(
-            fi.code.add(pc),
-            frame.add(HDR),
-            frame.add(fi.off_i as usize).cast(),
-            frame.add(fi.off_f as usize).cast(),
-            &mut self.ctx,
-            frame,
-        )
+        let fi = &self.interp.finfo[fid];
+        let result = nupp_native_runtime_entry(fi.code.add(pc), frame.add(HDR),
+            frame.add(fi.off_i as usize).cast(), frame.add(fi.off_f as usize).cast(),
+            &mut self.ctx, frame);
+        self.stack = std::mem::take(&mut self.interp.tasks[0].stack);
+        self.funcs = std::mem::take(&mut self.interp.finfo);
+        result
     }
     fn code(&self, fid: usize, pc: usize) -> u64 {
         unsafe { self.codes[fid].as_ptr().add(pc) as u64 }
@@ -1068,7 +1078,8 @@ fn native_back_edges_preserve_unlimited_and_stop_at_finite_budgets() {
         m.stack[integer] = 4;
         m.ctx.budget = budget;
         let exit = unsafe { m.run(0) };
-        assert_eq!(exit, m.code(0, pc), "budget {budget}");
+        assert_eq!(exit, if pc == 2 { 0 } else { m.code(0, pc) }, "budget {budget}");
+        assert_eq!(m.ctx.status, if pc == 2 { ST_ERROR } else { 0 });
         assert_eq!(m.ctx.budget, remaining, "budget {budget}");
         assert_eq!(m.stack[integer], count, "budget {budget}");
     }
@@ -1103,7 +1114,7 @@ fn native_call_paths_preserve_unlimited_and_charge_finite_budgets() {
                 let callee = usize::from(budget != 0);
                 assert_eq!(
                     exit,
-                    m.code(callee, 0),
+                    if budget == 0 { 0 } else { m.code(callee, 0) },
                     "op {} vararg {vararg} budget {budget}",
                     op as u8
                 );
@@ -1231,10 +1242,6 @@ fn native_calls_leave_unsupported_calls_untouched() {
         ("not callable", callk, Value::num(1.0).0, |_| {}),
         ("unknown function", callk, Value::func(9).0, |_| {}),
         // A result pack past the window, and both spread flags at once.
-        ("wide result pack", Ins { c: 64 | 1, ..callk }, closure_value, |m| m.ctx.last_nres = 9),
-        ("both flags", Ins { c: 128 | 64, ..callk }, closure_value, |_| {}),
-        ("growth", call, 0, |m| m.ctx.cap = (TEST_FRAME_WORDS * 2 - 1) as u64),
-        ("growth dynamic", callk, closure_value, |m| m.ctx.cap = (TEST_FRAME_WORDS * 2 - 1) as u64),
     ];
     for (name, ins, callee_word, setup) in cases {
         let mut m = Machine::new(vec![Ins::default(), ins, Ins::default()], vec![Ins::default()], 1);
@@ -3704,4 +3711,62 @@ fn rust_trailing_return_pack_survives_suspended_cleanup_and_snapshot() {
 #[test]
 fn native_trailing_return_pack_survives_suspended_cleanup_and_snapshot() {
     trailing_cleanup_pack_contract(true, true);
+}
+
+#[test]
+fn native_owned_stack_growth_keeps_frame_varargs_and_wide_result_packs() {
+    for frame_varargs in [false, true] {
+        let count = if frame_varargs { 512usize } else { 128 };
+        let instruction = Ins {
+            op: Code::Call as u8,
+            a: 0,
+            b: if frame_varargs { 128 } else { 64 },
+            k: 1,
+            ..Ins::default()
+        };
+        let mut machine = Machine::new(vec![instruction], vec![Ins::default()], 1);
+        machine.funcs[1].vararg = 1;
+        let current = if frame_varargs { count } else { 0 };
+        machine.stack.resize(current + TEST_FRAME_WORDS as usize, 0);
+        machine.stack[current] = 0;
+        machine.stack[current + 1] = u32::MAX as u64;
+        machine.stack[current + 2] = NIL;
+        machine.stack[current + 3] = ((TEST_FRAME_WORDS as u64) << 33) | ((current as u64) << 49);
+        if frame_varargs {
+            for i in 0..count {
+                machine.stack[i] = num(i as f64 + 0.25);
+            }
+        } else {
+            for i in 0..8 {
+                machine.stack[HDR + 1 + i] = num(i as f64 + 0.25);
+            }
+            for i in 0..127 {
+                machine.interp.extra[i] = Value::num(i as f64 + 1.25);
+            }
+            machine.interp.extra_n = 127;
+        }
+        machine.sync();
+        machine.ctx.cur = current as u64;
+        machine.ctx.last_nres = count as u64;
+        machine.ctx.budget = 3;
+        let old_capacity = machine.ctx.cap;
+        let exit = unsafe { machine.run(0) };
+        let next = current + TEST_FRAME_WORDS as usize + count - 1;
+        assert_eq!(
+            exit,
+            machine.code(1, 0),
+            "spread must enter without Rust instruction handoff"
+        );
+        assert_eq!(machine.ctx.cur, next as u64);
+        assert!(machine.ctx.cap > old_capacity);
+        assert_eq!(machine.ctx.budget, 2);
+        assert_eq!(machine.stack[next + HDR + 1], num(0.25));
+        assert_eq!(machine.stack[next + 3] >> 49, count as u64 - 1);
+        for i in 1..count {
+            assert_eq!(
+                machine.stack[next - (count - 1) + i - 1],
+                num(i as f64 + 0.25)
+            );
+        }
+    }
 }

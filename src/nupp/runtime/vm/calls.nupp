@@ -195,39 +195,51 @@ local function enterPushed(
     end
 end
 
--- The Rust core's `push`: the callee's frame goes above the caller's,
--- `supplied` argument words copied from the argument window and the
--- remaining parameters nil, and the caller's header remembers where to
--- resume. A call the stack cannot hold grows it in Rust. Protected calls
--- share this push but are not budget points; `budgeted` selects the call
--- instruction's policy before a frame is made.
-export function pushFrame(
+-- A stopped call/backedge remains at its original logical instruction.
+-- The named budget service enforces source-limit error precedence over a
+-- scheduler park; neither budget is consumed by a parked attempt.
+export function budgetStop(pc: voidptr, context: voidptr): uint64
+    protocol.publishPc(pc, context)
+    helpers.budgetStop(context)
+    return native.fail()
+end
+
+local function pushFixedSlow(
     pc: voidptr,
-    regs: voidptr,
-    ints: voidptr,
-    floats: voidptr,
     context: voidptr,
-    frame: voidptr,
-    callee: voidptr,
     fid: uint64,
     closure: uint64,
     base: int64,
     supplied: int64,
-    budgeted: boolean
+    budgeted: int64
 ): uint64
+    local current = native.load64(context, native.layout("cur"))
+    local frame = native.offset(native.loadPointer(context, native.layout("stack")), native.index(current * 8))
+    local regs = native.offset(frame, 32)
+    local callee = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(fid) * native.layout("FuncInfo.size")
+    )
     -- The budget: a call the task may not take yet is Rust's, which parks
     -- the task or raises at this instruction.
     local budget = native.load64(context, native.layout("budget"))
-    local current = native.load64(context, native.layout("cur"))
     local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF)
     local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-    if native.either(
-        native.both(budgeted, budget == 0),
-        next + words > native.load64(context, native.layout("cap"))
-    ) then
-        return native.slow(pc, regs, ints, floats, context, frame)
-    else
-        if budgeted then
+    if native.both(budgeted ~= 0, budget == 0) then
+        return budgetStop(pc, context)
+    end
+    if next + words > native.load64(context, native.layout("cap")) then
+        protocol.publishPc(pc, context)
+        helpers.reserveStack(context, next + words)
+        frame = native.offset(native.loadPointer(context, native.layout("stack")), native.index(current * 8))
+        regs = native.offset(frame, 32)
+        callee = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(fid) * native.layout("FuncInfo.size")
+        )
+    end
+    do
+        if budgeted ~= 0 then
             chargeBudget(context, budget)
         end
         local caller = native.loadPointer(
@@ -272,8 +284,27 @@ export function pushFrame(
             filled = filled + 1
         end
         native.store64(context, native.layout("cur"), next)
-        return enterPushed(pc, regs, ints, floats, context, pushed, callee, fid)
+        return enterPushed(pc, regs, regs, regs, context, pushed, callee, fid)
     end
+end
+
+-- Existing callers express logical windows; only the selected frame and
+-- argument slots cross the owned stack reservation boundary.
+export function pushFrame(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr,
+    callee: voidptr,
+    fid: uint64,
+    closure: uint64,
+    base: int64,
+    supplied: int64,
+    budgeted: boolean
+): uint64
+    return pushFixedSlow(pc, context, fid, closure, base, supplied, native.chooseIndex(budgeted, 1, 0))
 end
 
 -- The rest of a call whose callee is already in the window at `base`, in
@@ -316,17 +347,14 @@ local function pushSpreadSlow(
     local fixed: int64 = nargs
     local count: int64 = 0
     local source = native.offset(regs, (base + 1 + nargs) * 8)
-    local refused = false
     if nargs >= 128 then
         fixed = nargs & 127
         count = native.index(native.load64(frame, 24) >> 49)
         source = native.offset(frame, 0 - count * 8)
-        refused = fixed >= 64
     elseif nargs >= 64 then
         fixed = nargs & 63
         count = native.loadIndex(context, native.layout("last_nres"))
         source = native.offset(regs, (base + 1 + fixed) * 8)
-        refused = count > 8
     end
     local total = fixed + count
     local nparams = native.load32(callee, native.layout("FuncInfo.nparams"))
@@ -337,15 +365,26 @@ local function pushSpreadSlow(
     local budget = native.load64(context, native.layout("budget"))
     local next = current + ((native.load64(frame, 24) >> 33) & values.LOW_HALF) + native.word(nvar)
     local words = native.load64(callee, native.layout("FuncInfo.frame_words")) & values.LOW_WORD
-    if native.either(
-        native.either(refused, native.both(resolved == 0, budget == 0)),
-        next + words > native.load64(context, native.layout("cap"))
-    ) then
-        if resolved ~= 0 then
-            return callResolvedSlow(pc, context, base, nargs)
-        end
-        return native.slow(pc, regs, regs, regs, context, frame)
+    if native.both(resolved == 0, budget == 0) then
+        return budgetStop(pc, context)
     end
+    if next + words > native.load64(context, native.layout("cap")) then
+        protocol.publishPc(pc, context)
+        helpers.reserveStack(context, next + words)
+        stack = native.loadPointer(context, native.layout("stack"))
+        frame = native.offset(stack, native.index(current * 8))
+        regs = native.offset(frame, 32)
+        callee = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(fid) * native.layout("FuncInfo.size")
+        )
+        if nargs >= 128 then
+            source = native.offset(frame, 0 - count * 8)
+        else
+            source = native.offset(regs, (base + 1 + fixed) * 8)
+        end
+    end
+    local extra = helpers.resultStorage(context)
     if resolved == 0 then
         chargeBudget(context, budget)
     end
@@ -372,6 +411,8 @@ local function pushSpreadSlow(
         local word: uint64 = 0
         if i < fixed then
             word = slots.readValue(frame, regs, base + 1 + i)
+        elseif native.both(native.both(nargs >= 64, nargs < 128), i - fixed >= 8) then
+            word = native.load64(extra, (i - fixed - 1) * 8)
         else
             word = slots.readValue(frame, source, i - fixed)
         end
@@ -601,7 +642,7 @@ export function CallK(
     frame: voidptr
 ): uint64
     if native.load64(context, native.layout("budget")) == 0 then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return budgetStop(pc, context)
     end
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
@@ -692,7 +733,7 @@ export function backEdge(
     local target = native.offset(pc, (displacement + 1) * 16)
     local budget = native.load64(context, native.layout("budget"))
     if budget == 0 then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return budgetStop(pc, context)
     end
     chargeBudget(context, budget)
     local jit = native.load32(context, native.layout("jit_frames"))
@@ -965,7 +1006,7 @@ export function CallDyn(
     frame: voidptr
 ): uint64
     if native.load64(context, native.layout("budget")) == 0 then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return budgetStop(pc, context)
     end
     local nargs = program.readByte(pc, 3)
     local value = slots.readValue(frame, regs, program.readByte(pc, 1))
@@ -1102,7 +1143,7 @@ export function CallMethod(
     -- and the selected target must not charge this instruction again.
     local budget = native.load64(context, native.layout("budget"))
     if budget == 0 then
-        return native.slow(pc, regs, ints, floats, context, frame)
+        return budgetStop(pc, context)
     end
     chargeBudget(context, budget)
     local info = native.offset(

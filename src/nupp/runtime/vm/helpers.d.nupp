@@ -7,6 +7,10 @@
 -- Effects describe the full reachable operation, including guest callbacks.
 -- A non-collecting heap write still mutates state and is not pure.
 local record Helpers
+    @vmHelperEffects(mayCollect = false, mayPark = true, mayRaise = true, pure = false)
+    budgetStop: function(context: voidptr): nil
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    reserveStack: function(context: voidptr, words: uint64): nil
     @vmHelperEffects(mayCollect = true, mayPark = true, mayRaise = true, pure = false)
     getField: function(context: voidptr, object: uint64, name: uint64): uint64
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)

@@ -152,3 +152,6 @@ mod native_numeric_helpers;
 mod native_return_helpers;
 #[cfg(feature = "native-runtime")]
 mod native_byte_helpers;
+
+#[cfg(feature = "native-runtime")]
+mod native_call_helpers;
