@@ -7,3 +7,10 @@ export record vmHelperEffects
     mayRaise: boolean
     pure: boolean
 end
+
+@annotation(targets = {"field"})
+export record vmSlotAccess
+    class: string
+    kind: string
+    write: boolean
+end

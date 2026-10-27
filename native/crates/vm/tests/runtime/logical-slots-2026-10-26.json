@@ -1,0 +1,285 @@
+{
+  "recordedAt": "2026-10-27T03:10:22.370139+00:00",
+  "base": "e2a4aa096a0b3e5a5ea46dcaa2592dd7550073ca",
+  "scope": "P1a logical value/integer/float window access, copied arguments and varargs. Absolute return-link destinations, immutable program loads, vector access, specialization intrinsics, publication/root proofs and P1b graph integration remain open.",
+  "ownership": "Checked Nupp field annotations define class, scalar kind and read/write behavior. The validator is Nupp. Each call names its frame storage pointer, typed window and logical slot index; both pointers are rederived after relocation. Reads observe mutable frame state, and writes are not pure. The temporary direct lowering only emits memory instructions; slot promotion and semantic optimization belong to the common Nupp graph.",
+  "contracts": {
+    "schema": "src/nupp/runtime/vm/effects.nupp",
+    "declaration": "src/nupp/runtime/vm/slots.d.nupp",
+    "validator": "src/nupp/compiler/vm/slotcontract.nupp",
+    "operations": 8,
+    "callSites": 225,
+    "classes": [
+      "v",
+      "i",
+      "f"
+    ],
+    "signedIntegerAndIntegerBitsRemainDistinct": true,
+    "newRustCode": false
+  },
+  "validation": [
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp check --json src/nupp/compiler/clif/lower.nupp src/nupp/compiler/vm/slotcontract.nupp src/nupp/runtime/vm/effects.nupp src/nupp/runtime/vm/slots.d.nupp src/nupp/runtime/vm/core.nupp src/nupp/runtime/vm/boxing.nupp src/nupp/runtime/vm/calls.nupp src/nupp/runtime/vm/closures.nupp src/nupp/runtime/vm/control.nupp src/nupp/runtime/vm/lookup.nupp src/nupp/runtime/vm/protocol.nupp src/nupp/runtime/vm/strings.nupp src/nupp/runtime/vm/tables.nupp",
+      "ok": true,
+      "logSha256": "d696ec214008911299f152a08d46c5e4cca6f29cb20782a2e2097246d28829cd"
+    },
+    {
+      "command": "python3 scripts/vm-cli build",
+      "ok": true,
+      "logSha256": "3605b6639296cc2982cb93cdfb59d8d119302d805f7a56510b4a64a62aacd426"
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test nativelowertest",
+      "total": 19,
+      "passed": 18,
+      "failed": 1,
+      "logSha256": "3104493756ad7e948343d87cf50d02052c631ba29661623b07afbc940e95a65e",
+      "scope": "Only the new execution fixture failed: it expected unsigned decimal output from a harness that prints i64 as signed. The fixture now compares bit patterns inside Nupp; production source did not change after this run."
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test nativelowertest --case=nativelowertest/logicalSlotsKeepWindowsKindsAndBitsDistinct --json",
+      "passed": 1,
+      "failed": 0,
+      "logSha256": "bfd5699951473279e110ecd438543c17898f124af696a4d8f6e812990d92ce0f",
+      "scope": "Corrected fixture verifies class/window isolation, signed integer storage, negative zero and NaN payloads."
+    },
+    {
+      "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp test annotationtest nativeclosurestest nativeheaptest nativejittest nativeruntimetest nativestringstest nativetablestest --jobs=2 --json",
+      "passed": 87,
+      "failed": 0,
+      "logSha256": "c5bac14408886ad5c6fcc64113445734368b0959957cb7bac5e77bb5ec8813d1"
+    },
+    {
+      "command": "python3 scripts/vm-cli runtime --link",
+      "ok": true,
+      "logSha256": "4f127e8e836a1c63ddb6418049982b76aff8f0167c652ce1e9b157f33342c032"
+    },
+    {
+      "command": "NUPP_NATIVE_RUNTIME_OBJECT=$PWD/build/logical-slots/runtime.o CARGO_TARGET_DIR=$PWD/build/rust/target cargo test --locked --release -p nupp-vm --features aot,native-runtime -j4 --lib",
+      "passed": 104,
+      "failed": 0,
+      "ignored": 2,
+      "logSha256": "f681008988863c45354214f537947e25176343be0c51b09dac17e0905ab50180"
+    }
+  ],
+  "compiler": {
+    "generation": "2ce2afc405858dff57473a6610d32acb4fd7d9f16abf59535ce7cc0b305286a5",
+    "linked": true,
+    "imageSha256": "2abf01169d2286e786cd002313826c7777c74f6e50b31bd65a85e490c6d8486b",
+    "runtimeSha256": "38a5901a78a368b977a14fc78b594f1a076f679f1542c7856adde080480dc491",
+    "aotFunctions": 6118,
+    "manifestSha256": "ebc7d7728ce96c30c812c2791e81c4e4ca21ed03b40592d23aa8274f6620407e"
+  },
+  "fixpoint": {
+    "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp fixpoint",
+    "status": "passed",
+    "pinnedSeedSha256": "6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9",
+    "rootImageSha256": "2abf01169d2286e786cd002313826c7777c74f6e50b31bd65a85e490c6d8486b",
+    "matchesInstalledCompiler": true,
+    "logSha256": "c821cc86f8cafd0a3165ab1b6e633f6dbe5cbd0dedb04097dcca742a78e9fd27"
+  },
+  "artifacts": {
+    "runtime": {
+      "sha256": "611ee3c9cccfe788ee9bc7a5932ecd4eabdaa1d8f55f973ab45c58fb4fe474e8",
+      "bytes": 17313512
+    },
+    "runtime.clif": {
+      "sha256": "53e28209832555497c58ced197d01761603052d043c89460cf939975aeccb1a3",
+      "bytes": 504181
+    },
+    "runtime.o": {
+      "sha256": "9454806b98ade46b40622f8bb745c7bac6941b9f1d5aa0080ecbe9baf49b149e",
+      "bytes": 64280
+    },
+    "runtime.o.rs": {
+      "sha256": "35a9c8910cfee7bc440fe6a442b23795cf3ed262b98ebe978721f79c1afaec6d",
+      "bytes": 7950
+    }
+  },
+  "abi": {
+    "dispatchSidecarIdentical": true,
+    "helperImportsIdentical": true,
+    "helperImports": [
+      "_nupp_rt_barrier",
+      "_nupp_rt_call_builtin",
+      "_nupp_rt_call_iter",
+      "_nupp_rt_call_resolved",
+      "_nupp_rt_defer",
+      "_nupp_rt_enter_frame",
+      "_nupp_rt_eq_slow",
+      "_nupp_rt_get_field",
+      "_nupp_rt_grow_hash",
+      "_nupp_rt_intern",
+      "_nupp_rt_intern_key",
+      "_nupp_rt_new_cell",
+      "_nupp_rt_new_closure",
+      "_nupp_rt_new_index",
+      "_nupp_rt_new_record",
+      "_nupp_rt_new_string",
+      "_nupp_rt_new_table",
+      "_nupp_rt_observe",
+      "_nupp_rt_protect",
+      "_nupp_rt_raise",
+      "_nupp_rt_resize_array",
+      "_nupp_rt_resolve_method"
+    ],
+    "machoTextSegmentBytes": {
+      "control": 49932,
+      "candidate": 49588
+    },
+    "machoDataSegmentBytes": {
+      "control": 4096,
+      "candidate": 4096
+    },
+    "loopLeafAssembly": [
+      {
+        "handler": "_FAdd",
+        "controlInstructions": 12,
+        "candidateInstructions": 12,
+        "identicalInstructionText": true
+      },
+      {
+        "handler": "_FMul",
+        "controlInstructions": 12,
+        "candidateInstructions": 12,
+        "identicalInstructionText": true
+      },
+      {
+        "handler": "_FMod",
+        "controlInstructions": 15,
+        "candidateInstructions": 15,
+        "identicalInstructionText": true
+      },
+      {
+        "handler": "_IAddK",
+        "controlInstructions": 12,
+        "candidateInstructions": 12,
+        "identicalInstructionText": true
+      },
+      {
+        "handler": "_FCmpLe",
+        "controlInstructions": 14,
+        "candidateInstructions": 14,
+        "identicalInstructionText": true
+      }
+    ]
+  },
+  "refactorCost": {
+    "baseline": "Preserved Nupp native interpreter; same compiler image and benchmark source on both sides. This is a refactor-cost control.",
+    "protocol": "Twelve interleaved fresh process pairs per case; loops repeated with 48 pairs because its initial interval exceeded the margin. 2% practical margin; all sources, images and runtime binaries unchanged.",
+    "selectedVerdicts": [
+      {
+        "adjusted": 0.423828125,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.016701251058386823,
+        "interval": {
+          "low": -0.0220504561431486,
+          "upper": 0.015172255314741978
+        },
+        "meanRatio": 0.9967117908968849,
+        "name": "fib",
+        "noninferiority": true,
+        "pValue": 0.423828125,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.4241672263971097,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.009316522966341334,
+        "interval": {
+          "low": -0.02001930127178564,
+          "upper": 0.01000907554817565
+        },
+        "meanRatio": 0.9952256841530571,
+        "name": "loops",
+        "noninferiority": true,
+        "pValue": 0.4241672263971097,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.00927734375,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.029897666846614657,
+        "interval": {
+          "low": -0.044571220945855416,
+          "upper": -0.007637700408588688
+        },
+        "meanRatio": 0.9731217985077331,
+        "name": "tables",
+        "noninferiority": true,
+        "pValue": 0.00927734375,
+        "verdict": "inconclusive"
+      },
+      {
+        "adjusted": 0.01220703125,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.013287062737494026,
+        "interval": {
+          "low": -0.017044624301970623,
+          "upper": -0.0033717265146335773
+        },
+        "meanRatio": 0.9890469205384099,
+        "name": "strings",
+        "noninferiority": true,
+        "pValue": 0.01220703125,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.33935546875,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": 0.0022564801638946808,
+        "interval": {
+          "low": -0.0034853472540544717,
+          "upper": 0.007711073640785271
+        },
+        "meanRatio": 1.0022807950954649,
+        "name": "records",
+        "noninferiority": true,
+        "pValue": 0.33935546875,
+        "verdict": "unchanged"
+      },
+      {
+        "adjusted": 0.04248046875,
+        "case": "bench/vm/workloads.bench.nupp",
+        "change": -0.010796229154182324,
+        "interval": {
+          "low": -0.015713722511782047,
+          "upper": -0.0015300387142100913
+        },
+        "meanRatio": 0.9923529336444744,
+        "name": "closures",
+        "noninferiority": true,
+        "pValue": 0.04248046875,
+        "verdict": "unchanged"
+      }
+    ],
+    "allSixMeetTwoPercentCostMargin": true,
+    "durationSpeedupEstablished": false,
+    "fullSamples": "logical-slots-paired-2026-10-26.json",
+    "fullSamplesSha256": "e111cca980ee442e661aacd57f349997be57f04f0fdbada14fb900ceb076f085",
+    "productionControl": "p0-controls-2026-10-26.json"
+  },
+  "formatting": {
+    "command": "NUPP_VM_AUTO_REBUILD=0 ./bin/nupp fmt --write src/nupp/compiler/clif/lower.nupp src/nupp/compiler/vm/slotcontract.nupp src/nupp/runtime/vm/boxing.nupp src/nupp/runtime/vm/calls.nupp src/nupp/runtime/vm/closures.nupp src/nupp/runtime/vm/control.nupp src/nupp/runtime/vm/core.nupp src/nupp/runtime/vm/effects.nupp src/nupp/runtime/vm/lookup.nupp src/nupp/runtime/vm/protocol.nupp src/nupp/runtime/vm/slots.d.nupp src/nupp/runtime/vm/strings.nupp src/nupp/runtime/vm/tables.nupp tests/fixtures/native/slots.nupp tests/nativelowertest.lua",
+    "allSourceBytesUnchangedByFinalFormat": true,
+    "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "sources": {
+    "src/nupp/compiler/clif/lower.nupp": "3c695125c28ae7e2667ec69b26e44ecb985a1980449d1da04af5a8c3c07a17d1",
+    "src/nupp/compiler/vm/slotcontract.nupp": "1e92f58ad68b0c8816ec0bb29bad5b8071bc85d0f68cdea767d4b045e211ff52",
+    "src/nupp/runtime/vm/boxing.nupp": "17bc3a8e328ad5422af79a747b7c83b71411666dee9e3c4f7b171f8a36e98ef9",
+    "src/nupp/runtime/vm/calls.nupp": "ac728eb49385105e57c2cb17d2170172e54ad817f7e6d646b07b79576c5ad9f9",
+    "src/nupp/runtime/vm/closures.nupp": "49a912061d77033b967e9b1c2ed53c565c3ba10f66210b798d934fdb9d4cf1eb",
+    "src/nupp/runtime/vm/control.nupp": "8d3abcf28244f0acea8abd745a8395073d2432f2512f336f5a765fc349c6ef62",
+    "src/nupp/runtime/vm/core.nupp": "6d7eb28d21c0f202fbf598349b02598fa7a7963a7d398cefcfd13df2c3098500",
+    "src/nupp/runtime/vm/effects.nupp": "ac29db1ae8c5d0ba3a904de57d6de6649466173182b5baee84f409712b8c66a5",
+    "src/nupp/runtime/vm/lookup.nupp": "03e219e2586d3cec0734e80638bb47a3471bc76e1e14c7e9b5c1b048df4d8fa5",
+    "src/nupp/runtime/vm/protocol.nupp": "e83ca97a6ad46fecc0e1478c7ba35052667a51d3d222cf24cd20b3bdc83f5f5e",
+    "src/nupp/runtime/vm/slots.d.nupp": "c0a57d8277b04e759109d00f51b09d3df020ab5036fa15a8c19ec96179504742",
+    "src/nupp/runtime/vm/strings.nupp": "657cf2e643b08b9980607632cbf0d159f58770421e2dbb55b6a15e3d7aef558f",
+    "src/nupp/runtime/vm/tables.nupp": "7c41e9c3813499c1d856bc23c2843356f12e130abdbb7c9b4c09e1f357b23559",
+    "tests/fixtures/native/slots.nupp": "2e6cef835904f8e1e93a34c087988391165d084eff08cd8a4f5af53cd574470c",
+    "tests/nativelowertest.lua": "5f4bc3ad6b81b4e049e97fe78837ced51bea8c829242bd960f33b3930d0c2812"
+  },
+  "localEvidenceDirectory": "/Users/dowling/projects/nupp-wt/native-runtime/build/logical-slots"
+}

@@ -9,6 +9,7 @@ string is allocated through a helper until N05 and filled here.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -36,7 +37,7 @@ export function order(
             native.either(xk == values.KIND_STRING, xk == values.KIND_SLICE),
             native.either(yk == values.KIND_STRING, yk == values.KIND_SLICE)
         ) then
-            local a = native.load8(pc, 1) * 8
+            local a = native.load8(pc, 1)
             local xn = native.load64(xh, native.layout("Header.aux_len"))
             local yn = native.load64(yh, native.layout("Header.aux_len"))
             local xp = native.loadPointer(xh, native.layout("Header.aux_ptr"))
@@ -56,13 +57,13 @@ export function order(
                 local xb = native.load8(xp, native.index(i))
                 local yb = native.load8(yp, native.index(i))
                 if xb ~= yb then
-                    native.store64(regs, a, native.chooseWord(xb < yb, values.TRUE, values.FALSE))
+                    slots.writeValue(frame, regs, a, native.chooseWord(xb < yb, values.TRUE, values.FALSE))
                     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                 end
                 i = i + 1
             end
             local less = native.either(xn < yn, native.both(orEqual ~= 0, xn == yn))
-            native.store64(regs, a, native.chooseWord(less, values.TRUE, values.FALSE))
+            slots.writeValue(frame, regs, a, native.chooseWord(less, values.TRUE, values.FALSE))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         end
     end
@@ -279,8 +280,8 @@ export function Concat(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local x = native.load64(regs, native.load8(pc, 2) * 8)
-    local y = native.load64(regs, native.load8(pc, 3) * 8)
+    local x = slots.readValue(frame, regs, native.load8(pc, 2))
+    local y = slots.readValue(frame, regs, native.load8(pc, 3))
     local plain = true
     local side: int64 = 0
     while side < 2 do

@@ -104,3 +104,17 @@ unfinished history/replay and platform capabilities explicit.
 and its finite/unlimited call/back-edge regressions. Full native compiler
 acceptance, handler contracts, remaining interpreter groups and Rust deletion
 remain open.
+
+`logical-slots-2026-10-26.json` records the logical slot contracts added to
+current value, integer and float windows, including argument copies and varargs.
+Each access names its frame, window and logical index; checked Nupp metadata
+identifies the class, scalar type and read/write operation. The current direct
+lowering only emits the corresponding memory access. Slot promotion and other
+semantic optimization remain work for the common Nupp graph. Absolute return-link
+addresses, immutable program loads, vector slots and publication/root proofs
+remain open in P1a/P2.
+
+All six workloads meet the 2% refactor-cost margin against the preserved Nupp
+control. Each has twelve fresh pairs; loops has a 48-pair repeat whose upper
+regression bound is 1.0%. These timings establish no speedup. Production
+acceptance still uses the LuaJIT-on main control recorded above.

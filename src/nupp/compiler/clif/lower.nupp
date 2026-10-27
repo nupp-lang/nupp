@@ -32,11 +32,15 @@ local targetLayout = require("nupp.compiler.targetlayout")
 local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.codec.json")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
+local slotcontract = require("nupp.compiler.vm.slotcontract")
 
 local lower = {}
 
 --- The intrinsics declaration the runtime sources are written against.
 lower.INTRINSICS = "nupp.runtime.vm.intrinsics"
+
+-- Logical frame accesses retain their contract in Nupp until machine emission.
+lower.SLOTS = "nupp.runtime.vm.slots"
 
 --- The atomics declaration: loads, stores, exchanges and fences on words the
 --- lowering emits as Cranelift's sequentially consistent atomic instructions.
@@ -1004,6 +1008,36 @@ local function compileFunction(fn: Fn, options: any): string
         return {kind = "nil", value = ""}
     end
 
+    -- The temporary direct path only assigns an address to the Nupp contract.
+    -- Slot promotion, alias reasoning and publication belong to the Nupp graph.
+    local function slotCall(n: any): any
+        local member = n.obj.name.text
+        local access = slotcontract.read(n.obj.name.definition, member)
+        local signature = raw(n.obj.inferredType)
+        local args = n.args.exprs or {}
+        local count = access.write and 4 or 3
+        need(
+            signature and signature.tag == "func" and #signature.params == count and #args == count,
+            member .. ": slot argument count"
+        )
+        local kinds = {"voidptr", "voidptr", "int64", access.kind}
+        local words = {}
+        for index, param in ipairs(signature.params) do
+            need(tag(param) == kinds[index], member .. ": slot argument kind")
+            words[index] = materialize(expression(args[index]), kinds[index])
+        end
+        local resultKind = access.write and "nil" or access.kind
+        need(#signature.rets == 1 and tag(signature.rets[1]) == resultKind, member .. ": slot result kind")
+        local offset = emit("imul " .. words[3] .. ", " .. constant("i64", tostring(access.width)))
+        local address = emit("iadd " .. words[2] .. ", " .. offset)
+        if access.write then
+            store(access.kind, words[4], address)
+            return {kind = "nil", value = ""}
+        end
+
+        return {kind = access.kind, value = load(access.kind, address)}
+    end
+
     local function intrinsic(intrinsicName: string, args: any): any
         local function arg(index: number, kind: string): string
             return materialize(expression(need(args[index], intrinsicName .. ": argument " .. tostring(index))), kind)
@@ -1253,6 +1287,8 @@ local function compileFunction(fn: Fn, options: any): string
             return arithmetic(n, op, kind, lhs, rhs)
         elseif isIntrinsicCall(n) then
             return intrinsic(n.obj.name.text, n.args.exprs or {})
+        elseif calledModule(n) == lower.SLOTS then
+            return slotCall(n)
         elseif calledModule(n) == ATOMICS then
             return atomic(n.obj.name.text, n.args.exprs or {})
         elseif calledModule(n) ~= nil and HELPER_MODULES[calledModule(n) as string] ~= nil then
@@ -1924,6 +1960,7 @@ function lower.compile(root: string, paths: {string}, options: any?): string
         for _, required in ipairs(entry.requires) do
             need(
                 required == INTRINSICS
+                or required == lower.SLOTS
                 or required == ATOMICS
                 or HELPER_MODULES[required] ~= nil
                 or modules[required] ~= nil,

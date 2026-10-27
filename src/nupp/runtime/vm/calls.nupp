@@ -9,6 +9,7 @@ module nupp.runtime.vm.calls
 -- through frame entries only: there is no second entry table and no second
 -- counter.
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -204,28 +205,29 @@ export function pushFrame(
         native.store64(pushed, 8, current | (arguments << 32))
         native.store64(pushed, 16, closure)
         native.store64(pushed, 24, words << 33)
+        local pushedRegs = native.offset(pushed, 32)
         -- The arguments are the caller's registers from `base + 1`; one
         -- to three of them, the common counts, are copied without a loop.
-        local from = (base + 1) * 8
+        local from = base + 1
         if supplied == 1 then
-            native.store64(pushed, 40, native.load64(regs, from))
+            slots.writeValue(pushed, pushedRegs, 1, slots.readValue(frame, regs, from))
         elseif supplied == 2 then
-            native.store64(pushed, 40, native.load64(regs, from))
-            native.store64(pushed, 48, native.load64(regs, from + 8))
+            slots.writeValue(pushed, pushedRegs, 1, slots.readValue(frame, regs, from))
+            slots.writeValue(pushed, pushedRegs, 2, slots.readValue(frame, regs, from + 1))
         elseif supplied == 3 then
-            native.store64(pushed, 40, native.load64(regs, from))
-            native.store64(pushed, 48, native.load64(regs, from + 8))
-            native.store64(pushed, 56, native.load64(regs, from + 16))
+            slots.writeValue(pushed, pushedRegs, 1, slots.readValue(frame, regs, from))
+            slots.writeValue(pushed, pushedRegs, 2, slots.readValue(frame, regs, from + 1))
+            slots.writeValue(pushed, pushedRegs, 3, slots.readValue(frame, regs, from + 2))
         else
             local copied: int64 = 0
             while copied < supplied do
-                native.store64(pushed, 40 + copied * 8, native.load64(regs, from + copied * 8))
+                slots.writeValue(pushed, pushedRegs, 1 + copied, slots.readValue(frame, regs, from + copied))
                 copied = copied + 1
             end
         end
         local filled: int64 = supplied
         while filled < nparams do
-            native.store64(pushed, 40 + filled * 8, values.NIL)
+            slots.writeValue(pushed, pushedRegs, 1 + filled, values.NIL)
             filled = filled + 1
         end
         native.store64(context, native.layout("cur"), next)
@@ -317,6 +319,8 @@ local function pushSpreadSlow(
     native.store64(pushed, 8, current | ((current + 4 + native.word(base)) << 32))
     native.store64(pushed, 16, closure)
     native.store64(pushed, 24, (words << 33) | (native.word(nvar) << 49))
+    local pushedRegs = native.offset(pushed, 32)
+    local pushedVarargs = native.offset(pushed, 0 - nvar * 8)
     -- Argument `i` is a fixed word or a spread word; a parameter's goes to
     -- its register, a surplus one below the header. Nothing overlaps: the
     -- callee lies above the caller's whole frame.
@@ -324,19 +328,19 @@ local function pushSpreadSlow(
     while i < total do
         local word: uint64 = 0
         if i < fixed then
-            word = native.load64(regs, (base + 1 + i) * 8)
+            word = slots.readValue(frame, regs, base + 1 + i)
         else
-            word = native.load64(source, (i - fixed) * 8)
+            word = slots.readValue(frame, source, i - fixed)
         end
         if i < nparams then
-            native.store64(pushed, 40 + i * 8, word)
+            slots.writeValue(pushed, pushedRegs, 1 + i, word)
         elseif nvar > 0 then
-            native.store64(pushed, (i - nparams - nvar) * 8, word)
+            slots.writeValue(pushed, pushedVarargs, i - nparams, word)
         end
         i = i + 1
     end
     while i < nparams do
-        native.store64(pushed, 40 + i * 8, values.NIL)
+        slots.writeValue(pushed, pushedRegs, 1 + i, values.NIL)
         i = i + 1
     end
     native.store64(context, native.layout("cur"), next)
@@ -522,7 +526,7 @@ export function CallK(
     frame: voidptr
 ): uint64
     local nargs = native.load8(pc, 3)
-    local value = native.load64(regs, native.load8(pc, 1) * 8)
+    local value = slots.readValue(frame, regs, native.load8(pc, 1))
     if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     elseif value == values.TAG_FUNC | native.load64(pc, 8) then
@@ -570,7 +574,7 @@ local function resumeCaller(
             if native.both(caller + 4 + native.word(base) == delivered, wanted <= 8) then
                 local filled: int64 = 1
                 while filled < wanted do
-                    native.store64(callerRegs, (base + filled) * 8, values.NIL)
+                    slots.writeValue(resumed, callerRegs, base + filled, values.NIL)
                     filled = filled + 1
                 end
                 callerPc = native.offset(callerPc, 16)
@@ -671,7 +675,7 @@ export function Ret(
     if native.either(native.both(guard ~= values.NO_GUARD, guard >= current), caller == values.LOW_WORD) then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
-        local value = native.load64(regs, native.load8(pc, 1) * 8)
+        local value = slots.readValue(frame, regs, native.load8(pc, 1))
         local flags = native.load64(frame, 24)
         local indirect = (flags >> 32) & 1 ~= 0
         local slot = native.chooseWord(indirect, flags & values.LOW_WORD, link >> 32)
@@ -726,10 +730,10 @@ export function RetN(
     else
         local stack = native.loadPointer(context, native.layout("stack"))
         local results = native.index((link >> 32) * 8)
-        local from = native.load8(pc, 1) * 8
+        local from = native.load8(pc, 1)
         local copied: int64 = 0
         while copied < count do
-            native.store64(stack, results + copied * 8, native.load64(regs, from + copied * 8))
+            native.store64(stack, results + copied * 8, slots.readValue(frame, regs, from + copied))
             copied = copied + 1
         end
         if count == 0 then
@@ -756,7 +760,7 @@ export function PadResults(
         local base = native.load8(pc, 1)
         local filled: int64 = native.loadIndex(context, native.layout("last_nres"))
         while filled < wanted do
-            native.store64(regs, (base + filled) * 8, values.NIL)
+            slots.writeValue(frame, regs, base + filled, values.NIL)
             filled = filled + 1
         end
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
@@ -774,7 +778,7 @@ export function CallDyn(
     frame: voidptr
 ): uint64
     local nargs = native.load8(pc, 3)
-    local value = native.load64(regs, native.load8(pc, 1) * 8)
+    local value = slots.readValue(frame, regs, native.load8(pc, 1))
     if native.load32(context, native.layout("feedback")) ~= 0 then
         return observeCallSlow(pc, context, value, nargs)
     else
@@ -796,12 +800,13 @@ export function VarargN(
     local d = native.load8(pc, 1)
     local n = native.load8(pc, 2)
     local count = native.index(native.load64(frame, 24) >> 49)
+    local varargs = native.offset(frame, 0 - count * 8)
     local i: int64 = 0
     while i < n do
         if i < count then
-            native.store64(regs, (d + i) * 8, native.load64(frame, (i - count) * 8))
+            slots.writeValue(frame, regs, d + i, slots.readValue(frame, varargs, i))
         else
-            native.store64(regs, (d + i) * 8, values.NIL)
+            slots.writeValue(frame, regs, d + i, values.NIL)
         end
         i = i + 1
     end
@@ -821,7 +826,7 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
     local stack = native.loadPointer(context, native.layout("stack"))
     local current = native.load64(context, native.layout("cur"))
     local frame = native.offset(stack, native.index(current * 8))
-    local receiver = native.load64(frame, 32 + (base + 1) * 8)
+    local receiver = slots.readValue(frame, native.offset(frame, 32), base + 1)
     if native.load32(context, native.layout("feedback")) ~= 0 then
         helpers.observe(
             context,
@@ -839,7 +844,7 @@ local function callMethodSlow(pc: voidptr, context: voidptr, name: uint64, base:
     stack = native.loadPointer(context, native.layout("stack"))
     frame = native.offset(stack, native.index(current * 8))
     local regs = native.offset(frame, 32)
-    native.store64(regs, base * 8, method)
+    slots.writeValue(frame, regs, base, method)
     local fid = values.NO_GUARD
     local closure = values.NIL
     if method & values.TAG_MASK == values.TAG_FUNC then

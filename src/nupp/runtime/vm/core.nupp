@@ -7,6 +7,7 @@ module nupp.runtime.vm.core
 -- to the Rust core before any helper can move a frame or collect; a back edge
 -- that may enter compiled code goes through the frame driver in `calls`.
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const calls = require("nupp.runtime.vm.calls")
 const strings = require("nupp.runtime.vm.strings")
@@ -19,9 +20,9 @@ export function Move(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.store64(regs, a, native.load64(regs, b))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeValue(frame, regs, a, slots.readValue(frame, regs, b))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -33,14 +34,14 @@ export function Nil(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    native.store64(regs, a, values.NIL)
+    local a = native.load8(pc, 1)
+    slots.writeValue(frame, regs, a, values.NIL)
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 export function IK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
-    local a = native.load8(pc, 1) * 8
-    native.store64(ints, a, native.load64(pc, 8))
+    local a = native.load8(pc, 1)
+    slots.writeIntegerBits(frame, ints, a, native.load64(pc, 8))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -52,9 +53,9 @@ export function IMov(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.store64(ints, a, native.load64(ints, b))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeIntegerBits(frame, ints, a, slots.readIntegerBits(frame, ints, b))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -66,9 +67,9 @@ export function IAddK(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.store64(ints, a, native.load64(ints, b) + native.load64(pc, 8))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeIntegerBits(frame, ints, a, slots.readIntegerBits(frame, ints, b) + native.load64(pc, 8))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -80,9 +81,9 @@ export function IMaskU32(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.store64(ints, a, native.load64(ints, b) & values.LOW_WORD)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeIntegerBits(frame, ints, a, slots.readIntegerBits(frame, ints, b) & values.LOW_WORD)
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -94,12 +95,12 @@ export function IAdd(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x + y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x + y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -112,12 +113,12 @@ export function ISub(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x - y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x - y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -130,12 +131,12 @@ export function IAnd(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x & y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x & y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -148,12 +149,12 @@ export function IOr(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x | y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x | y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -166,12 +167,12 @@ export function IShl(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x << y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x << y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -184,12 +185,12 @@ export function IShrU(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, x >> y)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, x >> y)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -202,12 +203,12 @@ export function ICmpEq(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, native.asWord(x == y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x == y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -220,12 +221,12 @@ export function ICmpNe(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, native.asWord(x ~= y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x ~= y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -238,12 +239,12 @@ export function ICmpLt(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, native.asWord(x < y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x < y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -256,12 +257,12 @@ export function ICmpLe(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(ints, b)
-    local y = native.load64(ints, c)
-    native.store64(ints, a, native.asWord(x <= y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readIntegerBits(frame, ints, b)
+    local y = slots.readIntegerBits(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x <= y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -274,12 +275,12 @@ export function ICmpSLt(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.loadIndex(ints, b)
-    local y = native.loadIndex(ints, c)
-    native.store64(ints, a, native.asWord(x < y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readInteger(frame, ints, b)
+    local y = slots.readInteger(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x < y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -292,12 +293,12 @@ export function ICmpSLe(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.loadIndex(ints, b)
-    local y = native.loadIndex(ints, c)
-    native.store64(ints, a, native.asWord(x <= y))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readInteger(frame, ints, b)
+    local y = slots.readInteger(frame, ints, c)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(x <= y))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -326,8 +327,8 @@ export function JmpIfIZero(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local value = native.load64(ints, a)
+    local a = native.load8(pc, 1)
+    local value = slots.readIntegerBits(frame, ints, a)
     if value == 0 then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
@@ -348,12 +349,12 @@ export function FAdd(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local p = native.loadFloat(floats, b)
-    local q = native.loadFloat(floats, c)
-    native.storeFloat(floats, a, p + q)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local p = slots.readFloat(frame, floats, b)
+    local q = slots.readFloat(frame, floats, c)
+    slots.writeFloat(frame, floats, a, p + q)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -366,12 +367,12 @@ export function FSub(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local p = native.loadFloat(floats, b)
-    local q = native.loadFloat(floats, c)
-    native.storeFloat(floats, a, p - q)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local p = slots.readFloat(frame, floats, b)
+    local q = slots.readFloat(frame, floats, c)
+    slots.writeFloat(frame, floats, a, p - q)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -384,12 +385,12 @@ export function FMul(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local p = native.loadFloat(floats, b)
-    local q = native.loadFloat(floats, c)
-    native.storeFloat(floats, a, p * q)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local p = slots.readFloat(frame, floats, b)
+    local q = slots.readFloat(frame, floats, c)
+    slots.writeFloat(frame, floats, a, p * q)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -402,12 +403,12 @@ export function FDiv(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local p = native.loadFloat(floats, b)
-    local q = native.loadFloat(floats, c)
-    native.storeFloat(floats, a, p / q)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local p = slots.readFloat(frame, floats, b)
+    local q = slots.readFloat(frame, floats, c)
+    slots.writeFloat(frame, floats, a, p / q)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -420,19 +421,19 @@ export function FMod(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local p = native.loadFloat(floats, b)
-    local q = native.loadFloat(floats, c)
-    native.storeFloat(floats, a, p - native.floor(p / q) * q)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local p = slots.readFloat(frame, floats, b)
+    local q = slots.readFloat(frame, floats, c)
+    slots.writeFloat(frame, floats, a, p - native.floor(p / q) * q)
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
 export function FK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
-    local a = native.load8(pc, 1) * 8
-    native.storeFloat(floats, a, native.loadFloat(pc, 8))
+    local a = native.load8(pc, 1)
+    slots.writeFloat(frame, floats, a, native.loadFloat(pc, 8))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -444,9 +445,9 @@ export function FMov(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.storeFloat(floats, a, native.loadFloat(floats, b))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeFloat(frame, floats, a, slots.readFloat(frame, floats, b))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -458,9 +459,9 @@ export function FNeg(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.storeFloat(floats, a, native.neg(native.loadFloat(floats, b)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeFloat(frame, floats, a, native.neg(slots.readFloat(frame, floats, b)))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -472,9 +473,9 @@ export function IToF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.storeFloat(floats, a, native.toFloat(native.loadIndex(ints, b)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeFloat(frame, floats, a, native.toFloat(slots.readInteger(frame, ints, b)))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -486,9 +487,9 @@ export function FToI(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    native.storeIndex(ints, a, native.toInt(native.loadFloat(floats, b)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    slots.writeInteger(frame, ints, a, native.toInt(slots.readFloat(frame, floats, b)))
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
 
@@ -500,10 +501,15 @@ export function FCmpEq(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) == native.loadFloat(floats, c)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    slots.writeIntegerBits(
+        frame,
+        ints,
+        a,
+        native.asWord(slots.readFloat(frame, floats, b) == slots.readFloat(frame, floats, c))
+    )
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -516,10 +522,15 @@ export function FCmpNe(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) ~= native.loadFloat(floats, c)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    slots.writeIntegerBits(
+        frame,
+        ints,
+        a,
+        native.asWord(slots.readFloat(frame, floats, b) ~= slots.readFloat(frame, floats, c))
+    )
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -532,10 +543,15 @@ export function FCmpLt(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) < native.loadFloat(floats, c)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    slots.writeIntegerBits(
+        frame,
+        ints,
+        a,
+        native.asWord(slots.readFloat(frame, floats, b) < slots.readFloat(frame, floats, c))
+    )
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -548,10 +564,15 @@ export function FCmpLe(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    native.store64(ints, a, native.asWord(native.loadFloat(floats, b) <= native.loadFloat(floats, c)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    slots.writeIntegerBits(
+        frame,
+        ints,
+        a,
+        native.asWord(slots.readFloat(frame, floats, b) <= slots.readFloat(frame, floats, c))
+    )
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -564,14 +585,14 @@ export function FBox(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.bits(native.loadFloat(floats, b))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = native.bits(slots.readFloat(frame, floats, b))
     if bits & values.QNAN == values.QNAN then
-        native.store64(regs, a, values.QNAN)
+        slots.writeValue(frame, regs, a, values.QNAN)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
-        native.store64(regs, a, bits)
+        slots.writeValue(frame, regs, a, bits)
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     end
 end
@@ -584,14 +605,14 @@ export function FUnbox(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.QNAN ~= values.QNAN then
-        native.storeFloat(floats, a, native.fromBits(bits))
+        slots.writeFloat(frame, floats, a, native.fromBits(bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif bits == values.QNAN then
-        native.storeFloat(floats, a, native.fromBits(bits))
+        slots.writeFloat(frame, floats, a, native.fromBits(bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -607,14 +628,14 @@ export function GetCell(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         if native.load8(object, native.layout("Header.kind")) == 6 then
             local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
-            native.store64(regs, a, native.load64(data, 0))
+            slots.writeValue(frame, regs, a, native.load64(data, 0))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         else
             return native.slow(pc, regs, ints, floats, context, frame)
@@ -632,11 +653,11 @@ export function Add(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
@@ -644,7 +665,7 @@ export function Add(
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p + q)
-        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -659,11 +680,11 @@ export function Sub(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
@@ -671,7 +692,7 @@ export function Sub(
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p - q)
-        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -686,11 +707,11 @@ export function Mul(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
@@ -698,7 +719,7 @@ export function Mul(
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p * q)
-        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -713,11 +734,11 @@ export function Mod(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
@@ -725,7 +746,7 @@ export function Mod(
         local p = native.fromBits(x)
         local q = native.fromBits(y)
         local bits = native.bits(p - native.floor(p / q) * q)
-        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -733,17 +754,17 @@ export function Mod(
 end
 
 export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local result = native.fromBits(x) < native.fromBits(y)
-        native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
+        slots.writeValue(frame, regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return strings.order(pc, regs, ints, floats, context, frame, x, y, 0)
@@ -751,17 +772,17 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
 end
 
 export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local c = native.load8(pc, 3) * 8
-    local x = native.load64(regs, b)
-    local y = native.load64(regs, c)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local c = native.load8(pc, 3)
+    local x = slots.readValue(frame, regs, b)
+    local y = slots.readValue(frame, regs, c)
     if native.both(
         native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN),
         native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     ) then
         local result = native.fromBits(x) <= native.fromBits(y)
-        native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
+        slots.writeValue(frame, regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return strings.order(pc, regs, ints, floats, context, frame, x, y, 1)
@@ -776,12 +797,12 @@ export function Neg(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local x = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local x = slots.readValue(frame, regs, b)
     if native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN) then
         local bits = native.bits(native.neg(native.fromBits(x)))
-        native.store64(regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
+        slots.writeValue(frame, regs, a, native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -796,11 +817,11 @@ export function Not(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local x = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local x = slots.readValue(frame, regs, b)
     local result = native.either(x == values.NIL, x == values.FALSE)
-    native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
+    slots.writeValue(frame, regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -813,10 +834,10 @@ export function Truthy(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local x = native.load64(regs, b)
-    native.store64(ints, a, native.asWord(native.both(x ~= values.NIL, x ~= values.FALSE)))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local x = slots.readValue(frame, regs, b)
+    slots.writeIntegerBits(frame, ints, a, native.asWord(native.both(x ~= values.NIL, x ~= values.FALSE)))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -829,10 +850,10 @@ export function BoolFromI(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local result = native.loadIndex(ints, b) ~= 0
-    native.store64(regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local result = slots.readInteger(frame, ints, b) ~= 0
+    slots.writeValue(frame, regs, a, native.chooseWord(result, values.TRUE, values.FALSE))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -845,13 +866,13 @@ export function GetUpval(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
+    local a = native.load8(pc, 1)
     local b = native.load8(pc, 2) * 8
     local bits = native.load64(frame, 16)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         local data = native.loadPointer(object, native.layout("Header.aux_ptr"))
-        native.store64(regs, a, native.load64(data, b))
+        slots.writeValue(frame, regs, a, native.load64(data, b))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         return native.slow(pc, regs, ints, floats, context, frame)
@@ -859,13 +880,13 @@ export function GetUpval(
 end
 
 export function K(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, context: voidptr, frame: voidptr): uint64
-    local a = native.load8(pc, 1) * 8
+    local a = native.load8(pc, 1)
     local index = native.load32(pc, 4) * 8
     local fid = native.loadIndex(frame, 0) & values.LOW_WORD
     local funcs = native.loadPointer(context, native.layout("funcs"))
     local info = native.offset(funcs, fid * native.layout("FuncInfo.size"))
     local consts = native.loadPointer(info, native.layout("FuncInfo.consts"))
-    native.store64(regs, a, native.load64(consts, index))
+    slots.writeValue(frame, regs, a, native.load64(consts, index))
 
     return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
 end
@@ -878,8 +899,8 @@ export function JmpIf(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local value = native.load64(regs, a)
+    local a = native.load8(pc, 1)
+    local value = slots.readValue(frame, regs, a)
     if native.both(value ~= values.NIL, value ~= values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
@@ -900,8 +921,8 @@ export function JmpIfNot(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local value = native.load64(regs, a)
+    local a = native.load8(pc, 1)
+    local value = slots.readValue(frame, regs, a)
     if native.either(value == values.NIL, value == values.FALSE) then
         local displacement = native.load32(pc, 4)
         if displacement < 0 then
@@ -922,9 +943,9 @@ export function GetSlot(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         if native.both(
@@ -935,7 +956,7 @@ export function GetSlot(
             local slot = native.load8(pc, 3) * 8
             local value = native.load64(data, slot)
             if native.either(value ~= values.NIL, native.load8(object, native.layout("Header.flags")) & 4 == 0) then
-                native.store64(regs, a, value)
+                slots.writeValue(frame, regs, a, value)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return native.slow(pc, regs, ints, floats, context, frame)
@@ -956,9 +977,9 @@ export function GetSlotF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         if native.both(
@@ -969,7 +990,7 @@ export function GetSlotF(
             local slot = native.load8(pc, 3) * 8
             local value = native.load64(data, slot)
             if native.either(value & values.QNAN ~= values.QNAN, value == values.QNAN) then
-                native.storeFloat(floats, a, native.fromBits(value))
+                slots.writeFloat(frame, floats, a, native.fromBits(value))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return native.slow(pc, regs, ints, floats, context, frame)
@@ -990,20 +1011,20 @@ export function Len(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         local kind = native.load8(object, native.layout("Header.kind"))
         if native.either(kind == 1, kind == 9) then
             local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-            native.store64(regs, a, native.bits(length))
+            slots.writeValue(frame, regs, a, native.bits(length))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         elseif kind == 2 then
             if native.load64(object, native.layout("Table.meta")) == values.NIL then
                 local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-                native.store64(regs, a, native.bits(length))
+                slots.writeValue(frame, regs, a, native.bits(length))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return native.slow(pc, regs, ints, floats, context, frame)
@@ -1025,20 +1046,20 @@ export function LenF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local b = native.load8(pc, 2) * 8
-    local bits = native.load64(regs, b)
+    local a = native.load8(pc, 1)
+    local b = native.load8(pc, 2)
+    local bits = slots.readValue(frame, regs, b)
     if bits & values.TAG_MASK == values.TAG_OBJ then
         local object = native.pointer(bits & values.PAYLOAD)
         local kind = native.load8(object, native.layout("Header.kind"))
         if native.either(kind == 1, kind == 9) then
             local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-            native.storeFloat(floats, a, length)
+            slots.writeFloat(frame, floats, a, length)
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         elseif kind == 2 then
             if native.load64(object, native.layout("Table.meta")) == values.NIL then
                 local length = native.unsignedFloat(native.load64(object, native.layout("Header.aux_len")))
-                native.storeFloat(floats, a, length)
+                slots.writeFloat(frame, floats, a, length)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return native.slow(pc, regs, ints, floats, context, frame)

@@ -11,6 +11,7 @@ greys the child, as every later store does.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -25,13 +26,14 @@ local function newClosureSlow(pc: voidptr, context: voidptr, fid: uint64, base: 
         return native.fail()
     end
     local stack = native.loadPointer(context, native.layout("stack"))
-    local regs = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8) + 32)
-    local slots = native.loadPointer(native.pointer(closure & values.PAYLOAD), native.layout("Header.aux_ptr"))
+    local frame = native.offset(stack, native.index(native.load64(context, native.layout("cur")) * 8))
+    local regs = native.offset(frame, 32)
+    local captures = native.loadPointer(native.pointer(closure & values.PAYLOAD), native.layout("Header.aux_ptr"))
     local marking = native.load8(native.loadPointer(context, native.layout("marking")), 0) ~= 0
     local i: int64 = 0
     while i < count do
-        local captured = native.load64(regs, (base + 1 + i) * 8)
-        native.store64(slots, i * 8, captured)
+        local captured = slots.readValue(frame, regs, base + 1 + i)
+        native.store64(captures, i * 8, captured)
         if marking then
             helpers.barrier(context, closure, captured)
         end
@@ -78,5 +80,5 @@ export function NewCell(
     context: voidptr,
     frame: voidptr
 ): uint64
-    return newCellSlow(pc, context, native.load64(regs, native.load8(pc, 2) * 8))
+    return newCellSlow(pc, context, slots.readValue(frame, regs, native.load8(pc, 2)))
 end

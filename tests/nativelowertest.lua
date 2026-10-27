@@ -10,6 +10,7 @@ local FIXTURES = ROOT .. "/tests/fixtures/native"
 
 local lower = require("nupp.compiler.clif.lower")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
+local slotcontract = require("nupp.compiler.vm.slotcontract")
 
 local M = {}
 
@@ -351,6 +352,46 @@ function M.atomicWordsAndHalvesLowerToAtomicInstructions()
     check(compileFixture("atomics"), ATOMICS)
 end
 
+function M.logicalSlotsKeepWindowsKindsAndBitsDistinct()
+    check(compileFixture("slots"), {
+        {"classes", {"buffer:512", 0}, true},
+        {"classes", {"buffer:512", 8}, true},
+        {"integerBits", {"buffer:128", 3, "9223372036854775808"}, true},
+        {"integerBits", {"buffer:128", 1, "18446744073709551615"}, true},
+        {"floatBits", {"buffer:128", 4, "9223372036854775808"}, true},
+        {"floatBits", {"buffer:128", 2, "9221120237041090561"}, true},
+    })
+end
+
+function M.logicalSlotsRequireClassifiedConsistentContracts()
+    local function declaration(class, kind, write)
+        return {
+            annotations = {
+                {
+                    name = "vmSlotAccess",
+                    arguments = {
+                        {name = "class", kind = "value", value = class},
+                        {name = "kind", kind = "value", value = kind},
+                        {name = "write", kind = "value", value = write},
+                    }
+                }
+            }
+        }
+    end
+
+    for _, fields in ipairs({
+        {"v", "number", false},
+        {"f", "uint64", true},
+        {"i", "int64", "false"},
+        {"x", "uint64", false}
+    }) do
+        assert(not pcall(slotcontract.read, declaration(unpack(fields)), "invalid"))
+    end
+    assert(not pcall(slotcontract.read, {}, "unclassified"))
+    local access = slotcontract.read(declaration("i", "int64", false), "signed")
+    assert(access.class == "i" and access.kind == "int64" and not access.write and access.width == 8)
+end
+
 -- The managed-fields measurement: both designs run; the numbers are read from
 -- the report, not asserted, since they are the machine's.
 function M.theManagedFieldsMeasurementRuns()
@@ -473,6 +514,29 @@ end
 local function compileHandlers(body, preamble)
     local dir, path = handlerModule(body, preamble)
     return lower.compile(ROOT, {path}, {handlers = true, layouts = layouts(), include = {"src", dir}})
+end
+
+function M.unclassifiedLogicalSlotsAreRefused()
+    local module = "nupp.runtime.vm.unclassifiedslots"
+    local dir, path = handlerModule(
+        "slots.writeValue(frame, regs, 0, 1ULL)\n" .. "return native.dispatch(pc, regs, ints, floats, context, frame)",
+        'const slots = require("' .. module .. '")\n'
+    )
+    write(
+        dir .. "/nupp/runtime/vm/unclassifiedslots.d.nupp",
+        "local record Slots\n"
+        .. "writeValue: function(frame: voidptr, window: voidptr, slot: int64, value: uint64): nil\n"
+        .. "end\nreturn Slots\n"
+    )
+    local original = lower.SLOTS
+    lower.SLOTS = module
+    local ok, problem = pcall(lower.compile, ROOT, {path}, {
+        handlers = true,
+        layouts = layouts(),
+        include = {dir, "src"},
+    })
+    lower.SLOTS = original
+    assert(not ok and tostring(problem):find("has no declared contract", 1, true), tostring(problem))
 end
 
 function M.unclassifiedNativeHelpersAreRefused()

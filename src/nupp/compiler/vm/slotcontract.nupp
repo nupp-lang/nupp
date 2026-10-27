@@ -1,0 +1,49 @@
+module nupp.compiler.vm.slotcontract
+
+local contract = {}
+local kinds = {v = {uint64 = true}, i = {int64 = true, uint64 = true}, f = {number = true}}
+
+--- Returns a logical slot access from its checked Nupp declaration.
+---
+--- The frame and window are explicit operands. Reads observe mutable frame
+--- state; writes change it. Neither operation collects, parks or raises.
+--- @raises string when the declaration is missing or inconsistent
+function contract.read(definition: any, name: string): {
+    class: string,
+    kind: string,
+    write: boolean,
+    width: number
+}
+    local found = nil
+    for _, annotation in ipairs(definition and definition.annotations or {}) do
+        if annotation.name == "vmSlotAccess" then
+            assert(found == nil, "slot access " .. name .. " has duplicate contracts")
+            found = annotation
+        end
+    end
+    assert(found ~= nil, "slot access " .. name .. " has no declared contract")
+    local fields: {[string]: any} = {}
+    for _, argument in ipairs(found.arguments or {}) do
+        local field = argument.name
+        assert(
+            field == "class" or field == "kind" or field == "write",
+            "slot access " .. name .. " has an unknown field"
+        )
+        assert(fields[field] == nil, "slot access " .. name .. " has a duplicate field")
+        assert(argument.kind == "value", "slot access " .. name .. " requires literal metadata")
+        fields[field] = argument.value
+    end
+    assert(
+        type(fields.class) == "string" and kinds[fields.class] ~= nil,
+        "slot access " .. name .. " has an invalid class"
+    )
+    assert(
+        type(fields.kind) == "string" and kinds[fields.class][fields.kind] == true,
+        "slot access " .. name .. " has an invalid kind"
+    )
+    assert(type(fields.write) == "boolean", "slot access " .. name .. " has no write flag")
+
+    return {class = fields.class, kind = fields.kind, write = fields.write, width = 8}
+end
+
+export = contract

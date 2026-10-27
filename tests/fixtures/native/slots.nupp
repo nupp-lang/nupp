@@ -1,0 +1,57 @@
+module slots
+
+const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
+
+local function classes(base: voidptr, count: int64): boolean
+    local regs = native.offset(base, 32)
+    local ints = native.offset(base, 128)
+    local floats = native.offset(base, 256)
+    native.store64(base, 0, 0xfedcba9876543210ULL)
+    local i: int64 = 0
+    while i < count do
+        slots.writeValue(base, regs, i, native.word(i) + 100ULL)
+        slots.writeInteger(base, ints, i, -i - 1)
+        slots.writeFloat(base, floats, i, native.toFloat(i) + 0.25)
+        i = i + 1
+    end
+    i = 0
+    while i < count do
+        if slots.readValue(base, regs, i) ~= native.load64(base, 32 + i * 8) then
+            return false
+        end
+        if slots.readInteger(base, ints, i) ~= -i - 1 then
+            return false
+        end
+        if native.load64(base, 128 + i * 8) ~= slots.readIntegerBits(base, ints, i) then
+            return false
+        end
+        if slots.readFloat(base, floats, i) ~= native.loadFloat(base, 256 + i * 8) then
+            return false
+        end
+        if slots.readValue(base, regs, i) ~= native.word(i) + 100ULL then
+            return false
+        end
+        if slots.readFloat(base, floats, i) ~= native.toFloat(i) + 0.25 then
+            return false
+        end
+        i = i + 1
+    end
+
+    return native.load64(base, 0) == 0xfedcba9876543210ULL
+end
+
+local function integerBits(base: voidptr, slot: int64, bits: uint64): boolean
+    local ints = native.offset(base, 32)
+    slots.writeIntegerBits(base, ints, slot, bits)
+    local signed = slots.readInteger(base, ints, slot)
+    slots.writeInteger(base, ints, slot + 1, signed)
+
+    return slots.readIntegerBits(base, ints, slot + 1) == bits
+end
+
+local function floatBits(base: voidptr, slot: int64, bits: uint64): boolean
+    local floats = native.offset(base, 32)
+    slots.writeFloat(base, floats, slot, native.fromBits(bits))
+    return native.bits(slots.readFloat(base, floats, slot)) == bits
+end

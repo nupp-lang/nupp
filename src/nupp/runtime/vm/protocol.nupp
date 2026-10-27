@@ -4,6 +4,7 @@ module nupp.runtime.vm.protocol
 -- helper, and after it checks the status and derives its windows again from
 -- the context, since the stack may have moved.
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 
 export function publishPc(pc: voidptr, context: voidptr): nil
@@ -36,7 +37,7 @@ export function continueAfter(pc: voidptr, context: voidptr, slot: int64, value:
         local ints = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_i")) * 8)
         local floats = native.offset(frame, native.load32(info, native.layout("FuncInfo.off_f")) * 8)
         if storing then
-            native.store64(regs, slot * 8, value)
+            slots.writeValue(frame, regs, slot, value)
         end
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     end

@@ -3,6 +3,7 @@ module nupp.runtime.vm.lookup
 -- Field and index lookups, stores, equality and cells: fast paths in Nupp
 -- with the Rust helpers behind `...Slow` support functions.
 const native = require("nupp.runtime.vm.intrinsics")
+const slots = require("nupp.runtime.vm.slots")
 const values = require("nupp.runtime.vm.values")
 const helpers = require("nupp.runtime.vm.helpers")
 const protocol = require("nupp.runtime.vm.protocol")
@@ -26,7 +27,7 @@ local function getField(
     object: uint64,
     name: uint64
 ): uint64
-    local a = native.load8(pc, 1) * 8
+    local a = native.load8(pc, 1)
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -50,7 +51,7 @@ local function getField(
                     local data = native.loadPointer(header, native.layout("Header.aux_ptr"))
                     local value = native.load64(data, native.index(slot * 8))
                     if value ~= values.NIL then
-                        native.store64(regs, a, value)
+                        slots.writeValue(frame, regs, a, value)
                         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                     end
                     break
@@ -71,14 +72,14 @@ local function getField(
                     if bucket == name then
                         local value = native.load64(buckets, native.index(k * 16 + 8))
                         if value ~= values.NIL or meta == values.NIL then
-                            native.store64(regs, a, value)
+                            slots.writeValue(frame, regs, a, value)
                             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                         end
                         break
                     end
                     if bucket == values.NIL then
                         if meta == values.NIL then
-                            native.store64(regs, a, values.NIL)
+                            slots.writeValue(frame, regs, a, values.NIL)
                             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
                         end
                         break
@@ -86,7 +87,7 @@ local function getField(
                     k = (k + 1) & mask
                 end
             elseif meta == values.NIL then
-                native.store64(regs, a, values.NIL)
+                slots.writeValue(frame, regs, a, values.NIL)
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             end
         end
@@ -120,7 +121,7 @@ export function GetField(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = native.load64(regs, native.load8(pc, 2) * 8)
+    local object = slots.readValue(frame, regs, native.load8(pc, 2))
     local consts = native.loadPointer(
         native.loadPointer(context, native.layout("funcs")),
         native.index(
@@ -146,17 +147,17 @@ local function equality(
     frame: voidptr,
     negate: uint64
 ): uint64
-    local a = native.load8(pc, 1) * 8
-    local x = native.load64(regs, native.load8(pc, 2) * 8)
-    local y = native.load64(regs, native.load8(pc, 3) * 8)
+    local a = native.load8(pc, 1)
+    local x = slots.readValue(frame, regs, native.load8(pc, 2))
+    local y = slots.readValue(frame, regs, native.load8(pc, 3))
     local xNumber = native.either(x & values.QNAN ~= values.QNAN, x == values.QNAN)
     local yNumber = native.either(y & values.QNAN ~= values.QNAN, y == values.QNAN)
     if native.both(xNumber, yNumber) then
         local equal = native.fromBits(x) == native.fromBits(y)
-        native.store64(regs, a, native.chooseWord(equal == (negate == 0), values.TRUE, values.FALSE))
+        slots.writeValue(frame, regs, a, native.chooseWord(equal == (negate == 0), values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     elseif x == y then
-        native.store64(regs, a, native.chooseWord(negate == 0, values.TRUE, values.FALSE))
+        slots.writeValue(frame, regs, a, native.chooseWord(negate == 0, values.TRUE, values.FALSE))
         return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
     else
         local xObject = x & values.TAG_MASK == values.TAG_OBJ
@@ -165,13 +166,13 @@ local function equality(
             local xInterned = native.load8(native.pointer(x & values.PAYLOAD), native.layout("Header.flags")) & 1 ~= 0
             local yInterned = native.load8(native.pointer(y & values.PAYLOAD), native.layout("Header.flags")) & 1 ~= 0
             if native.both(xInterned, yInterned) then
-                native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
+                slots.writeValue(frame, regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
                 return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
             else
                 return strings.equal(pc, regs, ints, floats, context, frame, x, y, negate)
             end
         else
-            native.store64(regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
+            slots.writeValue(frame, regs, a, native.chooseWord(negate ~= 0, values.TRUE, values.FALSE))
             return native.dispatch(native.offset(pc, 16), regs, ints, floats, context, frame)
         end
     end
@@ -208,8 +209,8 @@ export function SetCell(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local cell = native.load64(regs, native.load8(pc, 1) * 8)
-    local value = native.load64(regs, native.load8(pc, 2) * 8)
+    local cell = slots.readValue(frame, regs, native.load8(pc, 1))
+    local value = slots.readValue(frame, regs, native.load8(pc, 2))
     if cell & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -238,8 +239,8 @@ export function SetSlot(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = native.load64(regs, native.load8(pc, 1) * 8)
-    local value = native.load64(regs, native.load8(pc, 3) * 8)
+    local object = slots.readValue(frame, regs, native.load8(pc, 1))
+    local value = slots.readValue(frame, regs, native.load8(pc, 3))
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
@@ -273,8 +274,8 @@ export function SetSlotF(
     context: voidptr,
     frame: voidptr
 ): uint64
-    local object = native.load64(regs, native.load8(pc, 1) * 8)
-    local value = native.loadFloat(floats, native.load8(pc, 3) * 8)
+    local object = slots.readValue(frame, regs, native.load8(pc, 1))
+    local value = slots.readFloat(frame, floats, native.load8(pc, 3))
     if object & values.TAG_MASK ~= values.TAG_OBJ then
         return native.slow(pc, regs, ints, floats, context, frame)
     else
