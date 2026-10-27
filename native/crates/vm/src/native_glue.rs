@@ -20,7 +20,7 @@ use std::mem::offset_of;
 /// Every structure offset a handler may name, as the linked Rust layouts
 /// measure it. The Nupp producer reads these (`nupp-vm native layouts`), and
 /// the generated sidecar asserts the same values at build time.
-pub const LAYOUT_FIELDS: [&str; 72] = [
+pub const LAYOUT_FIELDS: [&str; 76] = [
     "funcs", "FuncInfo.size", "FuncInfo.consts", "jit_frames", "nframe_entries",
     "frame_entries", "stack", "cap", "cur", "nfuncs", "result", "last_nres",
     "feedback", "guard", "unavailable_fid", "FuncInfo.code",
@@ -29,10 +29,11 @@ pub const LAYOUT_FIELDS: [&str; 72] = [
     "Header.aux", "Header.flags", "Table.meta", "Header.kind", "Header.aux_ptr", "Ins.op",
     "Ins.a", "Ins.b", "Ins.c", "Ins.imm", "Ins.k", "pc", "status", "marking", "shapes",
     "ShapeInfo.size", "ShapeInfo.table", "ShapeInfo.mask", "Table.hash_ptr", "Table.hash_mask",
-    "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults",
+    "slow_calls", "nslow_calls", "frame_threshold", "budget", "Code.PadResults", "Code.CallT",
     "Table.hash_cap", "Table.hash_len", "Table.hash_order", "Table.hash_rank",
     "cleanups", "ncleanups", "Cleanup.size", "Cleanup.frame", "Cleanup.value", "Cleanup.callback",
     "FuncInfo.ncode", "ShapeInfo.names", "FuncInfo.off_v",
+    "FuncInfo.nv_params", "FuncInfo.nf_params", "FuncInfo.float_return",
     "Packet.size", "Packet.a", "Packet.b", "Packet.c", "Packet.out", "Packet.lanes", "Packet.kind", "Packet.operation", "Packet.mask",
 ];
 
@@ -68,6 +69,9 @@ pub fn layout(field: &str) -> Result<usize, String> {
         "FuncInfo.calls" => offset_of!(FuncInfo, calls),
         "FuncInfo.typed" => offset_of!(FuncInfo, typed),
         "FuncInfo.native" => offset_of!(FuncInfo, native),
+        "FuncInfo.nv_params" => offset_of!(FuncInfo, nv_params),
+        "FuncInfo.nf_params" => offset_of!(FuncInfo, nf_params),
+        "FuncInfo.float_return" => offset_of!(FuncInfo, float_return),
         "Header.aux_len" => offset_of!(Header, aux_len),
         "Header.aux" => offset_of!(Header, aux),
         "Header.flags" => offset_of!(Header, flags),
@@ -97,6 +101,7 @@ pub fn layout(field: &str) -> Result<usize, String> {
         // An opcode number a handler reads from the instruction stream: the
         // return that pads the results of the call it answers.
         "Code.PadResults" => crate::threaded::Code::PadResults as usize,
+        "Code.CallT" => crate::threaded::Code::CallT as usize,
         "Table.hash_cap" => hash_part(offset_of!(crate::heap::ValueTable, cap)),
         "Table.hash_len" => hash_part(offset_of!(crate::heap::ValueTable, len)),
         "Table.hash_order" => hash_part(offset_of!(crate::heap::ValueTable, order)),

@@ -135,6 +135,37 @@ local function enterPushed(
     local calleeRegs = native.offset(frame, 32)
     local calleeInts = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_i")) * 8)
     local calleeFloats = native.offset(frame, native.load32(callee, native.layout("FuncInfo.off_f")) * 8)
+    local floatBase: int64 = -1
+    if program.readByte(pc, 0) == native.layout("Code.CallT") then
+        floatBase = program.readByte(pc, 2)
+    end
+    if floatBase >= 0 then
+        -- CallT names logical caller float slots. The packed destination is
+        -- only the current frame-header adapter; the copy uses typed slots.
+        local caller = native.load64(frame, 8) & values.LOW_WORD
+        local callerFrame = native.offset(native.loadPointer(context, native.layout("stack")), native.index(caller * 8))
+        local callerInfo = native.offset(
+            native.loadPointer(context, native.layout("funcs")),
+            native.index(native.load64(callerFrame, 0) & values.LOW_WORD) * native.layout("FuncInfo.size")
+        )
+        local off = native.load32(callerInfo, native.layout("FuncInfo.off_f"))
+        local callerFloats = native.offset(callerFrame, off * 8)
+        local flags = native.load64(frame, 24) & 0xfffffffe00000000ULL
+        local destination = caller + native.word(off + floatBase)
+        local returning = native.word(native.load32(callee, native.layout("FuncInfo.float_return")))
+        native.store64(frame, 24, flags | destination | (returning << 32))
+        local count = native.load32(callee, native.layout("FuncInfo.nf_params"))
+        local copied: int64 = 0
+        while copied < count do
+            slots.writeFloat(
+                frame,
+                calleeFloats,
+                copied,
+                slots.readFloat(callerFrame, callerFloats, floatBase + copied)
+            )
+            copied = copied + 1
+        end
+    end
     -- The frame entry table is absent, not empty, when nothing is compiled:
     -- it is read only below its recorded length.
     local entry: uint64 = 0
@@ -1084,4 +1115,31 @@ export function CallMethod(
     )
 
     return callMethodSlow(pc, context, name, program.readByte(pc, 2), program.readByte(pc, 3))
+end
+
+-- Typed calls take value and float counts from the callee signature. The
+-- fourth encoded operand is retained but unused, matching the current ABI.
+export function CallT(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    context: voidptr,
+    frame: voidptr
+): uint64
+    local fid = program.readWord(pc, 8)
+    if fid >= native.load64(context, native.layout("nfuncs")) then
+        return native.slow(pc, regs, ints, floats, context, frame)
+    end
+    local callee = native.offset(
+        native.loadPointer(context, native.layout("funcs")),
+        native.index(fid) * native.layout("FuncInfo.size")
+    )
+    local supplied = native.load32(callee, native.layout("FuncInfo.nv_params"))
+    local base = program.readByte(pc, 1)
+    if supplied >= 64 or native.load32(callee, native.layout("FuncInfo.vararg")) ~= 0 then
+        return pushSpreadSlow(pc, context, fid, values.NIL, base, supplied, 0)
+    end
+
+    return pushFrame(pc, regs, ints, floats, context, frame, callee, fid, values.NIL, base, supplied, true)
 end

@@ -608,6 +608,9 @@ fn one_function(program: &[Ins]) -> FuncInfo {
         calls: 0,
         typed: 0,
         native: 0,
+        nv_params: 0,
+        nf_params: 0,
+        float_return: 0,
     }
 }
 
@@ -979,6 +982,9 @@ impl Machine {
                 calls: 0,
                 typed: 0,
                 native: 0,
+                nv_params: np,
+                nf_params: 0,
+                float_return: 0,
             });
         }
         m.stack[0] = 0;

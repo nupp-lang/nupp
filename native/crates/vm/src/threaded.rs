@@ -21,7 +21,7 @@ pub struct Ins { pub op: u8, pub a: u8, pub b: u8, pub c: u8, pub imm: i32, pub 
 /// `typed` marks a function with a float parameter, which a dynamic call
 /// unboxes on entry and the core leaves to Rust; `native` one with vector
 /// instructions, which runs only compiled or by the interpreter's policy.
-pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub off_v: u32, pub vararg: u32, pub ncode: u32, pub calls: u32, pub typed: u32, pub native: u32 }
+pub struct FuncInfo { pub code: *const Ins, pub consts: *const u64, pub frame_words: u32, pub nregs: u32, pub nparams: u32, pub off_i: u32, pub off_f: u32, pub off_v: u32, pub vararg: u32, pub ncode: u32, pub calls: u32, pub typed: u32, pub native: u32, pub nv_params: u32, pub nf_params: u32, pub float_return: u32 }
 
 #[repr(C)]
 pub struct ShapeInfo { pub names: *const u64, pub n: u64, pub table: *const u64, pub mask: u64 }
@@ -102,6 +102,7 @@ codes! {
     BytesLen, LoadU8, LoadU8K, LoadU32W, StoreU8, StoreU32, NewBytes, BytesToStr,
     NewBuffer, BufAppend, BufAppendSub, Substring, BufFinish,
     FRet,
+    CallT,
 }
 
 /// The opcode number of a core handler name, if it is one.
@@ -124,6 +125,7 @@ pub fn encode(op: &Op) -> Ins {
         Op::Scalar(k, d, a, b) => Ins { imm: k as i32, ..i(Code::Scalar, d, a, b) },
         Op::IJmpIfUle(a, b, off) => Ins { imm: off, ..i(Code::IJmpIfUle, a, b, 0) },
         Op::IJmpIfUlt(a, b, off) => Ins { imm: off, ..i(Code::IJmpIfUlt, a, b, 0) },
+        Op::CallT(fid, base, fbase, nargs) => Ins { k: fid as i64, ..i(Code::CallT, base, fbase, nargs) },
         Op::Move(d, s) => i(Code::Move, d, s, 0),
         Op::K(d, k) => Ins { imm: k as i32, ..i(Code::K, d, 0, 0) },
         Op::Nil(d) => i(Code::Nil, d, 0, 0),
@@ -507,7 +509,7 @@ impl Interp {
         if std::env::var("NO_THREADED").is_ok() { self.threaded = false; return; }
         self.shape_info = self.heap.shapes.iter().map(|s| ShapeInfo { names: s.names.as_ptr() as *const u64, n: s.names.len() as u64, table: s.table.as_ptr() as *const u64, mask: s.mask }).collect();
         for f in &mut self.funcs { if f.ins.len() != f.code.len() + jump_words(f).len() / 4 { f.ins = encode_function(f); } }
-        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, off_v: f.off_v() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32 }).collect();
+        self.finfo = self.funcs.iter().map(|f: &Function| FuncInfo { code: f.ins.as_ptr(), consts: f.consts.as_ptr() as *const u64, frame_words: f.frame_words() as u32, nregs: f.nregs as u32, nparams: f.nparams as u32, off_i: f.off_i() as u32, off_f: f.off_f() as u32, off_v: f.off_v() as u32, vararg: f.vararg as u32, ncode: f.code.len() as u32, calls: 0, typed: f.sig.contains(&b'f') as u32, native: f.code.iter().any(crate::native_simd::required) as u32, nv_params: f.nv_params as u32, nf_params: f.nf_params as u32, float_return: (f.ret == b'f') as u32 }).collect();
         self.threaded = true;
     }
 
