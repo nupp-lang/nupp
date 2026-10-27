@@ -32,6 +32,7 @@ function M.numericConstantsPreserveSubtypeAndIntegerBits()
         local integerKind, floatKind, positive, negative, firstWide, secondWide = compile(
             "vmindexkeytest.numericConstants" .. index .. ".fragment",
             source
+            .. "\n"
             .. [[
 local wide, nextWide = 9007199254740992, 9007199254740993
 return math.type(first), math.type(second), 1 / positive, 1 / negative, tostring(wide), tostring(nextWide)

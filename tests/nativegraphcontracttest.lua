@@ -56,7 +56,7 @@ function M.floatingConstantPoolsPreserveSignedZero()
             offset = offset + 1
             value = value + (byte % 128) * factor
             if byte < 128 then
-                return value
+                return value - 1
             end
             factor = factor * 128
         end

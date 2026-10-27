@@ -368,10 +368,10 @@ end
 
 local struct Packet
     tag: int8
-    value: number
+    value: float64
     next: Inner*
     inner: Inner
-    samples: float[3]
+    samples: float32[3]
 end
 
 local type PacketAlias = Packet
