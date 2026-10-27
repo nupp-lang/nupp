@@ -18,6 +18,7 @@ mod dominance;
 mod simd_reduce;
 #[cfg(feature = "jit")]
 mod simd_jit;
+#[cfg(test)]
 mod simd_exec;
 #[cfg(feature = "allocation-metrics")]
 mod allocation_metrics;

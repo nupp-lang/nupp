@@ -2,8 +2,8 @@
 //! reads, the per-function table it walks, the context it runs in, and the
 //! Rust helpers it calls for anything it does not do itself. The handlers are
 //! Nupp (`src/nupp/runtime/vm`), linked by the `native-runtime` feature and
-//! driven by `dispatch`; a build without the object, and `NO_THREADED=1`, run
-//! `Interp::run_rust`, the reference the core's results are checked against.
+//! driven by `dispatch`. Unbatched execution uses the same handler entry
+//! once per instruction. A build without the object cannot execute guests.
 #![cfg_attr(not(feature = "native-runtime"), allow(dead_code, unused_imports))]
 
 use crate::interp::{Function, Interp, Op, Outcome, State, Step};

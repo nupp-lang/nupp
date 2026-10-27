@@ -337,21 +337,6 @@ pub static TABLE_COUNTS: [std::sync::atomic::AtomicU64; 12] = [const { std::sync
 /// lie just below the header (a vararg function's surplus arguments, in the
 /// frame rather than in any object).
 const NONE: u32 = u32::MAX;
-/// Where a budget is charged: a call or a taken backward jump, before it runs.
-/// The native core charges at the same instructions.
-#[inline] pub(crate) fn budget_point(op: &Op, win: &Win) -> bool {
-    match *op {
-        Op::Call(..) | Op::CallK(..) | Op::CallDyn(..) | Op::CallT(..) | Op::CallMethod(..) => true,
-        Op::Jmp(off) => off < 0,
-        Op::JmpIf(c, off) => off < 0 && unsafe { (*win.regs.add(c as usize)).truthy() },
-        Op::JmpIfNot(c, off) => off < 0 && !unsafe { (*win.regs.add(c as usize)).truthy() },
-        Op::JmpIfIZero(c, off) => off < 0 && unsafe { *win.iregs.add(c as usize) == 0 },
-        Op::IJmpIfUle(a, b, off) => off < 0 && unsafe { (*win.iregs.add(a as usize) as u64) <= (*win.iregs.add(b as usize) as u64) },
-        Op::IJmpIfUlt(a, b, off) => off < 0 && unsafe { (*win.iregs.add(a as usize) as u64) < (*win.iregs.add(b as usize) as u64) },
-        _ => false,
-    }
-}
-#[inline] fn frame_words_of(h3: u64) -> usize { ((h3 >> 33) & 0xffff) as usize }
 #[inline] fn nvar_of(h3: u64) -> usize { (h3 >> 49) as usize }
 #[inline] fn header3(fret: usize, is_f: bool, words: usize, nvar: usize) -> u64 { fret as u64 | ((is_f as u64) << 32) | ((words as u64) << 33) | ((nvar as u64) << 49) }
 
@@ -672,8 +657,6 @@ pub enum Outcome { Done(Value), Parked(u64) }
 /// handed to the outlined opcode handlers.
 #[derive(Clone, Copy)]
 pub struct Win { pub regs: *mut Value, pub iregs: *mut i64, pub fregs: *mut f64, pub vregs: *mut [f64; 2], pub consts: *const Value, pub code: *const Op, pub base: usize, pub fbase: usize, pub fid: u32 }
-/// What an outlined handler asks the dispatch loop to do next.
-pub enum Flow { Next, Reenter, Return(Outcome) }
 /// What one executed opcode asks of the loop: the next pc, a frame change
 /// (re-derive the windows), or the task's outcome.
 pub enum Step { Next(usize), Reenter, Return(Outcome) }
@@ -793,133 +776,6 @@ impl Interp {
     /// Value register `i` of task `tid`'s top frame.
     pub fn reg(&self, tid: usize, i: usize) -> Value { let t = &self.tasks[tid]; Value(t.stack[t.cur + HDR + i]) }
 
-    /// Pushes the callee's frame after the caller's: saves the caller's pc,
-    /// places the header, copies the value arguments from `args_at + 1..`
-    /// into the callee's r1.. and records `args_at` as the result slot. The
-    /// stack may move, so callers re-derive their pointers.
-    fn push_frame(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
-        let callee = unsafe { self.funcs.get_unchecked(f as usize) };
-        if self.trace { eprintln!("call {} nargs {}", callee.name, nargs); }
-        if nargs >= 64 || callee.vararg { return self.push_frame_cold(tid, f, args_at, nargs, pc); }
-        let words = callee.frame_words();
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        let caller_fid = t.stack[s] & 0xffff_ffff;
-        t.stack[s] = caller_fid | ((pc as u64) << 32);
-        let ns = s + frame_words_of(t.stack[s + 3]);
-        let grew = t.stack.len() < ns + words;
-        if grew { let n = (ns + words).max(t.stack.len() * 2); t.stack.resize(n, 0); }
-        // No other register is cleared: the root walk filters words that are
-        // not live object slots (`Heap::is_live_slot`), and a register the
-        // function reads before writing is a verifier error. Parameters the
-        // call did not supply are nil, as the language promises.
-        let nparams = callee.nparams as usize;
-        unsafe {
-            let st = t.stack.as_mut_ptr();
-            *st.add(ns) = f as u64;
-            *st.add(ns + 1) = s as u64 | ((args_at as u64) << 32);
-            *st.add(ns + 2) = Value::NIL.0;
-            *st.add(ns + 3) = header3(0, false, words, 0);
-            for i in 0..(nargs as usize).min(nparams) { *st.add(ns + HDR + 1 + i) = *st.add(args_at + 1 + i); }
-            for i in nargs as usize..nparams { *st.add(ns + HDR + 1 + i) = Value::NIL.0; }
-        }
-        t.cur = ns;
-        if grew { self.invalidate_frame_context(); }
-    }
-    /// The slow call: a spread pack after the fixed arguments (`nargs` flagged
-    /// by 128), a vararg callee packing its surplus, or both.
-    #[inline(never)]
-    fn push_frame_cold(&mut self, tid: usize, f: u32, args_at: usize, nargs: u8, pc: usize) {
-        let args = self.call_args(tid, args_at + 1, nargs);
-        let args = args.as_slice();
-        let s = self.tasks[tid].cur;
-        let (nparams, vararg) = { let c = &self.funcs[f as usize]; (c.nparams as usize, c.vararg) };
-        let nvar = if vararg { args.len().saturating_sub(nparams) } else { 0 };
-        let words = self.funcs[f as usize].frame_words();
-        let t = &mut self.tasks[tid];
-        let caller_fid = t.stack[s] & 0xffff_ffff;
-        t.stack[s] = caller_fid | ((pc as u64) << 32);
-        // The callee's surplus arguments go just below its header, in the frame.
-        let ns = s + frame_words_of(t.stack[s + 3]) + nvar;
-        let grew = t.stack.len() < ns + words;
-        if grew { let m = (ns + words).max(t.stack.len() * 2); t.stack.resize(m, 0); }
-        for i in 0..nvar { t.stack[ns - nvar + i] = args[nparams + i].0; }
-        t.stack[ns] = f as u64;
-        t.stack[ns + 1] = s as u64 | ((args_at as u64) << 32);
-        t.stack[ns + 2] = Value::NIL.0;
-        t.stack[ns + 3] = header3(0, false, words, nvar);
-        for i in 0..nparams { t.stack[ns + HDR + 1 + i] = if i < args.len() { args[i].0 } else { Value::NIL.0 }; }
-        t.cur = ns;
-        if grew { self.invalidate_frame_context(); }
-    }
-    /// Pops the frame, delivering `v` to the caller's result register; true when
-    /// the task is finished.
-    #[inline]
-    fn pop_frame(&mut self, tid: usize, v: Value) -> bool {
-        self.unwind_frame(tid);
-        self.extra_n = 0;
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        let h1 = t.stack[s + 1];
-        let caller = (h1 & 0xffff_ffff) as u32;
-        if caller == NONE { t.state = State::Done; t.result = v; self.last_nres = 1; return true; }
-        let h3 = t.stack[s + 3];
-        if (h3 >> 32) & 1 != 0 { t.stack[(h3 & 0xffff_ffff) as usize] = v.as_num().to_bits(); }
-        else { t.stack[(h1 >> 32) as usize] = v.0; }
-        t.cur = caller as usize;
-        self.last_nres = 1;
-        self.finish_protected(tid, s);
-        false
-    }
-    /// Pops the frame delivering `n` values from the callee's window at `from`
-    /// (absolute) into the caller's result slots; true when the task finished.
-    fn pop_frame_n(&mut self, tid: usize, from: usize, n: u8) -> bool {
-        // No cleanup to run and a caller to deliver to: the values go straight
-        // from the callee's window to the caller's result slots, below it.
-        {
-            let t = &self.tasks[tid];
-            let s = t.cur;
-            let h1 = t.stack[s + 1];
-            let caller = (h1 & 0xffff_ffff) as u32;
-            if n < 128 && caller != NONE && self.cleanups_below(tid, s) == t.cleanups.len() {
-                let n = n as usize;
-                let ret = (h1 >> 32) as usize;
-                let extra = n.saturating_sub(1).min(MAX_RESULTS - 1);
-                for i in 0..extra { self.extra[i] = Value(t.stack[from + 1 + i]); }
-                self.extra_n = if n > 8 { extra } else { 0 };
-                let t = &mut self.tasks[tid];
-                for i in 0..n.min(8) { t.stack[ret + i] = t.stack[from + i]; }
-                if n == 0 { t.stack[ret] = Value::NIL.0; }
-                t.cur = caller as usize;
-                self.last_nres = n.min(MAX_RESULTS);
-                self.finish_protected(tid, s);
-                return false;
-            }
-        }
-        let vals = if n >= 128 {
-            self.result_pack((n & 127) as usize, |i| Value(self.tasks[tid].stack[from + i]))
-        } else { (0..n as usize).map(|i| Value(self.tasks[tid].stack[from + i])).collect() };
-        let scope = self.open_scope();
-        self.handles.extend_from_slice(&vals);
-        self.unwind_frame(tid);
-        self.close_scope(scope);
-        let n = vals.len();
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        let h1 = t.stack[s + 1];
-        let caller = (h1 & 0xffff_ffff) as u32;
-        if caller == NONE { self.last_nres = n; t.state = State::Done; t.result = vals.first().copied().unwrap_or(Value::NIL); t.results = vals; return true; }
-        let ret = (h1 >> 32) as usize;
-        let extra = vals.len().saturating_sub(1).min(MAX_RESULTS - 1);
-        if extra > 0 { self.extra[..extra].copy_from_slice(&vals[1..1 + extra]); }
-        self.extra_n = if vals.len() > 8 { extra } else { 0 };
-        for (i, v) in vals.iter().take(8).enumerate() { t.stack[ret + i] = v.0; }
-        if n == 0 { t.stack[ret] = Value::NIL.0; }
-        t.cur = caller as usize;
-        self.last_nres = n.min(MAX_RESULTS);
-        self.finish_protected(tid, s);
-        false
-    }
     /// How many of the task's cleanups belong to frames below `frame`. Only
     /// the top frame registers cleanups, so they are ordered by frame and
     /// the count is found from the end, in the frame's own cleanups.
@@ -960,10 +816,7 @@ impl Interp {
         // needs temporary roots until PadResults copies it into that window.
         self.extra_n = if outs.len() > 8 { extra } else { 0 };
     }
-    fn deliver(&mut self, regs: *mut Value, at: usize, outs: &[Value]) {
-        self.note_results(outs);
-        unsafe { if outs.is_empty() { *regs.add(at) = Value::NIL; } for (i, v) in outs.iter().take(8).enumerate() { *regs.add(at + i) = *v; } }
-    }
+
 
     // ---- calls from the runtime ------------------------------------------
 
@@ -2056,7 +1909,6 @@ impl Interp {
         if self.back_edges & 255 == 0 { self.heap.safepoint(roots!(self)); }
     }
     /// The float storage behind a value, for the typed tier's loads and stores.
-    fn storage(&self, v: Value) -> &mut Vec<f64> { let h = hdr!(self, v, "not storage"); if h.kind != KIND_STORAGE { self.err("not storage") } &mut h.storage().data }
 
     // ---- the dispatch loop -------------------------------------------------
 
@@ -2276,37 +2128,49 @@ impl Interp {
             }
         }
     }
-    /// The native core when it is linked and prepared; the Rust loop
-    /// otherwise. Budgets are the core's own counter, charged at calls and
-    /// back edges, so a budgeted task runs on the core as any other.
+    /// Both transports execute the same Nupp handlers. Single-handler entry
+    /// supports observation and compiled-frame boundaries; ordinary execution
+    /// uses the batched dispatch chain.
     fn run_core(&mut self, tid: usize) -> Outcome {
         #[cfg(feature = "native-runtime")]
         {
-            if self.threaded { return self.run_threaded(tid); }
+            if !self.threaded || self.trace || self.trace_ops || self.op_stats.is_some() {
+                return self.run_observed(tid);
+            }
+            return self.run_threaded(tid);
         }
-        self.run_rust(tid)
+        #[cfg(not(feature = "native-runtime"))]
+        { let _ = tid; self.err("guest execution requires a linked Nupp core") }
     }
-    /// The Rust dispatch loop: the build without the native object, the
-    /// fallback (`NO_THREADED=1`) and the reference the core's results are
-    /// checked against.
-    /// Whether the interpreter, about to run `next` in `fid`, should offer the
-    /// activation to compiled code: `next` is a back edge, where compiled code
-    /// has an entry (`frame::resumes`), or the step was one in a function the
-    /// JIT has not decided on, which counts toward its heat as a call does.
-    /// A function with vector instructions offers every step, since it may
-    /// have nowhere else to run them. Anything else stays in the dispatch
-    /// loop: leaving it after every instruction halved a runtime linked with
-    /// a few functions compiled ahead of time, and under the JIT each exit was
-    /// heat, so a large function was hot within its first call.
-    #[inline]
-    fn frame_entry_pending(&mut self, fid: u32, back: bool, next: &Op) -> bool {
-        // Guest OSR entries name loop headers, after the jump is taken.
-        // Do not enter a conditional back edge before evaluating it.
-        if self.guest_jit { return back; }
-        #[cfg(feature = "compiled-runtime")] if matches!(self.frame_entries.get(fid as usize), Some(&e) if e != 0 && e != u64::MAX) { return crate::frame::back_edge(next) || self.function_needs_native(fid); }
-        #[cfg(feature = "jit")] if back && self.jit.is_some() && self.frame_entries.get(fid as usize).copied().unwrap_or(0) == 0 { return true; }
-        let _ = (fid, back, next);
-        false
+    #[cfg(feature = "native-runtime")]
+    fn run_observed(&mut self, tid: usize) -> Outcome {
+        let _caller = self.enter_caller(Caller::Task(tid));
+        let _execution = crate::persist::Execution::enter(&self.execution_depth);
+        let nested = std::mem::replace(&mut self.nested_calls, 0);
+        loop {
+            let current = self.tasks[tid].cur();
+            let header = self.tasks[tid].stack[current];
+            let (fid, pc) = (header as u32 as usize, (header >> 32) as usize);
+            #[cfg(feature = "compiled-runtime")]
+            if self.compiled_frames_active() {
+                match self.run_compiled_frame(tid, fid as u32, pc) {
+                    Ok(next) => self.tasks[tid].note_pc(next),
+                    Err(Step::Reenter) => { self.unwind_nested = false; continue; },
+                    Err(Step::Return(outcome)) => { self.nested_calls = nested; return outcome; },
+                    Err(Step::Next(_)) => unreachable!(),
+                }
+            }
+            let current = self.tasks[tid].cur();
+            let header = self.tasks[tid].stack[current];
+            let (fid, pc) = (header as u32 as usize, (header >> 32) as usize);
+            if self.trace || self.trace_ops { eprintln!("{} {} {}", self.funcs[fid].name, pc, op_name(&self.funcs[fid].code[pc])); }
+            #[cfg(feature = "opstats")]
+            if let Some(stats) = self.op_stats.as_mut() { *stats.entry(op_name(&self.funcs[fid].code[pc])).or_insert(0) += 1; }
+            match self.native_handler_step(tid, pc) {
+                Step::Next(_) | Step::Reenter => {},
+                Step::Return(outcome) => { self.nested_calls = nested; return outcome; },
+            }
+        }
     }
     pub(crate) fn compiled_frames_active_pub(&self) -> bool { self.compiled_frames_active() }
     fn compiled_frames_active(&self) -> bool {
@@ -2315,16 +2179,8 @@ impl Interp {
         #[cfg(feature = "compiled-runtime")] if !self.frame_entries.is_empty() { return true; }
         false
     }
-    pub fn run_rust(&mut self, tid: usize) -> Outcome {
-        // A driver nested in a callback starts its own nesting budget.
-        let nested = std::mem::replace(&mut self.nested_calls, 0);
-        let outcome = self.run_rust_outer(tid);
-        self.nested_calls = nested;
-        outcome
-    }
-    // Shared by the Rust loop and the native boundary that executes an
-    // instruction the Nupp handlers did not take. A spent source limit wins
-    // over a spent slice; a park consumes neither budget.
+    // Named stop service for an exhausted Nupp-selected budget point. A
+    // spent source limit wins over a spent slice; a park consumes neither.
     pub(crate) fn take_budget_point(&mut self, tid: usize, pc: usize) -> bool {
         if self.execution_limit == Some(0) { self.err("source chunk instruction limit exceeded"); }
         let budgeted = self.scheduler.as_ref().is_some_and(|s| s.controls.contains_key(&tid));
@@ -2336,69 +2192,23 @@ impl Interp {
         if budgeted { if let Some(left) = self.instruction_budget.as_mut() { *left -= 1; } }
         true
     }
-    fn run_rust_outer(&mut self, tid: usize) -> Outcome {
-        let _caller = self.enter_caller(Caller::Task(tid));
-        let _execution = crate::persist::Execution::enter(&self.execution_depth);
-        assert_eq!(self.tasks[tid].state, State::Runnable);
-        loop {
-            let (mut win, mut pc) = self.window(tid);
-            if !self.simd_interpret && !self.compiled_frames_active() && self.function_needs_native(win.fid) {
-                self.err("SIMD function requires native compilation or a matching AOT entry (SIMD_INTERPRET=1 runs it interpreted)");
-            }
-            #[cfg(feature = "compiled-runtime")]
-            if self.compiled_frames_active() {
-                match self.run_compiled_frame(tid, win.fid, pc) {
-                    Ok(next) => pc = next,
-                    Err(Step::Reenter) => { self.unwind_nested = false; continue }
-                    Err(Step::Return(outcome)) => return outcome,
-                    Err(Step::Next(_)) => unreachable!(),
-                }
-                win = self.window(tid).0;
-            }
-            loop {
-                // Budgets are charged where the core charges them: a call or
-                // a back edge, before it is taken.
-                if budget_point(unsafe { &*win.code.add(pc) }, &win) {
-                    if !self.take_budget_point(tid, pc) { return Outcome::Parked(0); }
-                }
-                // The frame's pc, for the backtrace of an error this op raises.
-                self.tasks[tid].note_pc(pc + 1);
-                if self.trace_ops { let f = &self.funcs[win.fid as usize]; eprintln!("{} {} {}", f.name, pc, op_name(&f.code[pc])); }
-                match self.step(tid, &win, pc) {
-                    Step::Next(next) => { let back = next <= pc; pc = next; if self.compiled_frames_active() && self.frame_entry_pending(win.fid, back, unsafe { &*win.code.add(pc) }) { self.tasks[tid].note_pc(pc); break; } },
-                    Step::Reenter => break,
-                    Step::Return(o) => return o,
-                }
-            }
-        }
-    }
-    /// Runs the task's frames above `stop` until the frame at `stop` is on top
-    /// again, the way `run_rust` runs them: a compiled caller's call that
-    /// completes without leaving native code. Anything only the outermost
-    /// driver may continue (a park, the end of the task, the nesting limit)
-    /// is answered as the step to hand it; every frame's pc and registers are
-    /// current in the heap frames by then, so it resumes them flat.
+    /// Run shared handlers above a compiled caller until it is on top again.
     #[cfg(feature = "compiled-runtime")]
     pub(crate) fn drive_until(&mut self, tid: usize, stop: usize) -> Result<(), Step> {
         loop {
-            if self.tasks[tid].cur == stop { return Ok(()); }
-            let (mut win, mut pc) = self.window(tid);
-            match self.run_compiled_frame(tid, win.fid, pc) {
-                Ok(next) => pc = next,
-                Err(Step::Reenter) => { if self.unwind_nested { return Err(Step::Reenter); } continue }
+            if self.tasks[tid].cur() == stop { return Ok(()); }
+            let header = self.tasks[tid].stack[self.tasks[tid].cur()];
+            let (fid, pc) = (header as u32, (header >> 32) as usize);
+            match self.run_compiled_frame(tid, fid, pc) {
+                Ok(next) => self.tasks[tid].note_pc(next),
+                Err(Step::Reenter) => { if self.unwind_nested { return Err(Step::Reenter); } continue; },
                 Err(exit) => return Err(exit),
             }
-            win = self.window(tid).0;
-            loop {
-                if budget_point(unsafe { &*win.code.add(pc) }, &win) {
-                    if !self.take_budget_point(tid, pc) { return Err(Step::Return(Outcome::Parked(0))); }
-                }
-                self.tasks[tid].note_pc(pc + 1);
-                match self.step(tid, &win, pc) {
-                    Step::Next(next) => { let back = next <= pc; pc = next; self.tasks[tid].note_pc(pc); if !self.guest_jit || back { break; } },
-                    Step::Reenter => break,
-                    Step::Return(o) => return Err(Step::Return(o)),
-                }
+            let pc = (self.tasks[tid].stack[self.tasks[tid].cur()] >> 32) as usize;
+            match self.native_handler_step(tid, pc) {
+                Step::Next(_) => {},
+                Step::Reenter => { if self.unwind_nested { return Err(Step::Reenter); } },
+                Step::Return(outcome) => return Err(Step::Return(outcome)),
             }
         }
     }
@@ -2421,472 +2231,6 @@ impl Interp {
         let vregs: *mut [f64; 2] = unsafe { sp.add(vbase) as *mut [f64; 2] };
         (Win { regs, iregs, fregs, vregs, consts, code, base, fbase, fid }, pc)
     }
-    /// Executes the opcode at `pc` of the activation `w` describes. Inlined
-    /// into every caller: the Rust loop keeps its single-function shape, and
-    /// the threaded core's slow path gets its own copy.
-    #[inline(always)]
-    pub fn step(&mut self, tid: usize, w: &Win, pc: usize) -> Step {
-        let win = *w;
-        let (regs, iregs, fregs, vregs, consts, code, base, fid) = (w.regs, w.iregs, w.fregs, w.vregs, w.consts, w.code, w.base, w.fid);
-        let mut pc = pc;
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        macro_rules! ir { ($i:expr) => { (*unsafe { &mut *iregs.add($i as usize) }) } }
-        macro_rules! fr { ($i:expr) => { (*unsafe { &mut *fregs.add($i as usize) }) } }
-        macro_rules! vr { ($i:expr) => { (*unsafe { &mut *vregs.add($i as usize) }) } }
-        let op = unsafe { *code.add(pc) };
-        let cleanup_keep = match op {
-            Op::Ret(..) | Op::RetN(..) | Op::RetNil | Op::FRet(..) => Some(self.cleanups_below(tid, self.tasks[tid].cur)),
-            Op::Unwind(n) => Some(self.cleanups_below(tid, self.tasks[tid].cur) + n as usize),
-            _ => None,
-        };
-        if let Some(keep) = cleanup_keep {
-            if let Some(key) = self.poll_cleanups(tid, keep, pc) { return Step::Return(Outcome::Parked(key)); }
-        }
-        pc += 1;
-        #[cfg(feature = "opstats")]
-        if let Some(st) = self.op_stats.as_mut() { *st.entry(op_name(&op)).or_insert(0) += 1; }
-        match op {
-                    Op::K(d, k) => r!(d) = unsafe { *consts.add(k as usize) },
-                    Op::Move(d, s) => r!(d) = r!(s),
-                    Op::Nil(d) => r!(d) = Value::NIL,
-                    Op::Add(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "add", None); }
-                    Op::Sub(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "sub", None); }
-                    Op::Mul(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mul", None); }
-                    Op::Lt(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "lt", None) } else { self.order(x, y, false) }; }
-                    Op::Le(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = if crate::numeric::is_numeric(x) && crate::numeric::is_numeric(y) { crate::numeric::binary(self, x, y, "le", None) } else { self.order(x, y, true) }; }
-                    Op::Pow(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "pow", None); }
-                    Op::IDiv(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "idiv", None); }
-                    Op::IXor(d, a, b) => ir!(d) = ir!(a) ^ ir!(b),
-                    Op::INot(d, a) => ir!(d) = !ir!(a),
-                    Op::Mod(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "mod", None); }
-                    Op::Div(d, a, b) => { let (x, y) = (r!(a), r!(b)); r!(d) = crate::numeric::binary(self, x, y, "div", None); }
-                    Op::FMod(d, a, b) => { let (p, q) = (fr!(a), fr!(b)); fr!(d) = p - (p / q).floor() * q }
-                    Op::Eq(d, a, b) => { let (x, y) = (r!(a), r!(b)); let e = self.equals(x, y); r!(d) = Value::boolean(e) }
-                    Op::Ne(d, a, b) => { let (x, y) = (r!(a), r!(b)); let e = self.equals(x, y); r!(d) = Value::boolean(!e) }
-                    Op::Not(d, a) => r!(d) = Value::boolean(!r!(a).truthy()),
-                    Op::Neg(d, a) => { let x = r!(a); r!(d) = crate::numeric::negate(self, x); }
-                    Op::Jmp(off) => { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } }
-                    Op::JmpIf(c, off) => if r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::JmpIfNot(c, off) => if !r!(c).truthy() { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::Switch(rg, t) => {
-                        let i = ir!(rg);
-                        // The frame's own function, not the window's: a hot patch
-                        // retargets a running frame to its old body's new id.
-                        let own = { let t = &self.tasks[tid]; (t.stack[t.cur()] & 0xffff_ffff) as usize };
-                        let off = { let (def, tbl) = &self.funcs[own].jump_tables[t as usize]; if i >= 0 && (i as usize) < tbl.len() { tbl[i as usize] } else { *def } };
-                        pc = (pc as i64 + off as i64) as usize;
-                        if off < 0 { self.back_edge(); }
-                    }
-                    Op::RetN(start, n) => { if self.pop_frame_n(tid, base + start as usize, n) { let v = self.tasks[tid].result; return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
-                    Op::Ret(s) => { let v = r!(s); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
-                    Op::RetNil => { if self.pop_frame_n(tid, base, 0) { return Step::Return(Outcome::Done(Value::NIL)); } return Step::Reenter; }
-                    Op::FRet(f) => { let v = Value::num(fr!(f)); if self.pop_frame(tid, v) { return Step::Return(Outcome::Done(v)); } return Step::Reenter; }
-                    Op::Require(d, k) => { let name = unsafe { *consts.add(k as usize) }; let text = self.bytes_of(name).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
-                    Op::RequireV(d, rg) => { let text = self.bytes_of(r!(rg)).to_vec(); let name = String::from_utf8_lossy(&text).to_string(); let v = self.require(&name); r!(d) = v; }
-                    Op::SetMethod(shape, k, v) => { let name = unsafe { *consts.add(k as usize) }; let f = r!(v); self.set_method(shape, name, f); }
-                    Op::Call(f, b, nargs) => { self.push_frame(tid, f, base + b as usize, nargs, pc); return Step::Reenter; }
-                    Op::CallT(f, b, fb, _) => match self.op_call_typed(tid, &win, pc, f, b, fb) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallDyn(frg, b, nargs) | Op::CallK(_, frg, b, nargs, _) => match { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_dyn(tid, &win, pc, frg, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::CallMethod(k, b, nargs) => match { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_call_method(tid, &win, pc, k, b, nargs) } { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::PCall(b, nargs) => match self.frame_pcall(tid, &win, pc, b, nargs, Value::NIL) { Flow::Next => {} Flow::Reenter => return Step::Reenter, Flow::Return(o) => return Step::Return(o) },
-                    Op::Concat(d, a, b) => { let (x, y) = (r!(a), r!(b)); let v = self.concat(x, y); r!(d) = v; }
-                    Op::GetIdx(d, t, i) => self.op_get_idx(&win, d, t, i),
-                    Op::SetIdx(t, i, s) => { let (tv, iv, v) = (r!(t), r!(i), r!(s)); let iv = self.key_for_store(iv); self.newindex(tv, iv, v); }
-                    Op::GetField(d, t, k) => { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_get_field(&win, d, t, k) }
-                    Op::GetPhys(d,t,p)|Op::GetPhysF(d,t,p)|Op::GetPhysI(d,t,p)|Op::GetPhysU(d,t,p) => {
-                        let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
-                        let value=crate::storage::physical_get(self,object,id,name,p);
-                        match op { Op::GetPhys(..)=>r!(d)=value,Op::GetPhysF(..)=>fr!(d)=crate::numeric::double(self,value),Op::GetPhysI(..)=>ir!(d)=crate::numeric::bits(self,value,false) as i64,_=>ir!(d)=crate::numeric::bits(self,value,true) as i64 }
-                    }
-                    Op::SetPhys(t,p,v)|Op::SetPhysF(t,p,v)|Op::SetPhysI(t,p,v) => {
-                        let (object,id,name)=(r!(t),unsafe{*consts.add(p.identity as usize)},unsafe{*consts.add(p.name as usize)});
-                        let value=match op {Op::SetPhys(..)=>r!(v),Op::SetPhysF(..)=>Value::num(fr!(v)),_=>self.box_integer(crate::numeric::Integer {bits:ir!(v) as u64,unsigned:p.kind==8})};
-                        crate::storage::physical_set(self,object,id,name,p,value);
-                    }
-                    Op::SetField(t, k, s) => { #[cfg(feature = "jit")] if self.spec.feedback { crate::specialize::observe(self, fid, pc - 1, op, regs); } self.op_set_field(&win, t, k, s) }
-                    Op::NewTable(d) => { let v = self.new_table(); r!(d) = v; }
-                    Op::NewTableN(d, n, m) => { let v = self.new_table_sized(n as usize, m as usize); r!(d) = v; }
-                    Op::NewRecord(d, shape) => { let v = self.new_record(shape); r!(d) = v; }
-                    Op::GetSlot(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || h.slots()[i as usize] != Value::NIL) }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; r!(d) = h.slots()[i as usize]; } else { let v = self.slot_get_slow(r!(t), sh, i); r!(d) = v; } }
-                    Op::SetSlot(t, i, s, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let v = r!(s); let tv = r!(t); let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || (h.slots()[i as usize] != Value::NIL && h.flags & heap::F_STORAGE_SCHEMA == 0)) }); if let Some(p) = exact { let h = unsafe { &mut *p.as_ptr() }; self.heap.barrier(tv.as_obj().unwrap(), v); h.slots_mut()[i as usize] = v; } else { self.slot_set_slow(tv, sh, i, v); } }
-                    Op::GetSlotF(d, t, i, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == sh && (h.flags & heap::F_METATABLE == 0 || h.slots()[i as usize] != Value::NIL) }); let v = if let Some(p) = exact { unsafe { (&*p.as_ptr()).slots()[i as usize] } } else { self.slot_get_slow(r!(t), sh, i) }; if !v.is_num() { self.err("slot is not a number") } fr!(d) = v.as_num(); }
-                    Op::SetSlotF(t, i, a, sh) => { if self.slot_stats.is_some() { let ok = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }).unwrap_or(false); *self.slot_stats.as_mut().unwrap().entry((fid, pc - 1, ok)).or_insert(0) += 1; if !ok { let found = r!(t).as_obj().map(|p| unsafe { let h = &*p.as_ptr(); if h.kind == KIND_RECORD { h.shape() } else { u32::MAX } }).unwrap_or(u32::MAX - 1); *self.slot_miss_shapes.entry((sh, found)).or_insert(0) += 1; } } let exact = r!(t).as_obj().filter(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.flags & heap::F_METATABLE == 0 && h.shape() == sh }); if let Some(p) = exact { self.heap.schema_write(p); let h = unsafe { &mut *p.as_ptr() }; h.slots_mut()[i as usize] = Value::num(fr!(a)); } else { let v = Value::num(fr!(a)); self.slot_set_slow(r!(t), sh, i, v); } }
-                    Op::Len(d, a) => { let value = self.length(r!(a)); r!(d) = value; }
-                    Op::LenF(d, a) => { let value = self.length(r!(a)); fr!(d) = crate::numeric::double(self, value); }
-                    Op::TagCheckRec(d, a, shape) => { let v = r!(a); let ok = v.as_obj().map(|p| unsafe { let h = &*p.as_ptr(); h.kind == KIND_RECORD && h.shape() == shape }).unwrap_or(false); if !ok { let what = match v.as_obj() { Some(p) => Heap::describe(unsafe { &*p.as_ptr() }), None => format!("{:#x}", v.0) }; self.err(&format!("value is not an instance of the expected record ({}): {what}", self.heap.shapes[shape as usize].name)) } r!(d) = v; }
-                    Op::TagCheckInt(d, a, unsigned) => { r!(d) = crate::numeric::check_kind(self, r!(a), unsigned); }
-                    Op::TagCheckNum(d, a) => { let v = r!(a); if !crate::numeric::is_numeric(v) { self.err("value is not a number") } r!(d) = v; }
-                    Op::TagCheckStr(d, a) => { let v = r!(a); if !self.is_stringish(v) { self.err("value is not a string") } r!(d) = v; }
-                    Op::NewClosure(d, f, b, n) => { let caps: Vec<Value> = (0..n).map(|i| r!(b + 1 + i)).collect(); let v = self.new_closure(f, &caps); r!(d) = v; }
-                    Op::NewCell(d, a) => { let v = r!(a); let c = self.new_cell(v); r!(d) = c; }
-                    Op::IsRec(d, a, shape) => { r!(d) = Value::boolean(self.is_rec(r!(a), shape)); }
-                    Op::Scalar(k, d, a, bb) => { let (x, y) = (r!(a), r!(bb)); if !crate::numeric::is_numeric(x) || !crate::numeric::is_numeric(y) { self.err("scalar intrinsic on a non-number") } r!(d) = crate::builtins::scalar_value(k, x, y); }
-                    Op::PadResults(base, n) => { let got = self.last_nres.min(n as usize); for i in 8..got { r!(base as usize + i) = self.extra[i - 1]; } for i in got..n as usize { r!(base as usize + i) = Value::NIL; } self.extra_n = 0; }
-                    Op::VarargN(d, n) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); for i in 0..n as usize { r!(d as usize + i) = if i < nv { Value(self.tasks[tid].stack[s - nv + i]) } else { Value::NIL }; } }
-                    Op::VarargTable(d) => { let s = self.tasks[tid].cur; let nv = nvar_of(self.tasks[tid].stack[s + 3]); let vals: Vec<Value> = (0..nv).map(|i| Value(self.tasks[tid].stack[s - nv + i])).collect(); let t = self.new_table_sized(nv, 0); for (i, v) in vals.into_iter().enumerate() { if v != Value::NIL { self.set_index(t, Value::num(i as f64 + 1.0), v); } } r!(d) = t; }
-                    Op::GetCell(d, c) => { let cv = r!(c); let h = hdr!(self, cv, &format!("GetCell of a non-object {:#x} in {} at pc {} register {}", cv.0, self.funcs[fid as usize].name, pc, c)); if h.kind != KIND_CELL { self.err(&format!("GetCell of a non-cell in {} at pc {} register {}", self.funcs[fid as usize].name, pc, c)) } r!(d) = h.slots()[0]; }
-                    Op::SetCell(c, a) => { let v = r!(a); let cv = r!(c); self.set_cell(cv, v); }
-                    Op::GetUpval(d, i) => { let clo = { let t = &self.tasks[tid]; Value(t.stack[t.cur + 2]) }; let h = hdr!(self, clo, "upvalue outside a closure"); if h.kind != KIND_CLOSURE { self.err("not a closure") } r!(d) = h.slots()[i as usize]; }
-                    Op::FBox(d, a) => r!(d) = Value::num(fr!(a)),
-                    Op::IBox(d, a) => r!(d) = self.box_integer(crate::numeric::Integer { bits: ir!(a) as u64, unsigned: false }),
-                    Op::UBox(d, a) => r!(d) = self.box_integer(crate::numeric::Integer { bits: ir!(a) as u64, unsigned: true }),
-                    Op::FDiv(d, a, b) => fr!(d) = fr!(a) / fr!(b),
-                    Op::FNeg(d, a) => fr!(d) = -fr!(a),
-                    Op::GetIdxF(d, t, i) => { let k = fr!(i); let tv = r!(t); r!(d) = self.index(tv, Value::num(k)); }
-                    Op::SetIdxF(t, i, sv) => { let (tv, k, v) = (r!(t), fr!(i), r!(sv)); self.newindex(tv, Value::num(k), v); }
-                    Op::GetIdxI(d, t, i) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let tv = r!(t); r!(d) = self.index(tv, key); }
-                    Op::SetIdxI(t, i, s) => { let key = self.box_integer(crate::numeric::Integer { bits: ir!(i) as u64, unsigned: false }); let (tv, v) = (r!(t), r!(s)); self.newindex(tv, key, v); }
-                    Op::FCmpEq(d, a, b) => ir!(d) = (fr!(a) == fr!(b)) as i64,
-                    Op::FCmpNe(d, a, b) => ir!(d) = (fr!(a) != fr!(b)) as i64,
-                    Op::BoolFromI(d, a) => r!(d) = Value::boolean(ir!(a) != 0),
-                    Op::CleanupLive(d, depth) => { let frame=self.tasks[tid].cur; let start=self.tasks[tid].cleanups.iter().take_while(|c|c.frame<frame).count(); r!(d)=Value::boolean(self.tasks[tid].cleanups.get(start+depth as usize).is_some_and(|c|c.value!=Value::NIL)); }
-                    Op::AffineMark(d, drop) => {r!(d)=self.affine_mark(r!(d),r!(drop));}
-                    Op::AffineEnter => {let closure=Value(self.tasks[tid].stack[self.tasks[tid].cur+2]); self.affine_enter(closure);}
-                    Op::DeferMethod(v, k) => { let value = r!(v); let name = unsafe { *consts.add(k as usize) }; let callback = if value == Value::NIL { Value::NIL } else { self.resolve_method(value, name) }; let frame = self.tasks[tid].cur; self.tasks[tid].cleanups.push(Cleanup { frame, value, callback }); }
-                    Op::Defer(v, c) => { let cleanup = Cleanup { frame: self.tasks[tid].cur, value: r!(v), callback: r!(c) }; self.tasks[tid].cleanups.push(cleanup); }
-                    Op::DisarmAt(depth) => { let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let c = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); c.value = Value::NIL; c.callback = Value::NIL; }
-                    Op::RearmAt(depth, v, c) => { let value = r!(v); let given = r!(c); let callback = if value == Value::NIL { Value::NIL } else if self.is_stringish(given) { self.resolve_method(value, given) } else { given }; let frame = self.tasks[tid].cur; let start = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count(); let slot = self.tasks[tid].cleanups.get_mut(start + depth as usize).expect("invalid cleanup slot"); slot.value = value; slot.callback = callback; }
-                    Op::Disarm(v) => { let value = r!(v); if let Some(i) = self.tasks[tid].cleanups.iter().rposition(|c| c.value == value) { self.tasks[tid].cleanups[i].value = Value::NIL; self.tasks[tid].cleanups[i].callback = Value::NIL; } }
-                    Op::Unwind(depth) => { let frame = self.tasks[tid].cur; let keep = self.tasks[tid].cleanups.iter().take_while(|c| c.frame < frame).count() + depth as usize; self.unwind_cleanups(tid, keep); }
-                    Op::Park(k) => { crate::scheduler::checkpoint(self); let key = r!(k).0; self.parks += 1; let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); return Step::Return(Outcome::Parked(key)); }
-                    Op::Checkpoint => { crate::scheduler::checkpoint(self); self.back_edge(); }
-                    Op::IK(d, k) => ir!(d) = k,
-                    Op::IAdd(d, a, b) => ir!(d) = ir!(a).wrapping_add(ir!(b)),
-                    Op::IAddK(d, a, k) => ir!(d) = ir!(a).wrapping_add(k),
-                    Op::IJmpIfUle(a, b, off) => if (ir!(a) as u64) <= (ir!(b) as u64) { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::IJmpIfUlt(a, b, off) => if (ir!(a) as u64) < (ir!(b) as u64) { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::FK(d, k) => fr!(d) = k,
-                    Op::ISub(d, a, b) => ir!(d) = ir!(a).wrapping_sub(ir!(b)),
-                    Op::IMaskU32(d, a) => ir!(d) = ir!(a) & 0xffff_ffff,
-                    Op::IToF(d, a) => fr!(d) = ir!(a) as f64,
-                    Op::FToI(d, a) => ir!(d) = fr!(a) as i64,
-                    Op::FSub(d, a, b) => fr!(d) = fr!(a) - fr!(b),
-                    Op::FMul(d, a, b) => fr!(d) = fr!(a) * fr!(b),
-                    Op::ICmpLe(d, a, b) => ir!(d) = ((ir!(a) as u64) <= (ir!(b) as u64)) as i64,
-                    Op::ICmpLt(d, a, b) => ir!(d) = ((ir!(a) as u64) < (ir!(b) as u64)) as i64,
-                    Op::FCmpLe(d, a, b) => ir!(d) = (fr!(a) <= fr!(b)) as i64,
-                    Op::FCmpLt(d, a, b) => ir!(d) = (fr!(a) < fr!(b)) as i64,
-                    Op::IAnd(d, a, b) => ir!(d) = ir!(a) & ir!(b),
-                    Op::JmpIfIZero(c, off) => if ir!(c) == 0 { pc = (pc as i64 + off as i64) as usize; if off < 0 { self.back_edge(); } },
-                    Op::IUnbox(d, v) => ir!(d) = crate::numeric::bits(self, r!(v), false) as i64,
-                    Op::UUnbox(d, v) => ir!(d) = crate::numeric::bits(self, r!(v), true) as i64,
-                    Op::ICmpSLt(d, a, b) => ir!(d) = (ir!(a) < ir!(b)) as i64,
-                    Op::ICmpSLe(d, a, b) => ir!(d) = (ir!(a) <= ir!(b)) as i64,
-                    Op::IShl(d, a, b) => ir!(d) = ir!(a).wrapping_shl(ir!(b) as u32),
-                    Op::IShrU(d, a, b) => ir!(d) = ((ir!(a) as u64) >> (ir!(b) as u32 & 63)) as i64,
-                    Op::IOr(d, a, b) => ir!(d) = ir!(a) | ir!(b),
-                    Op::IBswap32(d, a) => ir!(d) = (ir!(a) as u32).swap_bytes() as i64,
-                    Op::ICmpEq(d, a, b) => ir!(d) = (ir!(a) == ir!(b)) as i64,
-                    Op::ICmpNe(d, a, b) => ir!(d) = (ir!(a) != ir!(b)) as i64,
-                    Op::Truthy(d, v) => ir!(d) = r!(v).truthy() as i64,
-                    Op::BytesLen(d, s) => ir!(d) = self.bytes_of(r!(s)).len() as i64,
-                    Op::LoadU8K(d, s, i) => { let bytes = self.bytes_of(r!(s)); ir!(d) = bytes[ir!(i) as usize] as i64; }
-                    Op::StrByte(d, s, i) => { let v = r!(s); if !self.is_stringish(v) { self.err("byte of a non-string") } r!(d) = self.str_byte(v, ir!(i)); }
-                    Op::LoadU8(d, s, i) => { let bytes = self.bytes_of(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte read out of range") } ir!(d) = bytes[i] as i64; }
-                    Op::LoadU32W(d, s, i) => { let bytes = self.bytes_of(r!(s)); let off = ir!(i) as usize * 4; if off + 4 > bytes.len() { self.err("word read out of range") } ir!(d) = u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) as i64; }
-                    Op::StoreU8(s, i, v) => { let x = ir!(v) as u8; let bytes = self.bytes_mut(r!(s)); let i = ir!(i) as usize; if i >= bytes.len() { self.err("byte write out of range") } bytes[i] = x; }
-                    Op::StoreU32(s, i, v) => { let x = ir!(v) as u32; let bytes = self.bytes_mut(r!(s)); let off = ir!(i) as usize; if off + 4 > bytes.len() { self.err("word write out of range") } bytes[off..off + 4].copy_from_slice(&x.to_le_bytes()); }
-                    Op::NewBuffer(d) => { let v = self.heap_new_buffer(); r!(d) = v; }
-                    Op::BufAppend(bf, s) => { let text = self.bytes_of(r!(s)).to_vec(); self.buf_append(r!(bf), &text); }
-                    Op::BufAppendSub(bf, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = self.sub_bytes(r!(s), i, j).to_vec(); self.buf_append(r!(bf), &text); }
-                    Op::Substring(d, s, i, j) => { let (i, j) = (ir!(i), ir!(j)); let text = self.sub_bytes(r!(s), i, j).to_vec(); let v = self.string_of(&text); r!(d) = v; }
-                    Op::BufFinish(d, bf) => { let v = self.buf_finish(r!(bf)); r!(d) = v; }
-                    Op::NewBytes(d, n) => { let n = ir!(n) as usize; let v = self.heap_new_bytes(n); r!(d) = v; }
-                    Op::BytesToStr(d, s, n) => { let n = ir!(n) as usize; let text = self.bytes_of(r!(s))[..n].to_vec(); let v = self.string_of(&text); r!(d) = v; }
-                    Op::Simd(op, kind, source, base, nargs) => {
-                        // The lane loop: prepare and finish are the typed tier's own
-                        // helpers; only the packet arithmetic is interpreted.
-                        let n = nargs as usize;
-                        let args: Vec<Value> = (0..n).map(|k| r!(base as usize + 1 + k)).collect();
-                        if crate::simd::OPERATIONS[op as usize] == "store" {
-                            crate::simd::store(self, kind, &args, &[]);
-                            self.extra_n = 0; self.last_nres = 1;
-                            r!(base) = Value::NIL;
-                        } else {
-                            let mut packet = Box::new(crate::simd::Packet::default());
-                            crate::simd::prepare(self, op, kind, source, &args, &mut packet);
-                            if let Err(e) = crate::simd_exec::execute(&mut packet, op, kind, source) { self.err(&e); }
-                            self.extra_n = 0; self.last_nres = 1;
-                            let v = crate::simd::finish(self, &packet, &args);
-                            r!(base) = v;
-                            for k in 1..crate::simd::result_count(op, n) { r!(base as usize + k) = self.extra[k - 1]; }
-                        }
-                    }
-                    Op::SpanLen(d, s, k) => { let (_, n) = crate::storage::native_span(self, r!(s), k, false); ir!(d) = n as i64; }
-                    Op::SpanBounds(s, i, n, k, w) => {
-                        let (_, len) = crate::storage::native_span(self, r!(s), k, w);
-                        let (index, count) = (ir!(i) as u64, ir!(n) as u64);
-                        if count != 0 && (count > len as u64 || index > len as u64 - count || count > 64) { self.err("SIMD span index out of bounds"); }
-                    }
-                    Op::SpanLoad(d, s, i, n, k, off, lanes) => {
-                        let (ptr, len) = crate::storage::native_span(self, r!(s), k, false);
-                        let (index, active) = (ir!(i) as u64, ir!(n) as u64);
-                        let used = active.min((off + lanes) as u64);
-                        if used > off as u64 && index.checked_add(used).map_or(true, |end| end > len as u64) { self.err("SIMD span index out of bounds"); }
-                        let bytes = unsafe { std::slice::from_raw_parts(ptr, len * crate::simd::width(k)) };
-                        let v = crate::simd_exec::span_load(bytes, index as usize, active, k, off, lanes);
-                        vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) };
-                    }
-                    Op::SpanStore(s, i, x, n, k, off, lanes) => {
-                        let (ptr, len) = crate::storage::native_span(self, r!(s), k, true);
-                        let (index, active) = (ir!(i) as u64, ir!(n) as u64);
-                        let used = active.min((off + lanes) as u64);
-                        if used > off as u64 && index.checked_add(used).map_or(true, |end| end > len as u64) { self.err("SIMD span index out of bounds"); }
-                        let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) };
-                        let bytes = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, len * crate::simd::width(k)) };
-                        crate::simd_exec::span_store(bytes, index as usize, active, k, off, lanes, &v);
-                    }
-                    Op::VOp(op, k, d, x, y, z) => {
-                        let name = crate::simd::OPERATIONS[op as usize];
-                        let cast = |v: [f64; 2]| unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(v) };
-                        let (rx, ry, rz) = (vr!(x), vr!(y), vr!(z));
-                        let (p, q, w) = (cast(rx), cast(ry), cast(rz));
-                        match crate::simd_exec::vector16(name, k, p, q, w, true) {
-                            Ok(v) => vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) },
-                            Err(e) => self.err(&e),
-                        }
-                    }
-                    Op::VSplatN(d, x, k) => {
-                        let v = if k >= 8 { crate::simd_exec::splat(k, fr!(x), 0) } else { crate::simd_exec::splat(k, 0.0, ir!(x)) };
-                        vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) };
-                    }
-                    Op::VExtractN(d, x, k, l) => {
-                        let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) };
-                        let (f, i) = crate::simd_exec::extract(&v, k, l);
-                        if k >= 8 { fr!(d) = f; } else { ir!(d) = i; }
-                    }
-                    Op::VAny(d, x) => { let raw = vr!(x); let v: [u8; 16] = unsafe { std::mem::transmute::<[f64; 2], [u8; 16]>(raw) }; ir!(d) = v.iter().any(|b| *b != 0) as i64; }
-                    Op::VPrefix(d, n, k, off, lanes) => { let v = crate::simd_exec::prefix(ir!(n) as u64, k, off, lanes); vr!(d) = unsafe { std::mem::transmute::<[u8; 16], [f64; 2]>(v) }; }
-                    Op::Raise(k) => { let v = unsafe { *consts.add(k as usize) }; std::panic::panic_any(crate::builtins::LuaError(v.0)); }
-                    Op::VAdd(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] + y[0], x[1] + y[1]]; }
-                    Op::VMul(d, a, b) => { let (x, y) = (vr!(a), vr!(b)); vr!(d) = [x[0] * y[0], x[1] * y[1]]; }
-                    Op::VLoadM(d, s, i, off, active) => {
-                        let base = ir!(i) + off as i64; let act = ir!(active) - off as i64; let st = self.storage(r!(s));
-                        let mut v = [0.0; 2];
-                        for l in 0..2i64 { if l < act { let k = (base + l) as usize; if k >= st.len() { self.err("masked load out of bounds") } v[l as usize] = st[k]; } }
-                        vr!(d) = v;
-                    }
-                    Op::VStoreM(s, i, v, off, active) => {
-                        let base = ir!(i) + off as i64; let act = ir!(active) - off as i64; let x = vr!(v); let st = self.storage(r!(s));
-                        for l in 0..2i64 { if l < act { let k = (base + l) as usize; if k >= st.len() { self.err("masked store out of bounds") } st[k] = x[l as usize]; } }
-                    }
-                    Op::LoopFact(..) => {}
-                    Op::IMov(d, a) => ir!(d) = ir!(a),
-                    Op::FMov(d, a) => fr!(d) = fr!(a),
-                    Op::VMov(d, a) => vr!(d) = vr!(a),
-                    Op::GuardLenLe(a, b) => if (ir!(a) as u64) > (ir!(b) as u64) { self.err("native spans have incompatible lengths") },
-                    Op::FUnbox(d, rg) => { let v = r!(rg); fr!(d) = crate::numeric::double(self, v); }
-                    Op::FAdd(d, a, b) => fr!(d) = fr!(a) + fr!(b),
-                    Op::FFma(d, a, b, c) => fr!(d) = fr!(a).mul_add(fr!(b), fr!(c)),
-                    Op::StorageLen(d, s) => { let n = self.storage(r!(s)).len() as i64; ir!(d) = n; }
-                    Op::FLoad(d, s, i) => { let idx = ir!(i) as usize; let x = self.storage(r!(s))[idx]; fr!(d) = x; }
-                    Op::FStore(s, i, f) => { let idx = ir!(i) as usize; let x = fr!(f); self.storage(r!(s))[idx] = x; }
-                    Op::VSplat(d, f) => { let x = fr!(f); vr!(d) = [x, x]; }
-                    Op::VLoad(d, s, i, off) => { let idx = (ir!(i) + off as i64) as usize; let st = self.storage(r!(s)); let v = [st[idx], st[idx + 1]]; vr!(d) = v; }
-                    Op::VStore(s, i, v, off) => { let idx = (ir!(i) + off as i64) as usize; let x = vr!(v); let st = self.storage(r!(s)); st[idx] = x[0]; st[idx + 1] = x[1]; }
-                    Op::VFma(d, a, b, c) => { let (x, y, z) = (vr!(a), vr!(b), vr!(c)); vr!(d) = [x[0].mul_add(y[0], z[0]), x[1].mul_add(y[1], z[1])]; }
-                    Op::VLane(d, v, l) => fr!(d) = vr!(v)[l as usize],
-        }
-        Step::Next(pc)
-    }
-
-    // ---- outlined opcode handlers ----------------------------------------
-
-    #[inline(never)]
-    fn op_call_typed(&mut self, tid: usize, w: &Win, pc: usize, f: u32, b: u8, fb: u8) -> Flow {
-        let (base, fbase) = (w.base, w.fbase);
-        let (nv, nfp, callee_ret) = { let c = &self.funcs[f as usize]; (c.nv_params, c.nf_params, c.ret) };
-        self.push_frame(tid, f, base + b as usize, nv, pc);
-        let callee_off_f = self.funcs[f as usize].off_f();
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        t.stack[s + 3] = (t.stack[s + 3] & !0x1_ffff_ffff) | (fbase + fb as usize) as u64 | ((callee_ret == b'f') as u64) << 32;
-        for i in 0..nfp as usize { t.stack[s + callee_off_f + i] = t.stack[fbase + fb as usize + i]; }
-        Flow::Reenter
-    }
-    #[inline(never)]
-    pub(crate) fn op_call_dyn(&mut self, tid: usize, w: &Win, pc: usize, fr: u8, b: u8, nargs: u8) -> Flow {
-        let (regs, base) = (w.regs, w.base);
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        let callee = r!(fr);
-        if let Some(f) = callee.as_func() {
-            self.push_frame(tid, f, base + b as usize, nargs, pc); return Flow::Reenter;
-        }
-        let coroutine = crate::coroutines::wrapped(self, callee);
-        if coroutine != Value::NIL {
-            let mut args = vec![coroutine]; args.extend_from_slice(self.call_args(tid, base + b as usize + 1, nargs).as_slice());
-            match crate::coroutines::call(self,tid,"tasks.coResume",&args) {
-                crate::task_api::Answer::Values(values)=>{if values[0]!=Value::TRUE {std::panic::panic_any(crate::builtins::LuaError(values[1].0));}self.deliver(regs,b as usize,&values[1..]);return Flow::Next;},
-                crate::task_api::Answer::Event(event)=>{let key=crate::task_api::park_event(self,tid,event,pc-1);return Flow::Return(Outcome::Parked(key));},
-                _=>unreachable!()
-            }
-        }
-        if let Some(id) = callee.as_builtin() {
-            // `pcall` and `xpcall` reached as values (a Lua chunk's globals,
-            // a local alias) protect the same way the PCall opcode does, so a
-            // task can suspend inside them.
-            if id == crate::builtins::PCALL || id == crate::builtins::XPCALL {
-                if let Some(flow) = self.dynamic_pcall(tid, w, pc, id, b, nargs) { return flow; }
-            }
-            let args = self.call_args(tid, base + b as usize + 1, nargs);
-            if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) {
-                match crate::task_api::call(self, tid, crate::builtins::NAMES[id as usize], args.as_slice()) {
-                    crate::task_api::Answer::Yield(handle) => { self.tasks[tid].note_pc(pc); self.tasks[tid].deliver_at=b as usize; self.tasks[tid].state=State::Parked(handle.0); return Flow::Return(Outcome::Parked(handle.0)); }
-                    crate::task_api::Answer::Values(values) => { self.deliver(regs, b as usize, &values); return Flow::Next; }
-                    crate::task_api::Answer::Event(event) => { let key = crate::task_api::park_event(self, tid, event, pc - 1); return Flow::Return(Outcome::Parked(key)); }
-                    crate::task_api::Answer::Wait(target) => { let key = crate::task_api::park(self, tid, target, pc - 1); return Flow::Return(Outcome::Parked(key)); }
-                }
-            }
-            if id >= crate::host::HOST_BASE {
-                // A host service: an immediate one answers like a builtin; a
-                // parking one submits its request, parks the task on the key
-                // and is resumed with the completion at `b`.
-                match self.host_call(id, args.as_slice()) {
-                    Ok(outs) => { self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
-                    Err(key) => { let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s] = (t.stack[s] & 0xffff_ffff) | ((pc as u64) << 32); t.state = State::Parked(key); t.deliver_at = b as usize; if !crate::scheduler::bind_timer(self, key, tid) { self.host_waiters.insert(key, tid); } self.parks += 1; return Flow::Return(Outcome::Parked(key)); }
-                }
-            }
-            let outs = crate::builtins::call(self, id, args.as_slice());
-            self.deliver(regs, b as usize, outs.as_slice());
-            return Flow::Next;
-        }
-        let Some(p) = callee.as_obj() else { self.op_error(OpErr::Call, callee) };
-        let h = unsafe { &*p.as_ptr() };
-        if h.kind == KIND_ITER { let outs = crate::builtins::iter_next(self, callee); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next; }
-        if matches!(h.kind, KIND_TABLE | KIND_RECORD | KIND_USERDATA) {
-            let args = self.call_args(tid, base + b as usize + 1, nargs);
-            let outs = self.call_value(callee, args.as_slice()); self.deliver(regs, b as usize, outs.as_slice()); return Flow::Next;
-        }
-        if h.kind != KIND_CLOSURE { self.op_error(OpErr::Call, callee) }
-        let f = h.fid();
-        // A dynamic call carries every argument as a value; a typed callee's
-        // float parameters are unboxed on entry.
-        let (nv, vararg) = { let c = &self.funcs[f as usize]; (c.nv_params, c.vararg) };
-        if nargs >= 64 || vararg { self.push_frame_cold(tid, f, base + b as usize, nargs, pc); let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = callee.0; return Flow::Reenter; }
-        // Only the arguments the call supplied are read; the rest are nil.
-        let supplied = (nargs & 127) as usize;
-        // The arguments are read by stack index after the push, which may grow
-        // (and move) the stack: the caller's window lies below the new frame.
-        let args_at = base + b as usize + 1;
-        self.push_frame(tid, f, base + b as usize, nv.min(supplied as u8), pc);
-        let c = &self.funcs[f as usize];
-        let (off_f, sig) = (c.off_f(), &c.sig);
-        let t = &mut self.tasks[tid];
-        let s = t.cur;
-        let (mut vi, mut fi) = (0usize, 0usize);
-        for (i, c) in sig.iter().enumerate() {
-            let v = if i < supplied { Value(t.stack[args_at + i]) } else { Value::NIL };
-            if *c == b'f' { t.stack[s + off_f + fi] = v.as_num().to_bits(); fi += 1; }
-            else { vi += 1; t.stack[s + HDR + vi] = v.0; }
-        }
-        t.stack[s + 2] = callee.0;
-        Flow::Reenter
-    }
-    #[inline(never)]
-    fn op_call_method(&mut self, tid: usize, w: &Win, pc: usize, k: u16, b: u8, nargs: u8) -> Flow {
-        let (regs, consts, base) = (w.regs, w.consts, w.base);
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        let name = unsafe { *consts.add(k as usize) };
-        let recv = r!(b + 1);
-        let Some(p) = recv.as_obj() else { self.op_error(OpErr::Index, recv) };
-        let h = unsafe { &*p.as_ptr() };
-        if h.is_stringish() {
-            // A string's methods are its metatable's `__index`, the string
-            // library unless a program replaced it; `nargs` counts the receiver.
-            let method = self.string_field(recv, name);
-            if method == Value::NIL { self.op_error(OpErr::Call, Value::NIL); }
-            r!(b) = method;
-            return self.op_call_dyn(tid, w, pc, b, b, nargs);
-        }
-        let method = self.resolve_method(recv, name);
-        if let Some(fid) = method.as_func() { self.push_frame(tid, fid, base + b as usize, nargs, pc); return Flow::Reenter; }
-        if let Some(id) = method.as_builtin() {
-            if crate::builtins::NAMES.get(id as usize).is_some_and(|n| n.starts_with("tasks.")) { r!(b) = method; return self.op_call_dyn(tid, w, pc, b, b, nargs); }
-            let args = self.call_args(tid, base + b as usize + 1, nargs);
-            let outs = crate::builtins::call(self, id, args.as_slice());
-            self.deliver(regs, b as usize, outs.as_slice());
-            return Flow::Next;
-        }
-        let ch = hdr!(self, method, "method is not a function");
-        if ch.kind != KIND_CLOSURE { self.err("method is not a function") }
-        self.push_frame(tid, ch.fid(), base + b as usize, nargs, pc);
-        let t = &mut self.tasks[tid]; let s = t.cur; t.stack[s + 2] = method.0;
-        Flow::Reenter
-    }
-    /// A protected call the frame driver can suspend inside: the callee is
-    /// called with `b + 1` as its window, and a callee that pushes a frame or
-    /// parks leaves a `Protected` record that its return, its completion or
-    /// a raise settles. The status lands at `b` and the results after it.
-    #[inline(never)]
-    fn frame_pcall(&mut self, tid: usize, w: &Win, pc: usize, b: u8, nargs: u8, handler: Value) -> Flow {
-        // A protected call of pcall itself nests on the builtin: two records
-        // over one callee frame could not be settled in order.
-        let callee = unsafe { *w.regs.add(b as usize + 1) };
-        if callee.as_builtin().is_some_and(|id| id == crate::builtins::PCALL || id == crate::builtins::XPCALL) {
-            if handler == Value::NIL { self.op_pcall(tid, w, b, nargs); return Flow::Next; }
-            return self.nested_xpcall(tid, w, b, nargs, handler);
-        }
-        let caller = self.tasks[tid].cur;
-        let result = w.base + b as usize;
-        let scope = self.open_scope();
-        self.handles.push(handler);
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.op_call_dyn(tid, w, pc, b + 1, b + 1, nargs)));
-        self.close_scope(scope);
-        match outcome {
-            Ok(Flow::Reenter) => { let frame = self.tasks[tid].cur; self.tasks[tid].protected.push(Protected { frame, caller, result, handler }); Flow::Reenter }
-            Ok(Flow::Return(o)) => {
-                // A host builtin resumes after this instruction. Task waits
-                // retry it instead and need no continuation.
-                if (self.tasks[tid].stack[caller] >> 32) as usize == pc {
-                    self.tasks[tid].protected.push(Protected { frame: caller, caller, result, handler });
-                }
-                Flow::Return(o)
-            }
-            Ok(Flow::Next) => {
-                let first = unsafe { *w.regs.add(b as usize + 1) };
-                self.protected_results(first);
-                unsafe { *w.regs.add(b as usize) = Value::TRUE; }
-                Flow::Next
-            }
-            Err(e) => {
-                let value = self.error_value(e);
-                let value = self.handled_error(handler, value);
-                self.deliver(w.regs, b as usize, &[Value::FALSE, value]);
-                Flow::Next
-            }
-        }
-    }
-    /// A dynamic call of the `pcall` or `xpcall` builtin under the frame
-    /// driver, rearranged into the PCall layout: the protected function at
-    /// `b + 1` and its arguments after it. xpcall's handler moves into the
-    /// protected record and its arguments shift down over it, which only
-    /// fixed arguments allow. None leaves the call to the builtin.
-    fn dynamic_pcall(&mut self, tid: usize, w: &Win, pc: usize, id: u32, b: u8, nargs: u8) -> Option<Flow> {
-        if id == crate::builtins::PCALL {
-            let fixed = nargs & 63;
-            if fixed == 0 { return None; }
-            return Some(self.frame_pcall(tid, w, pc, b, nargs - 1, Value::NIL));
-        }
-        if nargs >= 64 || nargs < 2 { return None; }
-        let handler = unsafe { *w.regs.add(b as usize + 2) };
-        for i in 2..nargs as usize { unsafe { *w.regs.add(b as usize + i) = *w.regs.add(b as usize + i + 1); } }
-        Some(self.frame_pcall(tid, w, pc, b, nargs - 2, handler))
-    }
-    /// `xpcall(pcall, handler, ...)` and the like, run as the builtin runs
-    /// them: nested, so it cannot suspend.
-    fn nested_xpcall(&mut self, tid: usize, w: &Win, b: u8, nargs: u8, handler: Value) -> Flow {
-        let callee = unsafe { *w.regs.add(b as usize + 1) };
-        let args = self.call_args(tid, w.base + b as usize + 2, nargs);
-        let scope = self.open_scope();
-        self.handles.push(handler);
-        self.handles.push(callee);
-        self.handles.extend_from_slice(args.as_slice());
-        let mut values = self.pcall_values(callee, args.as_slice());
-        if !values[0].truthy() { let value = values[1]; values = vec![Value::FALSE, self.handled_error(handler, value)]; }
-        self.close_scope(scope);
-        self.deliver(w.regs, b as usize, &values);
-        Flow::Next
-    }
     /// xpcall's message handler applied to a raised value, at the raise and
     /// before any unwinding; nil is pcall's absent handler. A handler that
     /// raises answers Lua's "error in error handling".
@@ -2900,60 +2244,7 @@ impl Interp {
         self.close_scope(scope);
         result
     }
-    #[inline(never)]
-    fn op_pcall(&mut self, tid: usize, w: &Win, b: u8, nargs: u8) {
-        let regs = w.regs;
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        // The callee runs on a scratch task so an error unwinds only it.
-        let callee = r!(b + 1);
-        let args = self.call_args(tid, w.base + b as usize + 2, nargs);
-        let hook = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let mark = self.handles.len();
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_value(callee, args.as_slice())));
-        std::panic::set_hook(hook);
-        match outcome {
-            Ok(mut outs) => { outs.insert(0, Value::TRUE); self.deliver(regs, b as usize, &outs); }
-            Err(payload) => { self.handles.truncate(mark); let v = self.error_value(payload); self.deliver(regs, b as usize, &[Value::FALSE, v]); }
-        }
-    }
-    #[inline(never)]
-    fn op_get_idx(&mut self, w: &Win, d: u8, t: u8, i: u8) {
-        let regs = w.regs;
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        let (tv, iv) = (r!(t), r!(i));
-        let v = self.index_any(tv, iv);
-        r!(d) = v;
-    }
-    #[inline(never)]
-    fn op_get_field(&mut self, w: &Win, d: u8, t: u8, k: u16) {
-        let (regs, consts) = (w.regs, w.consts);
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        let name = unsafe { *consts.add(k as usize) };
-        if self.metatable_of(r!(t)) != Value::NIL { let v = self.index(r!(t), name); r!(d) = v; return; }
-        // A string's fields are the string library's, as Lua's string metatable has them.
-        if self.is_stringish(r!(t)) { let v = self.string_field(r!(t), name); r!(d) = v; return; }
-        let Some(p) = r!(t).as_obj() else { self.op_error(OpErr::Index, r!(t)) };
-        let h = unsafe { &*p.as_ptr() };
-        let v = match h.kind {
-            KIND_TABLE => { let v = *h.table_ref().hash.get(&name).unwrap_or(&Value::NIL); if v == Value::NIL && h.table_ref().meta != Value::NIL { self.index(r!(t), name) } else { v } }
-            // Stored fields keep the shape probe; absent fields may be methods.
-            // An empty slot may still name a method the record assigns later.
-            KIND_RECORD => match self.record_field(r!(t), name) { Some(v) => v, None => self.index(r!(t), name) },
-            // A reducer's methods, read before a call's arguments as `CallMethod` reads them.
-            _ => match crate::simd_reduce::method(self, r!(t), name) { Some(method) => method, None => self.op_error(OpErr::Index, r!(t)) },
-        };
-        r!(d) = v;
-    }
-    #[inline(never)]
-    fn op_set_field(&mut self, w: &Win, t: u8, k: u16, s: u8) {
-        let (regs, consts) = (w.regs, w.consts);
-        macro_rules! r { ($i:expr) => { (*unsafe { &mut *regs.add($i as usize) }) } }
-        let name = unsafe { *consts.add(k as usize) };
-        let v = r!(s);
-        let tv = r!(t);
-        self.store_field(tv, name, v);
-    }
+
 }
 
 
@@ -3116,5 +2407,28 @@ impl Drop for Interp {
         // Dropping a VM owns the end of its compiled-entry lifetime. This matters
         // for short-lived worker VMs: Cranelift otherwise retains their code pages.
         if let Some(jit) = self.jit.take() { unsafe { jit.free(); } }
+    }
+}
+
+#[cfg(all(test, not(feature = "native-runtime")))]
+mod execution_gate_tests {
+    use super::*;
+    #[test]
+    fn guest_execution_requires_linked_nupp_handlers() {
+        let mut vm = Box::new(Interp::new());
+        crate::image::load(&mut vm, "function root 0 0 4 0 :v\nRetNil\nend\nentry 0\n").unwrap();
+        let tid = vm.spawn(0, &[]);
+        assert_eq!(
+            vm.guarded(|it| match it.run(tid) {
+                Outcome::Done(v) => v,
+                _ => Value::NIL,
+            }),
+            Value::ERROR
+        );
+        let error = vm.pending_error.take().unwrap();
+        assert!(
+            vm.bytes_of(error)
+                .ends_with(b"guest execution requires a linked Nupp core")
+        );
     }
 }

@@ -61,8 +61,8 @@ fn run(vm: &mut Interp, tid: usize, native: bool) -> Option<String> {
             None
         }
     } else {
-        let (win, _) = vm.window(tid);
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.step(tid, &win, 0)))
+        // Compare full-chain and one-handler transport of the same Nupp body.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.native_handler_step(tid, 0)))
             .err()
             .map(|p| vm.error_value(p))
     };

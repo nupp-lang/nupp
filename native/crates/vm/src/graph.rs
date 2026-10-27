@@ -1334,7 +1334,7 @@ mod tests {
         assert_eq!((f.nparams, f.nregs), (1, 15));
         it.funcs.push(functions.into_iter().next().unwrap());
         let tid = it.spawn(0, &[Value::num(41.)]);
-        assert!(matches!(it.run_rust(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
+        assert!(matches!(it.run(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
     }
 
     #[test]
@@ -1345,7 +1345,7 @@ mod tests {
         assert_eq!(it.funcs.len(), 1);
         assert!(matches!(it.code_events.last(), Some(crate::persist::CodeEvent::Graph { functions: 1, .. })));
         let tid = it.spawn(0, &[Value::num(41.)]);
-        assert!(matches!(it.run_rust(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
+        assert!(matches!(it.run(tid), crate::interp::Outcome::Done(v) if v == Value::num(42.)));
     }
 
     #[test]

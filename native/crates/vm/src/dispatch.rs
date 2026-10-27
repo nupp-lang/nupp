@@ -24,6 +24,7 @@ unsafe extern "C" {
     /// windows belong to. Answers an exit word: the address of the
     /// next instruction at an explicit stop boundary, or
     /// `EXIT_ERROR`.
+    #[cfg(test)]
     fn nupp_native_runtime_entry(
         pc: *const Ins,
         regs: *mut u64,

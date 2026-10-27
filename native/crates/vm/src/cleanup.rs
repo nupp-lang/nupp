@@ -48,11 +48,6 @@ impl Interp {
         None
     }
 
-    pub(crate) fn unwind_frame(&mut self, tid: usize) {
-        let frame = self.tasks[tid].cur();
-        let keep = self.cleanups_below(tid, frame);
-        self.unwind_cleanups(tid, keep);
-    }
     pub(crate) fn unwind_cleanups(&mut self, tid: usize, keep: usize) {
         if self.tasks[tid].cleanups.len() <= keep {
             return;
