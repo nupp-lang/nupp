@@ -1,0 +1,72 @@
+{
+  "sourceCommit": "699f5c7e0729d5601744e8a7f9bf7b84c487a3ab",
+  "sourceTree": "1c26ecaac39eb72436bc023ed00034fa3ba73bd6",
+  "scope": "Combined ABI10 Nupp objects, allocator, gray marking/barriers, weak entries and 59 core/control graph handlers; P3 remains open.",
+  "platform": "aarch64-apple-darwin",
+  "objectAbi": 10,
+  "aotAbi": 4,
+  "artifacts": {
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/compiler.image": "5a935eb7070f61ba14ec698fac8e368e5f33a6c4b02a6f651536eb184237c972",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/runtime-current": "27713c0428bd685e78853792b59ffa72a9c1e36f9f3903bdaa8c5c6dbaae3c9a",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.o": "0b952b1efcc14c50a1d2cec89b903fbe4d1d0cffa02a247e4ca71de264557037",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.o.rs": "a3d6091fb1b7fada34dff624c65dbd84c69c097e889bd56e7dfdb83f35cb74d4",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/native/runtime.clif": "807bcfd02879419610208cdb2c4ff926cb7bf9049d2f9b1a40ceefef24b93fc9",
+    "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/compiler.o.manifest": "54a6adf6bf38f4ac843ba06a851fd9d6c6d6705d6edabcd03531e4c8383bea98"
+  },
+  "sourceCheck": {
+    "modules": 554,
+    "diagnostics": 0,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/source-check.json"
+  },
+  "pinnedThreeStageFixpoint": {
+    "ok": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/fixpoint.json"
+  },
+  "rust": {
+    "passed": 645,
+    "failed": 0,
+    "ignored": 6,
+    "targets": 72,
+    "docTestsRun": true
+  },
+  "rustDetails": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/rust-top-level-summary.json",
+  "aot": {
+    "compiledFunctions": 6189,
+    "imageFunctions": 6189,
+    "freshProcesses": 2,
+    "passed": 13,
+    "executableMemoryDenied": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/aot/smoke/results.json"
+  },
+  "cli": {
+    "passed": 94,
+    "packagedProgramExecuted": true,
+    "result": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/root-cli/summary.json"
+  },
+  "nativeInterpreterCompiler": {
+    "jitDisabled": true,
+    "aotDisabled": true,
+    "clifByteIdentical": true,
+    "clifSha256": "807bcfd02879419610208cdb2c4ff926cb7bf9049d2f9b1a40ceefef24b93fc9"
+  },
+  "sourceSelectedWorker": {
+    "entry": "main",
+    "workerSha256": "0bfd94f832359a3be01eec820eaf31faf2715460a4e979d1cbb0fae4f5e63a39",
+    "imageSha256": "c78fef07044f363cf4048c71c315f4af1fca5af2eb86c6f4381c93d8de800ff6",
+    "sharedPassed": 2071,
+    "sharedSkipped": 0,
+    "sharedNotExecuted": 0,
+    "isolatedNativePassed": 41,
+    "isolatedSkipped": 0,
+    "isolatedNotExecuted": 0,
+    "sharedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/shared-tests.jsonl",
+    "isolatedResult": "/Users/dowling/projects/nupp-wt/native-allocator-bridge/build/p3-combined/isolated-native-tests.jsonl"
+  },
+  "harnessCorrection": "Initial normal-AOT invocation lacked its output directory. The directory was created and verification resumed after checking the unchanged source and compiler image digest; completed source and fixpoint gates were retained.",
+  "limits": [
+    "P3 Linux/Windows validation is not claimed.",
+    "Rust roots, collector orchestration, containers and remaining object policy are still temporary; P3 is not complete.",
+    "The six graph state handlers and Nupp-owned table-array cut remain separate follow-up sources.",
+    "Performance tuning and new comparisons are deferred by the owner."
+  ]
+}
